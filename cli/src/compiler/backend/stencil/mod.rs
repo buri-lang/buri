@@ -7,22 +7,24 @@
 //! not.
 //!
 //! It compiles, links, runs and passes the **same 997 native conformance tests
-//! through `buri test`** Cranelift does, refuses the same six packages for the
-//! same three reasons, and leaves the same blocks live at exit on every one.
+//! through `buri test`** the backend it replaced did, refuses the same six
+//! packages for the same three reasons, and leaves the same blocks live at exit
+//! on every one.
 //!
 //! What the benchmark says, so that nothing here reads as a claim it does not
-//! make. Against Cranelift `opt_level=none` on macOS/arm64:
+//! make. Against the removed backend at `opt_level=none` on macOS/arm64
+//! (`design/native/CODEGEN-STENCIL.md` §13, `design/PERFORMANCE.md` §6):
 //!
 //!  * **the compile side is this backend's** — emission of a 121k-line program
-//!    in 367 units is about 0.43× Cranelift's, and a cold `buri build` about
-//!    0.65×;
+//!    in 367 units is about 0.43× the incumbent's, re-taken at 0.47×, and a
+//!    cold `buri build` about 0.65×;
 //!  * **the run side is still the incumbent's, and by much less than it was** —
-//!    the four kernels are 1.38× Cranelift `opt_level=none`, from 1.86× before
-//!    the slots-only `crt` family (`design/native/CODEGEN-STENCIL.md` §5.1), and
-//!    the geomean against LLVM `-O0` is 0.927, which is the paper's bar met for
-//!    the first time. What is left is one kernel — `core/list`'s closure
-//!    surface — rather than the runtime boundary;
-//!  * **it is three targets and Cranelift is four** — `macos-arm64`,
+//!    the four kernels were 1.38×, from 1.86× before the slots-only `crt`
+//!    family (`design/native/CODEGEN-STENCIL.md` §5.1), and a fresh six-kernel
+//!    series after the removal reads 1.26× (`design/PERFORMANCE.md` §6.4). What
+//!    is left is one kernel — `core/list`'s closure surface — rather than the
+//!    runtime boundary;
+//!  * **it is three targets and the one it replaced was four** — `macos-arm64`,
 //!    `linux-arm64` and `linux-x86_64` all emit, link and run; the fourth,
 //!    `macos-x86_64`, is a combination this repository builds no library for
 //!    and does not intend to.
@@ -91,8 +93,8 @@
 //! That is not the C convention, so two things have to bridge it, and both are
 //! hand-written rather than emitted from stencils:
 //!
-//!  * **`main`** — [`asm::program_entry`] and [`asm::test_entry`], which are
-//!    `cranelift/mod.rs`'s two shims with the same behaviour;
+//!  * **`main`** — [`asm::program_entry`] and [`asm::test_entry`], the two
+//!    shims the removed backend emitted, hand-written here;
 //!  * **a runtime call** — `rtcall.rs`, whose `crt` stencil loads the flattened
 //!    arguments into `x0`–`x7`, each from its own frame-offset hole.
 //!
@@ -117,11 +119,11 @@
 //!    `design/native/CODEGEN-STENCIL.md` §10 is what was checked, what was not,
 //!    and what the Linux CI legs confirm.
 //!  * **Debug information.** Neither DWARF nor `.buri_symbols`, which is the
-//!    same gap `cranelift/mod.rs` records for itself.
+//!    same gap `llvm/mod.rs` records for itself.
 //!
 //! What is refused by **every** backend — an inexact numeric conversion,
 //! `json.*`, and `core/math`'s thirteen transcendentals — is refused here for
-//! the reasons `native/conformance.rs`'s `PACKAGES` gives for Cranelift.
+//! the reasons `native/conformance.rs`'s `PACKAGES` gives.
 
 pub mod abi;
 pub mod asm;
@@ -309,9 +311,9 @@ impl Backend for Stencil {
     /// used to compute (the script and `build::cache::hash_bytes` are one
     /// source file) and therefore invalidate no cache.
     ///
-    /// That 22 ms was the whole of the remaining compile-side gap against
-    /// Cranelift: it is 22 ms of a 25 ms no-op build, so it decided the no-op,
-    /// the incremental and the live-edit cells on its own.
+    /// That 22 ms was the whole of the remaining compile-side gap against the
+    /// backend this one replaced: it is 22 ms of a 25 ms no-op build, so it
+    /// decided the no-op, the incremental and the live-edit cells on its own.
     ///
     /// **All three digests, not the one this build will use.** `identity` is
     /// not told the target — `Backend::identity(&self)` takes none — so the
@@ -362,7 +364,7 @@ impl Backend for Stencil {
     /// Everything above the loop is whole-program and stays so — the lowering
     /// reads the program, and a unit's object depends on the program it was
     /// lowered from rather than on the other units' objects — which is the same
-    /// shape `cranelift/mod.rs::emit_units` has.
+    /// shape `llvm/mod.rs::emit_units` has.
     fn emit_units(
         &mut self,
         program: &Program,
@@ -554,7 +556,7 @@ fn compile_unit(
     // The entry point goes in the unit that owns `main`, so that a program is
     // one `_start`-adjacent symbol and the other units are libraries. A test
     // binary has no `main` to own it, so it goes in the unit that owns the
-    // *first* test — the same rule `cranelift/mod.rs` applies to the root that
+    // *first* test — the same rule `llvm/mod.rs` applies to the root that
     // exists.
     let mut shim: Option<asm::Shim> = None;
     match root {
@@ -603,7 +605,7 @@ fn compile_unit(
 
     // The functions the unit generated for itself (`glue.rs`), under **local**
     // names: a unit that drops a `[Str]` has its own glue and no two units
-    // collide, which is `cranelift/helpers.rs`'s `Linkage::Local` exactly.
+    // collide, which is what a local symbol is for.
     for (name, at) in j.helper_symbols() {
         let ix = want(&mut symbols, &mut index, &name);
         if let Some(s) = symbols.get_mut(ix) {
@@ -733,8 +735,8 @@ fn compile_unit(
 
     // The `codegen` key is `H(the unit's lowered IR)` (ARCHITECTURE.md §6.2),
     // and `ir::Program`'s `Display` is a faithful, total and deterministic
-    // function of the IR with no hash order in it — the same key
-    // `cranelift/mod.rs` computes, from the same text.
+    // function of the IR with no hash order in it — the same key every backend
+    // computes, from the same text.
     let mut text = String::new();
     for f in members.iter().filter_map(|i| program.funcs.get(*i)) {
         text.push_str(&program.render_func(f));
@@ -759,7 +761,7 @@ const STACK: usize = 2;
 ///
 /// Read off `middle::layout` here so that `asm.rs` never learns a layout rule,
 /// and `None` where there is nothing to inspect — a `main` answering `()` is a
-/// success unconditionally, which is `cranelift/mod.rs`'s rule too.
+/// success unconditionally, which is `llvm/emit.rs::entry_point`'s rule too.
 fn main_result(program: &ir::Program, tables: &Tables, idx: usize) -> Option<asm::MainResult> {
     let f = program.funcs.get(idx)?;
     let ir::Type::Agg(id) = f.sig.rets.first().copied()? else { return None };

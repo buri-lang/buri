@@ -1,6 +1,6 @@
 //! # `libburi_rt` — the native runtime, and the `buri_rt_*` ABI contract
 //!
-//! This file is **the contract**. Both native backends (`backend/cranelift`,
+//! This file is **the contract**. Both native backends (`backend/stencil`,
 //! `backend/llvm`) emit calls into the symbols declared here, and neither of
 //! them knows what is behind one. A disagreement between a backend and this
 //! comment is a miscompile that only shows up as a wrong answer at run time, so
@@ -9,7 +9,7 @@
 //! Design: `design/native/VALUE-MODEL.md` §10 (why a Rust staticlib),
 //! `design/native/MEMORY.md` §5 (the counts and the allocator),
 //! `design/native/BUILD-AND-WATCH.md` §2.2 (how it is built and embedded),
-//! `design/native/CODEGEN-CRANELIFT.md` §3.4, §3.5, §3.7 (who calls what).
+//! `design/native/CODEGEN-STENCIL.md` §5, §5.1 (who calls what).
 //!
 //! ## 0. What this crate is, and what it is not
 //!
@@ -51,9 +51,8 @@
 //!   * **128-bit arithmetic** — [`buri_rt_i128_divmod`], [`buri_rt_i128_checked`]
 //!     and [`buri_rt_i128_saturating`], at the bottom of this file. They are
 //!     here for one reason: the overflow test both backends use at 64 bits is
-//!     `smulhi`/`umulhi`, and Cranelift defines neither at `i128`, so a
-//!     hand-rolled 128-bit widening multiply would be two code generators to
-//!     get it wrong in.
+//!     a widening multiply, which neither has at `i128`, so a hand-rolled
+//!     128-bit one would be two code generators to get it wrong in.
 //!
 //! What deliberately stays *out* falls into two kinds, and the difference
 //! matters:
@@ -81,7 +80,7 @@
 //!     that can be written down.
 //!
 //! Each is named where it would otherwise be looked for — `list.rs`'s and
-//! `math.rs`'s headers, and `backend/{cranelift,llvm}`'s missing-intrinsic
+//! `math.rs`'s headers, and `backend/{stencil,llvm}`'s missing-intrinsic
 //! tables — rather than left to be discovered as a link error.
 //!
 //! ## 1. The symbol rule
@@ -105,7 +104,7 @@
 //!    §5.1 flattens a Buri call. So a `Str` argument is *three* parameters —
 //!    `base`, `ptr`, `len` — and a `[T]` argument is two. Nothing is ever
 //!    passed as a by-value aggregate, so no SysV classification rule and no
-//!    Cranelift aggregate-parameter support is ever needed.
+//!    aggregate-parameter support in a backend is ever needed.
 //!
 //! 2. **A scalar result is returned; an aggregate result is written through an
 //!    out-pointer.** A function producing a `Str` takes `out: *mut BuriStr` and
@@ -173,7 +172,7 @@
 //! The backends cannot *enforce* the payload-less restriction, and it is worth
 //! saying which way that fails. `n` is a register, so "the variant it names has
 //! no fields" is not a static question, and `IoError` has an `.Other(Str)` the
-//! archive promises never to name. `cranelift/emit.rs`'s `result_call` and
+//! archive promises never to name. `stencil/rtcall.rs::store_result_tag` and
 //! `llvm/emit.rs`'s `call_result` therefore **zero the error variant's payload
 //! area** on the failure path: an entry that broke the promise produces
 //! `.Other("")` — wrong, and safely wrong — rather than a reference count on
@@ -339,8 +338,8 @@ pub const BURI_OK: i32 = -1;
 
 /// 128-bit division and remainder, in one call.
 ///
-/// CODEGEN-CRANELIFT.md §3.6: this is a hundred instructions on both backends
-/// and neither should inline it. Division by zero aborts here rather than at
+/// CODEGEN-STENCIL.md §5: this is a hundred instructions on both backends and
+/// neither should inline it. Division by zero aborts here rather than at
 /// the call site, so the two backends share one message.
 ///
 /// Every operand is a **pair of `u64`s, low half first**, rather than an
@@ -397,9 +396,9 @@ pub unsafe extern "C" fn buri_rt_i128_divmod(
 ///
 /// It is a call rather than open-coded for the same reason
 /// [`buri_rt_i128_divmod`] is: the overflow test both backends use at 64 bits is
-/// `smulhi`/`umulhi`, which Cranelift does not define at `i128`, and a
-/// hand-rolled 128-bit widening multiply in two code generators is two places to
-/// get it wrong. Here it is `i128::checked_mul`.
+/// a widening multiply, which neither backend has at `i128`, and a hand-rolled
+/// 128-bit one in two code generators is two places to get it wrong. Here it is
+/// `i128::checked_mul`.
 ///
 /// **The bound is the type's own range**, which is `i128`/`u128` here and is
 /// where this parts company with the JavaScript backend: `$checkedIn` tests

@@ -1,7 +1,7 @@
 //! One call into `libburi_rt.a`, from a frame-threaded body.
 //!
 //! `runtime.rs` is the table; this is the emission rule it drives, and it is
-//! the same three steps `cranelift/emit.rs::runtime_call` takes:
+//! the same three steps every backend here takes:
 //!
 //! ```text
 //!   1. the Buri arguments, flattened into scalar leaves
@@ -9,9 +9,9 @@
 //!   3. the out-pointer
 //! ```
 //!
-//! The difference is where an argument *is*. Cranelift builds a value list and
-//! lets its register allocator place it; this backend has no register allocator
-//! at the call boundary, so where an argument is has to be spelled in the
+//! The difference is where an argument *is*. A register-machine backend builds
+//! a value list and lets its allocator place it; this one has no register
+//! allocator at the call boundary, so where an argument is has to be spelled in the
 //! stencil. There are two families for that and [`Jit::c_call_to`] picks
 //! between them per call site:
 //!
@@ -130,8 +130,8 @@ impl Jit<'_> {
         for (i, (slot, t)) in args.iter().copied().enumerate() {
             // A **context argument is dropped**, whatever it weighs. The
             // runtime allocates through `buri_rt_alloc` and has no use for one;
-            // `cranelift/emit.rs::runtime_call` states the bug that made this a
-            // rule rather than a consequence of "it spreads to no leaves".
+            // It is a rule rather than a consequence of "it spreads to no
+            // leaves", because a bug once made it one.
             if matches!(source_ty(prog, t), Some(Ty::Ctx(_))) {
                 continue;
             }
@@ -305,8 +305,8 @@ impl Jit<'_> {
     /// no fields": `n` is a register. So the error's payload area is **zeroed**,
     /// which makes an entry that broke the promise produce an empty payload —
     /// wrong, and safely wrong — rather than a reference count on whatever the
-    /// frame held. `cranelift/emit.rs::store_variant_index` zeroes the same
-    /// bytes for the same reason.
+    /// frame held. `llvm/emit.rs::call_result` zeroes the same bytes for the
+    /// same reason.
     #[allow(
         clippy::too_many_arguments,
         reason = "one `Result` destination's shape, read off two layouts by the \
@@ -520,9 +520,9 @@ impl Jit<'_> {
     /// passes one as.
     ///
     /// The tag bits the length carries are masked off, because what a runtime
-    /// entry is handed is a byte count — the same masking
-    /// `cranelift/emit.rs::str_arg` does, and for the same reason. The mask
-    /// costs a scratch word, which is why the caller says which one.
+    /// entry is handed is a byte count — the same masking every backend does
+    /// before a runtime call. The mask costs a scratch word, which is why the
+    /// caller says which one.
     pub(crate) fn str_arg(&mut self, slot: u32, scratch: u32) -> (Src, Src) {
         self.emit(
             "bin/and/u64/fi/f",
@@ -614,7 +614,8 @@ impl Jit<'_> {
     /// The element type of the `[T]` an `Extra::Element` row operates on: the
     /// result's where the result is a list, and the first list argument's
     /// otherwise. Both orders are needed — `list.repeat` mentions `T` only in
-    /// its result — and this is the order `cranelift/emit.rs::element_ty` uses.
+    /// its result — and it is the order `llvm/runtime.rs`'s `Arg::Elems` rows
+    /// are read in.
     fn element_ty(
         &mut self,
         prog: &ir::Program,
@@ -633,8 +634,8 @@ impl Jit<'_> {
 
     /// A value's flattened form: the scalars a C signature would carry it as.
     ///
-    /// `cranelift/abi.rs::chunks` is the same cover, and the two must agree
-    /// leaf for leaf because they describe the same C function. An aggregate
+    /// `llvm/repr.rs`'s slot cover is the same one, and the two must agree leaf
+    /// for leaf because they describe the same C function. An aggregate
     /// whose width is not a multiple of eight is refused rather than covered
     /// with narrow chunks: no `buri_rt_*` entry takes one, so a program that
     /// produced one would be a signature this table has got wrong.
@@ -680,7 +681,7 @@ impl Jit<'_> {
 /// `uint64_t` for the first reads whatever was in the register — which AAPCS64
 /// hid, because Rust's arm64 codegen zeroes it on the way out, and SysV did
 /// not. `sources.rs::RETURN_SHAPES` has a shape per width for exactly that,
-/// and Cranelift builds its call signature from the same fact.
+/// and `llvm/runtime.rs` builds its call signature from the same fact.
 fn scalar_kind(leaf: Leaf, t: ir::Type) -> &'static str {
     if leaf.float {
         return if leaf.width == 4 { "f" } else { "d" };
@@ -819,8 +820,8 @@ impl Jit<'_> {
     /// `derivePrimShow.<T>` and the template hole `middle::derives` leaves
     /// behind, at a primitive.
     ///
-    /// `cranelift/emit.rs::show_prim` is the model and the renderers are the
-    /// same symbols, so that two backends cannot render a `Float` differently.
+    /// `llvm/emit.rs::show_prim` is the twin and the renderers are the same
+    /// symbols, so that two backends cannot render a `Float` differently.
     /// `quoted` is the whole of the difference between the two holes: `$show`
     /// quotes a `Str` and a `Char`, `$str` does not.
     ///
@@ -974,12 +975,12 @@ impl Jit<'_> {
     ///
     /// The context is dropped whatever it weighs, which is the same rule
     /// [`Jit::rt_call`] applies to a `buri_rt_*` entry and for the same reason
-    /// — `cranelift/emit.rs`'s `"str.concat"` arm records the bug that made it
-    /// a rule. `emit.rs`'s arm has already dropped it, along with every other
-    /// argument that occupies no bytes, so what arrives here is two `Str`s.
+    /// — a bug once made it a rule. `emit.rs`'s arm has already dropped it,
+    /// along with every other argument that occupies no bytes, so what arrives
+    /// here is two `Str`s.
     ///
-    /// **A call, where the other two backends open-code.** `cranelift/helpers.rs`
-    /// and `llvm/emit.rs` emit MEMORY.md §5.3's three paths as instructions;
+    /// **A call, where the other backend open-codes.** `llvm/emit.rs::concat`
+    /// emits MEMORY.md §5.3's three paths as instructions;
     /// this backend emitted the *exact* path only and always allocated, which
     /// showed up as `core/alloc`'s `count` and `total` — observable numbers —
     /// disagreeing with the release build's. The three paths are now
@@ -997,7 +998,7 @@ impl Jit<'_> {
     /// sees.
     ///
     /// A context, and anything else that occupies no bytes.
-    /// `cranelift/emit.rs`'s arm drops a context by type and then *spreads*
+    /// A register-machine backend drops a context by type and then *spreads*
     /// what is left, and a zero-sized value spreads to no leaves — so both
     /// halves of that are one question here, and `s.concat(host.alloc, t)`
     /// reaches the same two `Str`s on both backends.

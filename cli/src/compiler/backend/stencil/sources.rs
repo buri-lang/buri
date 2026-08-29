@@ -83,8 +83,8 @@ pub enum Level {
     /// branch a loop takes every iteration is the fallthrough and the one it
     /// takes once is the branch.
     Lay = 11,
-    /// (l) enum dispatch, ported from the Cranelift backend's `compare_chain`
-    /// (`fp-wave1`). Two halves, both about the chain of equality tests a
+    /// (l) enum dispatch, ported from the debug backend of the day's
+    /// `compare_chain` (`fp-wave1`). Two halves, both about the chain of equality tests a
     /// `match` lowers to:
     ///
     /// * **the total chain** — `middle::exhaustiveness` has already proved the
@@ -561,7 +561,7 @@ fn moves(o: &mut Out) {
     // a base pointer in one frame slot, an index in another, a constant stride,
     // and a fixed-width copy in either direction.
     //
-    // `cranelift/emit.rs::elem_at` is the same address in the same three
+    // A register-machine backend computes the same address in the same three
     // pieces, and drawing it as *one* stencil rather than a multiply, an add
     // and a load is the paper's §4.3 supernode argument applied to the shape a
     // list loop is entirely made of — the shape §6 says supernodes help most.
@@ -653,8 +653,8 @@ fn moves(o: &mut Out) {
     // VALUE-MODEL.md §2's header, or a null block for an empty list. Once per
     // list operation, not once per element — so it stays a call.
     // A null block for an empty list is what `buri_rt_list_new` answers and what
-    // `cranelift/emit.rs::list_filter` tests for before its `memcpy`, so it is
-    // the same convention on both sides.
+    // `llvm/emit.rs::list_closure` tests for before its `memcpy`, so it is the
+    // same convention on both sides.
     // Zeroed, not raw: the release glue walks a block's whole capacity and
     // skips null entries, and `filter` leaves its rejected slots unwritten.
     o.push(
@@ -802,7 +802,7 @@ fn arithmetic(o: &mut Out, level: Level) -> Result<(), String> {
 /// One stencil per operation and width rather than a sequence of ordinary ones,
 /// because the test is different at every width and clang already has it:
 /// `__builtin_*_overflow` is exact at the operand's **own** type, which is the
-/// bound SPEC 6.2.2 and `cranelift/emit.rs::overflowing` both check. Writing it
+/// bound SPEC 6.2.2 names and every backend checks. Writing it
 /// as an extend, a sixty-four-bit operation and a range test would be right at
 /// eight, sixteen and thirty-two bits and wrong at sixty-four, where no wider
 /// type exists to do the arithmetic in.
@@ -1443,8 +1443,7 @@ fn memory(o: &mut Out, level: Level) {
          *rc = v + (v != (uint64_t)-1); } TAIL; }"
             .into(),
     );
-    // The decrement, mirroring `cranelift/emit.rs::decref` instruction for
-    // instruction: the inline code is the fast path and nothing else, and a
+    // The decrement: the inline code is the fast path and nothing else, and a
     // count that is one or `IMMORTAL` goes to `buri_rt_decref`, which owns the
     // free and the drop-glue dispatch. Two backends deciding separately when a
     // block dies is the one divergence MEMORY.md §5 cannot tolerate.

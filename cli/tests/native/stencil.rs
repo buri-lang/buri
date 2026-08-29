@@ -1,21 +1,21 @@
 //! The copy-and-patch backend, through the whole native pipeline, linked, and
 //! **run**.
 //!
-//! `cranelift.rs`'s bar, applied to the third backend: a Buri program goes
+//! The bar every backend suite here is held to: a Buri program goes
 //! front end -> `middle::run` -> `middle::native` -> `middle::lower` ->
 //! `backend::stencil` -> object -> `cc` -> executable, and the executable prints
 //! what the language says it prints. Nothing short of that is evidence about a
 //! backend whose whole output is bytes.
 //!
-//! This file is deliberately *narrower* than `cranelift.rs`: it holds the
+//! This file is deliberately *narrower* than `llvm.rs`: it holds the
 //! programs that exercise the pieces this backend has that no other does — the
 //! frame-threaded convention, the hand-written `main`, the `crt` marshalling,
 //! the constant pool as its own relocated section, the functions a unit
 //! generates for itself — plus the two questions no `test` block inside the
 //! language can ask: what is still live at exit, and whether two emissions are
 //! the same bytes. The whole-language question is `agreement.rs`'s and the
-//! conformance corpus's, where stencil is a column beside the other two rather
-//! than a suite of its own.
+//! conformance corpus's, where stencil is a column beside the other backend
+//! rather than a suite of its own.
 //!
 //! Every test here starts with the same guard: a host with no stencil library
 //! (no C compiler, or macOS on x86-64, which none is built for) and one with no
@@ -92,7 +92,7 @@ fn host_platform() -> Platform {
 /// A directory this *process* owns.
 ///
 /// The process id is in the name because two overlapping `cargo test` runs
-/// otherwise share `native-cranelift/<name>`, and the second overwrites the
+/// otherwise share `native-stencil/<name>`, and the second overwrites the
 /// binary the first is executing — which on macOS is a child that never
 /// returns rather than an error, and a full-suite run that never completes.
 fn workspace(name: &str) -> PathBuf {
@@ -520,8 +520,8 @@ export fn main(): Result<(), Str> {
 /// sentence. An **inexact** conversion is the one used here because it is
 /// stable: `x.toI64()` where not every `Float` fits answers
 /// `Result<Int, RangeError>` (SPEC 6.2.1), and `RangeError` is a struct of two
-/// `Str`s the backend would have to build — a gap `cranelift/mod.rs` records
-/// for itself too.
+/// `Str`s the backend would have to build — a gap `llvm/mod.rs` records for
+/// itself too.
 #[test]
 fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
     if !supported() {
@@ -869,8 +869,8 @@ export fn main(): Result<(), Str> {
 /// and leaves the rest of the payload whatever the frame last held, so a
 /// reference-count walk that descended unguarded decremented a count at an
 /// address that was never a pointer. It is a crash rather than a wrong answer,
-/// and it is exactly the shape `cranelift/emit.rs`'s `Site::Guarded` exists
-/// for; this is a `.None` produced in a loop whose frame is still holding the
+/// and it is exactly the shape `stencil/emit.rs::niche_rc` exists for; this is
+/// a `.None` produced in a loop whose frame is still holding the
 /// previous iteration's live `Str`.
 #[test]
 fn a_none_with_a_niche_is_not_walked() {
@@ -1016,8 +1016,8 @@ export fn main(): Result<(), Str> {
 /// its last mention — `middle::rc`'s `children`, and a middle-end fact both
 /// backends show.
 ///
-/// It is here as well as in `cranelift.rs` because the failure it guards
-/// against is a *wrong answer* rather than a leak: the concatenation chain
+/// It is here rather than left to the conformance corpus because the failure it
+/// guards against is a *wrong answer* rather than a leak: the concatenation chain
 /// holds three uncounted words out of `base` while the last hole computes
 /// `base.len()`, and an in-place append into a freed block prints rubbish.
 #[test]
@@ -1314,9 +1314,9 @@ fn run_corpus(path: &str, source: &str) -> Ran {
 /// is that, and this is the program that says so — three blocks, the second
 /// failing, run twice.
 ///
-/// `select` still sends `buri test` to Cranelift, so this protocol is not
-/// *reached* through the command yet; it is asserted here rather than left to
-/// be discovered on the day it is.
+/// `select` sends `buri test` here on every target this backend has a stencil
+/// library for, and the protocol is asserted directly rather than only through
+/// the command.
 #[test]
 fn the_test_binary_resumes_where_the_runner_asks() {
     if !supported() {
@@ -1464,8 +1464,8 @@ export fn main(): Result<(), Str> {{
 /// the fault is at the boundary and there is no "on the way".
 ///
 /// What is asserted is that the process is **killed by a signal**, which is the
-/// same thing a Cranelift-compiled program does when it exhausts the machine
-/// stack (measured: `SIGSEGV` there, `SIGBUS` here, neither with a message).
+/// same thing a program on the machine stack does when it exhausts it
+/// (measured: `SIGSEGV` there, `SIGBUS` here, neither with a message).
 /// It is not asserted that a particular signal arrives: which one the kernel
 /// raises for a `PROT_NONE` page inside a mapping is the kernel's business.
 #[test]
@@ -1553,7 +1553,7 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
 // macOS/arm64; `link::can_link` refuses a Linux target on it and
 // `runtime_native::ARCHIVE` is the host's alone, so the product's own path
 // stops at object bytes for `linux-arm64` exactly as `cli/benches/compiler.rs`'s
-// `lower+linux-*` rows stop there for Cranelift.
+// `lower+linux-*` rows stop there.
 //
 // What is available is everything up to execution, and it is worth having:
 // these tests emit real objects for a cross target, hand them to the real
@@ -1863,9 +1863,10 @@ fn link_with_stub(dir: &Path, objects: &[PathBuf], out: &Path, triple: &str, emu
 /// It prints rather than only asserting, because the number is the point and a
 /// pass/fail hides it. The assertion is deliberately loose — a wall clock on a
 /// laptop under `cargo test` is not a benchmark harness — and catches only an
-/// order of magnitude going the wrong way. It used to compare against Cranelift
-/// on the same program and assert the ratio; a ratio against a backend nobody
-/// builds is not a measurement, so what stays is the throughput itself.
+/// order of magnitude going the wrong way. It used to compare against the
+/// removed debug backend on the same program and assert the ratio; a ratio
+/// against a backend nobody builds is not a measurement, so what stays is the
+/// throughput itself.
 #[test]
 fn cross_emission_throughput() {
     use std::time::Instant;
@@ -1931,8 +1932,8 @@ fn cross_emission_throughput() {
 /// that number has to be zero.
 ///
 /// Two scales rather than one, because a constant leak and a per-iteration leak
-/// look identical at one. `native/cranelift.rs` held this shape for the
-/// incumbent backend; it is here because CI's leak-parity step is the one place
+/// look identical at one. The suite for the backend this one replaced held the
+/// same shape; it is here because CI's leak-parity step is the one place
 /// `buri_rt_heap_stats` is read on a Linux runner.
 #[test]
 fn interpolating_in_a_loop_leaks_nothing() {

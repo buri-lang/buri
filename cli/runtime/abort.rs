@@ -2,7 +2,7 @@
 //!
 //! SPEC 6.10 — an abort is a write to standard error and an exit, never an
 //! unwind. There is nothing to unwind: the language has no exceptions, which is
-//! also why CODEGEN-CRANELIFT.md §5 emits no `.eh_frame`.
+//! also why the native backends emit no `.eh_frame` (CODEGEN-STENCIL.md §11).
 //!
 //! ## Parity with JavaScript
 //!
@@ -40,11 +40,11 @@
 //!
 //! ## What is missing
 //!
-//! CODEGEN-CRANELIFT.md §5 wants an abort to print a stack trace by walking the
+//! CODEGEN-STENCIL.md §11 wants an abort to print a stack trace by walking the
 //! frame-pointer chain and resolving each return address against a
-//! `.buri_symbols` section. That section would come from the Cranelift
-//! backend's `ObjectProduct.functions`, and the backend does not emit one yet,
-//! so the walk cannot be written before the thing it reads exists. It is
+//! `.buri_symbols` section. No native backend emits that section yet — §9 of
+//! that document lists it as a gap — so the walk cannot be written before the
+//! thing it reads exists. It is
 //! additive when it arrives: it hangs off [`buri_rt_abort`] without changing
 //! the message or the status, so nothing pinned above moves.
 

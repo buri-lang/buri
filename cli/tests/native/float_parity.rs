@@ -33,7 +33,7 @@
 //!
 //! # Why this is a module of its own
 //!
-//! It needs a JavaScript engine, which `native/cranelift.rs` does not, and it
+//! It needs a JavaScript engine, which the backend suites beside it do not, and it
 //! takes seconds rather than milliseconds. Both are reasons to be skippable on
 //! their own terms rather than to make the fast suite slow, and a module is a
 //! name prefix: `cargo test --test native -- --skip float_parity` leaves the

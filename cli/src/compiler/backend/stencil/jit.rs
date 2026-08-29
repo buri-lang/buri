@@ -174,8 +174,8 @@ pub struct Jit<'a> {
     ///
     /// A `Vec` and not a map because the order is the object's symbol order and
     /// `--check-reproducible` compares two builds byte for byte; the map beside
-    /// it is only a lookup. `cranelift/helpers.rs` is the same set of helpers
-    /// under the same argument.
+    /// it is only a lookup. `glue.rs` is the set, and its header is the
+    /// argument.
     helpers: Vec<super::glue::Helper>,
     helper_ix: HashMap<super::glue::Helper, usize>,
     helper_at: Vec<u64>,
@@ -301,8 +301,8 @@ impl<'a> Jit<'a> {
     /// asked for.
     ///
     /// A **local** symbol of this unit, so two units that both need the drop
-    /// glue for `[Str]` get a copy each and neither collides —
-    /// `cranelift/helpers.rs`'s `Linkage::Local` for the same reason.
+    /// glue for `[Str]` get a copy each and neither collides, which is what a
+    /// local symbol is for.
     pub(crate) fn helper(&mut self, h: super::glue::Helper) -> String {
         if let Some(i) = self.helper_ix.get(&h) {
             return super::glue::symbol(*i);
@@ -516,9 +516,8 @@ pub(crate) struct Fn2 {
     /// defines them is never materialised into a frame slot at all.
     pub folded: Vec<bool>,
     /// For a value defined by an `Inst::MakeClosure` in *this* function, the
-    /// `FuncIdx` of the lifted lambda. `cranelift/emit.rs` keeps the same map
-    /// (`Lower::closures`) and for the same reason: it is what lets a step be
-    /// called by name rather than through its code pointer.
+    /// `FuncIdx` of the lifted lambda. It is what lets a step be called by name
+    /// rather than through its code pointer.
     pub closure_of: Vec<Option<u32>>,
 }
 
@@ -1207,7 +1206,7 @@ impl<'a> Jit<'a> {
     /// so nothing reaches the callee's atom, so the linker moves it and then
     /// deletes it and the branch lands on whatever took its place. This is what
     /// an assembler emits for a call to a symbol in the same file, and what
-    /// `cranelift-object` emits for the same edge; the linker resolves an
+    /// any object writer emits for the same edge; the linker resolves an
     /// intra-section `BRANCH26` to the same instruction the bake would have
     /// produced, so it costs nothing and it keeps the atom alive.
     fn resolve(&mut self, prog: &ir::Program) {
@@ -2214,9 +2213,9 @@ fn literal(c: &ir::Const, ty: ir::Type) -> Option<u64> {
 /// hole the emitter binds.
 ///
 /// Every one is a symbol the linker resolves out of the runtime archive or the
-/// C library — the same boundary `cranelift/runtime.rs` draws — so this list is
-/// checked against `cli/runtime/lib.rs`'s exports by a test rather than left to
-/// a link error to discover.
+/// C library — the boundary `runtime.rs` draws — so this list is checked
+/// against `cli/runtime/lib.rs`'s exports by a test rather than left to a link
+/// error to discover.
 pub const EXTERNALS: [&str; 7] = [
     "buri_rt_abort",
     "buri_rt_abort_div_zero",

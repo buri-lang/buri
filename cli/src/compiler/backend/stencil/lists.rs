@@ -11,10 +11,10 @@
 //! The other road is one descriptor-driven runtime helper per operation,
 //! reaching the step through the backend's generic closure call — the
 //! callee's frame built with two `memcpy`s and an indirect call **per
-//! element** (`cranelift/emit.rs::call_closure`). Three reports running named that boundary as the whole
-//! of the K4 gap: the L6→L12 ladder moves K4 by 6% while moving K1 by 2.2×,
+//! element**. Three reports running named that boundary as the whole of the K4
+//! gap: the L6→L12 ladder moves K4 by 6% while moving K1 by 2.2×,
 //! because K4 never reaches the code generator at all. This file is the fix,
-//! and it is the same shape `cranelift/emit.rs::list_closure` has:
+//! and it is the same shape `llvm/emit.rs::list_closure` has:
 //!
 //!   * the loop is emitted **at the call site**, out of ordinary stencils, so
 //!     the `Body::Runtime` call disappears entirely;
@@ -22,14 +22,15 @@
 //!     than an address computation and a `memcpy` call;
 //!   * and when the step is a `MakeClosure` this function can see — which is
 //!     every lambda written at the call site — the call is a **direct** `call`
-//!     stencil, not a `calli`. That is `cranelift/emit.rs::direct_callee`, and
-//!     it is what lets the callee's frame offsets be read out of `Jit::plan`
+//!     stencil, not a `calli`. That is `step_shape`'s `direct`, and it is what
+//!     lets the callee's frame offsets be read out of `Jit::plan`
 //!     instead of guessed from a source type.
 //!
 //! # The counts
 //!
-//! Two sentences of `middle/rc.rs`, quoted by `cranelift/emit.rs::list_closure`,
-//! decide every reference operation here and they point in opposite directions:
+//! Two sentences of `middle/rc.rs`, which `llvm/emit.rs::list_closure` quotes
+//! too, decide every reference operation here and they point in opposite
+//! directions:
 //!
 //!  * *"A runtime intrinsic borrows its arguments and returns a fresh count."*
 //!    The source list, the step and `fold`'s initial accumulator arrive
@@ -48,15 +49,16 @@
 //! and that is the case every kernel in the corpus is.
 //!
 //! `filter` retains **twice** per kept element, exactly as
-//! `cranelift/emit.rs::list_filter` does: once because the predicate is handed
+//! `llvm/emit.rs::list_closure`'s filter arm does: once because the predicate
+//! is handed
 //! a count it consumes, and once because the copy into the result block is a
 //! second owner of what the element holds.
 //!
 //! # What "counted" means here
 //!
-//! `cranelift` asks `middle::rc`'s classifier (`Cx::rc_counted`) rather than the
-//! layout table's, because retaining what rc does not count adds one half of a
-//! pair nothing completes. `emit.rs::rc_counted` is this backend's one classifier
+//! Every backend asks `middle::rc`'s classifier rather than the layout table's,
+//! because retaining what rc does not count adds one half of a pair nothing
+//! completes. `emit.rs::rc_counted` is this backend's one classifier
 //! and `counted` below is that same predicate — the *deep* question, not the
 //! top-level repr: a struct of two `Str`s is counted and its layout is
 //! `Aggregate`, so the shallow test skipped exactly the retains a step handed
@@ -268,9 +270,9 @@ impl<'a> Jit<'a> {
         if fs.ret.len() > 1 {
             return None;
         }
-        // `cranelift/emit.rs::direct_callee`: a borrowed counted parameter is
-        // where the two calling conventions disagree, so the direct call is
-        // refused there and the function-value one is taken instead.
+        // A borrowed counted parameter is where the two calling conventions
+        // disagree, so the direct call is refused there and the function-value
+        // one is taken instead.
         let mut direct = g.facts.params.len() == g.sig.params.len();
         for (t, own) in g.sig.params.iter().zip(g.facts.params.iter()) {
             if *own == ir::Ownership::Borrow && self.counted(prog, *t).is_some() {
@@ -678,8 +680,8 @@ impl<'a> Jit<'a> {
     }
 
     /// The loop itself, in stencils. Every operand is a frame offset by now,
-    /// so this is the one copy of `cranelift/emit.rs::list_map`,
-    /// `list_filter`, `list_fold` and `list_test` that this backend has.
+    /// so this is the one copy of `map`, `filter`, `fold` and `test` that this
+    /// backend has.
     fn emit_list_loop(
         &mut self,
         st: &mut Fn2,
@@ -743,7 +745,7 @@ impl<'a> Jit<'a> {
                 // accumulator arrives borrowed, and the first step consumes a
                 // count, so one is taken here. Each step answers another, and
                 // the last one is the result's — which is what makes a fold
-                // balance (`cranelift/emit.rs::list_fold`).
+                // balance.
                 if let Some(t) = ops.acc_counted.clone() {
                     self.retain_value(st, &t, dslot);
                 }
@@ -1429,8 +1431,8 @@ impl Jit<'_> {
         true
     }
 
-    /// `sortBy`: a **stable bottom-up merge**, `cranelift/emit.rs::list_sort`
-    /// pass for pass.
+    /// `sortBy`: a **stable bottom-up merge**, `llvm/emit.rs::list_sort` pass
+    /// for pass.
     ///
     /// Bottom-up rather than recursive because the run width is a loop variable
     /// rather than a call depth, and stable because the merge takes the left
