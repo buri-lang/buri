@@ -2,8 +2,8 @@
 # but not a Buri file: only repo/ below is a Buri repository.
 #
 # The claim is byte-identity, and it is made by recording the third and the
-# fifth steps against **one** golden. The third is the incremental run — two of
-# the three targets come out of `.buri/cache` — and the fifth is the same
+# fifth steps against **one** golden. The third is the incremental run — one of
+# the three targets comes out of `.buri/cache` — and the fifth is the same
 # question asked of the same tree with the cache thrown away. A record that
 # went stale, that lost a note, or that put a span a byte out shows up as a
 # difference between two files that are required to be one.
@@ -21,7 +21,7 @@ run {
   golden: "cold.txt"
 }
 
-# The import that findings the money library goes away. //lib/money and
+# The import the money library never uses goes away. //lib/money and
 # //lib/ledger have it in their closures; //lib/kit does not, and its finding
 # below is therefore one nothing analysed a second time.
 edit {
