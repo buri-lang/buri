@@ -89,7 +89,7 @@ use super::region::Target;
 /// where it patches A64 ones, `glue.rs` writes the SysV stub in front of a
 /// generated body, and `region.rs`/`elf.rs` carry the two relocation kinds that
 /// needs. `design/native/CODEGEN-STENCIL.md` §10.3 is the list this was written
-/// against, and §10.4 is what CI confirms.
+/// against, and its last part is what CI confirms.
 ///
 /// It stays a constant rather than becoming nothing, because it is the one
 /// place a target's *entry point* is either present or named as missing, and a
