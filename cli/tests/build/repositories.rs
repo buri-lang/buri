@@ -387,6 +387,18 @@ fn recorded_sessions() -> (String, String, usize) {
 /// is the same claim in the unit a reader cares about.
 const LANGUAGE_SERVER_BUDGET: std::time::Duration = std::time::Duration::from_millis(50);
 
+/// The bar this run holds a request to: the 50 ms above, widened by
+/// `BURI_PERF_BUDGET_SCALE` on a machine slower than the one the number was
+/// taken on. A developer's machine sets nothing; CI sets what it measured.
+fn language_server_budget() -> std::time::Duration {
+    let scale = std::env::var("BURI_PERF_BUDGET_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|scale| (1.0..=100.0).contains(scale))
+        .unwrap_or(1.0);
+    LANGUAGE_SERVER_BUDGET.mul_f64(scale)
+}
+
 /// Every request an editor makes around a keystroke, against the worked
 /// monorepo, timed.
 ///
@@ -439,15 +451,22 @@ fn language_server_speed() {
     }
     editor.close();
 
+    let budget = language_server_budget();
     timings.sort_by_key(|(_, took)| std::cmp::Reverse(*took));
-    let over: Vec<_> =
-        timings.iter().filter(|(_, took)| *took > LANGUAGE_SERVER_BUDGET).cloned().collect();
+    let over: Vec<_> = timings.iter().filter(|(_, took)| *took > budget).cloned().collect();
+    let five = listed(&timings[..timings.len().min(5)]);
+    // Printed on a pass too: a run that stayed under the bar is the record a
+    // later recalibration reads.
+    eprintln!(
+        "language server: {} requests under a {}ms bar; the five slowest:\n{five}",
+        timings.len(),
+        budget.as_millis()
+    );
     assert!(
         over.is_empty(),
-        "these answers took longer than the {}ms an editor request has:\n{}\n\nthe five slowest of the run:\n{}",
-        LANGUAGE_SERVER_BUDGET.as_millis(),
+        "these answers took longer than the {}ms an editor request has:\n{}\n\nthe five slowest of the run:\n{five}",
+        budget.as_millis(),
         listed(&over),
-        listed(&timings[..timings.len().min(5)])
     );
 }
 
@@ -487,24 +506,29 @@ fn language_server_open_cost() {
     }
     editor.close();
 
-    let over: Vec<_> = timings
-        .iter()
-        .filter(|(_, took)| *took > LANGUAGE_SERVER_BUDGET)
-        .cloned()
-        .collect();
+    let budget = language_server_budget();
+    let over: Vec<_> = timings.iter().filter(|(_, took)| *took > budget).cloned().collect();
     let mut slowest = timings.clone();
     slowest.sort_by_key(|(_, took)| std::cmp::Reverse(*took));
     let five = listed(&slowest[..slowest.len().min(5)]);
-    assert!(
-        over.is_empty(),
-        "these opens took longer than the {}ms an open has:\n{}\n\nthe five slowest of the run:\n{}",
-        LANGUAGE_SERVER_BUDGET.as_millis(),
-        listed(&over),
-        five
-    );
     let half = timings.len() / 2;
     let first = median(&timings[..half]);
     let last = median(&timings[half..]);
+    // Printed on a pass too: the two medians are the shape, and the five
+    // slowest are what a later recalibration reads.
+    eprintln!(
+        "language server: {} opens under a {}ms bar, {}ms then {}ms per open; the five slowest:\n{five}",
+        timings.len(),
+        budget.as_millis(),
+        first.as_millis(),
+        last.as_millis()
+    );
+    assert!(
+        over.is_empty(),
+        "these opens took longer than the {}ms an open has:\n{}\n\nthe five slowest of the run:\n{five}",
+        budget.as_millis(),
+        listed(&over),
+    );
     let allowed =
         first.saturating_mul(RESTORE_DRIFT).saturating_add(std::time::Duration::from_millis(10));
     assert!(

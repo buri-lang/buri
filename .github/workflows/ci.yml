@@ -591,6 +591,46 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
+  # The language server's 50 ms bar.
+  #
+  # `cli/tests/build/repositories.rs`'s two `BURI_PERF` tests are the only
+  # opt-in tests in the suite: they assert milliseconds rather than work, so a
+  # debug build fails them on the profile rather than on the change and they
+  # are off unless asked for. Off by default and named in no job is a gate
+  # nobody runs, which is what this job is.
+  #
+  # arm64, because the bar was calibrated on an M-series mac and a runner's
+  # architecture is the one thing about it that can be matched. It is still not
+  # that machine, so the tests read `BURI_PERF_BUDGET_SCALE` and a widening —
+  # if one is ever needed — is written here rather than in the assertion.
+  #
+  # No `CC: clang` and no apt: this job drives `buri lsp` over a pipe and links
+  # nothing, so the stencil libraries would be a minute spent on bytes it never
+  # reads. `--release` is the profile the numbers mean anything in, and its
+  # artifacts are not the dev matrix's, so the cache key is its own.
+  # ---------------------------------------------------------------------------
+  language-server-budget:
+    name: language server budget (arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      BURI_PERF: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-24.04-arm-release
+      # One thread: two language servers on one runner would be timing each
+      # other's contention. `--nocapture` because both tests print their
+      # slowest requests on a pass, and this log is where the next
+      # recalibration reads them.
+      - name: Every editor request inside its budget
+        run: |
+          cargo test --release -p buri --test build repositories::language_server_ \
+            -- --nocapture --test-threads=1
+
+  # ---------------------------------------------------------------------------
   # `cargo install buri` on a machine with nothing installed on it.
   #
   # A job rather than an assertion because "it builds without the optional
