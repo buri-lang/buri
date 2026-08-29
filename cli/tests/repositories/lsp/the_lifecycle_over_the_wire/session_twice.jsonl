@@ -1,0 +1,12 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A second `initialize`. The protocol says this is an error and not a restart,
+# and the reason matters: answering it would move the root out from under every
+# document the client has open.
+{"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+# The refusal is a refusal of the request and not of the session: the server is
+# still the one it was, and still answers.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -1,0 +1,20 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A buffer with two whole declarations and a third that stops mid-signature.
+# The `unexpected-token` in the publish below is the proof that this file does
+# not parse; everything after it is what the three requests answer anyway.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "//! What a cent is, mid-edit.\n\n/// The smallest unit there is.\nexport struct Cents(export I64);\n\nexport fn double(c: Cents): Cents {\n    fromCents(c.0 + c.0)\n}\n\nexport fn triple(c: Cents\n"}}}
+# The outline: the struct and the function that parsed. The half-written third
+# declaration has no name span to report, so it is absent rather than guessed.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+# The folds: the one body with a brace at both ends.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/foldingRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+# The selection chain inside the part that parsed: name, call, block, item,
+# file.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "positions": [{"line": 6, "character": 15}]}}
+# And inside the part that did not: the word under the cursor and the file
+# around it, which is the whole of what a recovered tree has to say.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "positions": [{"line": 9, "character": 20}]}}
+{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

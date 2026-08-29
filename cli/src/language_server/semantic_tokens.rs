@@ -153,6 +153,10 @@ pub fn edits(previous: &[u32], current: &[u32]) -> Value {
 // ---------------------------------------------------------------------------
 
 fn pieces(analyzed: Option<&Analyzed>, path: &Path, text: &str) -> Vec<Piece> {
+    // One resolver for the whole file rather than one per identifier: the
+    // literal fence and the module's written names are the same answer at
+    // every offset in the buffer.
+    let resolver = analyzed.and_then(|a| symbols::Resolver::of(a, path, text));
     let lexed = crate::parsing::lexer::lex(text, FileId(0));
     let mut out = Vec::new();
     let mut cursor = 0u32;
@@ -164,7 +168,7 @@ fn pieces(analyzed: Option<&Analyzed>, path: &Path, text: &str) -> Vec<Piece> {
         if matches!(kind, TokenKind::Eof) {
             continue;
         }
-        let Some((token, modifiers)) = classify(analyzed, path, text, kind, span) else {
+        let Some((token, modifiers)) = classify(analyzed, resolver.as_ref(), kind, span) else {
             continue;
         };
         split(text, span.start, span.end, token, modifiers, &mut out);
@@ -179,13 +183,12 @@ fn pieces(analyzed: Option<&Analyzed>, path: &Path, text: &str) -> Vec<Piece> {
 /// no analysis to give it — which is what leaves a broken file coloured.
 fn classify(
     analyzed: Option<&Analyzed>,
-    path: &Path,
-    text: &str,
+    resolver: Option<&symbols::Resolver>,
     kind: TokenKind,
     span: Span,
 ) -> Option<(u32, u32)> {
     match kind {
-        TokenKind::Ident => resolved(analyzed?, path, text, span),
+        TokenKind::Ident => resolved(analyzed?, resolver?, span),
         TokenKind::Int | TokenKind::Float => Some((NUMBER, 0)),
         TokenKind::Str
         | TokenKind::Char
@@ -318,12 +321,18 @@ fn split(text: &str, start: u32, end: u32, kind: u32, modifiers: u32, out: &mut 
 /// What an identifier names, asked of the one resolver every other request
 /// asks — so a name cannot be one thing to hover and another to colour.
 ///
-/// The cost is honest and worth naming: this is one `symbols::at` per
-/// identifier in the file, and that call re-lexes the buffer to decide whether
-/// the offset is inside a literal. It is the same cost `hover` pays once, paid
-/// a few hundred times. See the note in `lsp.md`.
-fn resolved(analyzed: &Analyzed, path: &Path, text: &str, span: Span) -> Option<(u32, u32)> {
-    let found = symbols::at(analyzed, path, text, span.start)?;
+/// The cost is honest and worth naming: this is one resolution per identifier
+/// in the file. What the batch takes off it is the part that does not depend on
+/// the offset — the lex behind the literal fence and the scan of the names the
+/// module writes, both now paid once for the request. What is left is the walk
+/// of the declarations and of the typed bodies, which a different offset really
+/// does answer differently.
+fn resolved(
+    analyzed: &Analyzed,
+    resolver: &symbols::Resolver,
+    span: Span,
+) -> Option<(u32, u32)> {
+    let found = resolver.at(span.start)?;
     let tables = &analyzed.analysis.checked.tables;
     let kind = match &found.symbol {
         // A method is reached through a value and a function is not, which is

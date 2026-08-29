@@ -1,0 +1,2 @@
+/// The first number there is.
+export fn one(): I64 { 1 }

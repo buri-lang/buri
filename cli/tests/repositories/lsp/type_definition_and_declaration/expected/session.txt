@@ -8,4 +8,5 @@
 {"id":8,"jsonrpc":"2.0","result":{"range":{"end":{"character":17,"line":35},"start":{"character":10,"line":35}},"uri":"file://<scratch>/lib/shop/catalog.buri"}}
 {"id":9,"jsonrpc":"2.0","result":{"range":{"end":{"character":17,"line":35},"start":{"character":10,"line":35}},"uri":"file://<scratch>/lib/shop/catalog.buri"}}
 {"id":10,"jsonrpc":"2.0","result":{"range":{"end":{"character":0,"line":0},"start":{"character":0,"line":0}},"uri":"file://<scratch>/lib/shop/catalog.buri"}}
-{"id":11,"jsonrpc":"2.0","result":null}
+{"id":11,"jsonrpc":"2.0","result":{"range":{"end":{"character":0,"line":0},"start":{"character":0,"line":0}},"uri":"file://<scratch>/lib/shop/catalog.buri"}}
+{"id":12,"jsonrpc":"2.0","result":null}

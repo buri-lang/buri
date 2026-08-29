@@ -31,5 +31,9 @@
 # mangled — the same rule the whole-file answer follows.
 {"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 3}, "contentChanges": [{"text": "derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n"}]}}
 {"jsonrpc": "2.0", "id": 9, "method": "textDocument/rangeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 3, "character": 0}}, "options": {"tabSize": 4, "insertSpaces": true}}}
-{"jsonrpc": "2.0", "id": 10, "method": "shutdown"}
+# The whole file, on the same buffer that does not parse. The formatter
+# refuses to print what it could not read, so the answer is no edits and
+# the text is left exactly as the person typing it left it.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "options": {"tabSize": 4, "insertSpaces": true}}}
+{"jsonrpc": "2.0", "id": 11, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

@@ -69,39 +69,79 @@ pub struct Found {
 /// pointing at one is pointing at prose, not at a name that happens to be
 /// spelled the same.
 pub fn at(analyzed: &Analyzed, path: &Path, text: &str, offset: u32) -> Option<Found> {
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
-    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
-    if let Some(found) = written_reference(analyzed, module, offset) {
-        return Some(found);
-    }
-    if in_a_literal(text, file, offset) {
-        return None;
-    }
-    declared_here(analyzed, file, offset)
-        .or_else(|| in_a_body(analyzed, file, text, offset))
+    Resolver::of(analyzed, path, text)?.at(offset)
 }
 
-/// Whether the offset is inside a string or a character literal.
+/// One buffer, prepared for as many questions as a caller has about it.
+///
+/// [`at`] is this with a batch of one. Two of the three sources do not depend
+/// on the offset — the literal fence is a lex of the whole buffer, and the
+/// names a module's syntax writes are a scan of the whole module — so a caller
+/// asking about every identifier in a file paid both of them once per
+/// identifier. `semanticTokens` is that caller, and this is what makes it one
+/// lex and one scan for the request rather than one of each per name.
+///
+/// It is the same resolver either way: [`Resolver::at`] is the body [`at`] had,
+/// with the two hoisted answers read from fields instead of recomputed.
+pub struct Resolver<'a> {
+    analyzed: &'a Analyzed,
+    text: &'a str,
+    file: FileId,
+    /// Every name this module's syntax writes, in the order the scan offers
+    /// them — a written type or an import clause, which the typed tree keeps
+    /// nowhere.
+    written: Vec<(Span, Symbol)>,
+    /// The string and character literals, as half-open ranges.
+    literals: Vec<(u32, u32)>,
+}
+
+impl<'a> Resolver<'a> {
+    pub fn of(analyzed: &'a Analyzed, path: &Path, text: &'a str) -> Option<Self> {
+        let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
+        let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+        let mut written = Vec::new();
+        written_names(analyzed, module, &mut |span, symbol| written.push((span, symbol)));
+        Some(Self { analyzed, text, file, written, literals: literals(text, file) })
+    }
+
+    /// The symbol one offset names.
+    pub fn at(&self, offset: u32) -> Option<Found> {
+        if let Some((span, symbol)) = self.written.iter().find(|(s, _)| covers(*s, offset)) {
+            return Some(Found { symbol: symbol.clone(), span: *span });
+        }
+        // Open at both ends: the quotes themselves are the literal's, and a
+        // cursor on one is on the literal rather than beside it.
+        if self.literals.iter().any(|(start, end)| *start < offset && offset < *end) {
+            return None;
+        }
+        declared_here(self.analyzed, self.file, offset)
+            .or_else(|| in_a_body(self.analyzed, self.file, self.text, offset))
+    }
+}
+
+/// Where the strings and the character literals are.
 ///
 /// Asked of the lexer rather than of a scan for quotes, so that the hole in
 /// `"${total(x)}"` is code again — a template's segments are their own tokens
 /// and the expression between them is not one of them.
-fn in_a_literal(text: &str, file: FileId, offset: u32) -> bool {
+fn literals(text: &str, file: FileId) -> Vec<(u32, u32)> {
     let lexed = crate::parsing::lexer::lex(text, file);
-    (0..lexed.tokens.len()).any(|i| {
-        let literal = matches!(
-            lexed.tokens.kind(i),
-            TokenKind::Str
-                | TokenKind::Char
-                | TokenKind::TemplateHead
-                | TokenKind::TemplateSpan
-                | TokenKind::TemplateTail
-        );
-        let span = lexed.tokens.span(i);
-        // Open at both ends: the quotes themselves are the literal's, and a
-        // cursor on one is on the literal rather than beside it.
-        literal && span.start < offset && offset < span.end
-    })
+    (0..lexed.tokens.len())
+        .filter(|i| {
+            matches!(
+                lexed.tokens.kind(*i),
+                TokenKind::Str
+                    | TokenKind::Char
+                    | TokenKind::TemplateHead
+                    | TokenKind::TemplateSpan
+                    | TokenKind::TemplateTail
+            )
+        })
+        .map(|i| {
+            let span = lexed.tokens.span(i);
+            (span.start, span.end)
+        })
+        .collect()
 }
 
 /// Where the symbol was declared.
@@ -684,21 +724,6 @@ fn name_span(analyzed: &Analyzed, span: Span, from: u32, name: &str) -> Option<S
 // Names the typed tree does not keep
 // ---------------------------------------------------------------------------
 
-/// A written type, or a name inside an import clause.
-fn written_reference(
-    analyzed: &Analyzed,
-    module: &ModuleData,
-    offset: u32,
-) -> Option<Found> {
-    let mut found: Option<Found> = None;
-    written_names(analyzed, module, &mut |span, symbol| {
-        if found.is_none() && covers(span, offset) {
-            found = Some(Found { symbol, span });
-        }
-    });
-    found
-}
-
 /// Every name one module's syntax writes down, and what each one names.
 ///
 /// Imports come first and written types second, which is the order the cursor
@@ -861,6 +886,14 @@ fn declared_here(analyzed: &Analyzed, file: FileId, offset: u32) -> Option<Found
             best = Some((width, span, symbol));
         }
     };
+    // Contexts before functions: a `context Name { … }` is lowered to a
+    // constructor function that shares the name's span, and the declaration a
+    // reader wrote is the context rather than the function generated from it.
+    // The contest keeps the first offer at an equal width, so the order is the
+    // tie-break.
+    for (index, info) in tables.ctx_decls.iter().enumerate() {
+        offer(info.span, Symbol::Context(ContextDeclId(index as u32)));
+    }
     for (index, info) in tables.fns.iter().enumerate() {
         if info.span.file != file || info.span.start > offset || offset > info.span.end {
             continue;
@@ -894,9 +927,6 @@ fn declared_here(analyzed: &Analyzed, file: FileId, offset: u32) -> Option<Found
     }
     for (index, info) in tables.consts.iter().enumerate() {
         offer(info.span, Symbol::Const(ConstId(index as u32)));
-    }
-    for (index, info) in tables.ctx_decls.iter().enumerate() {
-        offer(info.span, Symbol::Context(ContextDeclId(index as u32)));
     }
     let (_, span, symbol) = best?;
     Some(Found { symbol, span })
@@ -1070,14 +1100,7 @@ fn pattern_symbols(
     match &pattern.kind {
         typed::PatKind::Struct { con, fields } => {
             out(tables.tycon(*con).name.clone(), Symbol::Type(*con));
-            for f in fields {
-                if let Some(info) = field_info(tables, *con, None, f.index) {
-                    out(
-                        info.name.clone(),
-                        Symbol::Field { con: *con, variant: None, index: f.index },
-                    );
-                }
-            }
+            labelled_fields(tables, *con, None, fields.iter().map(|f| f.index), out);
         }
         typed::PatKind::Variant { con, variant, fields } => {
             let info = tables.tycon(*con);
@@ -1085,14 +1108,7 @@ fn pattern_symbols(
                 out(v.name.clone(), Symbol::Variant { con: *con, index: *variant });
             }
             out(info.name.clone(), Symbol::Type(*con));
-            for f in fields {
-                if let Some(field) = field_info(tables, *con, Some(*variant), f.index) {
-                    out(
-                        field.name.clone(),
-                        Symbol::Field { con: *con, variant: Some(*variant), index: f.index },
-                    );
-                }
-            }
+            labelled_fields(tables, *con, Some(*variant), fields.iter().map(|f| f.index), out);
         }
         // A bind is a declaration rather than a use, and `Body::locals` already
         // holds its span.
@@ -1200,24 +1216,13 @@ fn expression_symbols(
         }
         ExprKind::StructLit { con, fields, .. } => {
             out(tables.tycon(*con).name.clone(), Symbol::Type(*con));
-            for index in 0..fields.len() {
-                if let Some(info) = field_info(tables, *con, None, index) {
-                    out(info.name.clone(), Symbol::Field { con: *con, variant: None, index });
-                }
-            }
+            labelled_fields(tables, *con, None, 0..fields.len(), out);
         }
         ExprKind::StructUpdate { con, updates, .. } => {
             out(tables.tycon(*con).name.clone(), Symbol::Type(*con));
-            for (index, _) in updates {
-                if let Some(info) = field_info(tables, *con, None, *index) {
-                    out(
-                        info.name.clone(),
-                        Symbol::Field { con: *con, variant: None, index: *index },
-                    );
-                }
-            }
+            labelled_fields(tables, *con, None, updates.iter().map(|(index, _)| *index), out);
         }
-        ExprKind::EnumLit { con, variant, .. } => {
+        ExprKind::EnumLit { con, variant, args, .. } => {
             // `Color.Red` — either half may be written, and the leading-dot
             // shorthand writes only the second.
             let info = tables.tycon(*con);
@@ -1225,6 +1230,9 @@ fn expression_symbols(
                 out(v.name.clone(), Symbol::Variant { con: *con, index: *variant });
             }
             out(info.name.clone(), Symbol::Type(*con));
+            // A record variant's payload is written by label, and the label is
+            // the field rather than the variant it belongs to.
+            labelled_fields(tables, *con, Some(*variant), 0..args.len(), out);
         }
         ExprKind::Field { base, index } => {
             if let Some(con) = base.ty.head() {
@@ -1247,6 +1255,36 @@ fn expression_symbols(
             }
         }
         _ => {}
+    }
+}
+
+/// The fields a literal or a pattern writes by name.
+///
+/// Only a record's are written: a tuple's fields are numbered rather than
+/// named, and offering `0` as a name would match the digit in `Point(0, 5)`.
+fn labelled_fields(
+    tables: &Tables,
+    con: TyConId,
+    variant: Option<usize>,
+    indices: impl Iterator<Item = usize>,
+    out: &mut impl FnMut(String, Symbol),
+) {
+    if !is_record(tables, con, variant) {
+        return;
+    }
+    for index in indices {
+        if let Some(info) = field_info(tables, con, variant, index) {
+            out(info.name.clone(), Symbol::Field { con, variant, index });
+        }
+    }
+}
+
+/// Whether the payload is written by name rather than by position.
+fn is_record(tables: &Tables, con: TyConId, variant: Option<usize>) -> bool {
+    let info = tables.tycon(con);
+    match variant {
+        Some(v) => info.variants().get(v).is_some_and(|v| v.record),
+        None => matches!(info.def, types::TyDef::Struct { record: true, .. }),
     }
 }
 
@@ -1397,7 +1435,9 @@ mod tests {
     /// The offset of `|`, in the text with the marker removed.
     fn at(marked: &str) -> bool {
         let offset = marked.find('|').expect("the test marks a position") as u32;
-        in_a_literal(&marked.replace('|', ""), FileId(0), offset)
+        literals(&marked.replace('|', ""), FileId(0))
+            .iter()
+            .any(|(start, end)| *start < offset && offset < *end)
     }
 
     #[test]

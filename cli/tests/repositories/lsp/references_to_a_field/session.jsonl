@@ -11,5 +11,17 @@
 {"jsonrpc": "2.0", "id": 4, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 7, "character": 12}, "context": {"includeDeclaration": true}}}
 # A field whose only use is the literal that fills it in.
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 16, "character": 10}, "context": {"includeDeclaration": true}}}
-{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
+# The label in an enum literal. `Stock.OnHand { count: count }` writes the
+# field on the left of the colon and the parameter on the right, and the
+# label used to resolve to the variant rather than to the field it names —
+# so a hover, a definition and this list all said the wrong thing at once.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 42, "character": 18}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 42, "character": 18}}}
+# Definition on the label lands on the field's declaration inside the variant.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 42, "character": 18}}}
+# And on the value beside it, which is spelled the same and is the parameter:
+# the two render alike and go to different places, which is the whole of why
+# the label had to stop answering for the variant.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 42, "character": 26}}}
+{"jsonrpc": "2.0", "id": 10, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

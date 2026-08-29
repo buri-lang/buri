@@ -9,4 +9,5 @@
 {"id":8,"jsonrpc":"2.0","result":[]}
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[{"code":"unexpected-token","message":"expected `}`, found end of file","range":{"end":{"character":0,"line":4},"start":{"character":0,"line":4}},"relatedInformation":[{"location":{"range":{"end":{"character":0,"line":4},"start":{"character":0,"line":4}},"uri":"file://<scratch>/lib/money/cents.buri"},"message":"fix: write `}` here"}],"severity":1,"source":"buri"}],"uri":"file://<scratch>/lib/money/cents.buri"}}
 {"id":9,"jsonrpc":"2.0","result":[]}
-{"id":10,"jsonrpc":"2.0","result":null}
+{"id":10,"jsonrpc":"2.0","result":[]}
+{"id":11,"jsonrpc":"2.0","result":null}

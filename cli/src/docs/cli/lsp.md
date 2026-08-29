@@ -286,6 +286,15 @@ prose is the one thing left out, and `completionItem/resolve` supplies it for
 the row you are on — every doc comment in a module is a page of text on the wire
 to show one line of it.
 
+**Which half filters is decided by what the client can filter.** A path prefix
+is filtered here: `core/z` comes back empty, because a module path is not a word
+and no client's filter would keep `core/order` off the list for you. A name
+inside the braces is not: every export comes back, each with a `textEdit` over
+the letters typed so far, and the client narrows the list against that range as
+you type — which is what keeps the list from being recomputed on every
+keystroke. So a clause prefix that matches nothing answers with everything, and
+the editor shows nothing. Both halves are pinned.
+
 **Three requests read a parse and nothing else** — the outline, the folds and
 the selection chain. No workspace, no standard library, no analysis: they are
 questions about shape, and asking them of the buffer alone is what makes them
@@ -585,16 +594,18 @@ at all, every request answering nothing. So it goes out as a
 `window/showMessage` error, once per state of the repository: again when the
 file changes and is still wrong, and not at all while it sits there unedited.
 
-## The whole protocol, and what is left
+## The whole protocol
 
 Everything the 3.17 specification defines for a language, and where this server
-stands on it. Three things a row can say, and all three are decisions with
-reasons rather than gaps nobody noticed: **served**, **complete and empty** —
-the honest answer for Buri is nothing, and a golden pins that it is nothing —
-and **deferred**, which is work not yet done.
+stands on it. **There is no third column of things left for later.** A row says
+one of two things, and both are decisions with reasons rather than gaps nobody
+noticed: **served**, or **complete and empty** — the honest answer for Buri is
+nothing, and a golden pins that it is nothing.
 
 | Request | | |
 |---|---|---|
+| `initialize`, `initialized`, `shutdown`, `exit` | served | the handshake, and the four ways a client gets it wrong: a second `initialize` is `-32600` and not a restart, because answering it would move the root out from under every open document; a request before the first one is `-32002`, because a root is what there is to answer about; a request after `shutdown` is `-32002` again; and `exit` without a `shutdown` before it exits 1. A notification that arrives outside the handshake is dropped rather than refused — a notification has no reply to put an error in |
+| `didOpen`, `didChange`, `didSave`, `didClose` | served | `textDocumentSync` is sent as options rather than as the bare number, which is what negotiates `didSave` at all: the number form advertises `change` and nothing else, and a spec-strict client reading it never saves. A closed buffer's text falls back to the file on disk, and everything keyed by that buffer — the semantic-token result id among it — dies with it |
 | `publishDiagnostics` | served | |
 | `textDocument/diagnostic` | served | the pull half, over the same two producers. `previousResultId` is answered `unchanged` when the analysis fingerprint has not moved; a request with no document to answer about is a `-32602 InvalidParams`, because a `DocumentDiagnosticReport` has no null among its shapes |
 | `workspace/diagnostic` | served | one report per `.buri` file in every open repository, clean ones included — which is how a client is told a finding is gone, and the only shape that reaches a file no editor has open |
@@ -680,7 +691,12 @@ server that keeps up with typing and one that does not:
   closure is what checked it. Semantic tokens ask what each identifier in one
   file names, which is the same question `hover` asks — once per identifier
   rather than once, which is a real cost and is why layer one is written to need
-  no analysis at all. Inlay hints are the other side of that: they read the same
+  no analysis at all. What that costs is the part of the question the offset
+  changes the answer to, and no more: the resolver is prepared once for the
+  buffer, so the lex behind the literal fence and the scan of the names the
+  module's syntax writes are paid for the request rather than for each name in
+  it. It is the same resolver either way — a batch of one is what `hover` asks
+  for. Inlay hints are the other side of that: they read the same
   analysis and ask the resolver *nothing*, because one scan of the syntax and
   one walk of each typed body answer for the whole file at once.
 - **On a `textDocument/diagnostic`** it does exactly what an open or a save

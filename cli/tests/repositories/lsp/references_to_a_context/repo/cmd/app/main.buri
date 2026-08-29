@@ -1,0 +1,16 @@
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+/// What this program is allowed to do.
+context Program {
+  Alloc: host.alloc,
+  Stdout: host.stdout,
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = Program();
+  let _ = ctx.println("one");
+  let again = Program();
+  let _ = again.println("two");
+  .Ok(())
+}

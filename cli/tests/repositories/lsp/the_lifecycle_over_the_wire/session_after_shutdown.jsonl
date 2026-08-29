@@ -1,0 +1,13 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": 2, "method": "shutdown"}
+# After the handshake is over: the server is not initialized any more, and says
+# so rather than serving a request whose answer it is about to stop maintaining.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 1, "character": 12}}}
+# A second `shutdown` is a different refusal, because the state it is refused
+# from is a different one.
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+# A notification is still dropped rather than answered.
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "method": "exit"}

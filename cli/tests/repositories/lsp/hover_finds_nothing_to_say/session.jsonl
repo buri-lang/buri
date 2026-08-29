@@ -1,0 +1,27 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The blank line between two top-level items. Nothing is declared there and no
+# body covers it, so there is nothing to describe.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 4, "character": 0}}}
+# The blank line after an enum's closing brace, which is inside no declaration
+# and inside no body either.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 9, "character": 0}}}
+# A `///` comment written *inside* a declaration. The comment above a file's
+# first item is the module's own prose and hovers as it — this one is not, and
+# a comment is not a name.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 4, "character": 10}}}
+# A keyword. `from` names nothing, and the path beside it is what the import
+# scan answers for.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/test/app.buri"}, "position": {"line": 0, "character": 0}}}
+# A line the file does not have. The position is clamped into the text rather
+# than indexed with, and the end of the file is still nothing.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 999, "character": 0}}}
+# An empty buffer: everything the editor holds for this file has been deleted.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/test/app.buri", "languageId": "buri", "version": 1, "text": ""}}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/test/app.buri"}, "position": {"line": 0, "character": 0}}}
+# The outline of the same empty buffer, because "nothing" is an empty array
+# here and a null there, and both are answers.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/test/app.buri"}}}
+{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

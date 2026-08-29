@@ -1,0 +1,15 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# A request before `initialize`. Without a root there is no repository to
+# answer about, and answering against whatever directory the process started in
+# is the wrong answer rather than a missing one.
+{"jsonrpc": "2.0", "id": 1, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 1, "character": 12}}}
+# A notification before `initialize` is dropped. A notification has no reply to
+# put an error in, so the only thing to do with one is nothing.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "export fn total(count: I64): I64 { count }\n"}}}
+# And then the session begins properly, which is the point: a client that got
+# ahead of itself is not a client the server stops talking to.
+{"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 1, "character": 12}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

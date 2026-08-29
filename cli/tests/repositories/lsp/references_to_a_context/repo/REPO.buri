@@ -1,0 +1,2 @@
+# The repository root. One binary, whose `main` is the one place a named
+# context may be built.

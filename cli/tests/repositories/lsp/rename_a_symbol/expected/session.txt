@@ -9,4 +9,6 @@
 {"id":9,"jsonrpc":"2.0","result":{"placeholder":"plain","range":{"end":{"character":11,"line":22},"start":{"character":6,"line":22}}}}
 {"id":10,"jsonrpc":"2.0","result":{"changes":{"file://<scratch>/lib/shop/cart.buri":[{"newText":"cheapest","range":{"end":{"character":11,"line":22},"start":{"character":6,"line":22}}},{"newText":"cheapest","range":{"end":{"character":7,"line":23},"start":{"character":2,"line":23}}}]}}}
 {"id":11,"jsonrpc":"2.0","result":{"changes":{"file://<scratch>/lib/shop/cart.buri":[{"newText":"amount","range":{"end":{"character":73,"line":4},"start":{"character":68,"line":4}}}],"file://<scratch>/lib/shop/catalog.buri":[{"newText":"amount","range":{"end":{"character":14,"line":15},"start":{"character":9,"line":15}}},{"newText":"amount","range":{"end":{"character":14,"line":27},"start":{"character":9,"line":27}}},{"newText":"amount","range":{"end":{"character":26,"line":36},"start":{"character":21,"line":36}}}]}}}
-{"id":12,"jsonrpc":"2.0","result":null}
+{"error":{"code":-32803,"message":"that is named by its position rather than by a name, so there is nothing to rename"},"id":12,"jsonrpc":"2.0"}
+{"id":13,"jsonrpc":"2.0","result":null}
+{"id":14,"jsonrpc":"2.0","result":null}
