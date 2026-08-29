@@ -1152,3 +1152,27 @@ fn cache_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         }
     }
 }
+
+/// `REPO.buri`'s `fail_on_finding` reaches a finding that came out of a record.
+///
+/// Promotion happens once, over the assembled report, rather than per target —
+/// so a cached warning is promoted by the code that would have promoted a fresh
+/// one. This is the test that says so out loud, because it is the one place a
+/// per-target cache could plausibly have skipped a repository-wide rule.
+#[test]
+fn fail_on_finding_reaches_a_cached_finding() {
+    let scratch = three_libraries("lint-promote");
+    scratch.write("REPO.buri", "lint {\n    fail_on_finding: true\n}\n");
+    scratch.write(
+        "lib/kit/unit.buri",
+        "from \"core/list\" import * as list;\n\nexport fn one(): I64 { 1 }\n",
+    );
+
+    let cold = scratch.run(&["lint", "//..."]);
+    cold.exits(1).says("error: list is imported but not used");
+
+    let warm = scratch.run(&["lint", "//...", "--explain"]);
+    warm.exits(1);
+    assert_eq!(status(&warm, "lint //lib/kit"), "cached", "the finding was not a cached one");
+    assert_eq!(warm.stderr, cold.stderr, "a cached finding was not promoted");
+}
