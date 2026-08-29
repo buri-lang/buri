@@ -121,6 +121,21 @@ which no live run can manage, and it does not run at all under `BURI_KEEP` — s
 the contract above is unchanged for the run that produced the evidence and for
 hours after it.
 
+### The two tests that are off
+
+`repositories::language_server_speed` and `repositories::language_server_open_cost`
+assert milliseconds rather than work, so they return early unless `BURI_PERF` is
+set and they mean nothing outside `--release`:
+
+```
+BURI_PERF=1 cargo test --release -p buri --test build repositories::language_server_
+```
+
+Both hold every editor request to 50 ms. CI runs them on its arm64 runner
+(`.github/workflows/ci.yml`, `language-server-budget`), where
+`BURI_PERF_BUDGET_SCALE` is what widens the bar for a machine slower than the
+one it was taken on.
+
 ### What the run costs
 
 Everything but the unit tests drives the real `buri`, so **the toolchain

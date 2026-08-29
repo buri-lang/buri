@@ -591,6 +591,58 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
+  # The language server's 50 ms bar.
+  #
+  # `cli/tests/build/repositories.rs`'s two `BURI_PERF` tests are the only
+  # opt-in tests in the suite: they assert milliseconds rather than work, so a
+  # debug build fails them on the profile rather than on the change and they
+  # are off unless asked for. Off by default and named in no job is a gate
+  # nobody runs, which is what this job is for.
+  #
+  # arm64, because the bar was calibrated on an M-series mac and a runner's
+  # architecture is the one thing about it that can be matched.
+  #
+  # **Required, not advisory, and measured before it was made so.** The bar is
+  # 50 ms a request. Over three runs on this runner the slowest request of the
+  # 69-request session was 6, 7 and 6 ms, the slowest of the 145 opens was 5, 5
+  # and 6 ms, and the restore's two halves were 1 ms and 2 ms an open every
+  # time. A request has to take seven times longer than it does before this job
+  # has an opinion, so a red X here is a regression and not a noisy neighbour —
+  # which is the whole bar for a timing gate, because one that cries wolf gets
+  # deleted. If a future runner is genuinely slower,
+  # the tests read `BURI_PERF_BUDGET_SCALE` — a multiplier on the 50 ms,
+  # defaulting to 1 — so the widening is one `env:` line here rather than an
+  # edit to the assertion. Nothing sets it today, and the numbers above are why.
+  #
+  # No `CC: clang` and no apt: this job drives `buri lsp` over a pipe and links
+  # nothing, so the stencil libraries would be a minute spent on bytes it never
+  # reads. `--release` is the profile the numbers mean anything in, and its
+  # artifacts are not the dev matrix's, so the cache key is its own.
+  # ---------------------------------------------------------------------------
+  language-server-budget:
+    name: language server budget (arm64)
+    runs-on: ubuntu-24.04-arm
+    env:
+      BURI_PERF: 1
+    # The whole step — a cold, link-time-optimized release build of the
+    # toolchain and both tests — is under two minutes. Thirty is a cap.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-24.04-arm-release
+      # One thread: two language servers on one runner would be timing each
+      # other's contention. `--nocapture` because both tests print their
+      # slowest requests on a pass, and this log is where the next
+      # recalibration reads them.
+      - name: Every editor request inside its budget
+        run: |
+          cargo test --release -p buri --test build repositories::language_server_ \
+            -- --nocapture --test-threads=1
+
+  # ---------------------------------------------------------------------------
   # `cargo install buri` on a machine with nothing installed on it.
   #
   # A job rather than an assertion because "it builds without the optional
