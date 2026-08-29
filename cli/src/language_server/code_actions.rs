@@ -105,7 +105,7 @@ fn in_range(state: &mut State, path: &Path, params: &Value) -> Vec<Value> {
         if d.span.is_none() || d.span.start > to || d.span.end < from {
             continue;
         }
-        let file = linted.session.map.get(d.span.file);
+        let file = linted.analyzed.session.map.get(d.span.file);
         if file.abs_path != path {
             continue;
         }
@@ -182,7 +182,7 @@ fn rendered(action: &Action, uri: &str, asked: &[Value]) -> Value {
 /// build-file family also runs `buri gen`.
 fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) -> Vec<Action> {
     let Some(linted) = state.lint(path) else { return Vec::new() };
-    let session = &linted.session;
+    let session = &linted.analyzed.session;
     let mut out = Vec::new();
     let mut regenerated: BTreeSet<String> = BTreeSet::new();
 
