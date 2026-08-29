@@ -866,7 +866,7 @@ fn output_fires(input: &str, expects: &str) -> Option<String> {
             "JavaScript printed something else.\n  expected: {expects:?}\n  printed:  {js:?}"
         ));
     }
-    #[cfg(any(feature = "backend-cranelift", feature = "backend-llvm"))]
+    #[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
     if let Some(native) = native::run(input) {
         for (name, printed) in native {
             if printed.trim_end() != js.trim_end() {
@@ -925,7 +925,7 @@ fn engine_present() -> bool {
 /// Its own module because it is the one part of this file that does not exist
 /// under `--no-default-features`, and because the concurrent work on the two
 /// backends is confined to it.
-#[cfg(any(feature = "backend-cranelift", feature = "backend-llvm"))]
+#[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
 mod native {
     use super::{Duration, Instant, Path, PathBuf};
     use buri::build::actions;
@@ -940,11 +940,11 @@ mod native {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::OnceLock;
 
-    /// Every native backend this binary was built with, named. Cranelift is
-    /// the default build's; LLVM arrives with its feature.
+    /// Every native backend this binary was built with, named. Stencil is the
+    /// debug oracle; LLVM arrives with its feature.
     const NATIVES: &[(&str, Profile)] = &[
-        #[cfg(feature = "backend-cranelift")]
-        ("cranelift", Profile::Debug),
+        #[cfg(feature = "backend-stencil")]
+        ("stencil", Profile::Debug),
         #[cfg(feature = "backend-llvm")]
         ("llvm", Profile::Release),
     ];
@@ -957,7 +957,15 @@ mod native {
     }
 
     /// Whether this host can compile, link and run a native binary at all.
+    ///
+    /// `native_ready` answers for the backend `select` returns, which is not
+    /// yet stencil, so the stencil library's own host question is asked beside
+    /// it: a host with no library for itself has no debug oracle.
     pub fn ready() -> bool {
+        #[cfg(feature = "backend-stencil")]
+        if !buri::compiler::backend::stencil::AVAILABLE {
+            return false;
+        }
         actions::native_ready(host_target(), Profile::Debug)
     }
 
@@ -991,7 +999,14 @@ mod native {
     /// is the selection LLVM is reached by — `native/agreement.rs` spells the
     /// same fallback for the same reason, gated on the feature that carries the
     /// backend, so that the `Ok` arm takes over the day `select` grows the arm.
-    fn select(target: Target, profile: Profile) -> Option<Box<dyn backend::Backend>> {
+    fn select(name: &str, target: Target, profile: Profile) -> Option<Box<dyn backend::Backend>> {
+        // `select` does not answer with the copy-and-patch backend yet, so the
+        // debug oracle is named here rather than selected.
+        #[cfg(feature = "backend-stencil")]
+        if name == "stencil" {
+            return Some(Box::new(backend::stencil::Stencil));
+        }
+        let _ = name;
         match backend::select(target, profile) {
             Ok(b) => Some(b),
             #[cfg(feature = "backend-llvm")]
@@ -1048,7 +1063,7 @@ mod native {
             let target = host_target();
             actions::prepare(&mut program, target);
             let opts = Options { profile: *profile, target, unit_prefix: "" };
-            let Some(mut backend) = select(target, *profile) else { continue };
+            let Some(mut backend) = select(name, target, *profile) else { continue };
             if !backend.missing_intrinsics(&program, &analysis.checked.tables).is_empty() {
                 continue;
             }
@@ -2234,7 +2249,7 @@ fn generated_programs_print_the_same_answer_on_every_backend() {
 /// is skip *silently*: a native leg that refused every program looks exactly
 /// like one that agreed with every program from the outside.
 fn report_native_participation(done: usize) {
-    #[cfg(any(feature = "backend-cranelift", feature = "backend-llvm"))]
+    #[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
     {
         if !native::ready() {
             eprintln!("fuzz differential: the native leg is off (`native_ready` is false)");
@@ -2249,7 +2264,7 @@ fn report_native_participation(done: usize) {
             );
         }
     }
-    #[cfg(not(any(feature = "backend-cranelift", feature = "backend-llvm")))]
+    #[cfg(not(any(feature = "backend-stencil", feature = "backend-llvm")))]
     {
         let _ = done;
         eprintln!("fuzz differential: built with no native backend, so JavaScript is the whole of it");
