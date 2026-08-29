@@ -361,7 +361,7 @@ fn one_pass(
     // one nothing already stopped — a suite that could not be built has an
     // answer, and it is not a lint finding.
     if !hard_error && session.workspace.repo.lint.check_during_build {
-        let findings = crate::commands::lint::findings_for(&mut session, &targets);
+        let findings = crate::commands::lint::findings_for(&mut session, &targets, &args.flags);
         hard_error |= session.print(&findings);
     }
     // Everything this pass read and parsed, kept for the next one. After the
