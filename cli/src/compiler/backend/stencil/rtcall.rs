@@ -257,7 +257,7 @@ impl Jit<'_> {
                 let Some(one) = leaves.pop().filter(|_| leaves.is_empty()) else {
                     return Err(format!("{}: a result that is not one scalar", entry.key));
                 };
-                scalar_kind(one)
+                scalar_kind(one, dty)
             }
         };
 
@@ -670,15 +670,32 @@ impl Jit<'_> {
 /// zero-extended into it and an `F32` is stored as its own 32 bits in the low
 /// half — which is `sources.rs::write`'s convention, stated once and obeyed
 /// here.
-fn scalar_kind(leaf: Leaf) -> &'static str {
+///
+/// **The letter is the C return type's width, and `Leaf` is not where that
+/// lives.** [`Jit::leaves`] answers a *slot*, which is eight bytes for every
+/// integer; what the callee returns is the destination's own IR type, and a
+/// `Bool` comes back from `buri_rt_str_eq` as a `u8` where an `Int` comes back
+/// from `buri_rt_str_hash` as a `u64`. Both psABIs leave the upper bits of a
+/// narrower integer return **unspecified**, so a stencil that declared
+/// `uint64_t` for the first reads whatever was in the register — which AAPCS64
+/// hid, because Rust's arm64 codegen zeroes it on the way out, and SysV did
+/// not. `sources.rs::RETURN_SHAPES` has a shape per width for exactly that,
+/// and Cranelift builds its call signature from the same fact.
+fn scalar_kind(leaf: Leaf, t: ir::Type) -> &'static str {
     if leaf.float {
-        if leaf.width == 4 {
-            "f"
-        } else {
-            "d"
-        }
-    } else {
-        "i"
+        return if leaf.width == 4 { "f" } else { "d" };
+    }
+    c_int_shape(t)
+}
+
+/// The `crt` letter for an integer result of IR type `t`, by the width C gives
+/// it. `Ptr` and everything at least a word wide is the plain `uint64_t` shape.
+fn c_int_shape(t: ir::Type) -> &'static str {
+    match t {
+        ir::Type::I1 | ir::Type::I8 => "b",
+        ir::Type::I16 => "h",
+        ir::Type::I32 => "u",
+        _ => "i",
     }
 }
 
@@ -738,9 +755,12 @@ impl Jit<'_> {
             Src::Word(b + STR_LEN),
         ];
         // `buri_rt_str_eq` answers a `u8` and `buri_rt_str_compare` a C `int`,
-        // and AAPCS64 leaves the rest of `x0` unspecified in both cases: the
-        // result shape has to be the declared width, not the register's.
-        self.c_call(symbol, st, &args, &[], dest, "w")
+        // and both psABIs leave the rest of the register unspecified in both
+        // cases: the result shape has to be the **declared** width, not the
+        // register's, and not the wider of the two either. One shape for both
+        // was a `Bool` read out of the top three bytes of an `int` on SysV.
+        let kind = if symbol == "buri_rt_str_eq" { "b" } else { "w" };
+        self.c_call(symbol, st, &args, &[], dest, kind)
     }
 
     /// Turns `buri_rt_str_compare`'s three-way answer into the boolean an
