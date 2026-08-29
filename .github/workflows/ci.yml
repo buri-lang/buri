@@ -603,9 +603,10 @@ jobs:
   # architecture is the one thing about it that can be matched.
   #
   # **Required, not advisory, and measured before it was made so.** The bar is
-  # 50 ms a request; on this runner the slowest request of a 69-request session
-  # is 6 ms and the slowest of 145 opens is 5 ms, with the restore's two halves
-  # at 1 ms and 2 ms an open. A request has to take eight times longer than it
+  # 50 ms a request; on this runner, over two runs, the slowest request of a
+  # 69-request session was 6 ms and then 7 ms, the slowest of 145 opens was
+  # 5 ms both times, and the restore's two halves were 1 ms and 2 ms an open
+  # both times. A request has to take seven times longer than it
   # does before this job has an opinion, so a red X here is a regression and
   # not a noisy neighbour — which is the whole bar for a timing gate, because
   # one that cries wolf gets deleted. If a future runner is genuinely slower,
@@ -624,7 +625,7 @@ jobs:
     env:
       BURI_PERF: 1
     # The whole step — a cold, link-time-optimized release build of the
-    # toolchain and both tests — measured 1 m 40 s. Thirty is a cap.
+    # toolchain and both tests — is under two minutes. Thirty is a cap.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
