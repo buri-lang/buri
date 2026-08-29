@@ -2860,7 +2860,7 @@ export fn main(): Result<(), Str> {
 /// `NodeId` to name one with. So until `template` dropped them itself, a
 /// program that interpolated in a loop grew the heap by a block an iteration
 /// — forever, in a language whose whole memory story is that it does not — and
-/// `Prim::Template` was `Answer::Unknown` in `rc`'s oracle, so the block the
+/// `Prim::Template` was `Answer::Unknown` in `rc`'s classifier, so the block the
 /// chain *ended* holding leaked once per evaluation on top of that.
 ///
 /// Counted rather than asserted against zero at one size: a per-iteration leak

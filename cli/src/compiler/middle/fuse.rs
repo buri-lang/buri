@@ -25,7 +25,7 @@
 //!
 //! That is not caution about the goldens. `cli/tests/native/agreement.rs`
 //! compares the answers of the JavaScript artifact against both native ones, and
-//! that comparison is the only mechanical oracle this rewrite has. Fusing in the
+//! that comparison is the only mechanical check this rewrite has. Fusing in the
 //! shared middle would fuse *both* sides identically, and a differential test
 //! whose two sides share the transformation under test proves nothing about it.
 //! Keeping the pass native-only makes JavaScript the reference implementation of
@@ -35,7 +35,7 @@
 //! the smaller loss: V8 allocates and collects an intermediate array with a bump
 //! pointer and a generational nursery, which is a different and much cheaper
 //! machine than `malloc` plus a copy, so the same rewrite is worth less there
-//! than the oracle is worth here.
+//! than that differential test is worth here.
 //!
 //! # What licenses it
 //!

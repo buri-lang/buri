@@ -112,7 +112,7 @@ pub fn run(program: &Program, tables: &Tables) -> ir::Program {
 /// evaluation order is still stated — and this pass places them, because the
 /// tree has no statement form to hang one on and the CFG does (`rc.rs`, "where
 /// the operations go"). [`run`] asks for a plan from `rc::Syntactic`, which is
-/// the same oracle both native backends build from the same `Program` — see
+/// the same classifier both native backends build from the same `Program` — see
 /// `rc.rs`, "which types carry a count", for why it has to be.
 pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Program {
     let mut types = Types::default();
