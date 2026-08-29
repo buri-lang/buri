@@ -1,11 +1,11 @@
-error: expected `F64`, found an integer literal [type-mismatch]
+error: expected `F64`, found `Int` [type-mismatch]
  --> cmd/int_literal_plus_float_literal/main.buri:5:19
   |
 5 | fn mixed(): Float {
   |                   ^ the declared return type is `F64`
   |
   = expected: `F64`
-  = actual: an integer literal
+  = actual: `Int`
   = there is no implicit promotion of any kind
   = fix: annotate the literal, as in `let x: F64 = ...`
 
@@ -16,9 +16,9 @@ error: expected `F64`, found an integer literal [type-mismatch]
     for every I32, while a narrowing one returns a Result because not every
     value fits.
 
-    Where one side is a numeric literal, there is nothing to convert: a literal
-    has no type until something pins it, so the edit is an annotation — let x:
-    F64 = 1.0 — or writing the literal in the other kind.
+    A bare numeric literal is reported as Int or Float, the type it takes when
+    nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
+    let x: U8 = 1 — and it becomes any type of the same kind.
 
     Why
     ───
@@ -28,13 +28,13 @@ error: expected `F64`, found an integer literal [type-mismatch]
     expression's shape rather than of what was written, and the one place it
     matters is the one place nobody looks.
 
-error: expected an integer literal, found a float literal [type-mismatch]
+error: expected `Int`, found `Float` [type-mismatch]
  --> cmd/int_literal_plus_float_literal/main.buri:6:7
   |
 6 |   1 + 1.0
-  |       ^^^ the left operand's type is an integer literal
+  |       ^^^ the left operand's type is `Int`
   |
-  = expected: an integer literal
-  = actual: a float literal
+  = expected: `Int`
+  = actual: `Float`
   = there is no implicit promotion of any kind
   = fix: write both literals in the same kind, either both integers or both floats
