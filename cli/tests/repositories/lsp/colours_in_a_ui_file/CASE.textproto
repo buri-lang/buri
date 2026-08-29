@@ -1,0 +1,14 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the swatches beside `ui/style`'s `Color` constructors — the two the file spells out in full, the one whose channel is a parameter and so is absent, and the picker writing a colour back in the spelling it found"
+
+# No `didOpen`: an unopened file is read from disk, and leaving the buffers out
+# keeps the golden about the answers rather than about the diagnostics.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

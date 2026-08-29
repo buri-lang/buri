@@ -20,6 +20,7 @@
 //! golden file.
 
 mod build_files;
+mod color;
 mod conformance;
 mod convert;
 mod features;
@@ -183,6 +184,10 @@ const NOT_INITIALIZED: i64 = -32002;
 
 /// `InvalidRequest`.
 const INVALID_REQUEST: i64 = -32600;
+
+/// `MethodNotFound` — the protocol's own reply for a method the server does not
+/// implement.
+const METHOD_NOT_FOUND: i64 = -32601;
 
 /// `RequestFailed` — the protocol's code for a request the server understood
 /// and will not serve, which is what a refused rename is.
@@ -535,9 +540,73 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             vec![response(&id, code_actions(state, &params))]
         }
 
-        // A request this server does not answer still needs a reply, or the
-        // client waits for one that never comes.
-        (_, Some(id)) => vec![response(&id, Value::Null)],
+        // The swatches. One target is enough: a colour is a constructor call
+        // written in this file, and the file's own closure is what checked it.
+        ("textDocument/documentColor", Some(id)) => {
+            let result = (|| {
+                let path = uri_param(&params)?;
+                let text = state.text_of(&path)?;
+                let analyzed = state.analyze(&path)?;
+                color::document_colors(&analyzed, &path, &text)
+            })();
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
+        }
+
+        // The write-back half, and it analyses nothing: the range came from the
+        // answer above, and what to write there is the colour plus how the
+        // source already spelled the call.
+        ("textDocument/colorPresentation", Some(id)) => {
+            let result = (|| {
+                let path = uri_param(&params)?;
+                let text = state.text_of(&path)?;
+                Some(color::presentations(&text, &params))
+            })();
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
+        }
+
+        // The request exists for syntax that spells one name at both ends of a
+        // construct — an opening tag and its closing one. Buri writes every
+        // name once: an `impl Priced for Item { … }` closes with a brace. So
+        // `null` everywhere is the complete answer rather than a missing one.
+        ("textDocument/linkedEditingRange", Some(id)) => vec![response(&id, Value::Null)],
+
+        // Only ever sent while a client is stopped in a debug session, which is
+        // a state nothing can reach: there is no Buri debug adapter. Empty
+        // rather than absent, because the request has values to show and this
+        // program has none of them stopped.
+        ("textDocument/inlineValue", Some(id)) => {
+            vec![response(&id, Value::Array(Vec::new()))]
+        }
+
+        // The notifications with nothing to do, named rather than left to the
+        // catch-all so that the decision is written down where it is made.
+        //
+        // `willSave`: the server does nothing before a save that it does not do
+        // on `didSave`, and doing the analysis twice would only make the save
+        // slower. `didChangeConfiguration`: there is no setting — every `Flags`
+        // the server builds is `default()`. The four `notebookDocument/*`: a
+        // Buri module belongs to a target declared in a `BUILD.buri`, and a
+        // notebook cell has no target, so `notebookDocumentSync` is not
+        // advertised and a cell is not something this toolchain can compile.
+        (
+            "textDocument/willSave"
+            | "workspace/didChangeConfiguration"
+            | "notebookDocument/didOpen"
+            | "notebookDocument/didChange"
+            | "notebookDocument/didSave"
+            | "notebookDocument/didClose",
+            None,
+        ) => vec![],
+
+        // A request this server does not implement is refused with the
+        // protocol's own code for that, rather than answered `result: null`.
+        // Null is not a legal result for several of them — `textDocument/
+        // diagnostic` demands a report — so a blanket null was a reply the
+        // client could not read. An error is still a reply, which is what
+        // matters: a client that got nothing back waits forever.
+        (_, Some(id)) => {
+            vec![error(&id, METHOD_NOT_FOUND, &format!("`{method}` is not implemented"))]
+        }
         (_, None) => vec![],
     }
 }
@@ -580,7 +649,17 @@ fn capabilities() -> Value {
                 ("referencesProvider", Value::Bool(true)),
                 ("documentHighlightProvider", Value::Bool(true)),
                 ("documentSymbolProvider", Value::Bool(true)),
-                ("workspaceSymbolProvider", Value::Bool(true)),
+                // A swatch beside `Color.Rgb(255, 0, 0)`, and the picker that
+                // writes one back.
+                ("colorProvider", Value::Bool(true)),
+                // `resolveProvider: false` is a claim rather than a default:
+                // the query already returns a complete `Location`, computed
+                // from data the scan had in hand, so there is nothing a
+                // `workspaceSymbol/resolve` could add.
+                (
+                    "workspaceSymbolProvider",
+                    Value::object(vec![("resolveProvider", Value::Bool(false))]),
+                ),
                 ("documentFormattingProvider", Value::Bool(true)),
                 ("foldingRangeProvider", Value::Bool(true)),
                 ("selectionRangeProvider", Value::Bool(true)),
@@ -1101,8 +1180,6 @@ mod tests {
         assert!(read_message(&mut input).is_err());
     }
 
-    /// An unknown *request* still gets a reply. A client that sent one and got
-    /// nothing back waits forever, which presents as the server having hung.
     fn initialized() -> State {
         let mut state = State::new();
         let init = json::parse(r#"{"id":0,"method":"initialize","params":{}}"#).unwrap();
@@ -1110,13 +1187,22 @@ mod tests {
         state
     }
 
+    /// An unknown *request* is refused, and refusing is still replying. A
+    /// client that sent one and got nothing back waits forever, which presents
+    /// as the server having hung; one that got `result: null` was handed a
+    /// shape several of these requests have no legal null for.
+    ///
+    /// The method is a made-up one rather than a real spec method, so that
+    /// implementing something does not quietly turn this into a test of it.
     #[test]
-    fn an_unknown_request_is_answered_and_an_unknown_notification_is_not() {
+    fn an_unknown_request_is_refused_and_an_unknown_notification_is_not() {
         let mut state = initialized();
-        let req = json::parse(r#"{"id":7,"method":"textDocument/inlayHint"}"#).unwrap();
+        let req = json::parse(r#"{"id":7,"method":"buri/notAMethod"}"#).unwrap();
         let out = handle(&mut state, &req);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].get("id").and_then(|v| v.as_u32()), Some(7));
+        assert_eq!(out[0].at("error.code"), Some(&Value::Int(METHOD_NOT_FOUND)));
+        assert!(out[0].get("result").is_none());
 
         let note = json::parse(r#"{"method":"$/setTrace"}"#).unwrap();
         assert!(handle(&mut state, &note).is_empty());

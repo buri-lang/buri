@@ -31,6 +31,7 @@ end is a library, and `driver::analyze` is what the server calls.
 | `formatting` | `buri format`, which refuses to emit anything that does not parse, so a file mid-edit is left alone rather than mangled. |
 | `completion` | Inside a module path, the standard library plus the labels your target already declares. Inside an import's `{ … }`, what that module exports. |
 | `codeAction` | The fix for a finding that has exactly one. |
+| `documentColor` / `colorPresentation` | A swatch beside every `ui/style` `Color.Rgb` and `Color.Rgba` the file spells out, and the picker's choice written back as the same call. |
 | `didChangeWatchedFiles` | Everything published again, when a `.buri` file changed on disk without the editor having done it. |
 | `didChangeWorkspaceFolders` | A repository opened or closed while the server is running, and which one owns each file recomputed. |
 
@@ -190,6 +191,25 @@ Nothing is invalidated by hand for it. An analysis is kept under a hash of the
 bytes it read, so a file that changed on disk has already moved the key; the
 notification says *when* to ask again, and the key decides what the answer is.
 
+**A colour is a constructor call, not a string.** `ui/style` declares
+`Color.Rgb(Int, Int, Int)` and `Color.Rgba(Int, Int, Int, Float)`, and a swatch
+is drawn beside every one the file spells out. It is read from the tree the
+checker built rather than scanned out of the text, so `#ff0000` inside a string
+is not a colour — the language does not say it is one. A constructor with an
+argument that is not a literal is skipped: a swatch beside `.Rgb(shade, 0, 0)`
+would be a guess at what `shade` is worth at run time. `Token`, `Transparent`
+and `Inherit` get none either, for the same reason from the other direction —
+their value is decided by the theme or by the element above.
+
+The picker writes back the spelling it found. `.Rgb(255, 0, 0)` is the shorthand
+for a variant whose type context supplies and `Color.Rgb(255, 0, 0)` names the
+enum; a replacement that dropped either would leave a file that no longer
+resolves, so only the call itself changes. An opaque colour comes back as `Rgb`,
+because a fourth argument would have nothing left to say; anything else is
+`Rgba`, with its alpha rounded to three decimals — a picker's
+`0.5019607843137255` is a rendering of one 8-bit step rather than a number
+anybody meant to type.
+
 **Two open folders are two repositories.** A Buri repository is rooted at a
 `REPO.buri`, so a client holding two of them is holding two build graphs, two
 closures and two sets of labels. The server keeps the roots the client named —
@@ -209,7 +229,10 @@ stand behind.
 ## The whole protocol, and what is left
 
 Everything the 3.17 specification defines for a language, and where this server
-stands on it. A deferral is a decision with a reason, not a gap nobody noticed.
+stands on it. Three things a row can say, and all three are decisions with
+reasons rather than gaps nobody noticed: **served**, **complete and empty** —
+the honest answer for Buri is nothing, and a golden pins that it is nothing —
+and **deferred**, which is work not yet done.
 
 | Request | | |
 |---|---|---|
@@ -226,22 +249,38 @@ stands on it. A deferral is a decision with a reason, not a gap nobody noticed.
 | `rename`, `prepareRename` | served | |
 | `documentSymbol` | served | nested |
 | `workspace/symbol` | served | |
+| `workspaceSymbol/resolve` | complete and empty | the query already returns a full `Location`, computed from what the scan had in hand, so `resolveProvider` is `false` and there is nothing a resolve could add |
 | `signatureHelp` | served | |
 | `foldingRange` | served | |
 | `selectionRange` | served | |
 | `formatting` | served | whole file |
 | `completion` | served | module paths and import clauses |
 | `codeAction` | served | |
+| `documentColor`, `colorPresentation` | served | `ui/style`'s `Color`, where every argument is a literal |
+| `linkedEditingRange` | complete and empty | `null` at every position. The request is for syntax that spells one name at both ends of a construct; Buri writes each name once, and an `impl … for … { }` closes with a brace |
+| `inlineValue` | complete and empty | `[]`. Only ever sent from a client stopped in a debug session, and there is no Buri debug adapter to stop in. It becomes real work the day one ships |
+| `willSave` | complete and empty | ignored: nothing happens before a save that does not happen on `didSave`, and doing the analysis twice would only make the save slower |
+| `didChangeConfiguration` | complete and empty | ignored: there is no setting to change. Every `Flags` the server builds is the default one, and the first real setting turns this into work |
+| `notebookDocument/didOpen`, `didChange`, `didSave`, `didClose` | complete and empty | ignored, and `notebookDocumentSync` is not advertised: a Buri module belongs to a target declared in a `BUILD.buri`, and a notebook cell has no target for the toolchain to compile it in |
+| `documentLink/resolve` | complete and empty | every link target is computed when the file is scanned — workspace path resolution is not lazy — so the resolve will be advertised `false` when `documentLink` itself lands, and is refused until then |
 | `didChangeWatchedFiles`, `client/registerCapability` | served | the watcher is registered after `initialized`, and only for a client whose `initialize` said it accepts one |
 | `didChangeWorkspaceFolders`, `workspace/workspaceFolders` | served | the server asks for the folders when a client that knows about them named none |
 | `semanticTokens` | deferred | the tree-sitter grammar in `editors/` already colours a file, and a second answer to a coloured question is a way for the two to disagree |
 | `inlayHint` | deferred | the types are there; what a hint needs is a judgement about where one is help and where it is clutter, which is a rendering decision rather than a lookup |
 | `callHierarchy` | deferred | incoming calls are the references scan grouped by the body each is in, and outgoing calls are one body's calls listed; what is missing is only the request's own two-step protocol over an answer `references` already gives |
-| `linkedEditingRange` | deferred | for syntax that writes one name at both ends of a construct. Buri writes each name once |
 | `documentLink` | deferred | a link is a URL in a comment; an import path is already `definition` |
 | `codeLens` | deferred | a lens spends a line of screen above a declaration, and nothing in the toolchain currently produces a count worth that line |
 | `rangeFormatting`, `onTypeFormatting` | deferred | `buri format` is whole-file and canonical. A formatter with no partial mode has nothing to give a range, and formatting part of a file is how an editor and the command come to disagree about it |
 | work-done progress | deferred | no request long enough to report progress on |
+
+**Everything not in that table is refused**, with the protocol's own
+`-32601 MethodNotFound` and the method's name in the message. A refusal is still
+a reply, which is the part that matters: a client that got nothing back waits
+forever, and that presents as the server having hung. It used to be
+`result: null`, which is worse than an error rather than safer — several
+requests have no legal null result at all, so a client asking for one was handed
+a shape it could not read. An unknown *notification* is dropped, because a
+notification has no reply to give.
 
 ## When it analyses
 
@@ -261,10 +300,12 @@ server that keeps up with typing and one that does not:
   the other reason this does not happen on a keystroke. A finding's severity is
   the one the terminal prints, `REPO.buri`'s `fail_on_finding` included.
 - **On a hover, a definition, a type definition, a highlight, a completion, a
-  signature help, a moniker or a `prepareRename`** the server analyses the target
-  owning the file — everything those have to decide is inside its closure. A
-  moniker is built from where the declaration is, and a file's own closure is
-  where the declarations it names are.
+  signature help, a moniker, a `documentColor` or a `prepareRename`** the server
+  analyses the target owning the file — everything those have to decide is
+  inside its closure. A moniker is built from where the declaration is, and a
+  file's own closure is where the declarations it names are. A colour is a
+  constructor call written in the file, and the file's own closure is what
+  checked it.
 - **On a references, a rename, a workspace symbol query, an implementation or
   either half of a type hierarchy** it analyses every target in the repository,
   as one compilation, because a name is used — and implemented — wherever it is
@@ -272,7 +313,9 @@ server that keeps up with typing and one that does not:
   are.
 - **On an outline, a fold or a selection range** it analyses nothing: those read
   a parse of the one buffer. A definition in a build file analyses nothing
-  either — it loads the repository and asks the graph.
+  either — it loads the repository and asks the graph. Nor does a
+  `colorPresentation`: the range came from the `documentColor` answer, and what
+  goes there is decided by the colour and by how the source spelled the call.
 - **On a change to a watched file or to the open folders** it asks every open
   buffer's own target again, because a build file decides what every file in its
   package can see and there is no one buffer that changed.

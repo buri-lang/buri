@@ -1,0 +1,25 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A linked edit is for syntax that spells one name at both ends of a construct.
+# Buri writes every name once, so the answer is `null` on a name...
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/linkedEditingRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 4, "character": 15}}}
+# ...and `null` on everything that is not one. There is no position in the
+# language where it is a different answer.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/linkedEditingRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 5, "character": 0}}}
+# Inline values are sent from a stopped debug session. Buri has no debug
+# adapter, so no client can reach the state that asks — the list is empty
+# rather than absent, because the request is one this server understands.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/inlineValue", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 8, "character": 0}, "end": {"line": 8, "character": 47}}, "context": {"frameId": 1, "stoppedLocation": {"start": {"line": 8, "character": 0}, "end": {"line": 8, "character": 47}}}}}
+# A workspace query answers with a complete `Location`, computed from what the
+# scan already had. That is why `workspaceSymbolProvider` says
+# `resolveProvider: false`...
+{"jsonrpc": "2.0", "id": 5, "method": "workspace/symbol", "params": {"query": "fromCents"}}
+# ...and why the resolve request is refused rather than served: a client that
+# read the capability never sends it, and one that sends it anyway is asking
+# for a method this server does not have.
+{"jsonrpc": "2.0", "id": 6, "method": "workspaceSymbol/resolve", "params": {"name": "fromCents", "kind": 12, "location": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+# The same refusal for a resolve whose provider does not exist yet at all.
+{"jsonrpc": "2.0", "id": 7, "method": "documentLink/resolve", "params": {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -1,0 +1,21 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Every `Color` constructor the file spells out. Two of the three are here: the
+# one on line 14 has a parameter for its red channel, and a swatch beside it
+# would be a guess at what that parameter is worth at run time.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/documentColor", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/palette.buri"}}}
+# The picker, over `Color.Rgb(255, 128, 0)`, handed a new colour. The `Color.`
+# the source wrote comes back with it — a replacement that dropped it would
+# leave a file that no longer resolves.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/colorPresentation", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/palette.buri"}, "color": {"red": 0.0, "green": 0.5, "blue": 1.0, "alpha": 1.0}, "range": {"start": {"line": 4, "character": 26}, "end": {"line": 4, "character": 48}}}}
+# The same colour the answer above reported for `.Rgba(16, 32, 48, 0.5)`, sent
+# straight back: the round trip writes the literal that was already there.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/colorPresentation", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/palette.buri"}, "color": {"red": 0.06274509803921569, "green": 0.12549019607843137, "blue": 0.18823529411764706, "alpha": 0.5}, "range": {"start": {"line": 8, "character": 4}, "end": {"line": 8, "character": 26}}}}
+# The shorthand `.` is kept too, and an alpha the picker turned all the way up
+# is offered as `Rgb`: the fourth argument has nothing left to say.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/colorPresentation", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/palette.buri"}, "color": {"red": 1, "green": 1, "blue": 1, "alpha": 1}, "range": {"start": {"line": 8, "character": 4}, "end": {"line": 8, "character": 26}}}}
+# A file that names no colour has none, rather than having nothing to say.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/documentColor", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/lib.buri"}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
