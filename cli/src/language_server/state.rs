@@ -1335,36 +1335,28 @@ impl State {
         None
     }
 
-    /// Everything the last complete sweep of this repository said, merged.
-    pub fn reported_findings(&mut self, root: &Path) -> super::Published {
-        let mut merged = super::Published::new();
-        for ((at, _), known) in &self.target_findings {
-            if at == root {
-                let found = known.found.clone();
-                merge_findings(&mut merged, &found);
-            }
-        }
-        merged
-    }
-
     /// Waits for every sweep asked for, and believes what they found.
-    pub fn settle_sweeps(&mut self) -> Vec<PathBuf> {
+    pub fn settle_sweeps(&mut self) -> Vec<super::Published> {
         self.sweeps.settle(&self.open);
         self.take_swept()
     }
 
-    /// Believes whatever the worker has finished, and says which repositories
-    /// that was.
-    pub fn take_swept(&mut self) -> Vec<PathBuf> {
+    /// Believes whatever the worker has finished, and hands over what each
+    /// sweep reported.
+    pub fn take_swept(&mut self) -> Vec<super::Published> {
         self.sweeps.collect(&self.open);
-        let mut roots = Vec::new();
-        for swept in self.sweeps.take_landed() {
-            if !roots.contains(&swept.root) {
-                roots.push(swept.root.clone());
+        let mut reports = Vec::new();
+        for mut swept in self.sweeps.take_landed() {
+            // An abandoned sweep is not a report: the targets it never reached
+            // are simply absent from it, and publishing that would tell the
+            // editor their findings are fixed. What it did reach is still
+            // filed, so the sweep that replaces it starts from there.
+            if !swept.abandoned {
+                reports.push(std::mem::take(&mut swept.found));
             }
             self.absorb(swept);
         }
-        roots
+        reports
     }
 
     /// One sweep's report, filed where the request thread reads it.
