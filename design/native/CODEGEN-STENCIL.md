@@ -20,9 +20,11 @@ side the four kernels are **1.38×** Cranelift `opt_level=none`, from 1.86×
 before §5.1's slots-only `crt` family, and the geomean against LLVM `-O0` is
 **0.927** — the paper's own bar, met here for the first time, though Cranelift
 clears it by more. What is left of the gap is one kernel (`core/list`'s closure
-surface, 2.9×) rather than the boundary. And it is one target where Cranelift is
-four, which is now by a wide margin the largest difference on the list and is
-not a performance one at all.
+surface, 2.9×) rather than the boundary. Target coverage was the largest
+remaining difference and is now **three targets against Cranelift's four**:
+`macos-arm64`, `linux-arm64` and `linux-x86_64` all emit, link and run. The
+fourth, `macos-x86_64`, is a combination this repository builds no library for
+and does not intend to — §10.3.
 
 **A runaway recursion traps.** The Buri stack has a `PROT_NONE` guard above it
 (§8), so a program that recurses past it faults where a Cranelift-compiled one
@@ -303,16 +305,32 @@ Two details that are easy to get wrong and are not:
   carries `-5`; a patcher that assumed four would aim every such reference one
   byte past its target. `x86.rs` records `(instruction end, field)` per site
   rather than a constant anywhere.
-* **a relocation against a symbol the object itself defines is not a hole.** It
-  is a constant clang spilled into `.rodata`, and there is nowhere to put one.
-  Thirty keys of 13,904 do it, all in three families where AArch64 has an
+* **a relocation against a symbol the object itself defines is not a hole** — it
+  is a constant clang spilled into `.rodata`, and there is no value to bind to
+  it. Thirty keys of 13,904 do it, all in three families where AArch64 has an
   instruction and x86-64 has a constant: `un/neg/f32` and `un/neg/f64` (`fneg`
   against an `xorps` sign mask), `cvt/u2f` (`ucvtf` against the two-bias
-  `unsigned long long` → `double` sequence), and `chk/div/i128`. Those keys are
-  **dropped** and the emitter refuses those IR shapes with a sentence; the other
-  13,874 are unaffected. `the_x86_64_library_drops_only_the_spilled_constant_families`
-  is the bound, and it is a bound rather than a list because a drop that spread
-  is exactly the failure a per-key refusal makes easy to miss.
+  `unsigned long long` → `double` sequence), and `chk/div/i128`.
+
+  Those keys used to be **dropped**, which cost the corpus `cvt/u2f`. They are
+  not any more: the referenced section's bytes travel with the stencil
+  (`library::ConstRef`) and `jit.rs` copies them into the emitted unit's own
+  constant pool, once per unit, aiming the reference at the copy with an
+  `R_X86_64_PC32`. That is what the linker would have done with clang's
+  `.rodata`, so nothing is rewritten and nothing is approximated — the
+  alternative, writing the negation as an integer XOR in the generated C, would
+  have changed all three libraries and been folded back into an `fneg` by
+  InstCombine on the one where it mattered.
+
+  Two things it has to get right, and both are asserted: the pool is
+  **sixteen-aligned** on this target (`region::POOL_ALIGN_X86_64`), because
+  `unpcklps` and `subpd` fault on a misaligned operand rather than running
+  slower; and a section asking for more than sixteen is refused rather than
+  under-aligned. `the_x86_64_library_covers_what_the_arm64_ones_do` is now the
+  assertion — the three libraries cover the same 13,904 operations — and
+  `the_spilled_constant_families_carry_their_bytes` is what says the constants
+  are actually carried rather than the families having quietly stopped needing
+  them.
 
 ## 4. From a JIT to a backend
 
@@ -715,13 +733,15 @@ six conformance files:
 
 **stencil's own, and each is a sentence rather than a wrong answer:**
 
-* **x86-64 execution.** The stencils are built and extracted (§3.2) and
-  `elf.rs` writes the container, but `asm.rs`'s two hand-written shims have no
-  SysV counterpart, so `mod.rs::supported` refuses the target with that sentence
-  rather than emitting an object with arm64 bytes in `main`. §10.3 is the list.
-* **Linux execution from this host.** `linux-arm64` emits objects that a real
-  linker accepts and fully resolves, and that is as far as *this* machine can
-  go — §10.1 says why. CI runs the programs (§10.2).
+* **macOS on x86-64.** No stencil library is built for it, and none is intended:
+  a stencil is the bytes clang emitted for a C function, so that combination
+  needs x86-64 instructions in a Mach-O, and nothing this repository runs on or
+  ships to is that. `mod.rs::supported` refuses it by name, and
+  `an_unsupported_cross_target_is_refused_with_a_reason` holds the sentence.
+  The other three targets all emit, link and run (§10.3).
+* **Linux execution from this host.** Both Linux targets emit objects that a
+  real linker accepts and fully resolves, and that is as far as *this* machine
+  can go — §10.1 says why. CI runs the programs on both (§10.2, §10.3).
 * **Debug information** — neither DWARF nor `.buri_symbols`, which is the gap
   `cranelift/mod.rs` records for itself too.
 * **In-place `str.concat`.** `cranelift/helpers.rs`'s appends into the left
@@ -836,56 +856,106 @@ host's own, gcc understands neither, and `cli/build.rs` degrades to an empty
 library rather than failing — so a run with gcc as `cc` is a green run that
 checked nothing.
 
-### 10.3 The x86-64 emitter, which is not written
+### 10.3 The x86-64 emitter, and the six things it needed
 
-**x86_64-unknown-linux-gnu** needs everything the aarch64 column needed and,
-before any of it can be asked, six pieces:
+**x86_64-unknown-linux-gnu emits, links and runs.** It needed everything the
+aarch64 column needed and, before any of it could be asked, six pieces. Each is
+listed here as it was written, because the shape of the answer is the argument
+for it.
 
 1. **`asm.rs`: a SysV entry point.** `program_entry`, `test_entry` and
-   `install_guard`, hand-encoded, with `rdi` as the frame pointer. This is the
-   one piece that is deliberately not written here: it is 900 lines of
-   convention in the arm64 case, and writing its twin on a machine that cannot
-   execute a single instruction of it would be speculation with a code
-   generator's name on it. `asm::AVAILABLE_X86_64` is the flag that says so.
-2. **`jit.rs`: the patcher.** Four small functions, and the shapes are already
-   decided by §3.2's table: `rel32` from the instruction's end for a branch and
-   for a `jcc` (the same arithmetic, unlike arm64 where they are different
-   fields); the `lea` → `mov` rewrite for `Imm32`; and the pool retarget for
-   `Imm64`, which must use the **per-site instruction end** recorded in
-   `Hole::pairs` and not a constant four. Note that `pairs` means
-   `(instruction end, field)` on x86-64 and `(adrp, add)` on AArch64 — the two
-   ISAs never share a patcher, and each meaning is stated where it is produced
-   and where it is consumed.
-3. **`region.rs`: an x86-64 relocation vocabulary.** `RelocKind` is
-   `Branch26`/`Abs64`/`Page21`/`PageOff12`, which is an arm64 list.
-   `elf::r_type` maps the first two and **errors** on the last two for an
-   x86-64 target; that error is where this gap is meant to show, rather than a
-   nearest-number guess.
-4. **The narrower register file.** SysV gives five integer registers to the CPS
-   file against AAPCS64's seven (`abi::CAP_REGS_SYSV`). `NREGS` is three and
-   fits both, and the static assertion in `abi.rs` says so — but the *`crt`*
-   family flattens up to ten integer arguments, and past the sixth SysV puts
-   them on the machine stack where AAPCS64 puts them past the eighth. That is
-   clang's business inside the stencil, and it is worth confirming rather than
-   assuming.
-5. **The thirty dropped keys.** `un/neg/f32` and `un/neg/f64` are the ones a
-   real program hits. They could be recovered by writing the negation as an
-   integer XOR of the sign bit instead of `-x`: `0x8000000000000000` is an
-   encodable AArch64 logical immediate, so that form is *also* one instruction
-   with no memory reference there, and it would remove a `.rodata` constant
-   here. It was not done, and the reason is scope discipline rather than doubt:
-   it changes the generated C, so it changes 4.19 MB of `macos-arm64` stencils,
-   which means a fresh cache seed and a full 997-file re-run to land. It belongs
-   in the same change as the x86-64 emitter, where it can be measured.
-6. **`swap_arms` has no x86-64 counterpart**, because it is the twin of
-   `fold_cond` and `fold_cond` is unnecessary there. Whether picking the
-   fall-through arm is worth an instruction-motion pass on this ISA is a
-   measurement, and it needs a machine that can run one.
+   `install_guard`, hand-encoded, with `rdi` as the frame pointer. It is the
+   A64 shim instruction for instruction and decision for decision — the same
+   `buri_rt_argv_init` first, the same guard, the same `cbz`/`cbnz` sense on the
+   niche test — and only two things differ, both forced by the machine. `rsp`
+   must be sixteen-aligned at every `call` and `main` is entered with the return
+   address already pushed, so one `push rbp` opens the shim and nothing below it
+   moves `rsp` again; and an address is one instruction, so `adrp`/`add` against
+   the stack symbol becomes `lea rD, [rip+sym]` and one `R_X86_64_PC32`, and
+   `bl` becomes `call rel32` and one `R_X86_64_PLT32`.
 
-None of that is started, and the workflow says so rather than staying quiet.
-Its `linux-x86_64` job asserts that
-`an_unsupported_cross_target_is_refused_with_a_reason` runs and passes on an
-x86-64 Linux host, and that the executing suite **skips** there. A census
-printed on x86-64 would mean `stencil::AVAILABLE` had become true without
-`asm.rs` gaining the SysV entry point item 1 asks for, which is the one way this
-port could go wrong quietly.
+   One thing is *not* symmetric and is the only place the two shims read
+   differently: an emitted function answers the frame pointer it was handed in
+   **`rax`**, not in the register it arrived in, because every stencil is
+   `uint64_t *st_…(uint64_t *fp, …) { … return fp; }` and that is where a C
+   return value lives here. So the return area is read off `rax`.
+
+   Every byte sequence in `asm.rs`'s x86-64 tests was disassembled with
+   `llvm-mc -triple=x86_64-unknown-linux-gnu` and read back against what it is
+   named for; the tests carry that listing as their comments.
+
+2. **`jit.rs`: the patcher.** Four small functions, and the shapes were already
+   decided by §3.2's table. `patch_rel32` serves a branch, a call and a `jcc`
+   alike — the same arithmetic, unlike A64 where they are different fields — and
+   is what `patch_branch` and `patch_cond` become on this target, with no veneer
+   because a 32-bit displacement always reaches. `patch_pc32_imm` is the
+   `lea` → `mov` rewrite for `Imm32`, in the seven bytes the `lea` occupied.
+   `patch_imm64_x86_64` is the pool retarget for `Imm64`, which uses the
+   **per-site instruction end** recorded in `Hole::pairs` and not a constant
+   four, and which takes the same fits-in-32-bits relaxation A64 takes — guarded
+   on the instruction actually being a plain `mov rD, [rip+disp32]`, since a
+   float immediate arrives as `movsd` and a small comparison as `cmpl $0, …` and
+   neither may become a `mov` of a literal.
+
+   The fallthrough elision drops **five** bytes here and four there, because the
+   trailing branch is a `jmp rel32` and not an instruction word.
+
+3. **`region.rs`: an x86-64 relocation vocabulary.** `RelocKind` gained
+   `Rel32` and `Pc32` beside the four A64 kinds; `elf::r_type` maps them to
+   `R_X86_64_PLT32` and `R_X86_64_PC32`, and still **errors** on a kind the
+   target has no counterpart for in either direction. The addend is explicit
+   everywhere, because on this machine it has to be: a `rel32` and a
+   rip-relative `disp32` are measured from the end of their instruction and the
+   psABI computes from the start of the field.
+
+4. **The narrower register file.** SysV gives five integer registers to the CPS
+   file against AAPCS64's seven (`abi::SYSV_REGISTER_CAPACITY`). `NREGS` is
+   three, fits both, and the static assertion in `abi.rs` says so. The `crt`
+   family flattens up to ten integer arguments and past the sixth SysV puts them
+   on the machine stack where AAPCS64 puts them past the eighth — that is
+   clang's business inside the stencil, and the corpus is what confirms it,
+   since `crts/7/*` upward is reached by the wide runtime entries
+   `numbers/integers.buri` and `data/strings.buri` exercise.
+
+5. **The thirty dropped keys.** Recovered, and not the way this section
+   originally proposed. Rewriting the negation as an integer XOR would have
+   changed the generated C, hence all three libraries, hence a fresh cache seed
+   and a full 997-file re-run — and it would not have worked, because
+   InstCombine folds `bitcast(xor(bitcast x, signbit))` straight back to `fneg`
+   and the `xorps` constant would have returned. What was done instead is
+   faithful and costs no arm64 byte: the spilled section's bytes travel with the
+   stencil and the emitter copies them into the unit's own constant pool. §3.2
+   has the detail. The three libraries now cover the same 13,904 operations.
+
+6. **`swap_arms` has no x86-64 counterpart**, and still does not. It is the
+   twin of `fold_cond`, `fold_cond` is unnecessary here, and whether picking the
+   fall-through arm is worth an instruction-motion pass on this ISA is a
+   measurement — one that now *can* be made, since CI runs these programs, but
+   one this change did not make. It is the single thing on this list left open.
+
+**What CI confirms.** `.github/workflows/ci.yml`'s `linux-x86_64` job is the
+twin of the `linux-arm64` one and asserts the same things on the other
+instruction set: the census printed (so the suite was live and the corpus is at
+macOS parity — 26 of 36, the same 26), every program run, the stack guard's
+`mprotect` and Linux's signal disposition for a `PROT_NONE` page, leak parity
+through `buri_rt_heap_stats`, `--check-reproducible` on a linked
+`linux/x86_64` artifact, and both linkers' idea of an ELF image. That job used
+to assert the executing suite **skipped**; it now asserts it **ran**, by the
+same census line, and that is the difference the entry point made.
+
+What a maintainer's own machine can still say is bounded in the same way §10.1
+bounds it, and one thing is worth naming: `linux_x86_64_objects_link_and_every_relocation_resolves`
+links real unit objects with `ld.lld` against a generated stub and checks that
+every relocation resolves and that the image still disassembles. That proves
+more here than its arm64 twin does — a `rel32` or a rip-relative `disp32`
+written at the wrong offset lands inside a *variable-length* instruction, so the
+listing does not merely decode wrongly, it desynchronises.
+
+**macOS on x86-64 stays unsupported**, and deliberately. Building it is within
+reach of the existing tooling — `sources.rs::compile_flags` would take
+`-target x86_64-apple-darwin` and `machobj.rs` already reads Mach-O — but the
+*emitter* side is not free: `object.rs` writes A64 relocation types
+(`ARM64_RELOC_*`) and would need an x86-64 Mach-O vocabulary of its own,
+`RelKind::r_type` answers `None` for the two x86-64 kinds precisely so that a
+Mach-O object can never carry one, and nothing this repository runs on or ships
+to is that machine. It is refused by name, and that refusal is a test.
