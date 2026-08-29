@@ -1,0 +1,14 @@
+// Two independent mistakes in one file: `describe` returns the wrong type, and
+// `str` is imported and never used. The second is not a consequence of the
+// first — the rule that finds it reads the file's tokens — so a report that
+// stopped at the type error would be hiding an answer it already had.
+
+from "core/str" import * as str;
+
+export struct Cents(export I64);
+
+export fn fromCents(c: I64): Cents { Cents(c) }
+
+export fn describe(c: Cents): Str {
+  c
+}

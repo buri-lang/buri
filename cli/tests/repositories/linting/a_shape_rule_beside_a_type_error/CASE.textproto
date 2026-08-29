@@ -1,0 +1,36 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a shape rule in a file that does not check: `too-many-parameters` is read off the declaration, so a body the checker refused takes nothing away from it"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The body checks now. The parameter list is what it always was, and so is the
+# finding about it.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  a\n"
+  with: "  \"some cents\"\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "without_the_error.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "a: I64, b: I64, c: I64, d: I64, e: I64, f: I64"
+  with: "a: I64, b: I64, c: I64, d: I64, e: I64"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

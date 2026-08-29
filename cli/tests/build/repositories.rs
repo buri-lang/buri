@@ -78,7 +78,7 @@ fn proto_schemas() {
 /// lands, and what a misspelled field in the block costs.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 19);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 22);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the

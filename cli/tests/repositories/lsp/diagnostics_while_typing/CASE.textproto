@@ -11,7 +11,8 @@ run {
   golden: "typing.txt"
 }
 
-# The type error goes; the unused import it was hiding does not.
+# The type error goes. The unused import was published beside it all along and
+# is still there afterwards, which is what says the two are separate answers.
 edit {
   file: "lib/counter/counter.buri"
   replace: "let myStr: Str = 1;"

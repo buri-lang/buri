@@ -27,6 +27,7 @@ use crate::build::workspace::{PackageId, RuleKind, TargetId};
 use crate::commands::arguments;
 use crate::compiler::modules::{ModuleData, Unit};
 use crate::compiler::semantics::typed;
+use crate::compiler::semantics::types::{FnId, ModuleId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -139,6 +140,10 @@ fn one_target(
     seen_packages: &mut BTreeSet<crate::build::workspace::PackageId>,
     diagnostics: &mut Diagnostics,
 ) {
+    // What the analysis found is part of the report, and it never displaces the
+    // rest of it: a target that does not type check is still a target with an
+    // import nothing uses, and the two are found by different questions.
+    diagnostics.extend(analysis.diagnostics.items.clone());
     if seen_packages.insert(target.package) {
         check_sources_declared(session, target.package, diagnostics);
         check_test_suites(session, target.package, diagnostics);
@@ -452,11 +457,6 @@ fn check_dependencies(
     analysis: &crate::compiler::driver::Analysis,
     diagnostics: &mut Diagnostics,
 ) {
-    if analysis.diagnostics.has_errors() {
-        diagnostics.extend(analysis.diagnostics.items.clone());
-        return;
-    }
-
     // The hygiene rules ask about the same modules this analysis already
     // loaded, so they ride along rather than paying for a second one.
     check_hygiene(session, target, analysis, diagnostics);
@@ -565,6 +565,111 @@ fn editable_modules_of(
         .collect()
 }
 
+/// What an analysis could not vouch for, so that a target with a type error is
+/// still linted everywhere the error cannot reach.
+///
+/// The checker stops where a body stops making sense: the expression it failed
+/// on becomes a leaf and everything written under it is gone from the typed
+/// tree. A rule reading that tree would then call a name unused because its
+/// only use sat in the part that went missing. So the rules that read it ask
+/// here first and stay silent for exactly the broken body, rather than the
+/// whole target — which is what the early return this replaced did.
+#[derive(Default)]
+struct Unchecked {
+    /// Modules with an error outside every body: an import that resolved to
+    /// nothing, a declaration that did not check. What such a module binds is
+    /// not the whole account of what its code can see.
+    modules: BTreeSet<ModuleId>,
+    /// Functions whose body cannot be read — an error inside it, or an
+    /// unchecked module around it.
+    bodies: BTreeSet<FnId>,
+    /// Where those bodies are, for the rules that hold a span rather than a
+    /// function.
+    ranges: Vec<Span>,
+}
+
+impl Unchecked {
+    fn of(analysis: &crate::compiler::driver::Analysis) -> Unchecked {
+        use crate::diagnostics::FileId;
+        let mut unchecked = Unchecked::default();
+        // By file, and each error carrying whether some body claimed it. Most
+        // of a compilation is code the repository merely reads, so a body in a
+        // file nothing is wrong with has to cost a lookup rather than a scan.
+        let mut errors: std::collections::BTreeMap<FileId, Vec<(Span, bool)>> =
+            std::collections::BTreeMap::new();
+        for d in &analysis.diagnostics.items {
+            if d.is_error() && !d.span.is_none() {
+                errors.entry(d.span.file).or_default().push((d.span, false));
+            }
+        }
+        if errors.is_empty() {
+            return unchecked;
+        }
+
+        // A function's whole declaration, from its name to the end of its
+        // body: an error on a parameter's type is as much a reason not to read
+        // the body as one inside it.
+        let mut extents: Vec<(Span, FnId, ModuleId)> = Vec::new();
+        for (fid, body) in &analysis.checked.bodies {
+            let info = analysis.checked.tables.fn_info(*fid);
+            let Some(in_file) = errors.get_mut(&info.span.file) else { continue };
+            if info.span.file != body.expr.span.file {
+                continue;
+            }
+            let start = info.span.start.min(body.expr.span.start) as usize;
+            let end = info.span.end.max(body.expr.span.end) as usize;
+            let extent = Span::new(info.span.file, start, end);
+            let mut broken = false;
+            for (error, inside_a_body) in in_file.iter_mut() {
+                if error.start <= extent.end && error.end >= extent.start {
+                    *inside_a_body = true;
+                    broken = true;
+                }
+            }
+            if broken {
+                unchecked.bodies.insert(*fid);
+            }
+            extents.push((extent, *fid, info.module));
+        }
+
+        // An error nowhere near a body is about the module itself.
+        let modules: std::collections::BTreeMap<FileId, ModuleId> =
+            analysis.loaded.modules.iter().map(|m| (m.file, m.id)).collect();
+        for (file, in_file) in &errors {
+            if in_file.iter().any(|(_, inside_a_body)| !inside_a_body) {
+                if let Some(module) = modules.get(file) {
+                    unchecked.modules.insert(*module);
+                }
+            }
+        }
+
+        for (extent, fid, module) in &extents {
+            if unchecked.modules.contains(module) {
+                unchecked.bodies.insert(*fid);
+            }
+            if unchecked.bodies.contains(fid) {
+                unchecked.ranges.push(*extent);
+            }
+        }
+        unchecked
+    }
+
+    fn body(&self, function: FnId) -> bool {
+        self.bodies.contains(&function)
+    }
+
+    fn module(&self, module: ModuleId) -> bool {
+        self.modules.contains(&module)
+    }
+
+    /// Whether a span sits in a body that did not check.
+    fn at(&self, span: Span) -> bool {
+        self.ranges
+            .iter()
+            .any(|r| r.file == span.file && span.start >= r.start && span.end <= r.end)
+    }
+}
+
 fn check_hygiene(
     session: &Session,
     target: TargetId,
@@ -572,6 +677,7 @@ fn check_hygiene(
     diagnostics: &mut Diagnostics,
 ) {
     let own = target.package;
+    let unchecked = Unchecked::of(analysis);
     for m in &analysis.loaded.modules {
         if m.pkg == Some(own) && !is_generated(&m.path) {
             check_unused_imports(session, m, diagnostics);
@@ -580,12 +686,12 @@ fn check_hygiene(
             check_function_shapes(session, m, diagnostics);
         }
     }
-    check_dead_code(session, target, analysis, diagnostics);
-    check_ctx_rebindings(own, analysis, diagnostics);
+    check_dead_code(session, target, analysis, &unchecked, diagnostics);
+    check_ctx_rebindings(own, analysis, &unchecked, diagnostics);
     check_discarded_results(own, analysis, diagnostics);
-    check_unused_variables(own, analysis, diagnostics);
+    check_unused_variables(own, analysis, &unchecked, diagnostics);
     check_deep_nesting(own, analysis, diagnostics);
-    check_tests_assert(own, analysis, diagnostics);
+    check_tests_assert(own, analysis, &unchecked, diagnostics);
     check_test_titles(own, analysis, diagnostics);
 }
 
@@ -735,13 +841,16 @@ fn markers_in(text: &str, from: usize, to: usize, out: &mut Vec<(usize, &'static
 fn check_unused_variables(
     own: PackageId,
     analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
     diagnostics: &mut Diagnostics,
 ) {
     use crate::compiler::semantics::types::LocalId;
     let mine = editable_modules_of(analysis, own);
     let mut found: Vec<(Span, String)> = Vec::new();
     for (fid, body) in &analysis.checked.bodies {
-        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) {
+        // The reads are what this counts, and a body that did not check has
+        // lost the ones under whatever it failed on.
+        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) || unchecked.body(*fid) {
             continue;
         }
         let mut read: BTreeSet<LocalId> = BTreeSet::new();
@@ -882,6 +991,7 @@ fn check_dead_code(
     session: &Session,
     target: TargetId,
     analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
     diagnostics: &mut Diagnostics,
 ) {
     // A binary has no surface — nothing may import its modules — so the rule
@@ -890,6 +1000,12 @@ fn check_dead_code(
         return;
     }
     let own = target.package;
+    // What reaches an export is written at the top of a module — `lib.buri`'s
+    // re-exports, and what a sibling imports — so one module of the package
+    // that did not resolve is enough to make a live name look unreached.
+    if modules_of(analysis, own).iter().any(|m| unchecked.module(*m)) {
+        return;
+    }
     let Some(surface) = analysis.checked.surfaces.get(&own) else { return };
 
     // What a sibling module inside the same package imports or re-exports, and
@@ -1102,6 +1218,7 @@ fn line_end(text: &str, at: u32) -> u32 {
 fn check_ctx_rebindings(
     own: PackageId,
     analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
     diagnostics: &mut Diagnostics,
 ) {
     let mine: BTreeSet<crate::diagnostics::FileId> = analysis
@@ -1111,12 +1228,14 @@ fn check_ctx_rebindings(
         .filter(|m| m.pkg == Some(own) && !is_generated(&m.path))
         .map(|m| m.file)
         .collect();
+    // Where a context may be built is a question about the function's bounds,
+    // so a signature that did not check is one this cannot answer.
     let mut found: Vec<Span> = analysis
         .checked
         .ctx_rebindings
         .iter()
         .copied()
-        .filter(|span| mine.contains(&span.file))
+        .filter(|span| mine.contains(&span.file) && !unchecked.at(*span))
         .collect();
     found.sort_by_key(|span| (span.file.0, span.start));
     for span in found {
@@ -1146,9 +1265,9 @@ fn check_discarded_results(
 fn check_tests_assert(
     own: PackageId,
     analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
     diagnostics: &mut Diagnostics,
 ) {
-    use crate::compiler::semantics::types::FnId;
     let mine = modules_of(analysis, own);
 
     let asserts = |f: FnId| -> bool {
@@ -1169,9 +1288,16 @@ fn check_tests_assert(
         let mut seen: BTreeSet<FnId> = BTreeSet::new();
         let mut queue = vec![case.func];
         let mut found = false;
+        // A body that did not check has lost whatever it called, so what is
+        // reachable from it is not something this can claim to know.
+        let mut unreadable = false;
         while let Some(f) = queue.pop() {
             if !seen.insert(f) {
                 continue;
+            }
+            if unchecked.body(f) {
+                unreadable = true;
+                break;
             }
             if asserts(f) {
                 found = true;
@@ -1187,7 +1313,7 @@ fn check_tests_assert(
                 };
             });
         }
-        if found {
+        if found || unreadable {
             continue;
         }
         diagnostics.push(
