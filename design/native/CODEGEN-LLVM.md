@@ -1,9 +1,9 @@
 # The LLVM backend
 
 The release backend: `buri build --release` for `Linux` and `Macos`
-(ARCHITECTURE.md §4). It exists to do the one thing the middle end and Cranelift
-between them do not — instruction selection, scheduling, register allocation and
-vectorization at production quality.
+(ARCHITECTURE.md §4). It exists to do the one thing the middle end and the debug
+backend between them do not — instruction selection, scheduling, register
+allocation and vectorization at production quality.
 
 Facts about LLVM and inkwell were checked against inkwell 0.10.0 (2026-08-06),
 `llvm-sys` 211.x, and LLVM 21.1, which is what §8 pins.
@@ -52,7 +52,7 @@ per-unit compile time in `--release` is what dominates a release build.
 
 ### 2.1 Block parameters become phis, mechanically
 
-`middle::ir` is block-argument SSA (CODEGEN-CRANELIFT.md §1). Block parameters and
+`middle::ir` is block-argument SSA (CODEGEN-STENCIL.md §0). Block parameters and
 phi nodes are the same construct in two notations, and the transliteration is:
 
 | `middle::ir` | LLVM |
@@ -384,7 +384,7 @@ a redundant pass on a module it has nothing to do costs approximately nothing.
 | `set_merge_functions` | `true` | Monomorphization produces structurally identical functions at different types — `Option<A>` and `Option<B>` where both are pointer-sized, every `[T]` helper at two pointer-shaped `T`s. Merging them is free size. |
 | `set_loop_unrolling` | default (on) | |
 | `set_loop_vectorization` | default (on) | The point of `--release` on `[Int]` folds. |
-| `set_verify_each` | `cfg!(debug_assertions)` | Checks our IR, not LLVM's; the same rule as Cranelift's verifier (CODEGEN-CRANELIFT.md §4). |
+| `set_verify_each` | `cfg!(debug_assertions)` | Checks our IR, not LLVM's: worth its cost in a toolchain built with assertions and pure overhead in a release one. |
 
 The legacy `PassManager` is deprecated in inkwell 0.9.0 and is gated
 `#[llvm_versions(..=16)]` — it does not exist at all on LLVM 17 and above, so
@@ -484,8 +484,8 @@ is a middle-end gap that predates this design, and the fix is a middle-end one.
 ## 7. Debug info
 
 DWARF via inkwell's `DebugInfoBuilder`, in the release backend, from wave 3
-onward. It is cheaper here than in Cranelift (CODEGEN-CRANELIFT.md §5) because
-LLVM emits the sections; the frontend supplies `DILocation`s from
+onward. It is cheaper here than in the debug backend (CODEGEN-STENCIL.md §11)
+because LLVM emits the sections; the frontend supplies `DILocation`s from
 `typed::Expr::span`, which every node already carries (`typed.rs`), and
 `DISubprogram`s from `Func::debug_name` (`monomorphize.rs`).
 

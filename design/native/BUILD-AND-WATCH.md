@@ -1,15 +1,15 @@
 # Building the toolchain, and `buri test --watch`
 
-Three things this document settles: what the dependency policy becomes now that
-it cannot be "none", how the toolchain is built and shipped with two optional
-backends, and how a watch mode works given that the incremental test cache
-already exists.
+Three things this document settles: what the dependency policy becomes once it
+cannot be a list, how the toolchain is built and shipped with one optional
+backend beside the two that are always there, and how a watch mode works given
+that the incremental test cache already exists.
 
 ## 1. The dependency policy ends, and what replaces it
 
-The policy used to be "no dependencies at all", and native code generation ends
+The policy used to be "no dependencies at all", and native code generation ended
 that: a retargetable code generator is not something this repository can write.
-What replaces it is a **bar** rather than a list, because a list is a thing
+What replaced it is a **bar** rather than a list, because a list is a thing
 people add to. The bar and the argument for each of its three clauses are in the
 root `Cargo.toml`, where somebody about to add a dependency will meet them; they
 are not restated here.
@@ -20,15 +20,19 @@ What belongs here is what the bar admitted, and why each one clears it.
 
 | Crate | Feature | Why it clears the bar |
 |---|---|---|
-| `cranelift-codegen`, `-frontend`, `-module`, `-object`, `-native` | `backend-cranelift` | A retargetable code generator with four backends. Not writable here at any scale. |
-| `inkwell` (and `llvm-sys` transitively) | `backend-llvm` | Bindings to LLVM. Same, more so. |
-| `target-lexicon` | both | Comes in with Cranelift; a triple parser is small, but forking one to disagree with Cranelift's is worse than depending on Cranelift's. |
-| `object` | — | **Not a direct dependency.** `cranelift-object` depends on it and re-exports it, so version skew is a compile error. Nothing in this design needs it on the LLVM path — `TargetMachine::write_to_memory_buffer` produces the object. |
+| `inkwell` (and `llvm-sys` transitively) | `backend-llvm` | Bindings to LLVM. Not writable here at any scale. |
 
-That is the whole list. `Cargo.lock` names those packages plus their closures,
-and the flake carries a `cargoHash` because there is now something to hash.
+That is the whole list, and it is one row **off by default**, so the toolchain
+`cargo install buri` builds has no dependency closure at all. It had one until
+2026-08-29: `cranelift-{codegen,frontend,module,object,native}` behind
+`backend-cranelift`, and `target-lexicon` and `object`, which came in with them.
+Removing that backend (CODEGEN-STENCIL.md §13) took thirty-eight transitive
+crates with it — over half of `Cargo.lock` — and restored "none at all" for the
+default build without restoring it as a policy. The bar is still the bar, and
+the flake still carries a `cargoHash` because a build **with** `backend-llvm`
+still has something to hash.
 
-The third native backend admits nothing at all. `backend-stencil`
+The backend that took the debug seat admits nothing. `backend-stencil`
 (CODEGEN-STENCIL.md) is on by default and its feature list is empty: the
 copy-and-patch code generator is written in this repository, and the one thing
 it needs from outside is a host `cc` — a platform interface in exactly the sense
@@ -99,22 +103,18 @@ rust-analyzer all pair `notify` with a poll watcher for the cases it fails on).
 
 ```toml
 [features]
-default           = ["backend-cranelift", "backend-stencil"]
-backend-cranelift = ["dep:cranelift-codegen", "dep:cranelift-frontend",
-                     "dep:cranelift-module", "dep:cranelift-object",
-                     "dep:cranelift-native", "dep:target-lexicon"]
-backend-stencil   = []
-backend-llvm      = ["dep:inkwell"]
+default         = ["backend-stencil"]
+backend-stencil = []
+backend-llvm    = ["dep:inkwell"]
 ```
 
 There is no `backend-js` feature. The JavaScript backend is always compiled in:
 it needs nothing, it is what `driver::host_platform` still returns, and a
 feature whose only possible value is "on" is a flag nobody should have to read.
 
-**`backend-cranelift` is on by default.** Cranelift is pure Rust with no system
-dependency and cross-compiles anywhere Rust does, so having it on costs a
-contributor nothing but compile time, and having it off would mean the default
-toolchain cannot build a native artifact at all.
+There is no `backend-cranelift` feature either, and there was one — on by
+default, pulling five crates and a triple parser — until 2026-08-29.
+CODEGEN-STENCIL.md §13 is why it went and what went with it.
 
 **`backend-stencil` is on by default and adds no crate.** Its feature list is
 empty: the copy-and-patch backend (CODEGEN-STENCIL.md) is written here, and what
@@ -128,11 +128,16 @@ install-time cost paid once per toolchain build rather than a cost inside the
 loop, which is the same argument `libburi_rt.a` is built on, and it is the
 reason the feature is worth having a name.
 
-It degrades rather than breaks: a host with no `cc`, or a non-arm64 host, gets
-an **empty** library, `stencil::AVAILABLE` reads the emptiness, and the backend
-reports itself unavailable exactly as `runtime_native::AVAILABLE` does for the
-archive. Nothing else in a build changes, because `backend::select` never
-returns `stencil` in the first place (ARCHITECTURE.md §4).
+It degrades rather than breaks, and what "degrades" means changed when this
+backend took the debug seat. A host with no `cc`, or one with no library for its
+target, gets an **empty** library; `stencil::AVAILABLE` reads the emptiness and
+the backend reports itself unavailable, exactly as `runtime_native::AVAILABLE`
+does for the archive. `actions::native_ready` is then false, `host_platform()`
+answers `Js`, and a suite that names no platform is compiled and run as
+JavaScript with the reason printed. That is a real degradation rather than a
+no-op — it used to be a no-op, because `select` returned Cranelift and this
+backend was never asked — and it is the same degradation a toolchain built
+`--no-default-features` has always had.
 
 **`backend-llvm` is off by default.** It needs LLVM 21 installed and
 `LLVM_SYS_211_PREFIX` set (CODEGEN-LLVM.md §8). `cargo install buri` must not
@@ -141,7 +146,7 @@ require that, so it does not.
 ### 2.1 What a toolchain without LLVM does
 
 It refuses `--release` for a native platform, with a diagnostic naming the
-feature — it does not fall back to Cranelift. A `--release` build that silently
+feature — it does not fall back to the debug backend. A `--release` build that silently
 produced different code depending on how the compiler happened to be installed
 is the wrong kind of surprise, and a refusal naming the feature is the right
 one.
@@ -249,8 +254,9 @@ Four notes, each of which is a mistake someone would otherwise make:
 - **`llvm.dev`**, not `llvm`. The `.dev` output carries `bin/llvm-config` and the
   headers; the default output does not, and the failure does not say so.
 - **`mkShell` rather than `mkShellNoCC`.** `llvm-sys`'s build script needs a C++
-  compiler, and the link step shells out to `cc` (CODEGEN-CRANELIFT.md §7.3).
-  This is a change to the existing shell, which is `mkShellNoCC` today.
+  compiler, and the link step shells out to `cc` (CODEGEN-STENCIL.md §12.3), as
+  does `cli/build.rs` for the stencil library (§2). This is a change to the
+  existing shell, which is `mkShellNoCC` today.
 - **`mold` on Linux only** (2.39.1 on 25.05). It is ELF-only and does not support
   macOS. `lld` follows the default `llvmPackages`, so it is 19.1.7 here — which is
   fine, because a linker's version need not match the compiler's.
@@ -295,25 +301,28 @@ Two further native jobs, `linux-arm64` and `linux-x86_64`, run the artifacts
 rather than only compiling them, and CODEGEN-STENCIL.md §10 is where they are
 described. `lean`, `tree-sitter` and `nix` complete the eight.
 
-The cross-backend agreement oracle is not a CI feature: `cli/tests/native/agreement.rs`
+The cross-backend agreement differential test is not a CI feature:
+`cli/tests/native/agreement.rs`
 runs in the ordinary suite on every leg (ARCHITECTURE.md §4).
 
 ### 3.4 Without nix
 
-**As landed (wave 2a).** The default build needs *nothing* new. Cranelift is
-pure Rust, so `cargo build -p buri`, `cargo test -p buri` and `cargo install
-buri` work on a machine with a Rust toolchain and a C compiler and no LLVM, no
-lld and no mold anywhere on it. That is the whole point of §2's default set, and
-it is the state a contributor is in unless they go looking for the other one.
+**The default build needs no library and no system package.** `cargo build -p
+buri`, `cargo test -p buri` and `cargo install buri` work on a machine with a
+Rust toolchain and a C compiler and no LLVM, no lld and no mold anywhere on it —
+and, since 2026-08-29, with nothing in the dependency closure either (§1.1).
+That is the whole point of §2's default set, and it is the state a contributor
+is in unless they go looking for the other one.
 
-`cc` is the one thing that is not optional, and it is not new either: the link
-step drives the platform C compiler (CODEGEN-CRANELIFT.md §7.3) and
-`cli/tests/native/runtime.rs` already compiled a C driver against the runtime
-archive before this wave. It is Xcode's command-line tools on macOS
+`cc` is the one thing that is not optional, and it is not new: the link step
+drives the platform C compiler (CODEGEN-STENCIL.md §12.3) and
+`cli/tests/native/runtime.rs` compiled a C driver against the runtime archive
+from the first native wave. It is Xcode's command-line tools on macOS
 (`xcode-select --install`) and `build-essential` on Debian-likes. `cli/build.rs`
-now also uses it to generate the stencil library (§2); a host without it still
-builds, and gets an empty library and a backend that reports itself
-unavailable.
+also uses it to generate the stencil library (§2), and that is the one place the
+requirement got sharper: a host without `cc` still builds a `buri`, and gets an
+empty library, a backend that reports itself unavailable, and JavaScript for
+every suite that does not name a platform.
 
 Everything below is for the two things the default build does not do: build the
 **LLVM** backend, and link with something faster than the system linker.
@@ -479,7 +488,8 @@ one piece of wave 3c that did not land.
 
 ### What is not in any wave
 
-DWARF (CODEGEN-LLVM.md §7 sketches it, CODEGEN-CRANELIFT.md §5 declines it),
+DWARF (CODEGEN-LLVM.md §7 sketches it, CODEGEN-STENCIL.md §11 declines it for
+the debug backend),
 cross-*linking* (ARCHITECTURE.md §9 refuses it), ThinLTO (ARCHITECTURE.md §5.2
 leaves the door open), general niche discovery (VALUE-MODEL.md §6), and
 small-string optimization (VALUE-MODEL.md §3.2). Each is named where it is
