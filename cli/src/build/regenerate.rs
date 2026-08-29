@@ -616,7 +616,7 @@ fn listed(document: &Document, rule: &str, field: &str) -> BTreeSet<String> {
 }
 
 /// The same, for a field inside a block: `test.sources`.
-fn listed_at(document: &Document, rule: &str, path: &[&str]) -> BTreeSet<String> {
+pub(crate) fn listed_at(document: &Document, rule: &str, path: &[&str]) -> BTreeSet<String> {
     let Some((leaf, blocks)) = path.split_last() else { return BTreeSet::new() };
     let Some(Value::Message(mut m, _)) = document.get(rule).map(|f| f.value.clone()) else {
         return BTreeSet::new();
@@ -635,6 +635,14 @@ fn has_block(document: &Document, rule: &str, block: &str) -> bool {
         document.get(rule).map(|f| &f.value),
         Some(Value::Message(m, _)) if m.get(block).is_some()
     )
+}
+
+/// The same replacement with nothing to report.
+///
+/// `buri gen` prints what it changed; the language server's file operations
+/// hand back an edit instead, and the summary would be a string nobody reads.
+pub(crate) fn replace_list(document: &mut Document, rule: &str, path: &[&str], values: &[String]) {
+    set_list(document, rule, path, values, &mut Vec::new(), "");
 }
 
 /// Replaces a managed field's contents whole rather than merging, so
