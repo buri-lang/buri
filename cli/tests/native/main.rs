@@ -12,10 +12,9 @@
 //! | [`runtime`] | none | The `buri_rt_*` C ABI, driven from C (`driver.c`, beside this file): the archive links, the reference-count header and drop glue behave and leak nothing, every abort message is byte-identical to the JavaScript backend's, and each host capability answers what `core/effect` declares. |
 //! | [`float_parity`] | none | Does a native `show` of a `Float` print what a JavaScript one prints, over 3 807 072 doubles? Needs a JavaScript engine and takes seconds; `--skip float_parity` leaves the rest fast. |
 //! | [`stencil`] | `backend-stencil` | The same for the copy-and-patch backend: the frame-threaded convention, the hand-written `main`, the constant pool as its own section, and that a refusal is a diagnostic. |
-//! | [`cranelift`] | `backend-cranelift` | Programs through the whole pipeline, linked, run, and asserted on what they printed. |
 //! | [`conformance`] | `backend-stencil` | The `conformance/` corpus again, compiled natively rather than to JavaScript — the other half of `language::conformance`. |
 //! | [`llvm`] | `backend-llvm` | The same for the LLVM backend, plus the attribute discipline read off the optimized IR. |
-//! | [`agreement`] | either backend | VALUE-MODEL.md §12's fourteen rows, run under both backends and compared. |
+//! | [`agreement`] | either native backend | VALUE-MODEL.md §12's fourteen rows, run under each native backend and compared against JavaScript. |
 //!
 //! ```text
 //! cargo test -p buri --test native                                  # default features
@@ -50,15 +49,13 @@ mod sweep;
 // What more than one backend suite needs: the allocation probe, the shape a
 // run produces, and the conformance corpus as a repository. One copy, because
 // what those suites assert is that the backends agree.
-#[cfg(any(feature = "backend-cranelift", feature = "backend-llvm", feature = "backend-stencil"))]
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod shared;
 
-#[cfg(any(feature = "backend-cranelift", feature = "backend-llvm", feature = "backend-stencil"))]
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod agreement;
 #[cfg(feature = "backend-stencil")]
 mod conformance;
-#[cfg(feature = "backend-cranelift")]
-mod cranelift;
 mod float_parity;
 mod link;
 #[cfg(feature = "backend-llvm")]

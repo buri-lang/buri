@@ -1,0 +1,4 @@
+library {
+    sources: ["cart.buri", "catalog.buri"]
+    visibility: ["//visibility:public"]
+}

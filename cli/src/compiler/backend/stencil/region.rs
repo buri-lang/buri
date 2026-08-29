@@ -38,11 +38,13 @@
 
 #![allow(
     clippy::arithmetic_side_effects,
-    reason = "the two operations here are a padding count and a pool slot's \
-              end. The first is `len % to` against an alignment this emitter \
-              passes as a literal 4, never zero; the second is one slot's \
-              eight bytes past an offset the pool itself handed out, so both \
-              operands are bounded by a buffer that is already in memory"
+    reason = "a padding count, a pool slot's end, and one x86-64 addend. The \
+              first is `len % to` against an alignment this emitter passes as \
+              a literal 4, never zero; the second is one slot's eight bytes \
+              past an offset the pool itself handed out. The third is a pool \
+              offset less the distance from a relocation field to its \
+              instruction's end, and both are positions inside a buffer that \
+              is already in memory"
 )]
 
 use std::collections::HashMap;
@@ -54,6 +56,15 @@ pub const CODE_ALIGN: u32 = 2;
 /// log2 of the constant pool's. Eight, because the `ldr` a pool reference
 /// becomes scales its twelve-bit offset by eight and every slot is a word.
 pub const POOL_ALIGN: u32 = 3;
+
+/// The same, for x86-64: sixteen bytes.
+///
+/// The pool there also holds the read-only constants clang spilled
+/// (`library::ConstRef`), and an SSE constant is read by an instruction that
+/// **faults** on a misaligned address rather than running slower. Sixteen is
+/// the widest any of them asks for, and `x86.rs` refuses a section that asks
+/// for more rather than silently under-aligning it.
+pub const POOL_ALIGN_X86_64: u32 = 4;
 
 /// Where a relocation's value comes from.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -92,6 +103,10 @@ pub enum RelocKind {
     Page21,
     /// The offset half of the `ldr` behind one.
     PageOff12,
+    /// x86-64: the `rel32` of a `jmp`, `call` or `jcc`.
+    Rel32,
+    /// x86-64: the `disp32` of a rip-relative operand.
+    Pc32,
 }
 
 /// One unit's emitted bytes.
@@ -193,6 +208,21 @@ impl Region {
         POOL_TAG | at
     }
 
+    /// Read-only bytes in the pool at a stated alignment, by **pool offset**.
+    ///
+    /// Untagged, unlike [`Region::pool_bytes`]: the caller adds a datum's own
+    /// offset within the run before naming it, and a tag in the middle of that
+    /// sum would be an address rather than a handle.
+    pub fn pool_const(&mut self, b: &[u8], align: u32) -> u64 {
+        let a = (align as usize).max(8);
+        while !self.pool.len().is_multiple_of(a) {
+            self.pool.push(0);
+        }
+        let at = self.pool.len() as u64;
+        self.pool.extend_from_slice(b);
+        at
+    }
+
     /// Bytes in the pool — a string literal's payload, an abort message.
     pub fn pool_bytes(&mut self, b: &[u8]) -> u64 {
         let at = self.align_pool();
@@ -226,8 +256,38 @@ impl Region {
         });
     }
 
+    /// An x86-64 rip-relative reference to a pool slot: one `disp32` field and
+    /// one relocation, where A64 needs an `adrp`/`ldr` pair and two.
+    ///
+    /// The processor measures the displacement from the **end of the
+    /// instruction** and the psABI computes `S + A - P` from the start of the
+    /// field, so the addend carries both the slot and the distance between
+    /// those two places — which is per site, never a constant four.
+    pub fn pool_ref_pc32(&mut self, field: u64, insn_end: u64, slot: u64) {
+        let addend = (slot & !POOL_TAG) as i64 - (insn_end as i64 - field as i64);
+        self.relocs.push(Reloc { at: field, kind: RelocKind::Pc32, target: Target::Pool, addend });
+    }
+
     pub fn reloc(&mut self, at: u64, kind: RelocKind, target: Target) {
         self.relocs.push(Reloc { at, kind, target, addend: 0 });
+    }
+
+    /// [`Region::reloc`] with the addend a pc-relative x86-64 field needs.
+    pub fn reloc_with(&mut self, at: u64, kind: RelocKind, target: Target, addend: i64) {
+        self.relocs.push(Reloc { at, kind, target, addend });
+    }
+
+    /// The bytes at an offset, for a patcher that rewrites a whole instruction
+    /// rather than a field of one.
+    pub fn byte_at(&self, addr: u64, i: u64) -> u8 {
+        self.bytes.get((addr + i) as usize).copied().unwrap_or(0)
+    }
+
+    pub fn set_bytes(&mut self, addr: u64, b: &[u8]) {
+        let o = addr as usize;
+        if let Some(slot) = self.bytes.get_mut(o..o.saturating_add(b.len())) {
+            slot.copy_from_slice(b);
+        }
     }
 
     pub fn word_at(&self, addr: u64) -> u32 {

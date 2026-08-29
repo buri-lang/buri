@@ -15,7 +15,7 @@
 //! this is where it becomes an explicit number the action graph can key on
 //! (`design/native/ARCHITECTURE.md` §5).
 //!
-//! Design: `design/native/CODEGEN-CRANELIFT.md` §1, `ARCHITECTURE.md` §2.1.
+//! Design: `design/native/ARCHITECTURE.md` §2.1.
 //!
 //! # How a tree becomes a graph
 //!
@@ -71,7 +71,7 @@
 //!   the tree has no statement form to hang an `incref` on and a block does.
 //! * **The drop glue a `decref` calls.** Generated per layout, so
 //!   [`ir::Inst::DecRef`]'s `drop` is left `None` and each backend fills it
-//!   from its own layout table (`cranelift/helpers.rs`'s `Helper::Release`).
+//!   from its own layout table (`stencil/glue.rs`'s `Helper::Walk`).
 //! * **`monomorphize::Func::desc`.** The descriptor a `testing_assert.report`
 //!   or a `json.decode` is handed. No descriptor reaches a native artifact at
 //!   all (VALUE-MODEL.md §9), so it is dropped here and `middle::derives`
@@ -97,7 +97,8 @@ use crate::hash::Map as HashMap;
 /// Takes the program by reference and builds a new one rather than consuming
 /// it: the JavaScript backend reads the same tree, `--backend` can ask for two
 /// backends over one program (`ARCHITECTURE.md` §4), and a lowering that ate
-/// its input would make `cranelift_and_llvm_agree` impossible to write.
+/// its input would make an agreement test over two backends impossible to
+/// write.
 pub fn run(program: &Program, tables: &Tables) -> ir::Program {
     let mut counted = rc::Syntactic::new(program);
     let plan = rc::analyze(program, &mut counted, &rc::Options::default());
@@ -1270,7 +1271,7 @@ impl FnLower<'_> {
             }
             // Into another function's loop. It is a tail call and stays one:
             // `return_call` is deliberately not used on either backend
-            // (CODEGEN-CRANELIFT.md §3.3, CODEGEN-LLVM.md §5), because after
+            // (CODEGEN-LLVM.md §5), because after
             // SCC merging the tail-call graph is a DAG and the stack is
             // bounded by its longest path.
             Some(f) => {
@@ -1348,8 +1349,8 @@ impl FnLower<'_> {
 
     /// The one-`switch` form: an enum match whose arms discriminate on the
     /// variant and bind, which is what `middle::decision` produces and what a
-    /// `br_table` (Cranelift) and a `switch` (LLVM) want
-    /// (CODEGEN-CRANELIFT.md §3.1). Answers whether it applied.
+    /// jump table (the machine backend) and a `switch` (LLVM) want. Answers
+    /// whether it applied.
     ///
     /// The condition is that every arm is a distinct variant with irrefutable
     /// field patterns and no guard, with at most one trailing catch-all.

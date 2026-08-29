@@ -3,13 +3,14 @@
 //! Every one is a read of what the compiler already computed. `typed::Expr`
 //! carries its own type and span, `Tables` carries every declaration's span,
 //! and `ModuleScope` carries what a module exports — so hover, definition, type
-//! definition, references, highlights, a workspace query and completion need no
-//! index of their own. That is the whole reason this file is short: the answers
-//! were already in the analysis, waiting to be asked for.
+//! definition, references, highlights and a workspace query need no index of
+//! their own. That is the whole reason this file is short: the answers were
+//! already in the analysis, waiting to be asked for.
+//!
+//! Completion asks the same tables a different question — what could be
+//! written here — and is [`super::completion`].
 
-use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::types;
-use crate::compiler::standard_library;
 use crate::json::Value;
 use crate::parsing::tree::Item;
 use std::path::Path;
@@ -56,7 +57,7 @@ pub fn hover(
     // thing about it.
     if let Some(found) = symbols::at(analyzed, path, text, offset) {
         let (signature, docs) = symbols::describe(analyzed, &found.symbol);
-        return Some(rendered(text, &signature, &docs, found.span, kind));
+        return Some(rendered(text, "buri", &signature, &docs, found.span, kind));
     }
 
     // Otherwise the innermost expression whose span contains the offset. It is
@@ -78,7 +79,7 @@ pub fn hover(
         });
     }
     if let Some((_, ty, span)) = best {
-        return Some(rendered(text, &ty, &[], span, kind));
+        return Some(rendered(text, "buri", &ty, &[], span, kind));
     }
 
     // Above the first declaration there is nothing to point at but the file,
@@ -89,22 +90,28 @@ pub fn hover(
         return None;
     }
     let at = crate::diagnostics::Span::point(file, offset as usize);
-    Some(rendered(text, &format!("from \"{}\"", module.path), &module.ast.docs, at, kind))
+    Some(rendered(text, "buri", &format!("from \"{}\"", module.path), &module.ast.docs, at, kind))
 }
 
 /// The hover payload: the signature in a fence, then the doc comment under it.
 ///
 /// Plain text is the same two parts without the fence — the client asked for a
 /// kind that has no way to say "this is code".
-fn rendered(
+///
+/// `language` is what the fence is tagged with. A build file's answer comes
+/// from a `.proto` schema rather than from Buri source, and it is rendered
+/// here so that the two hovers are the same shape: a signature, then the prose
+/// written above it.
+pub(super) fn rendered(
     text: &str,
+    language: &str,
     signature: &str,
     docs: &[String],
     span: crate::diagnostics::Span,
     kind: Markup,
 ) -> Value {
     let mut value = match kind {
-        Markup::Markdown => format!("```buri\n{signature}\n```"),
+        Markup::Markdown => format!("```{language}\n{signature}\n```"),
         Markup::PlainText => signature.to_string(),
     };
     if !docs.is_empty() {
@@ -529,305 +536,4 @@ fn found(
             ]),
         ),
     ])
-}
-
-/// Completion, for the two places that need no type information and are the
-/// two the CLI reference promises: inside a module path, and inside the `{ … }`
-/// of an import.
-///
-/// Every item carries its own `textEdit`, and the range in it is the run of
-/// characters the completion is meant to stand in for — the path typed so far,
-/// or the partial name inside the braces. Without one the client guesses that
-/// range from its own idea of what a word is, and a module path with a `/` in
-/// it is exactly where that guess goes wrong.
-pub fn completion(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Value {
-    let offset = convert::offset_of(text, position) as usize;
-    // `offset_of` clamps into `text` and onto a character boundary, so the only
-    // way this fails is a caller that did not go through it.
-    let Some(before_cursor) = text.get(..offset) else {
-        return Value::Array(Vec::new());
-    };
-    let line = before_cursor.rsplit('\n').next().unwrap_or(before_cursor);
-    let cursor = offset as u32;
-
-    // An odd number of quotes before the cursor means the cursor is inside
-    // one. Counting is what distinguishes `from "core/st|` — still typing the
-    // path — from `from "core/str" |`, where the string is closed and the
-    // answer is a different one.
-    let inside_string = line.bytes().filter(|c| *c == b'"').count() % 2 == 1;
-    if inside_string && line.trim_start().starts_with("from") {
-        let prefix = line.rsplit('"').next().unwrap_or(line);
-        let from = cursor.saturating_sub(prefix.len() as u32);
-        return module_paths(analyzed, path, text, prefix, (from, cursor));
-    }
-
-    // Inside the `{ … }` of `from "path" import { … }`.
-    if !inside_string && line.contains("import") && line.rfind('{') > line.rfind('}') {
-        if let Some(p) = line.split('"').nth(1) {
-            let typed = partial_name(line);
-            let from = cursor.saturating_sub(typed.len() as u32);
-            return exported_names(analyzed, path, p, text, (from, cursor));
-        }
-    }
-
-    Value::Array(Vec::new())
-}
-
-/// The run of name characters immediately before the cursor — what an accepted
-/// item replaces.
-fn partial_name(line: &str) -> &str {
-    let start = line
-        .char_indices()
-        .rev()
-        .take_while(|(_, c)| c.is_alphanumeric() || *c == '_')
-        .last()
-        .map_or(line.len(), |(i, _)| i);
-    line.get(start..).unwrap_or("")
-}
-
-/// Every module the file could legally import: the standard library, and the
-/// packages its own target already declares. Offering a label the target does
-/// not depend on would be offering a `missing-dep`.
-///
-/// `detail` says which of those three a path is, because that is the thing a
-/// reader cannot see in the path itself — `//lib/money` looks the same whether
-/// the target already depends on it or it is this package's own label.
-fn module_paths(
-    analyzed: &Analyzed,
-    path: &Path,
-    text: &str,
-    prefix: &str,
-    replacing: (u32, u32),
-) -> Value {
-    let mut out: Vec<(String, Origin)> = standard_library::MODULES
-        .iter()
-        .map(|m| (m.path.to_string(), Origin::StandardLibrary))
-        .collect();
-    if let Some(package) = analyzed.session.workspace.owning_package(path) {
-        for t in analyzed.session.workspace.targets().into_iter().filter(|t| t.package == package) {
-            for d in analyzed.session.workspace.declared_deps(t) {
-                out.push((d.value.clone(), Origin::Dependency));
-            }
-        }
-        out.push((analyzed.session.workspace.package(package).label(), Origin::ThisPackage));
-    }
-    // Sorted by path so the array does not depend on which target was met
-    // first; the nearer origin wins where two agree on a path.
-    out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.rank().cmp(&b.1.rank())));
-    out.dedup_by(|a, b| a.0 == b.0);
-    let uri = convert::uri_of(path);
-    Value::Array(
-        out.iter()
-            .filter(|(m, _)| m.starts_with(prefix))
-            .map(|(m, origin)| {
-                item(
-                    m,
-                    // 9 module.
-                    9,
-                    origin.detail(),
-                    origin.rank(),
-                    text,
-                    replacing,
-                    Value::object(vec![("uri", Value::str(&uri)), ("module", Value::str(m))]),
-                )
-            })
-            .collect(),
-    )
-}
-
-/// Where a module an import could name comes from.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Origin {
-    ThisPackage,
-    Dependency,
-    StandardLibrary,
-}
-
-impl Origin {
-    /// What an editor shows in the row, and — as the leading character of
-    /// `sortText` — the order the rows come in. Nearest first: the package you
-    /// are in, then what it already depends on, then the standard library.
-    fn detail(self) -> &'static str {
-        match self {
-            Origin::ThisPackage => "this package",
-            Origin::Dependency => "dependency",
-            Origin::StandardLibrary => "standard library",
-        }
-    }
-
-    fn rank(self) -> char {
-        match self {
-            Origin::ThisPackage => '0',
-            Origin::Dependency => '1',
-            Origin::StandardLibrary => '2',
-        }
-    }
-}
-
-/// What a module exports, for the `{ … }` half.
-///
-/// `detail` is the signature the formatter would print, which is what makes an
-/// import clause readable without opening the module. The `///` prose is not
-/// here: see `resolve_completion`.
-fn exported_names(
-    analyzed: &Analyzed,
-    file: &Path,
-    module_path: &str,
-    text: &str,
-    replacing: (u32, u32),
-) -> Value {
-    let Some(&id) = analyzed.analysis.loaded.by_path.get(module_path) else {
-        return Value::Array(Vec::new());
-    };
-    let Some(scope) = analyzed.analysis.checked.scopes.get(id.index()) else {
-        return Value::Array(Vec::new());
-    };
-    let mut names: Vec<&String> = scope.exports.keys().collect();
-    names.sort();
-    let uri = convert::uri_of(file);
-    Value::Array(
-        names
-            .iter()
-            .map(|n| {
-                let sym = scope.exports.get(n.as_str());
-                let symbol = sym.and_then(symbols::symbol_of);
-                let (kind, rank, detail) = match (&symbol, sym) {
-                    (Some(s), _) => {
-                        (completion_kind(analyzed, s), group(s), symbols::describe(analyzed, s).0)
-                    }
-                    // A method a module put on its surface so that a library's
-                    // `lib.buri` can re-export it. It has no entry of its own
-                    // to describe — the receiver it hangs off is the whole of
-                    // what the name says. 2 is method.
-                    (None, Some(Sym::Method(receiver))) => {
-                        (2, '1', format!("method on {receiver}"))
-                    }
-                    // 6 variable — the protocol has no "exported name".
-                    _ => (6, '3', String::new()),
-                };
-                item(
-                    n,
-                    kind,
-                    &detail,
-                    rank,
-                    text,
-                    replacing,
-                    Value::object(vec![
-                        ("uri", Value::str(&uri)),
-                        ("module", Value::str(module_path)),
-                        ("name", Value::str(n.as_str())),
-                    ]),
-                )
-            })
-            .collect(),
-    )
-}
-
-/// The protocol's `CompletionItemKind` for a declaration, so that an editor's
-/// icons say what a name is rather than that it is a name.
-fn completion_kind(analyzed: &Analyzed, symbol: &symbols::Symbol) -> i64 {
-    use symbols::Symbol;
-    match symbol {
-        // 13 enum, 22 struct — the two shapes a type declaration has.
-        Symbol::Type(id) => {
-            if analyzed.analysis.checked.tables.tycon(*id).variants().is_empty() {
-                22
-            } else {
-                13
-            }
-        }
-        // 8 interface: the protocol has no trait and no effect, and every
-        // server for a language with traits reports this one.
-        Symbol::Trait(_) | Symbol::Context(_) => 8,
-        // 3 function, 2 method.
-        Symbol::Function(_) => 3,
-        Symbol::TraitMethod { .. } => 2,
-        // 21 constant, 20 enum member, 5 field, 9 module, 6 variable.
-        Symbol::Const(_) => 21,
-        Symbol::Variant { .. } => 20,
-        Symbol::Field { .. } => 5,
-        Symbol::Module(_) => 9,
-        Symbol::Local { .. } => 6,
-    }
-}
-
-/// The leading character of `sortText`: types before the functions over them,
-/// then the constants, then everything else. Alphabetical order puts every
-/// capitalized name above every lowercase one, which is a fact about ASCII
-/// rather than about what a reader is looking for.
-fn group(symbol: &symbols::Symbol) -> char {
-    use symbols::Symbol;
-    match symbol {
-        Symbol::Type(_) | Symbol::Trait(_) | Symbol::Context(_) | Symbol::Variant { .. } => '0',
-        Symbol::Function(_) | Symbol::TraitMethod { .. } => '1',
-        Symbol::Const(_) => '2',
-        Symbol::Field { .. } | Symbol::Module(_) | Symbol::Local { .. } => '3',
-    }
-}
-
-fn item(
-    label: &str,
-    kind: i64,
-    detail: &str,
-    rank: char,
-    text: &str,
-    replacing: (u32, u32),
-    data: Value,
-) -> Value {
-    let (from, to) = replacing;
-    let mut fields = vec![
-        ("label", Value::str(label)),
-        ("kind", Value::number(kind)),
-        ("sortText", Value::str(format!("{rank}{label}"))),
-        (
-            "textEdit",
-            Value::object(vec![
-                (
-                    "range",
-                    Value::object(vec![
-                        ("start", convert::position_of(text, from).to_json()),
-                        ("end", convert::position_of(text, to).to_json()),
-                    ]),
-                ),
-                ("newText", Value::str(label)),
-            ]),
-        ),
-        ("data", data),
-    ];
-    // A name the tables could not describe has no detail, and an empty string
-    // is a row with a blank column in it rather than a row with one column.
-    if !detail.is_empty() {
-        fields.push(("detail", Value::str(detail)));
-    }
-    Value::object(fields)
-}
-
-/// `completionItem/resolve`: the `///` prose for the one item a reader is on.
-///
-/// The list already carries the signature, so what is left is the documentation
-/// — and that is the half worth withholding, because attaching it to every item
-/// would put every doc comment in a module on the wire to show one of them.
-pub fn resolve_completion(analyzed: &Analyzed, item: &Value) -> Value {
-    let mut resolved = item.clone();
-    let docs = (|| {
-        let module_path = item.at("data.module")?.as_str()?;
-        let &id = analyzed.analysis.loaded.by_path.get(module_path)?;
-        let symbol = match item.at("data.name").and_then(|n| n.as_str()) {
-            // A name inside the braces: the export it stands for.
-            Some(name) => {
-                let scope = analyzed.analysis.checked.scopes.get(id.index())?;
-                symbols::symbol_of(scope.exports.get(name)?)?
-            }
-            // No name is the path itself, and what a path names is a module.
-            None => symbols::Symbol::Module(id),
-        };
-        let (_, docs) = symbols::describe(analyzed, &symbol);
-        (!docs.is_empty()).then(|| docs.join("\n"))
-    })();
-    let (Some(docs), Value::Object(fields)) = (docs, &mut resolved) else { return resolved };
-    fields.insert(
-        "documentation".to_string(),
-        Value::object(vec![("kind", Value::str("markdown")), ("value", Value::str(docs))]),
-    );
-    resolved
 }

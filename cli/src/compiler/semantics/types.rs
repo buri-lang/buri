@@ -248,6 +248,25 @@ pub enum NumClass {
     Float,
 }
 
+impl NumClass {
+    /// The type a literal of this class takes when nothing pins it, in the
+    /// everyday spelling (SPEC 5.1.1).
+    pub fn default_name(self) -> &'static str {
+        match self {
+            NumClass::Int => "Int",
+            NumClass::Float => "Float",
+        }
+    }
+
+    /// How a diagnostic names the literal itself, rather than its type.
+    pub fn literal_phrase(self) -> &'static str {
+        match self {
+            NumClass::Int => "an integer literal",
+            NumClass::Float => "a float literal",
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Declarations
 // ---------------------------------------------------------------------------
@@ -1499,6 +1518,65 @@ pub fn show(tables: &Tables, subst: Option<&Subst>, generics: &[GenericInfo], ty
     out
 }
 
+/// How a diagnostic names a type. `Code` is a spelling the program could have
+/// written; the rest are phrases, because a literal nothing has pinned yet is
+/// not one type but any of a class (SPEC 5.1.1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Spelling {
+    Code(String),
+    /// A numeric literal still free to become any type of its class.
+    Literal(NumClass),
+    /// A variable nothing in the body constrains; `finish` makes it `()`.
+    Unconstrained,
+}
+
+impl Spelling {
+    /// The name alone: backticked where it is code, bare where it is prose, so
+    /// that a message never quotes a phrase as if it were syntax.
+    pub fn quoted(&self) -> String {
+        match self {
+            Spelling::Code(name) => format!("`{name}`"),
+            Spelling::Literal(class) => class.literal_phrase().to_string(),
+            Spelling::Unconstrained => "an unknown type".to_string(),
+        }
+    }
+
+    /// The same as a noun phrase, for a sentence that supplies the article.
+    pub fn noun_phrase(&self) -> String {
+        match self {
+            Spelling::Code(name) => format!("a `{name}`"),
+            other => other.quoted(),
+        }
+    }
+
+    /// The bare name, for a sentence that punctuates it itself. An unpinned
+    /// literal answers with the type it would default to.
+    pub fn name(&self) -> &str {
+        match self {
+            Spelling::Code(name) => name,
+            Spelling::Literal(class) => class.default_name(),
+            Spelling::Unconstrained => "_",
+        }
+    }
+}
+
+/// How a type is named in a diagnostic, where an unpinned literal is described
+/// rather than spelled. `show` stays the renderer everywhere else.
+pub fn show_in_diagnostic(
+    tables: &Tables,
+    subst: &Subst,
+    generics: &[GenericInfo],
+    ty: &Ty,
+) -> Spelling {
+    if let Ty::Var(id) = subst.shallow(ty) {
+        return match subst.class_of(id) {
+            Some(class) => Spelling::Literal(class),
+            None => Spelling::Unconstrained,
+        };
+    }
+    Spelling::Code(show(tables, Some(subst), generics, ty))
+}
+
 fn write_ty(
     out: &mut String,
     tables: &Tables,
@@ -1508,9 +1586,10 @@ fn write_ty(
 ) {
     match ty {
         Ty::Var(id) => {
+            // Nothing has pinned this literal yet, so the name to print is the
+            // one it would default to — a spelling a program can write.
             match subst.and_then(|s| s.class_of(*id)) {
-                Some(NumClass::Int) => out.push_str("{integer}"),
-                Some(NumClass::Float) => out.push_str("{float}"),
+                Some(class) => out.push_str(class.default_name()),
                 None => {
                     let _ = write!(out, "_{}", id.0);
                 }
@@ -1604,6 +1683,20 @@ mod tests {
         let mut s = Subst::default();
         let lit = s.fresh_num(NumClass::Int, Span::NONE);
         assert!(s.unify(&t, &lit, &t.prim(Prim::F64)).is_err());
+    }
+
+    #[test]
+    fn an_unpinned_literal_is_named_rather_than_spelled() {
+        let t = tables_with_prims();
+        let mut s = Subst::default();
+        let int = s.fresh_num(NumClass::Int, Span::NONE);
+        let float = s.fresh_num(NumClass::Float, Span::NONE);
+        assert_eq!(show_in_diagnostic(&t, &s, &[], &int).quoted(), "an integer literal");
+        assert_eq!(show_in_diagnostic(&t, &s, &[], &float).quoted(), "a float literal");
+        // Nested, where a sentence has no room for a phrase, the name printed
+        // is the one the literal would default to.
+        assert_eq!(show(&t, Some(&s), &[], &Ty::Array(Box::new(int))), "[Int]");
+        assert_eq!(show(&t, Some(&s), &[], &Ty::Array(Box::new(float))), "[Float]");
     }
 
     #[test]

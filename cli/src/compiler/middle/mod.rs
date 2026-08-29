@@ -31,7 +31,7 @@
 //!                                                                               |
 //!                                                             +-----------------+-------------+
 //!                                                             |                               |
-//!                                                        cranelift                           llvm
+//!                                                         stencil                            llvm
 //! ```
 //!
 //! The branch is real: closure conversion is a *pessimisation* in JavaScript,

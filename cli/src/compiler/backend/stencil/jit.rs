@@ -39,12 +39,13 @@
               block of the `ir::Code` in hand, so a use count is bounded by \
               the operands of a program already in memory. The one \
               subtraction, dropping a stencil's elided tail branch, runs only \
-              where a tail branch was found, which is four bytes that exist"
+              where a tail branch was found — four bytes that exist on A64, \
+              and the five of a `jmp rel32` on x86-64"
 )]
 
-use super::abi::Loc;
+use super::abi::{Loc, StencilTarget};
 use super::region::{Region, RelocKind, Target};
-use super::library::{Hole, HoleKind, Library};
+use super::library::{Hole, HoleKind, Library, Stencil};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layout, Layouts};
 use crate::compiler::semantics::types::{Tables, Ty};
@@ -126,6 +127,13 @@ pub struct Stats {
 
 pub struct Jit<'a> {
     pub(crate) lib: &'a Library,
+    /// Which machine's fields are being patched.
+    ///
+    /// The one axis this file has: a stencil's bytes are clang's, so *where* a
+    /// hole is and *what* a patch writes are the instruction set's business
+    /// and nothing else's. `abi::StencilTarget::is_arm64` is the question, and
+    /// every place below that asks it says what the two answers are.
+    pub(crate) target: StencilTarget,
     pub region: Region,
     layouts: Layouts<'a>,
     /// The type tables, for the questions a `Layout` does not answer — which
@@ -171,6 +179,10 @@ pub struct Jit<'a> {
     helpers: Vec<super::glue::Helper>,
     helper_ix: HashMap<super::glue::Helper, usize>,
     helper_at: Vec<u64>,
+    /// Where each stencil's spilled constants were copied into this unit's
+    /// pool, by stencil name. One copy per unit: the bytes are clang's
+    /// `.rodata` and every copy of the stencil reads the same ones.
+    spilled: HashMap<String, u64>,
     /// Whether a value of a type owns a counted block anywhere inside it, by
     /// type. Memoised because the question is asked once per reference
     /// operation and answering it walks the type; see `Lower::rc_counted`.
@@ -220,6 +232,22 @@ fn bump(t: &mut [u32], i: usize) {
     }
 }
 
+/// A literal zero on the right of an integer `/` or `%`, which is the one
+/// constant that must **not** become a stencil immediate.
+///
+/// `sources.rs` puts SPEC 6.2's abort in the stencil itself, as
+/// `if ((B) == 0) buri_rt_abort_div_zero();`. In the immediate variant `B`
+/// reads `(uintptr_t)_JIT_K`, and `_JIT_K` is an `extern char[]` — an address
+/// the stencil's own compiler proves non-null, so it deletes the guard. Every
+/// other variant reads a frame slot or a register and keeps it.
+///
+/// Refusing the fold leaves the zero in a frame slot, where the guard is a real
+/// comparison. A non-zero divisor still folds: there the deleted guard is a
+/// guard that could not have fired.
+fn zero_divisor(name: &str, tag: &str, k: u64) -> bool {
+    matches!(name, "div" | "rem") && !matches!(tag, "f32" | "f64") && k == 0
+}
+
 /// The representative of `v`'s slot class.
 ///
 /// `uf` starts as the identity and [`Jit::coalesce`] only ever points an entry
@@ -241,9 +269,15 @@ fn find(uf: &[u32], mut v: u32) -> u32 {
 // ---------------------------------------------------------------------------
 
 impl<'a> Jit<'a> {
-    pub(crate) fn new(lib: &'a Library, tables: &'a Tables, frames: &'a [FrameSig]) -> Jit<'a> {
+    pub(crate) fn new(
+        lib: &'a Library,
+        tables: &'a Tables,
+        frames: &'a [FrameSig],
+        target: StencilTarget,
+    ) -> Jit<'a> {
         Jit {
             lib,
+            target,
             region: Region::new(),
             layouts: Layouts::new(tables),
             tables,
@@ -258,6 +292,7 @@ impl<'a> Jit<'a> {
             helpers: Vec::new(),
             helper_ix: HashMap::new(),
             helper_at: Vec::new(),
+            spilled: HashMap::new(),
             counted_memo: HashMap::new(),
         }
     }
@@ -725,12 +760,14 @@ impl<'a> Jit<'a> {
             s.tail.and_then(|t| s.holes.get(t)).map(|h| h.name.as_str());
         let mut len = s.code.len();
         // Fallthrough elision: the continuation is the next stencil, so the
-        // trailing `b` is not patched, it is dropped.
+        // trailing branch is not patched, it is dropped. One A64 instruction,
+        // or the five bytes of an x86-64 `jmp rel32`.
+        let tail_bytes = if self.target.is_arm64() { 4 } else { 5 };
         let mut elide = false;
         if let Some(name) = tail_name {
             if binds.iter().any(|(n, v)| *n == name && matches!(v, V::Fall)) {
                 elide = true;
-                len -= 4;
+                len -= tail_bytes;
                 self.stats.elided += 1;
             }
         }
@@ -742,6 +779,19 @@ impl<'a> Jit<'a> {
         };
         let at = self.region.put(bytes);
         let end = at + len as u64;
+        // The read-only bytes clang spilled, which are not holes and take no
+        // value: they go into this unit's pool and the references are aimed at
+        // the copy. Only x86-64 has any (`library::ConstRef`).
+        if !s.const_refs.is_empty() {
+            let base = self.spilled_pool(s);
+            for c in &s.const_refs {
+                self.region.pool_ref_pc32(
+                    at + u64::from(c.field),
+                    at + u64::from(c.insn_end),
+                    base + u64::from(c.at),
+                );
+            }
+        }
         self.stats.stencils += 1;
         self.stats.bytes += len;
         for h in &s.holes {
@@ -769,24 +819,57 @@ impl<'a> Jit<'a> {
         }
     }
 
+    /// Where this stencil's spilled constants begin in the unit's pool,
+    /// copying them the first time the stencil is emitted.
+    fn spilled_pool(&mut self, s: &Stencil) -> u64 {
+        if let Some(at) = self.spilled.get(&s.name) {
+            return *at;
+        }
+        let at = self.region.pool_const(&s.consts, s.consts_align);
+        self.spilled.insert(s.name.clone(), at);
+        at
+    }
+
     /// A hole naming a symbol outside this program: one relocation per site,
     /// and no instruction rewritten. A `bl` becomes a `BRANCH26`; the address
     /// of one, materialised into the constant pool, becomes an `Abs64`.
     fn import(&mut self, at: u64, h: &Hole) {
         let name = h.name.clone();
         for off in &h.branches {
-            self.region.reloc(
-                at + *off as u64,
-                RelocKind::Branch26,
-                Target::Symbol(name.clone()),
-            );
+            self.branch_reloc(at + *off as u64, Target::Symbol(name.clone()));
         }
         if !h.pairs.is_empty() {
             let slot = self.region.pool_target(Target::Symbol(name));
             for (a, b) in &h.pairs {
-                self.region.pool_ref(at + *a as u64, at + *b as u64, slot);
+                self.pool_ref(at, *a, *b, slot);
             }
         }
+    }
+
+    /// The relocation a call or jump to a symbol outside this unit takes.
+    ///
+    /// A `b`/`bl`'s 26-bit word displacement on A64; a `rel32` on x86-64,
+    /// whose addend is `-4` because the field is the last four bytes of its
+    /// instruction and the processor measures from the instruction's end.
+    fn branch_reloc(&mut self, at: u64, target: Target) {
+        if self.target.is_arm64() {
+            self.region.reloc(at, RelocKind::Branch26, target);
+            return;
+        }
+        self.region.reloc_with(at, RelocKind::Rel32, target, -4);
+    }
+
+    /// The reference to a constant-pool slot one of a hole's `pairs` becomes.
+    ///
+    /// `pairs` means `(adrp, add-or-ldr)` on A64 and `(instruction end,
+    /// field)` on x86-64 — the two ISAs never share a patcher, and this is
+    /// where the two meanings are consumed.
+    fn pool_ref(&mut self, at: u64, a: u32, b: u32, slot: u64) {
+        if self.target.is_arm64() {
+            self.region.pool_ref(at + a as u64, at + b as u64, slot);
+            return;
+        }
+        self.region.pool_ref_pc32(at + b as u64, at + a as u64, slot);
     }
 
     fn patch_hole(&mut self, at: u64, end: u64, h: &Hole, v: V) {
@@ -801,21 +884,13 @@ impl<'a> Jit<'a> {
                     // one instruction shorter.
                     V::Ext(n) => {
                         for off in &h.branches {
-                            self.region.reloc(
-                                at + *off as u64,
-                                RelocKind::Branch26,
-                                Target::Symbol(String::from(n)),
-                            );
+                            self.branch_reloc(at + *off as u64, Target::Symbol(String::from(n)));
                         }
                         None
                     }
                     V::Sym(ref n) => {
                         for off in &h.branches {
-                            self.region.reloc(
-                                at + *off as u64,
-                                RelocKind::Branch26,
-                                Target::Symbol(n.clone()),
-                            );
+                            self.branch_reloc(at + *off as u64, Target::Symbol(n.clone()));
                         }
                         None
                     }
@@ -852,6 +927,15 @@ impl<'a> Jit<'a> {
                 let V::I(x) = v else {
                     crate::diagnostics::ice(&format!("stencil: hole {} takes a literal", h.name));
                 };
+                if !self.target.is_arm64() {
+                    // One instruction rewritten in place, where A64 rewrites a
+                    // pair. `lo12` is an A64 fold's output and is always empty
+                    // here (`x86.rs` §"why there are no folds here").
+                    for (insn_end, field) in &h.pairs {
+                        self.patch_pc32_imm(at + *field as u64, at + *insn_end as u64, x as u32);
+                    }
+                    return;
+                }
                 for (a, b) in &h.pairs {
                     self.patch_imm32(at + *a as u64, at + *b as u64, x as u32);
                 }
@@ -860,6 +944,10 @@ impl<'a> Jit<'a> {
                 }
             }
             HoleKind::Imm64 => {
+                if !self.target.is_arm64() {
+                    self.patch_imm64_x86_64(at, h, v);
+                    return;
+                }
                 // The immediate fold may have taken this hole into an `imm12`
                 // field, in which case there is no pair left to relax.
                 if !h.lo12.is_empty() {
@@ -917,9 +1005,110 @@ impl<'a> Jit<'a> {
         }
     }
 
+    /// [`Jit::patch_hole`]'s [`HoleKind::Imm64`] arm, for x86-64.
+    ///
+    /// A default-visibility hole compiles to `mov rD, sym@GOTPCREL(%rip)`, and
+    /// the patch is to aim its `disp32` at this unit's constant pool — one
+    /// relocation, where A64 needs the two halves of a GOT `adrp`/`ldr` pair.
+    fn patch_imm64_x86_64(&mut self, at: u64, h: &Hole, v: V) {
+        // The same relaxation A64 takes, and for the same reason: a value that
+        // fits 32 bits does not need the pool, and dropping the load takes an
+        // L1 access off every immediate operand. It is only sound where the
+        // instruction is a plain `mov rD, [rip+disp32]` — a float immediate
+        // arrives as `movsd` and a small comparison as `cmpl $0, …`, and
+        // neither may become a `mov` of a literal.
+        if let V::I(x) = v {
+            if x < (1u64 << 32)
+                && h.pairs
+                    .iter()
+                    .all(|(e, f)| self.is_plain_rip_mov(at + *f as u64, at + *e as u64))
+            {
+                for (insn_end, field) in &h.pairs {
+                    self.patch_pc32_imm(at + *field as u64, at + *insn_end as u64, x as u32);
+                }
+                self.stats.imm_relaxed += 1;
+                return;
+            }
+        }
+        let slot = match v {
+            V::I(x) => self.region.pool_u64(x),
+            V::Ptr(x) => self.region.pool_target(Target::Here(x)),
+            V::Fn(f) => self.region.pool_target(Target::Func(f)),
+            V::Ext(n) => self.region.pool_target(Target::Symbol(String::from(n))),
+            V::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone())),
+            other => crate::diagnostics::ice(&format!(
+                "stencil: hole {} takes a datum, got {other:?}",
+                h.name
+            )),
+        };
+        for (insn_end, field) in &h.pairs {
+            self.pool_ref(at, *insn_end, *field, slot);
+        }
+    }
+
+    /// Whether the seven bytes ending at `insn_end` are `REX.W 8b ModRM
+    /// disp32` with the rip-relative addressing mode — the one shape
+    /// [`Jit::patch_pc32_imm`] may rewrite into a `mov` of a literal.
+    fn is_plain_rip_mov(&self, field: u64, insn_end: u64) -> bool {
+        if field < 3 || insn_end != field + 4 {
+            return false;
+        }
+        let start = field - 3;
+        self.region.byte_at(start, 0) & 0xf8 == 0x48
+            && self.region.byte_at(start, 1) == 0x8b
+            && self.region.byte_at(start, 2) & 0xc7 == 0x05
+    }
+
+    /// `lea rD, [rip+disp32]` — or the `mov` above — into a `mov` of the
+    /// literal, in the seven bytes it already occupies. See
+    /// `library::HoleKind`.
+    ///
+    /// `REX.W C7 /0 id` is seven bytes and sign-extends, so it is the whole
+    /// instruction for any value below `2^31`. Above that the value would come
+    /// out negative, and the five-byte zero-extending `mov rD32, imm32` plus
+    /// `nop` is written instead — still one instruction and no memory
+    /// reference, which is the property the rewrite exists for.
+    fn patch_pc32_imm(&mut self, field: u64, insn_end: u64, v: u32) {
+        debug_assert_eq!(insn_end, field + 4);
+        if field < 3 {
+            crate::diagnostics::ice("stencil: a pc-relative field with no instruction in front");
+        }
+        let start = field - 3;
+        // `ModRM.reg` and `REX.R` are where the destination register is, in
+        // both the `lea` and the `mov` this rewrites.
+        let rex = self.region.byte_at(start, 0);
+        let modrm = self.region.byte_at(start, 2);
+        let rd = ((u32::from(rex) & 4) << 1) | ((u32::from(modrm) >> 3) & 7);
+        let mut out: Vec<u8> = Vec::with_capacity(7);
+        if v < 0x8000_0000 {
+            out.push(0x48 | ((rd >> 3) & 1) as u8);
+            out.push(0xc7);
+            out.push(0xc0 | (rd & 7) as u8);
+            out.extend_from_slice(&v.to_le_bytes());
+        } else {
+            if rd >= 8 {
+                out.push(0x41);
+            }
+            out.push(0xb8 + (rd & 7) as u8);
+            out.extend_from_slice(&v.to_le_bytes());
+            // `66 90` and `90` are the canonical two- and one-byte nops.
+            if out.len() == 5 {
+                out.push(0x66);
+            }
+            out.push(0x90);
+        }
+        debug_assert_eq!(out.len(), 7);
+        self.region.set_bytes(start, &out);
+    }
+
     /// `b`/`bl`: a signed 26-bit word displacement. Everything generated lives
-    /// in one region, so this always reaches.
+    /// in one region, so this always reaches. On x86-64 it is the `rel32` of a
+    /// `jmp` or a `call`, which is [`Jit::patch_rel32`].
     fn patch_branch(&mut self, at: u64, target: u64) {
+        if !self.target.is_arm64() {
+            self.patch_rel32(at, target);
+            return;
+        }
         let d = target as i64 - at as i64;
         assert!(d % 4 == 0, "misaligned branch");
         let w = d >> 2;
@@ -932,6 +1121,12 @@ impl<'a> Jit<'a> {
     /// which is three orders of magnitude more than the largest function this
     /// JIT emits; the assertion says so rather than assuming it.
     fn patch_cond(&mut self, at: u64, target: u64) {
+        // On x86-64 a conditional displacement is 32 bits, so it is the same
+        // arithmetic as an unconditional one and there is nothing to veneer.
+        if !self.target.is_arm64() {
+            self.patch_rel32(at, target);
+            return;
+        }
         let mut target = target;
         if !(-(1 << 20)..(1 << 20)).contains(&(target as i64 - at as i64)) {
             assert!(
@@ -959,6 +1154,21 @@ impl<'a> Jit<'a> {
         );
         let old = self.region.word_at(at);
         self.region.set_word(at, (old & 0xff00_001f) | (((w as u32) & 0x7ffff) << 5));
+    }
+
+    /// A `rel32`, measured from the end of its instruction — which is the four
+    /// bytes of the field itself, for a `jmp`, a `call` and a `jcc` alike.
+    ///
+    /// The field cannot overflow for anything this emitter produces: a unit's
+    /// code section is bounded by the program it was lowered from, and 2 GiB
+    /// of it is not a section a linker would accept either.
+    fn patch_rel32(&mut self, at: u64, target: u64) {
+        let d = target as i64 - (at as i64 + 4);
+        assert!(
+            (i64::from(i32::MIN)..=i64::from(i32::MAX)).contains(&d),
+            "rel32 out of range: {d} bytes"
+        );
+        self.region.set_word(at, d as i32 as u32);
     }
 
     /// `adrp Xd, sym@PAGE` + `add Xd, Xd, sym@PAGEOFF` → `movz Xd, #lo` +
@@ -1009,7 +1219,7 @@ impl<'a> Jit<'a> {
                 Fix::Block { .. } | Fix::BlockCond { .. } => continue,
             };
             let name = symbol_of(prog, callee);
-            self.region.reloc(at, RelocKind::Branch26, Target::Symbol(name));
+            self.branch_reloc(at, Target::Symbol(name));
         }
     }
 
@@ -1797,6 +2007,9 @@ impl<'a> Jit<'a> {
 
     /// Which `Inst::Const`s never need a frame slot, because every use of them
     /// is an immediate operand of a stencil that has an immediate variant.
+    ///
+    /// [`zero_divisor`] is the one use that is *not* eligible however good the
+    /// stencil is.
     fn constants(&mut self, code: &ir::Code) -> (Vec<Option<u64>>, Vec<bool>) {
         let mut constants: Vec<Option<u64>> = vec![None; code.values()];
         let mut folded = vec![false; code.values()];
@@ -1820,13 +2033,11 @@ impl<'a> Jit<'a> {
                     bump(&mut total, o.index());
                 }
                 if let ir::Inst::Binary { op, prim, rhs, .. } = i {
-                    if ent(&constants, rhs.index(), None).is_some() {
+                    if let Some(k) = ent(&constants, rhs.index(), None) {
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
-                            let k = format!(
-                                "bin/{}/{tag}/fi/f",
-                                super::emit::binop_name(*op)
-                            );
-                            if self.has(&k) {
+                            let name = super::emit::binop_name(*op);
+                            let key = format!("bin/{name}/{tag}/fi/f");
+                            if self.has(&key) && !zero_divisor(name, tag, k) {
                                 bump(&mut imm, rhs.index());
                             }
                         }
