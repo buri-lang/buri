@@ -1,0 +1,3 @@
+# The repository the highlighting fixture lives in. Its presence is what makes
+# this directory a root, which is what lets `buri lsp` analyse the file below
+# and colour it from the resolver rather than from the lexer alone.
