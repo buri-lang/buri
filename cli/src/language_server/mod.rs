@@ -20,6 +20,7 @@
 //! golden file.
 
 mod build_files;
+mod conformance;
 mod convert;
 mod features;
 mod rename;
@@ -425,6 +426,39 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             vec![response(&id, result.unwrap_or(Value::Null))]
         }
 
+        // The whole repository: an `impl` is written in the module that
+        // declares its type, which is a target this file need not be in.
+        ("textDocument/implementation", Some(id)) => {
+            let result = with_workspace(state, &params, conformance::implementations);
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        ("textDocument/prepareTypeHierarchy", Some(id)) => {
+            let result = with_workspace(state, &params, conformance::prepare);
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        // The two walks. Each is handed an item back rather than a position,
+        // so the symbol is resolved again from what the item carries.
+        ("typeHierarchy/supertypes", Some(id)) => {
+            let result = hierarchy_symbol(state, &params)
+                .map(|(analyzed, symbol)| conformance::supertypes(&analyzed, &symbol));
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        ("typeHierarchy/subtypes", Some(id)) => {
+            let result = hierarchy_symbol(state, &params)
+                .map(|(analyzed, symbol)| conformance::subtypes(&analyzed, &symbol));
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        // One target is enough: a moniker is built from where the declaration
+        // is, and the file's own closure is where the names it writes live.
+        ("textDocument/moniker", Some(id)) => {
+            let result = with_analysis(state, &params, features::moniker);
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
         ("textDocument/documentHighlight", Some(id)) => {
             let result = with_analysis(state, &params, features::document_highlight);
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
@@ -477,23 +511,16 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         }
 
         ("textDocument/references", Some(id)) => {
-            // Not `with_analysis`: this one analyses the whole repository
-            // rather than the target owning the file, because a name is
-            // referred to from wherever it is imported.
-            let result = (|| {
-                let path = uri_param(&params)?;
-                let position = Position::from_json(params.get("position")?)?;
-                let text = state.text_of(&path)?;
-                // The protocol makes the declaration opt-in, and clients ask
-                // both ways: excluded is "where else is this used".
-                let include = matches!(
-                    params.at("context.includeDeclaration"),
-                    Some(&Value::Bool(true))
-                );
-                let root = state.root_of(&path)?;
-                let analyzed = state.analyze_workspace(&root)?;
-                features::references(&analyzed, &path, &text, position, include)
-            })();
+            // The whole repository rather than the target owning the file,
+            // because a name is referred to from wherever it is imported.
+            //
+            // The protocol makes the declaration opt-in, and clients ask both
+            // ways: excluded is "where else is this used".
+            let include =
+                matches!(params.at("context.includeDeclaration"), Some(&Value::Bool(true)));
+            let result = with_workspace(state, &params, |analyzed, path, text, position| {
+                features::references(analyzed, path, text, position, include)
+            });
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
 
@@ -546,6 +573,10 @@ fn capabilities() -> Value {
                 // The same answer under the protocol's other name for it.
                 ("declarationProvider", Value::Bool(true)),
                 ("typeDefinitionProvider", Value::Bool(true)),
+                // The impl table, read in its three directions.
+                ("implementationProvider", Value::Bool(true)),
+                ("typeHierarchyProvider", Value::Bool(true)),
+                ("monikerProvider", Value::Bool(true)),
                 ("referencesProvider", Value::Bool(true)),
                 ("documentHighlightProvider", Value::Bool(true)),
                 ("documentSymbolProvider", Value::Bool(true)),
@@ -706,6 +737,46 @@ fn with_analysis<T>(
     let text = state.text_of(&path)?;
     let analyzed = state.analyze(&path)?;
     f(&analyzed, &path, &text, position)
+}
+
+/// The same, over every target in the repository at once.
+///
+/// The requests that ask about a *name* rather than about a file need this
+/// one: a name is referred to, and implemented, from wherever it is imported,
+/// and nothing about the file under the cursor bounds that set. See
+/// `State::analyze_workspace`.
+fn with_workspace<T>(
+    state: &mut State,
+    params: &Value,
+    f: impl Fn(&state::Analyzed, &std::path::Path, &str, Position) -> Option<T>,
+) -> Option<T> {
+    let path = uri_param(params)?;
+    let position = Position::from_json(params.get("position")?)?;
+    let text = state.text_of(&path)?;
+    let root = state.root_of(&path)?;
+    let analyzed = state.analyze_workspace(&root)?;
+    f(&analyzed, &path, &text, position)
+}
+
+/// The symbol a `TypeHierarchyItem` stands for.
+///
+/// The item is what `prepareTypeHierarchy` handed out and the client hands
+/// back, and it carries the file and the position of the declaration's name in
+/// its `data`. Resolving it again from those is what keeps the two walking
+/// requests stateless: a server that remembered every item it had produced
+/// would be holding a table nothing ever removes an entry from.
+fn hierarchy_symbol(
+    state: &mut State,
+    params: &Value,
+) -> Option<(std::rc::Rc<state::Analyzed>, symbols::Symbol)> {
+    let path = params.at("item.data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
+    let position = Position::from_json(params.at("item.data.position")?)?;
+    let text = state.text_of(&path)?;
+    let root = state.root_of(&path)?;
+    let analyzed = state.analyze_workspace(&root)?;
+    let offset = convert::offset_of(&text, position);
+    let found = symbols::at(&analyzed, &path, &text, offset)?;
+    Some((analyzed, found.symbol))
 }
 
 // ---------------------------------------------------------------------------

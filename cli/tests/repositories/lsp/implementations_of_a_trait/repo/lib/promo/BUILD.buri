@@ -1,0 +1,5 @@
+library {
+    sources: ["coupon.buri"]
+    dependencies: ["//lib/shop"]
+    visibility: ["//visibility:public"]
+}

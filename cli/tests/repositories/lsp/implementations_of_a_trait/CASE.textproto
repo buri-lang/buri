@@ -1,0 +1,14 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "where a trait, a type and a trait method are implemented — including an implementation in a package the file under the cursor is not compiled with — and the symbols for which the question is not one"
+
+# No `didOpen`: an unopened file is read from disk, and leaving the buffers out
+# keeps the golden about the answers rather than about the diagnostics.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

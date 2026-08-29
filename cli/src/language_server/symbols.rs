@@ -169,6 +169,27 @@ pub fn declaration_name(analyzed: &Analyzed, symbol: &Symbol) -> Span {
     narrowed.unwrap_or_else(|| declaration(analyzed, symbol))
 }
 
+/// The whole declaration, rather than the name it writes.
+///
+/// [`declaration`] points at the name, which is where a jump should land. The
+/// protocol's `range` on a hierarchy item is the other one — everything the
+/// declaration covers, with the name in its `selectionRange` inside it.
+pub fn declaration_extent(analyzed: &Analyzed, symbol: &Symbol) -> Span {
+    let tables = &analyzed.analysis.checked.tables;
+    let whole = match symbol {
+        Symbol::Type(id) => {
+            let con = tables.tycon(*id);
+            declaration_syntax(analyzed, con.module, con.span).map(|(_, item)| item.span())
+        }
+        Symbol::Trait(id) => {
+            let info = tables.trait_(*id);
+            declaration_syntax(analyzed, info.module, info.span).map(|(_, item)| item.span())
+        }
+        _ => None,
+    };
+    whole.unwrap_or_else(|| declaration(analyzed, symbol))
+}
+
 /// The name the source spells for a symbol, where it has one.
 ///
 /// A module has none: it is named by a path, and what a path names is a file.

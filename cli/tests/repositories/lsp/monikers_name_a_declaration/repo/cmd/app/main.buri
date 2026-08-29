@@ -1,0 +1,13 @@
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "//lib/shop" import { currency, listing, worth };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let shelf = [listing("plain", 100)];
+    let _ = ctx.println("${worth(shelf).show(ctx)} ${currency}");
+    .Ok(())
+}

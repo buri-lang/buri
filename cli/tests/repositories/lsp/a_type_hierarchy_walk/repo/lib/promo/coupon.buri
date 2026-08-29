@@ -1,0 +1,16 @@
+from "//lib/shop" import { Priced };
+
+derive Eq for Coupon;
+/// Money off, in whole cents.
+export struct Coupon { export off: I64 }
+
+impl Priced for Coupon {
+    fn cents(self): I64 {
+        0 - self.off
+    }
+}
+
+/// A coupon for the amount given.
+export fn discount(off: I64): Coupon {
+    Coupon { off: off }
+}

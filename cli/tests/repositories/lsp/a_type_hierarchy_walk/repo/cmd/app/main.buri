@@ -1,0 +1,14 @@
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "//lib/promo" import { discount };
+from "//lib/shop" import { listing };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let owed: I64 = listing("plain", 100).cents() + discount(20).cents();
+    let _ = ctx.println("owed: ${owed.show(ctx)}");
+    .Ok(())
+}
