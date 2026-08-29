@@ -115,6 +115,25 @@ pub struct Sym {
     pub defined: bool,
 }
 
+/// An allocatable section of the object that is not `.text`.
+///
+/// On AArch64 there is never one and its presence is an error. On x86-64 it is
+/// where clang puts a constant no instruction can hold — an SSE sign mask, the
+/// two biases of a `u64`-to-`double` conversion — so the **bytes** are carried
+/// and not only measured: `x86.rs` copies them into the stencil, and the
+/// emitter copies them into the unit's own constant pool.
+#[derive(Clone, Debug)]
+pub struct Other {
+    pub name: String,
+    /// Section index, which is what a defined symbol's `st_shndx` names.
+    pub index: u16,
+    /// `sh_addralign`. An SSE constant asks for sixteen and reading it at a
+    /// lesser alignment is a fault, not a slowdown.
+    pub align: u64,
+    /// The section's bytes; empty for a `NOBITS` section, which has none.
+    pub data: Vec<u8>,
+}
+
 pub struct Obj {
     /// `EM_AARCH64` or `EM_X86_64`.
     pub machine: u16,
@@ -122,13 +141,8 @@ pub struct Obj {
     pub text: Vec<u8>,
     pub text_relocs: Vec<Reloc>,
     pub syms: Vec<Sym>,
-    /// Names of any other allocatable section that carried bytes, with its
-    /// size and its section index. The index is what lets the caller tell
-    /// *which* stencils referenced the spill instead of refusing the whole
-    /// shard: on x86-64 a `u64`-to-`double` conversion needs an SSE constant
-    /// and there is no hole to put it in, and that is three stencil keys
-    /// rather than a broken library.
-    pub other_sections: Vec<(String, u64, u16)>,
+    /// Every other allocatable section that carried bytes.
+    pub other_sections: Vec<Other>,
 }
 
 /// What a field read past the end of the object reports. A structure whose
@@ -173,6 +187,7 @@ struct Shdr {
     size: u64,
     link: u32,
     info: u32,
+    align: u64,
     entsize: u64,
 }
 
@@ -213,6 +228,7 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
             size: u64le(bytes, o + 32)?,
             link: u32le(bytes, o + 40)?,
             info: u32le(bytes, o + 44)?,
+            align: u64le(bytes, o + 48)?,
             entsize: u64le(bytes, o + 56)?,
         });
     }
@@ -244,7 +260,13 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
             // all, and a clang that emits it anyway is not a spill.
             && !name.starts_with(".eh_frame")
         {
-            other_sections.push((name, sh.size, i as u16));
+            let at = sh.offset as usize;
+            let data = if sh.kind == SHT_NOBITS {
+                Vec::new()
+            } else {
+                bytes.get(at..at + sh.size as usize).ok_or_else(|| truncated(at))?.to_vec()
+            };
+            other_sections.push(Other { name, index: i as u16, align: sh.align, data });
         }
     }
     if text.is_empty() && text_index == 0 {

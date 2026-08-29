@@ -195,9 +195,11 @@ pub fn extract_elf_arm64(obj: &elf::Obj) -> Result<Vec<Stencil>, String> {
     if obj.machine != elf::EM_AARCH64 {
         return Err(format!("expected an aarch64 ELF object, got machine {}", obj.machine));
     }
-    if let Some((n, sz, _)) = obj.other_sections.first() {
+    if let Some(other) = obj.other_sections.first() {
         return Err(format!(
-            "a stencil spilled {sz} bytes into {n}; every constant must be a hole"
+            "a stencil spilled {} bytes into {}; every constant must be a hole",
+            other.data.len(),
+            other.name
         ));
     }
     let mut raws = Vec::new();
@@ -400,7 +402,7 @@ fn finish_arm64(raws: Vec<RawFn>) -> Result<Vec<Stencil>, String> {
         } else {
             None
         };
-        let st = Stencil { name: sname.clone(), code, holes, tail };
+        let st = Stencil { name: sname.clone(), code, holes, tail, ..Stencil::unspilled() };
         out.push(strip_dead_clears(&st).unwrap_or(st));
     }
     Ok(out)
@@ -518,7 +520,9 @@ fn remove(s: &Stencil, dead: &[bool], code: &mut [u32], name: String) -> Option<
         let slot = code.get_mut(i)?;
         *slot = (w & !((mask as u32) << shift)) | (((nd & mask) as u32) << shift);
     }
-    let mut out = Stencil { name, code: Vec::with_capacity(n * 4), holes: s.holes.clone(), tail: None };
+    let mut out =
+        Stencil { name, code: Vec::with_capacity(n * 4), holes: s.holes.clone(), tail: None,
+                  ..Stencil::unspilled() };
     // Where a recorded offset's word ended up. `usize::MAX` marks a word being
     // deleted, and no offset that reaches here names one: each fold clears the
     // hole records that pointed into the words it killed before calling in.
@@ -692,6 +696,7 @@ pub fn fold_addressing(s: &Stencil) -> Option<Stencil> {
         code: s.code.clone(),
         holes: s.holes.clone(),
         tail: s.tail,
+        ..Stencil::unspilled()
     };
     for (hi, h) in s.holes.iter().enumerate() {
         let mut pairs = Vec::new();
@@ -835,6 +840,7 @@ fn fold_cond_adjacent(s: &Stencil) -> Option<Stencil> {
         code: s.code.clone(),
         holes: s.holes.clone(),
         tail: s.tail,
+        ..Stencil::unspilled()
     };
     let mut code = code;
     *code.get_mut(k)? = inv & 0xffff_001f; // clear imm19; the JIT fills it
@@ -909,6 +915,7 @@ fn fold_cond_last(s: &Stencil) -> Option<Stencil> {
         code: s.code.clone(),
         holes: s.holes.clone(),
         tail: s.tail,
+        ..Stencil::unspilled()
     };
     let mut code = code;
     // `c` came out of enumerating `code`, and `hy` from `position` over
@@ -1166,6 +1173,7 @@ pub fn fold_imm(s: &Stencil) -> Option<Stencil> {
         code: s.code.clone(),
         holes: s.holes.clone(),
         tail: s.tail,
+        ..Stencil::unspilled()
     };
     for (hi, pi, ci) in &folded {
         // The pair is gone; `remove` drops its sites with the words they sat

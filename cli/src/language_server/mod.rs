@@ -317,6 +317,9 @@ const REFRESH_FAMILIES: [(&str, &str); 4] = [
 /// from somewhere below the request it was serving — a repository that will not
 /// load is found several calls down, and the reader has to be told.
 fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
+    // Nothing read for the last message may be reused for this one: between
+    // the two, the client may have written anything.
+    state.begin_message();
     let named = traced_name(msg);
     // A request is an id and a method together: a response carries no method,
     // and a notification no id.
@@ -326,6 +329,7 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         out.push(log_trace(&format!("received {name}"), None));
     }
     let started = std::time::Instant::now();
+    let before = state.work();
     let replies = dispatch(state, msg);
     // Before the answer: what went wrong was found while the answer was being
     // computed, and the answer is what it came to.
@@ -333,15 +337,24 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
     if let Some(id) = request_id {
         state.record_answered(id);
     }
+    let written: usize = replies.iter().map(|r| r.to_string().len()).sum();
+    state.wrote(written as u64);
     out.extend(replies);
     if let (Trace::Messages | Trace::Verbose, Some(name), Some(_)) =
         (state.trace, &named, request_id)
     {
         // Timing is the difference between the two levels, and it is the one
         // thing in this stream a golden session cannot pin — so it is at
-        // `verbose` and nowhere else.
-        let detail = (state.trace == Trace::Verbose)
-            .then(|| format!("answered in {}ms", started.elapsed().as_millis()));
+        // `verbose` and nowhere else, next to the work it came from. The
+        // counters beside it *are* pinnable, and they are the claim: what
+        // makes a request fast is how little it did, not what a clock read.
+        let detail = (state.trace == Trace::Verbose).then(|| {
+            format!(
+                "answered in {}ms; {}",
+                started.elapsed().as_millis(),
+                state.work().since(before).spelled()
+            )
+        });
         out.push(log_trace(&format!("answered {name}"), detail.as_deref()));
     }
     out
@@ -540,7 +553,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
 
         ("textDocument/didOpen", _) => {
             let Some((path, text)) = opened(&params) else { return vec![] };
-            state.open.insert(path.clone(), text);
+            state.set_buffer(path.clone(), text);
             let published = full_diagnostics(state, &path);
             // The state the client's colours and hints are about to be computed
             // from. Recorded and not announced: nothing has gone stale yet.
@@ -559,7 +572,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             else {
                 return vec![];
             };
-            state.open.insert(path.clone(), text.to_string());
+            state.set_buffer(path.clone(), text.to_string());
             parse_diagnostics(state, &path, text)
         }
         ("textDocument/didSave", _) => {
@@ -570,7 +583,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         }
         ("textDocument/didClose", _) => {
             if let Some(path) = uri_param(&params) {
-                state.open.remove(&path);
+                state.drop_buffer(&path);
                 // The colours the client held were about a buffer it no longer
                 // has, and the id it would quote is now meaningless.
                 state.semantic_tokens.results.remove(&path);
@@ -1846,6 +1859,29 @@ fn findings_for(state: &mut State, path: &std::path::Path, published: &mut Publi
 /// two buffers in one target are asked the same question twice. Either way the
 /// same words at the same place are one squiggle, not two.
 fn add_finding(published: &mut Published, session: &Session, d: &crate::diagnostics::Diagnostic) {
+    add_finding_rendering(published, &mut Rendered::new(), session, d);
+}
+
+/// What a finding is filed under before it is rendered: the file, the span, and
+/// the words.
+///
+/// Exactly what [`same_finding`] compares, one step earlier — a range is a
+/// function of a span and the file's text, so two diagnostics that agree here
+/// render to the same item.
+type Rendered = std::collections::BTreeMap<(String, u32, u32, String), Value>;
+
+/// The same, rendering each distinct finding once however many times it is met.
+///
+/// Turning a byte offset into a line and a character walks the file from the
+/// top, which makes rendering the expensive half of publishing a finding. A
+/// repository sweep meets the same error in a shared library once per target
+/// that reaches it, and used to pay for the walk every time.
+fn add_finding_rendering(
+    published: &mut Published,
+    rendered: &mut Rendered,
+    session: &Session,
+    d: &crate::diagnostics::Diagnostic,
+) {
     if d.span.is_none() {
         return;
     }
@@ -1854,7 +1890,15 @@ fn add_finding(published: &mut Published, session: &Session, d: &crate::diagnost
         return;
     }
     let uri = convert::uri_of(&f.abs_path);
-    let item = convert::diagnostic(&f.text, d, &uri);
+    let key = (uri.clone(), d.span.start, d.span.end, d.message.clone());
+    let item = match rendered.get(&key) {
+        Some(known) => known.clone(),
+        None => {
+            let item = convert::diagnostic(&f.text, d, &uri);
+            rendered.insert(key, item.clone());
+            item
+        }
+    };
     let bucket = published.entry(uri).or_default();
     if !bucket.iter().any(|existing| same_finding(existing, &item)) {
         bucket.push(item);

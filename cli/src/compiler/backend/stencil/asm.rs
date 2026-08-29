@@ -33,6 +33,28 @@
 //! fails must print the same thing and exit the same way whichever backend
 //! built it.
 //!
+//! # Two machines, one shim
+//!
+//! Everything above is stated in A64's vocabulary because that is the machine
+//! this file was written for first. The **SysV x86-64** half below is the same
+//! two shims for the other instruction set, and the convention it bridges to is
+//! the same one: `rdi` is the frame pointer where `x0` was, and an emitted
+//! function answers the frame pointer it was handed — in `rax`, because that is
+//! where a C function's return value lives on this machine and every stencil is
+//! `uint64_t *st_…(uint64_t *fp, …) { … return fp; }`.
+//!
+//! The two differences that show up in every line of it:
+//!
+//!  * **the machine stack has to stay sixteen-aligned.** A64 needs no such
+//!    thing from a leaf that touches `sp` in pairs; SysV requires `rsp % 16 ==
+//!    0` at the point of a `call`, and `main` is entered with the return
+//!    address already pushed. One `push rbp` fixes that for the whole shim, and
+//!    nothing below it moves `rsp` again.
+//!  * **an address is one instruction.** `adrp`/`add` against a symbol becomes
+//!    `lea rD, [rip+sym]` and one `R_X86_64_PC32`, and `bl` becomes `call
+//!    rel32` and one `R_X86_64_PLT32`. Both fields are the last four bytes of
+//!    their instruction, so both relocations carry an addend of `-4`.
+//!
 //! # Relocation vocabulary
 //!
 //! [`region::Target`] says *what* an address is; the kind comes from
@@ -40,39 +62,39 @@
 //! never needs an `adrp`/`add` pair against a symbol — its only page-relative
 //! addressing is at the constant pool, which shares a section with the code and
 //! so needs no relocation at all (`region.rs`'s header) — but this file does,
-//! to name the Buri stack. `object::RelKind` already spells all four kinds the
+//! to name the Buri stack. `object::RelKind` already spells every kind the
 //! object writer accepts, so the shim speaks that and nothing has to translate.
 
 #![allow(
     clippy::arithmetic_side_effects,
-    reason = "this file's arithmetic is arm64 instruction encoding and byte \
-              offsets into a buffer it is itself appending to. Every operand is \
-              a register number masked to five bits, an immediate masked to its \
-              field width, a shift by a constant, or a position already reached \
-              in a `Vec` held in memory; every result is one such field or the \
-              next such position. The one signed operation, a branch \
-              displacement, is a difference of two offsets into that same \
-              buffer, divided by the four bytes an instruction occupies"
+    reason = "this file's arithmetic is instruction encoding and byte offsets \
+              into a buffer it is itself appending to. Every operand is a \
+              register number masked to three or five bits, an immediate \
+              masked to its field width, a shift by a constant, or a position \
+              already reached in a `Vec` held in memory; every result is one \
+              such field or the next such position. The two signed operations \
+              are branch displacements, each a difference of two offsets into \
+              that same buffer — divided by the four bytes an A64 instruction \
+              occupies, or measured from the end of an x86-64 one"
 )]
 
+use super::abi::StencilTarget;
 use super::object::RelKind;
 use super::region::Target;
 
-/// Whether this file has a SysV x86-64 counterpart of the two shims below.
+/// Whether a `linux-x86_64` build can be made at all.
 ///
-/// **It does not**, and this constant is how `mod.rs::supported` says so in one
-/// sentence rather than letting a `linux-x86_64` build get as far as an object
-/// with arm64 bytes in `main`. Everything else that target needs exists: the
-/// stencils are baked (`abi::StencilTarget::LinuxX86_64`), `x86.rs` extracts
-/// them and `elf.rs` writes the container.
+/// **It can.** This file writes a SysV `main` ([`program_entry`],
+/// [`test_entry`]), `jit.rs` patches `rel32` and rip-relative `disp32` fields
+/// where it patches A64 ones, `glue.rs` writes the SysV stub in front of a
+/// generated body, and `region.rs`/`elf.rs` carry the two relocation kinds that
+/// needs. `design/native/CODEGEN-STENCIL.md` §10.3 is the list this was written
+/// against, and its last part is what CI confirms.
 ///
-/// It is a constant rather than an absence because the absence has to be
-/// *stated*: this is 900 lines of hand-encoded A64 whose whole content is a
-/// calling convention, and the honest thing to record is that its x86-64 twin
-/// would be written on a machine that cannot execute a single instruction of
-/// it. `design/native/CODEGEN-STENCIL.md`, "the x86-64 checklist", is the list of
-/// what a Linux CI run would have to confirm before it is worth writing.
-pub const AVAILABLE_X86_64: bool = false;
+/// It stays a constant rather than becoming nothing, because it is the one
+/// place a target's *entry point* is either present or named as missing, and a
+/// fourth target would be added here the same way.
+pub const AVAILABLE_X86_64: bool = true;
 
 /// The symbol the program's Buri stack is emitted under.
 ///
@@ -132,7 +154,8 @@ pub const STACK_BYTES: u64 = STACK_USABLE + GUARD_BYTES;
 /// `mprotect`s the top [`GUARD_BYTES`] of the block, which the kernel will only
 /// do on a page boundary: arm64 macOS pages are 16 KiB, and both
 /// [`STACK_USABLE`] and [`GUARD_BYTES`] are whole multiples of one, so a block
-/// aligned to 16 KiB puts the guard's base on a page.
+/// aligned to 16 KiB puts the guard's base on a page. The widest page any
+/// supported target has, so x86-64 Linux's 4 KiB is covered by the same number.
 pub const STACK_ALIGN: u32 = 14;
 
 /// A place in the instruction stream whose branch target is not known yet.
@@ -150,6 +173,21 @@ enum PatchKind {
     Cond19,
     /// The 26-bit displacement of a `b`.
     Uncond26,
+}
+
+/// One relocation a hand-written block leaves behind: where, what kind, what
+/// it names, and what to add to the target before the field is formed.
+pub type ShimReloc = (u64, RelKind, Target, i64);
+
+/// A finished shim: the bytes, and one relocation per site.
+///
+/// The addend travels with the kind because the two x86-64 kinds need one — a
+/// `rel32` and a rip-relative `disp32` are both measured from the end of their
+/// instruction, and the psABI computes from the start of the field — while
+/// every A64 kind here takes zero.
+pub struct Shim {
+    pub bytes: Vec<u8>,
+    pub relocs: Vec<ShimReloc>,
 }
 
 /// A block of hand-written code, with the relocations it needs.
@@ -421,6 +459,290 @@ impl Asm {
     pub fn finish(self) -> (Vec<u8>, Vec<(u64, RelKind, Target)>) {
         (self.bytes, self.relocs)
     }
+
+    /// The same block as a [`Shim`]. Every A64 relocation here takes a zero
+    /// addend: the field is the whole of what the linker writes.
+    fn into_shim(self) -> Shim {
+        Shim {
+            bytes: self.bytes,
+            relocs: self.relocs.into_iter().map(|(at, k, t)| (at, k, t, 0)).collect(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SysV x86-64
+// ---------------------------------------------------------------------------
+
+/// A place in an x86-64 instruction stream whose `rel32` is not known yet.
+///
+/// `at` is the **field**, not the instruction: a displacement is measured from
+/// the instruction's end, which is four bytes past it.
+#[must_use]
+pub struct Patch32 {
+    at: u64,
+}
+
+/// A block of hand-written x86-64 code, with the relocations it needs.
+///
+/// [`Asm`]'s twin, and deliberately a separate type rather than a mode: there
+/// is no instruction the two share, no field width they agree on, and a shim
+/// that could hold either machine's bytes is one that could put the wrong
+/// machine's in an object.
+pub struct X86 {
+    bytes: Vec<u8>,
+    relocs: Vec<ShimReloc>,
+}
+
+/// The integer registers either shim names, in encoding order.
+pub const RAX: u32 = 0;
+pub const RDX: u32 = 2;
+pub const RSP: u32 = 4;
+pub const RSI: u32 = 6;
+pub const RDI: u32 = 7;
+
+/// A `REX` prefix. `W` is the 64-bit operand size, `r` extends the `ModRM.reg`
+/// field and `b` extends `ModRM.rm`; no instruction here has an index register.
+fn rex(w: bool, r: u32, b: u32) -> u8 {
+    0x40 | (u8::from(w) << 3) | (((r >> 3) & 1) as u8) << 2 | (((b >> 3) & 1) as u8)
+}
+
+/// A register-direct `ModRM`: `mod = 11`.
+fn modrm_rr(reg: u32, rm: u32) -> u8 {
+    0xc0 | (((reg & 7) as u8) << 3) | ((rm & 7) as u8)
+}
+
+impl Default for X86 {
+    fn default() -> X86 {
+        X86::new()
+    }
+}
+
+impl X86 {
+    pub fn new() -> X86 {
+        X86 { bytes: Vec::new(), relocs: Vec::new() }
+    }
+
+    fn at(&self) -> u64 {
+        self.bytes.len() as u64
+    }
+
+    fn put(&mut self, b: &[u8]) {
+        self.bytes.extend_from_slice(b);
+    }
+
+    /// The one machine-stack pair either shim uses.
+    ///
+    /// `main` is entered with the return address pushed, so `rsp % 16 == 8`;
+    /// one push makes it zero and every `call` below is then aligned. `rbp` is
+    /// callee-saved and is what a frame pointer would have been, so this is
+    /// also the prologue a debugger expects — and nothing else here writes it.
+    pub fn push_rbp(&mut self) {
+        self.put(&[0x55]);
+    }
+
+    pub fn pop_rbp(&mut self) {
+        self.put(&[0x5d]);
+    }
+
+    pub fn ret(&mut self) {
+        self.put(&[0xc3]);
+    }
+
+    /// `mov rd, #imm`.
+    ///
+    /// Five bytes for anything below `2^32`, because a write to a 32-bit
+    /// register zero-extends into the whole of the 64-bit one; ten for the one
+    /// wider value either shim forms, which is the `Str` length mask.
+    pub fn mov_imm(&mut self, rd: u32, value: u64) {
+        if value < (1u64 << 32) {
+            if rd >= 8 {
+                self.put(&[rex(false, 0, rd)]);
+            }
+            self.put(&[0xb8 + (rd & 7) as u8]);
+            self.put(&(value as u32).to_le_bytes());
+            return;
+        }
+        self.put(&[rex(true, 0, rd), 0xb8 + (rd & 7) as u8]);
+        self.put(&value.to_le_bytes());
+    }
+
+    /// `mov rd, rs`.
+    pub fn mov_reg(&mut self, rd: u32, rs: u32) {
+        self.put(&[rex(true, rs, rd), 0x89, modrm_rr(rs, rd)]);
+    }
+
+    /// `and rd, rs`. The register form, because the one mask this file applies
+    /// is 64 bits wide and no x86-64 ALU immediate is.
+    pub fn and_reg(&mut self, rd: u32, rs: u32) {
+        self.put(&[rex(true, rs, rd), 0x21, modrm_rr(rs, rd)]);
+    }
+
+    /// `add rd, #imm32` and `sub rd, #imm32`, both in the `81 /digit` form so
+    /// that one encoding serves every immediate a shim forms.
+    pub fn add_imm(&mut self, rd: u32, imm: u32) {
+        self.alu_imm(0, rd, imm);
+    }
+
+    pub fn sub_imm(&mut self, rd: u32, imm: u32) {
+        self.alu_imm(5, rd, imm);
+    }
+
+    fn alu_imm(&mut self, digit: u32, rd: u32, imm: u32) {
+        self.put(&[rex(true, digit, rd), 0x81, modrm_rr(digit, rd)]);
+        self.put(&imm.to_le_bytes());
+    }
+
+    /// `mov rt, [rn + off]`, and below it the three narrower loads. Every one
+    /// of the four leaves the whole of `rt` defined: a 32-bit destination
+    /// zero-extends, and `movzx` is zero-extending by name.
+    pub fn ldr(&mut self, rt: u32, rn: u32, off: u32) {
+        self.load(&[0x8b], true, rt, rn, off);
+    }
+
+    pub fn ldr_w(&mut self, rt: u32, rn: u32, off: u32) {
+        self.load(&[0x8b], false, rt, rn, off);
+    }
+
+    pub fn ldrh(&mut self, rt: u32, rn: u32, off: u32) {
+        self.load(&[0x0f, 0xb7], false, rt, rn, off);
+    }
+
+    pub fn ldrb(&mut self, rt: u32, rn: u32, off: u32) {
+        self.load(&[0x0f, 0xb6], false, rt, rn, off);
+    }
+
+    /// `mov [rn + off], rs`.
+    pub fn str_off(&mut self, rs: u32, rn: u32, off: u32) {
+        self.mem(&[0x89], true, rs, rn, off);
+    }
+
+    /// `lea rd, [rn + off]`.
+    pub fn lea(&mut self, rd: u32, rn: u32, off: u32) {
+        self.mem(&[0x8d], true, rd, rn, off);
+    }
+
+    fn load(&mut self, op: &[u8], wide: bool, rt: u32, rn: u32, off: u32) {
+        self.mem(op, wide, rt, rn, off);
+    }
+
+    /// One memory form for every load and store here: `mod = 10`, a `disp32`,
+    /// and a `SIB` byte where the base register's encoding is the one that
+    /// demands one.
+    ///
+    /// A single shape rather than the shortest per offset, because a frame
+    /// offset is not bounded by a signed byte and an encoder that sometimes
+    /// emits a `disp8` is one whose instruction lengths a reader has to
+    /// compute rather than read.
+    fn mem(&mut self, op: &[u8], wide: bool, reg: u32, base: u32, off: u32) {
+        let r = rex(wide, reg, base);
+        if r != 0x40 {
+            self.put(&[r]);
+        }
+        self.put(op);
+        self.put(&[0x80 | (((reg & 7) as u8) << 3) | ((base & 7) as u8)]);
+        // `rm = 100` is not a register: it says a `SIB` byte follows. `rsp`
+        // and `r12` encode as 100, so both need one, and `0x24` is the byte
+        // that means "this base, no index".
+        if base & 7 == 4 {
+            self.put(&[0x24]);
+        }
+        self.put(&off.to_le_bytes());
+    }
+
+    /// `test wt, wt` then `jz <later>` — the 32-bit form, for a value whose
+    /// upper half is not known to be zero, which is what a C function
+    /// returning `int` leaves in `rax`.
+    pub fn cbz(&mut self, rt: u32) -> Patch32 {
+        self.test(false, rt);
+        self.jcc(0x84)
+    }
+
+    /// `test rt, rt` then `jz`/`jnz`, for a pointer or a zero-extending load.
+    pub fn cbz_x(&mut self, rt: u32) -> Patch32 {
+        self.test(true, rt);
+        self.jcc(0x84)
+    }
+
+    pub fn cbnz_x(&mut self, rt: u32) -> Patch32 {
+        self.test(true, rt);
+        self.jcc(0x85)
+    }
+
+    fn test(&mut self, wide: bool, rt: u32) {
+        let r = rex(wide, rt, rt);
+        if r != 0x40 {
+            self.put(&[r]);
+        }
+        self.put(&[0x85, modrm_rr(rt, rt)]);
+    }
+
+    /// A `jcc rel32`, whose field is filled in by [`X86::here`]. Always the
+    /// 32-bit form: this machine has one, so a shim never has to know how far
+    /// its own arms are.
+    fn jcc(&mut self, cc: u8) -> Patch32 {
+        self.put(&[0x0f, cc]);
+        let at = self.at();
+        self.put(&[0, 0, 0, 0]);
+        Patch32 { at }
+    }
+
+    /// Resolves a forward branch to the instruction that comes next.
+    pub fn here(&mut self, p: Patch32) {
+        // Measured from the end of the instruction, which is the four bytes
+        // of the field itself.
+        let delta = self.at() as i64 - (p.at as i64 + 4);
+        let o = p.at as usize;
+        if let Some(slot) = self.bytes.get_mut(o..o.saturating_add(4)) {
+            slot.copy_from_slice(&(delta as i32).to_le_bytes());
+        }
+    }
+
+    /// `call name`, with the displacement left to the linker.
+    pub fn call_symbol(&mut self, name: &str) {
+        self.put(&[0xe8]);
+        self.pcrel(RelKind::Rel32, name);
+    }
+
+    /// `lea rd, [rip + name]` — the address of a symbol in one instruction and
+    /// one relocation, where A64 needs an `adrp`/`add` pair and two.
+    pub fn lea_symbol(&mut self, rd: u32, name: &str) {
+        self.put(&[rex(true, rd, 0), 0x8d, (((rd & 7) as u8) << 3) | 0x05]);
+        self.pcrel(RelKind::Pc32, name);
+    }
+
+    /// The four zero bytes of a pc-relative field, and the relocation that
+    /// fills them. The addend is `-4` because the field is the last thing in
+    /// the instruction and the processor measures from the instruction's end.
+    fn pcrel(&mut self, kind: RelKind, name: &str) {
+        let at = self.at();
+        self.put(&[0, 0, 0, 0]);
+        self.relocs.push((at, kind, Target::Symbol(String::from(name)), -4));
+    }
+
+    /// `call .+bytes` — a call to a place this many bytes past the end of this
+    /// instruction, with the displacement written here rather than left to a
+    /// relocation: the target is inside this same block.
+    pub fn call_ahead(&mut self, bytes: i32) {
+        self.put(&[0xe8]);
+        self.put(&bytes.to_le_bytes());
+    }
+
+    /// `jmp rn` — an indirect tail call, which pushes nothing.
+    pub fn jmp_reg(&mut self, rn: u32) {
+        if rn >= 8 {
+            self.put(&[rex(false, 0, rn)]);
+        }
+        self.put(&[0xff, 0xe0 | ((rn & 7) as u8)]);
+    }
+
+    pub fn finish(self) -> (Vec<u8>, Vec<ShimReloc>) {
+        (self.bytes, self.relocs)
+    }
+
+    fn into_shim(self) -> Shim {
+        Shim { bytes: self.bytes, relocs: self.relocs }
+    }
 }
 
 /// Where a `main` returning `Result<(), Str>` keeps its answer.
@@ -430,6 +752,7 @@ impl Asm {
 /// the load. `None` in place of the whole struct is the case
 /// `cranelift/mod.rs` spells as a zero-sized return or a return that is not an
 /// enum — a `main` answering `()` — which is a success unconditionally.
+#[derive(Clone)]
 pub struct MainResult {
     /// Byte offset of the tag within the return area, and its width in bytes.
     pub tag: (u32, u32),
@@ -510,7 +833,18 @@ const PROT_NONE: u64 = 0;
 /// first, the root, then the exit convention the JavaScript backend already
 /// has — `.Ok(())` flushes and exits 0, `.Err(msg)` writes `msg` to standard
 /// error, flushes and exits 1.
-pub fn program_entry(callee: &str, result: Option<MainResult>) -> Asm {
+///
+/// The target picks the machine and nothing else: the two bodies below are the
+/// same program in two instruction sets, and a difference between them that is
+/// not forced by the ISA is a bug in one of them.
+pub fn program_entry(target: StencilTarget, callee: &str, result: Option<MainResult>) -> Shim {
+    if target.is_arm64() {
+        return program_entry_arm64(callee, result).into_shim();
+    }
+    program_entry_x86_64(callee, result).into_shim()
+}
+
+fn program_entry_arm64(callee: &str, result: Option<MainResult>) -> Asm {
     let mut a = Asm::new();
     a.stp_fp_lr();
     a.bl_symbol("buri_rt_argv_init");
@@ -592,7 +926,14 @@ fn load_tag(a: &mut Asm, rt: u32, rn: u32, off: u32, width: u32) {
 /// `argc` and `argv` arrive in `w0` and `x1` and have to reach
 /// `buri_rt_argv_init` unchanged, so the prologue is the one instruction pair
 /// that touches neither and the `bl` comes before anything else at all.
-pub fn test_entry(tests: &[String]) -> Asm {
+pub fn test_entry(target: StencilTarget, tests: &[String]) -> Shim {
+    if target.is_arm64() {
+        return test_entry_arm64(tests).into_shim();
+    }
+    test_entry_x86_64(tests).into_shim()
+}
+
+fn test_entry_arm64(tests: &[String]) -> Asm {
     let mut a = Asm::new();
     a.stp_fp_lr();
     a.bl_symbol("buri_rt_argv_init");
@@ -608,6 +949,118 @@ pub fn test_entry(tests: &[String]) -> Asm {
     a.bl_symbol("buri_rt_flush");
     a.mov_imm(X0, 0);
     a.ldp_fp_lr();
+    a.ret();
+    a
+}
+
+// ---------------------------------------------------------------------------
+// The same two shims, for SysV x86-64
+// ---------------------------------------------------------------------------
+
+/// [`install_guard`] for the other machine.
+///
+/// Six instructions rather than nine, and the saving is the whole of the
+/// difference between the two address forms: `lea` names the stack in one
+/// instruction where `adrp`/`add` needs two, and `add rdi, #imm32` reaches the
+/// guard where A64 had to materialise the distance into a register first.
+fn install_guard_x86_64(a: &mut X86) {
+    a.lea_symbol(RDI, STACK_SYMBOL);
+    a.add_imm(RDI, STACK_USABLE as u32);
+    a.mov_imm(RSI, GUARD_BYTES);
+    a.mov_imm(RDX, PROT_NONE);
+    a.call_symbol("mprotect");
+    // `mprotect` answers an `int`, so the test is the 32-bit one.
+    let ok = a.cbz(RAX);
+    a.call_symbol("abort");
+    a.here(ok);
+}
+
+/// [`program_entry`] for SysV x86-64.
+///
+/// The one structural difference from the A64 body: an emitted function answers
+/// the frame pointer in `rax` rather than in the register it was handed, so the
+/// return area is read off `rax` and the message's three words go straight into
+/// the argument registers instead of through a temporary.
+fn program_entry_x86_64(callee: &str, result: Option<MainResult>) -> X86 {
+    let mut a = X86::new();
+    a.push_rbp();
+    // `argc` and `argv` are already in `edi` and `rsi`, and `push` writes
+    // neither, so this call comes before anything else at all.
+    a.call_symbol("buri_rt_argv_init");
+    install_guard_x86_64(&mut a);
+
+    a.lea_symbol(RDI, STACK_SYMBOL);
+    a.call_symbol(callee);
+
+    let Some(r) = result else {
+        a.call_symbol("buri_rt_flush");
+        a.mov_imm(RAX, 0);
+        a.pop_rbp();
+        a.ret();
+        return a;
+    };
+
+    let ok = match r.niche {
+        Some(null_at) => {
+            a.ldr(RSI, RAX, null_at);
+            a.cbnz_x(RSI)
+        }
+        None => {
+            let (off, width) = r.tag;
+            load_tag_x86_64(&mut a, RSI, RAX, off, width);
+            a.cbz_x(RSI)
+        }
+    };
+
+    // The error arm falls through, exactly as it does on A64.
+    let (base, ptr, len) = r.message;
+    a.ldr(RDX, RAX, len);
+    a.ldr(RSI, RAX, ptr);
+    a.ldr(RDI, RAX, base);
+    a.mov_imm(RAX, crate::compiler::middle::layout::STR_LEN_MASK);
+    a.and_reg(RDX, RAX);
+    a.call_symbol("buri_rt_host_stderr_eprintln");
+    a.call_symbol("buri_rt_flush");
+    a.mov_imm(RAX, 1);
+    a.pop_rbp();
+    a.ret();
+
+    a.here(ok);
+    a.call_symbol("buri_rt_flush");
+    a.mov_imm(RAX, 0);
+    a.pop_rbp();
+    a.ret();
+    a
+}
+
+/// [`load_tag`] for the other machine. Every width zero-extends into the whole
+/// of `rt`, so the one 64-bit `test` after it decides all four.
+fn load_tag_x86_64(a: &mut X86, rt: u32, rn: u32, off: u32, width: u32) {
+    match width {
+        1 => a.ldrb(rt, rn, off),
+        2 => a.ldrh(rt, rn, off),
+        4 => a.ldr_w(rt, rn, off),
+        _ => a.ldr(rt, rn, off),
+    }
+}
+
+/// [`test_entry`] for SysV x86-64.
+fn test_entry_x86_64(tests: &[String]) -> X86 {
+    let mut a = X86::new();
+    a.push_rbp();
+    a.call_symbol("buri_rt_argv_init");
+    install_guard_x86_64(&mut a);
+    for (i, sym) in tests.iter().enumerate() {
+        a.mov_imm(RDI, i as u64);
+        a.call_symbol("buri_rt_test_enter");
+        let next = a.cbz(RAX);
+        a.lea_symbol(RDI, STACK_SYMBOL);
+        a.call_symbol(sym);
+        a.here(next);
+    }
+    a.call_symbol("buri_rt_flush");
+    a.mov_imm(RAX, 0);
+    a.pop_rbp();
     a.ret();
     a
 }
@@ -706,14 +1159,15 @@ mod tests {
             RelKind::Abs64 => "Abs64",
             RelKind::Page21 => "Page21",
             RelKind::PageOff12 => "PageOff12",
+            RelKind::Rel32 => "Rel32",
+            RelKind::Pc32 => "Pc32",
         }
     }
 
-    fn names(a: Asm) -> Vec<(&'static str, String)> {
-        let (_, relocs) = a.finish();
-        relocs
+    fn names(s: Shim) -> Vec<(&'static str, String)> {
+        s.relocs
             .into_iter()
-            .map(|(_, k, t)| {
+            .map(|(_, k, t, _)| {
                 let n = match t {
                     Target::Symbol(s) => s,
                     other => format!("{other:?}"),
@@ -723,12 +1177,17 @@ mod tests {
             .collect()
     }
 
+    /// Every shim is asked for by target, and the arm64 one is the twin the
+    /// x86-64 one was read off.
+    const ARM64: StencilTarget = StencilTarget::MacosArm64;
+    const X86_64: StencilTarget = StencilTarget::LinuxX86_64;
+
     /// The order is the contract: `argv_init` before anything writes `x0`, the
     /// `PAGE21`/`PAGEOFF12` pair adjacent and in that order, and the test's own
     /// symbol after the pair that forms its argument.
     #[test]
     fn the_test_shim_relocates_what_it_calls_in_order() {
-        let a = test_entry(&[String::from("t0"), String::from("t1")]);
+        let a = test_entry(ARM64, &[String::from("t0"), String::from("t1")]);
         assert_eq!(
             names(a),
             vec![
@@ -754,7 +1213,7 @@ mod tests {
     /// the runtime, flushes it and answers 0.
     #[test]
     fn an_empty_suite_is_still_a_main() {
-        let a = test_entry(&[]);
+        let a = test_entry(ARM64, &[]);
         assert_eq!(
             names(a),
             vec![
@@ -772,7 +1231,7 @@ mod tests {
     /// writer for no message and exits 0 on every path.
     #[test]
     fn a_main_without_a_result_never_reads_the_return_area() {
-        let a = program_entry("buri$main", None);
+        let a = program_entry(ARM64, "buri$main", None);
         assert_eq!(
             names(a),
             vec![
@@ -794,6 +1253,7 @@ mod tests {
     #[test]
     fn a_failing_main_writes_the_message_before_it_flushes() {
         let a = program_entry(
+            ARM64,
             "buri$main",
             Some(MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) }),
         );
@@ -820,11 +1280,11 @@ mod tests {
     /// these the same way round would make every failing program exit 0.
     #[test]
     fn the_niche_test_is_the_opposite_of_the_tag_test() {
-        let niche = program_entry(
+        let niche = program_entry_arm64(
             "m",
             Some(MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) }),
         );
-        let tagged = program_entry(
+        let tagged = program_entry_arm64(
             "m",
             Some(MainResult { tag: (0, 8), niche: None, message: (8, 16, 24) }),
         );
@@ -910,4 +1370,219 @@ mod tests {
         assert_eq!(STACK_USABLE % (1u64 << STACK_ALIGN), 0);
         assert_eq!(GUARD_BYTES % (1u64 << STACK_ALIGN), 0);
     }
+
+    // -- SysV x86-64 -------------------------------------------------------
+    //
+    // Every byte sequence asserted below was disassembled with `llvm-mc
+    // -triple=x86_64-unknown-linux-gnu` and read back against what it is
+    // named for. The comments are that listing.
+
+    /// The encoders, as the bytes they have to be. One instruction of every
+    /// form either shim uses, including the two the `rsp` base makes special.
+    #[test]
+    fn the_x86_64_encoders_are_the_bytes_they_have_to_be() {
+        let mut a = X86::new();
+        a.push_rbp();
+        a.sub_imm(RSP, 512);
+        a.str_off(RDI, RSP, 8);
+        a.mov_reg(RDI, RSP);
+        a.ldr(RSI, RAX, 3);
+        a.and_reg(RDX, RAX);
+        a.add_imm(RSP, 512);
+        a.pop_rbp();
+        a.jmp_reg(RSI);
+        a.ret();
+        let (bytes, _) = a.finish();
+        assert_eq!(
+            bytes,
+            vec![
+                0x55, // push  %rbp
+                0x48, 0x81, 0xec, 0x00, 0x02, 0x00, 0x00, // sub   $512, %rsp
+                0x48, 0x89, 0xbc, 0x24, 0x08, 0x00, 0x00, 0x00, // mov  %rdi, 8(%rsp)
+                0x48, 0x89, 0xe7, // mov   %rsp, %rdi
+                0x48, 0x8b, 0xb0, 0x03, 0x00, 0x00, 0x00, // mov  3(%rax), %rsi
+                0x48, 0x21, 0xc2, // and   %rax, %rdx
+                0x48, 0x81, 0xc4, 0x00, 0x02, 0x00, 0x00, // add   $512, %rsp
+                0x5d, // pop   %rbp
+                0xff, 0xe6, // jmp   *%rsi
+                0xc3, // ret
+            ]
+        );
+    }
+
+    /// A base register whose encoding is `100` is not a register: it says a
+    /// `SIB` byte follows. `rsp` is that encoding, so a store through it is one
+    /// byte longer than the same store through `rax`, and an encoder that
+    /// forgot would address `[rsp*1 + disp]` — which is not a thing.
+    #[test]
+    fn a_stack_pointer_base_takes_a_sib_byte() {
+        let mut a = X86::new();
+        a.str_off(RDI, RSP, 8);
+        a.str_off(RDI, RAX, 8);
+        let (bytes, _) = a.finish();
+        assert_eq!(bytes.get(0..4), Some(&[0x48, 0x89, 0xbc, 0x24][..]));
+        assert_eq!(bytes.get(8..11), Some(&[0x48, 0x89, 0xb8][..]));
+        assert_eq!(bytes.len(), 8 + 7);
+    }
+
+    /// A value below `2^32` moves in five bytes and zero-extends; the `Str`
+    /// length mask is the one value either shim forms that needs ten.
+    #[test]
+    fn an_immediate_is_five_bytes_until_it_needs_ten() {
+        let mut a = X86::new();
+        a.mov_imm(RAX, 1);
+        a.mov_imm(RAX, 0x7fff_ffff_ffff_ffff);
+        let (bytes, _) = a.finish();
+        assert_eq!(bytes.get(0..5), Some(&[0xb8, 0x01, 0x00, 0x00, 0x00][..]));
+        assert_eq!(bytes.get(5..7), Some(&[0x48, 0xb8][..]));
+        assert_eq!(bytes.len(), 5 + 10);
+    }
+
+    /// The order is the same contract the A64 shim has, in the same words:
+    /// `argv_init` before anything writes an argument register, the guard, then
+    /// each test's own symbol behind the address of the stack.
+    #[test]
+    fn the_x86_64_test_shim_relocates_what_it_calls_in_order() {
+        let a = test_entry(X86_64, &[String::from("t0"), String::from("t1")]);
+        assert_eq!(
+            names(a),
+            vec![
+                ("Rel32", String::from("buri_rt_argv_init")),
+                ("Pc32", String::from(STACK_SYMBOL)),
+                ("Rel32", String::from("mprotect")),
+                ("Rel32", String::from("abort")),
+                ("Rel32", String::from("buri_rt_test_enter")),
+                ("Pc32", String::from(STACK_SYMBOL)),
+                ("Rel32", String::from("t0")),
+                ("Rel32", String::from("buri_rt_test_enter")),
+                ("Pc32", String::from(STACK_SYMBOL)),
+                ("Rel32", String::from("t1")),
+                ("Rel32", String::from("buri_rt_flush")),
+            ]
+        );
+    }
+
+    /// The x86-64 shim calls exactly what the A64 one calls, in the same
+    /// order. The kinds differ because the machines do; the *names* may not,
+    /// because a program that fails must print the same thing whichever machine
+    /// built it.
+    #[test]
+    fn the_two_machines_shims_call_the_same_symbols_in_the_same_order() {
+        for r in [
+            None,
+            Some(MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) }),
+            Some(MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) }),
+        ] {
+            let arm = names(program_entry(ARM64, "m", r.clone()));
+            let x86 = names(program_entry(X86_64, "m", r));
+            // A64 spells an address as an adjacent `Page21`/`PageOff12` pair
+            // and x86-64 as one `Pc32`, so the pairs collapse before the two
+            // lists can be compared at all.
+            let arm: Vec<String> = arm
+                .into_iter()
+                .filter(|(k, _)| *k != "PageOff12")
+                .map(|(_, n)| n)
+                .collect();
+            let x86: Vec<String> = x86.into_iter().map(|(_, n)| n).collect();
+            assert_eq!(arm, x86);
+        }
+    }
+
+    /// Every x86-64 relocation names a four-byte field that **ends** its
+    /// instruction, which is what an addend of `-4` says. A site with any other
+    /// addend would be aimed past its target by the difference.
+    #[test]
+    fn every_x86_64_relocation_is_a_field_at_the_end_of_its_instruction() {
+        let s = test_entry(X86_64, &[String::from("t0")]);
+        assert!(!s.relocs.is_empty());
+        for (at, _, _, addend) in &s.relocs {
+            assert_eq!(*addend, -4);
+            assert!(at + 4 <= s.bytes.len() as u64, "a field at {at} runs past the shim");
+            // The four bytes of a field are left zero: the linker writes them.
+            let field = s.bytes.get(*at as usize..*at as usize + 4);
+            assert_eq!(field, Some(&[0u8, 0, 0, 0][..]));
+        }
+    }
+
+    /// **The machine stack is sixteen-aligned at every `call`.**
+    ///
+    /// `main` is entered with the return address pushed, so `rsp % 16 == 8`;
+    /// the single `push rbp` makes it zero and nothing else in either shim
+    /// writes `rsp`. The check is structural because it has to be: the property
+    /// is about every path, and a shim has three.
+    #[test]
+    fn the_x86_64_shim_keeps_the_machine_stack_aligned() {
+        for bytes in [
+            program_entry(X86_64, "m", None).bytes,
+            program_entry(
+                X86_64,
+                "m",
+                Some(MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) }),
+            )
+            .bytes,
+            test_entry(X86_64, &[String::from("t0")]).bytes,
+        ] {
+            assert_eq!(bytes.first(), Some(&0x55), "the shim does not open with `push %rbp`");
+            // `48 81 ec` and `48 81 c4` are `sub`/`add` on `rsp`; neither may
+            // appear, because either would put the alignment back where the
+            // entry found it.
+            for w in bytes.windows(3) {
+                assert_ne!(w, [0x48, 0x81, 0xec], "the shim moves rsp");
+                assert_ne!(w, [0x48, 0x81, 0xc4], "the shim moves rsp");
+            }
+            // Every `ret` is preceded by the one `pop %rbp` that balances the
+            // push, so no path leaves the machine stack where it found it.
+            for (i, b) in bytes.iter().enumerate() {
+                if *b == 0xc3 && i > 0 {
+                    assert_eq!(bytes.get(i - 1), Some(&0x5d), "a `ret` with no `pop %rbp`");
+                }
+            }
+        }
+    }
+
+    /// The niche test is `jne` and the tag test is `je`, on the same register:
+    /// the same way round as A64's `cbnz`/`cbz`, for the reason
+    /// [`MainResult::niche`] gives. Getting these the same way round would make
+    /// every failing program exit 0.
+    #[test]
+    fn the_x86_64_niche_test_is_the_opposite_of_the_tag_test() {
+        // `48 85 f6` is `test %rsi, %rsi`, the only 64-bit test either shim
+        // emits — the guard's is `85 c0`, on `eax` — and the two bytes after
+        // it are the condition: `0f 84` is `je`, `0f 85` is `jne`.
+        let branch = |s: Shim| {
+            s.bytes
+                .windows(5)
+                .find(|w| w.get(0..3) == Some(&[0x48, 0x85, 0xf6][..]))
+                .and_then(|w| w.get(3..5).map(<[u8]>::to_vec))
+        };
+        let niche = program_entry(
+            X86_64,
+            "m",
+            Some(MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) }),
+        );
+        let tagged = program_entry(
+            X86_64,
+            "m",
+            Some(MainResult { tag: (0, 8), niche: None, message: (8, 16, 24) }),
+        );
+        assert_eq!(branch(niche), Some(vec![0x0f, 0x85]));
+        assert_eq!(branch(tagged), Some(vec![0x0f, 0x84]));
+    }
+
+    /// Every tag width loads zero-extended into the whole register, so the one
+    /// 64-bit `test` after it is correct for all four.
+    #[test]
+    fn each_x86_64_tag_width_has_its_own_load() {
+        let of = |w: u32| {
+            let mut a = X86::new();
+            load_tag_x86_64(&mut a, RSI, RAX, 8, w);
+            let (b, _) = a.finish();
+            b.get(0..2).map(<[u8]>::to_vec)
+        };
+        assert_eq!(of(1), Some(vec![0x0f, 0xb6])); // movzbl
+        assert_eq!(of(2), Some(vec![0x0f, 0xb7])); // movzwl
+        assert_eq!(of(4), Some(vec![0x8b, 0xb0])); // mov r32
+        assert_eq!(of(8), Some(vec![0x48, 0x8b])); // mov r64
+    }
 }
+
