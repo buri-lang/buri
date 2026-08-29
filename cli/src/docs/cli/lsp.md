@@ -33,6 +33,8 @@ end is a library, and `driver::analyze` is what the server calls.
 | `formatting` | `buri format`, which refuses to emit anything that does not parse, so a file mid-edit is left alone rather than mangled. |
 | `completion` | Inside a module path, the standard library plus the labels your target already declares. Inside an import's `{ … }`, what that module exports. |
 | `codeAction` | The fix for a finding that has exactly one. |
+| `codeLens` / `codeLens/resolve` | A run command above every `test`, and above every exported declaration how many places the repository uses it. The count is computed when the editor is about to draw that one lens, not when it scrolls past the file. |
+| `executeCommand` | The three verbs the lenses invoke: run one test, regenerate a package's `BUILD.buri`, and show the places a count counted. |
 | `documentColor` / `colorPresentation` | A swatch beside every `ui/style` `Color.Rgb` and `Color.Rgba` the file spells out, and the picker's choice written back as the same call. |
 | `semanticTokens` | Colour, in two layers: the lexer's keywords, literals and comments, and then every identifier upgraded to what it actually names — a type, a trait, a field, a variant, a module, a method rather than a function. Whole file, one range, or a delta against the last answer. |
 | `inlayHint` / `inlayHint/resolve` | The inferred type after every `let` and every closure parameter that wrote none, and the parameter's name before every argument that reads as an unlabelled one. Pointing at a hint resolves it: the declaration it is about, rendered as hover renders it, and a click that goes there. |
@@ -311,17 +313,81 @@ can go to. A hint about a declaration compiled into the binary — `I64`, a
 primitive's method — carries no `data` and resolves to itself, because the
 label already says everything there is to say about it.
 
-**A save can tell the client its colours and its hints are stale.** After a
-`didSave` or a `didChangeWatchedFiles` that moved the analysis fingerprint — the
-same key the cached analyses are filed under, so "something changed" is a
-comparison rather than a guess — the server sends
-`workspace/semanticTokens/refresh` and `workspace/inlayHint/refresh`. An import
-that newly resolves turns a name that had no colour into a type and a binding
-that had no inferred type into one; nothing else would tell the editor to ask
-again. The fingerprint is computed once for the pair, because it reads every
-byte under every open folder. A save that changed nothing is silent, and so is
-a client that did not say in its `initialize` that it accepts the request —
-each of the two is gated on its own `refreshSupport`.
+**A code lens is a line of screen, and it is spent on two things.** Above every
+`test`, a command that runs that one test, titled with the sentence the test was
+written with — a column of lenses all reading "Run test" says nothing about
+which line each one belongs to. Above every declaration the module **exports**,
+how many places the repository uses it. A declaration the module does not export
+gets none: the count would be that one file's uses, which is the question
+`documentHighlight` already answers by painting them.
+
+The full pass reads a parse and nothing else, and that is the whole design. A
+client asks for the lenses of every file it scrolls through, so anything the
+pass does is paid per file scrolled — and counting references means analysing
+the entire repository. So the count is not in it. A reference lens leaves with a
+range and a `data` and *no command*, and `codeLens/resolve` does the counting
+for the one lens an editor is about to draw; a run lens leaves complete, because
+all it needed was the sentence and the parse has that. Being a parse also means
+the lenses arrive in a file that does not typecheck, and in one that does not
+parse the declarations above the break still get theirs.
+
+The count leaves the declaration itself out. The lens is drawn on that line, and
+a "3 references" that included the line the reader is looking at would be
+counting the reader's own cursor — the same `includeDeclaration: false` a client
+sends when it asks "where else is this used". Zero is an answer worth having on
+screen: an export nothing reaches is the finding `buri lint` reports as dead
+code, said before you have to run it. A lens whose `data` names a file in no
+open repository comes back exactly as it went in, because the protocol's result
+for that request is a code lens and an unresolved one is still one.
+
+**Three commands, and they are the verbs behind the lenses.** Each is a call
+into an entry point `buri` already has at a terminal, so a command and the
+command line cannot end up doing different things.
+
+- `buri.runTest` takes the file and the sentence. The file says which repository
+  and which target — the same rule every other request follows — and the
+  sentence is what `--filter` takes, so a name that is a substring of another
+  test's runs both, exactly as it does at the terminal. This compiles and links
+  a test binary from a language-server request, which is the most expensive
+  thing any of them does and is precisely what was asked for by clicking the
+  lens. The transcript goes back as a `window/logMessage`, because that is where
+  a client puts several lines, and its last line as a `window/showMessage`,
+  because that is where a client puts one. The compiler's own diagnostics are in
+  neither: those are already on screen as squiggles from the analysis.
+- `buri.regenerateBuildFile` takes a file in the repository and a package label.
+  Two arguments rather than the label alone, because a label is
+  repository-relative and a client holding two repositories open would be naming
+  a package in both.
+- `buri.showReferences` takes what a resolved reference lens carries — the uri,
+  the position and the `Location[]` — and does nothing. Showing a list of places
+  is the client's affordance, not something a server can do to an editor; the
+  command exists so that the lens is a well-formed one, because a `CodeLens`
+  with a title and no command is not one and naming a command the server does
+  not implement would be naming one it would refuse.
+
+**A command that edits writes through the client, and waits.** The server has no
+business writing a file an editor may be holding unsaved, so the whole file
+`buri gen` produces goes out as a `workspace/applyEdit` with an id of its own —
+and the `executeCommand` is *not answered yet*. It is answered when the client
+says what it did with the edit, and with that answer: "regenerated" means the
+editor wrote the file rather than that the server asked. A client that refused
+the edit gets `applied: false` rather than a silence its caller cannot tell from
+success. A package whose build file already says what `buri gen` would write is
+told so in a `window/showMessage` — nothing to do is not a failure, and saying
+so out loud is what a command invoked from a palette owes whoever invoked it.
+
+**A save can tell the client its colours, its hints and its lenses are stale.**
+After a `didSave` or a `didChangeWatchedFiles` that moved the analysis
+fingerprint — the same key the cached analyses are filed under, so "something
+changed" is a comparison rather than a guess — the server sends
+`workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh` and
+`workspace/codeLens/refresh`. An import that newly resolves turns a name that
+had no colour into a type, a binding that had no inferred type into one, and a
+count into a different count; nothing else would tell the editor to ask again.
+The fingerprint is computed once for all three, because it reads every byte
+under every open folder. A save that changed nothing is silent, and so is a
+client that did not say in its `initialize` that it accepts the request — each
+of the three is gated on its own `refreshSupport`.
 
 **Two open folders are two repositories.** A Buri repository is rooted at a
 `REPO.buri`, so a client holding two of them is holding two build graphs, two
@@ -380,10 +446,13 @@ and **deferred**, which is work not yet done.
 | `didChangeWorkspaceFolders`, `workspace/workspaceFolders` | served | the server asks for the folders when a client that knows about them named none |
 | `semanticTokens/full`, `/range`, `/full/delta` | served | two layers — the lexer's, which cannot fail, and the resolver's upgrade of every identifier. The grammar in `editors/` is the floor this builds on rather than a second opinion it can contradict |
 | `inlayHint`, `inlayHint/resolve` | served | the inferred type after a binding that wrote none, and a parameter's name before an argument that is a literal or a differently-spelled bare name. The judgement is a rule and not a taste: an annotated binding, an argument spelled like its parameter, and an argument with structure in it all get nothing |
-| `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh` | served | sent after a save or a watched change that moved the analysis fingerprint, each only to a client whose `initialize` claimed that family's `refreshSupport` |
+| `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh`, `workspace/codeLens/refresh` | served | sent after a save or a watched change that moved the analysis fingerprint, each only to a client whose `initialize` claimed that family's `refreshSupport` |
 | `prepareCallHierarchy`, `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls` | served | both directions are one scan of the calls each checked body writes; a trait method has no body of its own and answers `[]` outgoing |
 | `documentLink` | served | import and re-export paths, addresses in comments, and a build file's `sources`, `data` and dependency entries |
-| `codeLens` | deferred | a lens spends a line of screen above a declaration, and nothing in the toolchain currently produces a count worth that line |
+| `codeLens`, `codeLens/resolve` | served | a run command above every `test` and a use count above every export. The full pass is a parse, and the count — which costs a whole-repository analysis — waits for `resolve`, which is what `resolveProvider: true` claims |
+| `workspace/executeCommand` | served | exactly three commands, each a call into an entry point `buri` already has: `buri.runTest`, `buri.regenerateBuildFile`, `buri.showReferences` |
+| `workspace/applyEdit` | served | how a command that edits writes: the server sends the file `buri gen` produced and the command's own answer is what the client says it did with it |
+| `window/showMessage`, `window/logMessage` | served | what a command has to report: the transcript of a test run in the log, its verdict on screen |
 | `rangeFormatting`, `onTypeFormatting` | deferred | `buri format` is whole-file and canonical. A formatter with no partial mode has nothing to give a range, and formatting part of a file is how an editor and the command come to disagree about it |
 | work-done progress | deferred | no request long enough to report progress on |
 
@@ -428,6 +497,12 @@ server that keeps up with typing and one that does not:
 - **On an `inlayHint/resolve`** it analyses the file the hint's `data` names,
   which is where the declaration is rather than where the hint is painted, and
   asks the resolver once — for the one hint under the pointer.
+- **On a `codeLens`** it analyses **nothing**: the lenses are a parse of the one
+  buffer, which is why scrolling through a repository costs a parse per file and
+  not a compilation per file. **On a `codeLens/resolve`** it analyses every
+  target in the repository, because the count is the `references` answer and
+  that is what `references` needs — for the one lens the editor is about to
+  draw.
 - **On a references, a rename, a workspace symbol query, an implementation,
   either half of a type hierarchy or any of the three call-hierarchy requests**
   it analyses every target in the repository, as one compilation, because a name
@@ -445,6 +520,11 @@ server that keeps up with typing and one that does not:
 - **On a change to a watched file or to the open folders** it asks every open
   buffer's own target again, because a build file decides what every file in its
   package can see and there is no one buffer that changed.
+- **On a `workspace/executeCommand`** it does whatever the command does, which
+  for `buri.runTest` is a compilation and a link and a process, and for
+  `buri.regenerateBuildFile` is the same package walk `buri gen` makes. These
+  are the two requests that are not cheap and are not meant to be: each is a
+  thing somebody clicked.
 
 The reason for the split is that the front end has no incremental mode:
 `driver::analyze` is whole-closure. Analysing on every keystroke would mean

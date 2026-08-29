@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "buri.regenerateBuildFile sends the file buri gen would write as a workspace/applyEdit and answers the command with what the client says it did with it, so the command is finished when the editor has written it and not when the server asked"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

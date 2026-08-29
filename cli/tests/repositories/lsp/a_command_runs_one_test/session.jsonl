@@ -1,0 +1,30 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# This session compiles and links a test binary from a language-server request,
+# which is the most expensive thing any of them does — and is exactly what the
+# reader asked for by clicking the lens. The suite is two one-line tests so
+# that the cost is a compilation and not a benchmark.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The command the run lens carries, with the arguments the lens put on it: the
+# file, which is what says which repository and which target, and the sentence
+# the test was written with, which is what `--filter` takes. The other test in
+# the same source is skipped, and the runner says so.
+#
+# The transcript goes out as a `window/logMessage`, because that is where a
+# client puts several lines; the last line of it as a `window/showMessage`,
+# because that is where a client puts one. Then the command's own reply.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/executeCommand", "params": {"command": "buri.runTest", "arguments": ["file://<scratch>/lib/counter/test/counter.buri", "counter reads the total"]}}
+# The command a reference lens carries. It answers `null` and does nothing:
+# what the lens has to say is in its arguments, and showing a list of places is
+# the client's affordance. It exists so that the lens is a well-formed one.
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/executeCommand", "params": {"command": "buri.showReferences", "arguments": ["file://<scratch>/lib/counter/counter.buri", {"line": 1, "character": 14}, []]}}
+# A command with the sentence left off is refused rather than run against a
+# filter nobody wrote.
+{"jsonrpc": "2.0", "id": 4, "method": "workspace/executeCommand", "params": {"command": "buri.runTest", "arguments": ["file://<scratch>/lib/counter/test/counter.buri"]}}
+# A command that is not one of the three `executeCommandProvider` lists.
+{"jsonrpc": "2.0", "id": 5, "method": "workspace/executeCommand", "params": {"command": "buri.reformatTheUniverse", "arguments": []}}
+# A file in no repository this client has open. There is no target to run.
+{"jsonrpc": "2.0", "id": 6, "method": "workspace/executeCommand", "params": {"command": "buri.runTest", "arguments": ["file:///elsewhere/counter.buri", "counter reads the total"]}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

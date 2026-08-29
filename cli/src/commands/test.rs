@@ -196,7 +196,7 @@ pub fn command_test(args: &arguments::Args) -> i32 {
         return 2;
     }
     if !args.flags.watch {
-        return one_pass(args, false).code;
+        return one_pass(args, Asked::Once).code;
     }
     // The three combinations `--watch` refuses were refused at parsing, so by
     // here a watch loop is a loop: a pass, the declared set that pass computed,
@@ -208,18 +208,64 @@ pub fn command_test(args: &arguments::Args) -> i32 {
         .ok()
         .and_then(|cwd| crate::build::workspace::find_root(&cwd))
         .unwrap_or_default();
-    watch::Watch::on(root, args.flags.explain).drive(|_| one_pass(args, true))
+    watch::Watch::on(root, args.flags.explain).drive(|_| one_pass(args, Asked::Watching))
+}
+
+/// One named test, run for the language server's `buri.runTest` lens.
+///
+/// The exit code and everything the pass printed, rather than a printed pass:
+/// stdout carries protocol in that process, so a run whose output went there
+/// would corrupt the stream. `--filter` is `contains`, which is what it means
+/// at the terminal too — a name that is a substring of another test's runs both.
+///
+/// The root is named rather than found, because an editor may hold two
+/// repositories open and the process's directory says nothing about which one a
+/// request is about.
+pub fn run_one(root: &std::path::Path, label: &str, name: &str) -> (i32, String) {
+    let args = arguments::Args {
+        command: "test".to_string(),
+        targets: vec![label.to_string()],
+        flags: arguments::Flags {
+            filter: Some(name.to_string()),
+            // The transcript is going into a JSON message; escape codes in one
+            // are noise a client has to strip.
+            color: Some(false),
+            ..arguments::Flags::default()
+        },
+        passthrough: Vec::new(),
+    };
+    let pass = one_pass(&args, Asked::Served { root });
+    (pass.code, pass.output)
+}
+
+/// Who asked for a pass, which decides where its output goes, where its
+/// repository is, and whether the declared input set is collected.
+#[derive(Clone, Copy)]
+enum Asked<'a> {
+    /// `buri test` at a terminal: printed as it happens, in the repository the
+    /// process is standing in.
+    Once,
+    /// `buri test --watch`: held for the loop to place, because the loop cannot
+    /// know whether a pass is worth a run separator until it has finished — and
+    /// the input set is collected from the session that just ran, which is what
+    /// makes the watch set and the keys one enumeration rather than two kept in
+    /// step.
+    Watching,
+    /// The language server: one repository named by the caller, and the output
+    /// held because it is going into a protocol message.
+    Served { root: &'a std::path::Path },
 }
 
 /// One `buri test` invocation, whole.
-///
-/// `watching` decides two things and nothing else: whether the output is held
-/// for the loop to place, and whether the declared input set is collected from
-/// the session that just ran the suites — which is what makes the watch set and
-/// the keys the same enumeration rather than two that have to be kept in step.
-fn one_pass(args: &arguments::Args, watching: bool) -> watch::Pass {
-    let mut out = if watching { Out::Held(String::new()) } else { Out::Direct };
-    let mut session = match session::open(&args.flags) {
+fn one_pass(args: &arguments::Args, asked: Asked) -> watch::Pass {
+    let watching = matches!(asked, Asked::Watching);
+    let mut out =
+        if matches!(asked, Asked::Once) { Out::Direct } else { Out::Held(String::new()) };
+    let opened = match asked {
+        Asked::Served { root } => session::open_at(root, &args.flags),
+        Asked::Once | Asked::Watching => session::open(&args.flags),
+    };
+    let mut session = match opened {
         Ok(session) => session,
         Err(msg) => {
             eprintln!("error: {msg}");
