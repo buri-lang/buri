@@ -6,8 +6,9 @@
 # server has been asked about so far.
 {"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/kit/tokens.buri", "languageId": "buri", "version": 1, "text": "export struct Token(export I64);\n\nderive Eq, Show for Token;\n\n// The finding that has to survive a save in the other target.\nexport fn widen(t: Token): I64 { undefinedName }\n"}}}
 # A clean buffer in the other target. Its analysis reaches nothing in
-# //lib/kit — and the finding above must still be published, because a publish
-# replaces everything the editor holds for that file.
+# //lib/kit — and //lib/kit is asked again anyway, because a publish replaces
+# everything the editor holds for a file. Its answer has not moved, so nothing
+# is sent about it and the finding stays where the editor already has it.
 {"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "export struct Cents(export I64);\n\nderive Eq, Show for Cents;\n\n// Clean, and in a target of its own. Saving this is what used to erase the\n// finding in //lib/kit.\nexport fn fromCents(c: I64): Cents { Cents(c) }\n"}}}
 # And the save, which is the same rule from the other side.
 {"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}

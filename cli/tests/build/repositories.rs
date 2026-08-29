@@ -94,7 +94,7 @@ fn test_suites() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 86);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 87);
 }
 
 /// Every method a 3.17 client can send is answered by name, and is sent by at
@@ -215,12 +215,15 @@ const LANGUAGE_SERVER_BUDGET: std::time::Duration = std::time::Duration::from_mi
 /// BURI_PERF=1 cargo test --release -p buri --test build repositories::language_server_speed
 /// ```
 ///
-/// The session has two halves. The first opens the buffers and asks for the
-/// whole repository once, and is **not** measured: a cold sweep is one
-/// compilation per target, and it is paid at startup rather than under a
-/// person's hands. The second is the interactive loop — a keystroke, then the
-/// pulls and the position requests an editor sends after one — and every
-/// request in it is held to the budget.
+/// The session has three parts. First the restore: an editor coming back to a
+/// project opens every tab it had, so every `.buri` file in the repository is
+/// opened one after another and **each open is held to the budget** — what an
+/// open costs is the target it opened, and the buffers already open are a hash
+/// each. Then the cold `workspace/diagnostic`, which is **not** measured: a
+/// cold sweep is one compilation per target and it is paid at startup rather
+/// than under a person's hands. Then the interactive loop — a keystroke, then
+/// the pulls and the position requests an editor sends after one — every
+/// request of which is held to the budget, with all those buffers still open.
 #[test]
 fn language_server_speed() {
     if std::env::var("BURI_PERF").is_err() {
@@ -229,13 +232,13 @@ fn language_server_speed() {
     let scratch = Scratch::copy_of("lsp-speed", &example_repo());
     let mut editor = Editor::open(&scratch.root);
 
-    let watched = ["lib/money/cents.buri", "lib/store/codec.buri", "cmd/server/routes.buri"];
-    for file in watched {
-        editor.opened(file);
+    let mut timings = Vec::new();
+    for file in sources_of(&scratch.root) {
+        timings.push(editor.opened(&file));
     }
+    let watched = ["lib/money/cents.buri", "lib/store/codec.buri", "cmd/server/routes.buri"];
     editor.timed("workspace/diagnostic", r#"{"previousResultIds":[]}"#);
 
-    let mut timings = Vec::new();
     for round in 1..=3u32 {
         editor.typed("lib/money/cents.buri", round);
         for file in watched {
@@ -254,12 +257,6 @@ fn language_server_speed() {
     editor.close();
 
     timings.sort_by_key(|(_, took)| std::cmp::Reverse(*took));
-    let listed = |rows: &[(String, std::time::Duration)]| -> String {
-        rows.iter()
-            .map(|(what, took)| format!("  {what}: {}ms", took.as_millis()))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
     let over: Vec<_> =
         timings.iter().filter(|(_, took)| *took > LANGUAGE_SERVER_BUDGET).cloned().collect();
     assert!(
@@ -269,6 +266,165 @@ fn language_server_speed() {
         listed(&over),
         listed(&timings[..timings.len().min(5)])
     );
+}
+
+/// How much slower the second half of a restore may be than the first.
+///
+/// The budget above is a constant and this is the *shape*: an open that pays
+/// for the buffers already open fails this on any machine, because both halves
+/// are measured on the same one. Three times, plus a floor so that a run whose
+/// opens are all a millisecond does not fail on jitter.
+const RESTORE_DRIFT: u32 = 3;
+
+/// The same restore, against a repository the size a person opens a hundred
+/// tabs in.
+///
+/// `cli/tests/example` is 2.3k lines in eight targets: enough to hold the
+/// budget honest and not enough to show what an open costs when the buffer
+/// count is what an editor really restores. This one is generated from a
+/// template so its size is stated rather than measured — twenty-four libraries
+/// of four modules of eighty-six functions, 24,768 lines across 145 files — and
+/// every one of those files is opened, under the same 50 ms an editor request
+/// has. Before the findings of a target were kept per target the last open here
+/// was 58 ms and the first was 4 ms; both halves of that are what fails now.
+///
+/// ```text
+/// BURI_PERF=1 cargo test --release -p buri --test build repositories::language_server_open_cost
+/// ```
+#[test]
+fn language_server_open_cost() {
+    if std::env::var("BURI_PERF").is_err() {
+        return;
+    }
+    let scratch = generated_repository("lsp-open-scale", 24, 4, 86);
+    let mut editor = Editor::open(&scratch.root);
+    let mut timings = Vec::new();
+    for file in sources_of(&scratch.root) {
+        timings.push(editor.opened(&file));
+    }
+    editor.close();
+
+    let over: Vec<_> = timings
+        .iter()
+        .filter(|(_, took)| *took > LANGUAGE_SERVER_BUDGET)
+        .cloned()
+        .collect();
+    let mut slowest = timings.clone();
+    slowest.sort_by_key(|(_, took)| std::cmp::Reverse(*took));
+    let five = listed(&slowest[..slowest.len().min(5)]);
+    assert!(
+        over.is_empty(),
+        "these opens took longer than the {}ms an open has:\n{}\n\nthe five slowest of the run:\n{}",
+        LANGUAGE_SERVER_BUDGET.as_millis(),
+        listed(&over),
+        five
+    );
+    let half = timings.len() / 2;
+    let first = median(&timings[..half]);
+    let last = median(&timings[half..]);
+    let allowed =
+        first.saturating_mul(RESTORE_DRIFT).saturating_add(std::time::Duration::from_millis(10));
+    assert!(
+        last <= allowed,
+        "the restore's second half costs {}ms an open against its first half's {}ms, \
+         so an open is still paying for the buffers already open:\n{}",
+        last.as_millis(),
+        first.as_millis(),
+        five
+    );
+}
+
+/// The middle time of a run, which is what a ratio between two halves of a
+/// restore has to be taken over: one slow open would carry a mean.
+fn median(rows: &[(String, std::time::Duration)]) -> std::time::Duration {
+    let mut times: Vec<std::time::Duration> = rows.iter().map(|(_, took)| *took).collect();
+    times.sort();
+    times.get(times.len() / 2).copied().unwrap_or_default()
+}
+
+/// One timing per line, for the message a failure prints.
+fn listed(rows: &[(String, std::time::Duration)]) -> String {
+    rows.iter()
+        .map(|(what, took)| format!("  {what}: {}ms", took.as_millis()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Every `.buri` file in a repository, relative to its root and sorted — which
+/// is every tab an editor could have had open in it.
+fn sources_of(root: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                // What a build wrote is not a tab anyone had open.
+                if !matches!(path.file_name().and_then(|n| n.to_str()), Some(".buri" | "out")) {
+                    stack.push(path);
+                }
+            } else if path.extension().and_then(|e| e.to_str()) == Some("buri") {
+                if let Ok(rel) = path.strip_prefix(root) {
+                    found.push(rel.display().to_string().replace('\\', "/"));
+                }
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// A repository of a stated size, written from a template.
+///
+/// `packages` libraries of `modules` modules each, every module `functions`
+/// functions that compile and depend on nothing — the size is the point, and a
+/// dependency between two of them would only put a second target's compilation
+/// inside the first's open.
+fn generated_repository(
+    name: &str,
+    packages: usize,
+    modules: usize,
+    functions: usize,
+) -> Scratch {
+    let scratch = Scratch::empty(name);
+    scratch.write(
+        "REPO.buri",
+        "# Generated by repositories.rs for the language server's open budget.\n",
+    );
+    for package in 0..packages {
+        let dir = format!("lib/p{package}");
+        let sources: Vec<String> = (0..modules).map(|m| format!("\"m{m}.buri\"")).collect();
+        scratch.write(
+            &format!("{dir}/BUILD.buri"),
+            &format!(
+                "library {{\n    sources: [{}]\n    visibility: [\"//visibility:public\"]\n}}\n",
+                sources.join(", ")
+            ),
+        );
+        let mut exports = String::new();
+        for module in 0..modules {
+            let mut body = String::new();
+            for f in 0..functions {
+                body.push_str(&format!(
+                    "/// Adds {f}, in whole units.\n\
+                     export fn p{package}m{module}f{f}(n: I64): I64 {{ n + {f} }}\n\n"
+                ));
+            }
+            scratch.write(&format!("{dir}/m{module}.buri"), &body);
+            // Every name re-exported: a library's surface is `lib.buri`, and a
+            // function nothing reaches is a `dead-code` finding rather than the
+            // clean repository this is meant to time an open against.
+            let names: Vec<String> =
+                (0..functions).map(|f| format!("p{package}m{module}f{f}")).collect();
+            exports.push_str(&format!(
+                "from \"//lib/p{package}/m{module}\" export {{ {} }};\n",
+                names.join(", ")
+            ));
+        }
+        scratch.write(&format!("{dir}/lib.buri"), &exports);
+    }
+    scratch
 }
 
 /// A client for the timed session: one `buri lsp` on a pipe, and the framing
@@ -312,14 +468,22 @@ impl Editor {
         format!("{}/{}", self.root, rel)
     }
 
-    fn opened(&mut self, rel: &str) {
+    /// One buffer opened, and what the open cost.
+    ///
+    /// A notification has no answer to time, so the clock is stopped by a
+    /// `linkedEditingRange` behind it — a request this server answers `null`
+    /// without reading anything, so what the pair measures is the open.
+    fn opened(&mut self, rel: &str) -> (String, std::time::Duration) {
         let text = std::fs::read_to_string(self.dir.join(rel)).unwrap();
         let params = format!(
             r#"{{"textDocument":{{"uri":"{}","languageId":"buri","version":1,"text":{}}}}}"#,
             self.uri(rel),
             quoted(&text)
         );
+        let started = std::time::Instant::now();
         self.notify("textDocument/didOpen", &params);
+        self.at("textDocument/linkedEditingRange", rel);
+        (format!("didOpen {rel}"), started.elapsed())
     }
 
     /// A keystroke: a comment appended, so that nothing above it moves and the
