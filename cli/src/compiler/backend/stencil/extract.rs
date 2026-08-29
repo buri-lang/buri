@@ -439,6 +439,24 @@ fn finish_arm64(raws: Vec<RawFn>) -> Result<Vec<Stencil>, String> {
 fn is_ls_reg_offset(w: u32) -> bool {
     w & 0x3b20_0c00 == 0x3820_0800
 }
+/// Any A64 control transfer: `b`/`bl`, `b.cond`, `cbz`/`cbnz`, `tbz`/`tbnz`,
+/// and the register-indirect family `br`/`blr`/`ret`.
+fn is_branch(w: u32) -> bool {
+    w & 0x7c00_0000 == 0x1400_0000
+        || w & 0xff00_0010 == 0x5400_0000
+        || w & 0x7e00_0000 == 0x3400_0000
+        || w & 0x7e00_0000 == 0x3600_0000
+        || w & 0xfe1f_fc00 == 0xd61f_0000
+}
+/// Whether a register-offset access is a **scalar load into `rd`**, which is
+/// the only form in this encoding that overwrites a general-purpose register.
+///
+/// `V` is bit 26 and `opc` is bits 23:22: a SIMD access names a vector register
+/// in `Rt` and never touches an X register, and a scalar store — `opc == 00` —
+/// reads `Rt` rather than writing it. Everything else here is a load.
+fn writes_gpr(w: u32, rd: u32) -> bool {
+    w & (1 << 26) == 0 && (w >> 22) & 3 != 0 && (w & 0x1f) == rd
+}
 /// The access size of a load or store, which is what its unsigned-offset field
 /// is scaled by.
 ///
@@ -655,18 +673,32 @@ pub fn fold_addressing(s: &Stencil) -> Option<Stencil> {
             // The one load or store that uses the materialised offset. A second
             // use, or a redefinition first, means this pair is left alone.
             let mut found: Option<usize> = None;
+            let mut branched = false;
             for (i, &w) in code.iter().enumerate().skip(bi + 1) {
                 // `reloc` is one flag per word of `code`, so `i` names one.
                 let is_reloc = reloc.get(i).copied().unwrap_or(false);
                 if is_reloc && (w & 0x9f00_0000 == 0x9000_0000) && (w & 0x1f) == rd {
                     break; // Rd redefined by the next hole's adrp.
                 }
+                branched |= is_branch(w);
                 if is_ls_reg_offset(w) && ((w >> 16) & 0x1f) == rd {
                     if found.is_some() {
                         found = None;
                         break;
                     }
                     found = Some(i);
+                    // A load into the very register it indexed by — `ldr x10,
+                    // [x0, x10]`, which is what `AT(t, _JIT_X)` compiles to —
+                    // ends the offset's life here: every later mention of the
+                    // register is the value that was loaded, not the offset.
+                    // So the scan stops rather than counting the loaded index
+                    // as a second use and declining, which is why an `eload`'s
+                    // index hole never folded. Straight-line only: past a
+                    // branch the load may not have run, and the offset may
+                    // still be live on the other arm.
+                    if !branched && writes_gpr(w, rd) {
+                        break;
+                    }
                 }
             }
             let Some(li) = found else { continue };
