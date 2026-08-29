@@ -99,7 +99,13 @@ pub fn command_format(args: &arguments::Args) -> i32 {
     0
 }
 
-fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
+/// Every `.buri` file under `dir`, skipping the directories nothing in a
+/// repository is written by hand into.
+///
+/// Shared with the language server's fingerprint, so that what `buri format`
+/// considers part of the repository and what an analysis is keyed on are one
+/// list rather than two that can drift apart.
+pub fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     if dir.is_file() {
         out.push(dir.to_path_buf());
         return;

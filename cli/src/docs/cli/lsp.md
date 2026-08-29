@@ -201,6 +201,16 @@ An unsaved buffer is not a problem — the server hands the editor's copy to the
 loader in place of the file on disk, so what you see reported is what you are
 looking at.
 
+**An analysis is kept until something changes.** The key is a hash of every byte
+that fed it: every `.buri` file in the repository — sources, every `BUILD.buri`,
+and `REPO.buri` — plus the buffers the editor has open, because those are what
+the loader actually reads. Reading and hashing bytes is not parsing them, so the
+key costs a fraction of the answer it stands for, and a second question about a
+repository nobody has touched is a lookup. Any change anywhere invalidates all of
+it: the front end is whole-closure, so there is no smaller unit whose answer an
+edit elsewhere provably does not change. Nothing invalidates by hand — a
+keystroke, a save and a close move the hash because the buffers are in it.
+
 ## Two things worth knowing
 
 **Only the protocol goes to stdout.** Every log goes to stderr. A stray line on
