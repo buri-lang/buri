@@ -1058,8 +1058,8 @@ fn is_numeric_mismatch(a: &Spelling, b: &Spelling) -> bool {
     numericish(a) && numericish(b) && a != b
 }
 
-/// A literal did not fail to match a type; it has not been given one yet, and
-/// nothing in the source says so.
+/// The message names the literal by its default, so the note says the literal
+/// is not held to it: any type of the class would have done, and this is not one.
 fn unpinned_literal_note(a: &Spelling, b: &Spelling) -> Option<String> {
     let (class, other) = match (a, b) {
         (Spelling::Literal(class), Spelling::Code(other))
@@ -1071,8 +1071,9 @@ fn unpinned_literal_note(a: &Spelling, b: &Spelling) -> Option<String> {
         NumClass::Float => "float",
     };
     Some(format!(
-        "{} takes any {kind} type, and `{other}` is not one",
-        class.literal_phrase()
+        "{} defaults to `{}` but takes any {kind} type, and `{other}` is not one",
+        class.literal_phrase(),
+        class.default_name()
     ))
 }
 

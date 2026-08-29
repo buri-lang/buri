@@ -258,7 +258,17 @@ impl NumClass {
         }
     }
 
-    /// How a diagnostic names the literal itself, rather than its type.
+    /// The default name as a noun phrase, for a sentence that wants an article
+    /// in front of it.
+    pub fn default_noun_phrase(self) -> &'static str {
+        match self {
+            NumClass::Int => "an `Int`",
+            NumClass::Float => "a `Float`",
+        }
+    }
+
+    /// How a note names the literal itself, where the sentence is about the
+    /// syntax rather than the type it stands for.
     pub fn literal_phrase(self) -> &'static str {
         match self {
             NumClass::Int => "an integer literal",
@@ -1518,13 +1528,14 @@ pub fn show(tables: &Tables, subst: Option<&Subst>, generics: &[GenericInfo], ty
     out
 }
 
-/// How a diagnostic names a type. `Code` is a spelling the program could have
-/// written; the rest are phrases, because a literal nothing has pinned yet is
-/// not one type but any of a class (SPEC 5.1.1).
+/// How a diagnostic names a type. A literal is named by the type it defaults
+/// to (SPEC 5.1.1), so `Code` and `Literal` both render a spelling the program
+/// could have written; the class rides along only so the advice can tell a
+/// literal from a value that already has a type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Spelling {
     Code(String),
-    /// A numeric literal still free to become any type of its class.
+    /// A numeric literal, named by the type it takes when nothing pins it.
     Literal(NumClass),
     /// A variable nothing in the body constrains; `finish` makes it `()`.
     Unconstrained,
@@ -1536,7 +1547,7 @@ impl Spelling {
     pub fn quoted(&self) -> String {
         match self {
             Spelling::Code(name) => format!("`{name}`"),
-            Spelling::Literal(class) => class.literal_phrase().to_string(),
+            Spelling::Literal(class) => format!("`{}`", class.default_name()),
             Spelling::Unconstrained => "an unknown type".to_string(),
         }
     }
@@ -1545,7 +1556,8 @@ impl Spelling {
     pub fn noun_phrase(&self) -> String {
         match self {
             Spelling::Code(name) => format!("a `{name}`"),
-            other => other.quoted(),
+            Spelling::Literal(class) => class.default_noun_phrase().to_string(),
+            Spelling::Unconstrained => self.quoted(),
         }
     }
 
@@ -1560,8 +1572,8 @@ impl Spelling {
     }
 }
 
-/// How a type is named in a diagnostic, where an unpinned literal is described
-/// rather than spelled. `show` stays the renderer everywhere else.
+/// How a type is named in a diagnostic: the same spelling `show` gives, plus
+/// whether it came from a literal. `show` stays the renderer everywhere else.
 pub fn show_in_diagnostic(
     tables: &Tables,
     subst: &Subst,
@@ -1686,15 +1698,17 @@ mod tests {
     }
 
     #[test]
-    fn an_unpinned_literal_is_named_rather_than_spelled() {
+    fn an_unpinned_literal_is_named_by_the_type_it_defaults_to() {
         let t = tables_with_prims();
         let mut s = Subst::default();
         let int = s.fresh_num(NumClass::Int, Span::NONE);
         let float = s.fresh_num(NumClass::Float, Span::NONE);
-        assert_eq!(show_in_diagnostic(&t, &s, &[], &int).quoted(), "an integer literal");
-        assert_eq!(show_in_diagnostic(&t, &s, &[], &float).quoted(), "a float literal");
-        // Nested, where a sentence has no room for a phrase, the name printed
-        // is the one the literal would default to.
+        assert_eq!(show_in_diagnostic(&t, &s, &[], &int).quoted(), "`Int`");
+        assert_eq!(show_in_diagnostic(&t, &s, &[], &float).quoted(), "`Float`");
+        assert_eq!(show_in_diagnostic(&t, &s, &[], &int).noun_phrase(), "an `Int`");
+        assert_eq!(show_in_diagnostic(&t, &s, &[], &float).noun_phrase(), "a `Float`");
+        // Nested inside a larger type it is the same name, so one literal is
+        // never given two spellings.
         assert_eq!(show(&t, Some(&s), &[], &Ty::Array(Box::new(int))), "[Int]");
         assert_eq!(show(&t, Some(&s), &[], &Ty::Array(Box::new(float))), "[Float]");
     }
