@@ -352,14 +352,14 @@ out, and written down so that the finding cannot be lost:
 
 ```
 cli/tests/fuzz/generated_derive_with_an_empty_trait_list/
-  CASE.textproto      doc, which oracle fires, and whether it is still open
-  input.params        the minimised input — `input.buri` for the five oracles
-                      whose input is source
+  CASE.textproto      doc, which property failed, and whether it is still open
+  input.params        the minimised input — `input.buri` for the five
+                      properties whose input is source
 ```
 
 `status` is what lets a fuzzer live in a suite that has to stay green.
-`FIXED` is the ordinary regression: the oracle must not fire. `OPEN` is the
-reverse — the oracle must **still** fire, so a known-open finding is pinned
+`FIXED` is the ordinary regression: the property must hold. `OPEN` is the
+reverse — the property must **still** fail, so a known-open finding is pinned
 rather than quarantined, and the day somebody fixes it the suite fails and says
 to move the case to `FIXED`. Swift's `compiler_crashers` and
 `compiler_crashers_fixed` split is the same idea and rustc's `//@ known-bug:`
