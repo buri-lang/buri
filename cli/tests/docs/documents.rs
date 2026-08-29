@@ -3,7 +3,7 @@
 //! `docs/examples.rs` compiles what the documents *show*. This file
 //! checks what the documents *are*: that every fence is scannable and tagged,
 //! that every link resolves, and that the checked-in `cli/src/docs/SPEC.md`
-//! and `README.md` still match what `buri docs assemble` produces.
+//! still matches what `buri docs assemble` produces.
 use buri::documentation::{assemble, markdown, topics};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -15,7 +15,7 @@ fn repo_root() -> PathBuf {
 }
 
 /// Every markdown document the toolchain is responsible for that is not a
-/// registered topic.
+/// registered topic — the hand-written root `README.md` first among them.
 ///
 /// Adding a document here is the one-line registration that subjects it to
 /// every test in this file. The `build/` and `guide/` topics do not appear:
@@ -60,9 +60,12 @@ fn documents() -> Vec<String> {
 /// reader meets it.
 const ROOT_RELATIVE: &[&str] = &["cli/src/docs/SPEC.md"];
 
-/// The assembled document a topic file is a section of, if it is one. This is
-/// what tells `guide/readme-intro`, which a reader meets as part of the root
-/// `README.md`, from `build/tags`, which a reader meets where it is written.
+/// The assembled document a topic file is a section of, if it is one: a topic
+/// met inside another file has its links written relative to *that* file,
+/// unlike `build/tags`, which a reader meets where it is written. Only
+/// `SPEC.md` is assembled, and its `lang/` sections are covered through it
+/// rather than one by one, so today this answers `None` for every document
+/// below — it is the rule, not a case.
 fn assembled_into(doc: &str) -> Option<&'static assemble::Document> {
     let id = doc.strip_prefix("cli/src/docs/")?.strip_suffix(".md")?;
     assemble::document_of(topics::find(id)?)
@@ -125,12 +128,11 @@ fn every_link_resolves() {
         let anchors: Vec<String> =
             markdown::headings(&text).iter().map(|h| markdown::slug(h.title)).collect();
         // A link resolves from wherever a reader meets the text. A topic
-        // assembled into another file — `guide/readme-intro` into the root
-        // `README.md` — is met there, so its links are written relative to
-        // that document's directory. Every other topic is a page in its own
-        // right, read in `cli/src/docs/` on GitHub, so its links are relative
-        // to the directory the file sits in. One property, two resolutions,
-        // and both of them the one the reader needs.
+        // assembled into another file is met there, so its links are written
+        // relative to that document's directory. Every other topic is a page
+        // in its own right, read in `cli/src/docs/` on GitHub, so its links
+        // are relative to the directory the file sits in. One property, two
+        // resolutions, and both of them the one the reader needs.
         let dir = if ROOT_RELATIVE.contains(&doc.as_str()) {
             root.clone()
         } else {
@@ -181,9 +183,9 @@ fn every_link_resolves() {
     assert!(broken.is_empty(), "\n{}", broken.join("\n"));
 }
 
-/// The checked-in `SPEC.md` and `README.md` must be exactly what their topics
-/// assemble to. This is the whole guarantee that there is one copy of every
-/// sentence: edit a topic and forget to regenerate, and this fails.
+/// The checked-in `SPEC.md` must be exactly what its topics assemble to. This
+/// is the whole guarantee that there is one copy of every sentence: edit a
+/// topic and forget to regenerate, and this fails.
 #[test]
 fn the_assembled_documents_are_not_stale() {
     let drifted = assemble::drifted(&repo_root());

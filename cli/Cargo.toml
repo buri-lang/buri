@@ -5,9 +5,9 @@ edition = "2021"
 description = "The Buri toolchain: compiler, build system, test runner, formatter, and linter."
 license = "MIT"
 repository = "https://github.com/buri-lang/buri"
-# The root `README.md` is assembled from the topics under `src/docs/guide/`
-# (`buri docs assemble`), so the crate page on docs.rs and crates.io shows the
-# same introduction a reader meets on GitHub rather than a second copy of it.
+# The crate's page on docs.rs and crates.io is the root `README.md` itself, so
+# that it shows the introduction a reader meets on GitHub rather than a second
+# copy of it.
 readme = "../README.md"
 # Two floors, and this is the higher of them. Cranelift 0.123 — the wasmtime 36
 # LTS line, with its reasoning under `[dependencies]` below — wants 1.86; the

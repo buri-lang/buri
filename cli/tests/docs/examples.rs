@@ -1,11 +1,12 @@
 //! Compiling every example in every document.
 //!
 //! The examples are checked in the *topic* files under `cli/src/docs/`, not in
-//! the assembled `SPEC.md` and `README.md`, because the topic is the file
-//! somebody edits — a failure that points at a generated file points at the
-//! wrong place. Assembly is concatenation, so checking the topics checks the
-//! assembled documents exactly (`docs/documents.rs::the_assembled_documents_are_not_stale`
-//! keeps the two in step).
+//! the assembled `SPEC.md`, because the topic is the file somebody edits — a
+//! failure that points at a generated file points at the wrong place. Assembly
+//! is concatenation, so checking the topics checks the assembled document
+//! exactly (`docs/documents.rs::the_assembled_documents_are_not_stale` keeps
+//! the two in step). The root `README.md` is hand-written and no topic's copy,
+//! so `readme_examples` compiles it where it sits.
 //!
 //! There is no per-document registration here: the tests walk
 //! `topics::TOPICS`, so a new topic is subject to all of this the moment it
@@ -62,6 +63,24 @@ fn build_system_examples() {
 #[test]
 fn guide_examples() {
     check_kind(topics::Kind::Guide);
+}
+
+/// The root `README.md`. It is hand-written rather than assembled, so nothing
+/// above reaches its examples and this is what keeps them true.
+#[test]
+fn readme_examples() {
+    let root = repo_root();
+    let text = std::fs::read_to_string(root.join("README.md")).expect("the README exists");
+    // A README whose every fence stopped extracting would pass the assertion
+    // below over nothing at all.
+    let compiled = examples::extract("README.md", &text)
+        .blocks
+        .iter()
+        .filter(|b| !b.claim.is_ignored())
+        .count();
+    assert!(compiled > 0, "no example extracts from README.md; this test has gone vacuous");
+    let failures = examples::run_file_at(&root, "README.md", &text);
+    assert!(failures.is_empty(), "\n{}", examples::report(&failures));
 }
 
 /// The per-command pages. Their prose is hand-written, so it gets the same
