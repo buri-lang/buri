@@ -1161,10 +1161,58 @@ fn regmoves(o: &mut Out, level: Level) {
 /// Two areas rather than one because the two register banks are assigned
 /// independently: a double in argument position three still goes in `d0` if it
 /// is the first float.
+/// The result shapes a `crt` stencil is generated for.
+///
+/// **A shape per C return type, and that is the whole point of the list.** A
+/// stencil declares the entry it calls, and a declaration that is wider than
+/// what the entry returns is not a rounding error: both psABIs leave the upper
+/// bits of a narrower integer return **unspecified**, so `uint64_t` against a
+/// `u8` reads whatever was in the register. AAPCS64 happened to hide it — Rust's
+/// arm64 codegen zeroes the register on the way out — and SysV does not, which
+/// is where it was found. `rtcall::scalar_kind` picks the letter from the
+/// destination's own width, which is the same fact the other two backends build
+/// their call signature from.
+///
+/// `w` is the odd one and stays: it is the **signed** 32-bit shape a fallible
+/// entry's `BURI_*` discriminant comes back in (`cli/runtime/lib.rs` §2), not a
+/// width a Buri value has.
+const RETURN_SHAPES: [&str; 7] = ["v", "i", "w", "d", "b", "h", "u"];
+
+/// The C return type one shape declares.
+fn return_ctype(ret: &str) -> &'static str {
+    match ret {
+        "i" => "uint64_t",
+        "w" => "int32_t",
+        "d" => "double",
+        "b" => "uint8_t",
+        "h" => "uint16_t",
+        "u" => "uint32_t",
+        _ => "void",
+    }
+}
+
+/// How the answer reaches the destination slot.
+///
+/// A frame slot holds an integer **zero-extended**, so every narrow shape casts
+/// through its own unsigned width first: that cast is the `movzx` the psABI
+/// leaves to the caller, and clang emits it inside the stencil where it costs
+/// nothing extra.
+fn return_store(ret: &str, call: &str) -> String {
+    match ret {
+        "i" => format!("AT(uint64_t, _JIT_D) = {call};"),
+        "w" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint32_t){call};"),
+        "u" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint32_t){call};"),
+        "h" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint16_t){call};"),
+        "b" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint8_t){call};"),
+        "d" => format!("AT(uint64_t, _JIT_D) = f64_bits({call});"),
+        _ => format!("(void){call};"),
+    }
+}
+
 fn runtime_calls(o: &mut Out) {
     for ni in 0..=MAX_INT_ARGS {
         for nf in 0..=MAX_FLOAT_ARGS {
-            for ret in ["v", "i", "w", "d"] {
+            for ret in RETURN_SHAPES {
                 let sym = format!("_{}", super::abi::rt_callee(ni, nf, ret));
                 let ptypes: Vec<&str> = std::iter::repeat_n("uint64_t", ni)
                     .chain(std::iter::repeat_n("double", nf))
@@ -1173,23 +1221,13 @@ fn runtime_calls(o: &mut Out) {
                     .map(|i| format!("ia[{i}]"))
                     .chain((0..nf).map(|i| format!("fa[{i}]")))
                     .collect();
-                let cret = match ret {
-                    "i" => "uint64_t",
-                    "w" => "int32_t",
-                    "d" => "double",
-                    _ => "void",
-                };
+                let cret = return_ctype(ret);
                 let decl = format!(
                     "extern {cret} {sym}({}) HID;",
                     if ptypes.is_empty() { String::from("void") } else { ptypes.join(", ") }
                 );
                 let call = format!("{sym}({})", args.join(", "));
-                let store = match ret {
-                    "i" => format!("AT(uint64_t, _JIT_D) = {call};"),
-                    "w" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint32_t){call};"),
-                    "d" => format!("AT(uint64_t, _JIT_D) = f64_bits({call});"),
-                    _ => format!("(void){call};"),
-                };
+                let store = return_store(ret, &call);
                 let bind = format!(
                     "{}{}",
                     if ni > 0 {
@@ -1233,12 +1271,7 @@ fn runtime_calls(o: &mut Out) {
                     )
                     .collect();
                 let scall = format!("{sym}({})", sargs.join(", "));
-                let sstore = match ret {
-                    "i" => format!("AT(uint64_t, _JIT_D) = {scall};"),
-                    "w" => format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint32_t){scall};"),
-                    "d" => format!("AT(uint64_t, _JIT_D) = f64_bits({scall});"),
-                    _ => format!("(void){scall};"),
-                };
+                let sstore = return_store(ret, &scall);
                 o.push(
                     &format!("crts/{ni}/{nf}/{ret}"),
                     format!("{decl}\nvoid $NAME(ARGS0) {{ {sstore} TAIL0; }}"),

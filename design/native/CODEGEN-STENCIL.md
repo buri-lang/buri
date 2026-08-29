@@ -548,16 +548,35 @@ indirect call. There is one `_JIT_RT_*` symbol declared per shape rather than
 one for all of them, because C has one type per name and the declared type is
 what decides which registers clang reads the arguments out of.
 
-### 5.2 The one trap worth writing down
+### 5.2 Two traps worth writing down
 
-A frame slot holds every integer **zero-extended**, whatever its type
-(`sources.rs::write`'s convention: "a frame slot is never partially defined"),
-and the typed stencils reinterpret the low bytes. So an `I8` of `-3` is `0xfd`
-in its slot — and handing that word to a C parameter declared `int64_t` renders
-`253`. Every narrow *signed* value crossing to the runtime is widened first
-(`rtcall::int_bits`). This is a class of bug, not an instance: it is invisible
-in the emitted stencil, invisible in the IR, and shows up as an unsigned number
-in a rendered string.
+**Going out.** A frame slot holds every integer **zero-extended**, whatever its
+type (`sources.rs::write`'s convention: "a frame slot is never partially
+defined"), and the typed stencils reinterpret the low bytes. So an `I8` of `-3`
+is `0xfd` in its slot — and handing that word to a C parameter declared
+`int64_t` renders `253`. Every narrow *signed* value crossing to the runtime is
+widened first (`rtcall::int_bits`). This is a class of bug, not an instance: it
+is invisible in the emitted stencil, invisible in the IR, and shows up as an
+unsigned number in a rendered string.
+
+**Coming back**, and this one was found by the x86-64 port rather than by
+reading. A `crt` stencil **declares** the entry it calls, and the declared
+return type has to be the one the entry actually returns: both psABIs leave the
+upper bits of an integer return narrower than a register **unspecified**.
+`buri_rt_str_eq` answers a `u8`, `buri_rt_char_to_upper` a `u32`, and a fallible
+entry's discriminant a C `int` — three widths, and a stencil declaring
+`uint64_t` for the first two reads whatever was in the register above the byte
+that mattered.
+
+AAPCS64 hid it completely: Rust's arm64 codegen zeroes the register on the way
+out, so every arm64 run agreed with every other backend. SysV does not, and the
+symptom was `assert.isFalse` failing on five conformance files and `p == q`
+answering `true` for two strings that differ — a `Bool` read out of the garbage
+above `al`. `sources.rs::RETURN_SHAPES` now has a shape per C return width and
+`rtcall::scalar_kind` picks it from the destination's own IR type, which is the
+same fact Cranelift builds its call signature from. The cast is inside the
+stencil, so it costs the `movzx` the psABI already required of the caller and
+nothing more.
 
 ## 6. Reference counting, and the functions a unit generates for itself
 

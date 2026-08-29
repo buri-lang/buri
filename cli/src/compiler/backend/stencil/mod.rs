@@ -829,7 +829,7 @@ mod tests {
         let mut checked = 0;
         for ni in 0..=abi::MAX_INT_ARGS {
             for nf in 0..=abi::MAX_FLOAT_ARGS {
-                for ret in ["v", "i", "w", "d"] {
+                for ret in ["v", "i", "w", "d", "b", "h", "u"] {
                     let key = format!("crts/{ni}/{nf}/{ret}");
                     let plain = lib.get(&key).unwrap_or_else(|| panic!("no {key}"));
                     checked += 1;
@@ -861,7 +861,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(checked, (abi::MAX_INT_ARGS + 1) * (abi::MAX_FLOAT_ARGS + 1) * 4);
+        assert_eq!(checked, (abi::MAX_INT_ARGS + 1) * (abi::MAX_FLOAT_ARGS + 1) * 7);
     }
     /// A stencil key without its fold suffixes: the operation and operand
     /// shape the emitter looks up, before `Jit::emit` narrows to whichever
