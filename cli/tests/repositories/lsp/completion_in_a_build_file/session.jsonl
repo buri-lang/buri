@@ -1,0 +1,34 @@
+# Completion in a build file: the schema's fields, its enum constants, and the names the repository holds.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "languageId": "buri", "version": 1, "text": "binary {\n    sources: [\"totals.buri\"]\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 2}, "contentChanges": [{"text": "binary {\n    sour\n}\n"}]}}
+# A field name, part-way typed.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 1, "character": 8}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 3}, "contentChanges": [{"text": "binary {\n    \n}\n"}]}}
+# Every field this rule may still be given.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 1, "character": 4}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 4}, "contentChanges": [{"text": "binary {\n    sources: [\"\"]\n}\n"}]}}
+# A source: the package's own files, less the surface and what is listed already.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 1, "character": 15}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 5}, "contentChanges": [{"text": "binary {\n    sources: []\n    dependencies: [\"\"]\n}\n"}]}}
+# A dependency: every package in the repository that declares a library.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 2, "character": 20}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 6}, "contentChanges": [{"text": "binary {\n    sources: []\n    tags: [\"ser\"]\n}\n"}]}}
+# A tag, from the vocabulary `REPO.buri` declares.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 2, "character": 15}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 7}, "contentChanges": [{"text": "binary {\n    sources: []\n    outputs: [{ platform: LINUX }]\n}\n"}]}}
+# An enum constant, which is written unquoted.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 2, "character": 26}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 8}, "contentChanges": [{"text": "binary {\n    sources: []\n    outputs: [{ platform: LINUX, arch: AR }]\n}\n"}]}}
+# The same, part-way through, in a nested block.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 2, "character": 41}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 9}, "contentChanges": [{"text": "# A comment, which textproto has.\nbinary {\n    sources: []\n    visibility: [\"//vis\"]\n}\n"}]}}
+# A visibility. The `#` comment above it is a comment, not an error.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 3, "character": 23}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/REPO.buri", "languageId": "buri", "version": 1, "text": "# The tag vocabulary this repository draws from.\ntag {\n    name: \"server\"\n    doc: \"Runs on a machine we operate. Nothing carrying it may reach a browser.\"\n}\n\ntag {\n    name: \"experimental\"\n    doc: \"Not covered by the compatibility promise yet.\"\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/REPO.buri", "version": 10}, "contentChanges": [{"text": "# The tag vocabulary this repository draws from.\ntag {\n    fo\n    name: \"server\"\n    doc: \"Runs on a machine we operate. Nothing carrying it may reach a browser.\"\n}\n\ntag {\n    name: \"experimental\"\n    doc: \"Not covered by the compatibility promise yet.\"\n}\n"}]}}
+# A `REPO.buri` is a different message, and its blocks have different fields.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/REPO.buri"}, "position": {"line": 2, "character": 6}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "id": 11, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
