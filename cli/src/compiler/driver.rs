@@ -4,8 +4,8 @@ use crate::build::actions;
 use crate::build::buildfile::Platform;
 use crate::build::workspace::Workspace;
 use crate::compiler::modules::{Loaded, Loader, Unit};
-use crate::compiler::semantics::resolve::{Checked, Checker};
-use crate::diagnostics::{Diagnostic, Diagnostics, SourceMap, Span};
+use crate::compiler::semantics::resolve::{Bodies, Checked, Checker};
+use crate::diagnostics::{Diagnostic, Diagnostics, FileId, SourceMap, Span};
 
 pub struct Analysis {
     pub loaded: Loaded,
@@ -69,6 +69,45 @@ pub fn analyze_all(
         loader.finish()
     };
     let checked = Checker::new(&loaded, ws, &mut diags).run();
+    diags.sort(map);
+    Analysis { loaded, checked, diagnostics: diags }
+}
+
+/// Loads and checks one unit, but type-checks only the bodies written in
+/// `files`.
+///
+/// Everything one body can see of another is still elaborated for the whole
+/// closure: every signature, type definition, trait, impl, module-level `let`
+/// and `context` declaration. What is left out is step 5 for the files nobody
+/// asked about, and `Checked::bodies` simply has no entry for those.
+///
+/// This is what an editor query wants. Hover, definition, completion, the
+/// tokens, the hints and the highlights all read the bodies of the file under
+/// the cursor and filter every other one out by file id, so checking the rest
+/// of the repository was work whose whole result was discarded. What comes
+/// back here is byte-identical for those files — `tests/language/
+/// scoped_bodies.rs` asserts exactly that over every fixture repository — and
+/// the diagnostics are the signature phase's, for every module, plus the body
+/// phase's for these files and no others.
+///
+/// **Not** for publishing diagnostics, and not for any question about a name:
+/// a file that was not asked about reports nothing here, which is right for a
+/// hover and wrong for a problem list.
+pub fn analyze_bodies_in(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    unit: &Unit,
+    files: &[FileId],
+) -> Analysis {
+    let mut diags = Diagnostics::new();
+    let loaded = {
+        let mut loader = Loader::new(ws, map, &mut diags, cache);
+        loader.load_unit(unit);
+        loader.finish()
+    };
+    let checked =
+        Checker::new(&loaded, ws, &mut diags).checking(Bodies::In(files.to_vec())).run();
     diags.sort(map);
     Analysis { loaded, checked, diagnostics: diags }
 }

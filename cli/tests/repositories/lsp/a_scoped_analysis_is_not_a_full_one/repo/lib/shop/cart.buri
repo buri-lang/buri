@@ -1,0 +1,4 @@
+from "//lib/shop/catalog" import { listed };
+
+/// What the basket comes to, in whole cents.
+export fn total(count: I64): I64 { count * listed() }

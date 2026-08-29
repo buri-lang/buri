@@ -171,6 +171,7 @@ pub fn run(
     bodies: &mut HashMap<FnId, typed::Body>,
     consts: &mut HashMap<ConstId, typed::Expr>,
     diags: &mut Diagnostics,
+    only: Option<&[crate::diagnostics::FileId]>,
 ) -> (Vec<StyleRule>, Option<TyConId>) {
     let Some(style_con) = style_constructor(loaded, scopes) else { return (Vec::new(), None) };
     let Some(classes_con) = ui_style_type(loaded, scopes, "Classes") else {
@@ -199,9 +200,18 @@ pub fn run(
     // Sorted, so the sheet's rule order — and any diagnostic this reports — is
     // the same on every run. A `HashMap`'s iteration order is stable here but
     // it is not *meaningful*, and reproducibility is compared byte for byte.
+    //
+    // A scoped analysis names the files it was asked about, and walks only
+    // what they wrote. The rest of the closure is here to be *folded into*
+    // those — which is what `original_bodies` above is — rather than to be
+    // rewritten and reported on by a run that is not about it.
+    let wanted = |file| only.is_none_or(|files| files.contains(&file));
     let mut const_ids: Vec<ConstId> = consts.keys().copied().collect();
     const_ids.sort_by_key(|c| c.index());
     for id in const_ids {
+        if !wanted(tables.const_(id).span.file) {
+            continue;
+        }
         if let Some(init) = consts.get_mut(&id) {
             ex.walk(init, Cond::default());
         }
@@ -209,6 +219,9 @@ pub fn run(
     let mut fn_ids: Vec<FnId> = bodies.keys().copied().collect();
     fn_ids.sort_by_key(|f| f.index());
     for id in fn_ids {
+        if !wanted(tables.fn_info(id).span.file) {
+            continue;
+        }
         if let Some(body) = bodies.get_mut(&id) {
             ex.walk(&mut body.expr, Cond::default());
         }

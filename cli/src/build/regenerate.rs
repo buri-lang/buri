@@ -572,7 +572,15 @@ fn imports_of(dir: &Path, file: &str) -> Vec<String> {
         .collect()
 }
 
-fn collect(root: &Path, dir: &Path, out: &mut Vec<String>, schemas: &mut Vec<String>) {
+/// Every source a package owns, package-relative: the `.buri` files in `out`
+/// and the `.proto` schemas in `schemas`.
+///
+/// A directory with a `BUILD.buri` of its own is another package and is not
+/// descended into. Public to the crate because this is the one walk that
+/// decides what a package's sources *are*, and the editor offers exactly this
+/// list when a `sources` entry is being typed — one walk, so what `gen` writes
+/// and what completion offers cannot disagree.
+pub(crate) fn collect(root: &Path, dir: &Path, out: &mut Vec<String>, schemas: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut items: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
     items.sort();

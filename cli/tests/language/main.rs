@@ -13,9 +13,10 @@
 //! | [`standard_library`] | `core/*` | Does the standard library typecheck against itself? |
 //! | [`corpus`] | every `.buri` in the repository | Does everything meant to compile parse, does every build file read, is formatting a fixed point, is the tree-sitter grammar generated? |
 //! | [`golden_javascript`] | `golden_javascript/` | What does the backend *compile to*, construct by construct? |
+//! | [`scoped_bodies`] | `repositories/lsp/*/repo`, `example/` | Does an analysis that checks one file's bodies answer what a whole-closure one answers, for that file? |
 //!
 //! ```text
-//! cargo test -p buri --test language                       # all four
+//! cargo test -p buri --test language                       # all five
 //! cargo test -p buri --test language conformance::         # one of them
 //! ```
 
@@ -42,4 +43,5 @@ mod harness;
 mod conformance;
 mod corpus;
 mod golden_javascript;
+mod scoped_bodies;
 mod standard_library;

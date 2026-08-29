@@ -456,6 +456,16 @@ struct Cached<T> {
     root: PathBuf,
     /// `None` for a file no rule in the build graph claims.
     target: Option<TargetId>,
+    /// Which bodies were type-checked. `None` is every body in the closure;
+    /// `Some(file)` is that file's alone — see [`State::analyze_for_query`].
+    ///
+    /// Part of the key and not a note about it. The two answers are built from
+    /// the same bytes and are not the same answer: the scoped one has no entry
+    /// in `Checked::bodies` for any other file, so handing it to a caller that
+    /// asked for the whole closure would report a repository with one file's
+    /// problems in it. A full analysis is a superset and may stand in for a
+    /// scoped one; never the other way round.
+    scope: Option<PathBuf>,
     key: u64,
     /// The files the answer read, so a later request asks whether *those*
     /// moved rather than whether anything in the repository did.
@@ -475,6 +485,15 @@ const REMEMBERED: usize = 8;
 pub struct Cache {
     /// Oldest first, so eviction is from the front.
     analyses: Vec<Cached<Analyzed>>,
+    /// Analyses that checked one file's bodies and nothing else, filed by that
+    /// file rather than by its target: two open files of one target are two of
+    /// these, which is the whole point of them.
+    ///
+    /// A list of their own rather than a `scope` alongside the full ones, so
+    /// that a person with eight files open cannot evict the full analysis a
+    /// pull needs — and so that `known_closure`, which is what a result id
+    /// stands for, can only ever find an analysis that checked everything.
+    queries: Vec<Cached<Analyzed>>,
     lints: Vec<Cached<Linted>>,
     /// The whole-repository analysis, which has no closure smaller than the
     /// repository and is keyed on all of it.
@@ -488,8 +507,9 @@ pub struct Cache {
 
 /// Files an answer, evicting the oldest to keep at most [`REMEMBERED`].
 fn remember<T>(list: &mut Vec<Cached<T>>, entry: Cached<T>) {
-    if let Some(slot) =
-        list.iter_mut().find(|c| c.root == entry.root && c.target == entry.target)
+    if let Some(slot) = list
+        .iter_mut()
+        .find(|c| c.root == entry.root && c.target == entry.target && c.scope == entry.scope)
     {
         *slot = entry;
         return;
@@ -1024,6 +1044,84 @@ impl State {
             Cached {
                 root: root.to_path_buf(),
                 target,
+                // Every body in the closure, which is what makes this one
+                // usable for diagnostics and for a scoped question alike.
+                scope: None,
+                key,
+                closure: Rc::new(closure),
+                value: Rc::clone(&analyzed),
+            },
+        );
+        Some(analyzed)
+    }
+
+    /// The analysis a question *about one position in one file* needs.
+    ///
+    /// The same closure as [`State::analyze`] — loaded, resolved, every
+    /// signature, type, trait, impl and module-level `let` elaborated — but the
+    /// bodies are type-checked for this file only. Hover, definition,
+    /// completion, the tokens, the hints, the highlights and signature help all
+    /// walk the bodies of the file under the cursor and filter every other one
+    /// out by file id, so checking the rest of the repository was work whose
+    /// entire result they discarded. `tests/language/scoped_bodies.rs` holds
+    /// the two to being the same answer, file by file, over every fixture
+    /// repository here.
+    ///
+    /// A full analysis whose closure has not moved is a superset and is used
+    /// instead — a hover right after a save costs nothing, and pays for nothing
+    /// either. **The reverse is not allowed**, which is why these are filed
+    /// apart from the full ones: see [`Cached::scope`].
+    ///
+    /// **Not for diagnostics.** A file this did not check reports nothing, so a
+    /// problem list built from it would go quiet in every file but one. Those
+    /// paths ask [`State::analyze`], and are untouched.
+    pub fn analyze_for_query(&mut self, path: &Path) -> Option<Rc<Analyzed>> {
+        let root = self.root_of(path)?;
+        let target = self.target_of(&root, path);
+        if let Some(hit) = self.cached_analysis(&root, target) {
+            return Some(hit);
+        }
+        if let Some(hit) = self.cached_query(&root, path) {
+            return Some(hit);
+        }
+
+        let mut session = self.overlaid_session(&root)?;
+        let unit = Unit { target, platform: None, with_tests: true };
+        // The file as the loader will name it. A file the editor has open is
+        // already in the map, layered over the disk by `overlaid_session`; one
+        // it does not is seeded here with the same bytes the loader would have
+        // read, which is the same trick and for the same reason — `SourceMap::
+        // load` reuses an entry whose name already exists.
+        let name = session.workspace.rel_of(path);
+        let file = match session.map.find(&name) {
+            Some(file) => file,
+            None => session.map.add(name, path.to_path_buf(), self.text_of(path)?),
+        };
+        self.work.analyses = self.work.analyses.saturating_add(1);
+        let analysis = crate::compiler::driver::analyze_bodies_in(
+            Some(&session.workspace),
+            &mut session.map,
+            &mut session.parsed,
+            &unit,
+            &[file],
+        );
+        // The loading phase is the whole closure either way, so this is the
+        // same set of files [`State::analyze`] would have keyed on — plus the
+        // queried file itself, which a scoped analysis reads the bodies of and
+        // which no rule need have claimed.
+        let mut closure = closure_of(&analysis);
+        if !closure.contains(&path.to_path_buf()) {
+            closure.push(path.to_path_buf());
+            closure.sort();
+        }
+        let analyzed = Rc::new(Analyzed { session, analysis });
+        let key = self.closure_key(&root, &closure);
+        remember(
+            &mut self.cache.queries,
+            Cached {
+                root: root.to_path_buf(),
+                target,
+                scope: Some(path.to_path_buf()),
                 key,
                 closure: Rc::new(closure),
                 value: Rc::clone(&analyzed),
@@ -1121,6 +1219,8 @@ impl State {
             Cached {
                 root: root.to_path_buf(),
                 target: Some(target),
+                // The lint pass runs its own whole-closure analysis.
+                scope: None,
                 key,
                 closure: Rc::new(closure),
                 value: Rc::clone(&linted),
@@ -1229,6 +1329,22 @@ impl State {
         let (was, closure) = (filed.key, Rc::clone(&filed.closure));
         let now = self.closure_key(root, &closure);
         let filed = self.cache.analyses.iter().find(|c| c.root == root && c.target == target)?;
+        (was == now).then(|| Rc::clone(&filed.value))
+    }
+
+    /// The same lookup for a scoped analysis, which is filed by the file whose
+    /// bodies it checked rather than by that file's target.
+    ///
+    /// Only ever consulted by [`State::analyze_for_query`]. The closure it is
+    /// keyed on is the one the whole-closure loader read, so a keystroke in a
+    /// library this file cannot see leaves it standing exactly as it leaves a
+    /// full analysis standing.
+    fn cached_query(&mut self, root: &Path, path: &Path) -> Option<Rc<Analyzed>> {
+        let scope = Some(path.to_path_buf());
+        let filed = self.cache.queries.iter().find(|c| c.root == root && c.scope == scope)?;
+        let (was, closure) = (filed.key, Rc::clone(&filed.closure));
+        let now = self.closure_key(root, &closure);
+        let filed = self.cache.queries.iter().find(|c| c.root == root && c.scope == scope)?;
         (was == now).then(|| Rc::clone(&filed.value))
     }
 

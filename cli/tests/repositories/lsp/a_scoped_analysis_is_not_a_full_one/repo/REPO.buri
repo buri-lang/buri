@@ -1,0 +1,2 @@
+# One library, two files. A question about a position in `cart.buri` checks
+# `cart.buri`'s bodies; the problem list has to check `catalog.buri`'s too.
