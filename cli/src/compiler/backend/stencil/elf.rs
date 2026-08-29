@@ -635,6 +635,25 @@ mod tests {
         assert!(r_type(StencilTarget::LinuxArm64, RelKind::PageOff12, 0xf900_0108, "t").is_err());
     }
 
+    /// **Neither machine's kinds may be spelled for the other**, and the refusal
+    /// goes both ways rather than only the way that used to be missing. A
+    /// nearest-number guess here is a relocation the linker applies to the
+    /// wrong field, which is not something a test downstream would catch.
+    #[test]
+    fn a_kind_the_machine_does_not_have_is_refused_by_name() {
+        for k in [RelKind::Rel32, RelKind::Pc32] {
+            assert!(r_type(StencilTarget::LinuxArm64, k, 0, "t").is_err());
+        }
+        for k in [RelKind::Branch26, RelKind::Page21, RelKind::PageOff12] {
+            assert!(r_type(StencilTarget::LinuxX86_64, k, 0, "t").is_err());
+        }
+        // And the three x86-64 emission uses are the three psABI numbers.
+        let of = |k| r_type(StencilTarget::LinuxX86_64, k, 0, "t").unwrap();
+        assert_eq!(of(RelKind::Abs64), R_X86_64_64);
+        assert_eq!(of(RelKind::Rel32), R_X86_64_PLT32);
+        assert_eq!(of(RelKind::Pc32), R_X86_64_PC32);
+    }
+
     /// The header this file writes has to be one a reader accepts, and there is
     /// a reader in this repository: `elfobj.rs`, which the build script uses on
     /// clang's objects. Round-tripping through it is the strongest check

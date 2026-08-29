@@ -767,6 +767,33 @@ mod tests {
         ])
     }
 
+    /// An x86-64 relocation in a Mach-O object is refused rather than mapped to
+    /// the nearest `ARM64_RELOC_*`.
+    ///
+    /// Nothing produces one today — the only Mach-O target is `macos-arm64` —
+    /// and that is why it is worth a test: this is the wall that keeps a
+    /// future x86-64 Mach-O emitter from being a flag rather than a piece of
+    /// work.
+    #[test]
+    fn an_x86_64_kind_has_no_mach_o_spelling() {
+        let sections = vec![Section {
+            name: "__text",
+            segment: "__TEXT",
+            align: 2,
+            attributes: CODE_ATTRIBUTES,
+            zerofill: 0,
+            data: vec![0; 8],
+        }];
+        let symbols =
+            vec![Symbol { name: String::from("f"), defined: None, global: true }];
+        for kind in [RelKind::Rel32, RelKind::Pc32] {
+            let relocs =
+                vec![Reloc { section: 0, offset: 0, kind, symbol: 0, addend: 0 }];
+            let out = write(&sections, &symbols, &relocs);
+            assert!(out.is_err(), "an x86-64 kind was written into a Mach-O object");
+        }
+    }
+
     #[test]
     fn header_names_an_arm64_object() {
         let (s, y, r) = tiny();
