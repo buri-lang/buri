@@ -1,0 +1,22 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A trait: every type that conforms to it. `Coupon`'s `impl` is in //lib/promo,
+# which //lib/shop is not compiled with — so an answer that only asked the
+# target owning this file would be missing half of it.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/implementation", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 20, "character": 15}}}
+# A type: every conformance it was given, both of them in this file.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/implementation", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 11, "character": 16}}}
+# A trait method: the function each `impl` supplied for it, rather than the
+# `impl` block it sits in.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/implementation", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 22, "character": 9}}}
+# The same trait, asked from a use of it rather than from its declaration.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/implementation", "params": {"textDocument": {"uri": "file://<scratch>/lib/promo/coupon.buri"}, "position": {"line": 0, "character": 29}}}
+# A plain function is not implemented by anything: nothing conforms to it, and
+# "no implementations" would be a different claim from "not that kind of
+# question".
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/implementation", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 44, "character": 12}}}
+# Nor is a local.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/implementation", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 10, "character": 8}}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -1,0 +1,32 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# Every item sent back below is copied verbatim from the `prepare` answer above
+# it, which is what a client does with one — so the walk is the round trip, and
+# a change to what `prepare` hands out breaks these lines rather than passing
+# quietly.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A trait is a node in the hierarchy.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/prepareTypeHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 20, "character": 15}}}
+# Under a trait: every type that implements it, including one in a package this
+# trait's own target is not compiled with.
+{"jsonrpc": "2.0", "id": 3, "method": "typeHierarchy/subtypes", "params": {"item": {"name": "Priced", "kind": 5, "uri": "file://<scratch>/lib/shop/catalog.buri", "range": {"start": {"line": 20, "character": 0}, "end": {"line": 23, "character": 1}}, "selectionRange": {"start": {"line": 20, "character": 13}, "end": {"line": 20, "character": 19}}, "data": {"uri": "file://<scratch>/lib/shop/catalog.buri", "position": {"line": 20, "character": 13}}}}}
+# Above a trait: nothing. A Buri `trait` declares methods and names no other
+# trait, so there is no answer to be had rather than one nobody has written.
+{"jsonrpc": "2.0", "id": 4, "method": "typeHierarchy/supertypes", "params": {"item": {"name": "Priced", "kind": 5, "uri": "file://<scratch>/lib/shop/catalog.buri", "range": {"start": {"line": 20, "character": 0}, "end": {"line": 23, "character": 1}}, "selectionRange": {"start": {"line": 20, "character": 13}, "end": {"line": 20, "character": 19}}, "data": {"uri": "file://<scratch>/lib/shop/catalog.buri", "position": {"line": 20, "character": 13}}}}}
+# A type is the other kind of node.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/prepareTypeHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 11, "character": 16}}}
+# Above a type: every trait it implements.
+{"jsonrpc": "2.0", "id": 6, "method": "typeHierarchy/supertypes", "params": {"item": {"name": "Item", "kind": 23, "uri": "file://<scratch>/lib/shop/catalog.buri", "range": {"start": {"line": 11, "character": 0}, "end": {"line": 17, "character": 1}}, "selectionRange": {"start": {"line": 11, "character": 14}, "end": {"line": 11, "character": 18}}, "data": {"uri": "file://<scratch>/lib/shop/catalog.buri", "position": {"line": 11, "character": 14}}}}}
+# Under a type: nothing. Buri has no subtyping, so no type is beneath another.
+{"jsonrpc": "2.0", "id": 7, "method": "typeHierarchy/subtypes", "params": {"item": {"name": "Item", "kind": 23, "uri": "file://<scratch>/lib/shop/catalog.buri", "range": {"start": {"line": 11, "character": 0}, "end": {"line": 17, "character": 1}}, "selectionRange": {"start": {"line": 11, "character": 14}, "end": {"line": 11, "character": 18}}, "data": {"uri": "file://<scratch>/lib/shop/catalog.buri", "position": {"line": 11, "character": 14}}}}}
+# `Coupon` conforms to `Priced` by hand and to `Eq` by `derive`.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/prepareTypeHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/promo/coupon.buri"}, "position": {"line": 4, "character": 16}}}
+# And only `Priced` comes back: `Eq` is declared in the standard library, which
+# is compiled into the binary and has no file, so an item for it would have no
+# `uri` to give. The same silence `definition` answers with there.
+{"jsonrpc": "2.0", "id": 9, "method": "typeHierarchy/supertypes", "params": {"item": {"name": "Coupon", "kind": 23, "uri": "file://<scratch>/lib/promo/coupon.buri", "range": {"start": {"line": 4, "character": 0}, "end": {"line": 4, "character": 40}}, "selectionRange": {"start": {"line": 4, "character": 14}, "end": {"line": 4, "character": 20}}, "data": {"uri": "file://<scratch>/lib/promo/coupon.buri", "position": {"line": 4, "character": 14}}}}}
+# A function is not a node in a hierarchy of types, so there is none to prepare.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/prepareTypeHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 44, "character": 12}}}
+{"jsonrpc": "2.0", "id": 11, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

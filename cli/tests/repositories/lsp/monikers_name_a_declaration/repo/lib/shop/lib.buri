@@ -1,0 +1,4 @@
+from "//lib/shop/catalog" export { Item, listing, Priced, Stock, worth };
+
+/// What every price in this shop is quoted in.
+export let currency: Str = "USD";

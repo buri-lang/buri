@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//lib/promo", "//lib/shop"]
+    outputs: [
+        { platform: JS },
+    ]
+}

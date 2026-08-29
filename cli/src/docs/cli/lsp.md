@@ -17,6 +17,9 @@ end is a library, and `driver::analyze` is what the server calls.
 | `definition` | Where the name under the cursor was declared, for every kind of name a file can write: functions and methods, types in expressions and in annotations, traits in bounds and in `impl` heads, module-level `let`s, locals and parameters, fields, variants, and the names in an import clause. Also the path of an import, and — in a `BUILD.buri` — a dependency label, a source entry and a tag. |
 | `typeDefinition` | Where the *type* of the thing under the cursor was declared: a local's type, a field's type, a call's return type. |
 | `declaration` | The same answer as `definition`. Buri declares and defines a thing in one place, so answering differently would mean inventing a difference. |
+| `implementation` | For a trait, every `impl` and `derive` that conforms to it. For a type, every conformance it was given. For a trait method, the function each `impl` supplied for it. |
+| `typeHierarchy` | Above a type, the traits it implements; below a trait, the types that implement it. The two directions the language has something in. |
+| `moniker` | A name for the declaration under the cursor that an index somewhere else could resolve: `//lib/shop:catalog.Item.price`. |
 | `references` | Every place the repository names the symbol under the cursor, asked from the declaration or from any use. The declaration itself is included when the client asks for it. |
 | `documentHighlight` | The same question narrowed to the file you are in, which is the file the highlights are painted on. |
 | `rename` / `prepareRename` | Every reference rewritten as one edit, with the check an editor runs before it prompts you. |
@@ -80,6 +83,49 @@ analyses" below for what the key is.
 
 A place the source never wrote the name is not a reference to it: an operator
 standing for a trait method is a use of that method and is not in the list.
+
+**Implementation and the type hierarchy are one table read three ways.** The
+checker records every conformance as a `(trait, type)` pair carrying the span of
+the `impl` or the `derive` that made it, so all three answers are a filter over
+something already computed rather than a search. From a trait you get its
+implementors, from a type its conformances, and from a trait method the function
+each `impl` supplied for it — the method itself, not the block it sits in. A
+`derive`d conformance has no function to point at, because what it stands for is
+a fold over the type's shape, so the `derive` is the answer.
+
+The whole repository is analysed for these, for the same reason `references` is:
+an `impl` is written in the module that declares its type, and nothing about the
+file under the cursor says which targets those modules are in.
+
+The hierarchy has two empty directions, and they are answers rather than gaps. A
+trait is under nothing: a Buri `trait` declares methods and names no other
+trait. A type has nothing beneath it: Buri has no subtyping. A conformance to a
+standard-library trait — everything a `derive Eq` gives you — is left out of the
+hierarchy entirely, because those declarations are compiled into the binary and
+have no file, which is the same silence `definition` answers with there.
+
+Asking for the hierarchy of anything that is not a type or a trait answers
+nothing at all, and the editor does not open a panel it would have nothing to
+put in.
+
+**A moniker is a name, not an index.** `//lib/shop:catalog.Item.price` is the two
+things that already name a declaration in this language: what an import writes
+to reach the module, and the dotted path to the declaration inside it. The colon
+is where the package label ends, which nothing else in the string could tell
+you — a package may hold a source in a subdirectory, so `//lib/shop/catalog`
+alone does not say where the package stops and the module starts. A module
+belonging to no package is the standard library, whose path is what an import
+writes and so stands where the label would: `core/effect:Alloc`. A declaration
+in the package's own root module leaves the module half empty, and the
+separating dot goes with it: `//lib/shop:currency`.
+
+The scheme is `buri` and the uniqueness level is `scheme`, which claims exactly
+as much as is true: the identifier is unique among everything wearing this
+scheme, and v0.3 has no external repositories for it to claim anything about.
+The kind is `export` for a declaration the module exports and `local` for one it
+does not. Two symbols get no moniker at all: a local, which has no name outside
+the body that binds it, and a module, which is named by its path rather than by
+a name — the same reason `rename` refuses one.
 
 **Rename is that list written back.** The one rule it adds is about spelling. An
 alias refers to a declaration without spelling it — in
@@ -172,6 +218,9 @@ stands on it. A deferral is a decision with a reason, not a gap nobody noticed.
 | `definition` | served | |
 | `declaration` | served | the same answer; Buri has one place |
 | `typeDefinition` | served | |
+| `implementation` | served | the conformance table, filtered |
+| `prepareTypeHierarchy`, `typeHierarchy/supertypes`, `typeHierarchy/subtypes` | served | the same table, walked; a type's traits above it and a trait's implementors below |
+| `moniker` | served | `//lib/shop:catalog.Item.price`, `unique: "scheme"` |
 | `references` | served | |
 | `documentHighlight` | served | every occurrence is `Text`: Buri has no assignment, so there is no write to distinguish from a read |
 | `rename`, `prepareRename` | served | |
@@ -185,12 +234,9 @@ stands on it. A deferral is a decision with a reason, not a gap nobody noticed.
 | `codeAction` | served | |
 | `didChangeWatchedFiles`, `client/registerCapability` | served | the watcher is registered after `initialized`, and only for a client whose `initialize` said it accepts one |
 | `didChangeWorkspaceFolders`, `workspace/workspaceFolders` | served | the server asks for the folders when a client that knows about them named none |
-| `implementation` | deferred | the implementors of a trait are a real relation and a small scan of the impl table; it is the next one to add, not one this server has a reason to leave out |
 | `semanticTokens` | deferred | the tree-sitter grammar in `editors/` already colours a file, and a second answer to a coloured question is a way for the two to disagree |
 | `inlayHint` | deferred | the types are there; what a hint needs is a judgement about where one is help and where it is clutter, which is a rendering decision rather than a lookup |
 | `callHierarchy` | deferred | incoming calls are the references scan grouped by the body each is in, and outgoing calls are one body's calls listed; what is missing is only the request's own two-step protocol over an answer `references` already gives |
-| `typeHierarchy` | deferred | Buri has no subtyping, so the hierarchy has one level and is not one |
-| `moniker` | deferred | a name for a symbol that another repository's index could resolve; there is no such index |
 | `linkedEditingRange` | deferred | for syntax that writes one name at both ends of a construct. Buri writes each name once |
 | `documentLink` | deferred | a link is a URL in a comment; an import path is already `definition` |
 | `codeLens` | deferred | a lens spends a line of screen above a declaration, and nothing in the toolchain currently produces a count worth that line |
@@ -215,12 +261,15 @@ server that keeps up with typing and one that does not:
   the other reason this does not happen on a keystroke. A finding's severity is
   the one the terminal prints, `REPO.buri`'s `fail_on_finding` included.
 - **On a hover, a definition, a type definition, a highlight, a completion, a
-  signature help or a `prepareRename`** the server analyses the target owning
-  the file — everything those have to decide is inside its closure.
-- **On a references, a rename or a workspace symbol query** it analyses every
-  target in the repository, as one compilation, because a name is used wherever
-  it is imported and nothing about the file it was declared in says which files
-  those are.
+  signature help, a moniker or a `prepareRename`** the server analyses the target
+  owning the file — everything those have to decide is inside its closure. A
+  moniker is built from where the declaration is, and a file's own closure is
+  where the declarations it names are.
+- **On a references, a rename, a workspace symbol query, an implementation or
+  either half of a type hierarchy** it analyses every target in the repository,
+  as one compilation, because a name is used — and implemented — wherever it is
+  imported, and nothing about the file it was declared in says which files those
+  are.
 - **On an outline, a fold or a selection range** it analyses nothing: those read
   a parse of the one buffer. A definition in a build file analyses nothing
   either — it loads the repository and asks the graph.

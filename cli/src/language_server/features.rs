@@ -155,17 +155,25 @@ pub fn references(
     if include_declaration {
         spans.push(symbols::declaration(analyzed, &found.symbol));
     }
-    // One file is reachable through several targets and a name can be written
-    // twice in one expression, so the same place arrives more than once. Sorted
-    // by file and then by position: the protocol imposes no order, and an
-    // editor's list should not depend on which body the scan met first.
+    Some(locations(analyzed, spans))
+}
+
+/// A `Location[]`, in the order every list of places this server answers with
+/// is in.
+///
+/// One file is reachable through several targets and a name can be written
+/// twice in one expression, so the same place arrives more than once. Sorted by
+/// file and then by position: the protocol imposes no order, and an editor's
+/// list should not depend on which body the scan met first. A span with no file
+/// is dropped rather than guessed at.
+pub(super) fn locations(analyzed: &Analyzed, spans: Vec<crate::diagnostics::Span>) -> Value {
     let mut out: Vec<(String, crate::diagnostics::Span)> = spans
         .into_iter()
         .filter_map(|span| Some((uri_of(analyzed, span)?, span)))
         .collect();
     out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.start.cmp(&b.1.start)).then(a.1.end.cmp(&b.1.end)));
     out.dedup_by(|a, b| a.0 == b.0 && a.1.start == b.1.start && a.1.end == b.1.end);
-    Some(Value::Array(
+    Value::Array(
         out.iter()
             .map(|(uri, span)| {
                 let text = &analyzed.session.map.get(span.file).text;
@@ -175,7 +183,7 @@ pub fn references(
                 ])
             })
             .collect(),
-    ))
+    )
 }
 
 /// The file a span is in, or nothing when it has none — a span with no file, or
@@ -264,6 +272,123 @@ pub fn type_definition(
     let found = symbols::at(analyzed, path, text, offset)?;
     let con = symbols::type_of(analyzed, &found.symbol)?;
     location(analyzed, analyzed.analysis.checked.tables.tycon(con).span)
+}
+
+/// A name for the declaration under the cursor that an index somewhere else
+/// could resolve.
+///
+/// The scheme is `buri` and the identifier is the two things that already name
+/// a declaration in this language: what an import writes to reach the module,
+/// and the dotted path to the declaration inside it —
+/// `//lib/shop:catalog.Item.price`. The colon is where the package label ends,
+/// which nothing else in the string can tell you: a package may hold a source
+/// in a subdirectory, so `//lib/shop/catalog` alone does not say where the
+/// package stops and the module starts.
+///
+/// A module that belongs to no package is the standard library, whose path is
+/// what an import writes and so stands where the label would: `core/list:length`.
+/// The package's own root module leaves the module half empty, and then the
+/// separating dot goes with it: `//lib/shop:listing`.
+///
+/// `unique: "scheme"` is the honest level. The identifier is unique among
+/// everything wearing this scheme and claims nothing beyond that — an external
+/// repository is not a thing v0.3 has, so a wider claim would be about a world
+/// that does not exist yet.
+pub fn moniker(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Option<Value> {
+    let offset = convert::offset_of(text, position);
+    let found = symbols::at(analyzed, path, text, offset)?;
+    let (identifier, exported) = named(analyzed, &found.symbol)?;
+    Some(Value::Array(vec![Value::object(vec![
+        ("scheme", Value::str("buri")),
+        ("identifier", Value::str(identifier)),
+        ("unique", Value::str("scheme")),
+        // The protocol's two answers for a name it can see: one the rest of
+        // the world may resolve, and one that never leaves the project.
+        ("kind", Value::str(if exported { "export" } else { "local" })),
+    ])]))
+}
+
+/// A symbol's moniker identifier, and whether its declaration is exported.
+///
+/// Two symbols get neither. A local has no name outside the body that binds
+/// it, so there is nothing for an index to resolve; and a module is named by
+/// its path rather than by a name, which is why [`symbols::name`] has none for
+/// it and why `rename` refuses one.
+fn named(analyzed: &Analyzed, symbol: &symbols::Symbol) -> Option<(String, bool)> {
+    use symbols::Symbol;
+    let tables = &analyzed.analysis.checked.tables;
+    let (module, declared, exported) = match symbol {
+        Symbol::Function(id) => {
+            let info = tables.fn_info(*id);
+            // A method is reached through its type, and two types may both
+            // declare a `cents` in one module.
+            let declared = match info.self_ty {
+                Some(con) => format!("{}.{}", tables.tycon(con).name, info.name),
+                None => info.name.clone(),
+            };
+            (info.module, declared, info.exported)
+        }
+        Symbol::Type(id) => {
+            let con = tables.tycon(*id);
+            (con.module, con.name.clone(), con.exported)
+        }
+        Symbol::Trait(id) => {
+            let info = tables.trait_(*id);
+            (info.module, info.name.clone(), info.exported)
+        }
+        Symbol::TraitMethod { trait_id, method } => {
+            let info = tables.trait_(*trait_id);
+            let m = info.methods.get(*method)?;
+            (info.module, format!("{}.{}", info.name, m.name), info.exported)
+        }
+        Symbol::Const(id) => {
+            let info = tables.const_(*id);
+            (info.module, info.name.clone(), info.exported)
+        }
+        Symbol::Context(id) => {
+            let info = tables.ctx_decls.get(id.index())?;
+            (info.module, info.name.clone(), info.exported)
+        }
+        Symbol::Field { con, variant, index } => {
+            let info = tables.tycon(*con);
+            let field = match variant {
+                Some(v) => info.variants().get(*v)?.fields.get(*index)?,
+                None => info.fields().get(*index)?,
+            };
+            let declared = match variant {
+                Some(v) => {
+                    format!("{}.{}.{}", info.name, info.variants().get(*v)?.name, field.name)
+                }
+                None => format!("{}.{}", info.name, field.name),
+            };
+            (info.module, declared, field.exported)
+        }
+        Symbol::Variant { con, index } => {
+            let info = tables.tycon(*con);
+            let variant = info.variants().get(*index)?;
+            (info.module, format!("{}.{}", info.name, variant.name), variant.exported)
+        }
+        Symbol::Module(_) | Symbol::Local { .. } => return None,
+    };
+    Some((format!("{}{declared}", reached_by(analyzed, module)?), exported))
+}
+
+/// Everything in a moniker before the declaration's own name: what an import
+/// writes to reach the module, and the module's path inside its package.
+fn reached_by(
+    analyzed: &Analyzed,
+    module: crate::compiler::semantics::types::ModuleId,
+) -> Option<String> {
+    let data = analyzed.analysis.loaded.modules.get(module.index())?;
+    let package = data.pkg.map(|p| analyzed.session.workspace.package(p).label());
+    let inside = match &package {
+        Some(label) => data.path.strip_prefix(label.as_str()).unwrap_or("").trim_start_matches('/'),
+        // No package is the standard library, whose path is what an import
+        // writes and so is the whole of the left-hand side.
+        None => "",
+    };
+    let label = package.unwrap_or_else(|| data.path.clone());
+    Some(if inside.is_empty() { format!("{label}:") } else { format!("{label}:{inside}.") })
 }
 
 /// Every declaration in the repository whose name contains `query`.

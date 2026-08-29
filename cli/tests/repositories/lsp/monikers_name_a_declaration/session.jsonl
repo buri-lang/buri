@@ -1,0 +1,30 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# An exported function: the package label, the module inside the package, and
+# the name.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 45, "character": 12}}}
+# A type, in the same module.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 11, "character": 16}}}
+# A field, a variant and a trait method are reached through what declares them,
+# so each is a dotted path rather than a bare name.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 15, "character": 13}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 7, "character": 6}}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 22, "character": 9}}}
+# A declaration nothing exports still gets an identifier — it has a place — and
+# the kind says it does not leave the project.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 32, "character": 5}}}
+# Declared in the package's own root module, so there is no module path left to
+# write and the separating dot goes with it.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/lib.buri"}, "position": {"line": 3, "character": 13}}}
+# The standard library belongs to no package, so the path an import writes
+# stands where the label would.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 0, "character": 30}}}
+# A local has no name outside the body that binds it, so there is nothing for
+# an index anywhere else to resolve.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 9, "character": 10}}}
+# Nor has a module: it is named by its path rather than by a name, which is the
+# same reason `rename` refuses one.
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/moniker", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 2, "character": 10}}}
+{"jsonrpc": "2.0", "id": 12, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
