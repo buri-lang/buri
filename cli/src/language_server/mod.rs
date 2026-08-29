@@ -10,6 +10,12 @@
 //! has no incremental mode, so analysing per keystroke would be analysing the
 //! standard library per keystroke.
 //!
+//! **The whole-repository sweep is not on this thread.** It is the one piece of
+//! work here that a person can outrun by typing, so it runs on a worker and
+//! `workspace/diagnostic` answers from the last report it filed. See `sweep`
+//! for what crosses the boundary and for the three schedules a recorded session
+//! can name.
+//!
 //! **stdout carries protocol and nothing else.** Every log goes to stderr. A
 //! stray `println!` in a code path this reaches would corrupt the stream in a
 //! way that looks like the editor is broken, so it is worth knowing that the
@@ -17,17 +23,21 @@
 //!
 //! Requests are handled one at a time, in the order they arrive. That makes
 //! responses deterministic, which is what lets a test record a session as a
-//! golden file.
+//! golden file. A reader thread buffers what the client wrote so that a sweep
+//! finishing can wake the loop, but it does not *interpret* anything: messages
+//! are dispatched in the order they arrived, one at a time, exactly as when
+//! this loop read stdin itself.
 //!
-//! **What that makes of a cancel.** One message is read, answered, and only
-//! then is the next one read — so a `$/cancelRequest` usually names a request
+//! **What that makes of a cancel.** One message is dispatched, answered, and
+//! only then is the next one — so a `$/cancelRequest` usually names a request
 //! that has already been answered, which the protocol says is a no-op and which
 //! this server treats as one. What it can still do is refuse an id whose turn
 //! has not come: the id is remembered, and when the request is dequeued it is
-//! answered `-32800 RequestCancelled` instead of being run. There is
-//! deliberately no read-ahead — a server that pulled the rest of the pipe
-//! before dispatching would decide the outcome by how the operating system
-//! chunked the client's write, and a recorded session must not depend on that.
+//! answered `-32800 RequestCancelled` instead of being run. Nothing looks ahead
+//! of the message it is answering — a server that read the rest of the pipe and
+//! acted on it before dispatching would decide the outcome by how the operating
+//! system chunked the client's write, and a recorded session must not depend on
+//! that.
 
 mod build_files;
 mod call_hierarchy;

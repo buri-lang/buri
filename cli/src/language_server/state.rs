@@ -434,19 +434,18 @@ impl Work {
     ///
     /// The superseded sweeps are named only when there are some: a counter
     /// that is zero in every session but the ones written to provoke it says
-    /// nothing, and every recorded line would carry it.
+    /// nothing, and every recorded line would carry it. It goes *before* the
+    /// bytes, because the bytes are the one number a golden normalises away
+    /// and it does that by reading to the end of the line.
     pub fn spelled(&self) -> String {
         let mut said = format!(
-            "analyses {}, lints {}, sessions opened {}, files hashed {}, bytes written {}",
-            self.analyses,
-            self.lints,
-            self.sessions_opened,
-            self.files_hashed,
-            self.bytes_written
+            "analyses {}, lints {}, sessions opened {}, files hashed {}",
+            self.analyses, self.lints, self.sessions_opened, self.files_hashed
         );
         if self.sweeps_superseded > 0 {
             said.push_str(&format!(", sweeps superseded {}", self.sweeps_superseded));
         }
+        said.push_str(&format!(", bytes written {}", self.bytes_written));
         said
     }
 }
@@ -853,6 +852,26 @@ impl State {
             None => self.graph_key(&root),
         };
         Some(self.issued((root, target), now))
+    }
+
+    /// The id for a file's entry in a `workspace/diagnostic` report.
+    ///
+    /// The same id [`State::issue_result_id`] would hand out when the sweep has
+    /// caught up, and the id the *last* sweep's report went out with when it
+    /// has not. A result id stands for the state the report describes, and a
+    /// report a keystroke old describes the state before that keystroke — so
+    /// issuing the current state's id for it would tell a client its stale
+    /// findings are current, and the refresh that follows would be answered
+    /// `unchanged` for ever.
+    pub fn reported_result_id(&mut self, path: &Path) -> Option<String> {
+        let root = self.root_of(path)?;
+        if let Some(target) = self.target_of(&root, path) {
+            if let Some(known) = self.target_findings.get(&(root.clone(), target)) {
+                let filed = known.key;
+                return Some(self.issued((root, Some(target)), filed));
+            }
+        }
+        self.issue_result_id(path)
     }
 
     /// The id filed under this key, minting one when the state it stands for

@@ -1,0 +1,2 @@
+/// Whole minutes, which is the only unit this library counts in.
+export fn minutes(hours: I64): I64 { hours * 60 }

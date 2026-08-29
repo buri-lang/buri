@@ -1,0 +1,33 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# The deferred schedule again — the worker is real and its report waits for
+# `buri/awaitAnalysis` — and `verbose` so that the work line carries the
+# superseded count next to the analyses each request paid for.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "trace": "verbose", "initializationOptions": {"analysis": "deferred"}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "languageId": "buri", "version": 1, "text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n"}}}
+# The cold sweep, waited for: `analyses 3, lints 3`, and it is the last
+# compilation any request on this thread pays for.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# Four keystrokes, each followed by the workspace pull an editor sends after
+# one. The first asks for a sweep and the worker takes it; the second finds
+# one running and waits its turn; the third and fourth find one already
+# waiting — and a job reads the files when it *starts*, so a fourth ask would
+# compute the report the second one is going to. Each request below costs
+# `analyses 0, lints 0`.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 2}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n\n// one\n"}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 3}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n\n// one two\n"}]}}
+{"jsonrpc": "2.0", "id": 4, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 4}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n\n// one two three\n"}]}}
+# From here the work line carries `sweeps superseded 1` — the counters are
+# reported as the difference either side of one request, so one appears on
+# each of the last two rather than one and then two.
+{"jsonrpc": "2.0", "id": 5, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 5}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n\n// one two three four\n"}]}}
+{"jsonrpc": "2.0", "id": 6, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# Four keystrokes, three sweeps: the cold one, the one the worker took, and
+# the one that waited. Two asks never ran.
+{"jsonrpc": "2.0", "id": 7, "method": "buri/awaitAnalysis", "params": {}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

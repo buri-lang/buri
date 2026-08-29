@@ -1,0 +1,3 @@
+# Three targets. `//cmd/app` imports `//lib/alpha`, so a keystroke in `alpha`
+# is a keystroke twelve targets can see in miniature — which is the shape the
+# sweep is off the request thread for.

@@ -113,12 +113,6 @@ pub struct Wanted {
 }
 
 impl Wanted {
-    /// A sweep nothing can overtake — the synchronous schedule, where one
-    /// message asks for a sweep and waits for it.
-    pub fn steady() -> Wanted {
-        Wanted { latest: Arc::new(AtomicU64::new(0)), generation: 0 }
-    }
-
     pub fn superseded(&self) -> bool {
         self.latest.load(Ordering::Relaxed) != self.generation
     }
@@ -284,7 +278,7 @@ impl Sweeps {
             // Still worth keeping: the targets it did get through are filed
             // under the closures they were read at, so the sweep that replaces
             // it starts from there.
-            if !self.queued.iter().any(|waiting| *waiting == swept.root) {
+            if !self.queued.contains(&swept.root) {
                 self.queued.push(swept.root.clone());
             }
         } else {
@@ -350,5 +344,70 @@ fn one(analyst: &mut State, job: Job, wanted: &Wanted) -> Swept {
         said: analyst.take_outgoing(),
         abandoned: wanted.superseded(),
         root: job.root,
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A directory that is not a repository, which is the cheapest job the
+    /// worker can be given: the graph will not open and the sweep is over.
+    fn nowhere() -> PathBuf {
+        std::env::temp_dir().join("buri-lsp-sweep-tests-nothing-here")
+    }
+
+    #[test]
+    fn a_burst_of_asks_is_one_sweep_running_one_waiting_and_the_rest_counted() {
+        let mut sweeps = Sweeps::new();
+        // Nothing collects between the asks in this schedule, which is what
+        // makes the counts a decision rather than a race.
+        sweeps.mode = Mode::Deferred;
+        let root = nowhere();
+        let buffers = Overlay::new();
+        for _ in 0..4 {
+            sweeps.schedule(&root, &buffers);
+        }
+        assert_eq!(sweeps.counters.superseded, 2);
+        sweeps.settle(&buffers);
+        assert_eq!(sweeps.counters.run, 2);
+        assert_eq!(sweeps.counters.abandoned, 0);
+        assert_eq!(sweeps.take_landed().len(), 2);
+        assert!(!sweeps.busy());
+    }
+
+    #[test]
+    fn two_repositories_take_the_one_worker_in_turn() {
+        let mut sweeps = Sweeps::new();
+        sweeps.mode = Mode::Deferred;
+        let buffers = Overlay::new();
+        let first = nowhere();
+        let second = nowhere().join("beside-it");
+        sweeps.schedule(&first, &buffers);
+        sweeps.schedule(&second, &buffers);
+        assert_eq!(sweeps.counters.superseded, 0);
+        sweeps.settle(&buffers);
+        let landed = sweeps.take_landed();
+        assert_eq!(landed.len(), 2);
+        assert_eq!(landed[0].root, first);
+        assert_eq!(landed[1].root, second);
+    }
+
+    #[test]
+    fn a_sweep_hears_that_a_newer_edit_has_overtaken_it() {
+        let latest = Arc::new(AtomicU64::new(1));
+        let wanted = Wanted { latest: Arc::clone(&latest), generation: 1 };
+        assert!(!wanted.superseded());
+        latest.store(2, Ordering::Relaxed);
+        assert!(wanted.superseded());
+    }
+
+    #[test]
+    fn the_schedule_is_named_or_it_is_the_asynchronous_one() {
+        assert_eq!(Mode::named("synchronous"), Some(Mode::Synchronous));
+        assert_eq!(Mode::named("deferred"), Some(Mode::Deferred));
+        assert_eq!(Mode::named("asynchronous"), Some(Mode::Asynchronous));
+        assert_eq!(Mode::named("sometimes"), None);
     }
 }

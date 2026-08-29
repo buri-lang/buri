@@ -147,9 +147,11 @@ pub fn workspace(state: &mut State, params: &Value) -> Value {
             // carry: one per closure, so an edit in a library a file cannot see
             // leaves its entry three fields long instead of its whole report
             // again — and a client that quotes the id back at either request
-            // gets the same answer.
+            // gets the same answer. For a target the sweep has not caught up
+            // with it is the id its last report went out with, because that is
+            // the state this entry describes.
             let Some(result_id) =
-                convert::path_of(&uri).and_then(|path| state.issue_result_id(&path))
+                convert::path_of(&uri).and_then(|path| state.reported_result_id(&path))
             else {
                 continue;
             };
