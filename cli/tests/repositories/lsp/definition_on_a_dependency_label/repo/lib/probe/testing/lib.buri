@@ -1,0 +1,1 @@
+from "//lib/probe/testing/fixtures" export { sample };

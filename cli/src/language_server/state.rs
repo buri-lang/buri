@@ -15,7 +15,8 @@ use crate::build::workspace::TargetId;
 use crate::commands::arguments::Flags;
 use crate::compiler::driver::Analysis;
 use crate::compiler::modules::Unit;
-use std::collections::BTreeMap;
+use crate::json::Value;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// Where the server is in the protocol's lifecycle.
@@ -99,6 +100,16 @@ pub struct State {
     /// for as long as the file is open — including after a save, where they
     /// agree anyway.
     pub open: BTreeMap<PathBuf, String>,
+    /// What the last whole analysis said about each file, by URI.
+    ///
+    /// Kept because a keystroke publishes parse errors and a publish replaces
+    /// everything the editor is showing for that file: without somewhere to
+    /// put the type errors back, the first character typed erased them and
+    /// only a save brought them back.
+    pub published: BTreeMap<String, Vec<Value>>,
+    /// The files whose last publish came from the parse rather than from the
+    /// analysis. Only those need clearing when the buffer parses again.
+    pub showing_parse_errors: BTreeSet<String>,
 }
 
 pub struct Analyzed {
@@ -108,7 +119,12 @@ pub struct Analyzed {
 
 impl State {
     pub fn new() -> State {
-        State { lifecycle: Lifecycle::New, open: BTreeMap::new() }
+        State {
+            lifecycle: Lifecycle::New,
+            open: BTreeMap::new(),
+            published: BTreeMap::new(),
+            showing_parse_errors: BTreeSet::new(),
+        }
     }
 
     /// The buffer's text if it is open, otherwise the file on disk.
@@ -223,11 +239,30 @@ impl State {
         Some((session, diagnostics))
     }
 
-    /// The target whose closure contains `path`. A file can belong to a library
-    /// and a binary in the same package; either analysis sees the file, so the
-    /// first is as good as the second.
+    /// The target whose closure contains `path`.
+    ///
+    /// A package holds a library and a binary at once, and their sources are
+    /// disjoint: `main.buri` and the binary's test suite are in the binary's
+    /// closure and in nothing else. Taking the package's first target analysed
+    /// the library for every file in the package, so a binary entry point and
+    /// its tests were never loaded at all — and a file no analysis reached has
+    /// no hover, no definition and no diagnostics, which is how a whole file
+    /// can look like the server is not running.
+    ///
+    /// So the rule that decides which target owns a file is the build file's,
+    /// [`Workspace::rule_of_file`] — the same one `buri build` uses. The first
+    /// target is still the answer for a file the build file does not list,
+    /// which is a file being written before it is declared.
     fn target_for(&self, session: &Session, path: &Path) -> Option<TargetId> {
         let package = session.workspace.owning_package(path)?;
-        session.workspace.targets().into_iter().find(|t| t.package == package)
+        let targets = session.workspace.targets();
+        let declared = path
+            .strip_prefix(&session.workspace.package(package).dir)
+            .ok()
+            .map(|rel| rel.display().to_string().replace('\\', "/"))
+            .and_then(|rel| session.workspace.rule_of_file(package, &rel))
+            .map(|kind| TargetId { package, kind })
+            .filter(|t| targets.contains(t));
+        declared.or_else(|| targets.into_iter().find(|t| t.package == package))
     }
 }

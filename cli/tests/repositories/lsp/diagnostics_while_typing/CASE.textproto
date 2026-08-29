@@ -1,0 +1,41 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "what the editor is shown as a file is typed in: a keystroke may add parse errors and may never erase what the analysis found, a save republishes everything, and REPO.buri's fail_on_finding makes a lint finding arrive as an error"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session_typing.jsonl"
+  stream: OUT
+  golden: "typing.txt"
+}
+
+# The type error goes; the unused import it was hiding does not.
+edit {
+  file: "lib/counter/counter.buri"
+  replace: "let myStr: Str = 1;"
+  with: "let myStr: Str = \"one\";"
+}
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session_promoted.jsonl"
+  stream: OUT
+  golden: "promoted.txt"
+}
+
+edit {
+  file: "lib/counter/counter.buri"
+  replace: "from \"core/str\" import * as str;\n\n"
+  with: ""
+}
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session_clean.jsonl"
+  stream: OUT
+  golden: "clean.txt"
+}

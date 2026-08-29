@@ -1,0 +1,4 @@
+library {
+    sources: ["instrumentation.buri"]
+    visibility: ["//visibility:public"]
+}

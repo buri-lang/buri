@@ -1,0 +1,5 @@
+# The lint block, in the tighter of the two settings it offers: a finding is an
+# error rather than a warning, in the terminal and in the editor alike.
+lint {
+    fail_on_finding: true
+}

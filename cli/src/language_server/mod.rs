@@ -256,7 +256,7 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
                 return vec![];
             };
             state.open.insert(path.clone(), text.to_string());
-            vec![parse_diagnostics(&path, text)]
+            parse_diagnostics(state, &path, text)
         }
         ("textDocument/didSave", _) => {
             let Some(path) = uri_param(&params) else { return vec![] };
@@ -437,9 +437,27 @@ fn capabilities() -> Value {
         (
             "capabilities",
             Value::object(vec![
-                // 1 = full. Incremental sync buys nothing without an
-                // incremental front end, and costs a text-edit applier.
-                ("textDocumentSync", Value::number(1)),
+                // The options object rather than the bare `1` it used to be.
+                // The number is the protocol's legacy form and says only how
+                // changes arrive: a client reading it has been told nothing
+                // about `didOpen`, `didClose` or `didSave`, and one that sends
+                // only what was negotiated sends no save — which is the
+                // notification the whole analysis hangs off. `change: 1` is
+                // still full sync, because incremental sync buys nothing
+                // without an incremental front end and costs a text-edit
+                // applier. The save carries no text: the server reads the
+                // buffer it already has.
+                (
+                    "textDocumentSync",
+                    Value::object(vec![
+                        ("openClose", Value::Bool(true)),
+                        ("change", Value::number(1)),
+                        (
+                            "save",
+                            Value::object(vec![("includeText", Value::Bool(false))]),
+                        ),
+                    ]),
+                ),
                 ("hoverProvider", Value::Bool(true)),
                 ("definitionProvider", Value::Bool(true)),
                 // The same answer under the protocol's other name for it.
@@ -536,12 +554,31 @@ fn with_analysis<T>(
 // ---------------------------------------------------------------------------
 
 /// Parse errors for one buffer. No workspace, no standard library, no imports.
-fn parse_diagnostics(path: &std::path::Path, text: &str) -> Value {
+///
+/// **A keystroke may add to what the editor is showing and may not take
+/// anything away.** A publish replaces every diagnostic the client holds for
+/// that file, so publishing the parse errors on every change erased the type
+/// errors the last analysis found: they came back on save and were gone again
+/// on the next character, which reads as the server not reporting them at all.
+///
+/// So a buffer that parses publishes nothing, and the analysis findings stay on
+/// screen with the client moving them as the text moves. A buffer that does not
+/// parse publishes its parse errors, and when it parses again what the analysis
+/// last said goes back.
+fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> Vec<Value> {
     let parsed = crate::parsing::parser::parse(text, crate::diagnostics::FileId(0));
     let uri = convert::uri_of(path);
+    if parsed.errors.is_empty() {
+        if !state.showing_parse_errors.remove(&uri) {
+            return Vec::new();
+        }
+        let items = state.published.get(&uri).cloned().unwrap_or_default();
+        return vec![publish(&uri, items)];
+    }
+    state.showing_parse_errors.insert(uri.clone());
     let items: Vec<Value> =
         parsed.errors.iter().map(|d| convert::diagnostic(text, d, &uri)).collect();
-    publish(&uri, items)
+    vec![publish(&uri, items)]
 }
 
 /// Everything the front end has to say, for every file it looked at.
@@ -559,7 +596,7 @@ fn full_diagnostics(state: &mut State, path: &std::path::Path) -> Vec<Value> {
     }
 
     let Some(analyzed) = state.analyze(path) else {
-        return published.into_iter().map(|(uri, items)| publish(&uri, items)).collect();
+        return remember(state, published);
     };
 
     for d in &analyzed.analysis.diagnostics.items {
@@ -599,7 +636,21 @@ fn full_diagnostics(state: &mut State, path: &std::path::Path) -> Vec<Value> {
         }
     }
 
-    published.into_iter().map(|(uri, items)| publish(&uri, items)).collect()
+    remember(state, published)
+}
+
+/// Publishes, and keeps a copy so that a keystroke can put it back.
+fn remember(
+    state: &mut State,
+    published: std::collections::BTreeMap<String, Vec<Value>>,
+) -> Vec<Value> {
+    let mut out = Vec::new();
+    for (uri, items) in published {
+        out.push(publish(&uri, items.clone()));
+        state.showing_parse_errors.remove(&uri);
+        state.published.insert(uri, items);
+    }
+    out
 }
 
 /// Whether two diagnostics are the same one seen twice: same place, same words.

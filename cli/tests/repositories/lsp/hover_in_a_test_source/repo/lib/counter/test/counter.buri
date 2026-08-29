@@ -1,0 +1,7 @@
+from "//lib/counter" import { Tally, counter };
+from "core/testing/assert" import * as assert;
+
+test "counter increments" {
+  let tally = Tally { total: 1 };
+  assert.eq(counter(tally), 1);
+}

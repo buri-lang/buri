@@ -1,0 +1,4 @@
+library {
+    sources: ["measurement.buri"]
+    visibility: ["//visibility:public"]
+}

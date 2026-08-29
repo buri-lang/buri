@@ -1,0 +1,15 @@
+library {
+    sources: ["helper.buri"]
+}
+
+binary {
+    dependencies: ["//lib/counter"]
+
+    outputs: [
+        { platform: MACOS, arch: ARM64 },
+    ]
+
+    test {
+        sources: ["test/app.buri"]
+    }
+}
