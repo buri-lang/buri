@@ -10,7 +10,7 @@
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didChange"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/hover (3)"}}
 {"id":3,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn total(count: I64): I64\n```\n\nWhat the basket comes to, in whole cents."},"range":{"end":{"character":15,"line":3},"start":{"character":10,"line":3}}}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/hover (3)","verbose":"answered in 0ms; analyses 1, lints 0, sessions opened 1, files hashed 5, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/hover (3)","verbose":"answered in 0ms; analyses 1, lints 0, sessions opened 0, files hashed 5, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/documentHighlight (4)"}}
 {"id":4,"jsonrpc":"2.0","result":[{"kind":1,"range":{"end":{"character":15,"line":3},"start":{"character":10,"line":3}}}]}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/documentHighlight (4)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 5, bytes written N"}}
@@ -19,7 +19,7 @@
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/hover (5)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 5, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/diagnostic (6)"}}
 {"id":6,"jsonrpc":"2.0","result":{"items":[{"code":"type-mismatch","message":"expected `I64`, found `Str`","range":{"end":{"character":42,"line":1},"start":{"character":24,"line":1}},"relatedInformation":[{"location":{"range":{"end":{"character":42,"line":1},"start":{"character":24,"line":1}},"uri":"file://<scratch>/lib/shop/catalog.buri"},"message":"fix: produce a `I64` here, or change what surrounds it to accept a `Str`"}],"severity":1,"source":"buri"}],"kind":"full","resultId":"1"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (6)","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 1, files hashed 5, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (6)","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 5, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/hover (7)"}}
 {"id":7,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn total(count: I64): I64\n```\n\nWhat the basket comes to, in whole cents."},"range":{"end":{"character":15,"line":3},"start":{"character":10,"line":3}}}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/hover (7)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 5, bytes written N"}}
