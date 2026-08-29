@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a pulled report carries what a publish would: the front end's type error and the lint pass's finding, at the severity REPO.buri's fail_on_finding promotes it to — and a request with no document to answer about is a JSON-RPC error, because this request has no null"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

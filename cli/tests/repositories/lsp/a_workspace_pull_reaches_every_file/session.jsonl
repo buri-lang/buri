@@ -1,0 +1,25 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository and
+# `<scratch2>` the second one.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {"workspace": {"workspaceFolders": true}}, "workspaceFolders": [{"uri": "file://<scratch>", "name": "app"}, {"uri": "file://<scratch2>", "name": "weather"}]}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The only buffer the editor has. It is clean, and it reaches nothing in
+# //lib/money — so the publish it earns is empty and says nothing about the
+# error two directories away.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "// Clean, and it depends on nothing. That is what makes //lib/money a package\n// the analysis of this file never reaches.\n\nfrom \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let _ = ctx.println(\"app\");\n  .Ok(())\n}\n"}}}
+# The whole workspace. One item per `.buri` file in each repository — sources,
+# every BUILD.buri and REPO.buri — because a report is also how a client is
+# told a file is clean. `lib/money/cents.buri` is the one this request exists
+# for: no buffer, no publish, and a real error in it.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# The same question with every id quoted back, and nothing has moved: every
+# item is `unchanged`, and the two repositories were hashed rather than
+# compiled.
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/diagnostic", "params": {"previousResultIds": [{"uri": "file://<scratch>/REPO.buri", "value": "1"}, {"uri": "file://<scratch>/cmd/app/BUILD.buri", "value": "1"}, {"uri": "file://<scratch>/cmd/app/main.buri", "value": "1"}, {"uri": "file://<scratch>/lib/money/BUILD.buri", "value": "1"}, {"uri": "file://<scratch>/lib/money/cents.buri", "value": "1"}, {"uri": "file://<scratch>/lib/money/lib.buri", "value": "1"}, {"uri": "file://<scratch2>/REPO.buri", "value": "2"}, {"uri": "file://<scratch2>/lib/weather/BUILD.buri", "value": "2"}, {"uri": "file://<scratch2>/lib/weather/celsius.buri", "value": "2"}, {"uri": "file://<scratch2>/lib/weather/lib.buri", "value": "2"}]}}
+# A keystroke in the first repository.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 2}, "contentChanges": [{"text": "// Clean, and it depends on nothing. That is what makes //lib/money a package\n// the analysis of this file never reaches.\n\nfrom \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let _ = ctx.println(\"app\");\n  .Ok(())\n}\n\n// A keystroke in the first repository, and in it alone.\n"}]}}
+# The same ids again. The first repository's are stale and its files come back
+# in full under a new one; the second repository's are current, because a
+# fingerprint covers one root and the buffers inside it.
+{"jsonrpc": "2.0", "id": 4, "method": "workspace/diagnostic", "params": {"previousResultIds": [{"uri": "file://<scratch>/REPO.buri", "value": "1"}, {"uri": "file://<scratch>/cmd/app/BUILD.buri", "value": "1"}, {"uri": "file://<scratch>/cmd/app/main.buri", "value": "1"}, {"uri": "file://<scratch>/lib/money/BUILD.buri", "value": "1"}, {"uri": "file://<scratch>/lib/money/cents.buri", "value": "1"}, {"uri": "file://<scratch>/lib/money/lib.buri", "value": "1"}, {"uri": "file://<scratch2>/REPO.buri", "value": "2"}, {"uri": "file://<scratch2>/lib/weather/BUILD.buri", "value": "2"}, {"uri": "file://<scratch2>/lib/weather/celsius.buri", "value": "2"}, {"uri": "file://<scratch2>/lib/weather/lib.buri", "value": "2"}]}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

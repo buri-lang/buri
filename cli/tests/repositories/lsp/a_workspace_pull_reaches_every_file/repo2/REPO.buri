@@ -1,0 +1,3 @@
+# The second repository, and a sibling rather than a subdirectory: a REPO.buri
+# inside another repository is not a second root. It is clean, and it stays
+# unchanged across an edit made in the first one.

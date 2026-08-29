@@ -1,0 +1,2 @@
+# The repository root. One package, one file: this case is about when the
+# server asks a client to fetch its diagnostics again, not about what they say.

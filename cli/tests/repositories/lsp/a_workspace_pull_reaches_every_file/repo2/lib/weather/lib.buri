@@ -1,0 +1,1 @@
+from "//lib/weather/celsius" export { Celsius, fromCelsius };
