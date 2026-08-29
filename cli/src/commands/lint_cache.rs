@@ -30,7 +30,7 @@ use crate::build::cache::{Action, ActionKey, Cache, KeyBuilder, Status};
 use crate::build::session::Session;
 use crate::build::sources::{Overlay, Sources};
 use crate::build::workspace::{ModuleLocation, RuleKind, TargetId};
-use crate::commands::arguments::Flags;
+use crate::commands::arguments::{BuildMode, Flags};
 use crate::compiler::driver::Analysis;
 use crate::diagnostics::{Diagnostic, Edit, FileId, SecondarySpan, Severity, SourceMap, Span};
 use std::path::{Path, PathBuf};
@@ -75,11 +75,8 @@ pub struct Store {
     overlay: Overlay,
     /// Which `.buri` files exist and what the build files say, hashed once.
     graph: u64,
-    mode: crate::commands::arguments::BuildMode,
+    mode: BuildMode,
     explain: bool,
-    /// What the run did, for a caller that wants to say so.
-    pub reused: usize,
-    pub analysed: usize,
 }
 
 impl Store {
@@ -95,8 +92,6 @@ impl Store {
             graph,
             mode: flags.mode,
             explain: flags.explain,
-            reused: 0,
-            analysed: 0,
         }
     }
 
@@ -154,7 +149,6 @@ impl Store {
             target: read_findings(&mut reader, &mut session.map, &self.root)?,
             asked_the_package,
         };
-        self.reused += 1;
         self.say(Status::Cached, session, target, &key);
         Some(parts)
     }
@@ -168,7 +162,6 @@ impl Store {
         parts: &Parts,
     ) {
         let key = self.key(session, target);
-        self.analysed += 1;
         self.say(Status::Run, session, target, &key);
         let mut out = FORMAT.to_vec();
         out.push(u8::from(parts.asked_the_package));

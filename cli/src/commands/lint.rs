@@ -173,8 +173,8 @@ struct Marks {
     start: usize,
     analysis_end: usize,
     package_end: usize,
-    /// Whether this pass was the one that asked the package rules — empty
-    /// because there was nothing to say, or empty because somebody else asked.
+    /// Whether this pass asked the package rules, which is what tells an empty
+    /// package list "nothing to report" from "somebody else reported it".
     asked_the_package: bool,
 }
 
