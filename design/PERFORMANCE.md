@@ -708,17 +708,23 @@ row, JavaScript and native alike, which is what keeps the three comparable;
 
 Three native triples by default — `aarch64-apple-darwin`,
 `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` — whichever machine
-the suite is run on. Cranelift is compiled with `all-arch`, so selecting an ISA
-by triple costs nothing, and a cross triple is *more* reproducible than the host
-one: the host ISA is inferred from the running CPU's features and a cross ISA is
-the baseline for its triple. The refusal to cross-*link* stays where it belongs,
-at `link::can_link` and `actions::native_ready`, which is what
-`buri build --output=linux/x86_64` on a mac still answers to; `cranelift::isa_for`
-no longer states the same policy a second time.
+the suite is run on. A cross triple is *more* reproducible than the host one:
+the host ISA is inferred from the running CPU's features and a cross ISA is the
+baseline for its triple. The refusal to cross-*link* stays where it belongs, at
+`link::can_link` and `actions::native_ready`, which is what
+`buri build --output=linux/x86_64` on a mac still answers to; no backend states
+the same policy a second time.
 
-`Profile::Debug` selects Cranelift and `Profile::Release` selects LLVM, so a
-release row is an LLVM row and it is taken only on a toolchain built with
-`backend-llvm`. **There is no `#[cfg]` anywhere in the harness**: it asks
+**A debug row is only takeable where the debug backend has a stencil library for
+the triple** (`design/native/CODEGEN-STENCIL.md` §3.2), which is a narrower
+condition than the one these rows were written under: the removed backend was
+compiled with `all-arch` and answered for every triple by construction. A triple
+with no library is a `skipped` row with the backend's own sentence in it, which
+is the mechanism the paragraph below already describes.
+
+`Profile::Debug` selects the copy-and-patch backend and `Profile::Release`
+selects LLVM, so a release row is an LLVM row and it is taken only on a
+toolchain built with `backend-llvm`. **There is no `#[cfg]` anywhere in the harness**: it asks
 `backend::select` and prints `skipped: <diagnostic>` rather than testing a
 feature, so the report always says which rows *this* binary could not take
 rather than changing shape depending on how it was compiled. Skipped rows go in
@@ -731,12 +737,13 @@ be measured failing. The two reasons a native row skipped when these rows were
 first taken are both closed, and both are worth recording because the closing is
 what made the realistic rows measurable:
 
-- **`list.filter`, `list.fold`, `list.mapCtx`.** The Cranelift backend had no
-  body for them and the realistic mix calls all three, so every realistic native
-  row skipped. Ten of the closure surface are emitted now
-  (`emit::Lower::list_closure`, with `sortBy` as a stable bottom-up merge in
-  `emit::Lower::list_sort`); `cranelift/mod.rs`'s header is the list of what is
-  still out and why.
+- **`list.filter`, `list.fold`, `list.mapCtx`.** The debug backend of the day —
+  Cranelift, removed 2026-08-29 — had no body for them and the realistic mix
+  calls all three, so every realistic native row skipped. Ten of the closure
+  surface were emitted by the time it went, and the copy-and-patch backend that
+  replaced it emits the surface the conformance corpus needs;
+  `Backend::missing_intrinsics` is the question, asked per backend, and
+  `design/native/CODEGEN-STENCIL.md` §9 is what the current one does not do.
 - **`Too many return values to fit in registers`** on either x86_64 triple, for
   `main`: `Result<(), Str>` is three scalars and the SysV return convention has
   two, and AArch64's eight had hidden it. The fix is a convention rather than a
@@ -774,6 +781,14 @@ this repository would have to depend on. A line is a comment when it begins with
 | `cli/tests` | 33 | 14,614 | 5,474 | 1,404 | 21,492 | 25% |
 | `cli/benches` | 4 | 3,613 | 1,156 | 269 | 5,038 | 23% |
 
+**This census predates 2026-08-29 and still counts a backend the tree no longer
+has.** `compiler/backend/cranelift`'s five files and 8,634 lines are gone, and
+so are `cli/tests`'s Cranelift-only suites; every total above still includes
+them. The row is left in place rather than subtracted by hand, because "the
+compiler got smaller" is a claim somebody checks by re-running the script, and a
+table half re-counted is worse than one honestly stale. The next census re-takes
+it whole.
+
 And the Buri-language side, which the compiler has to get through:
 
 | | Files | Code | Comment | Blank | Total |
@@ -796,6 +811,19 @@ rate has spent it on something else.
 Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 `0x0b001a575eed0001`, protocol as §2. A gap of 1.0 means the goal is met; below
 1.0 means it is beaten.
+
+> **Every native figure in this section was taken with Cranelift as the debug
+> backend, and Cranelift was removed on 2026-08-29.**
+> The dates are §6's own: generator revision 4 is 2026-08-27, the
+> stencil-versus-Cranelift kernels are from the same week, and `buri test`'s
+> native default is dated 2026-08-21. Nothing below has been re-taken since the
+> removal and nothing below has been adjusted to guess at what a re-run will
+> find — a verification wave re-runs them, and the numbers move together or not
+> at all. What is known without re-measuring is the direction of one of them:
+> the four run-side kernels were **1.38×** Cranelift at `opt_level = "none"`,
+> so the debug *runtime* is slower than the readings here, deliberately and by
+> about that much. `design/native/CODEGEN-STENCIL.md` §13 is the decision and
+> its accepted costs.
 
 > **Generator revision 4, 2026-08-27 — a break in the series, announced.**
 > An enum variant stopped carrying `export`, so every generated variant line
@@ -863,22 +891,36 @@ mixed/100k, the authoritative corpus, on the machine and protocol above.
 Two of the three goals are met, and the third is met on the JavaScript backend
 and missed on the native one. Lex+parse started at 1.45 M lines/s and is 4.1×
 that now; native lowering started at nothing measurable, because the realistic
-corpora could not be compiled natively at all. The stencil backend (`design/native/CODEGEN-STENCIL.md`)
-emits a 121k-line program in about 0.43× Cranelift's time and is the first
-backend here to reach goal 3 — on the emission phase, and it is not the
-selected one.
+corpora could not be compiled natively at all.
+
+**`lower+macos-arm64` is a row whose emitter changed under it.** 58.1 k is
+Cranelift's, and the debug backend is the copy-and-patch one
+(`design/native/CODEGEN-STENCIL.md`) since 2026-08-29. That backend emits a
+121k-line program in about 0.43× Cranelift's time and was the first here to
+reach goal 3 on the emission phase — so the row is expected to move, and it is
+left at the last figure actually measured rather than at an arithmetic guess.
+The series breaks here and is marked rather than continued through, the same
+rule §3.1 applies to a generator revision.
 
 ### 6.2 The dev and release configuration, both halves measured
 
-- **Dev: Cranelift at `opt_level = "none"`, whole-binary link, per-unit emit.**
-  LLVM at `-O0` is 2.1–4.9× slower to lower on the shapes that decide it, and
-  slowest exactly where Cranelift already misses. `opt_level = "speed"` costs
-  16–95% of native lowering and *loses* 2.6% of runtime (§6.4). Erasing generics
-  in the dev profile (2–10× measured runtime cost, and a second value model
-  through both backends) and moving instantiation placement (worth exactly one
-  unit of blast radius, and weak symbols would cost the direct branches) were
-  both refuted by measurement. The path runs the four kernels at 0.91× of bun
-  and 1.24× of its own release build.
+- **Dev: the copy-and-patch backend, whole-binary link, per-unit emit.** It has
+  no optimization dial to set — there is no instruction selection, no register
+  allocator and no mid-end to skip (`design/native/CODEGEN-STENCIL.md` §1), so
+  the two rows below that argue about one are history rather than a setting.
+  **The readings in this bullet are Cranelift's**, from before the flip: LLVM at
+  `-O0` was 2.1–4.9× slower to lower on the shapes that decide it, and slowest
+  exactly where the dev backend already missed; `opt_level = "speed"` cost
+  16–95% of native lowering and *lost* 2.6% of runtime (§6.4); and the path ran
+  the four kernels at 0.91× of bun and 1.24× of its own release build. The
+  emitter under all three has changed and none has been re-taken. What was
+  measured across the change is the one comparison that mattered to it: emission
+  at about 0.43× and the four kernels at 1.38×
+  (`design/native/CODEGEN-STENCIL.md` §13). Erasing generics in the dev profile
+  (2–10× measured runtime cost, and a second value model through both backends)
+  and moving instantiation placement (worth exactly one unit of blast radius,
+  and weak symbols would cost the direct branches) were both refuted by
+  measurement, and neither refutation depended on which emitter was under it.
 - **Release: LLVM at `-O2`.** 7.9× a cold dev build and **1.15× an incremental
   one**, for 1.24× the runtime and 0.35× the artifact size. It lowers at
   3.9–6.8 k lines/s, which is 15–26× under goal 3 and is the price of LLVM's
@@ -886,9 +928,13 @@ selected one.
   path a developer iterates on.
 
 **`buri test` defaults to the native dev backend**, since 2026-08-21. A suite
-that names no platform is compiled with Cranelift and run as a binary, and falls
-back to JavaScript per suite — out loud — where the toolchain or the suite's
-program needs it (`commands/test.rs`; `design/native/ARCHITECTURE.md` §4). The
+that names no platform is compiled with the dev backend and run as a binary, and
+falls back to JavaScript per suite — out loud — where the toolchain or the
+suite's program needs it (`commands/test.rs`;
+`design/native/ARCHITECTURE.md` §4). The set of hosts on which that fallback
+fires got one member wider on 2026-08-29: the dev backend now answers for the
+triples it has a stencil library for and no others
+(`design/native/CODEGEN-STENCIL.md` §3.2). The
 number that paid for the change is the incremental one: a one-line edit at 104k
 lines is 502 ms to verdict native against bun's 622 on the fast suite and 1,484
 against 1,742 on the compute suite, the first measurement here where the native
@@ -903,10 +949,15 @@ compile column is itself the faster one.
 - **The producer half of fusion.** `range` is still materialized.
 - **Derived `Show`**, which needs the design decision in §6.4 rather than more
   tuning.
-- **Realistic native lowering's last 1.72×.** 88% of the row is inside
-  Cranelift's own `define_function` and 42% is regalloc2 alone, so the lowering
-  this repository owns is no longer the cost: the next step is a value-model
-  change or a different codegen strategy, not a faster loop.
+- **Realistic native lowering's last 1.72×.** The measurement said 88% of the
+  row was inside Cranelift's own `define_function` and 42% regalloc2 alone, so
+  the lowering this repository owned was not the cost, and the next step was a
+  value-model change or a different codegen strategy rather than a faster loop.
+  **That step was taken, and it was the second one**: the emitter under this row
+  is now a copy-and-patch one with no register allocator in it at all
+  (2026-08-29). What the row reads afterwards is the first thing the
+  verification wave answers, and it is the one open item here whose number is
+  expected to move rather than to be confirmed.
 - **Lex+parse's last 1.66×.** The plateau without a design change is
   ~5.5–6 M lines/s; reaching 10 M additionally needs the C3 rewrite. 11.2% of
   the phase is provably unavoidable while a standard-library pin stands. Both
@@ -923,7 +974,7 @@ they produced, because each is a shape rather than a measurement, and they are
 the three below.
 
 **Per-unit work over a whole-program array is Θ(units × functions), and it hides
-until it does not.** Two scans in the Cranelift backend walked all of
+until it does not.** Two scans in the then-current native backend walked all of
 `program.funcs` *per codegen unit* — one to collect the unit's own functions and
 allocate a `vec![None; program.funcs.len()]` linkage table beside it, one to
 build the text whose hash is the unit's cache key. At 100k lines that is
@@ -957,23 +1008,29 @@ renderer emitted once, which is what the JavaScript backend already does. That
 is a decision about `middle::derives`'s premise rather than an optimization, and
 it is recorded here because the measurement rules out the two cheaper answers.
 
-**`opt_level = "speed"` on the dev backend is refuted on both halves of the
-trade.** It costs 16–95% of native lowering. What it returns, over the four
+**`opt_level = "speed"` on the dev backend was refuted on both halves of the
+trade.** It cost 16–95% of native lowering. What it returned, over the four
 kernels: primes −3.6%, n-queens −4.3%, matmul ±0%, and the fused pipeline
 **+34%** — the one shape the fusion pass had just made fast, regressed by a
-third because the egraph mid-end rewrites the fused loop into something its
-register allocator likes less. The total is **+2.6%**: the suite is slower, not
-merely not-faster. Cranelift stays at `opt_level = "none"` for a measured reason
-on both sides rather than one.
+third because the egraph mid-end rewrote the fused loop into something its
+register allocator liked less. The total was **+2.6%**: the suite slower, not
+merely not-faster. The dial belonged to a backend that is gone (2026-08-29) and
+the finding outlives it, because it is the shape rather than the number — **an
+optimizer in the debug quadrant has to pay for itself on the run side, and this
+one did not** — and the backend that replaced it has no such dial to be tempted
+by.
 
 ### 6.5 Measured dead ends, recorded so they stay dead
 
 - **Branchless reference counting**: +15%.
 - **`opt_level = "speed"`** on the dev backend: +20% lowering, and §6.4's
-  runtime regression.
+  runtime regression. This and the row below were dials on the Cranelift backend,
+  removed 2026-08-29; they are kept because a dead end that is deleted gets
+  rediscovered.
 - **`regalloc_algorithm = "single_pass"`**: silently inert since Cranelift
-  0.123, which withdrew the value. The line is set and has no effect
-  (`design/native/CODEGEN-CRANELIFT.md` §4).
+  0.123, which withdrew the value — the line was set and had no effect. It went
+  with the backend and with the document that recorded it
+  (`design/native/CODEGEN-STENCIL.md` §13).
 - **Erasing generics in the dev profile**, and **moving instantiation
   placement**: both refuted in §6.2.
 

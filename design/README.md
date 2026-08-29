@@ -21,7 +21,7 @@ here.
 | [`STANDARD-LIBRARY.md`](./STANDARD-LIBRARY.md) | Why `core/*` contains what it contains, and what the deliberate absences would cost to close. |
 | [`ui-reactivity.md`](./ui-reactivity.md) | Why `ui/*` is shaped the way it is: signals as inert handles, meaning as a role and arrangement as a style, two style tiers, and exhaustive themes. It has shipped, so it keeps the argument and points at the reference; its "As built" section records where compiling it overruled it. |
 | [`PERFORMANCE.md`](./PERFORMANCE.md) | What "fast" means for this toolchain, how it is measured, and what the measurements say. The benchmark harness's own READMEs cite it as normative. |
-| [`native/`](./native/) | The native backend's design: architecture, value model, memory, the three code generators, build and watch, and the decisions taken. |
+| [`native/`](./native/) | The native backend's design: architecture, value model, memory, the two native code generators, build and watch, and the decisions taken. |
 
 Three neighbours that are also not user documentation:
 [`formal/`](../formal/) is the Lean 4 formalisation of the type system,
@@ -46,7 +46,7 @@ described who was allowed to write which file during a rollout that is over.
 | 1c | `cli/runtime` — the C-ABI runtime, and the `build.rs` that builds it |
 | 1d | `middle::{decision, closures, dce, tail_calls}` — the tree passes, and the tail-call *rewrite* that replaced the emitter consulting a `Plan` |
 | 1e | `middle::{derives, rc}` — generated derives, and own/borrow inference with reuse |
-| 2a | The Cranelift backend |
+| 2a | The Cranelift backend — removed 2026-08-29, with its design document; [`native/CODEGEN-STENCIL.md`](./native/CODEGEN-STENCIL.md) §13 is the record |
 | 2b | The LLVM backend |
 | 2c | The link step, the object cache, and the manifest |
 | 3a | Native `--check-reproducible` |
