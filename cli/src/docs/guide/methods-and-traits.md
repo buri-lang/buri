@@ -64,7 +64,7 @@ derive Add, Sub, Ord, Show for Meters;
 
 # fn demo(): Meters {
 let total = Meters(1.5) + Meters(2.0);   // Meters
-let bad   = Meters(1.5) + 2.0;           // ERROR: expected `Meters`, found `{float}`
+let bad   = Meters(1.5) + 2.0;           // ERROR: expected `Meters`, found a float literal
 # total
 # }
 ```
