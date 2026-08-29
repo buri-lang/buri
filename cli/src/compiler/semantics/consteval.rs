@@ -154,30 +154,7 @@ impl<'a> Folder<'a> {
     /// because that is where the answer is: a function that allocates says so
     /// in its signature, and one that does not cannot start.
     fn is_foldable_fn(&self, id: FnId) -> bool {
-        let info = self.tables.fn_info(id);
-        if info.intrinsic {
-            return false;
-        }
-        if info.params.iter().any(|p| p.role == ParamRole::Ctx) {
-            return false;
-        }
-        // An effect-carrying `self` is the other way a function is impure, and
-        // it is the one a method could smuggle in.
-        if info
-            .params
-            .iter()
-            .any(|p| p.role == ParamRole::SelfParam && self.tables.is_effect_carrying(&p.ty, &[]))
-        {
-            return false;
-        }
-        if info
-            .generics
-            .iter()
-            .any(|g| g.bounds.iter().any(|t| self.tables.trait_(*t).is_effect))
-        {
-            return false;
-        }
-        self.bodies.contains_key(&id)
+        is_inlinable(self.tables, id) && self.bodies.contains_key(&id)
     }
 
     /// The value an expression denotes, or `None` when it denotes something
@@ -392,6 +369,32 @@ impl<'a> Folder<'a> {
         self.depth = self.depth.saturating_sub(1);
         out
     }
+}
+
+/// Whether the folder would inline this function if it had its body: pure by
+/// SPEC 10.4, and written rather than declared.
+///
+/// Free rather than a method because a *scoped* analysis has to ask it before
+/// any body exists — it is how the checker knows which of the bodies it was
+/// not asked for the style extractor will need anyway.
+pub fn is_inlinable(tables: &Tables, id: FnId) -> bool {
+    let info = tables.fn_info(id);
+    if info.intrinsic {
+        return false;
+    }
+    if info.params.iter().any(|p| p.role == ParamRole::Ctx) {
+        return false;
+    }
+    // An effect-carrying `self` is the other way a function is impure, and it
+    // is the one a method could smuggle in.
+    if info
+        .params
+        .iter()
+        .any(|p| p.role == ParamRole::SelfParam && tables.is_effect_carrying(&p.ty, &[]))
+    {
+        return false;
+    }
+    !info.generics.iter().any(|g| g.bounds.iter().any(|t| tables.trait_(*t).is_effect))
 }
 
 /// `Option`'s variant indices, which `core/option` fixes and the backend
