@@ -1,0 +1,24 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The buffer does not parse — the diagnostics published below say so — and
+# that is the whole point of the case.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "// A buffer mid-edit: the parameter list is a half-written thought and the\n// brace above it never closes.\nexport fn total(count: I64 {\n    let each = 250;\n    let label = \"each\";\n"}}}
+# Layer one alone. Every keyword, literal and comment is coloured from the
+# lexer, which needs no analysis and cannot fail:
+#   0,0,74,9,0    the first comment line
+#   1,0,31,9,0    the second
+#   1,0,6,8,0     `export`, and then `fn` — `keyword`
+#   0,7,2,8,0
+#   1,4,3,8,0     `let`
+#   0,9,1,12,0    `=` — `operator`
+#   0,2,3,11,0    `250` — `number`
+#   1,4,3,8,0     `let`
+#   0,10,1,12,0   `=`
+#   0,2,6,10,0    `"each"` — `string`, quotes counted
+# and no identifier is coloured at all: `total`, `count`, `I64`, `each` and
+# `label` are absent, because layer two had nothing to resolve them against.
+# A grammar's colouring is the floor here, not a fallback that ran instead.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

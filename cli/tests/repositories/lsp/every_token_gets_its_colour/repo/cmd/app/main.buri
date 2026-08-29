@@ -1,0 +1,29 @@
+// The shelf edge, written so that every colour this server can produce
+// appears at least once.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "//lib/shop" import { Item, listing, Stock };
+
+/* A block comment sits in the gap between two tokens, so it is read from the
+   gap rather than from the token stream. */
+
+/// What the edge of the shelf says about one item.
+export fn edge(item: Item): Str {
+    let cheap = item.price < 250;
+    if (cheap) { "sale" } else { item.label() }
+}
+
+/// Putting `count` more of an item on the shelf.
+export fn restock(item: Item, count: I64): Item {
+    Item { name: item.name, price: item.price, stock: Stock.OnHand { count: count } }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let apple = restock(listing("apple", 300), 12);
+    let _ = ctx.println(edge(apple));
+    .Ok(())
+}

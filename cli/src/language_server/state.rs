@@ -128,8 +128,35 @@ pub struct State {
     /// The files whose last publish came from the parse rather than from the
     /// analysis. Only those need clearing when the buffer parses again.
     pub showing_parse_errors: BTreeSet<String>,
+    /// What the client is holding for `textDocument/semanticTokens`.
+    pub semantic_tokens: SemanticTokens,
     /// Analyses, under a hash of everything they were computed from.
     cache: Cache,
+}
+
+/// What the server remembers about the colours it has handed out.
+///
+/// This is the server's second keyed store and it is keyed honestly: a result
+/// belongs to one open document and to one `resultId`, and both die when the
+/// document is closed. A delta computed against anything else would be a delta
+/// against a buffer the client is no longer showing.
+#[derive(Default)]
+pub struct SemanticTokens {
+    /// Per open document: the id the client will quote back, and the encoded
+    /// tokens it stands for.
+    pub results: BTreeMap<PathBuf, (String, Vec<u32>)>,
+    /// The counter behind those ids. Monotonic, so an id is never reused and a
+    /// client quoting a stale one is told so by the mismatch rather than by a
+    /// wrong delta.
+    pub issued: u64,
+    /// Whether the client said it accepts `workspace/semanticTokens/refresh`.
+    /// Read from its `initialize` capabilities and not assumed.
+    pub refresh_supported: bool,
+    /// The analysis fingerprint the client's tokens were computed from, so a
+    /// save that changed nothing can be told from one that did.
+    pub fingerprint: Option<u64>,
+    /// How many refreshes have gone out, so each carries an id of its own.
+    pub refreshes: u64,
 }
 
 pub struct Analyzed {
@@ -240,6 +267,7 @@ impl State {
             open: BTreeMap::new(),
             published: BTreeMap::new(),
             showing_parse_errors: BTreeSet::new(),
+            semantic_tokens: SemanticTokens::default(),
             cache: Cache::default(),
         }
     }
@@ -314,6 +342,28 @@ impl State {
             hasher.write(text.as_bytes());
         }
         hasher.finish()
+    }
+
+    /// One number for the whole of what the client has open.
+    ///
+    /// [`State::fingerprint`] answers for one repository, which is what an
+    /// analysis is keyed by. "Has anything the client is looking at moved" is
+    /// the other question, and it is every root's answer together.
+    pub fn analysis_fingerprint(&self) -> u64 {
+        let mut hasher = crate::hash::FxHasher::default();
+        for root in &self.roots {
+            hasher.write_u64(self.fingerprint(root));
+        }
+        hasher.finish()
+    }
+
+    /// Files an encoded semantic-token result under a fresh id, and hands the
+    /// id back to be sent with it.
+    pub fn record_semantic_tokens(&mut self, path: &Path, data: Vec<u32>) -> String {
+        self.semantic_tokens.issued = self.semantic_tokens.issued.saturating_add(1);
+        let id = self.semantic_tokens.issued.to_string();
+        self.semantic_tokens.results.insert(path.to_path_buf(), (id.clone(), data));
+        id
     }
 
     /// The open buffers belonging to one repository.

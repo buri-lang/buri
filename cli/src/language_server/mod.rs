@@ -25,6 +25,7 @@ mod conformance;
 mod convert;
 mod features;
 mod rename;
+mod semantic_tokens;
 mod signature_help;
 mod state;
 mod symbols;
@@ -224,6 +225,11 @@ const WATCHERS: &str = "buri/watchers";
 /// The id of the server's question about which folders are open.
 const FOLDERS: &str = "buri/workspaceFolders";
 
+/// The stem of the ids the semantic-token refreshes carry. A refresh may go out
+/// many times, so each one is numbered — an id still in flight must not be
+/// reused.
+const REFRESH: &str = "buri/semanticTokensRefresh";
+
 fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
     // A message with an id and no method is a *response* to one of the two
     // requests this server sends, and answering it would be answering an answer.
@@ -266,6 +272,10 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
                 params.at("capabilities.workspace.didChangeWatchedFiles.dynamicRegistration"),
                 Some(&Value::Bool(true))
             );
+            state.semantic_tokens.refresh_supported = matches!(
+                params.at("capabilities.workspace.semanticTokens.refreshSupport"),
+                Some(&Value::Bool(true))
+            );
             let client_has_folders = matches!(
                 params.at("capabilities.workspace.workspaceFolders"),
                 Some(&Value::Bool(true))
@@ -304,7 +314,11 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         ("textDocument/didOpen", _) => {
             let Some((path, text)) = opened(&params) else { return vec![] };
             state.open.insert(path.clone(), text);
-            full_diagnostics(state, &path)
+            let published = full_diagnostics(state, &path);
+            // The state the client's colours are about to be computed from.
+            // Recorded and not announced: nothing has gone stale yet.
+            state.semantic_tokens.fingerprint = Some(state.analysis_fingerprint());
+            published
         }
         ("textDocument/didChange", _) => {
             let Some(path) = uri_param(&params) else { return vec![] };
@@ -323,11 +337,16 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         }
         ("textDocument/didSave", _) => {
             let Some(path) = uri_param(&params) else { return vec![] };
-            full_diagnostics(state, &path)
+            let mut out = full_diagnostics(state, &path);
+            out.extend(refresh_semantic_tokens(state));
+            out
         }
         ("textDocument/didClose", _) => {
             if let Some(path) = uri_param(&params) {
                 state.open.remove(&path);
+                // The colours the client held were about a buffer it no longer
+                // has, and the id it would quote is now meaningless.
+                state.semantic_tokens.results.remove(&path);
             }
             vec![]
         }
@@ -337,7 +356,11 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         //
         // Nothing is invalidated by hand: the analysis is kept under a hash of
         // the bytes it read, so the file that changed has moved the key already.
-        ("workspace/didChangeWatchedFiles", _) => republish_open(state),
+        ("workspace/didChangeWatchedFiles", _) => {
+            let mut out = republish_open(state);
+            out.extend(refresh_semantic_tokens(state));
+            out
+        }
 
         // A folder added or dropped changes which repository — if any — owns
         // each open file, so the same re-publish is the honest answer.
@@ -564,6 +587,72 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
 
+        // Colour, in two layers — see `semantic_tokens`. The result is kept
+        // under its id so that the next request can be a delta.
+        ("textDocument/semanticTokens/full", Some(id)) => {
+            let result = (|| {
+                let path = uri_param(&params)?;
+                let text = state.text_of(&path)?;
+                let data = semantic_tokens_of(state, &path, &text);
+                let result_id = state.record_semantic_tokens(&path, data.clone());
+                Some(Value::object(vec![
+                    ("resultId", Value::str(result_id)),
+                    ("data", semantic_tokens::numbers(&data)),
+                ]))
+            })();
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        // The same answer, filtered to what the client can see. No `resultId`:
+        // a partial result is not a base a delta could be computed against, and
+        // handing out an id for one would invite exactly that.
+        ("textDocument/semanticTokens/range", Some(id)) => {
+            let result = (|| {
+                let path = uri_param(&params)?;
+                let text = state.text_of(&path)?;
+                let from = convert::offset_of(&text, Position::from_json(params.at("range.start")?)?);
+                let to = convert::offset_of(&text, Position::from_json(params.at("range.end")?)?);
+                let data = if build_files::is_build_file(&path) {
+                    Vec::new()
+                } else {
+                    let analyzed = state.analyze(&path);
+                    semantic_tokens::encoded_range(analyzed.as_deref(), &path, &text, from, to)
+                };
+                Some(Value::object(vec![("data", semantic_tokens::numbers(&data))]))
+            })();
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        // The tokens are recomputed either way — there is no incremental front
+        // end to compute them any other way — so what a delta saves is the wire
+        // and the client's re-render, not the work. It is offered only when the
+        // client is quoting the result this server still holds for that file; a
+        // first request, a reopened buffer, or an id from before an eviction is
+        // answered in full, which the protocol allows and cannot be wrong.
+        ("textDocument/semanticTokens/full/delta", Some(id)) => {
+            let result = (|| {
+                let path = uri_param(&params)?;
+                let text = state.text_of(&path)?;
+                let quoted = params.get("previousResultId").and_then(|v| v.as_str());
+                let held = state
+                    .semantic_tokens
+                    .results
+                    .get(&path)
+                    .filter(|(previous_id, _)| Some(previous_id.as_str()) == quoted)
+                    .map(|(_, data)| data.clone());
+                let data = semantic_tokens_of(state, &path, &text);
+                let result_id = state.record_semantic_tokens(&path, data.clone());
+                Some(Value::object(vec![
+                    ("resultId", Value::str(result_id)),
+                    match held {
+                        Some(previous) => ("edits", semantic_tokens::edits(&previous, &data)),
+                        None => ("data", semantic_tokens::numbers(&data)),
+                    },
+                ]))
+            })();
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
         // The request exists for syntax that spells one name at both ends of a
         // construct — an opening tag and its closing one. Buri writes every
         // name once: an `impl Priced for Item { … }` closes with a brace. So
@@ -611,6 +700,45 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
     }
 }
 
+/// The encoded semantic tokens for one file.
+///
+/// The analysis is asked for and may not come — a file in no open repository,
+/// or one whose target will not load — and layer one is the answer either way.
+/// A `BUILD.buri` gets nothing: it is textproto, and the token kinds this
+/// colours by are the Buri lexer's, which are not that language's.
+fn semantic_tokens_of(state: &mut State, path: &std::path::Path, text: &str) -> Vec<u32> {
+    if build_files::is_build_file(path) {
+        return Vec::new();
+    }
+    let analyzed = state.analyze(path);
+    semantic_tokens::encoded(analyzed.as_deref(), path, text)
+}
+
+/// The `workspace/semanticTokens/refresh` a save or a watched change earns.
+///
+/// Sent only when the analysis fingerprint moved. That is what the wave-1a
+/// cache makes observable: the key an answer is filed under *is* the state it
+/// was computed from, so "something the colours depend on changed" is a
+/// comparison rather than a guess, and saving a buffer nobody edited is quiet.
+///
+/// Gated on the client's `refreshSupport`, because a client that never claimed
+/// it is entitled to reject the request — and a rejected request is a reply the
+/// server would then have to explain away.
+fn refresh_semantic_tokens(state: &mut State) -> Vec<Value> {
+    let now = state.analysis_fingerprint();
+    let changed = state.semantic_tokens.fingerprint != Some(now);
+    state.semantic_tokens.fingerprint = Some(now);
+    if !changed || !state.semantic_tokens.refresh_supported {
+        return Vec::new();
+    }
+    state.semantic_tokens.refreshes = state.semantic_tokens.refreshes.saturating_add(1);
+    vec![request(
+        &format!("{REFRESH}/{}", state.semantic_tokens.refreshes),
+        "workspace/semanticTokens/refresh",
+        Value::Null,
+    )]
+}
+
 fn capabilities() -> Value {
     Value::object(vec![
         (
@@ -652,6 +780,39 @@ fn capabilities() -> Value {
                 // A swatch beside `Color.Rgb(255, 0, 0)`, and the picker that
                 // writes one back.
                 ("colorProvider", Value::Bool(true)),
+                // The legend is declared once and is protocol: a client reads a
+                // token's type as an index into it. `full: { delta: true }`
+                // offers the delta and `range` the visible-lines answer.
+                (
+                    "semanticTokensProvider",
+                    Value::object(vec![
+                        (
+                            "legend",
+                            Value::object(vec![
+                                (
+                                    "tokenTypes",
+                                    Value::Array(
+                                        semantic_tokens::TYPES
+                                            .iter()
+                                            .map(|t| Value::str(*t))
+                                            .collect(),
+                                    ),
+                                ),
+                                (
+                                    "tokenModifiers",
+                                    Value::Array(
+                                        semantic_tokens::MODIFIERS
+                                            .iter()
+                                            .map(|m| Value::str(*m))
+                                            .collect(),
+                                    ),
+                                ),
+                            ]),
+                        ),
+                        ("full", Value::object(vec![("delta", Value::Bool(true))])),
+                        ("range", Value::Bool(true)),
+                    ]),
+                ),
                 // `resolveProvider: false` is a claim rather than a default:
                 // the query already returns a complete `Location`, computed
                 // from data the scan had in hand, so there is nothing a

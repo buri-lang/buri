@@ -1,0 +1,49 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "// The shelf edge, written so that every colour this server can produce\n// appears at least once.\nfrom \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\nfrom \"//lib/shop\" import { Item, listing, Stock };\n\n/* A block comment sits in the gap between two tokens, so it is read from the\n   gap rather than from the token stream. */\n\n/// What the edge of the shelf says about one item.\nexport fn edge(item: Item): Str {\n    let cheap = item.price < 250;\n    if (cheap) { \"sale\" } else { item.label() }\n}\n\n/// Putting `count` more of an item on the shelf.\nexport fn restock(item: Item, count: I64): Item {\n    Item { name: item.name, price: item.price, stock: Stock.OnHand { count: count } }\n}\n\nexport fn main(): Result<(), Str> {\n    let ctx = context {\n        Alloc: host.alloc,\n        Stdout: host.stdout,\n    };\n    let apple = restock(listing(\"apple\", 300), 12);\n    let _ = ctx.println(edge(apple));\n    .Ok(())\n}\n"}}}
+# Every token in the file, in the protocol's relative encoding: five numbers a
+# token — line delta, character delta in UTF-16 units, length, type, modifiers.
+#
+# The legend the `initialize` reply above declares indexes those types:
+#   0 namespace  1 type       2 interface  3 enumMember  4 property
+#   5 function   6 method     7 variable   8 keyword     9 comment
+#   10 string    11 number    12 operator
+# and the modifier bits are 1 `declaration`, 2 `definition`, so 3 is a name
+# where it is written rather than where it is used.
+#
+# The first thirteen records, read out:
+#   0,0,71,9,0    line 0, the `//` comment, 71 units, `comment`
+#   1,0,25,9,0    line 1, the second comment line — one piece a line
+#   1,0,4,8,0     line 2 `from`, `keyword`
+#   0,5,13,10,0   `"core/effect"`, `string`
+#   0,14,6,8,0    `import`, `keyword`
+#   0,9,5,2,0     `Alloc` — an effect is a trait, so `interface`
+#   0,7,6,2,0     `Stdout`, the same
+#   1,0,4,8,0     line 3 `from`
+#   0,5,11,10,0   `"core/host"`
+#   0,12,6,8,0    `import`
+#   0,7,1,12,0    the `*` of a wildcard import — `operator`, because layer one
+#                 reads a punctuator and asks nothing about what surrounds it
+#   0,2,2,8,0     `as`
+#   0,3,4,0,0     `host` — `namespace`, and the one answer in these thirteen
+#                 that no grammar could have given: it is a module alias
+# Further down: `edge` is 5 with modifiers 3 (a `function` where it is
+# declared), `price` is 4 (`property`), `Stock` is 1 (`type`), `OnHand` and the
+# `Ok` of `.Ok(())` are 3 (`enumMember`), and `label` and `println` are 6
+# (`method`) rather than 5, because both are reached through a value.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}}}
+# A range, over the trait declaration in a file no buffer holds. `Priced` is
+# `interface` with both modifier bits, and `cents` is `method` with them: the
+# name where it is written, not where it is called.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/semanticTokens/range", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "range": {"start": {"line": 19, "character": 0}, "end": {"line": 23, "character": 1}}}}
+# One line of the open buffer: `let cheap = item.price < 250;` — a keyword, a
+# `variable` that is a declaration, an `operator`, a `variable` that is not, a
+# `property`, another `operator`, and a `number`. A range answer carries no
+# `resultId`: a partial result is not a base a delta could be taken against.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/semanticTokens/range", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 11, "character": 0}, "end": {"line": 11, "character": 33}}}}
+# A `BUILD.buri` is textproto, and the kinds this colours by are the Buri
+# lexer's. Nothing rather than a wrong reading of another language.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}}}
+{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

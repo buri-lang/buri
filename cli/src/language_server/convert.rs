@@ -60,6 +60,40 @@ pub fn position_of(text: &str, offset: u32) -> Position {
     Position { line, character }
 }
 
+/// The positions of a run of **ascending** byte offsets, in one pass.
+///
+/// [`position_of`] walks from the top of the file for every offset it is asked
+/// about, which is right for the one position a request carries and quadratic
+/// for the thousands a semantic-token pass produces. The counting rule is the
+/// same one — it is the loop above, not restarted — so the two cannot disagree
+/// about where a character is.
+///
+/// An offset that goes backwards is answered with the position of the last one
+/// at or before it rather than by rewinding, because every caller sorts.
+pub fn positions_of(text: &str, offsets: &[u32]) -> Vec<Position> {
+    let mut out = Vec::with_capacity(offsets.len());
+    let mut characters = text.char_indices();
+    let mut pending = characters.next();
+    let mut at = Position { line: 0, character: 0 };
+    for offset in offsets {
+        let offset = (*offset as usize).min(text.len());
+        while let Some((i, c)) = pending {
+            if i >= offset {
+                break;
+            }
+            if c == '\n' {
+                at.line = at.line.saturating_add(1);
+                at.character = 0;
+            } else {
+                at.character = at.character.saturating_add(c.len_utf16() as u32);
+            }
+            pending = characters.next();
+        }
+        out.push(at);
+    }
+    out
+}
+
 /// Protocol position -> byte offset. A position past the end of a line clamps
 /// to the end of that line, which is what a client sends when the buffer it is
 /// describing is one edit ahead of the one the server has. A line past the end
@@ -227,6 +261,21 @@ mod tests {
             let p = position_of(text, offset);
             assert_eq!(offset_of(text, p), offset, "at {offset} ({p:?})");
         }
+    }
+
+    /// The one-pass walk and the one-offset walk are the same walk.
+    #[test]
+    fn many_positions_at_once_agree_with_one_at_a_time() {
+        let text = "let x = 1;\nlet é = 2;\n😀 // a\nlast";
+        let offsets: Vec<u32> =
+            (0..=text.len() as u32).filter(|o| text.is_char_boundary(*o as usize)).collect();
+        let many = positions_of(text, &offsets);
+        for (offset, position) in offsets.iter().zip(many) {
+            assert_eq!(position, position_of(text, *offset), "at {offset}");
+        }
+        // And past the end, where there is no character left to count.
+        assert_eq!(positions_of(text, &[u32::MAX]), vec![position_of(text, u32::MAX)]);
+        assert_eq!(positions_of("", &[0, 9]).len(), 2);
     }
 
     #[test]
