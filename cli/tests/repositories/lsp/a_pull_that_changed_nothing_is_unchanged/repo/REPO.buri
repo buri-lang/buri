@@ -1,0 +1,2 @@
+# No `lint` block: the findings here are warnings, which is the default and is
+# not what this case is about. What it is about is the result id.

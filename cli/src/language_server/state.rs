@@ -114,6 +114,14 @@ pub struct State {
     /// Whether the client knows about folders and named none, which is the one
     /// case where asking it for them is worth a round trip.
     pub must_ask_for_folders: bool,
+    /// Whether a pull-diagnostics answer may carry the findings this analysis
+    /// made in *other* files.
+    ///
+    /// Read from its `initialize` capabilities and not assumed. A client that
+    /// did not claim `relatedDocumentSupport` is entitled to ignore the field,
+    /// and the findings it would have carried are what `workspace/diagnostic`
+    /// is for.
+    pub related_documents_supported: bool,
     /// Open buffers, by absolute path. The editor's copy wins over the disk's
     /// for as long as the file is open — including after a save, where they
     /// agree anyway.
@@ -134,6 +142,8 @@ pub struct State {
     pub refreshes: Refreshes,
     /// The `workspace/applyEdit` requests waiting for an answer.
     pub applying: Applying,
+    /// The result ids pull diagnostics have been answered with.
+    diagnostic_results: DiagnosticResults,
     /// Analyses, under a hash of everything they were computed from.
     cache: Cache,
 }
@@ -153,6 +163,26 @@ pub struct Applying {
     /// How many have gone out, so each carries an id of its own — one still in
     /// flight must not be reused.
     pub sent: u64,
+}
+
+/// The `resultId`s pull diagnostics have gone out with, one per repository.
+///
+/// The protocol asks a result id to be opaque and asks the server never to call
+/// a report unchanged against an id it did not itself hand out. A counter is
+/// both, where the fingerprint alone would be only the first: an id issued is
+/// an id this server produced, so "unchanged" is a fact rather than a client's
+/// claim about a number it could have made up.
+///
+/// One id per repository rather than per file, because that is the granularity
+/// the analysis has — the front end is whole-closure, so there is no file whose
+/// answer an edit elsewhere provably does not change.
+#[derive(Default)]
+struct DiagnosticResults {
+    /// Per root: the analysis fingerprint the last id stood for, and that id.
+    issued: BTreeMap<PathBuf, (u64, String)>,
+    /// The counter behind them, shared across roots so no two ids are ever the
+    /// same string.
+    count: u64,
 }
 
 /// What the server remembers about the colours it has handed out.
@@ -175,10 +205,11 @@ pub struct SemanticTokens {
 /// One family of server-sent refresh, and everything deciding whether the next
 /// one goes out.
 ///
-/// Two of these exist and they behave identically, which is the reason they are
-/// one type: semantic tokens and inlay hints are both answers computed from an
-/// analysis, so both go stale exactly when the analysis fingerprint moves, and
-/// a second copy of that rule would be a second place for it to drift.
+/// Four of these exist and they behave identically, which is the reason they
+/// are one type: semantic tokens, inlay hints, code lenses and pull diagnostics
+/// are all answers computed from an analysis, so all go stale exactly when the
+/// analysis fingerprint moves, and a second copy of that rule would be a second
+/// place for it to drift.
 #[derive(Default)]
 pub struct Refresh {
     /// Whether the client said it accepts this request. Read from its
@@ -199,6 +230,7 @@ pub struct Refreshes {
     pub semantic_tokens: Refresh,
     pub inlay_hints: Refresh,
     pub code_lenses: Refresh,
+    pub diagnostics: Refresh,
 }
 
 pub struct Analyzed {
@@ -234,6 +266,9 @@ struct Generation {
     /// The whole-repository analysis, which has no target to key on.
     whole: Option<Rc<Analyzed>>,
     lints: Vec<(TargetId, Rc<Linted>)>,
+    /// The lint pass over every target at once, which has no target to key on
+    /// either. `workspace/diagnostic` is what asks for it.
+    whole_lint: Option<Rc<Linted>>,
 }
 
 /// How many fingerprints are kept at once. Two: the one being asked about, and
@@ -283,7 +318,10 @@ impl Generation {
         if let Some(analyzed) = &self.whole {
             return Some(&analyzed.session);
         }
-        self.lints.first().map(|(_, linted)| &linted.session)
+        if let Some((_, linted)) = self.lints.first() {
+            return Some(&linted.session);
+        }
+        self.whole_lint.as_ref().map(|linted| &linted.session)
     }
 }
 
@@ -306,12 +344,14 @@ impl State {
             roots: Vec::new(),
             can_register_watchers: false,
             must_ask_for_folders: false,
+            related_documents_supported: false,
             open: BTreeMap::new(),
             published: BTreeMap::new(),
             showing_parse_errors: BTreeSet::new(),
             semantic_tokens: SemanticTokens::default(),
             refreshes: Refreshes::default(),
             applying: Applying::default(),
+            diagnostic_results: DiagnosticResults::default(),
             cache: Cache::default(),
         }
     }
@@ -411,6 +451,26 @@ impl State {
         self.refreshes.semantic_tokens.fingerprint = Some(now);
         self.refreshes.inlay_hints.fingerprint = Some(now);
         self.refreshes.code_lenses.fingerprint = Some(now);
+        self.refreshes.diagnostics.fingerprint = Some(now);
+    }
+
+    /// The `resultId` a pull-diagnostics answer for this repository carries.
+    ///
+    /// The same id for as long as the analysis fingerprint does not move, and a
+    /// fresh one the moment it does — so a client quoting the id it was last
+    /// given is asking exactly "is anything my report was computed from
+    /// different now", and the answer costs a hash rather than a compilation.
+    pub fn diagnostic_result_id(&mut self, root: &Path) -> String {
+        let now = self.fingerprint(root);
+        if let Some((seen, id)) = self.diagnostic_results.issued.get(root) {
+            if *seen == now {
+                return id.clone();
+            }
+        }
+        self.diagnostic_results.count = self.diagnostic_results.count.saturating_add(1);
+        let id = self.diagnostic_results.count.to_string();
+        self.diagnostic_results.issued.insert(root.to_path_buf(), (now, id.clone()));
+        id
     }
 
     /// Files an encoded semantic-token result under a fresh id, and hands the
@@ -581,6 +641,40 @@ impl State {
         let linted = Rc::new(Linted { session, diagnostics });
         if let Some(generation) = self.cache.generation(fingerprint) {
             remember(&mut generation.lints, target, Rc::clone(&linted));
+        }
+        Some(linted)
+    }
+
+    /// The findings `buri lint //...` reports, over every target at once.
+    ///
+    /// [`State::lint`] answers for the target owning one file, which is what a
+    /// publish about that file needs. `workspace/diagnostic` asks about the
+    /// repository, and a per-target loop would run the checks that are about a
+    /// *package* once per target in it — and would report each of their
+    /// findings as many times.
+    ///
+    /// The promotion `REPO.buri`'s `fail_on_finding` asks for happens inside
+    /// `lint::findings_for`, so a pulled finding wears the severity the
+    /// terminal prints for exactly the same reason a pushed one does.
+    pub fn lint_workspace(&mut self, root: &Path) -> Option<Rc<Linted>> {
+        let fingerprint = self.fingerprint(root);
+        if let Some(hit) = self.cache.find(fingerprint).and_then(|g| g.whole_lint.as_ref()) {
+            return Some(Rc::clone(hit));
+        }
+
+        let mut session = session::open_at(root, &Flags::default()).ok()?;
+        if session.diagnostics.has_errors() {
+            return None;
+        }
+        for (p, text) in self.buffers_under(root) {
+            let rel = session.workspace.rel_of(p);
+            session.map.add(rel, p.clone(), text.clone());
+        }
+        let targets = session.workspace.targets();
+        let diagnostics = crate::commands::lint::findings_for(&mut session, &targets);
+        let linted = Rc::new(Linted { session, diagnostics });
+        if let Some(generation) = self.cache.generation(fingerprint) {
+            generation.whole_lint = Some(Rc::clone(&linted));
         }
         Some(linted)
     }

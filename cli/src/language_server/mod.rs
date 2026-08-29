@@ -29,6 +29,7 @@ mod execute_command;
 mod features;
 mod inlay_hints;
 mod links;
+mod pull_diagnostics;
 mod rename;
 mod semantic_tokens;
 mod signature_help;
@@ -237,15 +238,16 @@ const FOLDERS: &str = "buri/workspaceFolders";
 /// The stem of the ids the server's `workspace/applyEdit` requests carry.
 const APPLY_EDIT: &str = "buri/applyEdit";
 
-/// The three `workspace/*/refresh` requests this server sends: the method, and
+/// The four `workspace/*/refresh` requests this server sends: the method, and
 /// the stem of the ids it carries.
 ///
 /// A refresh may go out many times, so each one is numbered — an id still in
 /// flight must not be reused. The stems are what the golden sessions record.
-const REFRESH_FAMILIES: [(&str, &str); 3] = [
+const REFRESH_FAMILIES: [(&str, &str); 4] = [
     ("workspace/semanticTokens/refresh", "buri/semanticTokensRefresh"),
     ("workspace/inlayHint/refresh", "buri/inlayHintRefresh"),
     ("workspace/codeLens/refresh", "buri/codeLensRefresh"),
+    ("workspace/diagnostic/refresh", "buri/diagnosticRefresh"),
 ];
 
 fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
@@ -300,6 +302,16 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             );
             state.refreshes.code_lenses.supported = matches!(
                 params.at("capabilities.workspace.codeLens.refreshSupport"),
+                Some(&Value::Bool(true))
+            );
+            // `workspace.diagnostics`, plural — the one refresh family the
+            // protocol spells differently to the request it refreshes.
+            state.refreshes.diagnostics.supported = matches!(
+                params.at("capabilities.workspace.diagnostics.refreshSupport"),
+                Some(&Value::Bool(true))
+            );
+            state.related_documents_supported = matches!(
+                params.at("capabilities.textDocument.diagnostic.relatedDocumentSupport"),
                 Some(&Value::Bool(true))
             );
             let client_has_folders = matches!(
@@ -791,6 +803,17 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             vec![response(&id, result.unwrap_or_else(|| params.clone()))]
         }
 
+        // The findings, asked for. Push publishing is unchanged and still
+        // happens — the protocol allows both, and a client that pulls simply
+        // does not have to wait for a save to ask. See `pull_diagnostics`.
+        ("textDocument/diagnostic", Some(id)) => pull_diagnostics::document(state, &id, &params),
+
+        // The whole repository, which is the half push cannot reach: a finding
+        // about a file nobody opened has no publish to ride on.
+        ("workspace/diagnostic", Some(id)) => {
+            vec![response(&id, pull_diagnostics::workspace(state, &params))]
+        }
+
         // The verbs. Each is a call into an entry point `buri` already has at
         // the terminal, and the one that edits answers only once the client
         // has written what it was sent.
@@ -832,10 +855,11 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
 
         // A request this server does not implement is refused with the
         // protocol's own code for that, rather than answered `result: null`.
-        // Null is not a legal result for several of them — `textDocument/
-        // diagnostic` demands a report — so a blanket null was a reply the
-        // client could not read. An error is still a reply, which is what
-        // matters: a client that got nothing back waits forever.
+        // Null is not a legal result for several requests — a
+        // `DocumentDiagnosticReport` has no null among its shapes — so a
+        // blanket null was a reply the client could not read. An error is
+        // still a reply, which is what matters: a client that got nothing back
+        // waits forever.
         (_, Some(id)) => {
             vec![error(&id, METHOD_NOT_FOUND, &format!("`{method}` is not implemented"))]
         }
@@ -879,6 +903,7 @@ fn refreshes(state: &mut State) -> Vec<Value> {
         &mut state.refreshes.semantic_tokens,
         &mut state.refreshes.inlay_hints,
         &mut state.refreshes.code_lenses,
+        &mut state.refreshes.diagnostics,
     ];
     let mut out = Vec::new();
     for (family, (method, stem)) in families.into_iter().zip(REFRESH_FAMILIES) {
@@ -1012,6 +1037,25 @@ fn capabilities() -> Value {
                             execute_command::COMMANDS.iter().map(|c| Value::str(*c)).collect(),
                         ),
                     )]),
+                ),
+                // Pull diagnostics, alongside the push that is still sent.
+                //
+                // `interFileDependencies: true` is the load-bearing one and it
+                // is a fact about the language rather than a preference: the
+                // front end is whole-closure, so editing a library changes what
+                // is wrong in the binary that imports it. A client reading
+                // `false` would re-pull only the file it edited and would keep
+                // showing an error somewhere else that no longer exists.
+                //
+                // `workspaceDiagnostics: true` because most of what this
+                // toolchain knows is about a file the editor never opened — a
+                // `BUILD.buri` that does not describe its package, above all.
+                (
+                    "diagnosticProvider",
+                    Value::object(vec![
+                        ("interFileDependencies", Value::Bool(true)),
+                        ("workspaceDiagnostics", Value::Bool(true)),
+                    ]),
                 ),
                 ("documentFormattingProvider", Value::Bool(true)),
                 ("foldingRangeProvider", Value::Bool(true)),

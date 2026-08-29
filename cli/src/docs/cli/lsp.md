@@ -13,6 +13,8 @@ end is a library, and `driver::analyze` is what the server calls.
 | Request | |
 |---|---|
 | `publishDiagnostics` | Every finding the front end has, for every file it looked at — including files you did not open, because a change in one module is usually reported in another. |
+| `diagnostic` | The same findings, when the editor asks for them instead of waiting to be told. Quoting the result id of the last answer gets `unchanged` back for the price of a hash. |
+| `workspace/diagnostic` | Every file of every open repository, whether or not anything has it open — which is the half a publish cannot reach, because a `BUILD.buri` that does not describe its package is a finding about a file nobody opens. |
 | `hover` | On any name — a call, a type, a field, a variant, a local — the declaration's signature and its doc comment, wherever the declaration is. On something that is not a name, the type of the innermost expression under the cursor. |
 | `definition` | Where the name under the cursor was declared, for every kind of name a file can write: functions and methods, types in expressions and in annotations, traits in bounds and in `impl` heads, module-level `let`s, locals and parameters, fields, variants, and the names in an import clause. Also the path of an import, and — in a `BUILD.buri` — a dependency label, a source entry and a tag. |
 | `typeDefinition` | Where the *type* of the thing under the cursor was declared: a local's type, a field's type, a call's return type. |
@@ -45,6 +47,46 @@ end is a library, and `driver::analyze` is what the server calls.
 `missing-dep`, `unused-import`, and the rest of what `buri lint` reports. An
 editor that showed half of what the toolchain knows would be showing the half
 that is easier to notice at a terminal anyway.
+
+**Diagnostics arrive both ways, and the protocol allows both.** They are
+*pushed* on an open and on a save, which is what every editor gets without
+asking for anything. They can also be *pulled*: `textDocument/diagnostic` asks
+about one file and `workspace/diagnostic` asks about the repository, and a
+client that pulls decides for itself when to ask rather than waiting for a save.
+The two producers are the same two either way — the front end and the lint
+pass — so what a pull reports about a file is byte for byte what a publish about
+it would have carried, `REPO.buri`'s `fail_on_finding` promotion included. There
+is no second opinion to drift.
+
+**Pull is what reaches the files nobody opened.** A publish is addressed to a
+document, and most of what this toolchain knows is about a file the editor has
+never had open: a package two directories away that nothing on screen imports, a
+`BUILD.buri` that does not describe its own sources. `workspace/diagnostic`
+answers with one report per `.buri` file in every open repository — sources,
+every `BUILD.buri`, and `REPO.buri` — including the clean ones, because a report
+saying "nothing here" is how a client is told the error it was showing is fixed.
+
+**A result id is the state the answer was computed from.** Every report carries
+one, and a client that quotes it back is asking "is anything my report was
+computed from different now". That comparison is the analysis fingerprint — the
+same hash the analysis cache is keyed on — so an unchanged answer costs a read
+of the repository rather than a compilation of it. One id per repository rather
+than per file: the front end is whole-closure, so there is no file whose answer
+an edit elsewhere provably does not change, and a per-file id would be a promise
+nothing can keep. Two open repositories keep their own, and an edit in one
+leaves the other's current.
+
+**`interFileDependencies: true`** is advertised for the same reason, and it is a
+fact about the language rather than a preference: editing a library changes what
+is wrong in the binary that imports it. A client reading `false` there would
+re-pull only the file you touched and would go on showing an error somewhere
+else that no longer exists.
+
+**Related documents.** A client that claims `relatedDocumentSupport` gets, along
+with the report it asked for, what the same two passes found in the *other*
+files of that file's closure — a type error in the library, the finding about
+the build file. A client that did not claim it is not left without them:
+`workspace/diagnostic` is where they go.
 
 **Hover and go-to-definition ask one question**, in one place: what does the
 name under the cursor refer to? Hover renders the answer and definition returns
@@ -376,18 +418,21 @@ success. A package whose build file already says what `buri gen` would write is
 told so in a `window/showMessage` — nothing to do is not a failure, and saying
 so out loud is what a command invoked from a palette owes whoever invoked it.
 
-**A save can tell the client its colours, its hints and its lenses are stale.**
-After a `didSave` or a `didChangeWatchedFiles` that moved the analysis
-fingerprint — the same key the cached analyses are filed under, so "something
-changed" is a comparison rather than a guess — the server sends
-`workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh` and
-`workspace/codeLens/refresh`. An import that newly resolves turns a name that
-had no colour into a type, a binding that had no inferred type into one, and a
-count into a different count; nothing else would tell the editor to ask again.
-The fingerprint is computed once for all three, because it reads every byte
-under every open folder. A save that changed nothing is silent, and so is a
-client that did not say in its `initialize` that it accepts the request — each
-of the three is gated on its own `refreshSupport`.
+**A save can tell the client its colours, its hints, its lenses and its
+diagnostics are stale.** After a `didSave` or a `didChangeWatchedFiles` that
+moved the analysis fingerprint — the same key the cached analyses are filed
+under, so "something changed" is a comparison rather than a guess — the server
+sends `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh`,
+`workspace/codeLens/refresh` and `workspace/diagnostic/refresh`. An import that
+newly resolves turns a name that had no colour into a type, a binding that had
+no inferred type into one, a count into a different count, and a file two
+packages away into one with an error in it; nothing else would tell the editor
+to ask again. The fingerprint is computed once for all four, because it reads
+every byte under every open folder. A save that changed nothing is silent, and
+so is a client that did not say in its `initialize` that it accepts the
+request — each of the four is gated on its own `refreshSupport`, which the
+protocol spells `workspace.diagnostics` for the last of them and in the
+singular for the other three.
 
 **Two open folders are two repositories.** A Buri repository is rooted at a
 `REPO.buri`, so a client holding two of them is holding two build graphs, two
@@ -416,6 +461,8 @@ and **deferred**, which is work not yet done.
 | Request | | |
 |---|---|---|
 | `publishDiagnostics` | served | |
+| `textDocument/diagnostic` | served | the pull half, over the same two producers. `previousResultId` is answered `unchanged` when the analysis fingerprint has not moved; a request with no document to answer about is a `-32602 InvalidParams`, because a `DocumentDiagnosticReport` has no null among its shapes |
+| `workspace/diagnostic` | served | one report per `.buri` file in every open repository, clean ones included — which is how a client is told a finding is gone, and the only shape that reaches a file no editor has open |
 | `hover` | served | |
 | `definition` | served | |
 | `declaration` | served | the same answer; Buri has one place |
@@ -446,7 +493,7 @@ and **deferred**, which is work not yet done.
 | `didChangeWorkspaceFolders`, `workspace/workspaceFolders` | served | the server asks for the folders when a client that knows about them named none |
 | `semanticTokens/full`, `/range`, `/full/delta` | served | two layers — the lexer's, which cannot fail, and the resolver's upgrade of every identifier. The grammar in `editors/` is the floor this builds on rather than a second opinion it can contradict |
 | `inlayHint`, `inlayHint/resolve` | served | the inferred type after a binding that wrote none, and a parameter's name before an argument that is a literal or a differently-spelled bare name. The judgement is a rule and not a taste: an annotated binding, an argument spelled like its parameter, and an argument with structure in it all get nothing |
-| `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh`, `workspace/codeLens/refresh` | served | sent after a save or a watched change that moved the analysis fingerprint, each only to a client whose `initialize` claimed that family's `refreshSupport` |
+| `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh`, `workspace/codeLens/refresh`, `workspace/diagnostic/refresh` | served | sent after a save or a watched change that moved the analysis fingerprint, each only to a client whose `initialize` claimed that family's `refreshSupport` — spelled `workspace.diagnostics`, plural, for the last of the four |
 | `prepareCallHierarchy`, `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls` | served | both directions are one scan of the calls each checked body writes; a trait method has no body of its own and answers `[]` outgoing |
 | `documentLink` | served | import and re-export paths, addresses in comments, and a build file's `sources`, `data` and dependency entries |
 | `codeLens`, `codeLens/resolve` | served | a run command above every `test` and a use count above every export. The full pass is a parse, and the count — which costs a whole-repository analysis — waits for `resolve`, which is what `resolveProvider: true` claims |
@@ -494,6 +541,14 @@ server that keeps up with typing and one that does not:
   no analysis at all. Inlay hints are the other side of that: they read the same
   analysis and ask the resolver *nothing*, because one scan of the syntax and
   one walk of each typed body answer for the whole file at once.
+- **On a `textDocument/diagnostic`** it does exactly what an open or a save
+  does — the target's closure through the front end, and the lint pass over the
+  same target — unless the client quoted the result id it was last given and
+  nothing has moved, in which case it reads the repository's bytes and answers
+  `unchanged` without compiling anything. **On a `workspace/diagnostic`** it
+  analyses every target in every open repository as one compilation, and runs
+  the lint catalogue over every target too; a repository whose id the client
+  quoted and whose files have not moved costs the hash and nothing else.
 - **On an `inlayHint/resolve`** it analyses the file the hint's `data` names,
   which is where the declaration is rather than where the hint is painted, and
   asks the resolver once — for the one hint under the pointer.

@@ -1,0 +1,6 @@
+# `fail_on_finding` is what this repository is here to say: every finding from
+# the lint catalogue is an error rather than a warning, and a pulled report has
+# to wear the severity the terminal prints.
+lint {
+    fail_on_finding: true
+}

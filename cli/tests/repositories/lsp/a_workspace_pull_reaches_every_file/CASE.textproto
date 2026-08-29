@@ -1,0 +1,14 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ and repo2/ below are Buri repositories, and
+# they are two of them rather than one — a REPO.buri inside another repository
+# is not a second root.
+
+doc: "a workspace pull reports every file of every open repository, including the package no buffer reaches and the build files nobody opened, and an edit in one repository leaves the other's result ids current"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

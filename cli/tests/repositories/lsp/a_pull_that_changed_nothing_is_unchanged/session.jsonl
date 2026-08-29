@@ -1,0 +1,30 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# This client claims nothing: no `relatedDocumentSupport`, so the finding the
+# lint pass makes about `cmd/app/BUILD.buri` is not carried here. That client
+# is not left without it — `workspace/diagnostic` is where it goes.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The open, and its publish. The `unused-library` here is `severity: 2` — this
+# repository has no `lint` block, and `a_pull_reports_what_a_publish_would` is
+# the same finding at `severity: 1` under `fail_on_finding: true`.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "// A type error that stays where it is: every edit this case makes is appended\n// below, so a report that moved is a report about a different repository state\n// rather than about a different line.\n\nfrom \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\nexport fn total(): I64 { \"not a number\" }\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let _ = ctx.println(\"total: ${total().show(ctx)}\");\n  .Ok(())\n}\n"}}}
+# The first pull. A full report, and the id it comes with is the whole of what
+# the client has to remember.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}}}
+# The same question, quoting that id. Nothing has moved, so the answer is that
+# nothing has moved — and it cost a hash of the repository rather than a
+# compilation of it.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "previousResultId": "1"}}
+# A keystroke. Nothing is published: the buffer parses.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 2}, "contentChanges": [{"text": "// A type error that stays where it is: every edit this case makes is appended\n// below, so a report that moved is a report about a different repository state\n// rather than about a different line.\n\nfrom \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\nexport fn total(): I64 { \"not a number\" }\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let _ = ctx.println(\"total: ${total().show(ctx)}\");\n  .Ok(())\n}\n\n// A keystroke, appended so that nothing above it moves.\n"}]}}
+# The same id again, and now it is stale: a full report, under a new id.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "previousResultId": "1"}}
+# The new one is current.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "previousResultId": "2"}}
+# And the old one stays stale rather than coming back round. An id is issued
+# once and never reused, so a client holding one from two edits ago is told
+# everything rather than told nothing.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "previousResultId": "1"}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

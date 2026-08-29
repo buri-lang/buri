@@ -1,0 +1,14 @@
+// A type error that stays where it is: every edit this case makes is appended
+// below, so a report that moved is a report about a different repository state
+// rather than about a different line.
+
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export fn total(): I64 { "not a number" }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("total: ${total().show(ctx)}");
+  .Ok(())
+}

@@ -1,0 +1,29 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# This client accepts the diagnostic refresh and none of the other three,
+# which is what makes the session a test of the gating rather than of the
+# table: the fingerprint is computed once for all four, and each family is
+# asked for on its own `refreshSupport`. Note the plural — the protocol
+# spells this one `workspace.diagnostics`.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"workspace": {"diagnostics": {"refreshSupport": true}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Opening records the state the answers are about. Nothing has gone stale yet,
+# so nothing is asked for.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "languageId": "buri", "version": 1, "text": "/// A running count of things that happened.\nexport struct Tally {\n  /// How many, so far.\n  export total: I64,\n}\n\n/// How many times the thing has happened.\nexport fn counter(tally: Tally): I64 { tally.total }\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}}}
+# A keystroke adding a function that does not typecheck. Nothing is published:
+# the buffer parses, and a keystroke may never take a squiggle away.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "version": 2}, "contentChanges": [{"text": "/// A running count of things that happened.\nexport struct Tally {\n  /// How many, so far.\n  export total: I64,\n}\n\n/// How many times the thing has happened.\nexport fn counter(tally: Tally): I64 { tally.total }\n\n/// Twice the count, and it hands back a `Str`, which is the change the refresh\n/// exists to tell a client about.\nexport fn twice(tally: Tally): I64 { \"two of them\" }\n"}]}}
+# The save. The fingerprint has moved since the open, so the publish goes out
+# and the refresh follows it — and only the diagnostic one.
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}}}
+# The client answers, as it must for any request a server sends.
+{"jsonrpc": "2.0", "id": "buri/diagnosticRefresh/1", "result": null}
+# And the pull it went and made. The id it was holding is stale, so this is a
+# full report under a new one.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}, "previousResultId": "1"}}
+# A second save with nothing edited in between. The fingerprint is where the
+# last one left it, so this one is silent.
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
