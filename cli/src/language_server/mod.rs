@@ -195,7 +195,35 @@ fn notification(method: &str, params: Value) -> Value {
     ])
 }
 
+/// A request the *server* sends. The id is a name rather than a number, so it
+/// cannot collide with the client's counter and a golden records the same
+/// string on every run.
+fn request(id: &str, method: &str, params: Value) -> Value {
+    let mut fields = vec![
+        ("jsonrpc", Value::str("2.0")),
+        ("id", Value::str(id)),
+        ("method", Value::str(method)),
+    ];
+    // A request with nothing to say leaves the field out. `"params": null` is
+    // not what "this request takes no parameters" is spelled as.
+    if !matches!(params, Value::Null) {
+        fields.push(("params", params));
+    }
+    Value::object(fields)
+}
+
+/// The id of the watcher registration, and of the request that carries it.
+const WATCHERS: &str = "buri/watchers";
+
+/// The id of the server's question about which folders are open.
+const FOLDERS: &str = "buri/workspaceFolders";
+
 fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
+    // A message with an id and no method is a *response* to one of the two
+    // requests this server sends, and answering it would be answering an answer.
+    if msg.get("method").is_none() {
+        return client_response(state, msg);
+    }
     let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
     let id = msg.get("id").cloned();
     let params = msg.get("params").cloned().unwrap_or(Value::Null);
@@ -214,21 +242,50 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
 
     match (method, id) {
         ("initialize", Some(id)) => {
-            let root = params
-                .get("rootUri")
-                .and_then(|u| u.as_str())
-                .and_then(convert::path_of)
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
             if let Err(why) = state.lifecycle.initialize() {
                 return vec![error(&id, INVALID_REQUEST, why)];
             }
-            // The rest of the toolchain finds the repository from the working
-            // directory, so the server moves to it once rather than teaching
-            // every call site about a root.
-            let _ = std::env::set_current_dir(&root);
+            // The array is what a client that can hold two repositories
+            // sends; the single `rootUri` is the older form for one that cannot.
+            let mut named = folders(params.get("workspaceFolders"));
+            if named.is_empty() {
+                named.extend(
+                    params.get("rootUri").and_then(|u| u.as_str()).and_then(convert::path_of),
+                );
+            }
+            for folder in &named {
+                state.add_root(folder);
+            }
+            state.can_register_watchers = matches!(
+                params.at("capabilities.workspace.didChangeWatchedFiles.dynamicRegistration"),
+                Some(&Value::Bool(true))
+            );
+            let client_has_folders = matches!(
+                params.at("capabilities.workspace.workspaceFolders"),
+                Some(&Value::Bool(true))
+            );
+            // A client that knows about folders and named none is asked; one
+            // that does not can only have meant where it started the server.
+            state.must_ask_for_folders = named.is_empty() && client_has_folders;
+            if named.is_empty() && !client_has_folders {
+                if let Ok(cwd) = std::env::current_dir() {
+                    state.add_root(&cwd);
+                }
+            }
             vec![response(&id, capabilities())]
         }
-        ("initialized", _) => vec![],
+        // The first moment the protocol lets a server speak unprompted, and
+        // both of these are questions the `initialize` exchange left open.
+        ("initialized", _) => {
+            let mut out = Vec::new();
+            if state.can_register_watchers {
+                out.push(watcher_registration());
+            }
+            if state.must_ask_for_folders {
+                out.push(request(FOLDERS, "workspace/workspaceFolders", Value::Null));
+            }
+            out
+        }
         ("shutdown", Some(id)) => match state.lifecycle.shutdown() {
             Ok(()) => vec![response(&id, Value::Null)],
             Err(why) => vec![error(&id, INVALID_REQUEST, why)],
@@ -267,6 +324,25 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
                 state.open.remove(&path);
             }
             vec![]
+        }
+
+        // Something changed on disk that no buffer holds — `buri gen`, a
+        // checkout, or the edit a code action returned and the client applied.
+        //
+        // Nothing is invalidated by hand: the analysis is kept under a hash of
+        // the bytes it read, so the file that changed has moved the key already.
+        ("workspace/didChangeWatchedFiles", _) => republish_open(state),
+
+        // A folder added or dropped changes which repository — if any — owns
+        // each open file, so the same re-publish is the honest answer.
+        ("workspace/didChangeWorkspaceFolders", _) => {
+            for folder in folders(params.at("event.added")) {
+                state.add_root(&folder);
+            }
+            for folder in folders(params.at("event.removed")) {
+                state.remove_root(&folder);
+            }
+            republish_open(state)
         }
 
         ("textDocument/formatting", Some(id)) => {
@@ -373,7 +449,8 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
                 let position = Position::from_json(params.get("position")?)?;
                 let new_name = params.get("newName")?.as_str()?.to_string();
                 let text = state.text_of(&path)?;
-                let analyzed = state.analyze_workspace()?;
+                let root = state.root_of(&path)?;
+                let analyzed = state.analyze_workspace(&root)?;
                 Some(rename::edits(&analyzed, &path, &text, position, &new_name))
             })();
             match prepared {
@@ -385,13 +462,18 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             }
         }
 
+        // Every open repository, in the order the client named them: the
+        // request asks about the workspace and the workspace is all of them.
         ("workspace/symbol", Some(id)) => {
-            let result = (|| {
-                let query = params.get("query").and_then(|q| q.as_str()).unwrap_or("");
-                let analyzed = state.analyze_workspace()?;
-                Some(features::workspace_symbols(&analyzed, query))
-            })();
-            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
+            let query = params.get("query").and_then(|q| q.as_str()).unwrap_or("").to_string();
+            let mut found = Vec::new();
+            for root in state.roots.clone() {
+                let Some(analyzed) = state.analyze_workspace(&root) else { continue };
+                if let Value::Array(items) = features::workspace_symbols(&analyzed, &query) {
+                    found.extend(items);
+                }
+            }
+            vec![response(&id, Value::Array(found))]
         }
 
         ("textDocument/references", Some(id)) => {
@@ -408,7 +490,8 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
                     params.at("context.includeDeclaration"),
                     Some(&Value::Bool(true))
                 );
-                let analyzed = state.analyze_workspace()?;
+                let root = state.root_of(&path)?;
+                let analyzed = state.analyze_workspace(&root)?;
                 features::references(&analyzed, &path, &text, position, include)
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
@@ -491,6 +574,19 @@ fn capabilities() -> Value {
                         Value::Array(vec![Value::str("\""), Value::str("{"), Value::str("/")]),
                     )]),
                 ),
+                // Two open folders are two Buri repositories, kept apart.
+                // `changeNotifications` is what makes a folder opened after
+                // startup something this server hears about at all.
+                (
+                    "workspace",
+                    Value::object(vec![(
+                        "workspaceFolders",
+                        Value::object(vec![
+                            ("supported", Value::Bool(true)),
+                            ("changeNotifications", Value::Bool(true)),
+                        ]),
+                    )]),
+                ),
             ]),
         ),
         (
@@ -501,6 +597,69 @@ fn capabilities() -> Value {
             ]),
         ),
     ])
+}
+
+/// Watch every `.buri` file in every folder, and tell me when one changes.
+///
+/// One pattern covers all three kinds, and that is a property of the language
+/// rather than a shortcut: a source, a `BUILD.buri` and a `REPO.buri` all wear
+/// the `.buri` extension, and `**/` in the protocol's glob matches any number
+/// of path segments *including none*, so `REPO.buri` at the root of a folder
+/// matches it as surely as `lib/money/BUILD.buri` does.
+///
+/// `kind` is spelled out as create-change-delete rather than left to its
+/// default, because all three change the answer: a build file appearing is as
+/// much a change to a package as an edit to one.
+fn watcher_registration() -> Value {
+    request(
+        WATCHERS,
+        "client/registerCapability",
+        Value::object(vec![(
+            "registrations",
+            Value::Array(vec![Value::object(vec![
+                ("id", Value::str(WATCHERS)),
+                ("method", Value::str("workspace/didChangeWatchedFiles")),
+                (
+                    "registerOptions",
+                    Value::object(vec![(
+                        "watchers",
+                        Value::Array(vec![Value::object(vec![
+                            ("globPattern", Value::str("**/*.buri")),
+                            ("kind", Value::number(7)),
+                        ])]),
+                    )]),
+                ),
+            ])]),
+        )]),
+    )
+}
+
+/// What the client said back.
+///
+/// The registration's reply carries nothing to read — it either failed, and
+/// the client says so in an `error`, or the watcher is running. The folder
+/// question's reply is the list this server asked for, and adopting it is the
+/// whole point of asking.
+fn client_response(state: &mut State, msg: &Value) -> Vec<Value> {
+    if msg.get("id").and_then(|i| i.as_str()) == Some(FOLDERS) {
+        for folder in folders(msg.get("result")) {
+            state.add_root(&folder);
+        }
+    }
+    Vec::new()
+}
+
+/// The folders in a `WorkspaceFolder[]`, wherever one appears: `initialize`
+/// params, a `didChangeWorkspaceFolders` event, or the answer to the server's
+/// own question.
+fn folders(value: Option<&Value>) -> Vec<PathBuf> {
+    let Some(items) = value.and_then(|v| v.as_array()) else { return Vec::new() };
+    items
+        .iter()
+        .filter_map(|f| f.get("uri"))
+        .filter_map(|u| u.as_str())
+        .filter_map(convert::path_of)
+        .collect()
 }
 
 fn uri_param(params: &Value) -> Option<PathBuf> {
@@ -531,7 +690,7 @@ fn definition(state: &mut State, params: &Value) -> Option<Value> {
     if build_files::is_build_file(&path) {
         let position = Position::from_json(params.get("position")?)?;
         let text = state.text_of(&path)?;
-        let session = state.session()?;
+        let session = state.session_for(&path)?;
         return build_files::definition(&session, &path, &text, position);
     }
     with_analysis(state, params, features::definition)
@@ -587,63 +746,84 @@ fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> V
 /// ago and has none now must be published *empty* — otherwise the editor keeps
 /// showing the errors you just fixed.
 fn full_diagnostics(state: &mut State, path: &std::path::Path) -> Vec<Value> {
-    let mut published: std::collections::BTreeMap<String, Vec<Value>> =
-        std::collections::BTreeMap::new();
     // The file that prompted this always gets a message, empty or not.
-    published.insert(convert::uri_of(path), Vec::new());
+    let mut published = seeded(state, Some(path));
+    findings_for(state, path, &mut published);
+    remember(state, published)
+}
+
+/// The same, for every buffer the editor has open and no file in particular.
+///
+/// This is what a change the *editor did not make* asks for: a `BUILD.buri`
+/// written by `buri gen` or by the fix a code action returned, a branch
+/// switched underneath, a file appearing. There is no one buffer to re-analyse,
+/// because a build file decides what every file in its package can see — so
+/// each open buffer's own target is asked again and the answers merge into one
+/// publish per file.
+fn republish_open(state: &mut State) -> Vec<Value> {
+    let mut published = seeded(state, None);
+    for path in state.open.keys().cloned().collect::<Vec<_>>() {
+        findings_for(state, &path, &mut published);
+    }
+    remember(state, published)
+}
+
+/// An empty publish for every file that must hear something, so that a file
+/// whose findings are gone is told they are gone.
+fn seeded(state: &State, path: Option<&std::path::Path>) -> Published {
+    let mut published = Published::new();
+    if let Some(path) = path {
+        published.insert(convert::uri_of(path), Vec::new());
+    }
     for open in state.open.keys() {
         published.insert(convert::uri_of(open), Vec::new());
     }
+    published
+}
 
-    let Some(analyzed) = state.analyze(path) else {
-        return remember(state, published);
-    };
+type Published = std::collections::BTreeMap<String, Vec<Value>>;
 
-    for d in &analyzed.analysis.diagnostics.items {
-        if d.span.is_none() {
-            continue;
+/// Everything both passes have to say about the closure `path` is in.
+fn findings_for(state: &mut State, path: &std::path::Path, published: &mut Published) {
+    if let Some(analyzed) = state.analyze(path) {
+        for d in &analyzed.analysis.diagnostics.items {
+            add_finding(published, &analyzed.session, d);
         }
-        let f = analyzed.session.map.get(d.span.file);
-        if f.abs_path.as_os_str().is_empty() {
-            continue;
-        }
-        let uri = convert::uri_of(&f.abs_path);
-        let item = convert::diagnostic(&f.text, d, &uri);
-        published.entry(uri).or_default().push(item);
     }
-
     // The build-graph findings too. An editor that showed only type errors
     // would be showing half of what the toolchain knows, and the half that is
     // easier to notice at the terminal — a missing dependency is exactly the
     // kind of thing you want told about while the import is still on screen.
     if let Some(linted) = state.lint(path) {
         for d in &linted.diagnostics.items {
-            if d.span.is_none() {
-                continue;
-            }
-            let f = linted.session.map.get(d.span.file);
-            if f.abs_path.as_os_str().is_empty() {
-                continue;
-            }
-            let uri = convert::uri_of(&f.abs_path);
-            let item = convert::diagnostic(&f.text, d, &uri);
-            let bucket = published.entry(uri).or_default();
-            // The lint pass runs its own analysis, so a compile error appears
-            // in both. Publishing it twice would put two squiggles on one span.
-            if !bucket.iter().any(|existing| same_finding(existing, &item)) {
-                bucket.push(item);
-            }
+            add_finding(published, &linted.session, d);
         }
     }
+}
 
-    remember(state, published)
+/// One finding, published once.
+///
+/// The lint pass runs its own analysis, so a compile error is found by both and
+/// two buffers in one target are asked the same question twice. Either way the
+/// same words at the same place are one squiggle, not two.
+fn add_finding(published: &mut Published, session: &Session, d: &crate::diagnostics::Diagnostic) {
+    if d.span.is_none() {
+        return;
+    }
+    let f = session.map.get(d.span.file);
+    if f.abs_path.as_os_str().is_empty() {
+        return;
+    }
+    let uri = convert::uri_of(&f.abs_path);
+    let item = convert::diagnostic(&f.text, d, &uri);
+    let bucket = published.entry(uri).or_default();
+    if !bucket.iter().any(|existing| same_finding(existing, &item)) {
+        bucket.push(item);
+    }
 }
 
 /// Publishes, and keeps a copy so that a keystroke can put it back.
-fn remember(
-    state: &mut State,
-    published: std::collections::BTreeMap<String, Vec<Value>>,
-) -> Vec<Value> {
+fn remember(state: &mut State, published: Published) -> Vec<Value> {
     let mut out = Vec::new();
     for (uri, items) in published {
         out.push(publish(&uri, items.clone()));
@@ -744,7 +924,8 @@ fn code_actions(state: &mut State, params: &Value) -> Value {
         // `buri gen` re-analyses the package to derive its dependencies and
         // writes through the session it is handed, so it gets one of its own:
         // the lint session is shared with everything else holding this answer.
-        let Some(mut writable) = state.overlaid_session() else { continue };
+        let Some(root) = state.root_of(&path) else { continue };
+        let Some(mut writable) = state.overlaid_session(&root) else { continue };
         let Ok(Some(update)) = regenerate::regenerate(&mut writable, package) else { continue };
         let build = writable.workspace.package(package).build_path.clone();
         let Some(id) = writable.map.find(&writable.workspace.rel_of(&build)) else { continue };

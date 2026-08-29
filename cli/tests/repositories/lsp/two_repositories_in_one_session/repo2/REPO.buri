@@ -1,0 +1,3 @@
+# The second repository of this case. Its root is a sibling of the first's,
+# not a directory inside it: a repository nested in another is not a second
+# root, because the outer one's package walk claims what is under it.

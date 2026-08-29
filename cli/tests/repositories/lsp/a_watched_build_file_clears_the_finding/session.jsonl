@@ -1,0 +1,24 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# A `!` line is the harness acting as the editor would; see harness/case.rs.
+#
+# This client says it accepts a capability registered after startup, which is
+# what a real editor's `initialize` says and what none of the other recorded
+# sessions here bother to claim.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}}}}}
+# The registration goes out here, and nowhere else: `initialized` is the first
+# moment the protocol lets a server say anything of its own accord.
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": "buri/watchers", "result": null}
+# The import is not in `dependencies`, so opening the file reports it.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "// Imports //lib/money, which `cmd/app/BUILD.buri` does not name in\n// `dependencies`. The module resolves — the loader searches the workspace —\n// so this builds, and the graph is a description of something other than the\n// code until `buri lint` says so.\n\nfrom \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\nfrom \"//lib/money\" import { fromCents };\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let _ = ctx.println(\"cents: ${fromCents(450).show(ctx)}\");\n  .Ok(())\n}\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}, "context": {"diagnostics": [{"code": "missing-dep", "message": "imports //lib/money, which is not in dependencies", "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}}]}}}
+# The client accepts the fix and writes it. Nothing is published for that: the
+# file the server changed is not a buffer, and the server has not been told.
+!apply 2
+# Now it is told. The buffer did not move and the editor is still showing the
+# finding, so this notification is the only thing that can take it away.
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/cmd/app/BUILD.buri", "type": 2}]}}
+# And the same fix, asked for a second time, has nothing left to offer.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}, "context": {"diagnostics": [{"code": "missing-dep", "message": "imports //lib/money, which is not in dependencies", "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}}]}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

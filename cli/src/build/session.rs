@@ -45,6 +45,17 @@ pub fn open(flags: &Flags) -> Result<Session, String> {
             "not in a Buri repository: no REPO.buri in this directory or any above it".into()
         );
     };
+    open_at(&root, flags)
+}
+
+/// The same, for a root that is already known.
+///
+/// A command finds its repository from where it was run, and that is the whole
+/// of what `open` does. The language server cannot: an editor may hold two
+/// repositories open at once, so it keeps the roots the client named and asks
+/// for the one that owns the file each request is about.
+pub fn open_at(root: &std::path::Path, flags: &Flags) -> Result<Session, String> {
+    let root = root.to_path_buf();
     let mut map = SourceMap::new();
     let mut diagnostics = Diagnostics::new();
     let workspace = Workspace::load(&root, &mut map, &mut diagnostics).map_err(|e| e.to_string())?;

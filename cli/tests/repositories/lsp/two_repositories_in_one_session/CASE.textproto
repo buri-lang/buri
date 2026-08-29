@@ -1,0 +1,23 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ and repo2/ below are Buri repositories, and
+# they are two of them rather than one — see the note in repo2/REPO.buri.
+
+doc: "one session over two repositories: each file is answered out of the repository that owns it, a file in no open folder is answered by nobody, and a folder opened or closed mid-session changes which is which"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session_folders_named.jsonl"
+  stream: OUT
+  golden: "folders_named.txt"
+}
+
+# The same two repositories, reached the other way: the client named no folder
+# and the server asked it for the list.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session_asked_for_folders.jsonl"
+  stream: OUT
+  golden: "asked_for_folders.txt"
+}
