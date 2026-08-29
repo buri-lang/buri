@@ -1,0 +1,17 @@
+# Hover in a build file: what the schema says the field is for.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "languageId": "buri", "version": 1, "text": "binary {\n    sources: [\"totals.buri\"]\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 2}, "contentChanges": [{"text": "binary {\n    sources: [\"totals.buri\"]\n    outputs: [{ platform: LINUX }]\n}\n"}]}}
+# A field: its declaration in the schema, and the prose written above it.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 1, "character": 7}}}
+# A block: what the field is for, and what the message it holds is.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 0, "character": 3}}}
+# An enum constant.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 2, "character": 29}}}
+# A string is a file name rather than a name the schema declares: nothing to say.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 1, "character": 18}}}
+# A field whose message has prose of its own.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}, "position": {"line": 2, "character": 8}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

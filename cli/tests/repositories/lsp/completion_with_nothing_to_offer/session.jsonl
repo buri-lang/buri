@@ -14,15 +14,16 @@
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 14}}}
 # Ordinary code, and a quote nobody closed inside it. An odd number of quotes
 # before the cursor means the cursor is in a string — but the line does not
-# begin with `from`, so it is a literal being typed and not a path.
+# begin with `from`, so it is a literal being typed and not a path. A string
+# is prose, and a name offered inside one would corrupt a sentence.
 {"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "export fn total(count: I64): I64 {\n    let label = \"each;\n    count\n}\n"}]}}
 {"jsonrpc": "2.0", "id": 4, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 1, "character": 22}}}
-# The cursor in a body, with nothing around it to complete. Completion is the
-# two places that need no type information, and this is neither.
+# The cursor in a body, on a name. This is the one request here that is not
+# empty: what is bound in this function and what the module can say are both
+# offered, and the empty prefix is why the whole list comes back.
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 2, "character": 8}}}
-# And after a `.`, which is the other thing a reader expects a completion for.
-# There is none: what this server completes is module paths and import clauses,
-# and this pins that boundary rather than leaving it to be discovered.
+# And after a `.`, where the answer is the members of the receiver's type —
+# here the methods the runtime supplies for an `I64`.
 {"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 3}, "contentChanges": [{"text": "export fn total(count: I64): I64 {\n    count.\n}\n"}]}}
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 1, "character": 10}}}
 # An import clause for a module that does not exist. There is nothing to list
