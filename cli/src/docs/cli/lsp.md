@@ -170,12 +170,18 @@ stands on it. A deferral is a decision with a reason, not a gap nobody noticed.
 Stated here rather than tuned silently, because it is the difference between a
 server that keeps up with typing and one that does not:
 
-- **On a keystroke** — `didChange` — the server re-parses that one buffer and
-  publishes the parse errors. No workspace, no standard library, no imports.
+- **On a keystroke** — `didChange` — the server re-parses that one buffer. No
+  workspace, no standard library, no imports. A keystroke may *add* to what the
+  editor is showing and may never take anything away: a buffer that parses
+  publishes nothing at all, so the type errors the last analysis found stay on
+  screen with the editor moving them as the text moves. A buffer that does not
+  parse publishes its parse errors instead, and when it parses again what the
+  analysis last said goes back.
 - **On open and on save** the server runs the whole front end over the target's
   closure and publishes everything, then runs the lint pass and publishes that
   too. The lint checks build their own analysis, so a save costs two — which is
-  the other reason this does not happen on a keystroke.
+  the other reason this does not happen on a keystroke. A finding's severity is
+  the one the terminal prints, `REPO.buri`'s `fail_on_finding` included.
 - **On a hover, a definition, a type definition, a highlight, a completion, a
   signature help or a `prepareRename`** the server analyses the target owning
   the file — everything those have to decide is inside its closure.

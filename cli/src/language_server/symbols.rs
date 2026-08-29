@@ -23,6 +23,7 @@ use crate::compiler::semantics::types::{
 use crate::formatting;
 use crate::diagnostics::{FileId, Span};
 use crate::parsing::flat::{self, Location, TypeId, TypeView};
+use crate::parsing::lexer::TokenKind;
 use crate::parsing::tree::{self, ImportClause, Item};
 use std::path::Path;
 use super::state::Analyzed;
@@ -61,12 +62,46 @@ pub struct Found {
 /// keeps, so it is asked first; a declaration's own name comes next; and a use
 /// inside a body last, because a body's outermost expression covers the type
 /// annotations written inside it.
+///
+/// The one string that names anything is an import path, and the import scan
+/// is what knows it. Everything after that scan is fenced out of a literal:
+/// the words inside `test "counter increments"` are a sentence, and a reader
+/// pointing at one is pointing at prose, not at a name that happens to be
+/// spelled the same.
 pub fn at(analyzed: &Analyzed, path: &Path, text: &str, offset: u32) -> Option<Found> {
     let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
     let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
-    written_reference(analyzed, module, offset)
-        .or_else(|| declared_here(analyzed, file, offset))
+    if let Some(found) = written_reference(analyzed, module, offset) {
+        return Some(found);
+    }
+    if in_a_literal(text, file, offset) {
+        return None;
+    }
+    declared_here(analyzed, file, offset)
         .or_else(|| in_a_body(analyzed, file, text, offset))
+}
+
+/// Whether the offset is inside a string or a character literal.
+///
+/// Asked of the lexer rather than of a scan for quotes, so that the hole in
+/// `"${total(x)}"` is code again — a template's segments are their own tokens
+/// and the expression between them is not one of them.
+fn in_a_literal(text: &str, file: FileId, offset: u32) -> bool {
+    let lexed = crate::parsing::lexer::lex(text, file);
+    (0..lexed.tokens.len()).any(|i| {
+        let literal = matches!(
+            lexed.tokens.kind(i),
+            TokenKind::Str
+                | TokenKind::Char
+                | TokenKind::TemplateHead
+                | TokenKind::TemplateSpan
+                | TokenKind::TemplateTail
+        );
+        let span = lexed.tokens.span(i);
+        // Open at both ends: the quotes themselves are the literal's, and a
+        // cursor on one is on the literal rather than beside it.
+        literal && span.start < offset && offset < span.end
+    })
 }
 
 /// Where the symbol was declared.
@@ -691,7 +726,15 @@ fn resolve_path(
                 return Some(Symbol::Module(*id));
             }
         }
-        return symbol_of(scope.names.get(name)?);
+        // A primitive is in no module's scope: the checker maps the name
+        // straight onto a `Prim` (`Checker::builtin_type`). Written types are
+        // mostly primitives, so without this the commonest annotation in the
+        // language — `I64`, `Str`, `Bool` — was the one the cursor learned
+        // nothing from.
+        return match scope.names.get(name) {
+            Some(sym) => symbol_of(sym),
+            None => builtin_type(&analyzed.analysis.checked.tables, name).map(Symbol::Type),
+        };
     };
     let head = tree.text(*path.get(previous)?);
     if let Some(id) = scope.namespaces.get(head) {
@@ -704,6 +747,20 @@ fn resolve_path(
         return Some(Symbol::Variant { con: *con, index });
     }
     None
+}
+
+/// A primitive written by name, including the four spellings that are aliases.
+/// The same table `Checker::builtin_type` reads, so the two agree about what
+/// `Int` is.
+fn builtin_type(tables: &Tables, name: &str) -> Option<TyConId> {
+    let prim = match name {
+        "Int" => types::Prim::I64,
+        "Float" => types::Prim::F64,
+        "Uint" => types::Prim::U64,
+        "Byte" => types::Prim::U8,
+        other => *types::Prim::all().iter().find(|p| p.name() == other)?,
+    };
+    Some(tables.prim_id(prim))
 }
 
 fn symbol_of(sym: &Sym) -> Option<Symbol> {
@@ -743,7 +800,15 @@ fn declared_here(analyzed: &Analyzed, file: FileId, offset: u32) -> Option<Found
         }
     };
     for (index, info) in tables.fns.iter().enumerate() {
-        offer(info.span, Symbol::Function(FnId(index as u32)));
+        if info.span.file != file || info.span.start > offset || offset > info.span.end {
+            continue;
+        }
+        // Every other table entry's span is the name it declares. A `test` is
+        // the exception — its span is the whole block — so leaving it as it is
+        // would make a call written inside a test resolve to the test, and a
+        // word inside the sentence resolve to it too. Its name is the sentence.
+        let named = test_sentence(analyzed, info).unwrap_or(info.span);
+        offer(named, Symbol::Function(FnId(index as u32)));
     }
     for (index, con) in tables.tycons.iter().enumerate() {
         let id = TyConId(index as u32);
@@ -773,6 +838,15 @@ fn declared_here(analyzed: &Analyzed, file: FileId, offset: u32) -> Option<Found
     }
     let (_, span, symbol) = best?;
     Some(Found { symbol, span })
+}
+
+/// The sentence a `test` declares, for the one table entry whose span is a
+/// whole declaration rather than a name.
+fn test_sentence(analyzed: &Analyzed, info: &types::FnInfo) -> Option<Span> {
+    match item_syntax(analyzed, info.ast)? {
+        (_, Item::Test(d)) => Some(d.name_span),
+        _ => None,
+    }
 }
 
 /// A use inside a checked body.
@@ -1238,5 +1312,37 @@ fn field_syntax(
             _ => None,
         },
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The offset of `|`, in the text with the marker removed.
+    fn at(marked: &str) -> bool {
+        let offset = marked.find('|').expect("the test marks a position") as u32;
+        in_a_literal(&marked.replace('|', ""), FileId(0), offset)
+    }
+
+    #[test]
+    fn a_word_inside_a_literal_is_prose_and_a_word_beside_one_is_not() {
+        assert!(at(r#"test "coun|ter increments" { }"#));
+        assert!(at(r#"let c = 'a|';"#));
+        // The sentence's own quotes belong to it; the keyword before them does
+        // not, and neither does the brace after.
+        assert!(!at(r#"te|st "counter increments" { }"#));
+        assert!(!at(r#"test "counter increments" {| }"#));
+        // An import path is a string too, which is why the import scan is asked
+        // before this fence rather than after it.
+        assert!(at(r#"from "//lib/co|unter" import { counter };"#));
+    }
+
+    /// A template's segments are literals and the expression between them is
+    /// not: `${counter(x)}` is a call somebody may point at.
+    #[test]
+    fn the_hole_in_a_template_is_code_again() {
+        assert!(at(r#"let s = "total ${x}| bar";"#));
+        assert!(!at(r#"let s = "total ${co|unter(x)} bar";"#));
     }
 }

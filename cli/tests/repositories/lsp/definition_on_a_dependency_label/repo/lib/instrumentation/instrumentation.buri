@@ -1,0 +1,1 @@
+export fn instrumentation(): I64 { 1 }

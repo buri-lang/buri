@@ -15,7 +15,7 @@ use crate::build::session::Session;
 use crate::build::textproto::{self, Field, Value as Node};
 use crate::diagnostics::FileId;
 use crate::json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use super::convert::{self, Position};
 
 /// Whether this is a file this module answers for, by the toolchain's own
@@ -40,12 +40,25 @@ pub fn definition(
     match field {
         // `visibility` is a label field too, and the entries in it that are not
         // packages — `//visibility:public` — simply name no package.
-        "dependencies" | "visibility" => label_target(session, entry),
+        "dependencies" | "visibility" => label_target(session, path, entry),
         "sources" | "proto_sources" | "data" => file_target(path, entry),
         // `tags` under a rule and `tags` under `forbids` both name a tag.
-        "tags" => tag_target(session, entry),
+        "tags" => tag_target(session, path, entry),
         _ => None,
     }
+}
+
+/// The repository root, spelled the way the editor spells it.
+///
+/// A `sources` entry is a path beside the build file the request named, so it
+/// answers in the client's own names whatever they are. A label went through
+/// the workspace, whose root came from the process working directory — and
+/// `getcwd` resolves symbolic links, so a repository reached through one had
+/// every label answering with a path the editor never asked about while every
+/// source went on working. Walking up from the file the request named keeps
+/// the two halves in one namespace.
+fn root_of(session: &Session, build_file: &Path) -> PathBuf {
+    crate::build::workspace::find_root(build_file).unwrap_or_else(|| session.root.clone())
 }
 
 /// The string the offset is inside, and the name of the field holding it.
@@ -76,11 +89,24 @@ fn covers(span: crate::diagnostics::Span, offset: u32) -> bool {
 /// A dependency label names a package, and a package is its `BUILD.buri`.
 /// `//lib/money/testing` is a surface of the same package, declared in the
 /// same file, so the two labels answer alike.
-fn label_target(session: &Session, label: &str) -> Option<Value> {
+///
+/// The whole label is tried before the surface is stripped off it: a package
+/// may be written at `lib/testing`, and stripping first sent every label under
+/// such a directory to the package above — or, where there was none, nowhere
+/// at all.
+fn label_target(session: &Session, build_file: &Path, label: &str) -> Option<Value> {
     let path = label.strip_prefix("//")?;
-    let path = path.strip_suffix("/testing").unwrap_or(path);
-    let id = session.workspace.package_by_path(path)?;
-    Some(convert::top_of(&session.workspace.package(id).build_path))
+    let id = session
+        .workspace
+        .package_by_path(path)
+        .or_else(|| session.workspace.package_by_path(path.strip_suffix("/testing")?))?;
+    let package = &session.workspace.package(id).path;
+    let mut file = root_of(session, build_file);
+    if !package.is_empty() {
+        file.push(package);
+    }
+    file.push("BUILD.buri");
+    Some(convert::top_of(&file))
 }
 
 /// A source or data entry is a path relative to the package's own directory,
@@ -95,7 +121,7 @@ fn file_target(build_file: &Path, entry: &str) -> Option<Value> {
 /// A tag is declared once, in `REPO.buri`, and named from wherever it applies.
 /// This is the one jump that lands on a name rather than on a file, because a
 /// tag block is a name.
-fn tag_target(session: &Session, name: &str) -> Option<Value> {
+fn tag_target(session: &Session, build_file: &Path, name: &str) -> Option<Value> {
     let span = session.workspace.repo.tag(name)?.name.span;
     if span.is_none() {
         return None;
@@ -105,7 +131,7 @@ fn tag_target(session: &Session, name: &str) -> Option<Value> {
         return None;
     }
     Some(Value::object(vec![
-        ("uri", Value::str(convert::uri_of(&file.abs_path))),
+        ("uri", Value::str(convert::uri_of(&root_of(session, build_file).join("REPO.buri")))),
         ("range", convert::range(&file.text, span)),
     ]))
 }

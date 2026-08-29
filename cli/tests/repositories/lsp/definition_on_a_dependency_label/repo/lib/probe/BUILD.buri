@@ -1,0 +1,20 @@
+library {
+    sources: ["probe.buri"]
+    dependencies: [
+        "//lib/instrumentation",
+        "//lib/measurement",
+        "//lib/probe/inner",
+    ]
+    tags: ["server"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/probe.buri"]
+        dependencies: []
+    }
+
+    testing {
+        sources: ["testing/fixtures.buri"]
+        dependencies: ["//lib/probe/inner"]
+    }
+}

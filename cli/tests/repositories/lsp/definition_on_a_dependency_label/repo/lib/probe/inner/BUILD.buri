@@ -1,0 +1,4 @@
+library {
+    sources: ["depth.buri"]
+    visibility: ["//visibility:public"]
+}

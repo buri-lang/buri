@@ -1,0 +1,32 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The call inside the test block. A `test` declaration's table span is the whole
+# block, so this used to answer with the test rather than with the callee.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/test/counter.buri"}, "position": {"line": 5, "character": 15}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/test/counter.buri"}, "position": {"line": 5, "character": 15}}}
+# The word `counter` inside the sentence the test is named by. It is prose, and
+# a name spelled the same is not what it means.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/test/counter.buri"}, "position": {"line": 3, "character": 9}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/test/counter.buri"}, "position": {"line": 3, "character": 9}}}
+# A name in the import clause, mid-identifier, reads as the declaration it names.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/test/counter.buri"}, "position": {"line": 0, "character": 40}}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/test/counter.buri"}, "position": {"line": 0, "character": 40}}}
+# The path of the same import, mid-string.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/test/counter.buri"}, "position": {"line": 0, "character": 12}}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/test/counter.buri"}, "position": {"line": 0, "character": 12}}}
+# A parameter's written type, in the declaration that writes it.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}, "position": {"line": 9, "character": 27}}}
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}, "position": {"line": 9, "character": 27}}}
+# The return type, which is a primitive: in no module's scope, and the type
+# most annotations are.
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}, "position": {"line": 9, "character": 34}}}
+# A primitive is built into the compiler and has no file, so there is nowhere
+# to send the editor.
+{"jsonrpc": "2.0", "id": 13, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}, "position": {"line": 9, "character": 34}}}
+# A local bound inside the test block, and a field named in a struct literal
+# there: the body of a test resolves like any other body.
+{"jsonrpc": "2.0", "id": 14, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/test/counter.buri"}, "position": {"line": 5, "character": 22}}}
+{"jsonrpc": "2.0", "id": 15, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/test/counter.buri"}, "position": {"line": 4, "character": 24}}}
+{"jsonrpc": "2.0", "id": 16, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
