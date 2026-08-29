@@ -1,0 +1,15 @@
+# A `#` comment in a build file is a comment; a build file that is not textproto says so.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "languageId": "buri", "version": 1, "text": "binary {\n    sources: [\"totals.buri\"]\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 2}, "contentChanges": [{"text": "# The till's own binary.\nbinary {\n    sources: []\n}\n"}]}}
+# A `#` comment, typed. Nothing is wrong with this file.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 3}, "contentChanges": [{"text": "# The till's own binary.\nbinary {\n    sources: [\n}\n"}]}}
+# The same file with the list left open: the textproto reader's own error, in its own words.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri", "version": 4}, "contentChanges": [{"text": "# The till's own binary.\nbinary {\n    sources: []\n}\n"}]}}
+# Closed again, and the finding is withdrawn.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/till/BUILD.buri"}}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

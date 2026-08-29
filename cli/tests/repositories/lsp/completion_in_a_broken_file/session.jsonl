@@ -1,0 +1,15 @@
+# Completion in a file that does not parse: the words the lexer can still see.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri", "languageId": "buri", "version": 1, "text": "//! What a shop sells, and what it costs.\n\n/// How much of an item is on the shelf.\nexport enum Stock {\n  /// None left at all.\n  Out,\n  /// The number still on the shelf.\n  OnHand { count: I64 },\n}\n\n/// One thing for sale.\nexport struct Item {\n  /// What the label on the shelf says.\n  export name: Str,\n  /// What it costs, in whole cents.\n  export price: I64,\n  /// How many are left.\n  export stock: Stock,\n  /// Which aisle it sits in. Private to this module.\n  aisle: I64,\n}\n\nimpl Item {\n  /// Whether anybody can buy one.\n  export fn available(self): Bool {\n    self.aisle > 0\n  }\n}\n\n/// What an item costs when nothing says otherwise.\nexport let defaultPrice: I64 = 100;\n\n/// An item nobody has stocked yet.\nexport fn listing(name: Str): Item {\n  Item { name: name, price: defaultPrice, stock: Stock.Out, aisle: 1 }\n}\n\n/// What one item costs.\nexport fn priceOf(item: Item): I64 {\n  let running = item.price;\n  running\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri", "version": 2}, "contentChanges": [{"text": "export fn total(count: I64): I64 {\n  let running = count\n  let doubled = running + running\n  dou\n"}]}}
+# Two missing `;` and no closing brace. The names are still written down.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 3, "character": 5}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri", "version": 3}, "contentChanges": [{"text": "export fn total(count: I64): I64 {\n  let running = count\n  let doubled = running + running\n  run\n"}]}}
+# The same file, another word.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 3, "character": 5}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri", "version": 4}, "contentChanges": [{"text": "export fn total(count: I64): I64 {\n  let running = count\n  let doubled = running + running\n  zzz\n"}]}}
+# A prefix nothing matches: an empty answer rather than a guess.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 3, "character": 5}, "context": {"triggerKind": 1}}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

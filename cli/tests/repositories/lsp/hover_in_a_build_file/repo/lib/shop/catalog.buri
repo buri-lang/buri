@@ -1,0 +1,42 @@
+//! What a shop sells, and what it costs.
+
+/// How much of an item is on the shelf.
+export enum Stock {
+  /// None left at all.
+  Out,
+  /// The number still on the shelf.
+  OnHand { count: I64 },
+}
+
+/// One thing for sale.
+export struct Item {
+  /// What the label on the shelf says.
+  export name: Str,
+  /// What it costs, in whole cents.
+  export price: I64,
+  /// How many are left.
+  export stock: Stock,
+  /// Which aisle it sits in. Private to this module.
+  aisle: I64,
+}
+
+impl Item {
+  /// Whether anybody can buy one.
+  export fn available(self): Bool {
+    self.aisle > 0
+  }
+}
+
+/// What an item costs when nothing says otherwise.
+export let defaultPrice: I64 = 100;
+
+/// An item nobody has stocked yet.
+export fn listing(name: Str): Item {
+  Item { name: name, price: defaultPrice, stock: Stock.Out, aisle: 1 }
+}
+
+/// What one item costs.
+export fn priceOf(item: Item): I64 {
+  let running = item.price;
+  running
+}

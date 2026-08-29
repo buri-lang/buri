@@ -1,0 +1,10 @@
+# The tag vocabulary this repository draws from.
+tag {
+    name: "server"
+    doc: "Runs on a machine we operate. Nothing carrying it may reach a browser."
+}
+
+tag {
+    name: "experimental"
+    doc: "Not covered by the compatibility promise yet."
+}
