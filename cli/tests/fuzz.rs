@@ -956,17 +956,44 @@ mod native {
         }
     }
 
-    /// Whether this host can compile, link and run a native binary at all.
+    /// Why one backend cannot answer on this host, or `None`.
+    ///
+    /// The backend's own availability query, so the day a host grows the half
+    /// it is missing this leg fires with no edit here. Stencil is the one that
+    /// answers today: it has an x86-64 library and no entry point to put in
+    /// front of it.
+    fn unavailable(name: &str) -> Option<String> {
+        #[cfg(feature = "backend-stencil")]
+        if name == "stencil" {
+            return buri::compiler::backend::stencil::unavailable_reason();
+        }
+        let _ = name;
+        None
+    }
+
+    /// Why this host cannot compile, link and run a native binary, or `None`.
     ///
     /// `native_ready` answers for the backend `select` returns, which is not
-    /// yet stencil, so the stencil library's own host question is asked beside
-    /// it: a host with no library for itself has no debug oracle.
-    pub fn ready() -> bool {
-        #[cfg(feature = "backend-stencil")]
-        if !buri::compiler::backend::stencil::AVAILABLE {
-            return false;
+    /// yet stencil, so each backend's own host question is asked beside it: a
+    /// host where every native column is unavailable has no oracle, and one
+    /// where a single column is keeps the rest.
+    pub fn off_reason() -> Option<String> {
+        if !actions::native_ready(host_target(), Profile::Debug) {
+            return Some(String::from("`native_ready` is false on this host"));
         }
-        actions::native_ready(host_target(), Profile::Debug)
+        let unavailable: Vec<String> = NATIVES
+            .iter()
+            .filter_map(|(name, _)| unavailable(name).map(|why| format!("`{name}`: {why}")))
+            .collect();
+        if unavailable.len() == NATIVES.len() {
+            return Some(unavailable.join("; "));
+        }
+        None
+    }
+
+    /// [`off_reason`] as a `bool`, for the oracle's own guard.
+    pub fn ready() -> bool {
+        off_reason().is_none()
     }
 
     /// How many times a native backend has actually produced an answer.
@@ -1063,6 +1090,11 @@ mod native {
             let target = host_target();
             actions::prepare(&mut program, target);
             let opts = Options { profile: *profile, target, unit_prefix: "" };
+            // A backend with no seat on this host refuses every program, which
+            // is a fact about the host rather than a disagreement.
+            if unavailable(name).is_some() {
+                continue;
+            }
             let Some(mut backend) = select(name, target, *profile) else { continue };
             if !backend.missing_intrinsics(&program, &analysis.checked.tables).is_empty() {
                 continue;
@@ -2251,8 +2283,8 @@ fn generated_programs_print_the_same_answer_on_every_backend() {
 fn report_native_participation(done: usize) {
     #[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
     {
-        if !native::ready() {
-            eprintln!("fuzz differential: the native leg is off (`native_ready` is false)");
+        if let Some(why) = native::off_reason() {
+            eprintln!("fuzz differential: the native leg is off ({why})");
         } else {
             // A count for the process rather than for this search: the EMI
             // search runs the same oracle, and one counter says whether the
