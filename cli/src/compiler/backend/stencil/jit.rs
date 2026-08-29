@@ -39,7 +39,8 @@
               block of the `ir::Code` in hand, so a use count is bounded by \
               the operands of a program already in memory. The one \
               subtraction, dropping a stencil's elided tail branch, runs only \
-              where a tail branch was found, which is four bytes that exist"
+              where a tail branch was found — four bytes that exist on A64, \
+              and the five of a `jmp rel32` on x86-64"
 )]
 
 use super::abi::{Loc, StencilTarget};

@@ -820,13 +820,14 @@ nothing is run in any native row.
 |---|---|
 | the two Linux libraries build, cross, from this host's clang | `cli/build.rs`, three blobs in `OUT_DIR` |
 | the arm64 libraries cover the same 13,904 operations | `the_two_arm64_libraries_cover_the_same_operations` |
-| x86-64 drops only the three spilled-constant families | `the_x86_64_library_drops_only_the_spilled_constant_families` |
+| the three libraries cover the same operations, x86-64 included | `the_x86_64_library_covers_what_the_arm64_ones_do`, `the_spilled_constant_families_carry_their_bytes` |
 | `elf.rs`'s output reads back through an independent ELF reader | `elf::tests::what_is_written_is_what_the_reader_reads` |
 | `b`/`bl` and `add`/`ldr` get the right *split* relocation type | `a_branch_is_split_by_its_instruction`, `a_low_twelve_is_split_by_its_instruction` |
-| `ld.lld` **accepts** real `linux-arm64` unit objects, statically links them, and **every relocation resolves** with none left in the image | `linux_arm64_objects_link_and_every_relocation_resolves` |
-| the linked image still disassembles as arm64 and has a `main` | same test |
+| `ld.lld` **accepts** real unit objects for **both** Linux targets, statically links them, and **every relocation resolves** with none left in the image | `linux_arm64_objects_link_and_every_relocation_resolves`, `linux_x86_64_objects_link_and_every_relocation_resolves` |
+| each linked image still disassembles as its own machine and has a `main` | same two tests |
+| neither machine's relocation kinds can be spelled for the other | `a_kind_the_machine_does_not_have_is_refused_by_name`, `an_x86_64_kind_has_no_mach_o_spelling` |
 | two emissions are the same bytes, for both Linux targets | `a_cross_emission_is_reproducible` |
-| a target with no library, and one with no entry point, are refused with different sentences | `an_unsupported_cross_target_is_refused_with_a_reason` |
+| the one target with no library is refused by name, and the two that have one are not | `an_unsupported_cross_target_is_refused_with_a_reason` |
 | macOS is unregressed | the existing 997-file conformance corpus, unchanged |
 
 The link in that suite uses a **generated stub** in place of `libburi_rt.a`,
@@ -836,9 +837,9 @@ referent does.
 
 ### 10.2 What a Linux run had to confirm, and where it is confirmed
 
-The aarch64 column is discharged. `.github/workflows/ci.yml` is where it stopped
+Both columns are discharged. `.github/workflows/ci.yml` is where it stopped
 being prose: the suite runs on `macos-latest`, `ubuntu-24.04` and
-`ubuntu-24.04-arm`, and the `linux-arm64` job runs the artifacts rather than
+`ubuntu-24.04-arm`, and the two Linux jobs run the artifacts rather than
 only compiling them — the stack guard's `mprotect` and Linux's signal
 disposition for a `PROT_NONE` page, the corpus at macOS parity, leak parity
 through `buri_rt_heap_stats`, `--check-reproducible` on a linked Linux artifact,
@@ -932,9 +933,10 @@ for it.
    three, fits both, and the static assertion in `abi.rs` says so. The `crt`
    family flattens up to ten integer arguments and past the sixth SysV puts them
    on the machine stack where AAPCS64 puts them past the eighth — that is
-   clang's business inside the stencil, and the corpus is what confirms it,
-   since `crts/7/*` upward is reached by the wide runtime entries
-   `numbers/integers.buri` and `data/strings.buri` exercise.
+   clang's business inside the stencil, and the corpus is what confirms it:
+   `str.replace` flattens three `Str`s and an out-pointer into ten integer
+   arguments — four of them past SysV's six registers — and
+   `data/strings.buri` exercises it.
 
 5. **The thirty dropped keys.** Recovered, and not the way this section
    originally proposed. Rewriting the negation as an integer XOR would have
