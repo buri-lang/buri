@@ -785,9 +785,9 @@ impl SourceMap {
     /// Maps cloned before this call keep the text they were cloned with, which
     /// is what lets an analysis already in hand go on rendering its own spans.
     pub fn replace(&mut self, id: FileId, text: String) {
-        let Some(was) = self.files.get(id.0 as usize) else { return };
-        let (name, abs_path) = (was.name.clone(), was.abs_path.clone());
-        self.files[id.0 as usize] = Rc::new(SourceFile::new(name, abs_path, text));
+        let Some(slot) = self.files.get_mut(id.0 as usize) else { return };
+        let (name, abs_path) = (slot.name.clone(), slot.abs_path.clone());
+        *slot = Rc::new(SourceFile::new(name, abs_path, text));
     }
 
     /// Every file in this map, with the id it was minted under.

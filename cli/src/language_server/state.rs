@@ -1171,7 +1171,7 @@ impl State {
             if graph_loads {
                 self.work.lints = self.work.lints.saturating_add(1);
                 let linted =
-                    crate::commands::lint::findings_for_target(&mut session, target, &analysis);
+                    crate::commands::lint::findings_for_target(&session, target, &analysis);
                 for d in &linted.items {
                     super::add_finding_rendering(&mut found, &mut rendered, &session, d);
                 }

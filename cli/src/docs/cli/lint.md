@@ -91,3 +91,8 @@ one thing a rewriting tool must not do.
 These are separate from type checking because they are questions about the
 *build graph* rather than about a program, and because a repository wants to be
 able to run them without paying for a full compile.
+
+The rules that do need one — `missing-dep`, `dead-code` and the hygiene set —
+read an analysis rather than running their own, which is what lets the language
+server report the same findings on a keystroke for the price of the type errors
+it was going to report anyway.

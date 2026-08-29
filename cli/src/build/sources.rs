@@ -90,6 +90,11 @@ pub struct Sources {
     pub reads: Reads,
 }
 
+/// The repository the process is standing in, ready to be asked for sessions.
+pub fn open(flags: Flags) -> Result<Sources, String> {
+    Ok(Sources::at(&session::root_of_cwd()?, flags))
+}
+
 impl Sources {
     pub fn at(root: &Path, flags: Flags) -> Sources {
         Sources {
@@ -366,4 +371,109 @@ fn hash_of(text: &str) -> u64 {
 /// Whether a path is one of the build graph's own files rather than a source.
 fn is_graph_file(path: &Path) -> bool {
     matches!(path.file_name().and_then(|n| n.to_str()), Some("BUILD.buri" | "REPO.buri"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("buri-sources-{name}-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(dir.join("lib/shop"));
+        let _ = std::fs::write(dir.join("REPO.buri"), "name: \"scratch\"\n");
+        let _ = std::fs::write(
+            dir.join("lib/shop/BUILD.buri"),
+            "library {\n  name: \"shop\"\n  srcs: [\"lib.buri\", \"cart.buri\"]\n}\n",
+        );
+        let _ = std::fs::write(
+            dir.join("lib/shop/lib.buri"),
+            "from \"//lib/shop/cart\" export { two };\n\npub fn one(): I64 {\n  1\n}\n",
+        );
+        let _ = std::fs::write(dir.join("lib/shop/cart.buri"), "pub fn two(): I64 {\n  2\n}\n");
+        dir
+    }
+
+    /// A session, every target in it analysed, and what that read kept.
+    fn analysed(sources: &mut Sources, overlay: &Overlay) -> Session {
+        let mut session = sources.session(overlay).expect("the repository opens");
+        for target in session.workspace.targets() {
+            let unit = crate::compiler::modules::Unit {
+                target: Some(target),
+                platform: None,
+                with_tests: true,
+            };
+            let _ = crate::compiler::driver::analyze(
+                Some(&session.workspace),
+                &mut session.map,
+                &mut session.parsed,
+                &unit,
+            );
+        }
+        sources.keep(&session);
+        session
+    }
+
+    /// The point of the whole file: a second question about a repository where
+    /// one file moved reads that file and keeps everything else.
+    ///
+    /// The ids are what the claim rests on. A file's parse is filed under its
+    /// [`FileId`], so an id that survives an edit elsewhere is a parse that
+    /// survives it — and the edited file's id surviving with new text under it
+    /// is what makes keeping the parse cache safe at all.
+    #[test]
+    fn a_second_session_re_reads_only_what_moved() {
+        let dir = scratch("reuse");
+        let mut sources = Sources::at(&dir, Flags::default());
+        let overlay = Overlay::new();
+
+        let first = analysed(&mut sources, &overlay);
+        let unchanged = first.map.find("lib/shop/lib.buri").expect("lib.buri was read");
+        let edited = first.map.find("lib/shop/cart.buri").expect("cart.buri was read");
+
+        let _ = std::fs::write(dir.join("lib/shop/cart.buri"), "pub fn two(): I64 {\n  3\n}\n");
+        sources.begin_round();
+        let second = sources.session(&overlay).expect("the repository opens again");
+
+        assert_eq!(second.map.find("lib/shop/lib.buri"), Some(unchanged));
+        assert_eq!(second.map.find("lib/shop/cart.buri"), Some(edited));
+        assert!(second.map.text(edited).contains('3'), "the edited file was re-read");
+        assert!(first.map.text(edited).contains('2'), "the first session kept its own text");
+        assert_eq!(sources.reads.opened, 1, "the repository was opened once");
+    }
+
+    /// A `BUILD.buri` edit is a different build graph, so it is read again.
+    #[test]
+    fn a_build_file_edit_reads_the_repository_again() {
+        let dir = scratch("graph");
+        let mut sources = Sources::at(&dir, Flags::default());
+        let overlay = Overlay::new();
+        let first = sources.session(&overlay).expect("the repository opens");
+        sources.keep(&first);
+
+        let _ = std::fs::write(
+            dir.join("lib/shop/BUILD.buri"),
+            "library {\n  name: \"shop\"\n  srcs: [\"lib.buri\"]\n}\n",
+        );
+        sources.begin_round();
+        let _ = sources.session(&overlay).expect("the repository opens again");
+        assert_eq!(sources.reads.opened, 2, "the graph moved, so it was read again");
+    }
+
+    /// An overlaid buffer is what an analysis reads, whether or not anything
+    /// has read the file from disk yet.
+    #[test]
+    fn a_buffer_wins_over_the_disk() {
+        let dir = scratch("overlay");
+        let mut sources = Sources::at(&dir, Flags::default());
+        let mut overlay = Overlay::new();
+        overlay.insert(
+            dir.join("lib/shop/lib.buri"),
+            "pub fn one(): I64 {\n  99\n}\n".to_string(),
+        );
+
+        let session = sources.session(&overlay).expect("the repository opens");
+        let file = session.map.find("lib/shop/lib.buri").expect("the buffer is in the map");
+        assert!(session.map.text(file).contains("99"), "the buffer won");
+    }
 }
