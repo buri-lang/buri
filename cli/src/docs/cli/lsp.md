@@ -697,14 +697,18 @@ how long it took and what it cost:
 answered in 3ms; analyses 0, lints 0, sessions opened 0, files hashed 61, bytes written 158568
 ```
 
-Five counters, and they are the ones worth watching. `analyses` and `lints` are
+Five counters — six on a request that dropped a sweep — and they are the ones
+worth watching. `analyses` and `lints` are
 front-end runs and lint passes — a request that answers out of the cache does
 neither, and a keystroke should move them for the targets that can see the
 edited file and for no others. `sessions opened` counts the times `REPO.buri`
 and every `BUILD.buri` were read and parsed — on a warm request that is `0`,
 because the repository is opened once and kept. `files hashed` is how many
 files were read to decide what had moved, which is every file the repository
-has read so far, and `bytes written` is what the answer came to. The milliseconds vary with the machine; the counters do not, which is why
+has read so far, and `bytes written` is what the answer came to. `sweeps
+superseded` appears only when there are some, and is how many whole-repository
+sweeps this request asked for that a newer edit had already replaced — the
+debounce, said out loud. The milliseconds vary with the machine; the counters do not, which is why
 the test suite pins those and not the clock. The level is read from `initialize` as well, which is how a
 client sets it for the messages before it could have sent a `$/setTrace`; a
 value that is not one of the three levels leaves it where it was, because a
@@ -800,7 +804,48 @@ notification has no reply to give.
 ## When it analyses
 
 Stated here rather than tuned silently, because it is the difference between a
-server that keeps up with typing and one that does not:
+server that keeps up with typing and one that does not.
+
+**Where it analyses, first.** Requests are answered on one thread, in the order
+they arrive, and the whole-repository sweep runs on another. That split is the
+one thing here that is about a clock rather than about a cache: a sweep of a
+repository whose libraries fan out is a fifth of a second, and on the request
+thread it is a fifth of a second in which a hover typed a moment later is not
+even read. So `workspace/diagnostic` no longer compiles anything. It answers
+from the reports the last sweep filed — under the ids that sweep issued, because
+a fresh id would tell a client that a keystroke-old report was current — and
+asks the worker for a new one. When that lands, the findings go out as
+`publishDiagnostics`, including for files nobody has open, and a
+`workspace/diagnostic/refresh` tells the client the report it is holding is out
+of date. The one sweep that waits is the first of a session, where there is
+nothing to quote and an empty report would say the errors on screen are fixed.
+
+**A burst of keystrokes is one sweep.** A job reads the repository when it
+*starts*, so an ask that arrives while another is already waiting would compute
+the report that one is going to: it is dropped and counted, which is the
+`sweeps superseded` on the trace line below. At most one sweep runs and one
+waits, per repository; two open repositories share the one worker and are swept
+in the order they went stale, because two that went stale together are two
+compilations however many threads are pointed at them. A sweep that is overtaken
+mid-flight is told so and stops between targets, keeping the targets it did
+finish — they are filed under the closures they were read at, so the sweep that
+replaces it starts from there.
+
+**The answers are the same; the order is a mode.** Everything the server says is
+a function of the bytes it was computed from, and a worker does not change that.
+What a worker does change is where a sweep's publishes land in the stream, which
+a recorded session cannot leave to a scheduler — so `BURI_LSP_ANALYSIS`, and
+`initializationOptions.analysis`, name one of three schedules.
+`asynchronous` is the default and is what an editor wants. `synchronous` makes
+the request that needs a sweep wait for it, so one message is answered
+completely before the next is read; that is what the golden corpus runs under.
+`deferred` runs the worker for real and holds what it found until the client
+sends `buri/awaitAnalysis`, a request that waits for the worker, lets its
+publishes out, and answers with how many sweeps have run, been superseded and
+been abandoned. The worker keeps a warm repository of its own — its own graph,
+source map and parses, because none of those may be touched from two threads —
+which is why a sweep shows up as a second `sessions opened` and a second pass of
+`files hashed`.
 
 - **On a keystroke** — `didChange` — the server re-parses that one buffer. No
   workspace, no standard library, no imports. A keystroke may *add* to what the
@@ -848,11 +893,13 @@ server that keeps up with typing and one that does not:
   same target — unless the client quoted the result id it was last given and
   nothing has moved, in which case it reads the repository's bytes and answers
   `unchanged` without compiling anything. **On a `workspace/diagnostic`** it
-  runs both passes over every target in every open repository — but per target
-  and keyed per target, so the second sweep after a keystroke recompiles the
-  targets whose closure holds the edited file and quotes the rest of the report
-  back unchanged. The first sweep of a repository is the whole of it, and it is
-  paid at startup rather than under a person's hands.
+  analyses nothing on the request thread: it reads each target's last report,
+  hands the worker whichever repository has a target the edit outran, and
+  answers. The *sweep* runs both passes over every target — but per target and
+  keyed per target, so the one after a keystroke recompiles the targets whose
+  closure holds the edited file and quotes the rest of the report back. The
+  first sweep of a repository is the whole of it, and it is the one this request
+  waits for, at startup rather than under a person's hands.
 - **On an `inlayHint/resolve`** it analyses the file the hint's `data` names,
   which is where the declaration is rather than where the hint is painted, and
   asks the resolver once — for the one hint under the pointer. **On a

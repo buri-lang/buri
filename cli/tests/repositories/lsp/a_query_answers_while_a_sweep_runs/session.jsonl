@@ -1,0 +1,44 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `initializationOptions.analysis: "deferred"` is the schedule this case is
+# about: the sweep runs on the worker, exactly as it does for an editor, and
+# what it found waits for `buri/awaitAnalysis` rather than for whenever the
+# thread happened to finish. That is what makes an asynchronous server
+# recordable — every answer below is the same answer either way, and where the
+# sweep's publishes land is this session's decision instead of the scheduler's.
+#
+# `diagnostics.refreshSupport` is claimed so that the request the server sends
+# when the sweep lands is on the wire here: a report the client is holding was
+# computed from bytes that have moved, and this is what the protocol has for
+# saying so.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"workspace": {"diagnostics": {"refreshSupport": true}}}, "initializationOptions": {"analysis": "deferred"}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "languageId": "buri", "version": 1, "text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n"}}}
+# The first workspace report of the session. No target has ever been swept, so
+# there is nothing to quote and an empty report would be a lie — this one
+# waits. It is the cold start, and it is paid once.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# A keystroke that renames the export. Nothing is wrong in this file — what
+# broke is `lib/alpha/lib.buri`, which re-exports the old name, and
+# `cmd/app/main.buri`, which imports it. Neither is open, which is exactly the
+# half of a repository a publish alone cannot reach.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 2}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markupCents(cents: I64): I64 { cents + 5 }\n"}]}}
+# The report the client asks for next. Nothing here compiles: the entries are
+# the ones the last sweep filed, under the ids that sweep issued — the same
+# report as request 2, byte for byte, because that is the state it describes.
+# A fresh id here would tell the client its stale findings were current.
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# And this is the claim. A hover and an outline, sent after the sweep was
+# asked for, are answered out of the request thread's own caches while the
+# worker is still compiling. Both responses are below, and every publish the
+# sweep produces is below *them*.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri"}, "position": {"line": 1, "character": 12}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri"}}}
+# Let the sweep land. The publishes carry what broke in two files nobody has
+# open, and the `workspace/diagnostic/refresh` tells the client that the report
+# it is holding is out of date.
+{"jsonrpc": "2.0", "id": 6, "method": "buri/awaitAnalysis", "params": {}}
+# Asking again. Now the ids have moved and the report carries the error.
+{"jsonrpc": "2.0", "id": 7, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

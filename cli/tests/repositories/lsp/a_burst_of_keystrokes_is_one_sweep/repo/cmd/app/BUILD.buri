@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//lib/alpha"]
+    outputs: [
+        { platform: JS },
+    ]
+}

@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the whole-repository sweep runs on a worker, so a hover typed a moment after a keystroke is answered without waiting for it — and the workspace report the client gets meanwhile is honestly the one it already had, until `buri/awaitAnalysis` lets the sweep land"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}
