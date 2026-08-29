@@ -4492,8 +4492,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// # The three paths
     ///
-    /// The same three `cranelift/helpers.rs`'s `concat` emits, and its comment
-    /// is the argument for why the first one is unobservable — a count of one
+    /// The same three `cranelift/helpers.rs`'s `concat` emits and the same
+    /// three `cli/runtime/text.rs`'s `buri_rt_str_concat` takes for the
+    /// copy-and-patch backend, which calls rather than open-codes them. Its
+    /// comment is the argument for why the first one is unobservable — a count
+    /// of one
     /// means one live `Str` value, every alias of it carries the same `ptr` and
     /// `len`, and the write here starts at `ptr + len`:
     ///

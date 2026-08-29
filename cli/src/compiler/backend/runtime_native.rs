@@ -27,9 +27,9 @@ pub const SYMBOL_PREFIX: &str = "buri_rt_";
 ///
 /// Used to *check* a backend's runtime table rather than to drive emission —
 /// each table spells its own symbol, and this is what says the spelling obeys
-/// the contract. A key with no dot is left alone but for the prefix, which is
-/// what makes `str.concat` come out `buri_rt_str_concat` and be absent from a
-/// table rather than silently linked against.
+/// the contract. A key the rule names is not thereby a key a table has a row
+/// for: `str.concat` mangles to `buri_rt_str_concat`, which the archive does
+/// export, and `runtime_table.rs` still has no row for it and says why.
 ///
 /// The rule is "[`SYMBOL_PREFIX`] followed by `snake_case`", plus one thing the
 /// contract states by example rather than in words: `host.HostStdout.println`

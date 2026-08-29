@@ -950,21 +950,41 @@ impl Jit<'_> {
 
 impl Jit<'_> {
     /// `str.concat(a, b)`, and the `str.concat(self, ctx, other)` a method call
-    /// spells: one allocation and two copies.
+    /// spells: one call to `buri_rt_str_concat`.
     ///
     /// The context is dropped whatever it weighs, which is the same rule
     /// [`Jit::rt_call`] applies to a `buri_rt_*` entry and for the same reason
     /// — `cranelift/emit.rs`'s `"str.concat"` arm records the bug that made it
-    /// a rule.
+    /// a rule. `emit.rs`'s arm has already dropped it, along with every other
+    /// argument that occupies no bytes, so what arrives here is two `Str`s.
     ///
-    /// **`middle::rc`'s in-place reuse is not here.** `cranelift/helpers.rs`'s
-    /// `concat` tests the left operand's count and capacity and appends into
-    /// its block when it owns it alone (MEMORY.md §5.3); this always allocates.
-    /// The answer is the same string either way, so nothing observable through
-    /// `Show` differs — but the *allocation count* does, and `core/alloc`'s
-    /// `count` and `total` are observable, so this is a divergence rather than
-    /// a missing optimisation and it is named as one here and in this module's
-    /// header.
+    /// **A call, where the other two backends open-code.** `cranelift/helpers.rs`
+    /// and `llvm/emit.rs` emit MEMORY.md §5.3's three paths as instructions;
+    /// this backend emitted the *exact* path only and always allocated, which
+    /// showed up as `core/alloc`'s `count` and `total` — observable numbers —
+    /// disagreeing with the release build's. The three paths are now
+    /// `cli/runtime/text.rs`'s `buri_rt_str_concat` and this is the call to
+    /// them, which is the shape MEMORY.md §5.3 already gives `[T]` append: a
+    /// header load, two compares, three arms and a `memmove` are a dozen
+    /// stencils and a block layout here, against one `crt` stencil for a call.
+    ///
+    /// The two length words go **unmasked**, unlike every other `Str` argument
+    /// this file passes ([`Jit::str_arg`] masks). The ASCII flag in bit 63 is an
+    /// input to a concatenation rather than a tag to be stripped — the answer
+    /// is ASCII exactly when both halves are — and the callee masks what it
+    /// needs as a count.
+    /// Whether an argument of `str.concat` is one [`Jit::str_concat`] never
+    /// sees.
+    ///
+    /// A context, and anything else that occupies no bytes.
+    /// `cranelift/emit.rs`'s arm drops a context by type and then *spreads*
+    /// what is left, and a zero-sized value spreads to no leaves — so both
+    /// halves of that are one question here, and `s.concat(host.alloc, t)`
+    /// reaches the same two `Str`s on both backends.
+    pub(crate) fn concat_drops(&mut self, prog: &ir::Program, t: ir::Type) -> bool {
+        matches!(source_ty(prog, t), Some(Ty::Ctx(_))) || self.width_of(prog, t) == 0
+    }
+
     pub(crate) fn str_concat(&mut self, st: &Fn2, args: &[u32], dest: u32) -> Result<(), String> {
         let (Some(a), Some(b)) = (args.first().copied(), args.get(1).copied()) else {
             return Err(String::from("str.concat of fewer than two strings"));
@@ -972,91 +992,21 @@ impl Jit<'_> {
         if args.len() > 2 {
             return Err(String::from("str.concat of more than two strings"));
         }
-        let scr = st.scratch;
-        let (la, lb, n, flag, out) = (scr, scr + 8, scr + 16, scr + 24, scr + 32);
-        let mask = crate::compiler::middle::layout::STR_LEN_MASK;
-        self.and_imm(la, a + STR_LEN, mask);
-        self.and_imm(lb, b + STR_LEN, mask);
-        self.emit(
-            "bin/add/u64/ff/f",
+        self.c_call(
+            "buri_rt_str_concat",
+            st,
             &[
-                ("JIT_D", V::I(u64::from(n))),
-                ("JIT_A", V::I(u64::from(la))),
-                ("JIT_B", V::I(u64::from(lb))),
-                ("JIT_CONT", V::Fall),
+                Src::Word(a),
+                Src::Word(a + STR_PTR),
+                Src::Word(a + STR_LEN),
+                Src::Word(b),
+                Src::Word(b + STR_PTR),
+                Src::Word(b + STR_LEN),
+                Src::Addr(dest),
             ],
-        );
-        // Both operands ASCII makes the answer ASCII, which is one `and` of the
-        // two raw length words with the flag bit (VALUE-MODEL.md §3.1).
-        self.emit(
-            "bin/and/u64/ff/f",
-            &[
-                ("JIT_D", V::I(u64::from(flag))),
-                ("JIT_A", V::I(u64::from(a + STR_LEN))),
-                ("JIT_B", V::I(u64::from(b + STR_LEN))),
-                ("JIT_CONT", V::Fall),
-            ],
-        );
-        self.and_imm(flag, flag, !mask);
-        self.emit(
-            "elemalloc",
-            &[
-                ("JIT_D", V::I(u64::from(out))),
-                ("JIT_A", V::I(u64::from(n))),
-                ("JIT_P", V::I(1)),
-                ("JIT_CONT0", V::Fall),
-            ],
-        );
-        self.copy_bytes(out, a + STR_PTR, la);
-        // The second copy starts where the first ended.
-        self.emit(
-            "bin/add/u64/ff/f",
-            &[
-                ("JIT_D", V::I(u64::from(scr + 40))),
-                ("JIT_A", V::I(u64::from(out))),
-                ("JIT_B", V::I(u64::from(la))),
-                ("JIT_CONT", V::Fall),
-            ],
-        );
-        self.copy_bytes(scr + 40, b + STR_PTR, lb);
-        // `{ base, ptr, len }`: the block is its own base, because a fresh
-        // allocation is what owns it.
-        self.mv(dest, out, 8);
-        self.mv(dest + STR_PTR, out, 8);
-        self.emit(
-            "bin/or/u64/ff/f",
-            &[
-                ("JIT_D", V::I(u64::from(dest + STR_LEN))),
-                ("JIT_A", V::I(u64::from(n))),
-                ("JIT_B", V::I(u64::from(flag))),
-                ("JIT_CONT", V::Fall),
-            ],
-        );
-        Ok(())
-    }
-
-    fn and_imm(&mut self, dest: u32, src: u32, mask: u64) {
-        self.emit(
-            "bin/and/u64/fi/f",
-            &[
-                ("JIT_D", V::I(u64::from(dest))),
-                ("JIT_A", V::I(u64::from(src))),
-                ("JIT_K", V::I(mask)),
-                ("JIT_CONT", V::Fall),
-            ],
-        );
-    }
-
-    /// `memcpy(dst, src, n)` where all three are frame words.
-    fn copy_bytes(&mut self, dst: u32, src: u32, n: u32) {
-        self.emit(
-            "memcpy/p",
-            &[
-                ("JIT_D", V::I(u64::from(dst))),
-                ("JIT_A", V::I(u64::from(src))),
-                ("JIT_B", V::I(u64::from(n))),
-                ("JIT_CONT0", V::Fall),
-            ],
-        );
+            &[],
+            0,
+            "v",
+        )
     }
 }
