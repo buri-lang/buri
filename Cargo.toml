@@ -1,5 +1,7 @@
 [workspace]
-members = ["cli"]
+# `website` is the documentation site generator. It is not part of the CLI and
+# ships with nothing: it reads `cli/src/docs/**` and the README and writes HTML.
+members = ["cli", "website"]
 # `editors/zed` is a Zed extension, and a Zed extension must depend on
 # `zed_extension_api` and compile to WASM. It is excluded rather than made a
 # member so that `cargo test -p buri` does not resolve it.
