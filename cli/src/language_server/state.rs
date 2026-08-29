@@ -35,10 +35,8 @@ use std::rc::Rc;
 pub enum Lifecycle {
     /// Nothing has been agreed yet. Only `initialize` is accepted.
     New,
-    /// `initialize` has been answered, and the process working directory is
-    /// the root the client named. The root is not kept here as well: the rest
-    /// of the toolchain finds the repository from the working directory, and a
-    /// second copy of it would be a second thing that could be wrong.
+    /// `initialize` has been answered and the roots the client named are in
+    /// [`State::roots`].
     Running,
     /// `shutdown` has been answered. Only `exit` is accepted now.
     ShuttingDown,
@@ -98,6 +96,24 @@ impl Lifecycle {
 
 pub struct State {
     pub lifecycle: Lifecycle,
+    /// The repository roots the client has open, in the order it named them.
+    ///
+    /// A Buri repository is rooted at a `REPO.buri`, so two open folders are
+    /// two repositories with two build graphs and two closures. This used to be
+    /// a single `set_current_dir` at `initialize`, which made every request
+    /// about the second folder answer out of the first one's graph — a wrong
+    /// answer rather than a missing feature.
+    pub roots: Vec<PathBuf>,
+    /// Whether the client accepts a watcher registered after startup.
+    ///
+    /// Read from its `initialize` capabilities and not assumed: registering
+    /// something a client never said it supports is a message it is entitled
+    /// to reject, and the server would then be waiting for notifications that
+    /// are never coming without knowing it.
+    pub can_register_watchers: bool,
+    /// Whether the client knows about folders and named none, which is the one
+    /// case where asking it for them is worth a round trip.
+    pub must_ask_for_folders: bool,
     /// Open buffers, by absolute path. The editor's copy wins over the disk's
     /// for as long as the file is open — including after a save, where they
     /// agree anyway.
@@ -218,6 +234,9 @@ impl State {
     pub fn new() -> State {
         State {
             lifecycle: Lifecycle::New,
+            roots: Vec::new(),
+            can_register_watchers: false,
+            must_ask_for_folders: false,
             open: BTreeMap::new(),
             published: BTreeMap::new(),
             showing_parse_errors: BTreeSet::new(),
@@ -225,25 +244,55 @@ impl State {
         }
     }
 
-    /// A hash of every byte that feeds an analysis.
+    /// The repository root that owns `path`, if the client has it open.
     ///
-    /// That is every `.buri` file in the repository — sources, every
-    /// `BUILD.buri`, and `REPO.buri`, which all wear the one extension — plus
-    /// the open buffers layered over them, because the editor's copy is what
-    /// the analysis actually reads. The standard library is not in it: it is
+    /// The nearest `REPO.buri` above the file decides which repository it is
+    /// in — the same walk `find_root` does for every other command — and the
+    /// answer counts only when the client named that repository as a folder. A
+    /// file in no open folder gets no root, and the requests about it answer
+    /// nothing rather than answering out of whichever repository happened to
+    /// be first.
+    pub fn root_of(&self, path: &Path) -> Option<PathBuf> {
+        let root = crate::build::workspace::find_root(path)?;
+        self.roots.iter().find(|r| **r == root).cloned()
+    }
+
+    /// Adds a folder, as the repository root it sits in.
+    ///
+    /// A client may name a subdirectory, and the repository is still the one
+    /// above it — so what is kept is always a root, and a folder in no
+    /// repository is not kept at all.
+    pub fn add_root(&mut self, folder: &Path) {
+        let Some(root) = crate::build::workspace::find_root(folder) else { return };
+        if !self.roots.contains(&root) {
+            self.roots.push(root);
+        }
+    }
+
+    /// Drops a folder, by the same normalisation [`State::add_root`] applied.
+    pub fn remove_root(&mut self, folder: &Path) {
+        let Some(root) = crate::build::workspace::find_root(folder) else { return };
+        self.roots.retain(|r| *r != root);
+    }
+
+    /// A hash of every byte that feeds an analysis of one repository.
+    ///
+    /// That is every `.buri` file under the root — sources, every `BUILD.buri`,
+    /// and `REPO.buri`, which all wear the one extension — plus the open
+    /// buffers layered over them, because the editor's copy is what the
+    /// analysis actually reads. The standard library is not in it: it is
     /// compiled into this binary and cannot change while the server runs.
+    ///
+    /// The root itself is hashed, and only the buffers inside it are, so two
+    /// open repositories key their answers separately and a keystroke in one
+    /// does not invalidate the other's.
     ///
     /// Reading and hashing bytes is not parsing them, which is the whole
     /// point — this is paid on every request and the analysis it replaces is
     /// orders more expensive.
-    ///
-    /// `None` when there is no repository to fingerprint, and then nothing is
-    /// cached: an answer with no key is not one worth keeping.
-    fn fingerprint(&self) -> Option<u64> {
-        let cwd = std::env::current_dir().ok()?;
-        let root = crate::build::workspace::find_root(&cwd)?;
+    fn fingerprint(&self, root: &Path) -> u64 {
         let mut files = Vec::new();
-        crate::commands::format::collect(&root, &mut files);
+        crate::commands::format::collect(root, &mut files);
         // `read_dir` order is the filesystem's, and the hash must not be.
         files.sort();
 
@@ -260,11 +309,23 @@ impl State {
         }
         // The overlay, in the map's order so that which file was opened first
         // is not part of the answer.
-        for (path, text) in &self.open {
+        for (path, text) in self.buffers_under(root) {
             hasher.write(path.as_os_str().as_encoded_bytes());
             hasher.write(text.as_bytes());
         }
-        Some(hasher.finish())
+        hasher.finish()
+    }
+
+    /// The open buffers belonging to one repository.
+    ///
+    /// A session is loaded from one root and names its files relative to it, so
+    /// a buffer from the other open repository has no name in it and must not
+    /// be layered over it.
+    fn buffers_under<'a>(
+        &'a self,
+        root: &'a Path,
+    ) -> impl Iterator<Item = (&'a PathBuf, &'a String)> {
+        self.open.iter().filter(move |(path, _)| path.starts_with(root))
     }
 
     /// The buffer's text if it is open, otherwise the file on disk.
@@ -280,8 +341,8 @@ impl State {
     /// A question about a `BUILD.buri` is a question about the graph: what a
     /// label names and where a package's file is are both answered by loading
     /// the repository, and the front end has nothing to add.
-    pub fn session(&self) -> Option<Session> {
-        session::open(&Flags::default()).ok()
+    pub fn session_for(&self, path: &Path) -> Option<Session> {
+        session::open_at(&self.root_of(path)?, &Flags::default()).ok()
     }
 
     /// Runs the whole front end for the target owning `path`.
@@ -298,14 +359,13 @@ impl State {
     /// is [`State::fingerprint`], and it is what makes reuse a claim rather
     /// than a hope.
     pub fn analyze(&mut self, path: &Path) -> Option<Rc<Analyzed>> {
-        let fingerprint = self.fingerprint();
-        if let Some(fingerprint) = fingerprint {
-            if let Some(hit) = self.cached_analysis(fingerprint, path) {
-                return Some(hit);
-            }
+        let root = self.root_of(path)?;
+        let fingerprint = self.fingerprint(&root);
+        if let Some(hit) = self.cached_analysis(fingerprint, path) {
+            return Some(hit);
         }
 
-        let mut session = self.overlaid_session()?;
+        let mut session = self.overlaid_session(&root)?;
         let target = target_for(&session, path);
         let unit = Unit {
             target,
@@ -323,7 +383,7 @@ impl State {
             &unit,
         );
         let analyzed = Rc::new(Analyzed { session, analysis });
-        if let Some(generation) = fingerprint.and_then(|f| self.cache.generation(f)) {
+        if let Some(generation) = self.cache.generation(fingerprint) {
             remember(&mut generation.targets, target, Rc::clone(&analyzed));
         }
         Some(analyzed)
@@ -345,15 +405,13 @@ impl State {
     /// of every file the analysis reads, so `references`, `rename` and
     /// `workspace/symbol` asked one after another about an untouched
     /// repository run this once between them.
-    pub fn analyze_workspace(&mut self) -> Option<Rc<Analyzed>> {
-        let fingerprint = self.fingerprint();
-        if let Some(hit) =
-            fingerprint.and_then(|f| self.cache.find(f)).and_then(|g| g.whole.as_ref())
-        {
+    pub fn analyze_workspace(&mut self, root: &Path) -> Option<Rc<Analyzed>> {
+        let fingerprint = self.fingerprint(root);
+        if let Some(hit) = self.cache.find(fingerprint).and_then(|g| g.whole.as_ref()) {
             return Some(Rc::clone(hit));
         }
 
-        let mut session = self.overlaid_session()?;
+        let mut session = self.overlaid_session(root)?;
         let units: Vec<Unit> = session
             .workspace
             .targets()
@@ -367,7 +425,7 @@ impl State {
             &units,
         );
         let analyzed = Rc::new(Analyzed { session, analysis });
-        if let Some(generation) = fingerprint.and_then(|f| self.cache.generation(f)) {
+        if let Some(generation) = self.cache.generation(fingerprint) {
             generation.whole = Some(Rc::clone(&analyzed));
         }
         Some(analyzed)
@@ -385,25 +443,24 @@ impl State {
     /// Shared, and therefore read-only. A caller that must write to the
     /// session wants [`State::overlaid_session`].
     pub fn lint(&mut self, path: &Path) -> Option<Rc<Linted>> {
-        let fingerprint = self.fingerprint();
-        if let Some(fingerprint) = fingerprint {
-            if let Some(hit) = self.cached_lint(fingerprint, path) {
-                return Some(hit);
-            }
+        let root = self.root_of(path)?;
+        let fingerprint = self.fingerprint(&root);
+        if let Some(hit) = self.cached_lint(fingerprint, path) {
+            return Some(hit);
         }
 
-        let mut session = session::open(&Flags::default()).ok()?;
+        let mut session = session::open_at(&root, &Flags::default()).ok()?;
         if session.diagnostics.has_errors() {
             return None;
         }
-        for (p, text) in &self.open {
+        for (p, text) in self.buffers_under(&root) {
             let rel = session.workspace.rel_of(p);
             session.map.add(rel, p.clone(), text.clone());
         }
         let target = target_for(&session, path)?;
         let diagnostics = crate::commands::lint::findings_for(&mut session, &[target]);
         let linted = Rc::new(Linted { session, diagnostics });
-        if let Some(generation) = fingerprint.and_then(|f| self.cache.generation(f)) {
+        if let Some(generation) = self.cache.generation(fingerprint) {
             remember(&mut generation.lints, target, Rc::clone(&linted));
         }
         Some(linted)
@@ -419,9 +476,9 @@ impl State {
     ///
     /// Public because `buri gen` writes through the session it is handed, and
     /// a cached one is shared by everything holding an `Rc` to it.
-    pub fn overlaid_session(&self) -> Option<Session> {
-        let mut session = session::open(&Flags::default()).ok()?;
-        for (p, text) in &self.open {
+    pub fn overlaid_session(&self, root: &Path) -> Option<Session> {
+        let mut session = session::open_at(root, &Flags::default()).ok()?;
+        for (p, text) in self.buffers_under(root) {
             let rel = session.workspace.rel_of(p);
             session.map.add(rel, p.clone(), text.clone());
         }

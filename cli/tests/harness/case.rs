@@ -14,8 +14,16 @@
 //!     REPO.buri
 //!     cmd/app/{BUILD.buri,main.buri}
 //!     lib/money/{BUILD.buri,lib.buri}
+//!   repo2/              a *second* repository, if the case needs two
 //!   expected/lint.txt   what `lint` prints, recorded
 //! ```
+//!
+//! `repo2/` is copied to a scratch tree of its own, named `<scratch2>` in a
+//! session the way `repo/` is named `<scratch>`. A sibling rather than a
+//! subdirectory, because a `REPO.buri` inside another repository is not a
+//! second root: the outer one's package walk descends into it and claims what
+//! is there. Only the language-server cases need it, and only because an editor
+//! can hold two repositories open at once.
 //!
 //! The manifest is textproto, read by the toolchain's own parser — every
 //! declarative file in this repository already is one, and a second config
@@ -106,6 +114,11 @@ pub enum Step {
         /// A file in the case directory holding one JSON-RPC request per line.
         /// The harness adds the `Content-Length` framing, so the fixture stays
         /// something a person can read and diff.
+        ///
+        /// A line beginning with `!` is the harness acting as the editor
+        /// rather than a message: `!apply <id>` waits for the response to that
+        /// request and writes the workspace edit it carried. See
+        /// [`drive_session`].
         stdin: Option<String>,
         /// A directory inside the repository to run from, for the forms that
         /// take no target and mean the repository whatever directory that is.
@@ -615,10 +628,22 @@ fn str_list(case: &str, what: &str, message: &Message) -> Vec<String> {
 
 pub fn run_case(case: &Case, g: &mut Golden) {
     let scratch = Scratch::copy_of(&case.name, &case.dir.join("repo"));
+    // A case may carry a *second* repository, in `repo2/`, and it is copied to
+    // a scratch tree of its own rather than to a directory inside the first
+    // one. Two Buri repositories are two roots, and a root nested inside
+    // another is not two: the outer one's package walk descends into it and
+    // claims its packages. A session names it `<scratch2>`.
+    let second_source = case.dir.join("repo2");
+    let second = second_source
+        .is_dir()
+        .then(|| Scratch::copy_of(&format!("{}-second", case.name), &second_source));
     // The fixtures are filled in on the copy, never in the checked-in tree:
     // what is in the repository is the placeholder, which is the thing that
     // reads the same on both hosts.
     case.subst.fill_tree(&scratch.root);
+    if let Some(second) = &second {
+        case.subst.fill_tree(&second.root);
+    }
     for (i, step) in case.steps.iter().enumerate() {
         match step {
             Step::Run { args, exit, golden, stream, stdin, cwd } => {
@@ -648,9 +673,15 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                         // `<scratch>` in a request becomes the real path, and
                         // `normalised` turns it back for the golden — so a
                         // fixture can name a URI without knowing where the
-                        // scratch tree landed.
-                        let text = text.replace("<scratch>", &scratch.root.display().to_string());
-                        let mut run = scratch.run_with_stdin(&argv, &frame_requests(&text));
+                        // scratch tree landed. `<scratch2>` is the same for a
+                        // case holding a second repository.
+                        let mut text =
+                            text.replace("<scratch>", &scratch.root.display().to_string());
+                        if let Some(second) = &second {
+                            text =
+                                text.replace("<scratch2>", &second.root.display().to_string());
+                        }
+                        let mut run = drive_session(&case.name, &from, &argv, &text);
                         // The protocol's framing is a byte count, which changes
                         // whenever a message does. Recording the decoded bodies
                         // instead keeps the golden about what was said.
@@ -675,11 +706,19 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                     ));
                 }
                 if let Some(golden) = golden {
-                    let printed = match stream {
-                        Stream::All => run.normalised(&scratch.root),
-                        Stream::Out => super::normalise(&run.stdout, &scratch.root),
-                        Stream::Err => super::normalise(&run.stderr, &scratch.root),
+                    let raw = match stream {
+                        Stream::All => run.all(),
+                        Stream::Out => run.stdout.clone(),
+                        Stream::Err => run.stderr.clone(),
                     };
+                    // The second repository's path goes back first: it is a
+                    // sibling of the first, so neither is a prefix of the
+                    // other and the order is only a matter of saying so.
+                    let raw = match &second {
+                        Some(s) => raw.replace(&s.root.display().to_string(), "<scratch2>"),
+                        None => raw,
+                    };
+                    let printed = super::normalise(&raw, &scratch.root);
                     // The placeholder goes back in before the golden is either
                     // compared or recorded — one text, so blessing writes
                     // exactly what a later run compares.
@@ -804,6 +843,204 @@ fn frame_requests(text: &str) -> Vec<u8> {
         out.extend_from_slice(line.as_bytes());
     }
     out
+}
+
+/// Drives one language-server session, and acts on disk partway through it
+/// when the fixture asks.
+///
+/// A session with no `!` directive is written whole and the pipe closed, which
+/// is what every recorded session but one needs. The exception is the round
+/// trip a code action is *for*: the server offers an edit, the client writes
+/// it, and the server has to hear about the write. The client here is this
+/// function, and the waiting is the whole of why it exists — piping the session
+/// and editing a file partway through would leave which side of the edit each
+/// request landed on to the scheduler rather than to the case.
+///
+/// ```text
+/// !apply 2    wait for the response to request 2, then write the workspace
+///             edit its first code action carried
+/// ```
+fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super::Run {
+    use std::io::{Read, Write};
+    use std::process::{Command, Stdio};
+
+    let mut argv: Vec<&str> = args.to_vec();
+    argv.push("--color=never");
+    let mut child = Command::new(super::buri())
+        .args(&argv)
+        .current_dir(dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the buri binary runs");
+    let mut input = child.stdin.take().expect("stdin is piped");
+    let mut output = child.stdout.take().expect("stdout is piped");
+    // Every byte read while waiting, kept framed: what the golden records is
+    // this stream and the rest of it, in the order the server wrote them.
+    let mut read_early = String::new();
+
+    let mut pending = String::new();
+    for line in session.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some(directive) = line.strip_prefix('!') else {
+            pending.push_str(line);
+            pending.push('\n');
+            continue;
+        };
+        input.write_all(&frame_requests(&pending)).expect("writing the session");
+        pending.clear();
+        let awaited = directive
+            .strip_prefix("apply ")
+            .and_then(|id| id.trim().parse::<u32>().ok())
+            .unwrap_or_else(|| panic!("{case}: `!{directive}` is not `!apply <id>`"));
+        let body = read_until(&mut output, awaited, &mut read_early)
+            .unwrap_or_else(|| panic!("{case}: the server never answered request {awaited}"));
+        apply_workspace_edit(case, &body);
+    }
+    input.write_all(&frame_requests(&pending)).expect("writing the session");
+    // Dropped here, which closes the pipe and is what tells the server the
+    // session is over.
+    drop(input);
+    let mut rest = Vec::new();
+    output.read_to_end(&mut rest).expect("reading the rest of the session");
+    let status = child.wait().expect("the buri binary finishes");
+    let mut stderr = String::new();
+    if let Some(mut e) = child.stderr.take() {
+        let _ = e.read_to_string(&mut stderr);
+    }
+    super::Run {
+        code: status.code().unwrap_or(-1),
+        stdout: super::strip_ansi(&format!("{read_early}{}", String::from_utf8_lossy(&rest))),
+        stderr: super::strip_ansi(&stderr),
+        what: format!("buri {}", args.join(" ")),
+    }
+}
+
+/// Reads framed messages until the response with `id` arrives, keeping every
+/// byte read so that nothing said along the way is lost to the golden.
+fn read_until(output: &mut impl std::io::Read, id: u32, kept: &mut String) -> Option<String> {
+    loop {
+        let (framed, body) = read_frame(output)?;
+        kept.push_str(&framed);
+        let parsed = buri::json::parse(&body).ok()?;
+        if parsed.get("id").and_then(|v| v.as_u32()) == Some(id) {
+            return Some(body);
+        }
+    }
+}
+
+/// One `Content-Length` message: the bytes as they arrived, and the body.
+///
+/// A byte at a time, for the reason the server itself reads that way — a
+/// buffered reader would swallow the body of the next message along with the
+/// headers of this one.
+fn read_frame(output: &mut impl std::io::Read) -> Option<(String, String)> {
+    let mut raw = String::new();
+    let mut length: Option<usize> = None;
+    loop {
+        let mut line = String::new();
+        loop {
+            let mut byte = [0u8; 1];
+            match output.read(&mut byte) {
+                Ok(0) | Err(_) => return None,
+                Ok(_) => {
+                    line.push(byte[0] as char);
+                    if byte[0] == b'\n' {
+                        break;
+                    }
+                }
+            }
+        }
+        raw.push_str(&line);
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.is_empty() {
+            break;
+        }
+        if let Some(v) = trimmed.strip_prefix("Content-Length:") {
+            length = v.trim().parse().ok();
+        }
+    }
+    let mut body = vec![0u8; length?];
+    output.read_exact(&mut body).ok()?;
+    let body = String::from_utf8(body).ok()?;
+    raw.push_str(&body);
+    Some((raw, body))
+}
+
+/// Writes the `WorkspaceEdit` a code-action response carried, the way an editor
+/// would when someone accepts the fix.
+///
+/// The first action's edit, because a fixture that asked for this asked about
+/// one fix. Later edits are applied first so that an earlier one's offsets are
+/// still the ones the server measured.
+fn apply_workspace_edit(case: &str, response: &str) {
+    let parsed = buri::json::parse(response)
+        .unwrap_or_else(|e| panic!("{case}: the response is not JSON: {e}"));
+    let action = parsed
+        .at("result")
+        .and_then(|r| r.as_array())
+        .and_then(|actions| actions.first())
+        .unwrap_or_else(|| panic!("{case}: the response carries no code action:\n{response}"));
+    let changes = action
+        .at("edit.changes")
+        .unwrap_or_else(|| panic!("{case}: the code action carries no edit:\n{response}"));
+    let buri::json::Value::Object(files) = changes else {
+        panic!("{case}: `edit.changes` is not an object:\n{response}")
+    };
+    for (uri, edits) in files {
+        let path = PathBuf::from(
+            uri.strip_prefix("file://")
+                .unwrap_or_else(|| panic!("{case}: `{uri}` is not a file URI")),
+        );
+        let mut text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{case}: cannot read {}: {e}", path.display()));
+        let mut edits: Vec<&buri::json::Value> =
+            edits.as_array().unwrap_or_default().iter().collect();
+        edits.sort_by_key(|e| std::cmp::Reverse(offset_key(e, "range.start")));
+        for edit in edits {
+            let start = offset_of(&text, edit, "range.start");
+            let end = offset_of(&text, edit, "range.end");
+            let new = edit.at("newText").and_then(|t| t.as_str()).unwrap_or_default();
+            text.replace_range(start..end, new);
+        }
+        std::fs::write(&path, &text)
+            .unwrap_or_else(|e| panic!("{case}: cannot write {}: {e}", path.display()));
+    }
+}
+
+/// A position as a sortable pair, for ordering edits without the text.
+fn offset_key(edit: &buri::json::Value, at: &str) -> (u32, u32) {
+    let line = edit.at(&format!("{at}.line")).and_then(|v| v.as_u32()).unwrap_or(0);
+    let character = edit.at(&format!("{at}.character")).and_then(|v| v.as_u32()).unwrap_or(0);
+    (line, character)
+}
+
+/// A protocol position as a byte offset into the text.
+///
+/// A character is one code unit here, which is the protocol's `utf-16` encoding
+/// only for text inside the basic plane. A fixture is a program someone reads,
+/// so that is the whole of what these cases hold.
+fn offset_of(text: &str, edit: &buri::json::Value, at: &str) -> usize {
+    let (line, character) = offset_key(edit, at);
+    let mut offset = 0;
+    for _ in 0..line {
+        match text[offset..].find('\n') {
+            Some(i) => offset += i + 1,
+            None => return text.len(),
+        }
+    }
+    let rest = &text[offset..];
+    let end = rest.find('\n').map_or(rest.len(), |i| i);
+    let column: usize = rest[..end]
+        .chars()
+        .take(character as usize)
+        .map(char::len_utf8)
+        .sum();
+    (offset + column).min(text.len())
 }
 
 /// The reverse, for the golden: each response body on its own line.

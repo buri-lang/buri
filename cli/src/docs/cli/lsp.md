@@ -28,6 +28,8 @@ end is a library, and `driver::analyze` is what the server calls.
 | `formatting` | `buri format`, which refuses to emit anything that does not parse, so a file mid-edit is left alone rather than mangled. |
 | `completion` | Inside a module path, the standard library plus the labels your target already declares. Inside an import's `{ … }`, what that module exports. |
 | `codeAction` | The fix for a finding that has exactly one. |
+| `didChangeWatchedFiles` | Everything published again, when a `.buri` file changed on disk without the editor having done it. |
+| `didChangeWorkspaceFolders` | A repository opened or closed while the server is running, and which one owns each file recomputed. |
 
 **Diagnostics include the build-graph findings**, not only the type errors —
 `missing-dep`, `unused-import`, and the rest of what `buri lint` reports. An
@@ -72,10 +74,9 @@ declares it.
 
 The whole repository is analysed for a references request, not the one target
 that owns the file, because a name is used wherever it is imported and nothing
-about the file it was declared in says which targets those are. That is paid per
-request and it is the most expensive thing the server does. There is no cache,
-for the same reason there is none anywhere else here: a cache needs a key saying
-which files and which revisions produced it.
+about the file it was declared in says which targets those are. It is the most
+expensive thing the server does, which is why it is kept — see "When it
+analyses" below for what the key is.
 
 A place the source never wrote the name is not a reference to it: an operator
 standing for a trait method is a use of that method and is not in the list.
@@ -130,6 +131,35 @@ returns the whole file, so a `BUILD.buri` is never byte-edited and the three
 paths cannot end up disagreeing. A finding with no mechanical answer — which
 edge of a `dep-cycle` to cut — offers nothing rather than guessing.
 
+**The file the fix writes is one the editor is not holding**, and that used to
+be the end of the story: you accepted the fix, the `BUILD.buri` changed, and the
+squiggle it fixed stayed on screen until you typed in the buffer. So after
+`initialized` the server registers a watcher for `**/*.buri` — one pattern
+covers a source, a `BUILD.buri` and a `REPO.buri`, because all three wear the
+one extension — and a `didChangeWatchedFiles` notification re-publishes for
+every open buffer. `buri gen` at the terminal and a `git checkout` under the
+editor arrive the same way and are answered the same way.
+
+Nothing is invalidated by hand for it. An analysis is kept under a hash of the
+bytes it read, so a file that changed on disk has already moved the key; the
+notification says *when* to ask again, and the key decides what the answer is.
+
+**Two open folders are two repositories.** A Buri repository is rooted at a
+`REPO.buri`, so a client holding two of them is holding two build graphs, two
+closures and two sets of labels. The server keeps the roots the client named —
+`workspaceFolders`, or `rootUri` from a client that only knows the one — and
+resolves every request's file to the repository above it. A `workspace/symbol`
+query is asked of all of them, because the query is about the workspace. A file
+in no open folder is answered with nothing: it is a real file in some
+repository, and answering out of a repository that is merely open would be
+answering a question nobody asked.
+
+Folders opened and closed while the server runs arrive as
+`didChangeWorkspaceFolders`, and every open buffer is published again — a buffer
+whose repository has just been closed has no findings to show, and leaving them
+on screen would leave the editor asserting something the server can no longer
+stand behind.
+
 ## The whole protocol, and what is left
 
 Everything the 3.17 specification defines for a language, and where this server
@@ -153,6 +183,8 @@ stands on it. A deferral is a decision with a reason, not a gap nobody noticed.
 | `formatting` | served | whole file |
 | `completion` | served | module paths and import clauses |
 | `codeAction` | served | |
+| `didChangeWatchedFiles`, `client/registerCapability` | served | the watcher is registered after `initialized`, and only for a client whose `initialize` said it accepts one |
+| `didChangeWorkspaceFolders`, `workspace/workspaceFolders` | served | the server asks for the folders when a client that knows about them named none |
 | `implementation` | deferred | the implementors of a trait are a real relation and a small scan of the impl table; it is the next one to add, not one this server has a reason to leave out |
 | `semanticTokens` | deferred | the tree-sitter grammar in `editors/` already colours a file, and a second answer to a coloured question is a way for the two to disagree |
 | `inlayHint` | deferred | the types are there; what a hint needs is a judgement about where one is help and where it is clutter, which is a rendering decision rather than a lookup |
@@ -163,7 +195,7 @@ stands on it. A deferral is a decision with a reason, not a gap nobody noticed.
 | `documentLink` | deferred | a link is a URL in a comment; an import path is already `definition` |
 | `codeLens` | deferred | a lens spends a line of screen above a declaration, and nothing in the toolchain currently produces a count worth that line |
 | `rangeFormatting`, `onTypeFormatting` | deferred | `buri format` is whole-file and canonical. A formatter with no partial mode has nothing to give a range, and formatting part of a file is how an editor and the command come to disagree about it |
-| `didChangeWatchedFiles`, work-done progress | deferred | there is no cache to invalidate and no request long enough to report progress on |
+| work-done progress | deferred | no request long enough to report progress on |
 
 ## When it analyses
 
@@ -192,6 +224,9 @@ server that keeps up with typing and one that does not:
 - **On an outline, a fold or a selection range** it analyses nothing: those read
   a parse of the one buffer. A definition in a build file analyses nothing
   either — it loads the repository and asks the graph.
+- **On a change to a watched file or to the open folders** it asks every open
+  buffer's own target again, because a build file decides what every file in its
+  package can see and there is no one buffer that changed.
 
 The reason for the split is that the front end has no incremental mode:
 `driver::analyze` is whole-closure. Analysing on every keystroke would mean
@@ -202,14 +237,17 @@ loader in place of the file on disk, so what you see reported is what you are
 looking at.
 
 **An analysis is kept until something changes.** The key is a hash of every byte
-that fed it: every `.buri` file in the repository — sources, every `BUILD.buri`,
-and `REPO.buri` — plus the buffers the editor has open, because those are what
-the loader actually reads. Reading and hashing bytes is not parsing them, so the
-key costs a fraction of the answer it stands for, and a second question about a
-repository nobody has touched is a lookup. Any change anywhere invalidates all of
-it: the front end is whole-closure, so there is no smaller unit whose answer an
-edit elsewhere provably does not change. Nothing invalidates by hand — a
-keystroke, a save and a close move the hash because the buffers are in it.
+that fed it: every `.buri` file in that repository — sources, every
+`BUILD.buri`, and `REPO.buri` — plus the buffers the editor has open in it,
+because those are what the loader actually reads. Reading and hashing bytes is
+not parsing them, so the key costs a fraction of the answer it stands for, and a
+second question about a repository nobody has touched is a lookup. Any change
+anywhere in that repository invalidates all of its answers: the front end is
+whole-closure, so there is no smaller unit whose answer an edit elsewhere
+provably does not change. The root is in the key too, so a keystroke in one open
+repository does not invalidate the other's. Nothing invalidates by hand — a
+keystroke, a save, a close and a file written behind the editor's back all move
+the hash on their own.
 
 ## Two things worth knowing
 

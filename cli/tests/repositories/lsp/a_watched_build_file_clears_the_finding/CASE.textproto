@@ -1,0 +1,19 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the fix a code action offers is applied, the client says the build file changed, and the finding it fixed goes off the screen"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}
+
+# The fix was written by the client, from the edit the server returned — so
+# what the file says now is the server's own answer, recorded once.
+file {
+  path: "cmd/app/BUILD.buri"
+  golden: "BUILD.buri"
+}

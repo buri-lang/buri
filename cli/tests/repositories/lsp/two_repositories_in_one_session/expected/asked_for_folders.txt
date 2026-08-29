@@ -1,0 +1,8 @@
+{"id":1,"jsonrpc":"2.0","result":{"capabilities":{"codeActionProvider":true,"completionProvider":{"triggerCharacters":["\"","{","/"]},"declarationProvider":true,"definitionProvider":true,"documentFormattingProvider":true,"documentHighlightProvider":true,"documentSymbolProvider":true,"foldingRangeProvider":true,"hoverProvider":true,"referencesProvider":true,"renameProvider":{"prepareProvider":true},"selectionRangeProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"textDocumentSync":{"change":1,"openClose":true,"save":{"includeText":false}},"typeDefinitionProvider":true,"workspace":{"workspaceFolders":{"changeNotifications":true,"supported":true}},"workspaceSymbolProvider":true},"serverInfo":{"name":"buri","version":"0.3.0"}}}
+{"id":"buri/workspaceFolders","jsonrpc":"2.0","method":"workspace/workspaceFolders"}
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/money/cents.buri"}}
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/money/cents.buri"}}
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch2>/lib/weather/celsius.buri"}}
+{"id":2,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn fromCents(c: I64): Cents\n```"},"range":{"end":{"character":19,"line":6},"start":{"character":10,"line":6}}}}
+{"id":3,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn fromCelsius(d: I64): Celsius\n```"},"range":{"end":{"character":21,"line":7},"start":{"character":10,"line":7}}}}
+{"id":4,"jsonrpc":"2.0","result":null}
