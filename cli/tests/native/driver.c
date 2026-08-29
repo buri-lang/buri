@@ -3,7 +3,7 @@
  * It is written in C on purpose. The runtime is Rust, and a Rust driver would
  * agree with it about `#[repr(C)]` by construction rather than by contract —
  * which is precisely the thing under test, since the callers that will exist in
- * production are Cranelift and LLVM and neither of them has ever heard of Rust.
+ * production are the two native backends, and neither has ever heard of Rust.
  *
  * Every declaration below is transcribed from the contract by hand. If the
  * contract and the runtime disagree, this file fails to link or prints the

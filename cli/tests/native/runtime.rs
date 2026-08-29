@@ -9,7 +9,7 @@
 //!
 //! So the suite compiles a C driver against the embedded archive with `cc` and
 //! runs it. `cc` is not a new requirement: the link step already drives the
-//! platform C compiler (CODEGEN-CRANELIFT.md §7.3), so a machine that can build
+//! platform C compiler (CODEGEN-STENCIL.md §12), so a machine that can build
 //! a Buri artifact can build this driver.
 //!
 //! The four things it proves:

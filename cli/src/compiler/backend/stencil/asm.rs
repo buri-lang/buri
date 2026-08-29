@@ -22,16 +22,14 @@
 //! because a stencil is a *C* function: the bridge is precisely the code that
 //! cannot be expressed in the language the stencils are written in.
 //!
-//! # The shim is a copy of Cranelift's, not a second design
+//! # The shim is a copy of the debug backend's, not a second design
 //!
 //! `cli/runtime/lib.rs` §6 is the contract — `buri_rt_argv_init` first,
-//! `buri_rt_flush` before every return — and
-//! `backend/cranelift/mod.rs`'s `entry_point` and `test_entry_point` are the
-//! same two shims for the other backend. Every behavioural decision below is
-//! read off those two functions rather than made again, including which way
-//! round the niche test goes ([`MainResult::niche`]), because a program that
-//! fails must print the same thing and exit the same way whichever backend
-//! built it.
+//! `buri_rt_flush` before every return — and the backend this one replaced
+//! emitted the same two shims. Every behavioural decision below was read off
+//! them rather than made again, including which way round the niche test goes
+//! ([`MainResult::niche`]), because a program that fails must print the same
+//! thing and exit the same way whichever backend built it.
 //!
 //! # Two machines, one shim
 //!
@@ -112,8 +110,8 @@ pub const STACK_SYMBOL: &str = "buri$stencil$stack";
 /// 64 MiB rather than the 8 MiB macOS and Linux give a main thread, because a
 /// Buri frame is the function's *entire* locals area laid out by
 /// `middle::layout` rather than the register allocator's spill set: a frame
-/// here is larger than the machine frame the same function compiles to under
-/// Cranelift, so equal depth costs more bytes.
+/// here is larger than the machine frame the same function compiles to under a
+/// register-allocating backend, so equal depth costs more bytes.
 pub const STACK_USABLE: u64 = 64 * 1024 * 1024;
 
 /// The guard region above the usable stack, which [`install_guard`] turns into
@@ -131,9 +129,9 @@ pub const STACK_USABLE: u64 = 64 * 1024 * 1024;
 /// answers with stack probes. A Buri frame is a `middle::layout` locals area
 /// and 1 MiB is far past any this compiler emits, at a cost of address space
 /// alone — the pages are zero-fill and never faulted in. It is not a *proof*,
-/// and neither is Cranelift's: `cranelift/mod.rs` sets no `enable_probestack`,
-/// so a machine frame past the OS guard has exactly this exposure. The two
-/// backends are level here rather than one being sound.
+/// and neither is the machine stack's: no backend here emits stack probes, so a
+/// machine frame past the OS guard has exactly this exposure. The two are level
+/// here rather than one being sound.
 pub const GUARD_BYTES: u64 = 1024 * 1024;
 
 /// The whole zero-filled block: the usable stack, then the guard.
@@ -749,9 +747,9 @@ impl X86 {
 ///
 /// Read off `middle::layout` by the caller and passed in, so that this file
 /// never learns a layout rule: it is told an offset and a width and it emits
-/// the load. `None` in place of the whole struct is the case
-/// `cranelift/mod.rs` spells as a zero-sized return or a return that is not an
-/// enum — a `main` answering `()` — which is a success unconditionally.
+/// the load. `None` in place of the whole struct is a zero-sized return or a
+/// return that is not an enum — a `main` answering `()` — which is a success
+/// unconditionally.
 #[derive(Clone)]
 pub struct MainResult {
     /// Byte offset of the tag within the return area, and its width in bytes.
@@ -764,8 +762,8 @@ pub struct MainResult {
     /// `EnumRepr::Niche` is `Option<T>` with `.Some` at variant 0 and `.None`
     /// at variant 1, and null means `.None` — so `is_null` *is* the variant
     /// index, and a non-zero index is the failure arm by the same rule the tag
-    /// case uses. `cranelift/mod.rs::entry_point` computes exactly this
-    /// (`tag = uextend(icmp eq ptr, 0)`), and the two must agree.
+    /// case uses. Every backend's entry point computes exactly this — the tag
+    /// is the pointer compared against null — and they must agree.
     pub niche: Option<u32>,
     /// Byte offsets of the `Str`'s three words — `base`, `ptr`, `len` — within
     /// the return area, for the error arm.
@@ -829,7 +827,7 @@ const PROT_NONE: u64 = 0;
 
 /// `int main(int argc, char **argv)` for a program whose root is `main`.
 ///
-/// `cranelift/mod.rs::entry_point` behaviour for behaviour: `buri_rt_argv_init`
+/// `llvm/emit.rs::entry_point` behaviour for behaviour: `buri_rt_argv_init`
 /// first, the root, then the exit convention the JavaScript backend already
 /// has — `.Ok(())` flushes and exits 0, `.Err(msg)` writes `msg` to standard
 /// error, flushes and exits 1.
@@ -916,7 +914,7 @@ fn load_tag(a: &mut Asm, rt: u32, rn: u32, off: u32, width: u32) {
 
 /// `int main(int argc, char **argv)` for a test binary.
 ///
-/// `cranelift/mod.rs::test_entry_point` behaviour for behaviour: every `test`
+/// `llvm/emit.rs::test_entry_point` behaviour for behaviour: every `test`
 /// block in order, each behind `buri_rt_test_enter`'s answer about whether this
 /// process is to run it. A failed assertion is an abort (SPEC 6.10), so one
 /// process reports at most one failure and the runner re-runs the binary with

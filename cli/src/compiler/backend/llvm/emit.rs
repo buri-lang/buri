@@ -28,9 +28,9 @@
 //! # Closures, and the environment block
 //!
 //! VALUE-MODEL.md §7 is `{ code, env }`, and this keeps that with the two
-//! additions the flattened calling convention forces — the Cranelift backend's
-//! convention (`cranelift/emit.rs`'s header), adopted here so that one
-//! artifact's closures have one shape whichever backend built them:
+//! additions the flattened calling convention forces, which every native
+//! backend here shares so that one artifact's closures have one shape whichever
+//! built them:
 //!
 //!  * **`code` is always a thunk.** A closure's callee cannot be the lifted
 //!    lambda itself, because `middle::closures` gives the lambda its captures
@@ -216,8 +216,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// at a call that owns its argument and no drop in the callee. Retaining on
     /// the layout's answer where rc retains on nothing adds one half of a pair
     /// nothing completes, which is one leaked block per element of a
-    /// `list.map`. The same mistake in the Cranelift backend leaked 199 of them
-    /// over a 200-element `[Str]`.
+    /// `list.map`. The same mistake in the debug backend of the day leaked 199
+    /// of them over a 200-element `[Str]`.
     ///
     /// Without a classifier the layout answer stands in, and the direction is what
     /// makes that safe rather than merely convenient: rc's `Yes` is a subset of
@@ -966,7 +966,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// 128-bit division is a call to `buri_rt_i128_divmod` rather than an
     /// `sdiv i128`: it is a hundred instructions on both backends and neither
-    /// should inline it (CODEGEN-CRANELIFT.md §3.6). Its operands are pairs of
+    /// should inline it (CODEGEN-STENCIL.md §5). Its operands are pairs of
     /// `u64` and its results come back through out-pointers, which is the one
     /// place in this backend an `alloca` appears for a reason that is not
     /// §2.3's aggregate — and it is still §2.3's case, because the buffer is a
@@ -3385,7 +3385,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// The zeroing of `E`'s payload area on the failure path is §2.1's
     /// restriction made safe rather than merely stated, for the reason
-    /// `cranelift/emit.rs`'s `result_call` gives: the index is a register, so
+    /// `stencil/rtcall.rs::store_result_tag` gives: the index is a register, so
     /// "the variant it names carries no fields" cannot be checked here, and a
     /// broken entry must produce a value `middle::rc` can walk rather than a
     /// count on whatever the stack held.
@@ -3786,8 +3786,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 if !quoted {
                     // The value itself. Not a copy: a `Str` is three words in a
                     // register and `{ base, ptr, len }` aliased is the same
-                    // three words, which is what the Cranelift backend's
-                    // `memcpy` of a stack slot amounts to.
+                    // three words, which is what a `memcpy` of a stack slot
+                    // amounts to in a backend that keeps one.
                     self.set(state, dest, value);
                     return true;
                 }
@@ -3815,10 +3815,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.call_out(state, code, dest, runtime::SHOW_STR, &mut argv);
                 true
             }
-            // Two literals and a `select`. Cranelift generates a helper; here
-            // the two `Str`s are three constants each and LLVM folds the
-            // selects into one, so a call would be the more expensive of the
-            // two spellings.
+            // Two literals and a `select`. The debug backend generates a
+            // helper; here the two `Str`s are three constants each and LLVM
+            // folds the selects into one, so a call would be the more expensive
+            // of the two spellings.
             Prim::Bool => {
                 let BasicValueEnum::IntValue(cond) = value else { return false };
                 let yes = self.str_literal("true");
@@ -3859,10 +3859,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // is already in use. It is rendered as the 128-bit unsigned value
             // whose high half is zero, which `buri_rt_show_u128` already
             // renders — so `U64.maxValue` prints `18446744073709551615` rather
-            // than `-1`. Cranelift answers the same digits by a different
-            // route: its `Helper::ShowInt` is generated per signedness
-            // (`cranelift/emit.rs`'s `show_prim`), so it has an unsigned
-            // division to hand and this backend does not.
+            // than `-1`. The debug backend answers the same digits by a
+            // different route: `stencil/rtcall.rs::show_prim` picks the
+            // renderer per signedness, so it has an unsigned division to hand
+            // and this backend does not.
             Prim::U64 => {
                 let BasicValueEnum::IntValue(v) = value else { return false };
                 let word = self.ctx.i64_type();
@@ -4174,8 +4174,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // descriptor a native artifact never receives: both values arrive
             // already rendered by the `Show` generated at their type, so one
             // `commands/test.rs::report_failure` states the failure format for
-            // every backend. `cranelift/emit.rs` lowers the same two keys to the
-            // same two entries.
+            // every backend. `stencil/rtcall.rs` lowers the same two keys to
+            // the same two entries.
             "testing_assert.reportShown" => {
                 let (Some(kind), Some(actual), Some(expected)) =
                     (args.first().copied(), args.get(1).copied(), args.get(2).copied())
@@ -4485,9 +4485,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// `str.concat`, with MEMORY.md §5.3's in-place growth.
     ///
-    /// Generated rather than called, for the reason the Cranelift backend
-    /// generates it: there is no `buri_rt_str_concat`, and the sequence is
-    /// short enough that a `ccc` call would cost more than it saves.
+    /// Generated rather than called: the sequence is short enough that a `ccc`
+    /// call would cost more than it saves.
     ///
     /// The ASCII flag is the **conjunction** of the two operands': a
     /// concatenation is all-ASCII exactly when both halves are, and the bit is
@@ -4495,8 +4494,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// # The three paths
     ///
-    /// The same three `cranelift/helpers.rs`'s `concat` emits and the same
-    /// three `cli/runtime/text.rs`'s `buri_rt_str_concat` takes for the
+    /// The same three `cli/runtime/text.rs`'s `buri_rt_str_concat` takes for the
     /// copy-and-patch backend, which calls rather than open-codes them. Its
     /// comment is the argument for why the first one is unobservable — a count
     /// of one
@@ -4814,10 +4812,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// *flattened* one of the element type (VALUE-MODEL.md §5.1), so a C
     /// function calling one would have to synthesize a parameter list that
     /// depends on `T`. A backend already knows how — it is an indirect call and
-    /// nothing else — so the loop lives here. Cranelift open-codes the same
-    /// nine (`cranelift/emit.rs::list_closure`); the two agree on the
-    /// conventions below because a closure built by one is called by the other
-    /// in the same artifact's tests.
+    /// nothing else — so the loop lives here. `stencil/lists.rs::list_call`
+    /// open-codes the same nine; the two agree on the conventions below because
+    /// a closure built by one is called by the other in the same artifact's
+    /// tests.
     ///
     /// # The counts, which is the whole of the difficulty
     ///
@@ -5660,7 +5658,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Bool) -> Bool`, where the third argument is a **code pointer to the
     /// element's generated function**, "because a loop is not expressible in
     /// the layer-A tree and every backend has the loop already". This is that
-    /// loop — `cranelift/emit.rs::derive_array` is the same one — and it is
+    /// loop — `stencil/lists.rs::derive_array_eq` is the same one — and it is
     /// `list_test`'s `all` walking two blocks instead of one.
     ///
     /// Two lengths that differ answer `false` without calling the element's
@@ -5770,8 +5768,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// two halves: **call the element's generated function once per element**,
     /// which only a backend can do (`cli/runtime/list.rs`'s header), and
     /// **join the results with brackets and `", "`**, which only the archive
-    /// should do — `buri_rt_show_list` is that half, and `cranelift/emit.rs`'s
-    /// `derive_array_show` calls the same symbol with the same three arguments.
+    /// should do — `buri_rt_show_list` is that half, and
+    /// `stencil/lists.rs::derive_array_show` calls the same symbol with the same
+    /// three arguments.
     ///
     /// # The counts
     ///
@@ -5864,7 +5863,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// the left element is strictly `.Greater`, so equal elements keep the
     /// order the source had. `data/lists.buri`'s "sortBy is stable" and "sortBy
     /// is stable when every key is equal" are the two that pin it, and
-    /// `cranelift/emit.rs::list_sort` is the same merge for the same reason —
+    /// `stencil/lists.rs::list_sort` is the same merge for the same reason —
     /// the two backends have to agree on the *answer*, and they do because the
     /// algorithm is the one the specification of stability names.
     ///
@@ -6913,9 +6912,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// plain one is `poison` outside the target's range, and `poison` reaching
     /// a value a program prints is undefined behaviour where SPEC has a defined
     /// answer. The saturating form clamps to the endpoints and answers `0` for
-    /// `NaN`, which is the same clamp the Cranelift backend's `fcvt_to_*_sat`
-    /// performs — so the two backends agree without either of them writing the
-    /// clamp out.
+    /// `NaN`, which is the same clamp the debug backend performs — so the two
+    /// backends agree without either of them writing the clamp out.
     fn float_to_int(
         &mut self,
         x: FloatValue<'ctx>,
@@ -7036,9 +7034,9 @@ fn open_coded_key(key: &str) -> bool {
             | "testing_assert.reportShown"
             | "testing_assert.failExpectedShown"
             // A `Char` **is** a `U32` (`char.buri`: "Exact: every `Char` is a
-            // `U32`"), so this is the identity on the register. Cranelift has
-            // had it in `prim_trait_op` since that list was written; here it
-            // was absent, and `core/char`'s eight arriving in the runtime table
+            // `U32`"), so this is the identity on the register. The debug
+            // backend has had it since its list was written; here it was
+            // absent, and `core/char`'s eight arriving in the runtime table
             // is what made the absence reachable — `data/strings.buri` and
             // `text/json.buri` both call it right beside a classifier.
             | "char.toU32"
@@ -7067,7 +7065,7 @@ pub fn numeric_op(key: &str) -> bool {
     // `middle::lower` runs — so `Bounded` is still two segments there and three
     // by the time `Unit::numeric` sees it (`lower.rs`'s `bounded_key`). Both
     // spellings answer yes, because both describe an operation this backend
-    // compiles; `cranelift/emit.rs`'s `numeric_op` has said so since the change
+    // compiles; `stencil/emit.rs::numeric_key` has said so since the change
     // that found it, and this table had drifted from it.
     if key == "num.minValue" || key == "num.maxValue" {
         return true;
@@ -7255,7 +7253,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// The `main` of a **test binary**: every `test` block, in order.
     ///
-    /// `cranelift/mod.rs::test_entry_point` is the same statements for the same
+    /// `stencil/asm.rs::test_entry` is the same statements for the same
     /// reason: a failed assertion is an abort (SPEC 6.10 leaves nothing to
     /// catch), so one process reports at most one failure and `buri test`
     /// assembles a suite's report across as many processes as it has failures.

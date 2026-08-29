@@ -1,8 +1,11 @@
 //! `buri clean`.
 //!
 //! Reaching for this to fix a build is worth noticing rather than automating:
-//! the cache is keyed on content, so a stale entry is a bug in the key, not a
-//! fact of life.
+//! the cache is keyed on what an action read, so a stale entry is a bug in the
+//! key rather than a fact of life. *Where* it read it is in the key too —
+//! `build/sources.rs::listing` hashes the root and every absolute path — so
+//! renaming a checkout leaves the old entries unreachable, and this is what
+//! removes them.
 #![allow(
     clippy::print_stdout,
     reason = "what was dropped is this command's output; diagnostics still leave \
@@ -47,6 +50,7 @@ pub fn command_clean(args: &arguments::Args) -> i32 {
         println!("dropped {}", removed.join(" and "));
     }
     // Reaching for `buri clean` to fix a build is worth reporting: the cache is
-    // keyed on content, so a stale entry is a bug rather than a fact of life.
+    // keyed on what was read, so a stale entry is a bug rather than a fact of
+    // life. A renamed checkout is the one honest reason to run this.
     0
 }

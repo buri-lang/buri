@@ -129,8 +129,9 @@ slow suite rather than merely a slow build. `Cargo.toml` therefore puts `buri`
 and the test binaries at `opt-level = 1` in the `dev` and `test` profiles —
 worth about fifteen seconds a run and costing nothing measurable to build, with
 `debug-assertions` still on. The scoping used to have a second job — leaving the
-Cranelift dependency unoptimized, because no suite waited on it — and lost it
-when that backend went (`design/native/CODEGEN-STENCIL.md` §13). A default
+removed debug backend's dependency closure unoptimized, because no suite waited
+on it — and lost it when that backend went
+(`design/native/CODEGEN-STENCIL.md` §13). A default
 build now has nothing in its dependency closure to scope around.
 
 What is left is `native`, and it is bound by the host rather than by the

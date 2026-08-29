@@ -16,10 +16,10 @@ use crate::compiler::backend::{Profile, Target};
 
 /// The LLVM triple for a build target.
 ///
-/// The text is [`crate::compiler::backend::triple_text`]'s, which is also what
-/// Cranelift parses, so naming a different architecture than the runtime
-/// archive was built for is a link error rather than a miscompile — the right
-/// failure.
+/// The text is [`crate::compiler::backend::triple_text`]'s, the one triple
+/// rendering in this repository, so naming a different architecture than the
+/// runtime archive was built for is a link error rather than a miscompile — the
+/// right failure.
 pub fn triple(target: Target) -> Result<String, String> {
     crate::compiler::backend::triple_text(target).ok_or_else(|| {
         String::from("the LLVM backend does not emit JavaScript; that is the `js` backend")
@@ -117,9 +117,9 @@ pub fn optimize(
     // Loop unrolling and loop vectorization are left at their defaults, which
     // is on: the point of `--release` on an `[Int]` fold is the vectorizer.
     //
-    // `verify_each` checks *our* IR rather than LLVM's, which is the same rule
-    // Cranelift's verifier is set by (CODEGEN-CRANELIFT.md §4): a developer
-    // build pays for the check and a user's build does not.
+    // `verify_each` checks *our* IR rather than LLVM's, under this repository's
+    // rule for a verifier: a developer build pays for the check and a user's
+    // build does not.
     options.set_verify_each(cfg!(debug_assertions));
     let pipeline = match profile {
         Profile::Release => "default<O2>",

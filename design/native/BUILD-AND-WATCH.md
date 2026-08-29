@@ -126,7 +126,9 @@ the objects back and extracts one stencil per exported symbol — and does that
 three times, once per target (CODEGEN-STENCIL.md §3, §3.2). That is an
 install-time cost paid once per toolchain build rather than a cost inside the
 loop, which is the same argument `libburi_rt.a` is built on, and it is the
-reason the feature is worth having a name.
+reason the feature is worth having a name. It costs size too: the three
+libraries are `include_bytes!`d, and they are 11.93 MB of the shipped `buri`
+(PERFORMANCE.md §5).
 
 It degrades rather than breaks, and what "degrades" means changed when this
 backend took the debug seat. A host with no `cc`, or one with no library for its

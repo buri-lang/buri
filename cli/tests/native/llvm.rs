@@ -152,7 +152,7 @@ fn archive() -> &'static Path {
 /// Whether this host can link and run what the backend emits.
 ///
 /// `cc` is not a new requirement: the link step already drives the platform C
-/// compiler (CODEGEN-CRANELIFT.md §7.3), so a machine that can build a Buri
+/// compiler (CODEGEN-STENCIL.md §12), so a machine that can build a Buri
 /// artifact can run these.
 fn can_execute() -> Option<&'static str> {
     if !AVAILABLE {
@@ -2282,8 +2282,8 @@ export fn main(): Result<(), Str> {
 /// captures, and under VALUE-MODEL.md §5.1 an aggregate parameter is its
 /// **leaves** — which a call site holding `{ code, env }` cannot produce. So
 /// `code` is a generated thunk that takes the environment as a pointer and
-/// loads those leaves out of it, which is the Cranelift backend's convention
-/// and now this one's.
+/// loads those leaves out of it, which is the convention every native backend
+/// here follows.
 ///
 /// Both shapes are here: a capture-free lambda is an `FnRef` by the time it
 /// reaches the backend and still gets a thunk, because the call site cannot
@@ -2606,7 +2606,7 @@ export fn main(): Result<(), Str> {
   let _ = ctx.println("sat8 ${big.saturatingAdd(100)} ${big.saturatingMul(0 - 100)}");
   // 128 bits goes through `buri_rt_i128_checked` and
   // `buri_rt_i128_saturating`: the overflow test both backends use at 64 bits
-  // is a widening multiply, which Cranelift does not have at `i128`, so one
+  // is a widening multiply, which no backend here has at `i128`, so one
   // shared body rather than two hand-rolled ones. It is `i128::checked_mul`,
   // so it is bounded by the type there too.
   let w: I128 = 1000;
@@ -2717,7 +2717,7 @@ export fn main(): Result<(), Str> {
 /// dropped, and with it the two string blocks its fields named, before the
 /// `str.concat` chain that reads those words ever ran; `malloc` handed the
 /// freed block straight back to the next concatenation, and the program printed
-/// zeroed bytes. It is a middle-end fact and not a backend one — Cranelift
+/// zeroed bytes. It is a middle-end fact and not a backend one — every backend
 /// prints exactly the same wrong answer — but the whole point of a heap `Str`
 /// is that its `base` is not the null a literal carries, so both are here.
 ///
