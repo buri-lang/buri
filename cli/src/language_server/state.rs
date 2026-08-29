@@ -132,8 +132,27 @@ pub struct State {
     pub semantic_tokens: SemanticTokens,
     /// What each `workspace/*/refresh` family has said and when.
     pub refreshes: Refreshes,
+    /// The `workspace/applyEdit` requests waiting for an answer.
+    pub applying: Applying,
     /// Analyses, under a hash of everything they were computed from.
     cache: Cache,
+}
+
+/// The edits this server has asked the client to write, and the command each
+/// one is the answer to.
+///
+/// A `workspace/executeCommand` that edits is not finished when its handler
+/// returns: the server has no way to write a file the editor may be holding
+/// unsaved, so the edit goes to the client and the command's result is what the
+/// client says it did with it. This is where the command's id waits in between.
+#[derive(Default)]
+pub struct Applying {
+    /// The id of the `workspace/executeCommand` waiting on each edit, by the id
+    /// that edit went out with.
+    pub waiting: BTreeMap<String, Value>,
+    /// How many have gone out, so each carries an id of its own — one still in
+    /// flight must not be reused.
+    pub sent: u64,
 }
 
 /// What the server remembers about the colours it has handed out.
@@ -179,6 +198,7 @@ pub struct Refresh {
 pub struct Refreshes {
     pub semantic_tokens: Refresh,
     pub inlay_hints: Refresh,
+    pub code_lenses: Refresh,
 }
 
 pub struct Analyzed {
@@ -291,6 +311,7 @@ impl State {
             showing_parse_errors: BTreeSet::new(),
             semantic_tokens: SemanticTokens::default(),
             refreshes: Refreshes::default(),
+            applying: Applying::default(),
             cache: Cache::default(),
         }
     }
@@ -389,6 +410,7 @@ impl State {
         let now = self.analysis_fingerprint();
         self.refreshes.semantic_tokens.fingerprint = Some(now);
         self.refreshes.inlay_hints.fingerprint = Some(now);
+        self.refreshes.code_lenses.fingerprint = Some(now);
     }
 
     /// Files an encoded semantic-token result under a fresh id, and hands the
@@ -427,6 +449,19 @@ impl State {
     /// the repository, and the front end has nothing to add.
     pub fn session_for(&self, path: &Path) -> Option<Session> {
         session::open_at(&self.root_of(path)?, &Flags::default()).ok()
+    }
+
+    /// The label of the target whose closure `path` is in, as a command line
+    /// would name it.
+    ///
+    /// The same [`target_for`] every analysis is keyed by, so a command run
+    /// from a lens runs over the target the file's diagnostics came from — a
+    /// test source belongs to the rule that declared it, which is the library
+    /// or the binary rather than a suite of its own.
+    pub fn target_label(&self, path: &Path) -> Option<String> {
+        let session = self.session_for(path)?;
+        let target = target_for(&session, path)?;
+        Some(session.workspace.label(target))
     }
 
     /// Runs the whole front end for the target owning `path`.

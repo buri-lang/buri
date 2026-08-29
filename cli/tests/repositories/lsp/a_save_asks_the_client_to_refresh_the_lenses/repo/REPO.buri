@@ -1,0 +1,2 @@
+# The repository root. Nothing here is a build-graph question: this case is
+# about what a parse of one file offers to put above a declaration.

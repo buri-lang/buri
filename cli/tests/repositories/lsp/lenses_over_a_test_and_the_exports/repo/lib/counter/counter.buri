@@ -1,0 +1,18 @@
+/// A running count of things that happened.
+export struct Tally {
+  /// How many, so far.
+  export total: I64,
+}
+
+/// What a tally starts at.
+export let start: I64 = 0;
+
+/// How many times the thing has happened.
+export fn counter(tally: Tally): I64 { tally.total }
+
+// Not exported, so no lens above it: the count would be this one file's uses,
+// which is the question `documentHighlight` already answers.
+fn doubled(n: I64): I64 { n * 2 }
+
+/// Twice the count, which is what a pair of them comes to.
+export fn twice(tally: Tally): I64 { doubled(counter(tally)) }

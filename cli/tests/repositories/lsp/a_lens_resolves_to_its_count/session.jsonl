@@ -1,0 +1,36 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# Every lens sent back below is copied verbatim from the answer above it, which
+# is what a client does with one — so the round trip is the test, and a change
+# to what the full pass hands out breaks these lines rather than passing
+# quietly. The same discipline `a_hint_resolves_to_what_it_is_about` uses.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The unresolved lenses: a range and a `data`, and nothing that costs an
+# analysis.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeLens", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}}}
+# `Tally`: the two parameters that name it, the re-export in `lib.buri`, the
+# import in the test source and the two literals it builds. The declaration
+# itself is not among them — the lens is drawn on that line, and counting it
+# would be counting the reader's own cursor.
+{"jsonrpc": "2.0", "id": 3, "method": "codeLens/resolve", "params": {"data": {"position": {"character": 14, "line": 1}, "uri": "file://<scratch>/lib/counter/counter.buri"}, "range": {"end": {"character": 19, "line": 1}, "start": {"character": 14, "line": 1}}}}
+# `start` is exported and nothing reaches it. Zero is an answer and it is the
+# one worth having on screen: an export with no uses is the finding `buri lint`
+# reports as dead code, said before you have to run it.
+{"jsonrpc": "2.0", "id": 4, "method": "codeLens/resolve", "params": {"data": {"position": {"character": 11, "line": 7}, "uri": "file://<scratch>/lib/counter/counter.buri"}, "range": {"end": {"character": 16, "line": 7}, "start": {"character": 11, "line": 7}}}}
+# `counter`, called from the other declaration in its own file, re-exported,
+# imported and called twice by the tests.
+{"jsonrpc": "2.0", "id": 5, "method": "codeLens/resolve", "params": {"data": {"position": {"character": 10, "line": 10}, "uri": "file://<scratch>/lib/counter/counter.buri"}, "range": {"end": {"character": 17, "line": 10}, "start": {"character": 10, "line": 10}}}}
+# `twice` is re-exported and nothing else names it, so the title is singular.
+# One place is one reference, and a lens reading "1 references" is a lens
+# somebody wrote with a format string rather than with English.
+{"jsonrpc": "2.0", "id": 6, "method": "codeLens/resolve", "params": {"data": {"position": {"character": 10, "line": 17}, "uri": "file://<scratch>/lib/counter/counter.buri"}, "range": {"end": {"character": 15, "line": 17}, "start": {"character": 10, "line": 17}}}}
+# A run-test lens, which left the full pass with its command already on it and
+# carries no `data`. It comes back exactly as it went in. Not `null`: the
+# protocol's result for this request is a code lens, and a complete one is one.
+{"jsonrpc": "2.0", "id": 7, "method": "codeLens/resolve", "params": {"command": {"arguments": ["file://<scratch>/lib/counter/test/counter.buri", "counter reads the total"], "command": "buri.runTest", "title": "Run \"counter reads the total\""}, "range": {"end": {"character": 30, "line": 3}, "start": {"character": 5, "line": 3}}}}
+# A lens whose `data` names a file in no repository this client has open.
+# There is no repository to count in, so it comes back as it went in.
+{"jsonrpc": "2.0", "id": 8, "method": "codeLens/resolve", "params": {"data": {"position": {"character": 14, "line": 1}, "uri": "file:///elsewhere/counter.buri"}, "range": {"end": {"character": 19, "line": 1}, "start": {"character": 14, "line": 1}}}}
+{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

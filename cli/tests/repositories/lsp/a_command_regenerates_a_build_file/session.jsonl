@@ -1,0 +1,44 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `cmd/app/main.buri` imports `//lib/money` and its `BUILD.buri` does not name
+# it in `dependencies`, which is the `missing-dep` finding. This is the other
+# way to fix it: the command a palette or a code lens invokes, rather than the
+# quick fix on the squiggle.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Two arguments, and the first one is why: a label is repository-relative, and
+# a client holding two repositories open would be naming a package in both of
+# them. The uri says which repository, exactly as it does for every other
+# request.
+#
+# The server has no way to write a file the editor may be holding unsaved, so
+# the whole file `buri gen` produces goes out as a `workspace/applyEdit` with
+# an id of its own — and the reply to request 2 is not written yet.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/executeCommand", "params": {"command": "buri.regenerateBuildFile", "arguments": ["file://<scratch>/cmd/app/main.buri", "//cmd/app"]}}
+# The client writes it and says so. *Now* request 2 is answered, and what it is
+# answered with is what the client said: "regenerated" means the editor wrote
+# the file rather than that the server asked it to.
+{"jsonrpc": "2.0", "id": "buri/applyEdit/1", "result": {"applied": true}}
+# The same command again. This session's client did not really write anything,
+# so `buri gen` still has the same file to offer — and the edit goes out under
+# a *second* id, because one still in flight must not be reused.
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/executeCommand", "params": {"command": "buri.regenerateBuildFile", "arguments": ["file://<scratch>/cmd/app/main.buri", "//cmd/app"]}}
+# This time the client refuses the edit, and refuses it as an error rather than
+# as a result. A command whose edit was not applied is answered `applied:
+# false`, because a silence its caller cannot tell from success is worse.
+{"jsonrpc": "2.0", "id": "buri/applyEdit/2", "error": {"code": -32603, "message": "the user said no"}}
+# A package whose build file already says what `buri gen` would write. Nothing
+# to do is not a failure, and saying so out loud is the whole of what a command
+# invoked from a palette owes the person who invoked it.
+{"jsonrpc": "2.0", "id": 4, "method": "workspace/executeCommand", "params": {"command": "buri.regenerateBuildFile", "arguments": ["file://<scratch>/cmd/app/main.buri", "//lib/money"]}}
+# A label naming no package in that repository.
+{"jsonrpc": "2.0", "id": 5, "method": "workspace/executeCommand", "params": {"command": "buri.regenerateBuildFile", "arguments": ["file://<scratch>/cmd/app/main.buri", "//lib/nowhere"]}}
+# The label left off.
+{"jsonrpc": "2.0", "id": 6, "method": "workspace/executeCommand", "params": {"command": "buri.regenerateBuildFile", "arguments": ["file://<scratch>/cmd/app/main.buri"]}}
+# A reply to an edit nothing is waiting on — a client answering twice, or a
+# stale id from before a restart. It is consumed and produces nothing: a
+# message with an id and no method is an answer, and answering an answer is how
+# a server and a client talk past each other forever.
+{"jsonrpc": "2.0", "id": "buri/applyEdit/1", "result": {"applied": true}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

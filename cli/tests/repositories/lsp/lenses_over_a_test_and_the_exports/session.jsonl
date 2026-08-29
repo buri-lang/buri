@@ -1,0 +1,32 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# Nothing is opened. The lenses read a parse of the file on disk, which is the
+# whole claim this case exists to pin: no workspace, no standard library, no
+# analysis — so scrolling through a repository costs a parse per file and not a
+# compilation per file.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A source. Four exported declarations get a lens with a `range` and a `data`
+# and *no command* — the count is `codeLens/resolve`'s job — and `doubled`,
+# which the module does not export, gets nothing at all.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeLens", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}}}
+# A test source. Each `test` gets a command straight away: what it needs is the
+# sentence it was written with, and the parse has that. The title quotes the
+# sentence, because a column of lenses all reading "Run test" says nothing
+# about which line each one belongs to.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeLens", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/test/counter.buri"}}}
+# The re-export module. `from ... export { ... }` is not a declaration this
+# file makes, so there is nothing to count uses of and nothing to draw.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/codeLens", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/lib.buri"}}}
+# A file that does not parse. `half`'s unclosed body swallows the rest of the
+# file and takes its own lens with it; `whole`, written above it, still gets
+# one — which is what "a parse and nothing else" buys.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/codeLens", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/scratch.buri"}}}
+# A `BUILD.buri` is textproto. Neither a `test` nor an `export` is something
+# that language writes, so the answer is empty rather than the Buri parser's
+# opinion of a file in another language.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/codeLens", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/BUILD.buri"}}}
+# A file that is not there.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/codeLens", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/absent.buri"}}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

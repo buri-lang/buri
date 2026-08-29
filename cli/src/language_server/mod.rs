@@ -21,9 +21,11 @@
 
 mod build_files;
 mod call_hierarchy;
+mod code_lens;
 mod color;
 mod conformance;
 mod convert;
+mod execute_command;
 mod features;
 mod inlay_hints;
 mod links;
@@ -189,6 +191,10 @@ const NOT_INITIALIZED: i64 = -32002;
 /// `InvalidRequest`.
 const INVALID_REQUEST: i64 = -32600;
 
+/// `InvalidParams` — what a `workspace/executeCommand` naming a command this
+/// server does not implement, or missing an argument one needs, is.
+const INVALID_PARAMS: i64 = -32602;
+
 /// `MethodNotFound` — the protocol's own reply for a method the server does not
 /// implement.
 const METHOD_NOT_FOUND: i64 = -32601;
@@ -228,14 +234,18 @@ const WATCHERS: &str = "buri/watchers";
 /// The id of the server's question about which folders are open.
 const FOLDERS: &str = "buri/workspaceFolders";
 
-/// The two `workspace/*/refresh` requests this server sends: the method, and
+/// The stem of the ids the server's `workspace/applyEdit` requests carry.
+const APPLY_EDIT: &str = "buri/applyEdit";
+
+/// The three `workspace/*/refresh` requests this server sends: the method, and
 /// the stem of the ids it carries.
 ///
 /// A refresh may go out many times, so each one is numbered — an id still in
 /// flight must not be reused. The stems are what the golden sessions record.
-const REFRESH_FAMILIES: [(&str, &str); 2] = [
+const REFRESH_FAMILIES: [(&str, &str); 3] = [
     ("workspace/semanticTokens/refresh", "buri/semanticTokensRefresh"),
     ("workspace/inlayHint/refresh", "buri/inlayHintRefresh"),
+    ("workspace/codeLens/refresh", "buri/codeLensRefresh"),
 ];
 
 fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
@@ -286,6 +296,10 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             );
             state.refreshes.inlay_hints.supported = matches!(
                 params.at("capabilities.workspace.inlayHint.refreshSupport"),
+                Some(&Value::Bool(true))
+            );
+            state.refreshes.code_lenses.supported = matches!(
+                params.at("capabilities.workspace.codeLens.refreshSupport"),
                 Some(&Value::Bool(true))
             );
             let client_has_folders = matches!(
@@ -743,6 +757,45 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             vec![response(&id, result.unwrap_or_else(|| params.clone()))]
         }
 
+        // The lines above a declaration. A parse and nothing else: a client
+        // asks for these for every file it scrolls through, and the count the
+        // reference lens is about to show costs a whole-repository analysis —
+        // so the count is not here. See `code_lens`. A `BUILD.buri` gets
+        // nothing: it is textproto, and neither a `test` nor an `export` is
+        // something that language writes.
+        ("textDocument/codeLens", Some(id)) => {
+            let result = (|| {
+                let path = uri_param(&params)?;
+                if build_files::is_build_file(&path) {
+                    return None;
+                }
+                let text = state.text_of(&path)?;
+                Some(code_lens::lenses(&path, &text))
+            })();
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
+        }
+
+        // Where the count is paid, for the one lens the editor is about to
+        // draw. The whole repository, for the reason `references` needs it: a
+        // name is used wherever it is imported.
+        ("codeLens/resolve", Some(id)) => {
+            let result = (|| {
+                let path = params.at("data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
+                let text = state.text_of(&path)?;
+                let root = state.root_of(&path)?;
+                let analyzed = state.analyze_workspace(&root)?;
+                Some(code_lens::resolve(&analyzed, &path, &text, &params))
+            })();
+            // A lens with nothing to resolve is still a legal answer to this
+            // request, and it is the lens itself.
+            vec![response(&id, result.unwrap_or_else(|| params.clone()))]
+        }
+
+        // The verbs. Each is a call into an entry point `buri` already has at
+        // the terminal, and the one that edits answers only once the client
+        // has written what it was sent.
+        ("workspace/executeCommand", Some(id)) => execute_command::execute(state, &id, &params),
+
         // The request exists for syntax that spells one name at both ends of a
         // construct — an opening tag and its closing one. Buri writes every
         // name once: an `impl Priced for Item { … }` closes with a brace. So
@@ -825,6 +878,7 @@ fn refreshes(state: &mut State) -> Vec<Value> {
     let families = [
         &mut state.refreshes.semantic_tokens,
         &mut state.refreshes.inlay_hints,
+        &mut state.refreshes.code_lenses,
     ];
     let mut out = Vec::new();
     for (family, (method, stem)) in families.into_iter().zip(REFRESH_FAMILIES) {
@@ -939,6 +993,26 @@ fn capabilities() -> Value {
                     "documentLinkProvider",
                     Value::object(vec![("resolveProvider", Value::Bool(false))]),
                 ),
+                // `resolveProvider: true` is the whole design of the reference
+                // lens: the full pass runs for every file scrolled through and
+                // the count costs a whole-repository analysis, so the count
+                // waits for the one lens an editor is about to draw.
+                (
+                    "codeLensProvider",
+                    Value::object(vec![("resolveProvider", Value::Bool(true))]),
+                ),
+                // Exactly the commands the server implements, and no more. A
+                // client may send only what is listed here, so a name in this
+                // list that nothing dispatches would be a promise nothing keeps.
+                (
+                    "executeCommandProvider",
+                    Value::object(vec![(
+                        "commands",
+                        Value::Array(
+                            execute_command::COMMANDS.iter().map(|c| Value::str(*c)).collect(),
+                        ),
+                    )]),
+                ),
                 ("documentFormattingProvider", Value::Bool(true)),
                 ("foldingRangeProvider", Value::Bool(true)),
                 ("selectionRangeProvider", Value::Bool(true)),
@@ -1029,11 +1103,27 @@ fn watcher_registration() -> Value {
 /// the client says so in an `error`, or the watcher is running. The folder
 /// question's reply is the list this server asked for, and adopting it is the
 /// whole point of asking.
+///
+/// An `applyEdit` reply is the one that produces a message of its own: the
+/// `workspace/executeCommand` that sent the edit has been waiting for it, and
+/// what the client says it did with the edit *is* that command's result. A
+/// client that refused the edit with an error rather than a result did not
+/// apply it, and saying so is a better answer than a silence the command's
+/// caller cannot tell from success.
 fn client_response(state: &mut State, msg: &Value) -> Vec<Value> {
-    if msg.get("id").and_then(|i| i.as_str()) == Some(FOLDERS) {
+    let id = msg.get("id").and_then(|i| i.as_str()).unwrap_or("");
+    if id == FOLDERS {
         for folder in folders(msg.get("result")) {
             state.add_root(&folder);
         }
+        return Vec::new();
+    }
+    if let Some(command) = state.applying.waiting.remove(id) {
+        let applied = msg
+            .get("result")
+            .cloned()
+            .unwrap_or_else(|| Value::object(vec![("applied", Value::Bool(false))]));
+        return vec![response(&command, applied)];
     }
     Vec::new()
 }

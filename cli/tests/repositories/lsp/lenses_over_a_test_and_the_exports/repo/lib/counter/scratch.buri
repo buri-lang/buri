@@ -1,0 +1,7 @@
+// Not in `sources`, and it does not parse: `half`'s body is never closed, so
+// everything after it is swallowed into the expression the parser is still
+// waiting to finish. `whole` is written above it and gets its lens anyway,
+// which is what "a parse and nothing else" buys.
+export fn whole(n: I64): I64 { n }
+
+export fn half(n: I64): I64 { n /

@@ -1,0 +1,8 @@
+library {
+    sources: ["counter.buri"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/counter.buri"]
+    }
+}
