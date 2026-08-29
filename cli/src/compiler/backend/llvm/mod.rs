@@ -8,7 +8,8 @@
 //! must not require that.
 //!
 //! A toolchain built without this feature refuses a native `--release` build
-//! with a diagnostic naming the feature. It does not fall back to Cranelift —
+//! with a diagnostic naming the feature. It does not fall back to the debug
+//! backend —
 //! a `--release` build that silently produced different code depending on how
 //! the compiler happened to be installed is the same class of bug as an
 //! unpinned toolchain. The hazard that would normally follow, two `buri`
@@ -43,17 +44,16 @@
 //!
 //! # Two things this backend deliberately does not emit
 //!
-//!  * **`.buri_symbols`.** CODEGEN-CRANELIFT.md §5 has the debug backend emit a
-//!    sorted `(address, name)` array so `buri_rt_abort` can walk the
+//!  * **`.buri_symbols`.** CODEGEN-STENCIL.md §11 wants a sorted
+//!    `(address, name)` array so `buri_rt_abort` can walk the
 //!    frame-pointer chain and name the frames. It is a *debug* feature — the
 //!    same section says the escape hatch for release is DWARF, which
 //!    CODEGEN-LLVM.md §7 specifies for this backend — and this backend is
 //!    only ever selected for `--release`. There is also nothing to be in parity
-//!    with: the Cranelift backend lists the section in its header and does not
+//!    with: the debug backend lists the section as a gap of its own and does not
 //!    write one either.
 //!  * **Debug info.** CODEGEN-LLVM.md §7 specifies it and none is emitted yet,
-//!    which is the same gap `cranelift/mod.rs` and `stencil/mod.rs` record for
-//!    themselves.
+//!    which is the same gap `stencil/mod.rs` records for itself.
 //!
 //! Design: `design/native/CODEGEN-LLVM.md`, `BUILD-AND-WATCH.md` §2, §2.1.
 
@@ -239,7 +239,7 @@ fn root_of(program: &monomorphize::Program) -> Option<Root> {
 /// Which root this program has, with the function indices resolved.
 ///
 /// `monomorphize::ProgramRoots` already says there are exactly two cases, and
-/// `cranelift/mod.rs` names the same two for the same reason: a binary's `main`
+/// `stencil/mod.rs` names the same two for the same reason: a binary's `main`
 /// and a test binary's list of `test` blocks are two different entry points and
 /// only one of them exists in any program.
 enum Root {
@@ -305,9 +305,9 @@ fn emit_selected(
     let identity = Llvm.identity();
     // Both of these are functions of the whole program and of nothing the loop
     // varies, so they are taken once. Computing them per unit is what
-    // `design/PERFORMANCE.md` §6.4's first finding measured on the Cranelift
-    // side: work
-    // proportional to units × program, in a program that grows by adding units.
+    // `design/PERFORMANCE.md` §6.4's first finding measured on the native side:
+    // work proportional to units × program, in a program that grows by adding
+    // units.
     let by_unit = program.funcs_by_unit();
     let observed = emit::observe(program, opts.profile);
     let cycles = Rc::new(layout::Cycles::new(tables));
@@ -336,7 +336,8 @@ fn emit_selected(
         // `actions::objects_of` pairs this vector with `unit_hashes`, which has
         // a row per unit unconditionally, and a unit that was asked for and not
         // returned is reported there as "the backend emitted no object for unit
-        // `x`". Cranelift's loop is over the same list for the same reason.
+        // `x`". The debug backend's loop is over the same list for the same
+        // reason.
         let ctx = Context::create();
         let module_name = format!("{}{unit_name}", opts.unit_prefix);
         let mut emitter = emit::Unit::new(
@@ -372,9 +373,9 @@ fn emit_selected(
             diags.extend(emitter.diags.items);
             return Err(diags);
         }
-        // The verifier checks *our* IR rather than LLVM's, which is the same
-        // rule Cranelift's verifier is set by (CODEGEN-CRANELIFT.md §4): a
-        // developer build pays for the check and a user's build does not.
+        // The verifier checks *our* IR rather than LLVM's, under this
+        // repository's rule for a verifier: a developer build pays for the check
+        // and a user's build does not.
         if cfg!(debug_assertions) {
             if let Err(message) = emitter.module.verify() {
                 diags.push(

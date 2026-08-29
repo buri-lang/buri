@@ -19,8 +19,9 @@
 //!   moment the source list was dropped.
 //!
 //! Both backends generate the retain glue the same way they already generate
-//! the release glue (`cranelift/emit.rs`'s `Helper::ReleaseElems`), so this is a
-//! symmetric addition rather than a new mechanism.
+//! the release glue (`stencil/glue.rs`'s `Helper::Elems`,
+//! `llvm/emit.rs::release_elems_glue`), so this is a symmetric addition rather
+//! than a new mechanism.
 //!
 //! The pair is appended **after** the flattened Buri arguments and before the
 //! out-pointer, uniformly across every entry in this file, so the emitter is one
@@ -119,7 +120,7 @@ fn block(count: usize, stride: usize) -> BuriList {
 ///
 /// The `retain.is_none()` half is a *correctness* condition and not caution.
 /// A null `retain` is the backend saying the element type holds no counted
-/// references (`cranelift/emit.rs`'s `retain_glue`), and that is exactly what
+/// references (`llvm/emit.rs::retain_glue`), and that is exactly what
 /// makes both paths safe:
 ///
 ///  * **Path 1** writes over whatever those slots held. For a scalar element
@@ -127,7 +128,7 @@ fn block(count: usize, stride: usize) -> BuriList {
 ///    still owned, dropped without a `decref` — a leak.
 ///  * **Path 2** leaves `cap / stride` above the element count, and the
 ///    generated release glue for a `[T]` block walks **`cap / stride`
-///    elements** (`cranelift/helpers.rs`'s `release_elems`). For a scalar
+///    elements** (`stencil/glue.rs`'s `Helper::Elems`). For a scalar
 ///    element the extra slots are bytes nobody reads; for a counted one they
 ///    are uninitialized memory the drop glue would decref.
 ///
@@ -340,7 +341,7 @@ pub unsafe extern "C" fn buri_rt_list_slice(
 ///
 /// A separate entry rather than a `slice(0, n)` at the call site, because the
 /// emitter's one rule is "spread the Buri arguments, append the element pair,
-/// append the out-pointer" (`cranelift/runtime.rs`) and synthesising a missing
+/// append the out-pointer" (`stencil/runtime.rs`) and synthesising a missing
 /// argument would be a second rule for two entries.
 ///
 /// # Safety

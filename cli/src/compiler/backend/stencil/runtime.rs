@@ -3,8 +3,8 @@
 //!
 //! `cli/runtime/lib.rs`'s module comment is the contract, and
 //! `backend/runtime_table.rs` is the transcription of it that generated code
-//! is emitted against — shared with the Cranelift backend, which emits the
-//! same call from the same rows. That file's header carries the four shapes
+//! is emitted against — shared with the LLVM backend, which emits the same
+//! call from the same rows. That file's header carries the four shapes
 //! and the emission rule.
 //!
 //! What is different here is only where the arguments *are*: this backend's
@@ -21,17 +21,17 @@ use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 
 /// The table, and the shapes it is written in.
 ///
-/// `backend/runtime_table.rs` holds them, because Cranelift emits the same
-/// call from the same rows. They are re-exported here so that `runtime::` is
+/// `backend/runtime_table.rs` holds them, because the LLVM backend emits the
+/// same call from the same rows. They are re-exported here so that `runtime::` is
 /// still where this backend's emitter looks.
 pub use crate::compiler::backend::runtime_table::{entry, Entry, Extra, Ret, BURI_OK, ENTRIES};
 
 /// How an `Option<T>` is written, flattened out of `middle::layout` so that the
 /// emitter never learns which niche the layout chose.
 ///
-/// `cranelift/emit.rs::option_call` asks the layout the same four questions
-/// inline; this backend needs them as data because the store is a stencil and
-/// a stencil takes literals.
+/// A register-machine backend can ask the layout these four questions inline;
+/// this one needs them as data because the store is a stencil and a stencil
+/// takes literals.
 #[derive(Clone, Copy, Debug)]
 pub struct OptRepr {
     /// Byte offset of the discriminant, and its width; for a niche, the offset

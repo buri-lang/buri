@@ -559,3 +559,78 @@ fn every_reference_in_the_ebnf_resolves() {
         ebnf.productions.len()
     );
 }
+
+// ---------------------------------------------------------------------------
+// The removed backend leaves no dangling pointers
+// ---------------------------------------------------------------------------
+
+/// Every file under `dir` whose bytes are text this repository writes by hand
+/// or records as a golden, for the tests that read the tree itself.
+fn text_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    const KINDS: &[&str] =
+        &["rs", "c", "h", "md", "toml", "buri", "proto", "json", "jsonl", "txt", "sh", "js"];
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
+    entries.sort_by_key(std::fs::DirEntry::path);
+    for e in entries {
+        let p = e.path();
+        if p.is_dir() {
+            text_files(&p, out);
+        } else if p.extension().is_some_and(|x| KINDS.iter().any(|k| x == *k)) {
+            out.push(p);
+        }
+    }
+}
+
+/// No file under `cli/` names the backend that was removed on 2026-08-29,
+/// outside the allow-list below.
+///
+/// Its directory under `cli/src/compiler/backend/` and its document under
+/// `design/native/` are both gone (`design/native/CODEGEN-STENCIL.md` §13).
+/// Ninety-nine comments went on pointing at files inside them — a reader who
+/// follows one opens nothing — and nothing held the count down, so it could
+/// only grow. This is what holds it at the allow-list.
+///
+/// A comparison that has lost its subject is deleted; one that still has a
+/// surviving twin points at the twin, under `stencil/` or `llvm/`; a fact
+/// about the history is kept without the name. The history itself lives in
+/// `design/`, which is outside this walk, and so is `reference/`, which cites
+/// the upstream wasmtime tree rather than this one.
+#[test]
+fn the_removed_backend_is_not_cross_referenced() {
+    /// Every file allowed to name it, and why.
+    const ALLOWED: &[&str] = &[
+        // The backend's name is a term of the codegen key, and the test that
+        // pins that has to write down a name no toolchain answers to any more.
+        "cli/src/build/actions.rs",
+    ];
+
+    // Spelled in two pieces so this file is not its own first hit.
+    let needle = format!("crane{}", "lift");
+
+    let mut files = Vec::new();
+    text_files(&repo_root().join("cli"), &mut files);
+    assert!(files.len() > 500, "found {} files under cli/; the walk is broken", files.len());
+
+    let mut hits = 0;
+    for path in &files {
+        let rel = path.strip_prefix(repo_root()).unwrap_or(path).to_string_lossy().to_string();
+        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        for (n, line) in text.lines().enumerate() {
+            if !line.to_ascii_lowercase().contains(&needle) {
+                continue;
+            }
+            hits += 1;
+            assert!(
+                ALLOWED.contains(&rel.as_str()),
+                "{rel}:{} names the removed backend, and that file is not on the \
+                 allow-list {ALLOWED:?}. Say what is true now — the surviving \
+                 counterpart under `stencil/` or `llvm/`, or the claim without the \
+                 pointer — rather than citing a file the tree no longer has. \
+                 `design/native/CODEGEN-STENCIL.md` §13 is where the history lives.",
+                n + 1
+            );
+        }
+    }
+    eprintln!("removed-backend mentions under cli/: {hits}, all on the allow-list");
+}

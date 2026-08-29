@@ -332,7 +332,7 @@ impl<'a> Jit<'a> {
                 // `middle::closures` takes the environment as its first
                 // parameter, and a named function referenced as a value
                 // (`let f = identity<Int>`) does not.
-                // `cranelift/emit.rs::make_closure` builds the same two words.
+                // `llvm/emit.rs::make_closure` builds the same two words.
                 let d = st.at(*dest);
                 // How many parameters the closure's *type* declares is what
                 // separates the environment parameter from a value one: a
@@ -430,7 +430,7 @@ impl<'a> Jit<'a> {
             // "An element, with the bounds check already done" — every
             // emission site is guarded by a comparison against `ArrayLen` in a
             // dominating block (`middle/ir.rs`), so this is one indexed copy
-            // and nothing else. `cranelift/emit.rs::array_get` is the same
+            // and nothing else. A register-machine backend spells the same
             // three pieces; `eload` is the three of them as one stencil.
             Inst::ArrayGet { dest, array, index } => {
                 let Some((stride, w, _)) = self.array_elem(prog, code.ty_of(*array)) else {
@@ -451,8 +451,7 @@ impl<'a> Jit<'a> {
             // one — its header is at `ptr - 16` — so handing back an interior
             // pointer would make the next `decref` read a header that is not
             // one. Every element is retained on the way out, so the counts
-            // balance against the copy's own eventual release
-            // (`cranelift/emit.rs::array_slice`).
+            // balance against the copy's own eventual release.
             Inst::ArraySlice { dest, array, from } => {
                 let Some((stride, _, _)) = self.array_elem(prog, code.ty_of(*array)) else {
                     return self.unsupported("ArraySlice of a non-array".into());
@@ -494,8 +493,8 @@ impl<'a> Jit<'a> {
     /// `Inst::Structural` — the placeholder `middle::derives` leaves where it
     /// declined to generate a body.
     ///
-    /// `cranelift/emit.rs::structural` is the model, and it is narrower than the
-    /// name suggests: **only `Show` reaches a backend**, only at a *primitive*
+    /// `llvm/emit.rs::structural` is the twin, and it is narrower than the name
+    /// suggests: **only `Show` reaches a backend**, only at a *primitive*
     /// type, and only from a template hole — every structural `Eq`, `Cmp`,
     /// `Hash` and `ToJson` on a compound type has already become an
     /// `Inst::Call` to a generated function by the time lowering runs. So this
@@ -614,7 +613,7 @@ impl<'a> Jit<'a> {
     /// A **boxed** field: `middle::layout` puts a pointer where the field would
     /// be, for the field that would otherwise make the owner recursive
     /// (`Layouts::boxes`). So writing one is an allocation, a copy and a store
-    /// of the pointer — the shape `cranelift/emit.rs`'s `Site::Boxed` releases.
+    /// of the pointer — the shape `llvm/repr.rs`'s `Site::Boxed` releases.
     fn box_into(&mut self, st: &mut Fn2, dest: u32, src: u32, size: u32) {
         let (ptr, one) = (st.scratch, st.scratch + 8);
         self.imm_to(one, 1);
@@ -692,7 +691,7 @@ impl<'a> Jit<'a> {
     /// `Inst::IncRef` and `Inst::DecRef`: MEMORY.md §5.1's saturating increment
     /// and its decrement, over **every** counted block the value owns.
     ///
-    /// The walk is `cranelift/emit.rs::walk_rc`, all five of its site kinds. A
+    /// The walk covers all five site kinds `llvm/repr.rs`'s `Site` names. A
     /// missing release is a leak, and a leak that compiles is a wrong program
     /// that passes its tests: `cli/tests/native/runtime.rs` holds the toolchain
     /// to "every allocation is freed at exit", and a backend that quietly did
@@ -716,7 +715,7 @@ impl<'a> Jit<'a> {
     /// One value's counted blocks, in the order `middle::rc`'s classifier names
     /// them.
     ///
-    /// `depth` bounds the walk the same way `cranelift/emit.rs` bounds its own,
+    /// `depth` bounds the walk the same way `llvm/emit.rs` bounds its own,
     /// and [`Jit::walk_deep`] is what keeps it from being reached: a recursive
     /// type reaches itself through a **box**, which is a leaf here, and a deep
     /// non-recursive one goes out of line into its own glue.
@@ -752,8 +751,8 @@ impl<'a> Jit<'a> {
             // A closure's environment is a heap block holding its own release
             // function in the first word (`glue.rs`), which is what `Ty::Fn`
             // not recording what was captured forces:
-            // `cranelift/emit.rs::build_env` allocates the same shape and
-            // `rc_sites` counts the same word.
+            // `llvm/emit.rs::build_env` allocates the same shape and counts the
+            // same word.
             Repr::Closure => {
                 let glue = (!retain).then(|| self.helper(super::glue::Helper::EnvGlue));
                 self.rc_block(at + super::glue::ENV_WORD, retain, glue);
@@ -798,8 +797,8 @@ impl<'a> Jit<'a> {
     /// nothing else (`Lower::store_disc`, `rtcall::store_option_tag`), so every
     /// other byte of the payload area is whatever the frame last held. Walking
     /// it unguarded decremented a reference count at an address that was never
-    /// a pointer — `cranelift/emit.rs`'s `Site::Guarded` is the same test for
-    /// the same reason.
+    /// a pointer — `llvm/repr.rs`'s `Site::Guarded` is the same test for the
+    /// same reason.
     fn niche_rc(
         &mut self,
         st: &mut Fn2,
@@ -906,8 +905,8 @@ impl<'a> Jit<'a> {
     /// what made the walk run out of depth there. Going through here, an
     /// emitted body holds at most [`RC_INLINE`] levels of its own plus one call
     /// per deeper field, so the code is linear in the *distinct* types a
-    /// program holds. `cranelift/emit.rs::walk_or_call` is the same threshold
-    /// for the same reason.
+    /// program holds. `llvm/emit.rs`'s glue threshold is the same one for the
+    /// same reason.
     ///
     /// A `Str`, a `[T]` and a closure are one reference operation whatever the
     /// depth, so they never go out of line: the call would cost more than the
@@ -986,7 +985,7 @@ impl<'a> Jit<'a> {
     /// The answer is **memoised, and recorded before the descent**, which is
     /// what makes this terminate and what makes it linear in the *distinct*
     /// types a program holds rather than in the paths through them.
-    /// `cranelift/emit.rs::counted` is the same two lines for the same two
+    /// `llvm/emit.rs`'s classifier is the same two lines for the same two
     /// reasons: a type graph is a DAG whose nodes are revisited along every
     /// path, and a recursive type reaches itself.
     pub(crate) fn rc_counted(&mut self, ty: &Ty) -> bool {
@@ -1006,7 +1005,7 @@ impl<'a> Jit<'a> {
         match self.layouts_of(ty.clone()).repr {
             // The closure is here because its environment is a heap block this
             // backend allocates and counts (`glue.rs`), which is the same
-            // answer `cranelift/emit.rs::rc_sites` gives `Ty::Fn`.
+            // answer `llvm/repr.rs`'s site walk gives `Ty::Fn`.
             Repr::Str | Repr::List | Repr::Closure => true,
             Repr::Aggregate => {
                 let fields = field_types(self.tables, ty);
@@ -1263,7 +1262,7 @@ impl<'a> Jit<'a> {
         func: u32,
         args: &[ir::ValueId],
     ) {
-        // `cranelift/emit.rs::call`'s first act, for the same reason: the same
+        // Every backend's `call` does this first, for the same reason: the same
         // `list.*` key reaches a backend two ways — as an `Inst::CallIntrinsic`
         // where the front end spelled it inline, and as an `Inst::Call` to a
         // `Body::Runtime` function where it was a method — and the loop belongs
@@ -1282,7 +1281,7 @@ impl<'a> Jit<'a> {
                 }
             }
             // The archive boundary, **emitted here rather than called**, which
-            // is `cranelift/emit.rs::call`'s first act for the same reason.
+            // is every backend's first act at a `Body::Runtime` call.
             //
             // Called, `a.get(i)` costs two frames: the caller copies the `[T]`
             // and the index into the callee's parameter slots and branches; the
@@ -1347,9 +1346,8 @@ impl<'a> Jit<'a> {
         callee: ir::ValueId,
         args: &[ir::ValueId],
     ) {
-        // `cranelift/emit.rs::call_closure`: the environment is prepended to the
-        // argument list as a pointer, so the callee's frame is laid out for
-        // `[Ptr] ++ args`.
+        // The environment is prepended to the argument list as a pointer, so
+        // the callee's frame is laid out for `[Ptr] ++ args`.
         let base = st.frame.size;
         let mut at = 0u32;
         let mut rets = Vec::new();
@@ -1404,9 +1402,9 @@ impl<'a> Jit<'a> {
         match key {
             // A failed assertion is an abort, and the kind is what makes it
             // attributable (`cli/runtime/testing.rs`). Every one of these is
-            // the shape `cranelift/emit.rs` emits, symbol for symbol, because
-            // what `buri test` parses out of the process's output is the
-            // runtime's writing and not the backend's.
+            // the shape `llvm/emit.rs` emits, symbol for symbol, because what
+            // `buri test` parses out of the process's output is the runtime's
+            // writing and not the backend's.
             "testing_assert.report" => {
                 let ok = st.label();
                 let brkey = self.arm_key("br/f", "JIT_F");
@@ -1446,16 +1444,15 @@ impl<'a> Jit<'a> {
             // `failExpected<T, R>(kind, got): R` where the derive pass declined
             // to generate a `Show` at `T` — an opaque type — so there is
             // nothing to render `got` with and the kind is the whole of what
-            // makes the failure attributable. `cranelift/emit.rs`'s arm for the
-            // key is the same abort, and `middle/derives.rs` is what decides
-            // which of the two keys a `.Some`/`.Ok` assertion lowers to.
+            // makes the failure attributable. `llvm/emit.rs`'s arm for the key
+            // is the same abort, and `middle/derives.rs` is what decides which
+            // of the two keys a `.Some`/`.Ok` assertion lowers to.
             //
             // The destination is not written, for the reason
             // `failExpectedShown`'s is not: `buri_rt_abort_assert` does not
             // return, so every instruction the emitter lays down after this one
-            // is unreachable. Cranelift binds zeros there because its verifier
-            // requires every block parameter to be defined; a frame slot needs
-            // no such thing.
+            // is unreachable. A backend over a verified block-parameter IR
+            // binds zeros there; a frame slot needs no such thing.
             "testing_assert.failExpected" => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 if let Err(why) = self.c_call("buri_rt_abort_assert", st, &[kp, kl], &[], 0, "v") {
@@ -1487,7 +1484,7 @@ impl<'a> Jit<'a> {
             }
             // The test allocator is a **handle**, and `TestAlloc.allocate`
             // answers the byte count it was asked for. Both are
-            // `cranelift/emit.rs`'s arms exactly: `core/testing/context`'s
+            // `llvm/emit.rs`'s arms exactly: `core/testing/context`'s
             // `alloc` reads no state, so the handle is zero and the allocation
             // is the request.
             "testing_context.alloc" => {
@@ -1680,15 +1677,15 @@ impl<'a> Jit<'a> {
                     }
                 }
                 let newbr = true;
-                // (l) The total chain, ported from `cranelift::Lower::compare_chain`.
+                // (l) The total chain, ported from the removed backend's
+                // `compare_chain`.
                 // `middle::exhaustiveness` has proved the match total and this
                 // IR hands every `Switch` over with `default: None`, so once
                 // every other arm has been refused the tag *is* the last one:
                 // its test, and the `unreachable` behind the chain, are both
                 // dead. On the two-arm `Option` match that is 58% of the
-                // corpus's switches this halves the dispatch. The belt the
-                // Cranelift backend keeps under `Profile::defensive_aborts` is
-                // `STENCIL_OFF=tag` here.
+                // corpus's switches this halves the dispatch. The belt a
+                // defensive-abort profile would keep is `STENCIL_OFF=tag` here.
                 let total = default.is_none() && cases.len() > 1;
                 let last = cases.len() - 1;
                 for (ci, (k, tgt)) in cases.iter().enumerate() {
@@ -2210,8 +2207,8 @@ impl<'a> Jit<'a> {
                 // target's width after.
                 if let Some(to) = conversion_target(op) {
                     // An **aggregate** result is the whole of the test, and it
-                    // is the same one `cranelift/emit.rs::numeric` makes by
-                    // asking `Abi::register` before its `toChar` arm: an exact
+                    // is the same one `llvm/emit.rs::numeric` makes before its
+                    // `toChar` arm: an exact
                     // conversion answers the target type and an inexact one
                     // answers `Result<T, RangeError>` (SPEC 6.2.1), so the
                     // result's *shape* says which this is without a second
@@ -2259,8 +2256,8 @@ impl<'a> Jit<'a> {
                 }
                 // `Checked`, `Saturating`, `Wrapping`, `abs` and `signum`,
                 // which `core/num` declares without a body and every backend
-                // open-codes. `cranelift/emit.rs::numeric` is the model, and
-                // the bound each one checks is the **type's own range** — SPEC
+                // open-codes. `llvm/emit.rs::numeric` is the twin, and the
+                // bound each one checks is the **type's own range** — SPEC
                 // 6.2.2 and VALUE-MODEL.md §12 row 2.
                 if let Some(kind) = op.strip_prefix("checked") {
                     let ok = self.checked(prog, fi, st, prim, kind, p(0), p(1), ret0);
@@ -2418,8 +2415,8 @@ impl<'a> Jit<'a> {
             return;
         }
         // `str.format(ctx, s)` answers its last argument — the template has
-        // already been built by `str.concat` — and is `cranelift/emit.rs`'s
-        // arm exactly: three words copied, and **a count taken**, because the
+        // already been built by `str.concat` — and is `llvm/emit.rs`'s arm
+        // exactly: three words copied, and **a count taken**, because the
         // copy is a second name for one block rather than a second reference
         // to it, and without the retain the second drop is a double free.
         if key == "str.format" {
@@ -2592,8 +2589,8 @@ impl Jit<'_> {
     /// The `Eq`/`Ord`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
     /// `Char::toU32`. Answers whether it handled the key.
     ///
-    /// `cranelift/emit.rs::prim_trait` is the model, arm for arm — these are
-    /// four *language* answers and two backends must not give different ones.
+    /// `llvm/emit.rs` emits the same arms for the same keys — these are four
+    /// *language* answers and two backends must not give different ones.
     fn prim_trait(
         &mut self,
         prog: &ir::Program,
@@ -3039,8 +3036,8 @@ impl Jit<'_> {
         }
         // `signum`: zero, then one test per end. A `Float`'s answers are
         // `1.0`, `-1.0` and `0.0`, so a NaN — which is neither above nor
-        // below — answers zero, exactly as the two `select`s
-        // `cranelift/emit.rs` chains do.
+        // below — answers zero, exactly as the two `select`s `llvm/emit.rs`
+        // chains do.
         let (zero, one, minus) = if prim == Prim::F64 {
             (0u128, u128::from(1.0f64.to_bits()), u128::from((-1.0f64).to_bits()))
         } else if prim == Prim::F32 {
@@ -3133,7 +3130,7 @@ impl Jit<'_> {
     /// `derivePrimHash.<T>` — `(U64, T) -> U64`, the accumulator then the
     /// value.
     ///
-    /// `cranelift/emit.rs::hash_prim` is the model and the symbols are the same
+    /// `llvm/emit.rs::hash_prim` is the twin and the symbols are the same
     /// ones, because what a hash has to agree with is `runtime.js`'s: a `Char`
     /// is a one-character *string* on JavaScript, so an astral scalar is two
     /// mixes and the runtime owns that, and a `Float` hashes through the double
@@ -3313,7 +3310,7 @@ impl Jit<'_> {
             }
             // Float to integer rounds toward zero, and out of range is
             // undefined in C but not in this language: the shape needs the
-            // clamp `cranelift/emit.rs::cast` emits, and it is not here.
+            // clamp `llvm/emit.rs::float_to_int` emits, and it is not here.
             (true, false) => Err(format!("a conversion from `{}`", from.name())),
             (false, false) => {
                 let wide = st.scratch + super::rtcall::SPARE_WORD * 8;
@@ -3545,7 +3542,7 @@ fn bound_bits(prim: Prim, low: bool) -> Option<u64> {
 }
 
 /// `core/order`'s FNV-1a offset basis, which `order.buri:34` states and
-/// `cranelift/runtime.rs::hash::SEED` restates.
+/// `llvm/runtime.rs::HASH_SEED` restates.
 const HASH_SEED: u64 = 0x811c_9dc5;
 
 /// Which intrinsic keys this backend has a body for, asked ahead of emission.
