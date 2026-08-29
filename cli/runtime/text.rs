@@ -1,5 +1,7 @@
 //! `core/str`, natively: the whole of the surface `str.buri` declares without a
-//! body, minus the two the backends open-code.
+//! body, minus the ones the backends open-code — which is now `str.len` and
+//! `str.format` alone, because [`buri_rt_str_concat`] is here for the
+//! copy-and-patch backend to call (MEMORY.md §5.3).
 //!
 //! The arbiter of every answer here is `backend/js/runtime.js`'s `$str_*`
 //! (lines 666-849) and the conformance suite that pins it, not this file's own
@@ -37,8 +39,14 @@
 //! A `base` parameter is taken even where the body never reads it, so that the
 //! signature is `Arg::Str` three times over and can be checked against the IR
 //! mechanically rather than per entry.
+//!
+//! A `len` parameter arrives with VALUE-MODEL.md §3.1's ASCII flag masked off,
+//! because what an entry here is handed is a byte count. [`buri_rt_str_concat`]
+//! is the one exception and says why at its own definition.
 
-use crate::memory::{buri_rt_alloc, buri_rt_incref};
+use crate::memory::{
+    buri_rt_alloc, buri_rt_incref, buri_rt_unique_cap, BURI_RT_GROWTH_FLOOR,
+};
 use crate::value::{str_of, BuriList, BuriStr, BURI_RT_STR_ASCII, BURI_RT_STR_LEN_MASK};
 use crate::BURI_OK;
 
@@ -613,6 +621,126 @@ fn is_js_float_literal(t: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// `Alloc`-bounded, and MEMORY.md §5.3's reuse
+// ---------------------------------------------------------------------------
+
+/// `str.concat(self, ctx, other) -> Str`, with MEMORY.md §5.3's in-place
+/// growth.
+///
+/// The one entry in this file whose result is sometimes **not** a fresh block,
+/// and the counterpart of [`crate::list::buri_rt_list_concat`]'s `append_dest`
+/// for the other counted payload the language has.
+///
+/// # Why this is a runtime entry when the other backends open-code it
+///
+/// The LLVM backend emits the three paths below as instructions
+/// (`llvm/emit.rs`'s `concat`), because a `ccc` call would cost more than the
+/// sequence saves in a release build. The copy-and-patch backend has no way to
+/// emit them cheaply — a header load, two compares, three arms and a `memmove`
+/// are a dozen stencils and a block layout, against one `crt` stencil for a
+/// call — and a backend that always allocated where the other appends is a
+/// divergence in `core/alloc`'s observable `count` and `total`, not merely a
+/// missing optimisation. So the paths live here once and that backend calls
+/// them, which is the shape MEMORY.md §5.3 already gives `[T]` append.
+///
+/// # The three paths
+///
+///  1. **In place.** The left operand's block is uniquely owned and has room
+///     for the result past the start of the view. The right operand's bytes go
+///     at `ptr + len`, the block takes one more reference, and the answer is
+///     the same `base` and `ptr` with a longer length. Nothing is allocated
+///     and the left operand's own bytes are not copied.
+///  2. **Grown.** Uniquely owned but out of room: `max(n * 2, GROWTH_FLOOR)`
+///     bytes rather than exactly `n`, so the next concatenation in a chain
+///     takes path 1 and a fold that concatenates allocates O(log n) times.
+///  3. **Exact.** Shared, immortal, or a literal: exactly `n` bytes. A shared
+///     string is not the one being built, so it gets no speculative capacity.
+///
+/// [`buri_rt_unique_cap`]'s doc comment is the argument for why path 1 is
+/// unobservable, and there is no separate one to make here.
+///
+/// The capacity test allows for a view that starts inside its block, so what
+/// has to fit is `(ptr - base) + n`. The copy is `copy` rather than
+/// `copy_nonoverlapping`: where the right operand is a second view into this
+/// same block the two ranges can touch, and the weaker instruction removes the
+/// case from the argument instead of adding a test to it.
+///
+/// The lengths arrive **raw** — with VALUE-MODEL.md §3.1's ASCII flag still in
+/// bit 63 — rather than masked the way every other entry here takes one. The
+/// flag is an input to this operation and not a tag to be stripped: a
+/// concatenation is all-ASCII exactly when both halves are, so the answer's
+/// flag is the `and` of the two. `stencil/rtcall.rs`'s `str_concat` is the one
+/// caller and passes the words unmasked for that reason.
+///
+/// # Safety
+/// Each `(ptr, len)` pair is readable for its masked byte length; `a_base` is
+/// null or the live payload pointer of the block `a_ptr` points into; `out` is
+/// writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_str_concat(
+    a_base: *mut u8,
+    a_ptr: *const u8,
+    a_len: u64,
+    _b_base: *mut u8,
+    b_ptr: *const u8,
+    b_len: u64,
+    out: *mut BuriStr,
+) {
+    let la = (a_len & BURI_RT_STR_LEN_MASK) as usize;
+    let lb = (b_len & BURI_RT_STR_LEN_MASK) as usize;
+    let n = la.saturating_add(lb);
+    let ascii = a_len & b_len & BURI_RT_STR_ASCII;
+    if n == 0 {
+        // SAFETY: the caller promises a writable, aligned destination.
+        unsafe { out.write(BuriStr::empty()) };
+        return;
+    }
+    // SAFETY: the caller promises `a_base` is null or a live payload pointer.
+    if let Some(cap) = unsafe { buri_rt_unique_cap(a_base) } {
+        // The view may start inside the block, so the offset of its start is
+        // part of what has to fit.
+        let offset = (a_ptr as usize).saturating_sub(a_base as usize);
+        if offset.saturating_add(n) as u64 <= cap {
+            // SAFETY: the block has room for `offset + n` bytes, so the `lb`
+            // bytes at `a_ptr + la` are inside it; the ranges may touch, which
+            // is what `copy` allows.
+            unsafe {
+                std::ptr::copy(b_ptr, a_ptr.cast_mut().add(la), lb);
+                buri_rt_incref(a_base);
+                out.write(BuriStr { base: a_base, ptr: a_ptr, len: n as u64 | ascii });
+            }
+            return;
+        }
+        let block = buri_rt_alloc(grown(n as u64));
+        // SAFETY: a fresh block of at least `n` bytes, disjoint from both
+        // sources, and each source covers its own length.
+        unsafe {
+            std::ptr::copy_nonoverlapping(a_ptr, block, la);
+            std::ptr::copy_nonoverlapping(b_ptr, block.add(la), lb);
+            out.write(BuriStr { base: block, ptr: block, len: n as u64 | ascii });
+        }
+        return;
+    }
+    let block = buri_rt_alloc(n as u64);
+    // SAFETY: as above, with a block sized exactly to the result.
+    unsafe {
+        std::ptr::copy_nonoverlapping(a_ptr, block, la);
+        std::ptr::copy_nonoverlapping(b_ptr, block.add(la), lb);
+        out.write(BuriStr { base: block, ptr: block, len: n as u64 | ascii });
+    }
+}
+
+/// Path 2's size: doubling with MEMORY.md §5.3's floor.
+///
+/// `buri_rt_grown_capacity`'s `max(needed, old_cap * 2, floor)` is the `[T]`
+/// policy and this is not it — `llvm/emit.rs`'s `concat` doubles the *result*,
+/// and the two surviving backends have to allocate the same number of times
+/// for `core/alloc`'s counts to agree.
+fn grown(needed: u64) -> u64 {
+    needed.saturating_mul(2).max(BURI_RT_GROWTH_FLOOR)
+}
+
+// ---------------------------------------------------------------------------
 // `Alloc`-bounded: every result is a fresh block
 // ---------------------------------------------------------------------------
 
@@ -1123,5 +1251,95 @@ mod tests {
         assert_eq!(find(b"", b""), Some(0));
         assert_eq!(find(b"abc", b"c"), Some(2));
         assert_eq!(find(b"abc", b"d"), None);
+    }
+
+    /// One concatenation per step onto a uniquely-owned string reallocates
+    /// O(log n) times, and the bytes are right across every seam.
+    ///
+    /// MEMORY.md §5.3's growth policy, asserted where the policy lives. The
+    /// backend-side half — that the *call* is emitted at all — is
+    /// `cli/tests/native/stencil.rs`.
+    #[test]
+    fn a_unique_concat_appends_in_place() {
+        let mut acc = BuriStr::empty();
+        let (bp, bl) = borrowed("xy");
+        let mut allocations = 0u32;
+        for _ in 0..1000 {
+            let mut out = BuriStr::empty();
+            // SAFETY: `acc` is this test's only reference, and "xy" is live.
+            unsafe {
+                buri_rt_str_concat(acc.base, acc.ptr, acc.len, std::ptr::null_mut(), bp, bl, &raw mut out);
+                crate::memory::buri_rt_decref(acc.base, None);
+            }
+            if out.base != acc.base {
+                allocations += 1;
+            }
+            acc = out;
+        }
+        assert_eq!(acc.len & BURI_RT_STR_LEN_MASK, 2000);
+        assert_eq!(acc.len & BURI_RT_STR_ASCII, BURI_RT_STR_ASCII);
+        // SAFETY: the block holds the two thousand bytes just written.
+        assert!(unsafe { acc.bytes() }.iter().eq(b"xy".iter().cycle().take(2000)));
+        assert!(allocations <= 20, "a thousand concatenations allocated {allocations} times");
+        // SAFETY: the last reference.
+        unsafe { crate::memory::buri_rt_free(acc.base) };
+    }
+
+    /// A block a second value still holds is not one to write into: the count
+    /// is above one, so both concatenations copy and the shared string keeps
+    /// its own length.
+    #[test]
+    fn a_shared_concat_copies() {
+        let (sp, sl) = borrowed("abcd");
+        let mut base = BuriStr::empty();
+        // SAFETY: "abcd" is live for the length of the test.
+        unsafe {
+            buri_rt_str_concat(std::ptr::null_mut(), sp, sl, std::ptr::null_mut(), sp, sl, &raw mut base);
+            buri_rt_incref(base.base);
+        }
+        let (op, ol) = borrowed("-one");
+        let (tp, tl) = borrowed("-two");
+        let mut a = BuriStr::empty();
+        let mut b = BuriStr::empty();
+        // SAFETY: `base` holds two references, so neither call may append.
+        unsafe {
+            buri_rt_str_concat(base.base, base.ptr, base.len, std::ptr::null_mut(), op, ol, &raw mut a);
+            buri_rt_str_concat(base.base, base.ptr, base.len, std::ptr::null_mut(), tp, tl, &raw mut b);
+        }
+        assert_ne!(a.base, base.base, "a shared block took the in-place path");
+        assert_ne!(b.base, base.base, "a shared block took the in-place path");
+        // SAFETY: all three describe live blocks.
+        unsafe {
+            assert_eq!(base.bytes(), b"abcdabcd");
+            assert_eq!(a.bytes(), b"abcdabcd-one");
+            assert_eq!(b.bytes(), b"abcdabcd-two");
+            crate::memory::buri_rt_free(a.base);
+            crate::memory::buri_rt_free(b.base);
+            crate::memory::buri_rt_decref(base.base, None);
+            crate::memory::buri_rt_free(base.base);
+        }
+    }
+
+    /// The ASCII flag is the conjunction, and a view that starts inside its
+    /// block still has to fit the whole result.
+    #[test]
+    fn the_ascii_flag_is_the_conjunction_of_both_halves() {
+        let (ap, al) = borrowed("ab");
+        let (wp, wl) = borrowed("\u{1f600}");
+        let mut mixed = BuriStr::empty();
+        let mut plain = BuriStr::empty();
+        // SAFETY: both literals are live for the length of the test.
+        unsafe {
+            buri_rt_str_concat(std::ptr::null_mut(), ap, al, std::ptr::null_mut(), wp, wl, &raw mut mixed);
+            buri_rt_str_concat(std::ptr::null_mut(), ap, al, std::ptr::null_mut(), ap, al, &raw mut plain);
+        }
+        assert_eq!(mixed.len & BURI_RT_STR_ASCII, 0);
+        assert_eq!(plain.len & BURI_RT_STR_ASCII, BURI_RT_STR_ASCII);
+        // SAFETY: both are live blocks this test owns.
+        unsafe {
+            assert_eq!(mixed.bytes(), "ab\u{1f600}".as_bytes());
+            crate::memory::buri_rt_free(mixed.base);
+            crate::memory::buri_rt_free(plain.base);
+        }
     }
 }
