@@ -1,0 +1,22 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Nothing happens before a save that does not happen on `didSave`, and doing
+# the analysis twice would only make the save slower.
+{"jsonrpc": "2.0", "method": "textDocument/willSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "reason": 1}}
+# There is no setting: every `Flags` the server builds is the default one.
+{"jsonrpc": "2.0", "method": "workspace/didChangeConfiguration", "params": {"settings": {"buri": {"trace": "verbose"}}}}
+# A Buri module belongs to a target declared in a `BUILD.buri`, and a notebook
+# cell has no target. `notebookDocumentSync` is not advertised, so these never
+# arrive from a client that read the capabilities — and are dropped when they
+# do.
+{"jsonrpc": "2.0", "method": "notebookDocument/didOpen", "params": {"notebookDocument": {"uri": "file://<scratch>/notes.ipynb", "notebookType": "jupyter", "version": 1, "cells": []}, "cellTextDocuments": []}}
+{"jsonrpc": "2.0", "method": "notebookDocument/didChange", "params": {"notebookDocument": {"uri": "file://<scratch>/notes.ipynb", "version": 2}, "change": {}}}
+{"jsonrpc": "2.0", "method": "notebookDocument/didSave", "params": {"notebookDocument": {"uri": "file://<scratch>/notes.ipynb"}}}
+{"jsonrpc": "2.0", "method": "notebookDocument/didClose", "params": {"notebookDocument": {"uri": "file://<scratch>/notes.ipynb"}, "cellTextDocuments": []}}
+# What "ignored" has to mean, observably: the server is still there and the
+# next request is answered. A notification that had crashed it, or one that had
+# been replied to, would show up here.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

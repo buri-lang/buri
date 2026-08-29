@@ -1,0 +1,16 @@
+//! Three colours: two the server can compute and one it cannot.
+from "ui/style" import { Color };
+
+/// The brand colour, with the enum named the long way round.
+export let brand: Color = Color.Rgb(255, 128, 0);
+
+/// A scrim over the page, in the shorthand a `Color`-typed position allows.
+export fn overlay(): Color {
+    .Rgba(16, 32, 48, 0.5)
+}
+
+/// The one no swatch can be drawn for: the red channel is a parameter, so
+/// what the colour is worth is decided at run time.
+export fn shaded(red: Int): Color {
+    .Rgb(red, 0, 0)
+}
