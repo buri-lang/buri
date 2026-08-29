@@ -213,13 +213,50 @@ pub fn available_for(t: abi::StencilTarget) -> bool {
 /// front of it. Folding the second in here is what lets
 /// `tests/native/stencil.rs` ask one question instead of spelling out which hosts
 /// are which, and it is why that suite's guard is not a `cfg!(target_os =
-/// "macos")`.
+/// "macos")`. [`unavailable_reason`] is the same question with the reason
+/// attached, which is what a skipping suite prints.
 pub const AVAILABLE: bool = !MACOS_ARM64_BYTES.is_empty()
     && cfg!(all(target_os = "macos", target_arch = "aarch64"))
     || !LINUX_ARM64_BYTES.is_empty() && cfg!(all(target_os = "linux", target_arch = "aarch64"))
     || !LINUX_X86_64_BYTES.is_empty()
         && cfg!(all(target_os = "linux", target_arch = "x86_64"))
         && asm::AVAILABLE_X86_64;
+
+/// The stencil target this host *is*, or `None` where no library is built for
+/// one — x86-64 macOS is the only such host.
+pub fn host_stencil_target() -> Option<abi::StencilTarget> {
+    match (cfg!(target_os = "macos"), cfg!(target_arch = "aarch64")) {
+        (true, true) => Some(abi::StencilTarget::MacosArm64),
+        (true, false) => None,
+        (false, true) => Some(abi::StencilTarget::LinuxArm64),
+        (false, false) => Some(abi::StencilTarget::LinuxX86_64),
+    }
+}
+
+/// Why this host cannot build a runnable stencil program, or `None` where it
+/// can.
+///
+/// [`AVAILABLE`] as a sentence, and the one a test suite prints when it skips.
+/// A suite that asked `cfg!(target_arch)` for itself would have to be edited
+/// the day the missing half lands; one that asks here lights up instead.
+pub fn unavailable_reason() -> Option<String> {
+    if AVAILABLE {
+        return None;
+    }
+    let Some(host) = host_stencil_target() else {
+        return Some(String::from("stencil has no x86_64-apple-darwin backend yet"));
+    };
+    if !available_for(host) {
+        return Some(format!(
+            "this toolchain was built without {} stencils, so there is no stencil library \
+             for the host to run",
+            host.slug()
+        ));
+    }
+    // The library is there and the entry point is not, which is the x86-64
+    // position: `asm.rs` has no SysV shim to put in front of the stencils.
+    Some(format!("stencil has no {} backend yet", host.triple()))
+}
 
 /// The decoded library for one target, once per process.
 ///
@@ -792,15 +829,19 @@ mod tests {
     #[test]
     fn availability_on_this_host_implies_a_library_and_an_entry_point() {
         if AVAILABLE {
-            let host = if cfg!(target_os = "macos") {
-                abi::StencilTarget::MacosArm64
-            } else if cfg!(target_arch = "aarch64") {
-                abi::StencilTarget::LinuxArm64
-            } else {
-                abi::StencilTarget::LinuxX86_64
-            };
+            let host = host_stencil_target().expect("an available host has a stencil target");
             assert!(available_for(host), "{} is available with no library", host.slug());
             assert!(host.is_arm64() || asm::AVAILABLE_X86_64);
+        }
+    }
+
+    /// The sentence and the flag are one question, and a skip that printed
+    /// nothing would be the silent pass the test suites are guarding against.
+    #[test]
+    fn the_unavailable_reason_is_present_exactly_when_the_backend_is_not() {
+        assert_eq!(AVAILABLE, unavailable_reason().is_none());
+        if let Some(why) = unavailable_reason() {
+            assert!(!why.is_empty());
         }
     }
 
