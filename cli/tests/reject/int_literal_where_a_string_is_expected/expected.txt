@@ -1,0 +1,30 @@
+error: expected `Str`, found an integer literal [type-mismatch]
+ --> cmd/int_literal_where_a_string_is_expected/main.buri:7:20
+  |
+7 |   let myStr: Str = 1;
+  |                    ^ the annotation is `Str`
+  |
+  = expected: `Str`
+  = actual: an integer literal
+  = an integer literal takes any integer type, and `Str` is not one
+  = fix: produce a `Str` here, or change what surrounds it to accept an integer literal
+
+    What to do
+    ──────────
+
+    Convert explicitly. The diagnostic names the conversion: .toI64() is exact
+    for every I32, while a narrowing one returns a Result because not every
+    value fits.
+
+    Where one side is a numeric literal, there is nothing to convert: a literal
+    has no type until something pins it, so the edit is an annotation — let x:
+    F64 = 1.0 — or writing the literal in the other kind.
+
+    Why
+    ───
+
+    No promotion of any kind, in either direction. A language that widened
+    silently would make the width of an arithmetic result a property of the
+    expression's shape rather than of what was written, and the one place it
+    matters is the one place nobody looks.
+

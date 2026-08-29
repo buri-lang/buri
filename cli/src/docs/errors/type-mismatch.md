@@ -1,6 +1,6 @@
 ---
 title: There are no implicit conversions
-message: expected `{expected}`, found `{found}`
+message: expected {expected}, found {found}
 ---
 # There are no implicit conversions
 
@@ -13,6 +13,10 @@ error: expected `I64`, found `I32` [type-mismatch]
 Convert explicitly. The diagnostic names the conversion: `.toI64()` is exact
 for every `I32`, while a narrowing one returns a `Result` because not every
 value fits.
+
+Where one side is a numeric literal, there is nothing to convert: a literal has
+no type until something pins it, so the edit is an annotation — `let x: F64 =
+1.0` — or writing the literal in the other kind.
 
 ## Why
 
