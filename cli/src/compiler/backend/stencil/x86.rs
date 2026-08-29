@@ -45,11 +45,14 @@
               ModRM, the opcode and the REX prefix that must precede it — \
               three, two and one — and each is guarded by the `off >= 3` test \
               that precedes it, so none can wrap. Every result is offered to \
-              `.get` rather than trusted"
+              `.get` rather than trusted. The additions are over one stencil's \
+              spilled constants, whose length is a section already read out of \
+              the same object and whose addend was range-checked before any \
+              of them"
 )]
 
 use super::elfobj as elf;
-use super::library::{Hole, HoleKind, Site, SiteKind, Stencil};
+use super::library::{ConstRef, Hole, HoleKind, Site, SiteKind, Stencil};
 
 /// `jmp rel32`.
 const JMP_REL32: u8 = 0xe9;
@@ -129,6 +132,67 @@ pub fn extract_elf_x86(obj: &elf::Obj) -> Result<(Vec<Stencil>, Vec<Dropped>), S
     Ok((out, dropped))
 }
 
+/// The read-only bytes one stencil reads, as they are collected.
+///
+/// A section is copied **whole** rather than sliced at the symbol: the size of
+/// a datum in a constant pool is not something its symbol records, and the
+/// sections clang produces here are a few dozen bytes.
+#[derive(Default)]
+struct Spilled {
+    bytes: Vec<u8>,
+    align: u32,
+    /// Where each section already copied begins in `bytes`, by section index.
+    at: Vec<(u16, u32)>,
+}
+
+/// Copies the section a spilled reference names, and answers the datum's offset
+/// within [`Spilled::bytes`].
+///
+/// The psABI computes a pc-relative kind as `S + A - P` and the processor adds
+/// that to the address of the **next** instruction, so an addend that is the
+/// negated distance from the field to that address makes the reference resolve
+/// to `S` exactly. `S` is the section's base plus `st_value`, which is why the
+/// offset answered here is `st_value` and the bytes are the whole section.
+fn spilled(
+    consts: &mut Spilled,
+    sname: &str,
+    obj: &elf::Obj,
+    sym: &elf::Sym,
+    addend: i64,
+) -> Result<u32, Refusal> {
+    let named = if sym.name.is_empty() { "an unnamed section constant" } else { &sym.name };
+    if !(WIDEST_ADDEND..=PCREL_ADDEND).contains(&addend) {
+        return Err(Refusal::Drop(format!(
+            "it reaches {named} with addend {addend}, which is not a distance to an \
+             instruction's end"
+        )));
+    }
+    let Some(section) = obj.other_sections.iter().find(|o| o.index == sym.sect) else {
+        return Err(Refusal::Drop(format!(
+            "it reaches {named} in section {}, for which this reader carries no bytes",
+            sym.sect
+        )));
+    };
+    if section.data.is_empty() {
+        return Err(Refusal::Drop(format!("it reaches {named}, in a section with no bytes")));
+    }
+    if let Some((_, at)) = consts.at.iter().find(|(i, _)| *i == sym.sect) {
+        return Ok(at + u32::try_from(sym.value).unwrap_or(0));
+    }
+    // An SSE constant asks for sixteen, and reading one at less is a fault
+    // rather than a slowdown, so the alignment is carried and not assumed.
+    let align = u32::try_from(section.align.max(1)).unwrap_or(16);
+    consts.align = consts.align.max(align);
+    while !consts.bytes.len().is_multiple_of(align as usize) {
+        consts.bytes.push(0);
+    }
+    let base = u32::try_from(consts.bytes.len())
+        .map_err(|_| Refusal::Fatal(format!("{sname}: spilled constants past 4 GiB")))?;
+    consts.bytes.extend_from_slice(&section.data);
+    consts.at.push((sym.sect, base));
+    Ok(base + u32::try_from(sym.value).unwrap_or(0))
+}
+
 /// Which of a branch hole's two lists a site belongs in.
 enum Branch {
     /// `jmp`/`call`: `Hole::branches`.
@@ -156,6 +220,8 @@ fn one(
     end: usize,
 ) -> Result<Stencil, Refusal> {
     let mut holes: Vec<Hole> = Vec::new();
+    let mut consts = Spilled::default();
+    let mut const_refs: Vec<ConstRef> = Vec::new();
     for r in obj.text_relocs.iter().filter(|r| (r.addr as usize) >= start && (r.addr as usize) < end)
     {
         let off = r.addr - start as u32;
@@ -164,18 +230,21 @@ fn one(
         })?;
 
         // A relocation against a symbol this object *defines* is not a hole: it
-        // is a reference to a constant clang spilled, and there is no hole to
-        // put the constant in. The one family that does it is the unsigned
-        // 64-bit to floating-point conversions, which on x86-64 need a pair of
-        // SSE bias constants where AArch64 has `ucvtf`. Those keys are dropped
-        // and the emitter refuses the conversions; every other stencil in the
-        // shard is unaffected.
+        // is a reference to a constant clang spilled, and there is nothing to
+        // patch into it. Three families do it, and all three are cases where
+        // AArch64 has an instruction and x86-64 has a constant — `fneg` against
+        // an `xorps` with a sign mask, `ucvtf` against the two-bias `unsigned
+        // long long` to `double` sequence, and the 128-bit divide's zero check.
+        //
+        // The bytes travel with the stencil and the emitter copies them into
+        // the unit's own constant pool (`jit.rs::spilled_pool`), which is what
+        // the linker would have done with clang's `.rodata`. Nothing is dropped
+        // and no instruction is rewritten, so these keys are as faithful as
+        // every other one.
         if sym.defined {
-            return Err(Refusal::Drop(format!(
-                "it reaches {}, a constant clang spilled into another section; \
-                 x86-64 has no hole for it",
-                if sym.name.is_empty() { "an unnamed section constant" } else { &sym.name }
-            )));
+            let at = spilled(&mut consts, sname, obj, sym, r.addend)?;
+            const_refs.push(ConstRef { field: off, insn_end: off + (-r.addend) as u32, at });
+            continue;
         }
 
         if r.addend > PCREL_ADDEND || r.addend < WIDEST_ADDEND {
@@ -362,7 +431,18 @@ fn one(
         None
     };
 
-    Ok(Stencil { name: String::from(sname), code, holes, tail })
+    // Sorted for the same reason the sites are: two builds of the same C must
+    // produce the same library bytes.
+    const_refs.sort_by_key(|c| c.field);
+    Ok(Stencil {
+        name: String::from(sname),
+        code,
+        holes,
+        consts: consts.bytes,
+        consts_align: consts.align,
+        const_refs,
+        tail,
+    })
 }
 
 #[cfg(test)]

@@ -547,6 +547,7 @@ cannot reach yet gets a gap test naming the missing intrinsic *and* an
 `#[ignore]`d agreement test beside it, so neither can rot alone. It skips with a
 printed reason where `native_ready` is false or no JavaScript engine is on the
 path, and compiles to nothing with `--no-default-features`. A backend with no
-seat on this *host* — stencil on x86-64, which has a library and no entry point
-— is left out of the row by name and by reason, which comes from
-`stencil::unavailable_reason` so that the rows light up the day the seat lands.
+seat on this *host* — stencil on a machine whose `cc` built no library, or on
+macOS x86-64, which none is built for — is left out of the row by name and by
+reason, which comes from `stencil::unavailable_reason` so that the rows light up
+the day the seat lands.
