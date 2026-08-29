@@ -21,5 +21,8 @@
 {"jsonrpc": "2.0", "id": 9, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 22, "character": 22}}}
 # And it follows an import path, as definition does.
 {"jsonrpc": "2.0", "id": 10, "method": "textDocument/declaration", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 0, "character": 10}}}
-{"jsonrpc": "2.0", "id": 11, "method": "shutdown"}
+# And the same pair at the other position: `declaration` and `definition` are
+# the same answer because Buri has one place, and one pair could be luck.
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 0, "character": 10}}}
+{"jsonrpc": "2.0", "id": 12, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

@@ -1,2 +1,2 @@
-from "//lib/shop/catalog" export { Item, Stock, Priced, listing, defaultPrice };
+from "//lib/shop/catalog" export { Item, Stock, Priced, listing, defaultPrice, stocked };
 from "//lib/shop/cart" export { subtotal, ticket, sample };

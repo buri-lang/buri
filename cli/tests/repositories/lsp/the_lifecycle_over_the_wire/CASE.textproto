@@ -1,0 +1,38 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the lifecycle as a client can get it wrong: a second initialize, a request that arrives before the first one, a request after shutdown, and an exit nobody asked to shut down for — the wire shape of each, and the exit code"
+
+# Four sessions rather than four requests: each of these ends the server in a
+# state the next one has to start over from.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session_twice.jsonl"
+  stream: OUT
+  golden: "twice.txt"
+}
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session_too_early.jsonl"
+  stream: OUT
+  golden: "too_early.txt"
+}
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session_after_shutdown.jsonl"
+  stream: OUT
+  golden: "after_shutdown.txt"
+}
+
+run {
+  args: ["lsp"]
+  exit: 1
+  stdin: "session_no_shutdown.jsonl"
+  stream: OUT
+  golden: "no_shutdown.txt"
+}

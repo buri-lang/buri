@@ -1,0 +1,22 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# No `resolveSupport` in the capabilities, so every action carries its edit in
+# the list — which is what puts all three edits in this golden.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# `unused-library`: a file on disk that no rule lists. The fix is the whole
+# build file as `buri gen` writes it, with the file added in sorted order.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/one.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "unused-library", "message": "lib/one/extra.buri belongs to no library or binary, so nothing builds it", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
+# `duplicate-source`: the same file listed twice. The same fix, from the same
+# generator — which is why one action answers both codes.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/two/two.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "duplicate-source", "message": "two.buri is listed by two rules", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
+# The other half: a finding that already knows its bytes. No `buri gen`, no
+# build file — the edit is the lint's own, and it takes the whole line because
+# every name in the statement is unused.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/two/two.buri"}, "range": {"start": {"line": 0, "character": 26}, "end": {"line": 0, "character": 29}}, "context": {"diagnostics": [{"code": "unused-import", "message": "Ord is imported but not used", "range": {"start": {"line": 0, "character": 26}, "end": {"line": 0, "character": 29}}}]}}}
+# The client accepts it and writes the file.
+!apply 4
+# And asks again. The finding it fixed is gone, so there is no action to offer
+# — which is the assertion the edit was the right one.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/two/two.buri"}, "range": {"start": {"line": 0, "character": 26}, "end": {"line": 0, "character": 29}}, "context": {"diagnostics": [{"code": "unused-import", "message": "Ord is imported but not used", "range": {"start": {"line": 0, "character": 26}, "end": {"line": 0, "character": 29}}}]}}}
+{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

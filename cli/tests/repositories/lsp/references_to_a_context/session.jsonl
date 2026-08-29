@@ -1,0 +1,21 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# From the declaration, with it: the name it was declared under and the two
+# places `main` builds one.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 4, "character": 10}, "context": {"includeDeclaration": true}}}
+# From a use, without it: the same list minus the declaration. Which end the
+# question is asked from is not a different question.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 10, "character": 14}, "context": {"includeDeclaration": false}}}
+# Hover at the declaration. This used to answer `fn Program(): a context` — the
+# constructor the compiler generates, which shares the name's span and is not
+# what anybody wrote.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 4, "character": 10}}}
+# Hover at a use, which always said the context, with the `///` above it.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 12, "character": 15}}}
+# Definition from the second use lands on the declaration's name.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 12, "character": 15}}}
+# The highlights, which read the same scan: three occurrences in this file.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/documentHighlight", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 4, "character": 10}}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -1,0 +1,3 @@
+/// A file on disk that `lib/one/BUILD.buri` lists in no rule, so nothing ever
+/// builds it.
+export fn extra(): I64 { 2 }

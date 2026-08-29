@@ -36,3 +36,11 @@ export let defaultPrice: I64 = 100;
 export fn listing(name: Str, price: I64): Item {
   Item { name: name, price: price, stock: Stock.Out }
 }
+
+/// How many of a thing there are, counted by position rather than by a name.
+export struct Tally(export I64);
+
+/// What a tally counts.
+export fn counted(t: Tally): I64 {
+  t.0
+}

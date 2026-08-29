@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a position is two numbers a client sent: past the end of the file, past the end of the line, inside a surrogate pair, negative, and the largest number the protocol can spell — and the params that are not positions at all. adversarial.rs drives the same session for liveness; this one writes down what each of them answers"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

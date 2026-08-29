@@ -25,5 +25,12 @@
 # A field. The parameter written beside it in `listing` is a different name and
 # keeps its spelling.
 {"jsonrpc": "2.0", "id": 11, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 15, "character": 10}, "newName": "amount"}}
-{"jsonrpc": "2.0", "id": 12, "method": "shutdown"}
+# A tuple field, which is named by its position: `0` is a name the source
+# never wrote, so there is nothing to put a new one in place of. The fifth and
+# last reason a rename is refused.
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 44, "character": 4}, "newName": "amount"}}
+# And the same position asked the other way: nothing to offer, so nothing is
+# offered.
+{"jsonrpc": "2.0", "id": 13, "method": "textDocument/prepareRename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 44, "character": 4}}}
+{"jsonrpc": "2.0", "id": 14, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

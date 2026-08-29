@@ -36,3 +36,9 @@ export let defaultPrice: I64 = 100;
 export fn listing(name: Str, price: I64): Item {
   Item { name: name, price: price, stock: Stock.Out }
 }
+
+/// A shelf with some of a thing on it. The `count:` here is the field's name,
+/// and the `count` after it is the parameter.
+export fn stocked(count: I64): Stock {
+  Stock.OnHand { count: count }
+}

@@ -1,0 +1,52 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# The same session `adversarial.rs` drives for liveness, with every answer
+# written down: what a made-up position returns is a decision, and a test
+# that only asks whether the process is still alive pins none of it.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# `café 🙂` puts a two-byte and a four-byte character on line 1, so character
+# 13 is inside the surrogate pair the protocol counts the emoji as.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri", "languageId": "buri", "version": 1, "text": "export fn main(): Result<(), Str> {\n  let s = \"café 🙂\";\n  .Err(s)\n}\n"}}}
+# The largest number the protocol can spell, on both axes.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 4294967295, "character": 4294967295}}}
+# Inside the emoji's surrogate pair: a character offset that is not a
+# character boundary.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 1, "character": 13}}}
+# Negative, which the protocol has no way to mean.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": -5, "character": -9}}}
+# A line the file does not have.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 999999, "character": 0}}}
+# Past the end of a line that exists.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 1, "character": 4294967295}}}
+# And one real position, so the golden shows the session still answering.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 0, "character": 0}}}
+# Every other request that takes a position, on the split character and on
+# lines the file does not have.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 1, "character": 4294967295}}}
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/declaration", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 1, "character": 13}}}
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/documentHighlight", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 1, "character": 13}}}
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 999999, "character": 999999}}}
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 1, "character": 13}}}
+{"jsonrpc": "2.0", "id": 13, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 4294967295, "character": 0}}}
+{"jsonrpc": "2.0", "id": 14, "method": "textDocument/prepareRename", "params": {"textDocument": {"uri": "file://<scratch>/app/main.buri"}, "position": {"line": 1, "character": 13}}}
+# A document nobody opened, a URI that is not one, and params of the wrong
+# shape entirely.
+{"jsonrpc":"2.0","id":20,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///nowhere/x.buri"},"position":{"line":0,"character":0}}}
+{"jsonrpc":"2.0","id":21,"method":"textDocument/hover","params":{"textDocument":{"uri":"file://%zz%"},"position":{"line":0,"character":0}}}
+{"jsonrpc":"2.0","id":22,"method":"textDocument/hover","params":{}}
+{"jsonrpc":"2.0","id":23,"method":"textDocument/hover"}
+{"jsonrpc":"2.0","id":24,"method":"textDocument/hover","params":{"textDocument":{"uri":42},"position":"nope"}}
+# A method that does not exist is the protocol's own refusal, with the name
+# in the message.
+{"jsonrpc":"2.0","id":25,"method":"nonsense/method","params":{}}
+# The requests whose params are not only a position: a rename with no new
+# name and one whose new name is not a name, a selection range whose positions
+# are not positions, and a query that is not a string.
+{"jsonrpc":"2.0","id":30,"method":"textDocument/rename","params":{"textDocument":{"uri":"file://<scratch>/app/main.buri"},"position":{"line":0,"character":10}}}
+{"jsonrpc":"2.0","id":31,"method":"textDocument/rename","params":{"textDocument":{"uri":"file://<scratch>/app/main.buri"},"position":{"line":0,"character":10},"newName":"  "}}
+{"jsonrpc":"2.0","id":32,"method":"textDocument/selectionRange","params":{"textDocument":{"uri":"file://<scratch>/app/main.buri"},"positions":[1,"x",{}]}}
+{"jsonrpc":"2.0","id":33,"method":"textDocument/foldingRange","params":{"textDocument":{"uri":"file://<scratch>/app/main.buri"}}}
+{"jsonrpc":"2.0","id":34,"method":"workspace/symbol","params":{"query":7}}
+{"jsonrpc":"2.0","id":35,"method":"workspace/symbol","params":{}}
+{"jsonrpc":"2.0","id":26,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

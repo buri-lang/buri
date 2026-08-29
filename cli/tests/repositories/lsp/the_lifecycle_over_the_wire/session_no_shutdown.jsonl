@@ -1,0 +1,7 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# `exit` with no `shutdown` before it is the protocol's way of saying the
+# client died, and the exit code is 1 — the run block above is where that is
+# pinned, because an exit code is not something the stream carries.
+{"jsonrpc": "2.0", "method": "exit"}

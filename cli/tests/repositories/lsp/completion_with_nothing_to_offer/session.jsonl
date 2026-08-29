@@ -1,0 +1,28 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# First, the asymmetry — pinned rather than left to be discovered. A clause
+# prefix does *not* shorten the list: every export comes back with a `textEdit`
+# over the letters typed so far, and that range is what the client filters
+# against. `Zz` matches none of them and the client shows none. The path half
+# below filters on the server instead, because a module path is not a word a
+# client can filter on its own.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/money/cents\" import { Zz"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/lib.buri"}, "position": {"line": 0, "character": 36}}}
+# A path prefix no module starts with.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "from \"core/zzz"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 14}}}
+# Ordinary code, and a quote nobody closed inside it. An odd number of quotes
+# before the cursor means the cursor is in a string — but the line does not
+# begin with `from`, so it is a literal being typed and not a path.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "export fn total(count: I64): I64 {\n    let label = \"each;\n    count\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 1, "character": 22}}}
+# The cursor in a body, with nothing around it to complete. Completion is the
+# two places that need no type information, and this is neither.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 2, "character": 8}}}
+# An import clause for a module that does not exist. There is nothing to list
+# and nothing to say about it — the missing module is a diagnostic's business.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 3}, "contentChanges": [{"text": "from \"core/nowhere\" import { "}]}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 29}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

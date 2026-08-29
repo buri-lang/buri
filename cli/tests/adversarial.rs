@@ -485,6 +485,13 @@ fn an_absurd_content_length_is_refused_rather_than_allocated() {
 /// A position is two numbers a client sent. Past the end of the file, past the
 /// end of the line, inside a multi-byte character, and the largest number the
 /// protocol can spell are all things an editor can ask about.
+///
+/// This asks only whether the server survived them. What each one *answers* is
+/// pinned by the golden session
+/// `cli/tests/repositories/lsp/a_position_the_client_made_up`, which drives the
+/// same requests — the two are deliberately separate, because a crash and a
+/// wrong answer are different failures and a test that mixed them would report
+/// one as the other.
 #[test]
 fn a_position_the_client_made_up_is_answered_rather_than_indexed() {
     let s = app("adversarial-lsp-positions");
