@@ -101,11 +101,17 @@
 //! row parity, which is what makes it a debug backend a build could be handed.
 //! Where two backends compile a row they have never disagreed.
 //!
+//! A backend compiled in is not yet a backend this *host* can run: stencil has
+//! an x86-64 library and no entry point to put in front of it, so on that host
+//! it is left out by [`natives`] with a printed reason rather than asked and
+//! failed. The question is the backend's own — `stencil::unavailable_reason` —
+//! so these rows light up with no edit here the day the entry point lands.
+//!
 //! With `--no-default-features` there is no native backend, and `main.rs`
-//! does not declare this module at all. With one but no runtime archive,
-//! no `cc`, or no
-//! JavaScript engine, every test returns early with a printed reason:
-//! `native_ready` is the same gate `buri build` uses.
+//! does not declare this module at all. With one but no runtime archive, no
+//! `cc`, no JavaScript engine, or no backend with a seat on this host, every
+//! test returns early with a printed reason: `native_ready` is the same gate
+//! `buri build` uses.
 //!
 //! # What is not here, and why
 //!
@@ -239,18 +245,63 @@ fn engine() -> Option<String> {
     })
 }
 
+/// Why one backend cannot run a program on this host, or `None`.
+///
+/// The backend's own availability query rather than a `cfg!` here: stencil has
+/// a library for x86-64 and no entry point to put in front of it, so it refuses
+/// every row on that host, and asking it lets these rows light up with no edit
+/// the day the entry point lands.
+fn backend_unavailable(native: Native) -> Option<String> {
+    #[cfg(feature = "backend-stencil")]
+    if native.name == "stencil" {
+        return backend::stencil::unavailable_reason();
+    }
+    let _ = native;
+    None
+}
+
+/// The backends that can answer here, with a printed line naming each one that
+/// cannot.
+///
+/// A backend with no host seat is left out *before* it is asked, because its
+/// refusal is a fact about the host rather than about the row — and it is named
+/// rather than dropped, so a column that stopped running says so.
+fn natives(row: &str) -> Vec<Native> {
+    let mut usable = Vec::new();
+    for native in NATIVES {
+        match backend_unavailable(*native) {
+            Some(why) => {
+                eprintln!("backend agreement: {row} not asked of `{}` ({why})", native.name)
+            }
+            None => usable.push(*native),
+        }
+    }
+    usable
+}
+
 /// Why this host cannot answer a row, or `None`.
 ///
 /// `native_ready` is the build system's own three questions — a backend
 /// compiled in, a runtime archive built, a linker present — asked at
 /// `Debug` because what it is really asking about is the host, and the
 /// release arm is exactly the one `select` still refuses.
+///
+/// The last question is per backend: a binary whose every native backend is
+/// unavailable here would compare JavaScript against nothing, which is the
+/// silent pass this file exists to not be.
 fn skip_reason() -> Option<String> {
     if !actions::native_ready(host_target(), Profile::Debug) {
         return Some(String::from("`native_ready` is false on this host"));
     }
     if engine().is_none() {
         return Some(String::from("no JavaScript engine on PATH"));
+    }
+    let unavailable: Vec<String> = NATIVES
+        .iter()
+        .filter_map(|n| backend_unavailable(*n).map(|why| format!("`{}`: {why}", n.name)))
+        .collect();
+    if unavailable.len() == NATIVES.len() {
+        return Some(unavailable.join("; "));
     }
     None
 }
@@ -512,9 +563,9 @@ fn run_native(row: &str, native: Native, checked: &Checked, paths: &[String]) ->
 fn both(row: &str, source: &str) -> (Ran, Vec<(&'static str, Ran)>) {
     let (checked, paths) = analyze(row, source);
     let js = run_js(row, &checked, &paths);
-    let natives = NATIVES
-        .iter()
-        .filter_map(|n| run_native(row, *n, &checked, &paths).map(|ran| (n.name, ran)))
+    let natives = natives(row)
+        .into_iter()
+        .filter_map(|n| run_native(row, n, &checked, &paths).map(|ran| (n.name, ran)))
         .collect();
     (js, natives)
 }
@@ -592,8 +643,8 @@ fn gap(row: &str, source: &str, wanted: &[&str]) {
     let (checked, paths) = analyze(row, source);
     let js = run_js(row, &checked, &paths);
     assert_eq!(js.status, 0, "{row}: JavaScript could not run it either: {}", js.stderr);
-    for native in NATIVES {
-        let refusal = native_refusal(row, *native, &checked, &paths);
+    for native in natives(row) {
+        let refusal = native_refusal(row, native, &checked, &paths);
         // A [`Native::partial`] backend has its own reasons to refuse and
         // its own reasons not to, and neither is what this row is about. It
         // is reported rather than asserted on — `llvm` compiles
