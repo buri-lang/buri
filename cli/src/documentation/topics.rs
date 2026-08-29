@@ -6,11 +6,11 @@
 //! documentation and the toolchain from being separately versioned, which is
 //! how a doc goes stale without anybody noticing.
 //!
-//! `cli/src/docs/SPEC.md` and the repository's `README.md` are *generated*
-//! from the `lang/` and `guide/` topics by `buri docs assemble`, so the files a
-//! reader meets on GitHub and the pages `buri docs` serves are the same bytes.
-//! The specification is every `lang/` topic; the README is three `guide/` ones,
-//! and the rest of the guide is read here or through `buri docs`.
+//! `cli/src/docs/SPEC.md` is *generated* from the `lang/` topics by
+//! `buri docs assemble`, so the file a reader meets on GitHub and the pages
+//! `buri docs` serves are the same bytes. The specification is every `lang/`
+//! topic; every `build/` and `guide/` topic is a page in its own right, read
+//! here or through `buri docs`.
 //!
 //! Adding a topic is one line in `TOPICS`, plus — if it belongs in an
 //! assembled document — one line in `assemble::DOCUMENTS`.
@@ -23,8 +23,8 @@ pub enum Kind {
     Lang,
     /// The build system, the monorepo, and the CLI.
     Build,
-    /// Prose that introduces rather than specifies. Three of these assemble
-    /// into `README.md`; the rest are pages in their own right.
+    /// Prose that introduces rather than specifies. Each is a page in its own
+    /// right, and none of them is assembled into a document.
     Guide,
 }
 
@@ -231,24 +231,10 @@ pub const TOPICS: &[Topic] = &[
         &[],
     ),
     // -- The guide ---------------------------------------------------------
-    // The first two and `guide/installing` are what `README.md` assembles to;
-    // the others are pages, reached by `buri docs` or read in
-    // `cli/src/docs/guide/`.
-    t(
-        "guide/readme-intro",
-        "What Buri is",
-        Kind::Guide,
-        include_str!("../docs/guide/readme-intro.md"),
-    ),
+    // Pages, reached by `buri docs` or read in `cli/src/docs/guide/`. None of
+    // them is assembled into a document; the root `README.md` is hand-written
+    // and keeps its own copy of what it needs.
     t("guide/installing", "Installing", Kind::Guide, include_str!("../docs/guide/installing.md")),
-    tagged(
-        "guide/readme-links",
-        "Where the documentation is",
-        Kind::Guide,
-        include_str!("../docs/guide/readme-links.md"),
-        &["readme", "index", "manual", "where", "find"],
-        &["guide/goals"],
-    ),
     t("guide/goals", "Goals", Kind::Guide, include_str!("../docs/guide/goals.md")),
     t("guide/whats-in", "What's in v0.3", Kind::Guide, include_str!("../docs/guide/whats-in.md")),
     t("guide/three-ideas", "Three ideas", Kind::Guide, include_str!("../docs/guide/three-ideas.md")),
@@ -283,10 +269,9 @@ pub const TOPICS: &[Topic] = &[
     ),
 ];
 
-/// The front matter each assembled document opens with: a title, and whatever
-/// precedes its first section.
+/// The front matter an assembled document opens with, under the generated-file
+/// notice `assemble` writes: a title, and whatever precedes its first section.
 pub const LANG_FRONT: &str = include_str!("../docs/lang/_front.md");
-pub const GUIDE_FRONT: &str = include_str!("../docs/guide/_front.md");
 
 /// The normative grammar, and the source the tree-sitter grammar is generated
 /// from (`documentation::grammar`). It is hand-written because it is the
