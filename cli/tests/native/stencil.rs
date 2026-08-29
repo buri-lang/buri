@@ -910,10 +910,10 @@ fn corpus_refusal(path: &str) -> Result<String, String> {
 /// the refusal for every file that is not here.
 ///
 /// It is **`native/conformance.rs`'s `PACKAGES`**, entry for entry: the
-/// twenty-five Cranelift runs in its suite plus `proto/binary.buri`, which
-/// Cranelift compiles and passes and excludes only for what the *middle end*
-/// costs on it. The six that are not here are the six Cranelift refuses, for
-/// the three reasons that file records.
+/// twenty-six files that file's native set holds. The six that are not here
+/// are the six it excludes, for the three reasons it records — an inexact
+/// numeric conversion, `json.*`, and `core/math`'s transcendentals — plus the
+/// four `ui/*` files no native backend takes.
 const CORPUS_COMPILES: &[&str] = &[
     "calendar/date.buri",
     "canary/canary.buri",
@@ -986,9 +986,13 @@ fn the_corpus_census_is_a_ratchet() {
 ///
 /// Compiling is not the bar: a backend that emitted an object for a file and
 /// got the answers wrong would pass the census next door. A failed assertion
-/// ends the process (SPEC 6.10), so the exit status is the result — the same
-/// bar `native/conformance.rs` holds Cranelift to, and the same reason the
-/// block count is asserted beside it.
+/// ends the process (SPEC 6.10), so the exit status is the result.
+///
+/// `native/conformance.rs::the_native_set_passes` now runs the same twenty-six
+/// files through the same backend and reports the block count with them, so
+/// this is the narrower of two readings of one corpus. It stays because CI's
+/// Linux/arm64 job selects `stencil::` by name and this is the test in that
+/// selection that runs a program per corpus file.
 #[test]
 fn the_corpus_files_it_compiles_pass() {
     if !supported() {
@@ -1584,23 +1588,21 @@ fn link_with_stub(dir: &Path, objects: &[PathBuf], out: &Path, triple: &str, emu
     );
 }
 
-/// **Emission throughput, cross-triple, against Cranelift.**
+/// **Emission throughput, cross-triple.**
 ///
 /// The one measurement a machine that cannot *run* a Linux artifact can still
-/// make honestly, and the one the benchmark's `lower+linux-*` rows already make
-/// for Cranelift: how long it takes to turn a lowered program into object
-/// bytes for a target that is not this one. Nothing is linked and nothing is
-/// run, here or there.
+/// make honestly, and the one the benchmark's `lower+linux-*` rows already
+/// make: how long it takes to turn a lowered program into object bytes for a
+/// target that is not this one. Nothing is linked and nothing is run.
 ///
 /// It prints rather than only asserting, because the number is the point and a
 /// pass/fail hides it. The assertion is deliberately loose — a wall clock on a
-/// laptop under `cargo test` is not a benchmark harness — and exists only to
-/// catch the direction reversing: this backend's whole compile-side claim is
-/// that copying and patching is faster than instruction selection, and a run
-/// where it is *slower* is a fact worth failing on even at this precision.
+/// laptop under `cargo test` is not a benchmark harness — and catches only an
+/// order of magnitude going the wrong way. It used to compare against Cranelift
+/// on the same program and assert the ratio; a ratio against a backend nobody
+/// builds is not a measurement, so what stays is the throughput itself.
 #[test]
-fn cross_emission_throughput_against_cranelift() {
-    use buri::compiler::backend::cranelift::Cranelift;
+fn cross_emission_throughput() {
     use std::time::Instant;
 
     if !buri::compiler::backend::stencil::available_for(stencil_abi::StencilTarget::LinuxArm64) {
@@ -1621,17 +1623,18 @@ fn cross_emission_throughput_against_cranelift() {
         src.push_str(&format!("  let t{} = t{i} + f{i}(t{i}, {i});\n", i + 1));
     }
     src.push_str("  let _ = stdout.println(\"${t300}\");\n  .Ok(())\n}\n");
+    let lines = src.lines().count() as f64;
 
     let (program, tables) = lowered(&src);
     let reps = 5;
-    println!("target          stencil ms   cranelift ms   ratio   units");
+    println!("target          emit ms   lines/s   units");
     for (name, target) in [
         ("macos-arm64", Target { platform: Platform::Macos, arch: Some(Arch::Arm64) }),
         ("linux-arm64", Target { platform: Platform::Linux, arch: Some(Arch::Arm64) }),
     ] {
         let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
-        // One untimed emission each, so neither pays for the stencil library's
-        // decode or Cranelift's ISA construction inside the measurement.
+        // One untimed emission, so the stencil library's decode is not inside
+        // the measurement.
         let units = match Stencil.emit(&program, &tables, &opts) {
             Ok(u) => u,
             Err(d) => {
@@ -1640,25 +1643,70 @@ fn cross_emission_throughput_against_cranelift() {
             }
         };
         let n_units = units.len();
-        if Cranelift.emit(&program, &tables, &opts).is_err() {
-            eprintln!("{name}: cranelift refused, so there is nothing to compare against");
-            continue;
-        }
         let t0 = Instant::now();
         for _ in 0..reps {
             let _ = Stencil.emit(&program, &tables, &opts);
         }
-        let cp = t0.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
-        let t1 = Instant::now();
-        for _ in 0..reps {
-            let _ = Cranelift.emit(&program, &tables, &opts);
-        }
-        let cl = t1.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
-        println!("{name:<15} {cp:>8.1}   {cl:>12.1}   {:>5.2}   {n_units}", cp / cl);
+        let ms = t0.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
+        let per_second = lines / (ms / 1000.0);
+        println!("{name:<15} {ms:>7.1}   {per_second:>7.0}   {n_units}");
         assert!(
-            cp < cl * 2.0,
-            "{name}: stencil emitted in {cp:.1} ms against Cranelift's {cl:.1}; this backend's \
-             compile-side claim is the other way round"
+            ms < 500.0,
+            "{name}: {lines} lines took {ms:.1} ms to emit; copy-and-patch emission has \
+             lost an order of magnitude"
         );
     }
+}
+
+/// **Interpolation in a loop leaks nothing**, at two scales.
+///
+/// `str.format` joins into a fresh block per iteration, and the temporaries it
+/// built have to come back. Twenty iterations and two hundred have to leave the
+/// *same* number of blocks live — otherwise the join leaks per iteration — and
+/// that number has to be zero.
+///
+/// Two scales rather than one, because a constant leak and a per-iteration leak
+/// look identical at one. `native/cranelift.rs` held this shape for the
+/// incumbent backend; it is here because CI's leak-parity step is the one place
+/// `buri_rt_heap_stats` is read on a Linux runner.
+#[test]
+fn interpolating_in_a_loop_leaks_nothing() {
+    if !supported() {
+        return;
+    }
+    let source = |n: u32| {
+        format!(
+            r#"
+from "core/host" import {{ stdout, alloc }};
+from "core/str" import * as str;
+
+fn go(n: Int, acc: Int): Int {{
+  if (n <= 0) {{ acc }} else {{
+    let h = "ab".repeat(alloc, 3);
+    let p = (h, h);
+    let s = str.format(alloc, "[${{p.0}}][${{p.1}}]");
+    let _ = stdout.println("${{n}}");
+    go(n - 1, acc + s.len())
+  }}
+}}
+
+export fn main(): Result<(), Str> {{
+  let _ = stdout.println("total ${{go({n}, 0)}}");
+  .Ok(())
+}}
+"#
+        )
+    };
+    let few = run_with("template-leak-few", &source(20), Some(ALLOC_PROBE));
+    let many = run_with("template-leak-many", &source(200), Some(ALLOC_PROBE));
+    assert!(few.stdout.ends_with("total 320\n"), "stdout was: {:?}", few.stdout);
+    assert!(many.stdout.ends_with("total 3200\n"), "stdout was: {:?}", many.stdout);
+    let (_, live_few) = probed(&few.stderr);
+    let (_, live_many) = probed(&many.stderr);
+    assert_eq!(
+        live_few, live_many,
+        "twenty interpolations left {live_few} blocks live and two hundred left \
+         {live_many}: the join leaks per iteration"
+    );
+    assert_eq!(live_many, 0, "the heap did not come back balanced: {}", many.stderr);
 }

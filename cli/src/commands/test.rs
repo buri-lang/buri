@@ -868,7 +868,7 @@ fn native_gap(
 /// something, rather than because the program is wrong.
 ///
 /// Matched on the sentence both spellings share — `actions::objects_of`'s, from
-/// `missing_intrinsics`, and `cranelift/emit.rs`'s, from a runtime key with no
+/// `missing_intrinsics`, and a backend's own, from a runtime key with no
 /// entry. A failure with anything else among its errors is a failure, and is
 /// reported: falling back on one would turn a toolchain bug into a suite that
 /// quietly passes somewhere else.
@@ -2078,8 +2078,8 @@ mod tests {
     ///
     /// Written against the two literal sentences rather than against a
     /// constructed compilation, because what the net is is a claim about those
-    /// two strings: `build/actions.rs`'s, from `missing_intrinsics`, and
-    /// `backend/cranelift/emit.rs`'s, from a runtime key with no entry. The
+    /// two strings: `build/actions.rs`'s, from `missing_intrinsics`, and a
+    /// backend's own, from a runtime key with no entry. The
     /// negative cases are the ones that must never fall back — a failure that
     /// is not a gap is a toolchain bug, and running the suite somewhere else
     /// would bury it.
@@ -2092,7 +2092,7 @@ mod tests {
             }
             is_backend_gap(&diagnostics)
         };
-        assert!(of(&["the cranelift backend has no implementation of char.isDigit"]));
+        assert!(of(&["the stencil backend has no implementation of char.isDigit"]));
         assert!(of(&["the native runtime has no implementation of `json.decode`"]));
         assert!(of(&[
             "the llvm backend has no implementation of testing_assert.report",
@@ -2103,7 +2103,7 @@ mod tests {
         assert!(!of(&[]));
         assert!(!of(&["cannot declare the entry point: duplicate definition"]));
         assert!(!of(&[
-            "the cranelift backend has no implementation of char.isDigit",
+            "the stencil backend has no implementation of char.isDigit",
             "cannot declare the entry point: duplicate definition",
         ]));
     }

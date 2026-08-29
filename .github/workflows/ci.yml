@@ -247,9 +247,9 @@ jobs:
             --skip the_corpus_census_is_a_ratchet 2>&1 | tee suite.log
 
       # Leak parity: heap-stats and NOT valgrind, deliberately. The claim is
-      # that both code generators leave *exactly the same* blocks live, which a
-      # leak checker's own accounting cannot state, and valgrind would cost tens
-      # of minutes on a corpus this size.
+      # that the code generator leaves *exactly the same* blocks live at two
+      # scales of the same loop, which a leak checker's own accounting cannot
+      # state, and valgrind would cost tens of minutes on a corpus this size.
       #
       # The COUNT is asserted, not the probe's own output: the harness captures
       # the child's stderr and only prints it when an assertion fails, so
@@ -262,7 +262,7 @@ jobs:
           cargo test -p buri --test native -- \
             stencil::nothing_is_leaked \
             stencil::the_glue_balances \
-            cranelift::interpolating_in_a_loop_leaks_nothing \
+            stencil::interpolating_in_a_loop_leaks_nothing \
             2>&1 | tee leaks.log
           grep -qE 'test result: ok\. 3 passed' leaks.log \
             || { echo "::error::the three heap-stats tests did not all run"; exit 1; }

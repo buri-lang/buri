@@ -5,7 +5,8 @@ library {
         sources: ["test/date.buri"]
 
         # The reference run, on the reference backend: `native::conformance`
-        # drives these same files through Cranelift (cli/tests/README.md).
+        # drives these same files through the stencil backend
+        # (cli/tests/README.md).
         platforms: [JS]
     }
 }
