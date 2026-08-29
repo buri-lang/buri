@@ -1,0 +1,10 @@
+library {
+    sources: ["catalog.buri"]
+    dependencies: ["//lib/money"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/catalog.buri"]
+        data: ["prices.csv"]
+    }
+}

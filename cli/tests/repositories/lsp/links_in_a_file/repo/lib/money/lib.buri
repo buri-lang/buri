@@ -1,0 +1,2 @@
+/// An amount of money, in whole cents.
+export struct Cents { export amount: I64 }

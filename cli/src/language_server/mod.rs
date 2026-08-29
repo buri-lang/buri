@@ -20,11 +20,13 @@
 //! golden file.
 
 mod build_files;
+mod call_hierarchy;
 mod color;
 mod conformance;
 mod convert;
 mod features;
 mod inlay_hints;
+mod links;
 mod rename;
 mod semantic_tokens;
 mod signature_help;
@@ -490,6 +492,47 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             vec![response(&id, result.unwrap_or(Value::Null))]
         }
 
+        // The call hierarchy. The whole repository, for the reason
+        // `references` needs it: a function is called from wherever it is
+        // imported, and nothing about the file under the cursor bounds that.
+        ("textDocument/prepareCallHierarchy", Some(id)) => {
+            let result = with_workspace(state, &params, call_hierarchy::prepare);
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        // The two walks, resolved back from the item the client hands over —
+        // the same round trip the type hierarchy makes, through the same
+        // `data: {uri, position}` and for the same reason.
+        ("callHierarchy/incomingCalls", Some(id)) => {
+            let result = hierarchy_symbol(state, &params)
+                .map(|(analyzed, symbol)| call_hierarchy::incoming(&analyzed, &symbol));
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        ("callHierarchy/outgoingCalls", Some(id)) => {
+            let result = hierarchy_symbol(state, &params)
+                .map(|(analyzed, symbol)| call_hierarchy::outgoing(&analyzed, &symbol));
+            vec![response(&id, result.unwrap_or(Value::Null))]
+        }
+
+        // The underlines. A `BUILD.buri` is textproto and its links are the
+        // build graph's; a source file's are its import paths and the
+        // addresses its comments write. One target is enough for either: an
+        // import path is resolved by the workspace, which every session has.
+        ("textDocument/documentLink", Some(id)) => {
+            let result = (|| {
+                let path = uri_param(&params)?;
+                let text = state.text_of(&path)?;
+                if build_files::is_build_file(&path) {
+                    let session = state.session_for(&path)?;
+                    return Some(build_files::links(&session, &path, &text));
+                }
+                let analyzed = state.analyze(&path);
+                Some(links::document_links(analyzed.as_deref(), &path, &text))
+            })();
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
+        }
+
         // One target is enough: a moniker is built from where the declaration
         // is, and the file's own closure is where the names it writes live.
         ("textDocument/moniker", Some(id)) => {
@@ -830,6 +873,7 @@ fn capabilities() -> Value {
                 // The impl table, read in its three directions.
                 ("implementationProvider", Value::Bool(true)),
                 ("typeHierarchyProvider", Value::Bool(true)),
+                ("callHierarchyProvider", Value::Bool(true)),
                 ("monikerProvider", Value::Bool(true)),
                 ("referencesProvider", Value::Bool(true)),
                 ("documentHighlightProvider", Value::Bool(true)),
@@ -884,6 +928,15 @@ fn capabilities() -> Value {
                 // `workspaceSymbol/resolve` could add.
                 (
                     "workspaceSymbolProvider",
+                    Value::object(vec![("resolveProvider", Value::Bool(false))]),
+                ),
+                // `resolveProvider: false` again as a claim: every link this
+                // server hands out already carries its `target`, because
+                // resolving a module path or a package label is a lookup in a
+                // workspace the answer was computed from and not a second,
+                // lazier question.
+                (
+                    "documentLinkProvider",
                     Value::object(vec![("resolveProvider", Value::Bool(false))]),
                 ),
                 ("documentFormattingProvider", Value::Bool(true)),

@@ -19,6 +19,8 @@ end is a library, and `driver::analyze` is what the server calls.
 | `declaration` | The same answer as `definition`. Buri declares and defines a thing in one place, so answering differently would mean inventing a difference. |
 | `implementation` | For a trait, every `impl` and `derive` that conforms to it. For a type, every conformance it was given. For a trait method, the function each `impl` supplied for it. |
 | `typeHierarchy` | Above a type, the traits it implements; below a trait, the types that implement it. The two directions the language has something in. |
+| `callHierarchy` | Who calls a function or a trait method, and what it calls. A `test` is a caller under the sentence it is written with, and a module-level `let` is one too. |
+| `documentLink` | The underlines: the path of every import and re-export, every `http(s)://` address written in a comment, and — in a `BUILD.buri` — every `sources` and `data` entry and every dependency label. |
 | `moniker` | A name for the declaration under the cursor that an index somewhere else could resolve: `//lib/shop:catalog.Item.price`. |
 | `references` | Every place the repository names the symbol under the cursor, asked from the declaration or from any use. The declaration itself is included when the client asks for it. |
 | `documentHighlight` | The same question narrowed to the file you are in, which is the file the highlights are painted on. |
@@ -110,6 +112,55 @@ have no file, which is the same silence `definition` answers with there.
 Asking for the hierarchy of anything that is not a type or a trait answers
 nothing at all, and the editor does not open a panel it would have nothing to
 put in.
+
+**A call hierarchy lists calls, not references.** The scan is the calls each
+checked body writes: a call of a function, a function named as a value, and a
+call of a trait method. A name in an import clause is a reference to a function
+and not a call of it, and `a + b` is a trait method the source never spelled —
+neither is in the panel, which is what makes every row somewhere a reader can go
+and look. The two directions are the same scan: incoming runs it over every body
+and keeps the ones that mention the symbol, outgoing runs it over the one body
+and keeps what it mentions. The whole repository is analysed, because a function
+is called from wherever it is imported.
+
+A **`test` is a caller with a name of its own.** The tables file one under a
+generated name — nothing calls a test — so the item carries the sentence it was
+written with instead, and points at that sentence. A **module-level `let`** is a
+caller too: its value is checked on its own, with no body around it, and a list
+of callers that quietly dropped one would be wrong rather than shorter. It comes
+back as a `Constant` item and walks like any other.
+
+Three answers are empty rather than absent. A **trait method calls nothing**: a
+Buri `trait` declares signatures and writes no default body, so there is no body
+here to walk and the impls' calls belong to the impls. A **function nobody
+calls** answers with an empty list. And a call of a **standard-library**
+function contributes no row at all, because those declarations are compiled into
+the binary and have no file to point at — the same silence `definition` answers
+with there. Asking for the hierarchy of anything that is not a function or a
+trait method answers nothing at all: "nothing calls this struct" is not a
+shorter answer than the list, it is not the question.
+
+**A link is a different affordance from go-to-definition.** An editor draws every
+link at once, without a cursor, and follows it on a click — so the answer covers
+things no position request can reach. An address in a `///`, `//!` or `//`
+comment is not a name, and `definition` will never have anything to say about
+one. Which text is a comment is asked of the lexer rather than guessed at: every
+token's span is code, so a run that is inside none of them is a comment — which
+is why the address inside `"https://example.org/shop"` is *not* a link, where a
+scan for `//` would have found an import path instead. A run ends at the first
+byte that cannot continue an address, and trailing sentence punctuation is
+dropped, because a full stop after a link is a full stop.
+
+The other two producers are the paths that already resolve. An import's or a
+re-export's path string is underlined to the file it names, by exactly the
+resolution `definition` performs on the one under the cursor — so a `core/…`
+path, which is compiled into the binary, gets no underline. In a `BUILD.buri` a
+`sources` or `data` entry is the file beside it and a dependency label is a
+package, which is its `BUILD.buri`; `//visibility:public` is in a label field
+and names no package, so it gets nothing. A `tags` entry is deliberately not a
+link: what a tag names is a block inside `REPO.buri`, a line rather than a file,
+and a `DocumentLink` has nowhere to put a line. `definition` still answers for
+it.
 
 **A moniker is a name, not an index.** `//lib/shop:catalog.Item.price` is the two
 things that already name a declaration in this language: what an import writes
@@ -324,14 +375,14 @@ and **deferred**, which is work not yet done.
 | `willSave` | complete and empty | ignored: nothing happens before a save that does not happen on `didSave`, and doing the analysis twice would only make the save slower |
 | `didChangeConfiguration` | complete and empty | ignored: there is no setting to change. Every `Flags` the server builds is the default one, and the first real setting turns this into work |
 | `notebookDocument/didOpen`, `didChange`, `didSave`, `didClose` | complete and empty | ignored, and `notebookDocumentSync` is not advertised: a Buri module belongs to a target declared in a `BUILD.buri`, and a notebook cell has no target for the toolchain to compile it in |
-| `documentLink/resolve` | complete and empty | every link target is computed when the file is scanned — workspace path resolution is not lazy — so the resolve will be advertised `false` when `documentLink` itself lands, and is refused until then |
+| `documentLink/resolve` | complete and empty | every link target is computed when the file is scanned — resolving a module path or a package label is a lookup in the workspace the answer came from, not a lazier second question — so `resolveProvider` is `false` and a client that sends it anyway is refused |
 | `didChangeWatchedFiles`, `client/registerCapability` | served | the watcher is registered after `initialized`, and only for a client whose `initialize` said it accepts one |
 | `didChangeWorkspaceFolders`, `workspace/workspaceFolders` | served | the server asks for the folders when a client that knows about them named none |
 | `semanticTokens/full`, `/range`, `/full/delta` | served | two layers — the lexer's, which cannot fail, and the resolver's upgrade of every identifier. The grammar in `editors/` is the floor this builds on rather than a second opinion it can contradict |
 | `inlayHint`, `inlayHint/resolve` | served | the inferred type after a binding that wrote none, and a parameter's name before an argument that is a literal or a differently-spelled bare name. The judgement is a rule and not a taste: an annotated binding, an argument spelled like its parameter, and an argument with structure in it all get nothing |
 | `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh` | served | sent after a save or a watched change that moved the analysis fingerprint, each only to a client whose `initialize` claimed that family's `refreshSupport` |
-| `callHierarchy` | deferred | incoming calls are the references scan grouped by the body each is in, and outgoing calls are one body's calls listed; what is missing is only the request's own two-step protocol over an answer `references` already gives |
-| `documentLink` | deferred | a link is a URL in a comment; an import path is already `definition` |
+| `prepareCallHierarchy`, `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls` | served | both directions are one scan of the calls each checked body writes; a trait method has no body of its own and answers `[]` outgoing |
+| `documentLink` | served | import and re-export paths, addresses in comments, and a build file's `sources`, `data` and dependency entries |
 | `codeLens` | deferred | a lens spends a line of screen above a declaration, and nothing in the toolchain currently produces a count worth that line |
 | `rangeFormatting`, `onTypeFormatting` | deferred | `buri format` is whole-file and canonical. A formatter with no partial mode has nothing to give a range, and formatting part of a file is how an editor and the command come to disagree about it |
 | work-done progress | deferred | no request long enough to report progress on |
@@ -377,11 +428,15 @@ server that keeps up with typing and one that does not:
 - **On an `inlayHint/resolve`** it analyses the file the hint's `data` names,
   which is where the declaration is rather than where the hint is painted, and
   asks the resolver once — for the one hint under the pointer.
-- **On a references, a rename, a workspace symbol query, an implementation or
-  either half of a type hierarchy** it analyses every target in the repository,
-  as one compilation, because a name is used — and implemented — wherever it is
-  imported, and nothing about the file it was declared in says which files those
-  are.
+- **On a references, a rename, a workspace symbol query, an implementation,
+  either half of a type hierarchy or any of the three call-hierarchy requests**
+  it analyses every target in the repository, as one compilation, because a name
+  is used — and implemented, and called — wherever it is imported, and nothing
+  about the file it was declared in says which files those are.
+- **On a `documentLink`** it analyses the target owning the file, which is what
+  resolves an import path; a build file's links are the graph's and need no
+  analysis at all. The addresses in the comments need neither, so a file the
+  server cannot analyse still gets those.
 - **On an outline, a fold or a selection range** it analyses nothing: those read
   a parse of the one buffer. A definition in a build file analyses nothing
   either — it loads the repository and asks the graph. Nor does a

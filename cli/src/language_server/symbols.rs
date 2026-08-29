@@ -185,6 +185,13 @@ pub fn declaration_extent(analyzed: &Analyzed, symbol: &Symbol) -> Span {
             let info = tables.trait_(*id);
             declaration_syntax(analyzed, info.module, info.span).map(|(_, item)| item.span())
         }
+        // A `test` has no `FnDecl`, and its table span is already the whole
+        // block — so it falls through to [`declaration`], which is right.
+        Symbol::Function(id) => function_syntax(analyzed, *id).map(|(_, d)| d.span),
+        Symbol::Const(id) => {
+            let info = tables.const_(*id);
+            declaration_syntax(analyzed, info.module, info.span).map(|(_, item)| item.span())
+        }
         _ => None,
     };
     whole.unwrap_or_else(|| declaration(analyzed, symbol))
@@ -511,7 +518,7 @@ pub fn references(analyzed: &Analyzed, symbol: &Symbol) -> Vec<Span> {
 /// Whether two symbols are the same declaration. A local is compared by its
 /// binding span, which is what confines a local's references to the body that
 /// declares it: no other body has a local bound at that position.
-fn same(a: &Symbol, b: &Symbol) -> bool {
+pub(super) fn same(a: &Symbol, b: &Symbol) -> bool {
     match (a, b) {
         (Symbol::Function(x), Symbol::Function(y)) => x == y,
         (Symbol::Type(x), Symbol::Type(y)) => x == y,
@@ -533,6 +540,40 @@ fn same(a: &Symbol, b: &Symbol) -> bool {
         (Symbol::Local { span, .. }, Symbol::Local { span: s, .. }) => span == s,
         _ => false,
     }
+}
+
+/// Every *call* a checked body writes, and what each one resolves to.
+///
+/// A narrowing of [`body_names`] to the three expression kinds that are a call:
+/// a call of a function, a mention of one by name, and a call of a trait
+/// method. A call hierarchy asks who calls what, and an import clause naming a
+/// function is not a call of it — which is why this is its own scan rather than
+/// [`references`] filtered afterwards.
+///
+/// An operator standing for a trait method writes no name, so [`name_span`]
+/// finds none and it is not reported: `a + b` is not a written call of `add`.
+pub(super) fn call_names(
+    analyzed: &Analyzed,
+    locals: &[typed::Local],
+    root: &typed::Expr,
+    out: &mut impl FnMut(Span, Symbol),
+) {
+    let tables = &analyzed.analysis.checked.tables;
+    typed::walk(root, &mut |e| {
+        let is_call = matches!(
+            e.kind,
+            ExprKind::CallFn { .. } | ExprKind::FnRef(_) | ExprKind::CallTrait { .. }
+        );
+        if !is_call {
+            return;
+        }
+        let from = after_receiver(e);
+        expression_symbols(tables, locals, e, &mut |name, symbol| {
+            if let Some(span) = name_span(analyzed, e.span, from, &name) {
+                out(span, symbol);
+            }
+        });
+    });
 }
 
 /// Every name a checked body writes, expressions and patterns alike.
@@ -866,6 +907,19 @@ fn declared_here(analyzed: &Analyzed, file: FileId, offset: u32) -> Option<Found
 fn test_sentence(analyzed: &Analyzed, info: &types::FnInfo) -> Option<Span> {
     match item_syntax(analyzed, info.ast)? {
         (_, Item::Test(d)) => Some(d.name_span),
+        _ => None,
+    }
+}
+
+/// The title a `test` is written with, and where it is written.
+///
+/// The table's name for a test is generated (`test#0`), because a sentence is
+/// not an identifier and nothing calls a test by name. What a reader knows it
+/// by is the sentence, so anything that shows a test to a reader shows that.
+pub(super) fn test_title(analyzed: &Analyzed, id: FnId) -> Option<(String, Span)> {
+    let info = analyzed.analysis.checked.tables.fn_info(id);
+    match item_syntax(analyzed, info.ast)? {
+        (_, Item::Test(d)) => Some((d.name.clone(), d.name_span)),
         _ => None,
     }
 }
