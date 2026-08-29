@@ -1,0 +1,27 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# Every hint sent back below is copied verbatim from the answer above it, which
+# is what a client does with one — so the round trip is the test, and a change
+# to what the full pass hands out breaks these lines rather than passing
+# quietly. The same discipline `a_type_hierarchy_walk` uses for its items.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The full pass. Position, label, kind and the two paddings — and `data`,
+# which is the whole of what makes the rest of this session possible.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 30, "character": 0}}}}
+# A type hint. Its `data` names where `Money` writes its name, so the tooltip
+# is the struct's signature and its `///` line, and the location lands on part
+# 1 — the part that spells `Money`, not the `: ` before it.
+{"jsonrpc": "2.0", "id": 3, "method": "inlayHint/resolve", "params": {"data": {"part": 1, "position": {"character": 14, "line": 3}, "uri": "file://<scratch>/lib/money/cents.buri"}, "kind": 1, "label": [{"value": ": "}, {"value": "Money"}], "paddingLeft": false, "paddingRight": false, "position": {"character": 14, "line": 5}}}
+# A parameter hint. Its `data` names the function, so the tooltip is the whole
+# signature — which is what a reader hovering `count:` is asking for — and it
+# also names which parameter, so the location on part 0 is that parameter as
+# the signature wrote it rather than the function's own name.
+{"jsonrpc": "2.0", "id": 4, "method": "inlayHint/resolve", "params": {"data": {"parameter": 0, "part": 0, "position": {"character": 10, "line": 9}, "uri": "file://<scratch>/lib/money/cents.buri"}, "kind": 2, "label": [{"value": "count"}, {"value": ":"}], "paddingLeft": false, "paddingRight": true, "position": {"character": 22, "line": 5}}}
+# A hint about a primitive. It carries no `data`, because `I64` is compiled
+# into the binary and has no file — so this comes back exactly as it went in.
+# Not `null`: the protocol's answer to this request is an inlay hint, and the
+# unresolved one is still one.
+{"jsonrpc": "2.0", "id": 5, "method": "inlayHint/resolve", "params": {"kind": 1, "label": [{"value": ": "}, {"value": "I64"}], "paddingLeft": false, "paddingRight": false, "position": {"character": 15, "line": 7}}}
+{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

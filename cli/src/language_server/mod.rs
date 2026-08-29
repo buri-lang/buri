@@ -24,6 +24,7 @@ mod color;
 mod conformance;
 mod convert;
 mod features;
+mod inlay_hints;
 mod rename;
 mod semantic_tokens;
 mod signature_help;
@@ -225,10 +226,15 @@ const WATCHERS: &str = "buri/watchers";
 /// The id of the server's question about which folders are open.
 const FOLDERS: &str = "buri/workspaceFolders";
 
-/// The stem of the ids the semantic-token refreshes carry. A refresh may go out
-/// many times, so each one is numbered — an id still in flight must not be
-/// reused.
-const REFRESH: &str = "buri/semanticTokensRefresh";
+/// The two `workspace/*/refresh` requests this server sends: the method, and
+/// the stem of the ids it carries.
+///
+/// A refresh may go out many times, so each one is numbered — an id still in
+/// flight must not be reused. The stems are what the golden sessions record.
+const REFRESH_FAMILIES: [(&str, &str); 2] = [
+    ("workspace/semanticTokens/refresh", "buri/semanticTokensRefresh"),
+    ("workspace/inlayHint/refresh", "buri/inlayHintRefresh"),
+];
 
 fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
     // A message with an id and no method is a *response* to one of the two
@@ -272,8 +278,12 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
                 params.at("capabilities.workspace.didChangeWatchedFiles.dynamicRegistration"),
                 Some(&Value::Bool(true))
             );
-            state.semantic_tokens.refresh_supported = matches!(
+            state.refreshes.semantic_tokens.supported = matches!(
                 params.at("capabilities.workspace.semanticTokens.refreshSupport"),
+                Some(&Value::Bool(true))
+            );
+            state.refreshes.inlay_hints.supported = matches!(
+                params.at("capabilities.workspace.inlayHint.refreshSupport"),
                 Some(&Value::Bool(true))
             );
             let client_has_folders = matches!(
@@ -315,9 +325,9 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             let Some((path, text)) = opened(&params) else { return vec![] };
             state.open.insert(path.clone(), text);
             let published = full_diagnostics(state, &path);
-            // The state the client's colours are about to be computed from.
-            // Recorded and not announced: nothing has gone stale yet.
-            state.semantic_tokens.fingerprint = Some(state.analysis_fingerprint());
+            // The state the client's colours and hints are about to be computed
+            // from. Recorded and not announced: nothing has gone stale yet.
+            state.record_refresh_fingerprint();
             published
         }
         ("textDocument/didChange", _) => {
@@ -338,7 +348,7 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         ("textDocument/didSave", _) => {
             let Some(path) = uri_param(&params) else { return vec![] };
             let mut out = full_diagnostics(state, &path);
-            out.extend(refresh_semantic_tokens(state));
+            out.extend(refreshes(state));
             out
         }
         ("textDocument/didClose", _) => {
@@ -358,7 +368,7 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         // the bytes it read, so the file that changed has moved the key already.
         ("workspace/didChangeWatchedFiles", _) => {
             let mut out = republish_open(state);
-            out.extend(refresh_semantic_tokens(state));
+            out.extend(refreshes(state));
             out
         }
 
@@ -653,6 +663,43 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
             vec![response(&id, result.unwrap_or(Value::Null))]
         }
 
+        // The inferred types and the parameter names, for the lines the client
+        // can see. One analysis and one walk per request: the resolver is not
+        // asked anything, because asking it per hint would lex the buffer per
+        // hint. A `BUILD.buri` has neither kind of hint — it is textproto, and
+        // nothing in it infers a type or fills a parameter.
+        ("textDocument/inlayHint", Some(id)) => {
+            let result = (|| {
+                let path = uri_param(&params)?;
+                if build_files::is_build_file(&path) {
+                    return None;
+                }
+                let text = state.text_of(&path)?;
+                let from = convert::offset_of(&text, Position::from_json(params.at("range.start")?)?);
+                let to = convert::offset_of(&text, Position::from_json(params.at("range.end")?)?);
+                let analyzed = state.analyze(&path)?;
+                inlay_hints::hints(&analyzed, &path, &text, from, to)
+            })();
+            vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
+        }
+
+        // The tooltip and the go-to-definition on a hint the reader is pointing
+        // at. The hint comes back as it went out and is resolved again from the
+        // `data` it carries — the same round trip a `TypeHierarchyItem` makes,
+        // and for the same reason: a server that remembered every hint it had
+        // produced would hold a table nothing removes an entry from.
+        ("inlayHint/resolve", Some(id)) => {
+            let result = (|| {
+                let path = params.at("data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
+                let text = state.text_of(&path)?;
+                let analyzed = state.analyze(&path)?;
+                Some(inlay_hints::resolve(&analyzed, &path, &text, &params))
+            })();
+            // A hint with nothing to resolve is still a legal answer to this
+            // request, and it is the hint itself: `null` is not one.
+            vec![response(&id, result.unwrap_or_else(|| params.clone()))]
+        }
+
         // The request exists for syntax that spells one name at both ends of a
         // construct — an opening tag and its closing one. Buri writes every
         // name once: an `impl Priced for Item { … }` closes with a brace. So
@@ -714,29 +761,39 @@ fn semantic_tokens_of(state: &mut State, path: &std::path::Path, text: &str) -> 
     semantic_tokens::encoded(analyzed.as_deref(), path, text)
 }
 
-/// The `workspace/semanticTokens/refresh` a save or a watched change earns.
+/// The `workspace/*/refresh` requests a save or a watched change earns.
 ///
 /// Sent only when the analysis fingerprint moved. That is what the wave-1a
 /// cache makes observable: the key an answer is filed under *is* the state it
-/// was computed from, so "something the colours depend on changed" is a
+/// was computed from, so "something the answers depend on changed" is a
 /// comparison rather than a guess, and saving a buffer nobody edited is quiet.
+///
+/// One function for both families, and the fingerprint is computed **once** —
+/// it hashes every byte under every open root, so asking for it twice would
+/// read the repository twice to answer the same question. Each family keeps its
+/// own last-seen value and its own counter, because a client may accept one and
+/// not the other.
 ///
 /// Gated on the client's `refreshSupport`, because a client that never claimed
 /// it is entitled to reject the request — and a rejected request is a reply the
 /// server would then have to explain away.
-fn refresh_semantic_tokens(state: &mut State) -> Vec<Value> {
+fn refreshes(state: &mut State) -> Vec<Value> {
     let now = state.analysis_fingerprint();
-    let changed = state.semantic_tokens.fingerprint != Some(now);
-    state.semantic_tokens.fingerprint = Some(now);
-    if !changed || !state.semantic_tokens.refresh_supported {
-        return Vec::new();
+    let families = [
+        &mut state.refreshes.semantic_tokens,
+        &mut state.refreshes.inlay_hints,
+    ];
+    let mut out = Vec::new();
+    for (family, (method, stem)) in families.into_iter().zip(REFRESH_FAMILIES) {
+        let changed = family.fingerprint != Some(now);
+        family.fingerprint = Some(now);
+        if !changed || !family.supported {
+            continue;
+        }
+        family.sent = family.sent.saturating_add(1);
+        out.push(request(&format!("{stem}/{}", family.sent), method, Value::Null));
     }
-    state.semantic_tokens.refreshes = state.semantic_tokens.refreshes.saturating_add(1);
-    vec![request(
-        &format!("{REFRESH}/{}", state.semantic_tokens.refreshes),
-        "workspace/semanticTokens/refresh",
-        Value::Null,
-    )]
+    out
 }
 
 fn capabilities() -> Value {
@@ -812,6 +869,14 @@ fn capabilities() -> Value {
                         ("full", Value::object(vec![("delta", Value::Bool(true))])),
                         ("range", Value::Bool(true)),
                     ]),
+                ),
+                // `resolveProvider: true` here is a claim the other way: the
+                // full pass hands out a position, a label and a kind, and the
+                // tooltip and the navigation target are computed only for the
+                // one hint a reader points at.
+                (
+                    "inlayHintProvider",
+                    Value::object(vec![("resolveProvider", Value::Bool(true))]),
                 ),
                 // `resolveProvider: false` is a claim rather than a default:
                 // the query already returns a complete `Location`, computed

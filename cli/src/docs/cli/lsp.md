@@ -33,6 +33,7 @@ end is a library, and `driver::analyze` is what the server calls.
 | `codeAction` | The fix for a finding that has exactly one. |
 | `documentColor` / `colorPresentation` | A swatch beside every `ui/style` `Color.Rgb` and `Color.Rgba` the file spells out, and the picker's choice written back as the same call. |
 | `semanticTokens` | Colour, in two layers: the lexer's keywords, literals and comments, and then every identifier upgraded to what it actually names — a type, a trait, a field, a variant, a module, a method rather than a function. Whole file, one range, or a delta against the last answer. |
+| `inlayHint` / `inlayHint/resolve` | The inferred type after every `let` and every closure parameter that wrote none, and the parameter's name before every argument that reads as an unlabelled one. Pointing at a hint resolves it: the declaration it is about, rendered as hover renders it, and a click that goes there. |
 | `didChangeWatchedFiles` | Everything published again, when a `.buri` file changed on disk without the editor having done it. |
 | `didChangeWorkspaceFolders` | A repository opened or closed while the server is running, and which one owns each file recomputed. |
 
@@ -238,13 +239,38 @@ closing the document throws the result away with it. A range answer carries no
 against. Nothing here is incremental underneath: the tokens are recomputed
 either way, and what a delta saves is the wire and the client's re-render.
 
-**A save can tell the client its colours are stale.** After a `didSave` or a
-`didChangeWatchedFiles` that moved the analysis fingerprint — the same key the
-cached analyses are filed under, so "something changed" is a comparison rather
-than a guess — the server sends `workspace/semanticTokens/refresh`. An import
-that newly resolves turns a name that had no colour into a type; nothing else
-would tell the editor to ask again. A save that changed nothing is silent, and
-so is a client that did not say in its `initialize` that it accepts the request.
+**Inlay hints say the two things the source left out.** A `let` or a closure
+parameter that wrote no type gets the inferred one after its name, rendered by
+the renderer hover uses, so the hint and the hover cannot disagree about what
+something is. An annotated binding gets nothing — the source already said it.
+At a call, an argument gets its parameter's name before it when the argument is
+a literal, or a bare name that differs from the parameter's: `line(count: 1,
+price: each)`, and no `count:` in front of an argument already spelled `count`.
+Anything with structure in it — a nested call, an arithmetic expression — is
+long enough to read on its own and gets nothing. An operator is a trait call in
+the tables and is *not* a call site in the source, so `running + n` is never
+labelled: an argument is text that follows a `(` or a `,`.
+
+A hint carries a position, a label in parts, a kind and its paddings, and
+nothing else. Everything expensive is in `inlayHint/resolve`, which the client
+asks only for the hint you are pointing at: the tooltip is the declaration's
+signature and its doc comment, and the part of the label that names something
+gets a location, so `Money` in `: Money` and `count` in `count:` are places you
+can go to. A hint about a declaration compiled into the binary — `I64`, a
+primitive's method — carries no `data` and resolves to itself, because the
+label already says everything there is to say about it.
+
+**A save can tell the client its colours and its hints are stale.** After a
+`didSave` or a `didChangeWatchedFiles` that moved the analysis fingerprint — the
+same key the cached analyses are filed under, so "something changed" is a
+comparison rather than a guess — the server sends
+`workspace/semanticTokens/refresh` and `workspace/inlayHint/refresh`. An import
+that newly resolves turns a name that had no colour into a type and a binding
+that had no inferred type into one; nothing else would tell the editor to ask
+again. The fingerprint is computed once for the pair, because it reads every
+byte under every open folder. A save that changed nothing is silent, and so is
+a client that did not say in its `initialize` that it accepts the request —
+each of the two is gated on its own `refreshSupport`.
 
 **Two open folders are two repositories.** A Buri repository is rooted at a
 `REPO.buri`, so a client holding two of them is holding two build graphs, two
@@ -302,8 +328,8 @@ and **deferred**, which is work not yet done.
 | `didChangeWatchedFiles`, `client/registerCapability` | served | the watcher is registered after `initialized`, and only for a client whose `initialize` said it accepts one |
 | `didChangeWorkspaceFolders`, `workspace/workspaceFolders` | served | the server asks for the folders when a client that knows about them named none |
 | `semanticTokens/full`, `/range`, `/full/delta` | served | two layers — the lexer's, which cannot fail, and the resolver's upgrade of every identifier. The grammar in `editors/` is the floor this builds on rather than a second opinion it can contradict |
-| `workspace/semanticTokens/refresh` | served | sent after a save or a watched change that moved the analysis fingerprint, and only to a client whose `initialize` claimed `refreshSupport` |
-| `inlayHint` | deferred | the types are there; what a hint needs is a judgement about where one is help and where it is clutter, which is a rendering decision rather than a lookup |
+| `inlayHint`, `inlayHint/resolve` | served | the inferred type after a binding that wrote none, and a parameter's name before an argument that is a literal or a differently-spelled bare name. The judgement is a rule and not a taste: an annotated binding, an argument spelled like its parameter, and an argument with structure in it all get nothing |
+| `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh` | served | sent after a save or a watched change that moved the analysis fingerprint, each only to a client whose `initialize` claimed that family's `refreshSupport` |
 | `callHierarchy` | deferred | incoming calls are the references scan grouped by the body each is in, and outgoing calls are one body's calls listed; what is missing is only the request's own two-step protocol over an answer `references` already gives |
 | `documentLink` | deferred | a link is a URL in a comment; an import path is already `definition` |
 | `codeLens` | deferred | a lens spends a line of screen above a declaration, and nothing in the toolchain currently produces a count worth that line |
@@ -345,7 +371,12 @@ server that keeps up with typing and one that does not:
   closure is what checked it. Semantic tokens ask what each identifier in one
   file names, which is the same question `hover` asks — once per identifier
   rather than once, which is a real cost and is why layer one is written to need
-  no analysis at all.
+  no analysis at all. Inlay hints are the other side of that: they read the same
+  analysis and ask the resolver *nothing*, because one scan of the syntax and
+  one walk of each typed body answer for the whole file at once.
+- **On an `inlayHint/resolve`** it analyses the file the hint's `data` names,
+  which is where the declaration is rather than where the hint is painted, and
+  asks the resolver once — for the one hint under the pointer.
 - **On a references, a rename, a workspace symbol query, an implementation or
   either half of a type hierarchy** it analyses every target in the repository,
   as one compilation, because a name is used — and implemented — wherever it is

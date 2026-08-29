@@ -1,0 +1,15 @@
+from "//lib/money/cents" import { Money, line };
+
+/// What a basket of one thing costs.
+export fn total(count: I64): Money {
+    let each: I64 = 250;
+    let single = line(1, each);
+    let whole = line(count, each);
+    let doubled = whole.cents * 2;
+    Money { cents: single.cents + doubled }
+}
+
+/// A lambda writes no types for its parameters either.
+export fn subtotal(counts: [I64]): I64 {
+    counts.fold(fn(running, n) => running + n, 0)
+}

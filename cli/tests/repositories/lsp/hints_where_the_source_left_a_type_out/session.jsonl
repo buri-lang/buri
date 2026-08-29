@@ -1,0 +1,33 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `lib/money/basket.buri` is written so that every rule has a line of its own:
+#
+#   line 4  `let each: I64 = 250;`          annotated, so no hint
+#   line 5  `let single = line(1, each);`   `: Money`, and `count:` `price:`
+#   line 6  `let whole = line(count, each);` `price:` only — the argument
+#                                            already spelled `count` is not
+#                                            labelled `count` a second time
+#   line 7  `let doubled = whole.cents * 2;` `: I64`, and no `data`: a
+#                                            primitive is compiled into the
+#                                            binary and has no file to resolve
+#   line 13 `fn(running, n) => running + n`  a closure writes no types either,
+#                                            and `running + n` is a trait call
+#                                            in the tables whose operands are
+#                                            not written as arguments
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The whole file.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 30, "character": 0}}}}
+# Only the lines the editor is showing: the range is the filter, and the four
+# hints above line 13 are gone from the answer rather than merely unpainted.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri"}, "range": {"start": {"line": 12, "character": 0}, "end": {"line": 15, "character": 0}}}}
+# A file that writes every type it binds. The empty answer is a decision, not
+# a failure to look: `cents.buri` has no `let` and no closure at all.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 30, "character": 0}}}}
+# A build file is textproto. Nothing in one infers a type or fills a
+# parameter, so it is answered before any analysis runs.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/BUILD.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 10, "character": 0}}}}
+# A file in no open repository. Nothing to analyse, so nothing to hint.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file:///nowhere/absent.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 10, "character": 0}}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
