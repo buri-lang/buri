@@ -344,10 +344,13 @@ pub struct Analyzed {
     pub analysis: Analysis,
 }
 
-/// What `buri lint` found, and the session whose source map its spans point
-/// into. The two travel together because neither means anything alone.
+/// What `buri lint` found, and the analysis its rules were read off.
+///
+/// The analysis and not a session of its own: every rule here asks about the
+/// closure the diagnostics have already compiled, so a second one would be the
+/// same front end run twice for one answer.
 pub struct Linted {
-    pub session: Session,
+    pub analyzed: Rc<Analyzed>,
     pub diagnostics: crate::diagnostics::Diagnostics,
 }
 
@@ -1172,12 +1175,8 @@ impl State {
 
     /// The findings `buri lint` reports for the target owning `path`.
     ///
-    /// A separate session and a second whole-closure analysis, because the
-    /// checks build their own. That is a real cost, and it is why this ran on
-    /// save and on open rather than on a keystroke — the same reason
-    /// `driver::analyze` did. It is keyed on the same closure as the analysis
-    /// now, so the second question about one state of that closure does not
-    /// pay it at all.
+    /// Keyed on the same closure as the analysis, so a second question about
+    /// one state of that closure is a lookup.
     ///
     /// Shared, and therefore read-only. A caller that must write to the
     /// session wants [`State::overlaid_session`].
@@ -1192,37 +1191,33 @@ impl State {
         if let Some(hit) = self.cached_lint(root, target) {
             return Some(hit);
         }
-        // What the pass will read is what its own `driver::analyze` reads, and
-        // that is the analysis of this target — which is already in hand. Its
-        // closure is therefore the key, and asking the *session* afterwards
-        // would answer with every open buffer instead, because the overlay
-        // seeds them all whether the target can see them or not.
-        let closure = self.analyze_target(root, Some(target)).map(|a| closure_of(&a.analysis));
-
-        let mut session = self.opened(root)?;
-        if session.diagnostics.has_errors() {
+        // Every rule asks about the closure this analysis already read, so it
+        // rides that one. The pass used to open a session and compile the
+        // closure again, which was a whole second front end per pull.
+        let analyzed = self.analyze_target(root, Some(target))?;
+        // A repository whose own files will not load has no lint pass: the
+        // checks read the graph, and there is no graph.
+        if analyzed.session.diagnostics.has_errors() {
             return None;
         }
-        for (p, text) in self.buffers_under(root) {
-            let rel = session.workspace.rel_of(p);
-            session.map.add(rel, p.clone(), text.clone());
-        }
         self.work.lints = self.work.lints.saturating_add(1);
-        let diagnostics = crate::commands::lint::findings_for(&mut session, &[target]);
-        let linted = Rc::new(Linted { session, diagnostics });
-        // No analysis to ask means no closure to key on, and every file the
-        // pass touched is the answer that is never stale.
-        let closure = closure.unwrap_or_else(|| read_from_disk(&linted.session));
+        let diagnostics = crate::commands::lint::findings_for_target(
+            &analyzed.session,
+            target,
+            &analyzed.analysis,
+        );
+        let closure = Rc::new(closure_of(&analyzed.analysis));
+        let linted = Rc::new(Linted { analyzed, diagnostics });
         let key = self.closure_key(root, &closure);
         remember(
             &mut self.cache.lints,
             Cached {
                 root: root.to_path_buf(),
                 target: Some(target),
-                // The lint pass runs its own whole-closure analysis.
+                // The analysis behind it checked every body in the closure.
                 scope: None,
                 key,
-                closure: Rc::new(closure),
+                closure,
                 value: Rc::clone(&linted),
             },
         );
@@ -1389,14 +1384,6 @@ fn merge_findings(into: &mut super::Published, from: &super::Published) {
             }
         }
     }
-}
-
-/// The files a session read from disk, deduplicated and sorted.
-fn read_from_disk(session: &Session) -> Vec<PathBuf> {
-    let mut files: Vec<PathBuf> = session.map.paths().map(Path::to_path_buf).collect();
-    files.sort();
-    files.dedup();
-    files
 }
 
 /// The first error a session collected while loading the repository, named by

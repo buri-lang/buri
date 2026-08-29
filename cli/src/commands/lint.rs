@@ -101,7 +101,7 @@ pub fn findings_for(session: &mut Session, targets: &[TargetId]) -> Diagnostics 
 /// loop over targets would ask twice for a package holding a library and a
 /// binary, and `buri lint` would print each of their findings twice.
 pub fn findings_for_target(
-    session: &mut Session,
+    session: &Session,
     target: TargetId,
     analysis: &crate::compiler::driver::Analysis,
 ) -> Diagnostics {
@@ -134,7 +134,7 @@ pub fn analysis_of(
 
 /// Every rule that is about one target, in the order they are asked.
 fn one_target(
-    session: &mut Session,
+    session: &Session,
     target: TargetId,
     analysis: &crate::compiler::driver::Analysis,
     seen_packages: &mut BTreeSet<crate::build::workspace::PackageId>,
@@ -452,7 +452,7 @@ fn collect_package_sources(root: &Path, dir: &Path, out: &mut Vec<String>) {
 /// `missing-dep`. Use is what requires a dep, and an import is not the only way
 /// to use: a method resolving into a library counts too.
 fn check_dependencies(
-    session: &mut Session,
+    session: &Session,
     target: TargetId,
     analysis: &crate::compiler::driver::Analysis,
     diagnostics: &mut Diagnostics,
