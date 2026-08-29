@@ -18,11 +18,12 @@
 //! than a suite of its own.
 //!
 //! Every test here starts with the same guard: a host with no stencil library
-//! (no C compiler) and one with no entry point to put in front of it (x86-64,
-//! today) have no backend to ask, and skip rather than fail — printing which of
-//! the two it was, one line per test. That is the "degrades rather than breaks"
-//! clause of the dependency bar applied to the suite, without the silence that
-//! would make a skipped suite look like a passing one.
+//! (no C compiler, or macOS on x86-64, which none is built for) and one with no
+//! entry point to put in front of it (no machine today, now that `asm.rs`
+//! writes a SysV `main`) have no backend to ask, and skip rather than fail —
+//! printing which of the two it was, one line per test. That is the "degrades
+//! rather than breaks" clause of the dependency bar applied to the suite,
+//! without the silence that would make a skipped suite look like a passing one.
 use buri::build::buildfile::{Arch, Platform};
 use buri::build::link::{self, Row};
 use buri::build::workspace::Workspace;
@@ -44,9 +45,11 @@ use std::sync::OnceLock;
 ///
 /// Two conditions, and each is a real one: no runtime archive means nothing to
 /// link against, and `stencil::unavailable_reason` is "this host has a stencil
-/// library *and* an entry point to put in front of it" answered as a sentence —
-/// it is false on x86-64, where `asm.rs` has no SysV shim, and false wherever
-/// `cc` could not build the host's library.
+/// library *and* an entry point to put in front of it" answered as a sentence.
+/// Both of this repository's machines are covered today — x86-64 Linux runs
+/// since `asm.rs` gained its SysV shim — so what is left is a host whose `cc`
+/// could not build the library, and macOS on x86-64, which no library is built
+/// for at all.
 ///
 /// It used to be four conditions, with `cfg!(target_os = "macos")` and
 /// `cfg!(target_arch = "aarch64")` spelled out here. They are gone deliberately:
@@ -1535,8 +1538,8 @@ fn cross_units(source: &str, arch: Arch) -> Option<Vec<buri::compiler::backend::
     match Stencil.emit(&program, &tables, &opts) {
         Ok(units) => Some(units),
         Err(d) => {
-            // A refusal is an answer too, and for x86-64 it is the *expected*
-            // one until `asm.rs` has a SysV entry point. The caller decides.
+            // A refusal is an answer too — a toolchain whose clang could not
+            // cross-compile has no library for this target. The caller decides.
             eprintln!("{} refused: {:?}", stencil_target.slug(), messages(&d));
             None
         }
@@ -1569,13 +1572,45 @@ export fn main(): Result<(), Str> {
 /// does.
 #[test]
 fn linux_arm64_objects_link_and_every_relocation_resolves() {
+    objects_link_and_every_relocation_resolves(
+        Arch::Arm64,
+        "AArch64",
+        "aarch64-unknown-linux-gnu",
+        "aarch64linux",
+    );
+}
+
+/// **`linux-x86_64` objects link, and every relocation in them resolves.**
+///
+/// The twin of the test above, on the target whose whole emission — `main`,
+/// the patcher, and the two relocation kinds — is a different instruction set.
+/// Everything it checks is checked for the same reason, and the disassembly
+/// proves more here than it does there: a `rel32` or a rip-relative `disp32`
+/// written at the wrong offset lands inside a *variable-length* instruction, so
+/// the listing does not merely decode wrongly, it desynchronises.
+#[test]
+fn linux_x86_64_objects_link_and_every_relocation_resolves() {
+    objects_link_and_every_relocation_resolves(
+        Arch::X86_64,
+        "X86-64",
+        "x86_64-unknown-linux-gnu",
+        "elf_x86_64",
+    );
+}
+
+fn objects_link_and_every_relocation_resolves(
+    arch: Arch,
+    machine: &str,
+    triple: &str,
+    emulation: &str,
+) {
     if cross_tools().is_none() {
         eprintln!("no cross tool-chain on PATH");
         return;
     }
-    let Some(units) = cross_units(CROSS_PROGRAM, Arch::Arm64) else { return };
+    let Some(units) = cross_units(CROSS_PROGRAM, arch) else { return };
     assert!(!units.is_empty(), "no codegen units were emitted");
-    let dir = workspace("cross-linux-arm64");
+    let dir = workspace(&format!("cross-{}", triple.split('-').next().unwrap_or(triple)));
     let objects = write_objects(&dir, &units);
 
     // Every object is an ELF for the right machine, with the sections a unit
@@ -1583,12 +1618,12 @@ fn linux_arm64_objects_link_and_every_relocation_resolves() {
     // a reader written beside a writer agrees with it by construction.
     for o in &objects {
         let h = tool("llvm-readelf", &["-h", &o.display().to_string()]);
-        assert!(h.contains("AArch64"), "{}: not an aarch64 ELF:\n{h}", o.display());
+        assert!(h.contains(machine), "{}: not a {machine} ELF:\n{h}", o.display());
         assert!(h.contains("REL (Relocatable file)"), "{}: not relocatable", o.display());
     }
 
     let exe = dir.join("app");
-    link_with_stub(&dir, &objects, &exe, "aarch64-unknown-linux-gnu", "aarch64linux");
+    link_with_stub(&dir, &objects, &exe, triple, emulation);
 
     // (2) Nothing is left over. A fully static link resolves every relocation;
     // one that survived would mean the linker had deferred a reference it could
@@ -1600,10 +1635,10 @@ fn linux_arm64_objects_link_and_every_relocation_resolves() {
         "the linked image still has relocations:\n{rel}"
     );
 
-    // (3) The resolved code is still arm64. `llvm-objdump` prints `<unknown>`
-    // for a word it cannot decode, and a relocation applied to the wrong offset
-    // — the failure a container port makes — turns the instruction it landed in
-    // into exactly that.
+    // (3) The resolved code is still this machine's. `llvm-objdump` prints
+    // `<unknown>` for what it cannot decode, and a relocation applied to the
+    // wrong offset — the failure a container port makes — turns the instruction
+    // it landed in into exactly that.
     let dis = tool("llvm-objdump", &["-d", &exe.display().to_string()]);
     assert!(!dis.contains("<unknown>"), "the linked image does not disassemble cleanly");
     assert!(dis.contains("<main>"), "the linked image has no main:\n{}", &dis[..dis.len().min(400)]);
@@ -1632,25 +1667,30 @@ fn a_cross_emission_is_reproducible() {
 
 /// **A target this toolchain cannot emit for says which one and why.**
 ///
-/// The two ways it can happen are different and a user can act on only one of
-/// them: a missing library is a toolchain that was built without a
-/// cross-compiler, and a missing entry point is work this backend has not done.
+/// One combination is left, and it is a combination rather than a gap in this
+/// backend: **macOS on x86-64**, which no stencil library is built for because
+/// nothing this repository runs on or ships to is that. The sentence has to
+/// name it rather than failing later in a link.
+///
+/// The other refusal this test used to make — `linux-x86_64` having stencils
+/// and no `main` — is gone, because `asm.rs` now writes one. The *code* that
+/// says it is still there (`mod.rs::supported`), because that is the shape a
+/// fourth target would arrive in, and `asm::AVAILABLE_X86_64` is what it reads.
 #[test]
 fn an_unsupported_cross_target_is_refused_with_a_reason() {
     let (program, tables) = lowered("export fn main(): Result<(), Str> { .Ok(()) }");
-    let opts = |arch| Options {
-        profile: Profile::Debug,
-        target: Target { platform: Platform::Linux, arch: Some(arch) },
-        unit_prefix: "",
-    };
-    // x86-64 has stencils and no `main`; the sentence has to say so rather than
-    // producing an object with arm64 bytes in its entry point.
+    // x86-64 Linux is emitted for, not refused: everything it needs exists.
     if buri::compiler::backend::stencil::available_for(stencil_abi::StencilTarget::LinuxX86_64) {
-        let d = Stencil.emit(&program, &tables, &opts(Arch::X86_64)).err();
-        let msgs = d.map(|d| messages(&d)).unwrap_or_default();
+        let opts = Options {
+            profile: Profile::Debug,
+            target: Target { platform: Platform::Linux, arch: Some(Arch::X86_64) },
+            unit_prefix: "",
+        };
+        let out = Stencil.emit(&program, &tables, &opts);
         assert!(
-            msgs.iter().any(|m| m.contains("entry point") && m.contains("x86-64")),
-            "x86-64 was not refused with the reason: {msgs:?}"
+            out.is_ok(),
+            "linux-x86_64 was refused: {:?}",
+            out.err().map(|d| messages(&d)).unwrap_or_default()
         );
     }
     // And macOS x86-64 is a combination no library is built for at all.

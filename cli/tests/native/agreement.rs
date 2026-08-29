@@ -101,11 +101,12 @@
 //! row parity, which is what makes it a debug backend a build could be handed.
 //! Where two backends compile a row they have never disagreed.
 //!
-//! A backend compiled in is not yet a backend this *host* can run: stencil has
-//! an x86-64 library and no entry point to put in front of it, so on that host
-//! it is left out by [`natives`] with a printed reason rather than asked and
-//! failed. The question is the backend's own — `stencil::unavailable_reason` —
-//! so these rows light up with no edit here the day the entry point lands.
+//! A backend compiled in is not yet a backend this *host* can run: a host whose
+//! `cc` built no stencil library, or one no library is built for at all (macOS
+//! on x86-64), is left out by [`natives`] with a printed reason rather than
+//! asked and failed. The question is the backend's own —
+//! `stencil::unavailable_reason` — so these rows lit up with no edit here the
+//! day x86-64 Linux got its entry point, and would again for a fourth target.
 //!
 //! With `--no-default-features` there is no native backend, and `main.rs`
 //! does not declare this module at all. With one but no runtime archive, no
