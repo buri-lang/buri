@@ -1,0 +1,4 @@
+library {
+    sources: ["kit.buri"]
+    visibility: ["//visibility:public"]
+}
