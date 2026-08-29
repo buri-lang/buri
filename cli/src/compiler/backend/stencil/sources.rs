@@ -1917,15 +1917,19 @@ fn shard_library(
     .map_err(|e| format!("stencil shard {i} ({}): {e}", target.slug()))
 }
 
-/// How many stencils one x86-64 shard may lose to a spilled constant.
+/// How many stencils one x86-64 shard may lose.
 ///
-/// The three families are `un/neg/f32`, `un/neg/f64` and `cvt/u2f`, plus
-/// `chk/div/i128`; sharding puts at most a family or two in any one translation
-/// unit, and the observed maximum is well inside this. It is a ceiling on a
-/// *silent* loss rather than an exact count, because the exact count is a
-/// property of how `shard` happened to split the generators and would be a test
-/// of nothing. The exact set is asserted at the library level, by
-/// `stencil::tests::the_x86_64_library_drops_only_the_spilled_constant_families`.
+/// **Nothing is dropped today.** A constant clang spilled into `.rodata` used
+/// to cost a key — `un/neg/f32`, `un/neg/f64`, `cvt/u2f` and `chk/div/i128`
+/// were the four — and now travels with the stencil into the emitted unit's own
+/// constant pool (`x86.rs::spilled`), so the three libraries cover the same
+/// operations. The ceiling stays because `x86.rs` still *can* drop: a spilled
+/// reference whose addend is not a distance to an instruction's end, or one
+/// into a section with no bytes. It is a ceiling on a *silent* loss rather than
+/// an exact count, because the exact count would be a property of how `shard`
+/// happened to split the generators and would be a test of nothing. That the
+/// set is empty is asserted at the library level, by
+/// `stencil::tests::the_x86_64_library_covers_what_the_arm64_ones_do`.
 const MAX_DROPPED_PER_SHARD: usize = 40;
 
 /// The library's identity, which enters `Backend::identity` and therefore every
