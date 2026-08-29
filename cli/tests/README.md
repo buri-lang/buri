@@ -31,8 +31,7 @@ cli/tests/
     runtime.rs            the buri_rt_* C ABI, driven from C
     driver.c              …the C it is driven from
     float_parity.rs       3.8 million doubles, native `show` against JS
-    cranelift.rs          gated on `backend-cranelift`
-    conformance.rs        gated on `backend-cranelift`
+    conformance.rs        gated on `backend-stencil`
     llvm.rs               gated on `backend-llvm`
     stencil.rs            gated on `backend-stencil`: the copy-and-patch
                           backend, its leak parity, and its cross emission
@@ -63,15 +62,15 @@ cli/tests/
 
 **Nine binaries**, so a full run links nine times: five directories holding a
 `main.rs` and four bare `.rs` files. A corpus is shared — the `conformance/`
-repository is read by `language::conformance` on the JavaScript backend, by
-`native::conformance` on Cranelift and by `native::stencil` on the
-copy-and-patch backend, and `crash/` by four suites — so corpora sit at the top
-level rather than inside any one suite's directory. That first split is written
-into the corpus: each `conformance/lib/*/BUILD.buri` declares
-`test { platforms: [JS] }`, because `buri test` runs a suite natively by default
-now and the reference run has to stay the reference one. Three backends reading
-one corpus is the point: a divergence is a failure in exactly one of them rather
-than a difference between three sets of assertions.
+repository is read by `language::conformance` on the JavaScript backend and by
+`native::conformance` and `native::stencil` on the copy-and-patch one, and
+`crash/` by four suites — so corpora sit at the top level rather than inside any
+one suite's directory. That first split is written into the corpus: each
+`conformance/lib/*/BUILD.buri` declares `test { platforms: [JS] }`, because
+`buri test` runs a suite natively by default now and the reference run has to
+stay the reference one. Several backends reading one corpus is the point: a
+divergence is a failure in exactly one of them rather than a difference between
+several sets of assertions.
 
 ## The suites
 
@@ -80,7 +79,7 @@ than a difference between three sets of assertions.
 | Unit tests (`cli/src/**`, `#[cfg(test)]`) | The lexer, parser, textproto reader, type unifier, JS printer, minifier, SHA-256, and SCC finder do what they claim in isolation. |
 | `language` | That a program means what SPEC says: the conformance repository run through the real `buri test`, the reject corpus with its diagnostics recorded exactly, `core/*` typechecking against itself, every source in the repository parsing and formatting to a fixed point, and what the JavaScript backend compiles each construct to. |
 | `build` | What the build system does: one repository per rule with a manifest of what the CLI does in it, the worked monorepo, what the cache may and may not do read off `--explain`, that an action's spawn is deterministic and a perturbed environment changes neither bytes nor verdicts, and what `buri watch` declares and re-runs. |
-| `native` | That the native backends agree with the reference one, and that the runtime under them holds: bytes in and an executable out, the `buri_rt_*` C ABI driven from C, 3.8 million doubles of float rendering, whole programs through Cranelift and LLVM, and VALUE-MODEL.md §12 row by row under both. |
+| `native` | That the native backends agree with the reference one, and that the runtime under them holds: bytes in and an executable out, the `buri_rt_*` C ABI driven from C, 3.8 million doubles of float rendering, whole programs through the copy-and-patch backend and LLVM, and VALUE-MODEL.md §12 row by row under both. |
 | `docs` | That every fence is scannable and tagged, every link resolves, the assembled `SPEC.md` is not stale, and every example in every topic — and in the root `README.md` — compiles. |
 | `vectors` | That the Lean formalisation and protobuf's own conformance runner still agree with this toolchain — replayed from checked-in vectors, so neither tool is needed to run the suite. |
 | `formatting` | A directory per decision the formatter makes, plus every output being a fixed point, keeping its comments and tokens, and fitting the margin. |
@@ -113,7 +112,7 @@ a failing test's evidence is the directory it failed in.
 
 A run also sweeps that directory, once, before it makes its first tree
 (`harness/sweep.rs`). Most scratch removes itself when its `Scratch` drops; the
-native suites' per-process trees — `native-cranelift-<pid>` and its siblings,
+native suites' per-process trees — `native-stencil-<pid>` and its siblings,
 about 180 MB a run, holding a runtime archive and a hundred linked executables —
 are named for the process so two overlapping runs cannot share one, and are
 deleted by nothing. Fourteen gigabytes of them filled a disk mid-measurement,
@@ -129,8 +128,10 @@ compiles itself out of a `cargo test` run**, and an unoptimized compiler is a
 slow suite rather than merely a slow build. `Cargo.toml` therefore puts `buri`
 and the test binaries at `opt-level = 1` in the `dev` and `test` profiles —
 worth about fifteen seconds a run and costing nothing measurable to build, with
-`debug-assertions` still on. Cranelift is deliberately left unoptimized: no
-suite is waiting on it, and optimizing it is a two-minute rebuild.
+`debug-assertions` still on. The scoping used to have a second job — leaving the
+Cranelift dependency unoptimized, because no suite waited on it — and lost it
+when that backend went (`design/native/CODEGEN-STENCIL.md` §13). A default
+build now has nothing in its dependency closure to scope around.
 
 What is left is `native`, and it is bound by the host rather than by the
 toolchain: it links and executes about a hundred and twenty freshly built
@@ -539,7 +540,8 @@ the language:
 `native/agreement.rs` is the one outside `language/conformance.rs`, and it is about the
 *pair* of backends rather than about either: one `.buri` source compiled through
 `actions::prepare` and `backend::select` twice — JavaScript under `bun`, native
-through Cranelift or LLVM and `cc` — with the two outputs compared byte for byte.
+through the copy-and-patch backend or LLVM and `cc` — with the two outputs
+compared byte for byte.
 Every row of `design/native/VALUE-MODEL.md` §12 is a `#[test]`, so a failure
 names the row, and `every_row_of_the_table_names_a_test_that_exists` reads the
 table back and fails on a row whose test is missing. A row the native surface
