@@ -189,7 +189,7 @@ pub struct Unit<'a> {
     pub abi: Abi<'a>,
     pub program: &'a mir::Program,
     pub profile: Profile,
-    /// The oracle `middle::rc` decided its own operations with.
+    /// The classifier `middle::rc` decided its own operations with.
     ///
     /// Not the same question `Cx::counted` answers, and the difference is the
     /// reason this is here rather than being derived from the layout table —
@@ -646,7 +646,7 @@ impl<'u, 'a, 'b> Cx<'u, 'a, 'b> {
     /// `rc::Syntactic` answers from `monomorphize::Shapes` — every declared
     /// type's field list, recorded by the pass that still had a `Tables` — so
     /// a nominal or context type is classified whether or not any body in this
-    /// program constructs one, and both backends build their oracle from the
+    /// program constructs one, and both backends build their classifier from the
     /// same `Program`. The `Answer::Unknown` that used to swallow a `Ty::Ctx`
     /// and a `list.get`-only `Option` is gone by that route, not by the
     /// `middle::layout`-backed one an earlier draft of this comment predicted;
@@ -4049,7 +4049,7 @@ impl<'u, 'a, 'b> Lower<'u, 'a, 'b> {
     /// question about the type, not the layout table's — because retaining
     /// what rc does not count adds one half of a pair nothing completes. That
     /// is a leak per element, and it is what a `list.map` over a `[Str]` in a
-    /// program with no string *literal* in it did until the two oracles were
+    /// program with no string *literal* in it did until the two classifiers were
     /// made the same one. Either way an element type that holds nothing
     /// counted — `[Int]`, `[U8]`, a struct of scalars, which is most of them —
     /// costs no instruction at all.
