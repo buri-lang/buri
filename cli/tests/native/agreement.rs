@@ -43,7 +43,7 @@
 //!    `match` whose arms are a literal and an interpolation did not verify;
 //!    `middle/tail_calls.rs` labelled a merged group's forwarders `()`, so
 //!    `even(3)` printed the empty string natively instead of `false` — and, one
-//!    step on, panicked inside Cranelift. Pinned by
+//!    step on, panicked inside the debug backend of the day. Pinned by
 //!    [`row_09_a_match_over_a_literal_and_an_interpolation`] and
 //!    [`row_13_tail_calls_run_in_constant_stack`].
 //!
@@ -85,20 +85,19 @@
 //! # Which backends
 //!
 //! Every row runs against every native backend this binary was built with, so a
-//! failure says `cranelift`, `stencil` or `llvm`. Cranelift comes from
-//! `backend::select` at `Profile::Debug`, which is the selection a native debug
-//! build makes today. Stencil and LLVM are constructed directly — `select`
-//! answers neither — and the fallback in [`Native::backend`] is written so that
-//! the `Ok` arm takes over the day either seat lands, rather than shadowing it.
+//! failure says `stencil` or `llvm`. Both come from `backend::select` — stencil
+//! at `Profile::Debug`, which is the selection a native debug build makes, and
+//! LLVM at `Profile::Release` — so a row that cannot be built here is a row a
+//! user could not build either.
 //!
 //! `cargo test -p buri --features backend-llvm --test native agreement::` is the
 //! second half, and it runs: LLVM 21 compiles most of the rows and refuses the
 //! rest for reasons of its own — `num.minValue`/`num.maxValue` have no body —
 //! so it carries a
 //! [`Native::partial`] note and a row it cannot compile is skipped with the
-//! reason printed. Neither Cranelift nor stencil carries such a note, so a
-//! refusal from either is a failure — stencil's note came off when it reached
-//! row parity, which is what makes it a debug backend a build could be handed.
+//! reason printed. Stencil carries no such note, so a refusal from it is a
+//! failure — the note came off when it reached row parity, which is what made
+//! it the debug backend a build is handed.
 //! Where two backends compile a row they have never disagreed.
 //!
 //! With `--no-default-features` there is no native backend, and `main.rs`
@@ -159,11 +158,9 @@ struct Native {
     partial: Option<&'static str>,
 }
 
-/// Never empty: the module is behind `any(backend-cranelift,
-/// backend-llvm)`, so at least one arm below is compiled in.
+/// Never empty: the module is behind `any(backend-stencil, backend-llvm)`, so
+/// at least one arm below is compiled in.
 const NATIVES: &[Native] = &[
-    #[cfg(feature = "backend-cranelift")]
-    Native { name: "cranelift", profile: Profile::Debug, partial: None },
     // No `partial` note: this backend compiles every executable row, so a
     // refusal here is a failure rather than a skip.
     #[cfg(feature = "backend-stencil")]
@@ -173,7 +170,8 @@ const NATIVES: &[Native] = &[
         name: "llvm",
         profile: Profile::Release,
         partial: Some(
-            "the release backend, and its surface is narrower than Cranelift's: \
+            "the release backend, and its surface is narrower than the \
+                 development backend's: \
                  `num.minValue`/`num.maxValue` have no body, so some rows \
                  cannot be asked of it. The `..rest` array pattern that used \
                  to be the other half of this sentence is emitted now \
@@ -185,21 +183,13 @@ const NATIVES: &[Native] = &[
 ];
 
 impl Native {
-    /// The backend, through `backend::select` where `select` answers.
+    /// The backend, through `backend::select`.
     ///
-    /// It answers for `(native, Debug)` and refuses `(native, Release)`:
-    /// the release arm still returns the "arrives with `backend-llvm`"
-    /// diagnostic. So the release fallback is spelled out here, gated on
-    /// the feature that carries the backend, and the `Ok` arm takes over
-    /// the day `select` grows the arm.
+    /// Every row here is the one `select` answers with for its profile, so a
+    /// refusal is a failure and says which triple was refused. The release
+    /// fallback below covers a toolchain whose `select` refuses `(native,
+    /// Release)` while `backend-llvm` is compiled in.
     fn backend(self) -> Box<dyn Backend> {
-        // `select` still sends every native debug build to Cranelift — the
-        // stencil backend has not taken that seat — so this backend is the one
-        // row here that is named rather than selected.
-        #[cfg(feature = "backend-stencil")]
-        if self.name == "stencil" {
-            return Box::new(backend::stencil::Stencil);
-        }
         match backend::select(host_target(), self.profile) {
             Ok(b) => b,
             #[cfg(feature = "backend-llvm")]
@@ -1465,9 +1455,9 @@ fn row_09_derived_show_of_a_list() {
 /// `deriveArrayCompare` and `deriveArrayHash` are `deriveArrayEq`'s loop with a
 /// different carried value, and neither is emitted. What this test is really
 /// about is that a gap *reads* as one: an intrinsic with no body records an
-/// error and binds nothing, and Cranelift's instruction selector then unwrapped
-/// a `None` on the next instruction rather than letting the recorded diagnostic
-/// out (`cranelift/emit.rs`'s `bind_absent`). A `derive Hash` over a `[T]`
+/// error and binds nothing, and the debug backend of the day then unwrapped a
+/// `None` on the next instruction rather than letting the recorded diagnostic
+/// out. A `derive Hash` over a `[T]`
 /// field crashed the toolchain until that bound a value.
 ///
 /// This is not a §12 row and is not in the table: it is a claim about how a
@@ -1757,7 +1747,7 @@ export fn main(): Result<(), Str> {
 /// merged function while a forwarder's `Continue` had no such arm. So
 /// `even(1000001)` was lowered as returning nothing: natively it printed
 /// the empty string rather than `false`, and one step on — the same value
-/// used as a condition — it panicked inside Cranelift's frontend. The
+/// used as a condition — it panicked inside the debug backend's frontend. The
 /// JavaScript backend is untyped and never noticed.
 #[test]
 fn row_13_tail_calls_run_in_constant_stack() {
