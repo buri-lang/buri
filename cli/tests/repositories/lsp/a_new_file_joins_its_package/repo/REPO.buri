@@ -1,0 +1,2 @@
+# The repository root. The point of this fixture is one package holding both a
+# library and a binary, which is the shape a target has to be chosen for.

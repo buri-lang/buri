@@ -1,0 +1,4 @@
+from "//lib/pricing/money" import { cents };
+
+/// What a shelf of identical things is worth.
+export fn subtotal(count: I64): I64 { count * cents(3) }

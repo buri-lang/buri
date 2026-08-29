@@ -1,0 +1,25 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "languageId": "buri", "version": 1, "text": "/// A running count of things that happened.\nexport struct Tally {\n  export total: I64,\n}\n\n/// How many times the thing has happened.\nexport fn counter(tally: Tally): I64 { tally.total }\n"}}}
+# `lib/counter` declares one rule, so where a new file belongs is not a
+# question — it belongs to the library.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/willCreateFiles", "params": {"files": [{"uri": "file://<scratch>/lib/counter/rate.buri"}]}}
+# A suite source goes in the block that holds one, and the block is written
+# where the rule did not have it.
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/willCreateFiles", "params": {"files": [{"uri": "file://<scratch>/lib/counter/test/counter.buri"}]}}
+# `cmd/app` declares both rules. Which one a new file belongs to is which entry
+# point's imports reach it, and nothing reaches a file that does not exist yet —
+# so this is the same refusal `buri gen` makes, and for the same reason.
+{"jsonrpc": "2.0", "id": 4, "method": "workspace/willCreateFiles", "params": {"files": [{"uri": "file://<scratch>/cmd/app/extra.buri"}]}}
+# A build file appearing makes a package; it is not one of a package's sources.
+{"jsonrpc": "2.0", "id": 5, "method": "workspace/willCreateFiles", "params": {"files": [{"uri": "file://<scratch>/lib/counter/nested/BUILD.buri"}]}}
+# An entry point is named by the rule itself and is in no list.
+{"jsonrpc": "2.0", "id": 6, "method": "workspace/willCreateFiles", "params": {"files": [{"uri": "file://<scratch>/lib/counter/main.buri"}]}}
+# And a file in no open repository at all.
+{"jsonrpc": "2.0", "id": 7, "method": "workspace/willCreateFiles", "params": {"files": [{"uri": "file:///not/a/repository/loose.buri"}]}}
+# The file was written. Nothing about the open buffer changed, and it is told
+# so — a publish that takes nothing away is what says the findings still hold.
+{"jsonrpc": "2.0", "method": "workspace/didCreateFiles", "params": {"files": [{"uri": "file://<scratch>/lib/counter/rate.buri"}]}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

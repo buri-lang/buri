@@ -1,0 +1,30 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "renaming a module file rewrites every import that names it and the sources entry that lists it, and the repository still builds"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}
+
+# What the client wrote, from the edit the server returned. Three files, and
+# the third is the one a rename most easily forgets: a re-export names a module
+# by the same path an import does.
+file {
+  path: "lib/shop/BUILD.buri"
+  golden: "BUILD.buri"
+}
+
+file {
+  path: "lib/shop/cart.buri"
+  golden: "cart.buri"
+}
+
+file {
+  path: "lib/shop/lib.buri"
+  golden: "lib.buri"
+}

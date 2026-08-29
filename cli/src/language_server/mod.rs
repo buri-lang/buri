@@ -27,6 +27,7 @@ mod conformance;
 mod convert;
 mod execute_command;
 mod features;
+mod file_operations;
 mod inlay_hints;
 mod links;
 mod pull_diagnostics;
@@ -396,6 +397,49 @@ fn handle(state: &mut State, msg: &Value) -> Vec<Value> {
         // the bytes it read, so the file that changed has moved the key already.
         ("workspace/didChangeWatchedFiles", _) => {
             let mut out = republish_open(state);
+            out.extend(refreshes(state));
+            out
+        }
+
+        // The three questions an editor asks before it touches a file. Each is
+        // answered with the edit that keeps the repository building, because a
+        // Buri module is a file its `BUILD.buri` lists and a path other modules
+        // write — so moving one in the file tree is two rewrites away from
+        // moving it in the language. See `file_operations`.
+        ("workspace/willCreateFiles", Some(id)) => {
+            let edit = file_operations::will_create(state, &params);
+            vec![response(&id, edit.unwrap_or(Value::Null))]
+        }
+
+        ("workspace/willRenameFiles", Some(id)) => {
+            let edit = file_operations::will_rename(state, &params);
+            vec![response(&id, edit.unwrap_or(Value::Null))]
+        }
+
+        ("workspace/willDeleteFiles", Some(id)) => {
+            let edit = file_operations::will_delete(state, &params);
+            vec![response(&id, edit.unwrap_or(Value::Null))]
+        }
+
+        // And the three that say it happened. The same answer a watched change
+        // gets, for the same reason: a file appearing, moving or going away
+        // changes what every open buffer means, and nothing else says so.
+        ("workspace/didCreateFiles", _) => {
+            let mut out = republish_open(state);
+            out.extend(refreshes(state));
+            out
+        }
+
+        ("workspace/didRenameFiles", _) => {
+            file_operations::moved(state, &params);
+            let mut out = republish_open(state);
+            out.extend(refreshes(state));
+            out
+        }
+
+        ("workspace/didDeleteFiles", _) => {
+            let mut out = file_operations::gone(state, &params);
+            out.extend(republish_open(state));
             out.extend(refreshes(state));
             out
         }
@@ -1086,13 +1130,19 @@ fn capabilities() -> Value {
                 // startup something this server hears about at all.
                 (
                     "workspace",
-                    Value::object(vec![(
-                        "workspaceFolders",
-                        Value::object(vec![
-                            ("supported", Value::Bool(true)),
-                            ("changeNotifications", Value::Bool(true)),
-                        ]),
-                    )]),
+                    Value::object(vec![
+                        (
+                            "workspaceFolders",
+                            Value::object(vec![
+                                ("supported", Value::Bool(true)),
+                                ("changeNotifications", Value::Bool(true)),
+                            ]),
+                        ),
+                        // A file created, renamed or deleted is a change to
+                        // what a `BUILD.buri` says its package holds, and a
+                        // rename is a change to every import naming the module.
+                        ("fileOperations", file_operations::capability()),
+                    ]),
                 ),
             ]),
         ),

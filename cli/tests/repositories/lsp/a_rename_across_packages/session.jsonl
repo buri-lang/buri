@@ -1,0 +1,19 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# A `!` line is the harness acting as the editor would; see harness/case.rs.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# `money.buri` leaves `lib/shop` for `lib/pricing`. Two build files change —
+# one loses the entry, the other gains it — and the import that named it is
+# rewritten. What is *not* in the answer is either package's `dependencies`, or
+# whether a module that has crossed a library boundary should still be imported
+# directly: both are derived from the repository as it will be, and both arrive
+# below as findings.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/money.buri", "newUri": "file://<scratch>/lib/pricing/money.buri"}]}}
+!edit 2
+!move lib/shop/money.buri lib/pricing/money.buri
+{"jsonrpc": "2.0", "method": "workspace/didRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/money.buri", "newUri": "file://<scratch>/lib/pricing/money.buri"}]}}
+# And the limits, stated as findings rather than as silence: what the move left
+# for a person to decide is on screen where anything else wrong would be.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

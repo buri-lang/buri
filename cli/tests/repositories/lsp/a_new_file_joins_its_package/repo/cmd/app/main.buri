@@ -1,0 +1,7 @@
+from "//lib/counter" import { Tally, counter };
+from "//cmd/app" import { helper };
+
+export fn main(): Result<(), Str> {
+  let _ = counter(Tally { total: helper() });
+  .Ok(())
+}

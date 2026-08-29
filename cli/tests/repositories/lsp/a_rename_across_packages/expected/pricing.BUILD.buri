@@ -1,0 +1,4 @@
+library {
+    sources: ["money.buri", "rate.buri"]
+    visibility: ["//visibility:public"]
+}

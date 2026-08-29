@@ -1,0 +1,6 @@
+from "//cmd/app/main" import { main };
+from "core/testing/assert" import * as assert;
+
+test "main returns ok" {
+  assert.isTrue(main().isOk());
+}

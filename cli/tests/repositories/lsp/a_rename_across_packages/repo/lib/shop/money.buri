@@ -1,0 +1,4 @@
+//! Whole cents, which is the only way this shop counts.
+
+/// What a price in dollars is worth in cents.
+export fn cents(dollars: I64): I64 { dollars * 100 }

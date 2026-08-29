@@ -40,7 +40,9 @@ end is a library, and `driver::analyze` is what the server calls.
 | `documentColor` / `colorPresentation` | A swatch beside every `ui/style` `Color.Rgb` and `Color.Rgba` the file spells out, and the picker's choice written back as the same call. |
 | `semanticTokens` | Colour, in two layers: the lexer's keywords, literals and comments, and then every identifier upgraded to what it actually names — a type, a trait, a field, a variant, a module, a method rather than a function. Whole file, one range, or a delta against the last answer. |
 | `inlayHint` / `inlayHint/resolve` | The inferred type after every `let` and every closure parameter that wrote none, and the parameter's name before every argument that reads as an unlabelled one. Pointing at a hint resolves it: the declaration it is about, rendered as hover renders it, and a click that goes there. |
+| `willCreateFiles` / `willRenameFiles` / `willDeleteFiles` | The edit that keeps the repository building when a file appears, moves or goes away: the `sources` entry in its package's `BUILD.buri`, and — for a rename — every import and re-export in the repository that named the module. |
 | `didChangeWatchedFiles` | Everything published again, when a `.buri` file changed on disk without the editor having done it. |
+| `didCreateFiles` / `didRenameFiles` / `didDeleteFiles` | The same, once it has happened. A deleted file's findings are cleared, and a renamed file's buffer follows it. |
 | `didChangeWorkspaceFolders` | A repository opened or closed while the server is running, and which one owns each file recomputed. |
 
 **Diagnostics include the build-graph findings**, not only the type errors —
@@ -235,7 +237,9 @@ the old name and leaves the rest alone. Renaming `listing` to `catalogue` gives
 Four things it refuses, each with the reason, because a rename that quietly did
 nothing would look like the server had hung:
 
-- a module, which is named by its path: renaming one means moving its file;
+- a module, which is named by its path: renaming one means moving its file, and
+  the editor's own rename of that file is what asks for it — see *Renaming a
+  file is renaming a module* below;
 - anything declared in the standard library, which is compiled into the binary
   and has no file to edit;
 - a tuple field, which is named by its position rather than by a name;
@@ -287,6 +291,31 @@ editor arrive the same way and are answered the same way.
 Nothing is invalidated by hand for it. An analysis is kept under a hash of the
 bytes it read, so a file that changed on disk has already moved the key; the
 notification says *when* to ask again, and the key decides what the answer is.
+
+**Renaming a file is renaming a module.** A Buri module is not a file the
+compiler goes looking for: it is a file a `BUILD.buri` lists in `sources`, and a
+path other modules write in an import. So dragging `lib/shop/catalog.buri` to
+`inventory.buri` in the file tree breaks the repository twice over, and neither
+break is in the file that moved. Before the editor performs the move it asks
+`workspace/willRenameFiles`, and the answer is both rewrites: the `sources`
+entry, and every `from "//lib/shop/catalog"` in every open repository. Creating
+a file adds its entry; deleting one removes it.
+
+The imports are found by *resolving* each path rather than by matching the
+string, because a module path need not contain the file's name — `//lib/shop`
+is `lib.buri`, and renaming that file changes a path that never mentioned it.
+A build file is skipped: moving a `BUILD.buri` is not moving a module, it is
+deleting a package, and that is a decision rather than a restatement.
+
+**What the answer leaves alone is left alone on purpose.** `dependencies` is
+not touched, and a rename that crosses a package boundary is where that shows:
+the libraries a package uses are derived from the repository *after* the move,
+so they are `buri gen`'s to write and `missing-dep`'s to ask for — the finding
+and its code action are already there. The imports a delete leaves dangling are
+not rewritten either. What they should have said instead is a judgement, and a
+server that guessed would be editing code nobody asked it to; a
+`module-not-found` on the line that named it is the honest answer, and it says
+where the decision is.
 
 **A colour is a constructor call, not a string.** `ui/style` declares
 `Color.Rgb(Int, Int, Int)` and `Color.Rgba(Int, Int, Int, Float)`, and a swatch
@@ -491,6 +520,8 @@ and **deferred**, which is work not yet done.
 | `documentLink/resolve` | complete and empty | every link target is computed when the file is scanned — resolving a module path or a package label is a lookup in the workspace the answer came from, not a lazier second question — so `resolveProvider` is `false` and a client that sends it anyway is refused |
 | `didChangeWatchedFiles`, `client/registerCapability` | served | the watcher is registered after `initialized`, and only for a client whose `initialize` said it accepts one |
 | `didChangeWorkspaceFolders`, `workspace/workspaceFolders` | served | the server asks for the folders when a client that knows about them named none |
+| `willCreateFiles`, `willRenameFiles`, `willDeleteFiles` | served | registered for `**/*.{buri,proto}` and files rather than folders. A rename rewrites the `sources` entry and every import that resolves to the moved file; a create adds an entry, a delete drops one. Placing a new file in a package that declares both a library and a binary is the one refusal, and it is `buri gen`'s: which rule owns a file is which entry point reaches it, and nothing reaches a file that does not exist yet |
+| `didCreateFiles`, `didRenameFiles`, `didDeleteFiles` | served | the same re-publish a watched change gets. A renamed file's buffer moves with it, because a client is not required to close and reopen one; a deleted file's findings are published empty rather than left on screen |
 | `semanticTokens/full`, `/range`, `/full/delta` | served | two layers — the lexer's, which cannot fail, and the resolver's upgrade of every identifier. The grammar in `editors/` is the floor this builds on rather than a second opinion it can contradict |
 | `inlayHint`, `inlayHint/resolve` | served | the inferred type after a binding that wrote none, and a parameter's name before an argument that is a literal or a differently-spelled bare name. The judgement is a rule and not a taste: an annotated binding, an argument spelled like its parameter, and an argument with structure in it all get nothing |
 | `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh`, `workspace/codeLens/refresh`, `workspace/diagnostic/refresh` | served | sent after a save or a watched change that moved the analysis fingerprint, each only to a client whose `initialize` claimed that family's `refreshSupport` — spelled `workspace.diagnostics`, plural, for the last of the four |
