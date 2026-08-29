@@ -85,19 +85,21 @@
 //! # Which backends
 //!
 //! Every row runs against every native backend this binary was built with, so a
-//! failure says `cranelift` or `llvm`. Cranelift comes from `backend::select`
-//! at `Profile::Debug`, which is the selection a native debug build makes. LLVM
-//! is constructed directly, because `select` has no native `Profile::Release`
-//! arm yet — the fallback in [`Native::backend`] is written so that the `Ok`
-//! arm takes over the day that arm lands, rather than shadowing it.
+//! failure says `cranelift`, `stencil` or `llvm`. Cranelift comes from
+//! `backend::select` at `Profile::Debug`, which is the selection a native debug
+//! build makes today. Stencil and LLVM are constructed directly — `select`
+//! answers neither — and the fallback in [`Native::backend`] is written so that
+//! the `Ok` arm takes over the day either seat lands, rather than shadowing it.
 //!
 //! `cargo test -p buri --features backend-llvm --test native agreement::` is the
 //! second half, and it runs: LLVM 21 compiles most of the rows and refuses the
 //! rest for reasons of its own — `num.minValue`/`num.maxValue` have no body —
 //! so it carries a
 //! [`Native::partial`] note and a row it cannot compile is skipped with the
-//! reason printed. Cranelift carries no such note, so a refusal there is a
-//! failure. Where both compile a row they have never disagreed.
+//! reason printed. Neither Cranelift nor stencil carries such a note, so a
+//! refusal from either is a failure — stencil's note came off when it reached
+//! row parity, which is what makes it a debug backend a build could be handed.
+//! Where two backends compile a row they have never disagreed.
 //!
 //! With `--no-default-features` there is no native backend, and `main.rs`
 //! does not declare this module at all. With one but no runtime archive,
@@ -150,10 +152,10 @@ struct Native {
     /// the rows, in which case a row it cannot compile is **skipped with
     /// the reason printed** rather than failed.
     ///
-    /// Only ever set for a backend `backend::select` does not answer for a
-    /// native *debug* build, which is the selection a user gets by default:
-    /// a refusal from Cranelift is this file's failure, and that is what
-    /// keeps the tolerance from becoming a place for rows to go and die.
+    /// Only ever set for a backend that is not a candidate for the native
+    /// *debug* seat, which is the selection a user gets by default: a refusal
+    /// from a debug backend is this file's failure, and that is what keeps the
+    /// tolerance from becoming a place for rows to go and die.
     partial: Option<&'static str>,
 }
 
@@ -162,19 +164,10 @@ struct Native {
 const NATIVES: &[Native] = &[
     #[cfg(feature = "backend-cranelift")]
     Native { name: "cranelift", profile: Profile::Debug, partial: None },
+    // No `partial` note: this backend compiles every executable row, so a
+    // refusal here is a failure rather than a skip.
     #[cfg(feature = "backend-stencil")]
-    Native {
-        name: "stencil",
-        profile: Profile::Debug,
-        partial: Some(
-            "the copy-and-patch backend, which `backend::select` does not \
-             answer with: an IR shape it does not compile is refused with a \
-             diagnostic naming the shape rather than emitted wrongly \
-             (`backend/stencil/mod.rs`'s header). A row it refuses is skipped \
-             here; the gate on taking Cranelift's seat is that this list is \
-             empty",
-        ),
-    },
+    Native { name: "stencil", profile: Profile::Debug, partial: None },
     #[cfg(feature = "backend-llvm")]
     Native {
         name: "llvm",
@@ -604,8 +597,8 @@ fn gap(row: &str, source: &str, wanted: &[&str]) {
         // A [`Native::partial`] backend has its own reasons to refuse and
         // its own reasons not to, and neither is what this row is about. It
         // is reported rather than asserted on — `llvm` compiles
-        // `host.HostAlloc.allocate`, which `cranelift` does not, and that is
-        // a fact about the two surfaces rather than about row 12.
+        // `host.HostAlloc.allocate`, which the debug backends do not, and that
+        // is a fact about the two surfaces rather than about row 12.
         if let Some(why) = native.partial {
             eprintln!(
                 "backend agreement: {row} on `{}` answered {refusal:?}; it is {why}",
