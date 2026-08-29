@@ -13,9 +13,9 @@ something:
 | Semantic analysis, type checking included | **1,000,000 lines/second** | 1 µs |
 | Lowering to a binary or to JavaScript | **100,000 lines/second** | 10 µs |
 
-They are **goals, not claims**. Semantic analysis and JavaScript lowering meet
-theirs; lex+parse and native lowering do not, and §6 records by how much.
-`cli/benches/compiler.rs` is what keeps saying so.
+They are **goals, not claims**. Semantic analysis and both lowering paths meet
+theirs — the native one since 2026-08-29, its first time; lex+parse does not,
+and §6 records by how much. `cli/benches/compiler.rs` is what keeps saying so.
 
 ---
 
@@ -720,7 +720,9 @@ the triple** (`design/native/CODEGEN-STENCIL.md` §3.2), which is a narrower
 condition than the one these rows were written under: the removed backend was
 compiled with `all-arch` and answered for every triple by construction. A triple
 with no library is a `skipped` row with the backend's own sentence in it, which
-is the mechanism the paragraph below already describes.
+is the mechanism the paragraph below already describes. Of the five triples the
+suite can be asked for, that is `macos-x86_64` alone: `linux-x86_64` emits and
+is timed like the other two natives (§6.1).
 
 `Profile::Debug` selects the copy-and-patch backend and `Profile::Release`
 selects LLVM, so a release row is an LLVM row and it is taken only on a
@@ -804,6 +806,40 @@ backends are another 38k on top of it, and they are not what the goals measure �
 goal 3 is a lowering rate, and a backend that is twice the code for the same
 rate has spent it on something else.
 
+**The compiler is also something that has to be built and shipped, and the
+2026-08-29 removal moved both.** Measured on the machine and toolchain of §6,
+from a clean `cargo build --release -p buri` with default features, at the
+commit before the removal and the commit after it:
+
+| | before | after |
+|---|---:|---:|
+| dependencies (`cargo tree -p buri --edges normal`) | 38 | **0** |
+| clean release build, median of three interleaved runs | 142.68 s | **73.94 s** |
+| `buri`, as linked | 17.57 MB | 22.63 MB |
+| `__TEXT.__text` — the machine code in it | 8.37 MB | **3.03 MB** |
+
+The first two rows are the whole of the case for the removal. **The default
+toolchain now resolves nothing at all** — the dependency bar in the workspace
+manifest is back to zero admitted crates, which is what its own comment claims —
+and a clean release build is 68.7 s faster, a little over half what it was. The
+38 that went were Cranelift and its transitive closure: eleven `cranelift-*`
+crates, `regalloc2`, `pulley-interpreter`, `object`, `gimli`, `indexmap`,
+`hashbrown` twice, `syn`/`quote`/`proc-macro2`, and seventeen more. Building the
+bench binary halved with them, 2 m 02 s to 1 m 01 s.
+
+**The last two rows have to be quoted together or they mislead.** Machine code
+fell by 5.35 MB, to 0.36× what it was, and dependency-derived constant and
+linkedit data by 1.1 MB more — and the shipped binary nonetheless grew by
+5.06 MB. Both are true and they have one cause: the three baked stencil
+libraries are 11.93 MB of `include_bytes!` data, byte-identical in the two
+builds, and before the removal nothing in the `buri` *binary* selected the
+copy-and-patch backend, so the linker dead-stripped them. That was verified
+rather than assumed — three 48-byte probes from the head, middle and tail of
+`stencils-macos-arm64.bin` are found in the newer image and are absent from the
+older one. After the removal that data *is* the code generator. Quoting the
+total alone reads as a regression the removal did not cause; quoting `__text`
+alone claims a saving the disk does not see.
+
 ---
 
 ## 6. Where the toolchain stands
@@ -812,18 +848,26 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 `0x0b001a575eed0001`, protocol as §2. A gap of 1.0 means the goal is met; below
 1.0 means it is beaten.
 
-> **Every native figure in this section was taken with Cranelift as the debug
-> backend, and Cranelift was removed on 2026-08-29.**
-> The dates are §6's own: generator revision 4 is 2026-08-27, the
-> stencil-versus-Cranelift kernels are from the same week, and `buri test`'s
-> native default is dated 2026-08-21. Nothing below has been re-taken since the
-> removal and nothing below has been adjusted to guess at what a re-run will
-> find — a verification wave re-runs them, and the numbers move together or not
-> at all. What is known without re-measuring is the direction of one of them:
-> the four run-side kernels were **1.38×** Cranelift at `opt_level = "none"`,
-> so the debug *runtime* is slower than the readings here, deliberately and by
-> about that much. `design/native/CODEGEN-STENCIL.md` §13 is the decision and
-> its accepted costs.
+> **The native figures here were re-taken on 2026-08-29, after Cranelift was
+> removed.** Every native row below is the copy-and-patch backend's
+> (`design/native/CODEGEN-STENCIL.md`), measured against the same rows taken at
+> the commit immediately before the removal, on this machine, over the same
+> corpora, both binaries built `--release`. The front-end and JavaScript rows
+> moved by less than their dispersion and were not expected to move at all: the
+> removal touches the native branch and nothing else. Anything not re-taken says
+> so where it stands and keeps its own date — `buri test`'s native default is
+> 2026-08-21, generator revision 4 is 2026-08-27.
+>
+> **How the table was assembled, because one command no longer does it.**
+> `cargo bench -p buri --bench compiler` cannot complete a default run today: it
+> overflows the main thread's stack on `wide-match/10k`, after every `mixed`
+> scale and every realistic profile have finished and before that corpus's first
+> timer. The abort reproduces identically at the commit before the removal, so
+> it is pre-existing rather than a consequence of it, and `--quick` — which runs
+> `wide-match` at 1k — is green. The rows below were therefore taken with
+> `--only=` selections and individual `--shape=` runs rather than in one
+> command. That is a bug of its own, being fixed separately; until it is, nobody
+> can take this table in a single invocation.
 
 > **Generator revision 4, 2026-08-27 — a break in the series, announced.**
 > An enum variant stopped carrying `export`, so every generated variant line
@@ -882,25 +926,61 @@ mixed/100k, the authoritative corpus, on the machine and protocol above.
 
 | Phase | Goal | Measured | Gap |
 |---|---:|---:|---:|
-| lex | (10 M shared) | 11.09 M | **MET** |
-| lex+parse | 10 M | 6.02 M | 1.66× |
-| sema | 1 M | 1.06 M | **MET** |
-| lower+js | 100 k | 282 k | **MET** |
-| lower+macos-arm64 | 100 k | 58.1 k | 1.72× |
+| lex | (10 M shared) | 12.06 M | **MET** |
+| lex+parse | 10 M | 6.40 M | 1.56× |
+| sema | 1 M | 1.32 M | **MET** |
+| lower+js | 100 k | 311 k | **MET** |
+| lower+macos-arm64 | 100 k | 133.3 k | **MET** |
 
-Two of the three goals are met, and the third is met on the JavaScript backend
-and missed on the native one. Lex+parse started at 1.45 M lines/s and is 4.1×
-that now; native lowering started at nothing measurable, because the realistic
-corpora could not be compiled natively at all.
+Two of the three goals are met, and the third is now met on **both** lowering
+backends rather than on the JavaScript one alone. Lex+parse started at 1.45 M
+lines/s and is 4.4× that now; native lowering started at nothing measurable,
+because the realistic corpora could not be compiled natively at all.
 
-**`lower+macos-arm64` is a row whose emitter changed under it.** 58.1 k is
-Cranelift's, and the debug backend is the copy-and-patch one
-(`design/native/CODEGEN-STENCIL.md`) since 2026-08-29. That backend emits a
-121k-line program in about 0.43× Cranelift's time and was the first here to
-reach goal 3 on the emission phase — so the row is expected to move, and it is
-left at the last figure actually measured rather than at an arithmetic guess.
-The series breaks here and is marked rather than continued through, the same
-rule §3.1 applies to a generator revision.
+**`lower+macos-arm64` is the row that moved, and it moved because its emitter
+was replaced.** Cranelift read 62.2 k lines/s on this machine on the day of the
+comparison — 58.1 k when this row was last written down — and the copy-and-patch
+backend reads **133.3 k**, which is 0.47× the time and 2.14× the rate. That is
+within noise of `design/native/CODEGEN-STENCIL.md` §1's "about 0.43×
+Cranelift's", and it is the first time goal 3 has been met natively here. The
+series breaks at the change of emitter and is marked rather than continued
+through, the same rule §3.1 applies to a generator revision.
+
+| Corpus | Target | Cranelift | copy-and-patch | ratio | after, lines/s |
+|---|---|---:|---:|---:|---:|
+| mixed/1k | macos-arm64 | 17.03 ms | 6.50 ms | 0.38× | 159.6 k |
+| mixed/10k | macos-arm64 | 159.58 ms | 57.20 ms | 0.36× | 176.9 k |
+| **mixed/100k** | **macos-arm64** | **1,620.26 ms** | **756.12 ms** | **0.47×** | **133.3 k** |
+| mixed/100k | linux-arm64 | 1,584.50 ms | 799.69 ms | 0.50× | 126.0 k |
+| mixed/100k | linux-x86_64 | 1,714.87 ms | 794.89 ms | 0.46× | 126.8 k |
+| many-small-fns/10k | macos-arm64 | 94.57 ms | 48.90 ms | 0.52× | 206.2 k |
+| enum-heavy/10k | macos-arm64 | 312.03 ms | 152.83 ms | 0.49× | 66.5 k |
+
+Dispersion is MAD ≤ 1.6% on every row, and the headline row was taken twice in
+independent processes — 756.12 ms and 758.12 ms. **All three emitting triples
+clear goal 3**, which is worth saying because the row for one of them used to be
+a skip; `macos-x86_64` is absent because it has no stencil library and says so
+in its own words (§4). `enum-heavy` is the one row here still under the goal,
+and it halved like the rest.
+
+**The tuned corpus is not what produced this.** A copy-and-patch result is
+re-taken on freshly seeded 100k repositories before it is written down, because
+a pinned seed can sit in a local minimum. Five seeds minted for the comparison
+and never used before, three shapes between them:
+
+| Shape | Seed | ratio | after, lines/s |
+|---|---|---:|---:|
+| mixed | `0x29a8206b17c0f001` | 0.53× | 116.0 k |
+| mixed | `0x29a8206b17c0f002` | 0.49× | 123.9 k |
+| mixed | `0x29a8206b17c0f003` | 0.46× | 133.8 k |
+| struct-heavy | `0x29a8206b17c0f004` | 0.50× | 180.9 k |
+| derive-heavy | `0x29a8206b17c0f005` | 0.45× | 125.2 k |
+
+The median of the five is **0.49×** against the tuned corpus's 0.467×, a
+divergence of 5%, and every one of them clears goal 3 at 116.0–180.9 k lines/s.
+`derive-heavy` — the profile `middle::derives` alone pays for, and the one
+§6.4's `Show` finding is about — is the *best* of the five rather than the
+worst, which is the opposite of what overfitting to `mixed` would look like.
 
 ### 6.2 The dev and release configuration, both halves measured
 
@@ -908,24 +988,83 @@ rule §3.1 applies to a generator revision.
   no optimization dial to set — there is no instruction selection, no register
   allocator and no mid-end to skip (`design/native/CODEGEN-STENCIL.md` §1), so
   the two rows below that argue about one are history rather than a setting.
-  **The readings in this bullet are Cranelift's**, from before the flip: LLVM at
-  `-O0` was 2.1–4.9× slower to lower on the shapes that decide it, and slowest
-  exactly where the dev backend already missed; `opt_level = "speed"` cost
-  16–95% of native lowering and *lost* 2.6% of runtime (§6.4); and the path ran
-  the four kernels at 0.91× of bun and 1.24× of its own release build. The
-  emitter under all three has changed and none has been re-taken. What was
-  measured across the change is the one comparison that mattered to it: emission
-  at about 0.43× and the four kernels at 1.38×
-  (`design/native/CODEGEN-STENCIL.md` §13). Erasing generics in the dev profile
+  **Three readings in this bullet are Cranelift's**, from before the flip, and
+  none has been re-taken because the emitter under all three has changed: LLVM
+  at `-O0` was 2.1–4.9× slower to lower on the shapes that decide it, and
+  slowest exactly where the dev backend already missed; `opt_level = "speed"`
+  cost 16–95% of native lowering and *lost* 2.6% of runtime (§6.4); and the path
+  ran the four kernels at 0.91× of bun. What *was* re-taken across the change is
+  the pair of comparisons the change was made for: emission at **0.47×**
+  Cranelift's time (§6.1) and the run side at **1.26×** Cranelift's, over the
+  four comparable kernels of the six-program series below. Erasing generics in
+  the dev profile
   (2–10× measured runtime cost, and a second value model through both backends)
   and moving instantiation placement (worth exactly one unit of blast radius,
   and weak symbols would cost the direct branches) were both refuted by
   measurement, and neither refutation depended on which emitter was under it.
-- **Release: LLVM at `-O2`.** 7.9× a cold dev build and **1.15× an incremental
-  one**, for 1.24× the runtime and 0.35× the artifact size. It lowers at
-  3.9–6.8 k lines/s, which is 15–26× under goal 3 and is the price of LLVM's
-  optimizer rather than of this repository's lowering; the goal is met by the
-  path a developer iterates on.
+- **Release: LLVM at `-O2`.** **10.55×** a cold dev build and **1.07× a no-op
+  one**, for 1.84× the runtime over the four kernels below and 0.35× the
+  artifact size — that last from before the flip and not re-taken. It lowers at
+  5.5 k lines/s on the headline corpus, inside the 3.9–6.8 k band this row has
+  always quoted, which is 18× under goal 3 and is the price of LLVM's optimizer
+  rather than of this repository's lowering; the goal is met by the path a
+  developer iterates on. The distance between the two profiles widened with the
+  removal without the release column moving at all: dev emission is 22.3× release
+  emission now, against 11.2× before.
+
+**The end-to-end numbers behind those two ratios.** No 100,000-line repository
+ships in the tree and the generator's `--record` refuses one, so it was
+assembled out of the checked-in `mixed-10k` corpus: ten copies, one package
+each, module paths rewritten — **101,190 non-blank lines, 10 packages, 370
+modules**, every package a `MACOS`/`ARM64` binary. Cold is `buri clean` plus
+`rm -rf .buri out`; no-op is the same command again with nothing changed.
+
+| Configuration | cold, median | no-op, median |
+|---|---:|---:|
+| dev, Cranelift (before) | 2.964 s | 0.388 s |
+| dev, copy-and-patch (after) | **2.107 s** | 0.398 s |
+| `--release`, LLVM `-O2` | 22.228 s | 0.426 s |
+
+The cold build improves by 29% where emission improved by 53%, and the gap
+between those two is the finding rather than a discrepancy: at ten packages on
+ten cores the build is parallel, and the front end, the action cache and the
+link did not move — only the emission share did. So the release-over-dev cold
+ratio **rises to 10.55×**, from the 7.9× this row used to record and the 7.50×
+the same measurement gives at the old commit today; the no-op ratio is 1.07×
+against the 1.15× recorded before. A single 10k package, for scale: 0.272 s
+cold and 0.087 s no-op.
+
+**The run side, on six kernels written for the comparison.** The four programs
+behind the 1.38× that `design/native/CODEGEN-STENCIL.md` §13 records **have no
+harness in this repository** — nothing in the tree reproduces them — so the six
+below are a fresh series and their geomean is not that number re-taken. What
+they are is the same six sources through three code generators, on one machine
+on one afternoon: whole-process wall clock, median of five, macOS arm64. The
+LLVM column is `-O2`, because `--release` is the only optimized native path here
+and there is no `-O0` one to hold it against; it is a harder bar than the
+literature's, not the same one.
+
+| Kernel | Cranelift dev | copy-and-patch dev | LLVM `-O2` | ÷ Cranelift | ÷ LLVM |
+|---|---:|---:|---:|---:|---:|
+| primes, trial division to 2,000,000 | 175.1 ms | 188.8 ms | 184.7 ms | 1.08× | 1.02× |
+| n-queens, n = 12 | 339.5 ms | 383.1 ms | 260.1 ms | 1.13× | 1.47× |
+| matmul, 260 × 260 through `list.get` | 151.1 ms | 173.5 ms | 125.3 ms | 1.15× | 1.38× |
+| `map`∘`filter`∘`map`∘`fold`, 500 × 20,000 | 51.0 ms | 92.0 ms | 16.7 ms | **1.80×** | **5.51×** |
+| **geomean, those four** | | | | **1.26×** | **1.84×** |
+| `str.concat` × 3,000,000 onto a unique `Str` | 26.6 ms | 29.5 ms | 13.2 ms | **1.11×** | 2.23× |
+| `str.concat` + `str.fromInt` × 1,000,000 | 59.6 ms | 53.5 ms | 47.1 ms | **0.90×** | 1.14× |
+
+The shape `design/native/CODEGEN-STENCIL.md` §13 describes holds, and has
+tightened. Three of the four are within 1.08–1.15× of Cranelift, and **the whole of the remaining gap is
+the `core/list` closure pipeline** — the surface `rtcall.rs` deliberately does
+not inline, which is a stated exclusion rather than a surprise. Cranelift itself
+is 1.46× LLVM `-O2` on the same four, against the copy-and-patch backend's
+1.84×, so most of the distance to release is the optimizer rather than the
+emitter. The two concat rows are the in-place append port measured: both are at
+or better than Cranelift's, which was the point of doing it, and the row whose
+left operand stays unique comes out *ahead*. Per append the cost went from
+0.659 µs before the port to 0.0098 µs after — 67× less, and growing with bytes
+rather than quadratically with appends.
 
 **`buri test` defaults to the native dev backend**, since 2026-08-21. A suite
 that names no platform is compiled with the dev backend and run as a binary, and
@@ -942,23 +1081,30 @@ compile column is itself the faster one.
 
 ### 6.3 What remains open, in the order it matters
 
+- **The `core/list` closure pipeline**, which is now the whole of the dev
+  backend's remaining run-side gap: 1.80× Cranelift and 5.51× LLVM `-O2` on the
+  fused-pipeline kernel while the other three sit at 1.08–1.15× (§6.2). It is
+  `rtcall.rs`'s stated exclusion rather than a defect, and it is the one shape
+  where the exclusion costs a reader something visible.
 - **`buri_rt_list_get`**, which is the whole of the matmul kernel's remaining
-  1.56× and is an out-of-line call that bounds-checks and `memmove`s one element
-  into an `Option` payload. Open-coding it the way `list.map` already open-codes
-  its loop is the next 2× on that shape.
+  gap — 1.56× when that was measured, 1.38× against LLVM `-O2` in §6.2's newer
+  series — and is an out-of-line call that bounds-checks and `memmove`s one
+  element into an `Option` payload. Open-coding it the way `list.map` already
+  open-codes its loop is the next 2× on that shape.
 - **The producer half of fusion.** `range` is still materialized.
 - **Derived `Show`**, which needs the design decision in §6.4 rather than more
   tuning.
-- **Realistic native lowering's last 1.72×.** The measurement said 88% of the
-  row was inside Cranelift's own `define_function` and 42% regalloc2 alone, so
-  the lowering this repository owned was not the cost, and the next step was a
-  value-model change or a different codegen strategy rather than a faster loop.
-  **That step was taken, and it was the second one**: the emitter under this row
-  is now a copy-and-patch one with no register allocator in it at all
-  (2026-08-29). What the row reads afterwards is the first thing the
-  verification wave answers, and it is the one open item here whose number is
-  expected to move rather than to be confirmed.
-- **Lex+parse's last 1.66×.** The plateau without a design change is
+- **~~Realistic native lowering's last 1.72×.~~ Closed 2026-08-29.** The
+  measurement said 88% of the row was inside Cranelift's own `define_function`
+  and 42% regalloc2 alone, so the lowering this repository owned was not the
+  cost, and the next step was a value-model change or a different codegen
+  strategy rather than a faster loop. **The second one was taken**: the emitter
+  under this row is a copy-and-patch one with no register allocator in it at
+  all, the row reads 133.3 k lines/s, and goal 3 is met natively for the first
+  time (§6.1). It is left here rather than deleted because the reason it closed
+  is the finding — the gap was in a dependency's design, and no amount of
+  tuning on this side of the seam was going to reach it.
+- **Lex+parse's last 1.56×.** The plateau without a design change is
   ~5.5–6 M lines/s; reaching 10 M additionally needs the C3 rewrite. 11.2% of
   the phase is provably unavoidable while a standard-library pin stands. Both
   are product decisions rather than optimizations.
