@@ -1,0 +1,14 @@
+// What the schema becomes partway through the session, when `!move` puts it
+// in place of `point.proto`. The extension is not `.proto`, so nothing reads
+// this file until it is one.
+//
+// `y` is gone, which is what `//lib/reader` names and what makes the staleness
+// visible: a server keyed on the schema reports it, and one that is not stays
+// quiet.
+edition = "2026";
+
+package wire.v1;
+
+message Point {
+  int32 x = 1;
+}

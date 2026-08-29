@@ -419,11 +419,13 @@ client would filter out anyway.
 **The file the fix writes is one the editor is not holding**, and that used to
 be the end of the story: you accepted the fix, the `BUILD.buri` changed, and the
 squiggle it fixed stayed on screen until you typed in the buffer. So after
-`initialized` the server registers a watcher for `**/*.buri` — one pattern
-covers a source, a `BUILD.buri` and a `REPO.buri`, because all three wear the
-one extension — and a `didChangeWatchedFiles` notification re-publishes for
-every open buffer. `buri gen` at the terminal and a `git checkout` under the
-editor arrive the same way and are answered the same way.
+`initialized` the server registers a watcher for `**/*.{buri,proto}` — one
+pattern covers a source, a `BUILD.buri` and a `REPO.buri`, because all three
+wear the one extension, and the schemas a rule lists in `proto_sources`, which
+are compiled into modules like any other file — and a `didChangeWatchedFiles`
+notification re-publishes for every open buffer. `buri gen` at the terminal and
+a `git checkout` under the editor arrive the same way and are answered the same
+way.
 
 Nothing is invalidated by hand for it. An analysis is kept under a hash of the
 bytes it read, so a file that changed on disk has already moved the key; the
@@ -967,10 +969,13 @@ loader in place of the file on disk, so what you see reported is what you are
 looking at.
 
 **An analysis is kept until something it read changes.** The key is a hash of
-the build graph — the `.buri` listing, `REPO.buri` and every `BUILD.buri` — and
-then of the bytes of each file in the analysis's own *closure*, which is the set
-of modules it actually loaded, taken off the answer rather than guessed at. The
-buffers the editor has open stand in for their files, because those are what the
+the build graph — the listing of every `.buri` and `.proto` file, `REPO.buri`
+and every `BUILD.buri` — and then of the bytes of each file in the analysis's
+own *closure*, which is the set of modules it actually loaded, taken off the
+answer rather than guessed at. A module generated from a `.proto` has no file of
+its own, so the closure holds the schema behind it: editing one is editing the
+code of every target that reads what it becomes, and only those. The buffers the
+editor has open stand in for their files, because those are what the
 loader actually reads. Reading and hashing bytes is not parsing them, so the key
 costs a fraction of the answer it stands for, and asking whether an answer still
 holds does not touch a file the analysis never read. Both halves are needed: the

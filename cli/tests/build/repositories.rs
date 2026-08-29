@@ -94,7 +94,7 @@ fn test_suites() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 85);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 86);
 }
 
 // ---------------------------------------------------------------------------

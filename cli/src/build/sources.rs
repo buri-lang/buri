@@ -23,7 +23,9 @@
 //! here reads a modification time or a request counter.
 
 use crate::build::session::{self, Session};
+use crate::build::workspace::{ModuleLocation, Workspace};
 use crate::commands::arguments::Flags;
+use crate::compiler::driver::Analysis;
 use crate::diagnostics::FileId;
 use std::collections::BTreeMap;
 use std::hash::Hasher;
@@ -36,7 +38,8 @@ use std::rc::Rc;
 /// language server's is the buffers the client has open.
 pub type Overlay = BTreeMap<PathBuf, String>;
 
-/// Every `.buri` file under one root, and a hash of their names alone.
+/// Every file an analysis of one root may read, and a hash of their names
+/// alone.
 ///
 /// The names are a key of their own: a file appearing or going away changes
 /// what the build graph and the lint pass see without changing the bytes of
@@ -118,17 +121,19 @@ impl Sources {
         self.round = Round::default();
     }
 
-    /// Every `.buri` file under the root, sorted, from one directory walk.
+    /// Every `.buri` and `.proto` file under the root, sorted, from one
+    /// directory walk.
     ///
     /// Sources, every `BUILD.buri` and `REPO.buri` — they all wear the one
-    /// extension. `read_dir` order is the filesystem's and no key may be, so
+    /// extension; a schema wears the other and is an input to analysis exactly
+    /// as they are. `read_dir` order is the filesystem's and no key may be, so
     /// the list is sorted before anything hashes it.
     pub fn listing(&mut self) -> Rc<Listing> {
         if let Some(known) = &self.round.listing {
             return Rc::clone(known);
         }
         let mut files = Vec::new();
-        crate::commands::format::collect(&self.root, &mut files);
+        crate::commands::format::collect_with_schemas(&self.root, &mut files);
         files.sort();
         let mut hasher = crate::hash::FxHasher::default();
         hasher.write(self.root.as_os_str().as_encoded_bytes());
@@ -164,8 +169,8 @@ impl Sources {
         hash
     }
 
-    /// A hash of everything that decides the build graph: which `.buri` files
-    /// exist, and the bytes of `REPO.buri` and every `BUILD.buri`.
+    /// A hash of everything that decides the build graph: which files exist,
+    /// and the bytes of `REPO.buri` and every `BUILD.buri`.
     pub fn graph_key(&mut self, overlay: &Overlay) -> u64 {
         let listing = self.listing();
         let mut hasher = crate::hash::FxHasher::default();
@@ -361,6 +366,32 @@ impl Sources {
     }
 }
 
+/// The files on disk one analysis read, which is what its answer depends on.
+///
+/// The modules' own files, and the schema behind each generated `.proto`
+/// module: a generated module carries no path of its own, so stopping at the
+/// modules would leave a schema edit out of every key built from this list.
+/// The standard library is not among them — it is compiled into this binary,
+/// and its identity is the toolchain version.
+pub fn closure_of(workspace: &Workspace, analysis: &Analysis) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for module in &analysis.loaded.modules {
+        if let Some(disk) = &module.disk {
+            files.push(disk.clone());
+            continue;
+        }
+        if !module.path.ends_with(".proto") {
+            continue;
+        }
+        if let Ok(ModuleLocation::InPackage(schema)) = workspace.resolve_module(&module.path) {
+            files.push(schema.file);
+        }
+    }
+    files.sort();
+    files.dedup();
+    files
+}
+
 /// The hash [`Sources::content_hash`] would give the same bytes.
 fn hash_of(text: &str) -> u64 {
     let mut hasher = crate::hash::FxHasher::default();
@@ -458,6 +489,62 @@ mod tests {
         sources.begin_round();
         let _ = sources.session(&overlay).expect("the repository opens again");
         assert_eq!(sources.reads.opened, 2, "the graph moved, so it was read again");
+    }
+
+    /// A repository whose one library is a `.proto` schema and the module that
+    /// re-exports what it becomes.
+    fn schema_scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("buri-schema-{name}-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(dir.join("lib/wire"));
+        let _ = std::fs::write(dir.join("REPO.buri"), "");
+        let _ = std::fs::write(
+            dir.join("lib/wire/BUILD.buri"),
+            "library {\n    proto_sources: [\"point.proto\"]\n}\n",
+        );
+        let _ = std::fs::write(
+            dir.join("lib/wire/lib.buri"),
+            "from \"//lib/wire/point.proto\" export { Point };\n",
+        );
+        let _ = std::fs::write(dir.join("lib/wire/point.proto"), SCHEMA);
+        dir
+    }
+
+    const SCHEMA: &str =
+        "edition = \"2026\";\n\npackage wire.v1;\n\nmessage Point {\n  int32 x = 1;\n}\n";
+
+    /// A schema is an input to the analysis of the module it becomes, so it is
+    /// in that closure and editing it moves the key over it.
+    ///
+    /// The module a schema becomes is generated and has no path of its own,
+    /// which is what a closure taken from the modules alone would stop at.
+    #[test]
+    fn a_schema_is_in_the_closure_it_feeds() {
+        let dir = schema_scratch("closure");
+        let mut sources = Sources::at(&dir, Flags::default());
+        let overlay = Overlay::new();
+        let mut session = sources.session(&overlay).expect("the repository opens");
+        let target = *session.workspace.targets().first().expect("the library is a target");
+        let unit = crate::compiler::modules::Unit {
+            target: Some(target),
+            platform: None,
+            with_tests: true,
+        };
+        let analysis = crate::compiler::driver::analyze(
+            Some(&session.workspace),
+            &mut session.map,
+            &mut session.parsed,
+            &unit,
+        );
+
+        let schema = dir.join("lib/wire/point.proto");
+        let closure = closure_of(&session.workspace, &analysis);
+        assert!(closure.contains(&schema), "the schema is in the closure it feeds");
+
+        let before = sources.closure_key(&closure, &overlay);
+        let _ = std::fs::write(&schema, SCHEMA.replace("int32 x = 1;", "int32 y = 2;"));
+        sources.begin_round();
+        assert_ne!(before, sources.closure_key(&closure, &overlay), "the edit moved the key");
     }
 
     /// An overlaid buffer is what an analysis reads, whether or not anything
