@@ -9,6 +9,11 @@
 //! makes that liveable is the scheduling in `mod.rs`, and now also the
 //! [`Cache`]: an answer is kept under a hash of every byte it was computed
 //! from, so a second question about an unchanged repository is a lookup.
+//!
+//! The reading behind those hashes is not here. `build::sources` owns the
+//! directory walk, the content hashes and the repository itself, because
+//! `buri lint` and `buri test --watch` want the same reuse and a second copy
+//! of it would be a second place for it to drift.
 
 use crate::build::session::Session;
 use crate::build::sources::{Overlay, Sources};
@@ -1197,16 +1202,16 @@ impl State {
         (known.key == now).then(|| known.found.clone())
     }
 
-    /// A session with the open buffers layered over the disk, and nothing
-    /// analysed in it yet.
+    /// A session to analyse in: the open buffers layered over the disk, every
+    /// file read so far already in it, and nothing analysed yet.
     ///
-    /// The overlay trick is `SourceMap::load` reusing an entry whose name
-    /// already exists (`diagnostics.rs`): seeding the map with each open buffer
-    /// under the name the loader will ask for means the loader never reaches
-    /// the disk, and `compiler::modules` needs no notion of an editor at all.
+    /// A copy rather than the kept one, and a cheap copy — the text and the
+    /// parses are shared. `build::sources` is where the layering and the
+    /// keeping happen; what an analysis goes on to read is offered back to it
+    /// through [`State::keep`].
     ///
     /// Public because `buri gen` writes through the session it is handed, and
-    /// a cached one is shared by everything holding an `Rc` to it.
+    /// a kept one is shared by everything holding an `Rc` to it.
     pub fn overlaid_session(&mut self, root: &Path) -> Option<Session> {
         Some((*self.opened(root)?).clone())
     }
