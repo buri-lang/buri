@@ -19,11 +19,14 @@
 //! editor has never seen — and it is why `workspaceDiagnostics: true` is
 //! advertised rather than left to the default.
 //!
-//! **A result id stands for an analysis fingerprint** — the same key the
-//! analysis cache is filed under. An answer is unchanged exactly when every
-//! byte it was computed from is, so deciding costs a read of the repository
-//! rather than a compilation of it. See [`State::diagnostic_result_id`] for why
-//! what goes on the wire is a counter and not the hash itself.
+//! **A result id stands for what the report was computed from** — the same key
+//! the analysis cache is filed under. For a document that is the closure the
+//! file is in, so a keystroke in a library this file cannot see leaves its
+//! report unchanged; for a workspace report it is one id per file, standing for
+//! that file's findings. Either way an answer is unchanged exactly when every
+//! byte behind it is, so deciding costs a hash rather than a compilation. See
+//! `State::current_result_id` for why what goes on the wire is a counter and
+//! not the hash itself.
 
 use super::convert;
 use super::state::State;
@@ -46,18 +49,22 @@ pub fn document(state: &mut State, id: &Value, params: &Value) -> Vec<Value> {
     // A file in no open repository. An empty full report is the honest answer —
     // the server knows nothing about it — and it carries no `resultId`, because
     // there is no analysis behind it for a later request to quote.
-    let Some(root) = state.root_of(&path) else {
+    if state.root_of(&path).is_none() {
         return vec![super::response(id, full(None, Vec::new(), Published::new()))];
-    };
-    let result_id = state.diagnostic_result_id(&root);
-    if params.get("previousResultId").and_then(|v| v.as_str()) == Some(result_id.as_str()) {
-        return vec![super::response(
-            id,
-            Value::object(vec![
-                ("kind", Value::str("unchanged")),
-                ("resultId", Value::str(&result_id)),
-            ]),
-        )];
+    }
+    // The id this document's last report went out with, when what that report
+    // was computed from — this file's closure, and nothing else in the
+    // repository — has not moved since.
+    if let Some(current) = state.current_result_id(&path) {
+        if params.get("previousResultId").and_then(|v| v.as_str()) == Some(current.as_str()) {
+            return vec![super::response(
+                id,
+                Value::object(vec![
+                    ("kind", Value::str("unchanged")),
+                    ("resultId", Value::str(&current)),
+                ]),
+            )];
+        }
     }
 
     let uri = convert::uri_of(&path);
@@ -74,7 +81,11 @@ pub fn document(state: &mut State, id: &Value, params: &Value) -> Vec<Value> {
     if state.related_documents_supported {
         retract(state, &uri, &mut related);
     }
-    vec![super::response(id, full(Some(&result_id), items, related))]
+    // Issued after the report and not before it: the closure the id stands for
+    // is the one this analysis just read, and on the first pull about a file
+    // there was no analysis to read it from yet.
+    let result_id = state.issue_result_id(&path);
+    vec![super::response(id, full(result_id.as_deref(), items, related))]
 }
 
 /// Names again, with empty `items`, every related document the last report for
@@ -111,30 +122,32 @@ pub fn workspace(state: &mut State, params: &Value) -> Value {
     let quoted = previous_result_ids(params);
     let mut items = Vec::new();
     for root in state.roots.clone() {
-        // One id per repository rather than per file: the front end is
-        // whole-closure, so there is no file whose answer an edit elsewhere
-        // provably does not change. See `State::fingerprint`.
-        let result_id = state.diagnostic_result_id(&root);
         let mut found = Published::new();
         let mut files = Vec::new();
         crate::commands::format::collect(&root, &mut files);
         for file in files {
             found.insert(convert::uri_of(&file), Vec::new());
         }
-        // One compilation over every target, and one lint pass over every
-        // target — which is the whole point of asking about the repository
-        // rather than about a file.
-        if let Some(analyzed) = state.analyze_workspace(&root) {
-            for d in &analyzed.analysis.diagnostics.items {
-                super::add_finding(&mut found, &analyzed.session, d);
-            }
-        }
-        if let Some(linted) = state.lint_workspace(&root) {
-            for d in &linted.diagnostics.items {
-                super::add_finding(&mut found, &linted.session, d);
+        // Both passes over every target — which is the whole point of asking
+        // about the repository rather than about a file. Per target and not as
+        // one compilation, because that is the unit a keystroke invalidates:
+        // see `State::workspace_findings`.
+        if let Some(reported) = state.workspace_findings(&root) {
+            for (uri, items) in reported {
+                found.entry(uri).or_default().extend(items);
             }
         }
         for (uri, diagnostics) in found {
+            // The same id a `textDocument/diagnostic` about this file would
+            // carry: one per closure, so an edit in a library a file cannot see
+            // leaves its entry three fields long instead of its whole report
+            // again — and a client that quotes the id back at either request
+            // gets the same answer.
+            let Some(result_id) =
+                convert::path_of(&uri).and_then(|path| state.issue_result_id(&path))
+            else {
+                continue;
+            };
             let unchanged = quoted.iter().any(|(u, v)| *u == uri && *v == result_id);
             items.push(if unchanged {
                 Value::object(vec![

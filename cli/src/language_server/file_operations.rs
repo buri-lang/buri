@@ -175,8 +175,8 @@ pub fn will_delete(state: &mut State, params: &Value) -> Option<Value> {
 /// that is gone.
 pub fn moved(state: &mut State, params: &Value) {
     for (old, new) in pairs(params) {
-        if let Some(text) = state.open.remove(&old) {
-            state.open.insert(new.clone(), text);
+        if let Some(text) = state.drop_buffer(&old) {
+            state.set_buffer(new.clone(), text);
         }
         // The colours the client holds were computed for a document under its
         // old name, and the id it would quote back means nothing now.
@@ -191,7 +191,7 @@ pub fn moved(state: &mut State, params: &Value) {
 pub fn gone(state: &mut State, params: &Value) -> Vec<Value> {
     let mut out = Vec::new();
     for path in named(params, "uri") {
-        state.open.remove(&path);
+        state.drop_buffer(&path);
         state.semantic_tokens.results.remove(&path);
         let uri = convert::uri_of(&path);
         state.showing_parse_errors.remove(&uri);

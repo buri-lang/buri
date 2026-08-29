@@ -1,0 +1,2 @@
+# Three targets, and only two of them can see `//lib/alpha`. That is the whole
+# of what this case is about: a keystroke in `alpha` must leave `beta` alone.
