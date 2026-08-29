@@ -19,7 +19,8 @@
 //! frame-threaded body and needs no bridge: `x0` is a frame pointer on the way
 //! in and on the way out.
 //!
-//! A glue function is entered by the *runtime* — `buri_rt_decref(p, glue)` and
+//! A glue function is entered from outside the frame-threaded world — the
+//! `decref` stencil's dying arm, `buri_rt_decref(p, glue)`, and
 //! `cli/runtime/list.rs`'s `retain` — so it is `extern "C" fn(*mut u8)` and
 //! every one of them is a hand-written eight-instruction stub in front of a
 //! frame-threaded body. The stub's whole job is to make a frame: it takes the
