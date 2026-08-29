@@ -185,7 +185,7 @@ impl Backend for Cranelift {
     }
 
     /// Every step above the per-unit loop is whole-program and stays so: the
-    /// lowering, the reference-counting oracle and the IR verifier all read the
+    /// lowering, the reference-counting classifier and the IR verifier all read the
     /// program, and a unit's object depends on the program it was lowered from
     /// rather than on the other units' objects. What `units` skips is
     /// `compile_unit`, which is where the time is.
@@ -201,7 +201,7 @@ impl Backend for Cranelift {
             Err(message) => return Err(one(message)),
         };
         let lowered = lower::run(program, tables);
-        // The oracle `middle::rc` used, rebuilt over the same program it ran
+        // The classifier `middle::rc` used, rebuilt over the same program it ran
         // on, so the reference operations this backend adds around the calls
         // it invents are the ones rc would have added (`emit::Cx::rc_counted`).
         // One for the whole emission rather than one per unit: it memoises,

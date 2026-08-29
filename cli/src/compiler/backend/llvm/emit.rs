@@ -155,7 +155,7 @@ pub struct Unit<'ctx, 'a> {
     /// middle of another function's body and the builder is positioned there.
     pending: Vec<Job<'ctx>>,
     helpers: usize,
-    /// The oracle `middle::rc` decided its own operations with, where the
+    /// The classifier `middle::rc` decided its own operations with, where the
     /// caller had the program `rc::run` was handed — see [`Unit::rc_counted`].
     rc: Option<std::rc::Rc<std::cell::RefCell<rc::Syntactic>>>,
     pub diags: Diagnostics,
@@ -198,9 +198,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
-    /// Hands this unit the oracle `middle::rc` ran with.
-    pub fn use_rc_oracle(&mut self, oracle: std::rc::Rc<std::cell::RefCell<rc::Syntactic>>) {
-        self.rc = Some(oracle);
+    /// Hands this unit the classifier `middle::rc` ran with.
+    pub fn use_rc_classifier(
+        &mut self,
+        classifier: std::rc::Rc<std::cell::RefCell<rc::Syntactic>>,
+    ) {
+        self.rc = Some(classifier);
     }
 
     /// Whether **rc** counts a type — not whether the layout table does.
@@ -216,22 +219,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `list.map`. The same mistake in the Cranelift backend leaked 199 of them
     /// over a 200-element `[Str]`.
     ///
-    /// Without an oracle the layout answer stands in, and the direction is what
+    /// Without a classifier the layout answer stands in, and the direction is what
     /// makes that safe rather than merely convenient: rc's `Yes` is a subset of
     /// the layout's `counted_type` — every shape rc calls counted, the layout
     /// does — so the substitution can only ever retain *more*, in a program
     /// where rc already leaves the same blocks uncounted. It cannot release a
-    /// count that was never taken. The one entry point without an oracle is
+    /// count that was never taken. The one entry point without a classifier is
     /// [`super::emit_lowered`], which is handed an `ir::Program` and has no
     /// `monomorphize::Program` to build one from.
     ///
     /// The **thunk's** release does not ask this at all: `ir::Ownership::Borrow`
-    /// is set only where rc's oracle answered `Yes` (`middle/rc.rs`'s
+    /// is set only where rc's classifier answered `Yes` (`middle/rc.rs`'s
     /// `infer_ownership`, whose other arm is `Own` "by convention" for anything
     /// uncounted), so the ownership column already carries rc's answer exactly.
     fn rc_counted(&mut self, ty: &Ty) -> bool {
-        if let Some(oracle) = self.rc.clone() {
-            let answer = oracle.borrow_mut().counted(ty);
+        if let Some(classifier) = self.rc.clone() {
+            let answer = classifier.borrow_mut().counted(ty);
             return matches!(answer, rc::Answer::Yes);
         }
         self.reprs.counted_type(ty)
