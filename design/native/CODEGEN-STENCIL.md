@@ -1,32 +1,90 @@
 # The copy-and-patch backend
 
-A third native backend, behind `backend-stencil`, which is on by default and off
-on a host with no C compiler. **It is not chosen by `backend::select`.** The
-seat it was meant to take — everything except a native `--release` build — was
-gated on correctness parity with Cranelift and on a re-benchmark.
+The dev backend: `buri build`, `buri run`, and every `buri test` on a native
+platform. It is chosen for `(Linux | Macos, Debug)` (ARCHITECTURE.md §4), and it
+is chosen because compile time is the only thing that matters in that quadrant.
+It is behind `backend-stencil`, which is on by default and off on a host with no
+C compiler.
 
-**Parity is met.** Driven through `buri build` and `buri test` — the real build
+**It took that seat on 2026-08-29, and §13 is the record.** Until then it was
+compiled in and never selected, because selecting it was a decision about parity
+rather than about plumbing, and the backend it was written to replace —
+Cranelift — held the quadrant. The gate the seat was behind was correctness
+parity and a re-benchmark; both were answered, the decision was taken, and the
+Cranelift backend was removed from the tree with its design document. Every
+comparison against it below is a measurement taken while it was still there, and
+§13 says which numbers those are.
+
+**Parity was met.** Driven through `buri build` and `buri test` — the real build
 system, the real per-unit cache, the real batcher and above all the real link —
-stencil passes **997 of 997** native conformance tests, refuses the same six
-packages for the same three reasons Cranelift refuses them, and leaves the same
-blocks live at exit on every package. §9 is the list of what neither backend
-does.
+stencil passes **997 of 997** native conformance tests, refused the same six
+packages for the same three reasons the incumbent refused them, and left the
+same blocks live at exit on every package. §9 is the list of what it does not
+do.
 
-**The benchmark's answer was a trade, and the run side has since closed most of
-the way.** stencil wins every cell whose time is compiling — emission of a
-121k-line program in 367 units is about 0.43× Cranelift's, and it is the first
-backend in this repository to reach `design/PERFORMANCE.md`'s goal 3. On the run
-side the four kernels are **1.38×** Cranelift `opt_level=none`, from 1.86×
-before §5.1's slots-only `crt` family, and the geomean against LLVM `-O0` is
-**0.927** — the paper's own bar, met here for the first time, though Cranelift
-clears it by more. What is left of the gap is one kernel (`core/list`'s closure
-surface, 2.9×) rather than the boundary. And it is one target where Cranelift is
-four, which is now by a wide margin the largest difference on the list and is
-not a performance one at all.
+**The benchmark's answer was a trade, and the run side closed most of the way
+before the decision was taken.** stencil wins every cell whose time is compiling
+— emission of a 121k-line program in 367 units is about 0.43× Cranelift's, and
+it is the first backend in this repository to reach `design/PERFORMANCE.md`'s
+goal 3. On the run side the four kernels are **1.38×** Cranelift
+`opt_level=none`, from 1.86× before §5.1's slots-only `crt` family, and the
+geomean against LLVM `-O0` is **0.927** — the paper's own bar, met here for the
+first time, though Cranelift cleared it by more. What is left of the gap is one
+kernel (`core/list`'s closure surface, 2.9×) rather than the boundary. Those
+figures are from the week before 2026-08-29 and none of them has been re-taken
+since the removal; `design/PERFORMANCE.md` §6 says the same thing at more
+length.
 
 **A runaway recursion traps.** The Buri stack has a `PROT_NONE` guard above it
-(§8), so a program that recurses past it faults where a Cranelift-compiled one
-faults, instead of writing into whatever the linker placed next.
+(§8), so a program that recurses past it faults instead of writing into whatever
+the linker placed next.
+
+## 0. The IR it consumes
+
+`middle::ir`, produced by `middle::lower` (ARCHITECTURE.md §2.1). One function is:
+
+```rust
+pub struct Func {
+    pub sig: Sig,                  // flattened scalars, per VALUE-MODEL.md §5.1
+    pub blocks: Vec<Block>,        // blocks[0] is the entry
+    pub unit: u32,                 // the codegen unit (ARCHITECTURE.md §5)
+    pub facts: Facts,              // per-parameter own/borrow, purity, nounwind
+}
+
+pub struct Block {
+    pub params: Vec<(ValueId, Type)>,
+    pub insts: Vec<Inst>,
+    pub term: Term,
+}
+
+pub enum Term {
+    Jump(BlockId, Vec<ValueId>),
+    Branch { cond: ValueId, then: (BlockId, Vec<ValueId>), else_: (BlockId, Vec<ValueId>) },
+    /// A dense discriminant switch. `default` is `None` where the middle end
+    /// proved the table total, which for an enum is always.
+    Switch { on: ValueId, cases: Vec<(u64, BlockId, Vec<ValueId>)>, default: Option<BlockId> },
+    Return(Vec<ValueId>),
+    Unreachable,
+}
+```
+
+Block-argument SSA, no phi instruction, every value defined once. The form was
+chosen because it was CLIF's, back when the debug backend was Cranelift and a
+transliteration was the cheapest thing to lower — and it outlived that reason
+rather than depending on it. A block parameter here is a frame slot the
+predecessor writes before it branches (§2), which is the same construct read a
+second way, and LLVM's phis are a mechanical lowering of it (CODEGEN-LLVM.md
+§2.1). Nothing in the middle IR is a compromise between two emitters, and
+nothing in it names a code generator.
+
+Pattern *bindings* are projections, not tests: `middle::decision`
+(ARCHITECTURE.md §2.2) has already turned the arm list into a tree over
+discriminants, so this backend never sees an arm chain, and once a block is
+entered the payload fields are loads at known offsets from the enum's payload
+area (VALUE-MODEL.md §6). `Profile::defensive_aborts` (`generate.rs`) decides
+whether the unreachable default of a proved-total switch calls
+`buri_rt_abort_unreachable` anyway; on the debug path it is on, because the belt
+is cheap.
 
 The technique is Haoran Xu and Fredrik Kjolstad's *Copy-and-Patch Compilation*
 (OOPSLA 2021). Section references of the form "§4.3 of the paper" are to it;
@@ -105,11 +163,12 @@ of each other with no trend. `stencil/abi.rs::NREGS`.
 The convention is not the C one, so two things cross the boundary and both are
 hand-written rather than emitted from stencils:
 
-* **`main`** — `stencil/asm.rs`, which is `cranelift/mod.rs`'s two entry-point
-  shims with the same behaviour: `buri_rt_argv_init`, the root or each `test`
-  block behind `buri_rt_test_enter`, `buri_rt_flush`, and the exit convention
-  of `cli/runtime/lib.rs` §6. It sets `x0` to the Buri stack and calls a
-  frame-threaded body.
+* **`main`** — `stencil/asm.rs`, two hand-encoded entry-point shims, and the
+  behaviour is the one the removed backend's shims had before it:
+  `buri_rt_argv_init`, the root or each `test` block behind
+  `buri_rt_test_enter`, `buri_rt_flush`, and the exit convention of
+  `cli/runtime/lib.rs` §6. It sets the first argument register to the Buri stack
+  and calls a frame-threaded body.
 * **a runtime call** — `stencil/rtcall.rs`. §5.
 
 ## 3. Where the stencils come from
@@ -216,7 +275,15 @@ disagreement about the spelling would be arm64 bytes inside an x86-64 object.
 | `linux-x86_64` | ELF | `elfobj.rs` | `x86.rs` | `elf.rs` | 13,874 | 2.25 MB |
 
 `macos-x86_64` is deliberately absent: nothing this repository runs on or ships
-to is x86-64 Mach-O, and `mod.rs::supported` refuses it by name.
+to is x86-64 Mach-O, and `mod.rs::supported` refuses it by name. It is now the
+**only** native target this toolchain has no debug backend for, which is a
+sentence that had no reason to exist while a retargetable code generator was
+compiled in beside this one. <!-- PLACEHOLDER, coordinator: one of the two
+below, and delete the other. (a) It stays absent: a macOS/x86-64 host gets
+`Js` from `driver::host_platform` and a refusal naming the target from
+`buri build`, which is the same shape a host with no `cc` gets (§7,
+BUILD-AND-WATCH.md §2). (b) A fourth library is built: add its row to the table
+above and strike this paragraph. -->
 
 **The two Linux libraries are cross-compiled**, on a macOS host with no Linux
 sysroot, and that works for one reason: the generated C includes `<stdint.h>`
@@ -332,8 +399,8 @@ patching, and the two addresses a hole cannot know — a symbol in another objec
 and the runtime's — are exactly the two the relocation format exists for.
 
 One object per codegen unit, which is the granularity
-`build::actions::codegen_units` caches at, and the same granularity
-`cranelift/mod.rs` emits at. Two sections:
+`build::actions::codegen_units` caches at, and the granularity every backend in
+this repository has emitted at. Two sections:
 
 * `__TEXT,__text` — the code. **Every** call is an `ARM64_RELOC_BRANCH26`
   against `ir::Func::symbol`, whether or not the unit owns the callee, which is
@@ -375,15 +442,32 @@ true when the Linux targets landed: `elf.rs` writes objects that `ld.lld`
 statically links with every relocation resolving, and what is still refused is
 the *link* on a foreign host rather than the emission (ARCHITECTURE.md §9).
 
+### 4.1 Reproducibility of the object bytes
+
+Two things are checked rather than assumed, because ARCHITECTURE.md §7 compares
+these bytes:
+
+- **Symbol and section order is a function of declaration order**, and
+  declaration order is the middle end's function order, which is source order
+  (`monomorphize.rs`). Nothing in the emission path iterates a `HashMap`.
+- **No timestamps.** Neither writer emits one for a relocatable object. The
+  archive step (§12) is where a timestamp could enter, and it is zeroed there.
+
+`a_cross_emission_is_reproducible` (§10.1) is that stated as a test for the two
+Linux targets, and `--check-reproducible` (ARCHITECTURE.md §7) is it for the
+host one. Neither half of this subsection is this backend's alone: both were
+written for the removed one and are true of both writers, which is why §13 lists
+them among what stayed.
+
 ## 5. The runtime boundary
 
 Every operation `middle::lower` leaves as a `Body::Runtime` or an
 `Inst::CallIntrinsic` with a `buri_rt_*` symbol is **a call into
 `libburi_rt.a`** — the same archive, the same contract
 (`cli/runtime/lib.rs`) and the same table shape as the other two backends.
-`stencil/runtime.rs` is the third transcription of that contract, key for key and
-shape for shape with `cranelift/runtime.rs`, and
-`cli/tests/native/conformance.rs`'s companion test is what keeps the three from
+`stencil/runtime.rs` is one transcription of that contract and `llvm/runtime.rs`
+is the other, key for key and shape for shape, and
+`cli/tests/native/conformance.rs`'s companion test is what keeps the two from
 disagreeing about which keys exist.
 
 This is the wave's largest single deletion. The prototype had its own
@@ -397,8 +481,8 @@ language ever adds having to be written twice.
 
 The same key reaches this backend two ways — spelled inline it is an
 `Inst::CallIntrinsic`, spelled as a method it is an `Inst::Call` to a
-`Body::Runtime` function — and **both are emitted at the call site**, which is
-`cranelift/emit.rs::call`'s first act for the same reason.
+`Body::Runtime` function — and **both are emitted at the call site**, which was
+the first act of the removed backend's `call` for the same reason.
 
 Making the second a real call cost a whole frame for nothing. The caller copied
 the operands into the callee's parameter slots and branched; the generated body
@@ -541,29 +625,59 @@ in its slot — and handing that word to a C parameter declared `int64_t` render
 in the emitted stencil, invisible in the IR, and shows up as an unsigned number
 in a rendered string.
 
+### 5.3 `I128`, which is where a backend can fall short of the type system
+
+The model says 128-bit arithmetic is exact (VALUE-MODEL.md §1) and a backend
+that cannot do it in registers calls the runtime. Where an operation on `I128`
+is not natively lowered on the target, the middle end legalizes it into a pair
+of `I64`s with explicit carry — a legalization pass in `middle`, so the LLVM
+backend gets the same rewrite if it ever needs it and both backends produce the
+same answers. Division and remainder always go to the runtime
+(`buri_rt_i128_divmod`), on both, because that is a hundred instructions nobody
+should inline. Its operands cross as **pairs of `I64`s, low half first**, rather
+than as `I128`: the contract says a parameter is a scalar leaf, and passing a
+pair means neither backend has to agree with the platform ABI about how a
+128-bit integer is classified.
+
+This subsection is not this backend's either — it is VALUE-MODEL.md §1's
+fallback, stated in a code generator's document rather than in the model's
+because it is a backend limitation and not a model decision, and it moved here
+when the document it was written in was removed (§13).
+
+### 5.4 Aborts
+
+`buri_rt_abort(msg_ptr, msg_len)` never returns, and neither does any of the
+fixed messages beside it — `buri_rt_abort_div_zero`, `buri_rt_abort_shift`,
+`buri_rt_abort_bounds`, `buri_rt_abort_unreachable`. They exist so that a
+message pinned by `cli/tests/crash/` lives in the runtime rather than in a
+backend's string table, which is why they outlived the backend they were first
+written for, and they are reached through §5's boundary like every other runtime
+call.
+
 ## 6. Reference counting, and the functions a unit generates for itself
 
 MEMORY.md §5.1's saturating increment and its decrement, open-coded as two
 stencils, with the cold path a call to `buri_rt_decref` — instruction for
-instruction what `cranelift/emit.rs::incref`/`decref` emit, because two backends
-deciding separately when a block dies is the one divergence MEMORY.md §5 cannot
-tolerate.
+instruction what MEMORY.md §5.1 spells and what `llvm/emit.rs` emits, because
+two backends deciding separately when a block dies is the one divergence
+MEMORY.md §5 cannot tolerate.
 
-`emit::Lower::walk_rc` is `cranelift/emit.rs::walk_rc`, all five site kinds: a
+`emit::Lower::walk_rc` covers all five site kinds: a
 `Str`/`[T]` block, a nested aggregate, a tagged enum's per-variant payloads, a
 **boxed** field, and a **niche** whose payload is walked behind its null test.
 
 The last of those is not belt-and-braces. `.None` is written by storing null at
 the one pointer the discriminant is and nothing else, so every other byte of the
 payload area is whatever the frame last held; walking it unguarded decrements a
-count at an address that was never a pointer. `cranelift/emit.rs`'s
-`Site::Guarded` is the same test for the same reason.
+count at an address that was never a pointer. The guarded site is a shape both
+native backends have, for the same reason.
 
 ### 6.1 `glue.rs`
 
-Four things a unit generates for itself, which is `cranelift/helpers.rs`'s set
-under `cranelift/helpers.rs`'s argument, and every one a **local** symbol so
-that two units needing the same one do not collide:
+Four things a unit generates for itself — the set the removed backend's
+`helpers.rs` generated, under its argument, which outlived it because the set is
+a property of the value model rather than of an emitter — and every one a
+**local** symbol so that two units needing the same one do not collide:
 
 | Helper | Why it is generated rather than called |
 |---|---|
@@ -590,14 +704,14 @@ walk of a record of records of records expands once per *path* rather than once
 per type. Past `RC_INLINE` levels a compound field's walk goes through that
 type's own `Walk` glue instead, so an emitted body holds a bounded number of
 levels plus one call per deeper field and the code is linear in the distinct
-types a program holds. `cranelift/emit.rs::walk_or_call` is the same threshold,
+types a program holds. `RC_INLINE` is the threshold both native backends apply,
 and `conformance/lib/semantics/test/generics.buri` is the file that needs it.
 
 ### 6.3 The closure environment is a block
 
 `MakeClosure` allocates `[release fn][record]` and puts the pointer in the
-closure's `env` word, exactly as `cranelift/emit.rs::build_env` does, and
-`walk_rc` counts that word. Carrying the environment by value in one word — what
+closure's `env` word, which is the shape VALUE-MODEL.md §7.1 pins for both
+native backends, and `walk_rc` counts that word. Carrying the environment by value in one word — what
 wave 1 did — cannot hold a `Str` and cannot be released, and both show up as
 refusals rather than as a smaller closure.
 
@@ -639,9 +753,9 @@ Three decisions, each with a reason that is not "it seemed safer":
 * **A megabyte, not a page.** A guard narrower than the widest frame can be
   *stepped over* — a callee whose locals area exceeds it writes past it without
   touching it. This is the hazard native code answers with stack probes, and
-  **Cranelift does not enable them either**, so a machine frame past the OS
-  guard has the same exposure on the incumbent. The two backends are level
-  rather than one being sound; a megabyte is far past any frame `middle::layout`
+  neither the removed backend nor LLVM at `-O0` enables them, so a machine frame
+  past the OS guard has the same exposure everywhere. Nothing here is less sound
+  than what it replaced; a megabyte is far past any frame `middle::layout`
   produces, and zero-fill pages that are never faulted in cost address space and
   nothing else.
 * **One block and one symbol.** `MH_SUBSECTIONS_VIA_SYMBOLS` makes every symbol
@@ -661,16 +775,16 @@ stack is established at all, and `install_guard` is in both of `main`'s forms.
 
 ### 8.2 What a program does when it runs out
 
-The same thing a Cranelift-compiled one does, which is what parity here means:
-the process dies on the fault, with no message, and the shell reports the
-signal. Measured on the same non-tail recursion, both backends through
-`buri build`: Cranelift **exits 139** (`SIGSEGV`, the OS guard under the machine
-stack) and stencil **exits 138** (`SIGBUS`, the `PROT_NONE` guard above the Buri
-stack). SPEC §6.10 asks for "a message on stderr and a non-zero exit status" and
-neither backend prints the message; that gap is the *runtime's* — it has no
-fault handler — and it is shared, not this backend's, so closing it here would
-make the two disagree. What this section closes is the difference that was
-stencil's alone: **a deep recursion used to corrupt whatever the linker placed
+The same thing a Cranelift-compiled one did, which is what parity meant while
+there was something to be at parity with: the process dies on the fault, with no
+message, and the shell reports the signal. Measured on the same non-tail
+recursion, both backends through `buri build` before the removal: Cranelift
+**exited 139** (`SIGSEGV`, the OS guard under the machine stack) and stencil
+**exits 138** (`SIGBUS`, the `PROT_NONE` guard above the Buri stack). SPEC §6.10
+asks for "a message on stderr and a non-zero exit status" and neither printed the
+message; that gap is the *runtime's* — it has no fault handler — and it is not
+this backend's to close alone. What this section closed is the difference that
+was stencil's own: **a deep recursion used to corrupt whatever the linker placed
 after the stack and keep running.**
 
 **Where the fault lands is the whole of the change, and it was measured rather
@@ -701,8 +815,9 @@ Named rather than left to be discovered. Every one is a refusal, so a program
 that needs one is told; none is a wrong answer.
 
 **Refused by every backend**, and not a stencil gap. `native/conformance.rs`'s
-`PACKAGES` records the same reasons for Cranelift, and stencil refuses the same
-six conformance files:
+`PACKAGES` records the reason per package; the removed backend refused the same
+six conformance files for the same three reasons, which is one of the things
+parity meant. They are:
 
 * an **inexact** numeric conversion. `x.toT()` where not every value fits
   answers `Result<T, RangeError>` (SPEC 6.2.1), and `RangeError` is a struct of
@@ -715,22 +830,26 @@ six conformance files:
 
 **stencil's own, and each is a sentence rather than a wrong answer:**
 
-* **x86-64 execution.** The stencils are built and extracted (§3.2) and
-  `elf.rs` writes the container, but `asm.rs`'s two hand-written shims have no
-  SysV counterpart, so `mod.rs::supported` refuses the target with that sentence
-  rather than emitting an object with arm64 bytes in `main`. §10.3 is the list.
+* **macOS on x86-64.** There is no library for it (§3.2) and
+  `mod.rs::supported` refuses it by name. It is the one native target with no
+  debug backend at all, and §3.2's placeholder is where that is settled.
 * **Linux execution from this host.** `linux-arm64` emits objects that a real
   linker accepts and fully resolves, and that is as far as *this* machine can
   go — §10.1 says why. CI runs the programs (§10.2).
-* **Debug information** — neither DWARF nor `.buri_symbols`, which is the gap
-  `cranelift/mod.rs` records for itself too.
-* **In-place `str.concat`.** `cranelift/helpers.rs`'s appends into the left
-  operand's block when it owns it alone (MEMORY.md §5.3); this always allocates.
-  The string is the same either way, so nothing observable through `Show`
-  differs — but the *allocation count* does, and `core/alloc`'s `count` and
-  `total` are observable, so it is a divergence and not a missing optimisation.
-  It is `malloc` calls that differ and not the model: `memory/allocators.buri`
-  passes, because MEMORY.md §7's cost model is *defined* from the types.
+* **Debug information** — neither DWARF nor `.buri_symbols`. It was the gap the
+  removed backend recorded for itself too, so nothing regressed with the flip;
+  §11 is what closing it would start from.
+* **In-place `str.concat`.** The removed backend appended into the left
+  operand's block when it owned it alone (MEMORY.md §5.3); this one always
+  allocates. The string is the same either way, so nothing observable through
+  `Show` differs — but the *allocation count* does, and `core/alloc`'s `count`
+  and `total` are observable, so it is a divergence and not a missing
+  optimisation. It is `malloc` calls that differ and not the model:
+  `memory/allocators.buri` passes, because MEMORY.md §7's cost model is
+  *defined* from the types. **Status: not ported.**
+  <!-- PLACEHOLDER, coordinator: if the in-place append is ported, this bullet
+  leaves §9 entirely and MEMORY.md §5.3's `str.concat` paragraph loses its
+  "allocates unconditionally" clause. If it is not, both stay as written. -->
 * **An element wider than the staging room a frame keeps** (`lists.rs::STAGE`).
   A `zip`, a `flatten` and a `sortBy` move whole elements between two blocks
   through the frame, and the frame's scratch is a constant; past it the shape is
@@ -740,13 +859,14 @@ six conformance files:
   as its own thirty-two bits, so the shape `buri_rt_show_f32` wants is one this
   call boundary does not have.
 
-**Shared with Cranelift and not the backend's at all.** Whatever a conformance
-package leaves live at exit, **both backends leave exactly the same blocks and
+**Not the backend's at all.** Whatever a conformance package leaves live at
+exit is `middle::rc`'s plan rather than an emitter's, and that was the last
+thing checked before the flip: **both backends left exactly the same blocks and
 the same bytes** — measured through the runtime's own `buri_rt_heap_stats`, on
 the objects `buri test` produced, re-linked with `build/link.rs`'s own flags.
-Most recently that is 0 live on all nine measurable packages, where earlier
-rounds recorded three files leaking (17, 5 and 20 blocks); the count moves with
-`middle::rc` and the *parity* is what this document claims. What emits a release
+That reading was 0 live on all nine measurable packages, where earlier rounds
+recorded three files leaking (17, 5 and 20 blocks); the count moves with
+`middle::rc`, and the *parity* is what the flip rested on (§13). What emits a release
 is `middle::rc`'s plan, which both consume; a backend cannot release what it was
 not asked to.
 
@@ -772,8 +892,8 @@ unreachable from here, and none of them is a missing effort:
   `docker`, and no initialised `podman` machine.
 
 That is exactly where `cli/benches/compiler.rs`'s `lower+linux-*` rows already
-stop for Cranelift: they lower and emit object bytes, and nothing is linked and
-nothing is run in any native row.
+stopped when Cranelift took them: they lower and emit object bytes, and nothing
+is linked and nothing is run in any native row.
 
 **What was checked here**, and it is more than nothing:
 
@@ -836,10 +956,19 @@ host's own, gcc understands neither, and `cli/build.rs` degrades to an empty
 library rather than failing — so a run with gcc as `cc` is a green run that
 checked nothing.
 
-### 10.3 The x86-64 emitter, which is not written
+### 10.3 The x86-64 emitter, and the six pieces it was built from
 
-**x86_64-unknown-linux-gnu** needs everything the aarch64 column needed and,
-before any of it can be asked, six pieces:
+**x86_64-unknown-linux-gnu** needed everything the aarch64 column needed and,
+before any of it could be asked, six pieces. It was written because the removal
+of the retargetable backend (§13) left this target with no debug backend at all,
+which is the one thing the flip could not be taken with outstanding.
+
+<!-- PLACEHOLDER, coordinator: replace this comment with the landed state — which
+of the six below are in, what `asm::AVAILABLE_X86_64` now reads, and what the
+`linux-x86_64` CI job asserts instead of a skip. §10.2's last paragraph and
+§3.2's table are the two other places that move with it. -->
+
+The six:
 
 1. **`asm.rs`: a SysV entry point.** `program_entry`, `test_entry` and
    `install_guard`, hand-encoded, with `rdi` as the frame pointer. This is the
@@ -882,10 +1011,252 @@ before any of it can be asked, six pieces:
    fall-through arm is worth an instruction-motion pass on this ISA is a
    measurement, and it needs a machine that can run one.
 
-None of that is started, and the workflow says so rather than staying quiet.
-Its `linux-x86_64` job asserts that
-`an_unsupported_cross_target_is_refused_with_a_reason` runs and passes on an
-x86-64 Linux host, and that the executing suite **skips** there. A census
-printed on x86-64 would mean `stencil::AVAILABLE` had become true without
-`asm.rs` gaining the SysV entry point item 1 asks for, which is the one way this
-port could go wrong quietly.
+The workflow is where each of those stops being prose. While none of it was
+started, its `linux-x86_64` job asserted that
+`an_unsupported_cross_target_is_refused_with_a_reason` ran and passed on an
+x86-64 Linux host and that the executing suite **skipped** there — a census
+printed on x86-64 would have meant `stencil::AVAILABLE` becoming true without
+`asm.rs` gaining the SysV entry point item 1 asks for, which was the one way
+this port could have gone wrong quietly. The job now holds the other side of the
+same question, and the placeholder above is where that is written down.
+
+## 11. Debug info and backtraces
+
+**No DWARF, and no `.buri_symbols` either.** §9 lists both as gaps rather than
+as decisions; this section is what a wave that closes them starts from, and it
+is the argument the removed backend's document carried before §13.
+
+Producing DWARF means building `.debug_*` sections by hand —
+`rustc_codegen_cranelift/src/debuginfo/` is what that costs, a seven-file
+subsystem — and a copy-and-patch emitter has a second problem the first backend
+did not: the instructions it copies are clang's, emitted for a C function that
+is not the Buri function, so a line table has to be synthesised from the stencil
+key and the IR rather than carried through the emission. That is a wave of its
+own and it is not this one.
+
+**No `.eh_frame` either, and nothing wants one.** The language has no exceptions
+— an abort is a write to stderr and `_exit`, not an unwind (SPEC 6.10,
+`generate.rs`) — so there is nothing to unwind, and §3.2's cross builds pass
+`-fno-asynchronous-unwind-tables` for exactly that reason: the Linux drivers
+default it on, and the result is a `.eh_frame` the size of the code that nothing
+reads.
+
+**What was designed to replace both, and does not transfer unchanged.** The plan
+written for the removed backend was frame pointers plus a symbol table the
+compiler emits itself — a sorted `(address, name)` array in a `.buri_symbols`
+section — about eighty lines, giving an abort a stack trace with function names,
+with line numbers waiting for DWARF. The symbol-table half is unchanged and is
+still worth its eighty lines. The frame-pointer half is not: generated code
+makes no use of the machine stack (§8), so what a walker follows is the Buri
+stack, and §2's frame records a return area, parameters and locals and **not its
+caller** — so the walk needs something the frame layout does not carry today.
+Naming that is the point of writing this down rather than assuming the plan
+survived the backend it was written for.
+
+The escape hatch when someone needs a real debugger is the JavaScript backend,
+which keeps names and structure (`generate.rs`), and `--release`, which will get
+DWARF from LLVM for free when CODEGEN-LLVM.md §7 lands.
+
+## 12. Linking, and what "incremental" honestly means
+
+**This section is not this backend's.** The link step is one step and both
+native backends reach it; it lives here because this is the backend inside the
+loop a developer waits on, and because the document it was written in is gone
+(§13). `build/link.rs` is the code, and it has never depended on which backend
+produced the objects — they are opaque bytes to it.
+
+### 12.1 Neither mold nor lld does incremental linking
+
+**mold has no incremental mode and will not get one.** There is no
+`--incremental` flag; `docs/design.md` has a "Rejected ideas" section that gives
+three reasons, and the third is the one that settles it here:
+
+> It's not reproducible, so your binary isn't going to be the same as other
+> binaries even if you are compiling the same source tree.
+
+That is a direct contradiction of this toolchain's central claim (`build.rs`).
+An incremental linker and `--check-reproducible` cannot both be right. The
+author's conclusion — "I wanted to make full link as fast as possible, so that we
+don't have to think about how to work around the slowness of full link" — is the
+plan.
+
+**LLD has none either**, and it is a documented non-goal; its design is "do less
+rather than do it efficiently", plus parallelism.
+
+The only shipping incremental linkers worth naming are MSVC's `/INCREMENTAL`,
+which pads code and inserts thunks and which Microsoft says not to ship, and
+which is defeated by *any object file added or removed* — a condition a
+monomorphizing compiler violates constantly; GNU gold's, which is unfinished,
+disables `.eh_frame_hdr`, and whose null incremental link of Chrome took about
+thirty seconds; and Zig's in-place binary patcher, which is real and impressive
+and whose **Mach-O backend is still not done** (`ziglang/zig#21165`, unchecked as
+of 2026-08-03). `wild`, the Rust linker designed around incremental linking,
+states in its own README that "the plan is to eventually make it incremental,
+however that isn't yet implemented".
+
+### 12.2 So the granularity is re-compile, not re-link
+
+"Swap only the object files that changed" is delivered, and it is delivered
+above the linker rather than inside it:
+
+- A codegen unit whose IR hash is unchanged is **not recompiled**. Its object
+  comes out of the content-addressed cache (ARCHITECTURE.md §6.2). This is where
+  the seconds are: LLVM codegen of a unit is measured in hundreds of
+  milliseconds and a debug unit's in tens or fewer (`design/PERFORMANCE.md` §6).
+- The link is **always full**, and it is fast enough that the distinction does
+  not matter at this scale. mold links MySQL 8.3 in 0.46 s and Chromium in 1.5 s;
+  a Buri artifact is one to two orders of magnitude smaller than either.
+- If **every** unit's key is unchanged and the artifact exists, the link is
+  skipped entirely, because the `link` key covers the ordered unit keys
+  (ARCHITECTURE.md §6.2). The fastest link is the one that does not run, and that
+  is the case a watch loop hits on every keystroke in a comment.
+
+This is also what rustc does, and rustc is the closest comparable: 256 codegen
+units in incremental mode, 16 otherwise, per-CGU object reuse driven by the
+dep-graph, and a **full external link every single time**. Its own incremental
+linking issue has been open since 2016.
+
+### 12.3 Linker selection
+
+The link is driven through the platform C compiler (`cc`, or `$CC`), never by
+invoking the linker directly. The driver is what knows where `crt1.o`, `libc`,
+and `libSystem.tbd` live, and reimplementing that is reimplementing the part of a
+toolchain that changes with every OS release. It is also the same `cc` this
+backend's stencil library is compiled with (§3), so the one external tool the
+default toolchain needs is one tool rather than two.
+
+**Linux**, in order: `mold`, `ld.lld`, the system default.
+
+```
+cc -fuse-ld=mold -o <artifact> <units...> libburi_rt.a -static-pie \
+   -Wl,--gc-sections -Wl,--build-id=none
+```
+
+mold is a drop-in for GNU ld and accepts its options; it is chosen first because
+it is 3-10x faster than lld on the benchmarks its README publishes, with the
+honest caveat that the advantage is core-count-dependent — mold saturates every
+core and lld often does not, so on two cores the gap is much smaller.
+`--build-id=none` because a build id is a hash of content we are about to compare
+byte for byte, and one fewer thing in the way.
+
+**macOS**: the system `ld`. `ld64.lld` when `--linker=lld` names it or when no
+system linker is found.
+
+```
+cc -o <artifact> <units...> libburi_rt.a \
+   -Wl,-no_uuid -Wl,-dead_strip -Wl,-platform_version,macos,<min>,<sdk>
+```
+
+mold is **not** an option on macOS: it is ELF-only, has no `macho/` directory,
+and fails with "mold does not support macOS". The Mach-O fork, `sold`, was
+open-sourced in March 2024 and its repository **archived in November 2024**, with
+the author's own note recommending Apple's linker instead. `ld64.lld` is
+production-quality and actively maintained — the LLVM `lld/MachO` tree is under
+heavy current development — and remains the choice when hermeticity across
+machines matters more than matching the platform.
+
+The system linker is the default anyway because Apple's is what every macOS SDK
+assumption is built around, it closed most of the historical speed gap in Xcode
+15, and it is guaranteed present wherever a C toolchain is.
+
+`-no_uuid` is not optional: ARCHITECTURE.md §7 compares linked artifacts byte for
+byte, and `LC_UUID` is the one field that would differ every time. `-dead_strip`
+is not decoration either: §4 sets `MH_SUBSECTIONS_VIA_SYMBOLS`, and the two
+together are why every intra-unit call in an emitted object is a relocation
+rather than a baked displacement.
+
+**Fallback.** With neither mold nor lld present, `cc` uses whatever the system
+provides and everything works, more slowly. There is **no** case in which the
+build fails for want of a fast linker, and no flag that has to be set to get a
+working build. That is the whole of the fallback story, and it is short because
+the design does not depend on the linker being any particular one.
+
+### 12.4 The manifest
+
+`.buri/link/<link-key>/manifest` is one line per unit:
+
+```
+core_list      3f9a1c2b8d4e...  cached
+core_str       71c0aa38f5b1...  cached
+lib_money      c40e19b7ad22...  run
+main           8b2e01f4c7a9...  run
+```
+
+It is written by the link step and read by `--explain`, which prints one
+`codegen` line per unit in the existing format (`cache.rs`). It is the answer to
+"which objects changed", and it is the thing that makes the claim in §12.2
+observable from outside — which is the standard the rest of this build system
+already holds itself to (`arguments.rs`: the build system's claims are about
+which actions run, and a claim nothing can observe is not one anybody can hold
+the toolchain to).
+
+## 13. The backend this one replaced
+
+`DECISIONS.md`'s rule is that a reversed decision is reversed in the document
+that made it, with the reversal recorded there rather than deleted. Two of the
+three reversed here were made in `CODEGEN-CRANELIFT.md`, and that document went
+with its subject, so the record is this section and the index points at it.
+
+**Reversed 2026-08-29.** Three rows moved at once:
+
+* *"The stencil backend is compiled in and never selected"* (ARCHITECTURE.md
+  §4). It is what `select` returns for `(Linux | Macos, Debug)` now.
+* *"`backend-cranelift` on by default"* (BUILD-AND-WATCH.md §2). The feature and
+  the five crates behind it are gone; `default = ["backend-stencil"]`.
+* *"Cranelift pinned to the wasmtime 36 LTS"* (CODEGEN-CRANELIFT.md §8). The pin
+  outlived its subject by nothing at all: it existed because a bump moved
+  `Backend::identity()` and invalidated every cached object in every repository,
+  and there is no longer a version to bump.
+
+**Why, in the order the reasons weigh:**
+
+1. **Parity was met and the gate was empty.** 997 of 997 native conformance
+   tests through the real build system, the same six packages refused for the
+   same three reasons, the same blocks live at exit on all nine measurable
+   packages (§9). The gate was written as correctness parity plus a
+   re-benchmark; both were answered, and what was left on the list was one
+   target rather than one behaviour.
+2. **38 transitive crates to 0.** `cargo tree -p buri -e normal` was 39 packages
+   and is `buri` alone — `cranelift-{codegen,frontend,module,object,native}`,
+   `regalloc2`, `gimli`, `object`, `target-lexicon` and their closure, over half
+   of `Cargo.lock`. The root `Cargo.toml` says the policy "used to be 'none at
+   all', and native code generation ends that"; for the default toolchain it does
+   not end it any more. What this backend needs from outside is a host `cc`,
+   which is a platform interface and not a lockfile entry
+   (BUILD-AND-WATCH.md §1.1).
+3. **A ~42% smaller `buri`.** 17.55 MB to 10.25 MB on a release build of the
+   same tree, with the machine-code section down 67% (8.35 MB to 2.73 MB).
+   Measured 2026-08-29 on macOS/arm64, two builds into one target directory,
+   with byte-identical stencil blobs on both sides so the delta is the removed
+   backend alone.
+4. **x86-64 through CI rather than through a second code generator.** The
+   incumbent covered four targets to this backend's one, and that was by a wide
+   margin the largest item on the list — and it was a coverage difference rather
+   than a performance one, closeable by writing the emitter §10.3 lists. It was
+   closed that way. macOS/x86-64 stays uncovered and §3.2 says so out loud.
+
+**What was accepted with it, and is repaired by none of the above:**
+
+* **1.38× on the four run-side kernels**, `opt_level=none` against
+  `opt_level=none`, improving from 1.86× and concentrated in one kernel —
+  `core/list`'s closure surface, at 2.9× (§5.1). The debug profile is slower than
+  it was, deliberately, and `design/PERFORMANCE.md` §6 is where that is tracked.
+* **The `str.concat` allocation-count divergence** (§9), observable through
+  `core/alloc`, which is the one behavioural difference the flip carried.
+* **Every native figure in `design/PERFORMANCE.md` §6 and in this document was
+  taken against the removed backend**, in the week ending 2026-08-29, and none
+  has been re-taken. A verification wave re-runs them; nothing here has been
+  adjusted to guess at what it will find, and no number in either document is a
+  post-removal measurement.
+* **The benchmark's `lower+*` rows change emitter mid-series.** Goal 3's
+  `lower+macos-arm64` figure was Cranelift's and the row is this backend's now;
+  `design/PERFORMANCE.md` §6.1 marks the break rather than continuing the series
+  through it.
+
+**What moved here rather than being deleted**, because none of it was Cranelift's:
+§0 (the IR both native backends consume), §4.1 (reproducibility of the object
+bytes), §5.3 (`I128`), §5.4 (aborts), §11 (debug info) and §12 (linking). What
+went with the document was true only of a code generator this repository no
+longer contains: the CLIF construction rules, the settings table, and the
+`return_call` analysis behind DECISIONS.md's tail-call row — which CODEGEN-LLVM.md
+§5 argues on its own and never needed the other half.
