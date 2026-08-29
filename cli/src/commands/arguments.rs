@@ -43,7 +43,7 @@ impl BuildMode {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Flags {
     pub mode: BuildMode,
     pub check: bool,

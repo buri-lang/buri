@@ -196,19 +196,21 @@ pub fn command_test(args: &arguments::Args) -> i32 {
         return 2;
     }
     if !args.flags.watch {
-        return one_pass(args, Asked::Once).code;
+        return one_pass(args, Asked::Once, None).code;
     }
     // The three combinations `--watch` refuses were refused at parsing, so by
     // here a watch loop is a loop: a pass, the declared set that pass computed,
-    // and a sweep of it. Nothing is shared between passes — each opens its own
-    // `Session`, because the parse cache inside one is keyed on `FileId` and
-    // would happily serve the text a file held before the edit that woke the
-    // loop.
+    // and a sweep of it. The repository is opened once for the whole loop and
+    // kept: `build::sources` re-reads and re-parses the files whose bytes
+    // moved and nothing else, so a pass after a one-file edit is a pass that
+    // parses one file.
     let root = std::env::current_dir()
         .ok()
         .and_then(|cwd| crate::build::workspace::find_root(&cwd))
         .unwrap_or_default();
-    watch::Watch::on(root, args.flags.explain).drive(|_| one_pass(args, Asked::Watching))
+    let mut sources = crate::build::sources::Sources::at(&root, args.flags.clone());
+    watch::Watch::on(root, args.flags.explain)
+        .drive(|_| one_pass(args, Asked::Watching, Some(&mut sources)))
 }
 
 /// One named test, run for the language server's `buri.runTest` lens.
@@ -234,7 +236,7 @@ pub fn run_one(root: &std::path::Path, label: &str, name: &str) -> (i32, String)
         },
         passthrough: Vec::new(),
     };
-    let pass = one_pass(&args, Asked::Served { root });
+    let pass = one_pass(&args, Asked::Served { root }, None);
     (pass.code, pass.output)
 }
 
@@ -257,13 +259,27 @@ enum Asked<'a> {
 }
 
 /// One `buri test` invocation, whole.
-fn one_pass(args: &arguments::Args, asked: Asked) -> watch::Pass {
+///
+/// `sources` is the repository kept across the passes of a watch loop; without
+/// one the repository is opened for this pass alone.
+fn one_pass(
+    args: &arguments::Args,
+    asked: Asked,
+    sources: Option<&mut crate::build::sources::Sources>,
+) -> watch::Pass {
     let watching = matches!(asked, Asked::Watching);
     let mut out =
         if matches!(asked, Asked::Once) { Out::Direct } else { Out::Held(String::new()) };
-    let opened = match asked {
-        Asked::Served { root } => session::open_at(root, &args.flags),
-        Asked::Once | Asked::Watching => session::open(&args.flags),
+    let mut sources = sources;
+    let opened = match sources.as_deref_mut() {
+        Some(sources) => {
+            sources.begin_round();
+            sources.session(&crate::build::sources::Overlay::new())
+        }
+        None => match asked {
+            Asked::Served { root } => session::open_at(root, &args.flags),
+            Asked::Once | Asked::Watching => session::open(&args.flags),
+        },
     };
     let mut session = match opened {
         Ok(session) => session,
@@ -347,6 +363,12 @@ fn one_pass(args: &arguments::Args, asked: Asked) -> watch::Pass {
     if !hard_error && session.workspace.repo.lint.check_during_build {
         let findings = crate::commands::lint::findings_for(&mut session, &targets);
         hard_error |= session.print(&findings);
+    }
+    // Everything this pass read and parsed, kept for the next one. After the
+    // compiling and before either exit below, which are the two the loop can
+    // reach once a suite has been built.
+    if let Some(sources) = sources {
+        sources.keep(&session);
     }
 
     let elapsed = started.elapsed().as_secs_f64();

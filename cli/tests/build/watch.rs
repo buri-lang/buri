@@ -77,7 +77,7 @@ fn declared_set(root: &Path) -> Vec<PathBuf> {
         map,
         parsed: buri::parsing::parser::Cache::new(),
         diagnostics,
-        workspace,
+        workspace: std::rc::Rc::new(workspace),
         rendering: Rendering::Human { color: false },
     };
     let targets = s.resolve_targets(&["//...".to_string()]).expect("//... resolves");

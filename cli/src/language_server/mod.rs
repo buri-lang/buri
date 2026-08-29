@@ -1913,7 +1913,7 @@ fn findings_for(state: &mut State, path: &std::path::Path, published: &mut Publi
     // kind of thing you want told about while the import is still on screen.
     if let Some(linted) = state.lint(path) {
         for d in &linted.diagnostics.items {
-            add_finding(published, &linted.session, d);
+            add_finding(published, &linted.analyzed.session, d);
         }
     }
 }

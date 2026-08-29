@@ -12,39 +12,39 @@
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/beta/clock.buri"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/diagnostic (2)"}}
 {"id":2,"jsonrpc":"2.0","result":{"items":[],"kind":"full","resultId":"1"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (2)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 6, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (2)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 9, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/diagnostic (3)"}}
 {"id":3,"jsonrpc":"2.0","result":{"items":[],"kind":"full","resultId":"2"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (3)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 6, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (3)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 9, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/diagnostic (4)"}}
 {"id":4,"jsonrpc":"2.0","result":{"items":[],"kind":"full","resultId":"3"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (4)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 7, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (4)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 9, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/diagnostic (5)"}}
 {"id":5,"jsonrpc":"2.0","result":{"kind":"unchanged","resultId":"1"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (5)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 6, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (5)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 9, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/diagnostic (6)"}}
 {"id":6,"jsonrpc":"2.0","result":{"kind":"unchanged","resultId":"2"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (6)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 6, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (6)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 9, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/diagnostic (7)"}}
 {"id":7,"jsonrpc":"2.0","result":{"kind":"unchanged","resultId":"3"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (7)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 7, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (7)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 9, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didChange"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/diagnostic (8)"}}
 {"id":8,"jsonrpc":"2.0","result":{"items":[],"kind":"full","resultId":"4"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (8)","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 2, files hashed 6, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (8)","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 9, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/diagnostic (9)"}}
 {"id":9,"jsonrpc":"2.0","result":{"kind":"unchanged","resultId":"2"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (9)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 6, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (9)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 9, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/diagnostic (10)"}}
 {"id":10,"jsonrpc":"2.0","result":{"items":[],"kind":"full","resultId":"5"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (10)","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 2, files hashed 7, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/diagnostic (10)","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 9, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request workspace/diagnostic (11)"}}
 {"id":11,"jsonrpc":"2.0","result":{"items":[{"items":[],"kind":"full","resultId":"6","uri":"file://<scratch>/REPO.buri","version":null},{"items":[],"kind":"full","resultId":"5","uri":"file://<scratch>/cmd/app/BUILD.buri","version":null},{"items":[],"kind":"full","resultId":"5","uri":"file://<scratch>/cmd/app/main.buri","version":null},{"items":[],"kind":"full","resultId":"4","uri":"file://<scratch>/lib/alpha/BUILD.buri","version":null},{"items":[],"kind":"full","resultId":"4","uri":"file://<scratch>/lib/alpha/lib.buri","version":null},{"items":[],"kind":"full","resultId":"4","uri":"file://<scratch>/lib/alpha/rate.buri","version":null},{"items":[],"kind":"full","resultId":"2","uri":"file://<scratch>/lib/beta/BUILD.buri","version":null},{"items":[],"kind":"full","resultId":"2","uri":"file://<scratch>/lib/beta/clock.buri","version":null},{"items":[],"kind":"full","resultId":"2","uri":"file://<scratch>/lib/beta/lib.buri","version":null}]}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request workspace/diagnostic (11)","verbose":"answered in 0ms; analyses 3, lints 3, sessions opened 1, files hashed 9, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request workspace/diagnostic (11)","verbose":"answered in 0ms; analyses 3, lints 3, sessions opened 0, files hashed 9, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didChange"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request workspace/diagnostic (12)"}}
 {"id":12,"jsonrpc":"2.0","result":{"items":[{"kind":"unchanged","resultId":"6","uri":"file://<scratch>/REPO.buri","version":null},{"items":[],"kind":"full","resultId":"7","uri":"file://<scratch>/cmd/app/BUILD.buri","version":null},{"items":[],"kind":"full","resultId":"7","uri":"file://<scratch>/cmd/app/main.buri","version":null},{"items":[],"kind":"full","resultId":"8","uri":"file://<scratch>/lib/alpha/BUILD.buri","version":null},{"items":[],"kind":"full","resultId":"8","uri":"file://<scratch>/lib/alpha/lib.buri","version":null},{"items":[],"kind":"full","resultId":"8","uri":"file://<scratch>/lib/alpha/rate.buri","version":null},{"kind":"unchanged","resultId":"2","uri":"file://<scratch>/lib/beta/BUILD.buri","version":null},{"kind":"unchanged","resultId":"2","uri":"file://<scratch>/lib/beta/clock.buri","version":null},{"kind":"unchanged","resultId":"2","uri":"file://<scratch>/lib/beta/lib.buri","version":null}]}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request workspace/diagnostic (12)","verbose":"answered in 0ms; analyses 2, lints 2, sessions opened 1, files hashed 9, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request workspace/diagnostic (12)","verbose":"answered in 0ms; analyses 2, lints 2, sessions opened 0, files hashed 9, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request shutdown (13)"}}
 {"id":13,"jsonrpc":"2.0","result":null}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request shutdown (13)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 0, bytes written N"}}
