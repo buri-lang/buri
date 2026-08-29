@@ -66,7 +66,7 @@
 //!
 //! A fuzzer that finds a bug and forgets it has found nothing. Every finding
 //! is minimised — lines first, then tokens, then characters, the property
-//! re-asked at each step — and written into `cli/tests/fuzz/` as a directory
+//! re-checked at each step — and written into `cli/tests/fuzz/` as a directory
 //! holding a manifest and the input:
 //!
 //! ```text
