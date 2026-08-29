@@ -32,6 +32,7 @@ end is a library, and `driver::analyze` is what the server calls.
 | `completion` | Inside a module path, the standard library plus the labels your target already declares. Inside an import's `{ … }`, what that module exports. |
 | `codeAction` | The fix for a finding that has exactly one. |
 | `documentColor` / `colorPresentation` | A swatch beside every `ui/style` `Color.Rgb` and `Color.Rgba` the file spells out, and the picker's choice written back as the same call. |
+| `semanticTokens` | Colour, in two layers: the lexer's keywords, literals and comments, and then every identifier upgraded to what it actually names — a type, a trait, a field, a variant, a module, a method rather than a function. Whole file, one range, or a delta against the last answer. |
 | `didChangeWatchedFiles` | Everything published again, when a `.buri` file changed on disk without the editor having done it. |
 | `didChangeWorkspaceFolders` | A repository opened or closed while the server is running, and which one owns each file recomputed. |
 
@@ -210,6 +211,41 @@ because a fourth argument would have nothing left to say; anything else is
 `0.5019607843137255` is a rendering of one 8-bit step rather than a number
 anybody meant to type.
 
+**Semantic tokens are two layers, and the first one always answers.** Layer one
+is the lexer: every keyword, every literal, every comment, coloured from the
+token stream with no analysis of any kind behind it. That layer survives a file
+that does not parse, does not typecheck and names a module the build graph has
+never heard of — which is the state the file you are editing is in most of the
+time. Layer two hands each identifier to the same resolver `hover` uses and
+colours it by what it names: `interface` for a trait or an effect, `enumMember`
+for a variant, `property` for a field, `namespace` for a module alias, `method`
+rather than `function` for anything reached through a value. That is the whole
+reason for a second answer beside the tree-sitter grammar in `editors/`: a
+grammar cannot tell a type name from a value name, and this can. The two do not
+disagree, because one is the floor the other builds on.
+
+A name carries the `declaration` and `definition` modifiers where it is written
+and neither where it is used — Buri declares and defines in one place, so the
+two travel together. A `BUILD.buri` gets no tokens at all: it is textproto, and
+the kinds this colours by are the Buri lexer's.
+
+The whole-file answer carries a `resultId`, and the next request may quote it to
+get a delta — the edits between what the client is holding and what it would get
+now, spliced on whole-token boundaries. A quoted id the server no longer holds
+is answered in full rather than with edits against a buffer nobody has, and
+closing the document throws the result away with it. A range answer carries no
+`resultId`, because a partial result is not a base a delta could be taken
+against. Nothing here is incremental underneath: the tokens are recomputed
+either way, and what a delta saves is the wire and the client's re-render.
+
+**A save can tell the client its colours are stale.** After a `didSave` or a
+`didChangeWatchedFiles` that moved the analysis fingerprint — the same key the
+cached analyses are filed under, so "something changed" is a comparison rather
+than a guess — the server sends `workspace/semanticTokens/refresh`. An import
+that newly resolves turns a name that had no colour into a type; nothing else
+would tell the editor to ask again. A save that changed nothing is silent, and
+so is a client that did not say in its `initialize` that it accepts the request.
+
 **Two open folders are two repositories.** A Buri repository is rooted at a
 `REPO.buri`, so a client holding two of them is holding two build graphs, two
 closures and two sets of labels. The server keeps the roots the client named —
@@ -265,7 +301,8 @@ and **deferred**, which is work not yet done.
 | `documentLink/resolve` | complete and empty | every link target is computed when the file is scanned — workspace path resolution is not lazy — so the resolve will be advertised `false` when `documentLink` itself lands, and is refused until then |
 | `didChangeWatchedFiles`, `client/registerCapability` | served | the watcher is registered after `initialized`, and only for a client whose `initialize` said it accepts one |
 | `didChangeWorkspaceFolders`, `workspace/workspaceFolders` | served | the server asks for the folders when a client that knows about them named none |
-| `semanticTokens` | deferred | the tree-sitter grammar in `editors/` already colours a file, and a second answer to a coloured question is a way for the two to disagree |
+| `semanticTokens/full`, `/range`, `/full/delta` | served | two layers — the lexer's, which cannot fail, and the resolver's upgrade of every identifier. The grammar in `editors/` is the floor this builds on rather than a second opinion it can contradict |
+| `workspace/semanticTokens/refresh` | served | sent after a save or a watched change that moved the analysis fingerprint, and only to a client whose `initialize` claimed `refreshSupport` |
 | `inlayHint` | deferred | the types are there; what a hint needs is a judgement about where one is help and where it is clutter, which is a rendering decision rather than a lookup |
 | `callHierarchy` | deferred | incoming calls are the references scan grouped by the body each is in, and outgoing calls are one body's calls listed; what is missing is only the request's own two-step protocol over an answer `references` already gives |
 | `documentLink` | deferred | a link is a URL in a comment; an import path is already `definition` |
@@ -300,12 +337,15 @@ server that keeps up with typing and one that does not:
   the other reason this does not happen on a keystroke. A finding's severity is
   the one the terminal prints, `REPO.buri`'s `fail_on_finding` included.
 - **On a hover, a definition, a type definition, a highlight, a completion, a
-  signature help, a moniker, a `documentColor` or a `prepareRename`** the server
-  analyses the target owning the file — everything those have to decide is
-  inside its closure. A moniker is built from where the declaration is, and a
-  file's own closure is where the declarations it names are. A colour is a
-  constructor call written in the file, and the file's own closure is what
-  checked it.
+  signature help, a moniker, a `documentColor`, a semantic-token request or a
+  `prepareRename`** the server analyses the target owning the file — everything
+  those have to decide is inside its closure. A moniker is built from where the
+  declaration is, and a file's own closure is where the declarations it names
+  are. A colour is a constructor call written in the file, and the file's own
+  closure is what checked it. Semantic tokens ask what each identifier in one
+  file names, which is the same question `hover` asks — once per identifier
+  rather than once, which is a real cost and is why layer one is written to need
+  no analysis at all.
 - **On a references, a rename, a workspace symbol query, an implementation or
   either half of a type hierarchy** it analyses every target in the repository,
   as one compilation, because a name is used — and implemented — wherever it is

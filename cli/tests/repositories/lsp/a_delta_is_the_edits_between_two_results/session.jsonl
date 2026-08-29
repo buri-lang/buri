@@ -1,0 +1,32 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "/// What a basket of one thing costs.\nexport fn total(count: I64): I64 {\n    let each = 250;\n    count * each\n}\n"}}}
+# The base. Its `resultId` is `1` — the counter is the server's, so a
+# recorded session names the same id on every run.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+# `250` becomes `"flat rate"`: one token, a different type and a different
+# length. Nothing else in the file moves, because the encoding is relative.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "/// What a basket of one thing costs.\nexport fn total(count: I64): I64 {\n    let each = \"flat rate\";\n    count * each\n}\n"}]}}
+# The delta. One edit, at index 50 of the flat array — the eleventh token's
+# five numbers — deleting five and writing five: `0,2,3,11,0` (a `number`
+# three units long) becomes `0,2,11,10,0` (a `string` eleven units long, the
+# quotes counted). Every number before and after it is untouched, which is
+# what makes a splice the whole of the answer.
+# The reply's own `resultId` is `2`, which is what the next delta must quote.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/semanticTokens/full/delta", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "previousResultId": "1"}}
+# The same request again, still quoting `1` — which the server no longer
+# holds. A stale id is answered with a full result rather than with edits
+# against a buffer nobody has: `data` comes back, not `edits`.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/semanticTokens/full/delta", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "previousResultId": "1"}}
+# And a delta quoting the id the server *does* hold — `3`, from the reply
+# above — with nothing changed in between: `edits` is empty. Nothing to say is
+# said as nothing.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/semanticTokens/full/delta", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "previousResultId": "3"}}
+# Closing the buffer throws the result away with it, so the id the last reply
+# handed out no longer resolves and the delta after it is full again — and it
+# is full of the file on *disk*, where `250` was never edited.
+{"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/semanticTokens/full/delta", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "previousResultId": "4"}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

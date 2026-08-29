@@ -1,0 +1,30 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# This client says it accepts `workspace/semanticTokens/refresh`. None of the
+# other recorded sessions here claims it, which is why none of them sees one:
+# a request a client never said it would take is one it may reject.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"workspace": {"semanticTokens": {"refreshSupport": true}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Opening records the state the colours are about. Nothing has gone stale
+# yet, so nothing is asked for.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "/// What a basket of one thing costs.\nexport fn total(count: I64): I64 {\n    let each = 250;\n    count * each\n}\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+# A keystroke. Colours are not recomputed here — the client asks for those
+# when it wants them — and nothing is published, because the buffer parses.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "/// What a basket of one thing costs.\nexport fn total(count: I64): I64 {\n    let each = 300;\n    count * each\n}\n"}]}}
+# The save. The analysis fingerprint has moved since the open — that is the
+# cache's key, so `something changed` is a comparison rather than a guess —
+# and the refresh goes out after the diagnostics.
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+# The client answers the request, as it must for any request a server sends.
+{"jsonrpc": "2.0", "id": "buri/semanticTokensRefresh/1", "result": null}
+# A second save with nothing edited in between. The fingerprint is where the
+# last one left it, so this one is silent: the diagnostics are republished
+# and no refresh follows them.
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+# And a watched-file notification about a file that did not actually change.
+# Same test, same answer: the open buffers are re-published and the client is
+# not asked to throw its colours away.
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "file://<scratch>/lib/money/BUILD.buri", "type": 2}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -1,0 +1,5 @@
+/// What a basket of one thing costs.
+export fn total(count: I64): I64 {
+    let each = 250;
+    count * each
+}
