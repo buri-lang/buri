@@ -9,8 +9,14 @@
 //! makes that liveable is the scheduling in `mod.rs`, and now also the
 //! [`Cache`]: an answer is kept under a hash of every byte it was computed
 //! from, so a second question about an unchanged repository is a lookup.
+//!
+//! The reading behind those hashes is not here. `build::sources` owns the
+//! directory walk, the content hashes and the repository itself, because
+//! `buri lint` and `buri test --watch` want the same reuse and a second copy
+//! of it would be a second place for it to drift.
 
-use crate::build::session::{self, Session};
+use crate::build::session::Session;
+use crate::build::sources::{Overlay, Sources};
 use crate::build::workspace::TargetId;
 use crate::commands::arguments::Flags;
 use crate::compiler::driver::Analysis;
@@ -229,9 +235,12 @@ pub struct State {
     announced: BTreeMap<PathBuf, u64>,
     /// Analyses, under a hash of everything they were computed from.
     cache: Cache,
-    /// The build graph of each open repository, kept for as long as the files
-    /// that decide it are unchanged.
-    graphs: BTreeMap<PathBuf, (u64, Rc<Session>)>,
+    /// Per repository: the graph, every file read so far, and the parses of
+    /// them. The server owns one of these and adds nothing to it — the
+    /// keeping, the hashing and the re-reading are `build::sources`', so that
+    /// `buri lint` and `buri test --watch` get the same reuse from the same
+    /// code.
+    sources: BTreeMap<PathBuf, Sources>,
     /// Per repository and target: what the two passes said about that target,
     /// already converted, and the closure state they said it about.
     ///
@@ -240,8 +249,6 @@ pub struct State {
     /// large repository is holding the repository several times over, and what
     /// the report needs off each of them is a few hundred bytes of JSON.
     target_findings: BTreeMap<(PathBuf, TargetId), TargetFindings>,
-    /// What the message being handled has already read off the disk.
-    reads: Reads,
     /// What has been done since the server started. `handle` reads it either
     /// side of a request and reports the difference.
     work: Work,
@@ -344,10 +351,13 @@ pub struct Analyzed {
     pub analysis: Analysis,
 }
 
-/// What `buri lint` found, and the session whose source map its spans point
-/// into. The two travel together because neither means anything alone.
+/// What `buri lint` found, and the analysis its rules were read off.
+///
+/// The analysis and not a session of its own: every rule here asks about the
+/// closure the diagnostics have already compiled, so a second one would be the
+/// same front end run twice for one answer.
 pub struct Linted {
-    pub session: Session,
+    pub analyzed: Rc<Analyzed>,
     pub diagnostics: crate::diagnostics::Diagnostics,
 }
 
@@ -410,35 +420,6 @@ impl Work {
 // ---------------------------------------------------------------------------
 // What one message read
 // ---------------------------------------------------------------------------
-
-/// Every `.buri` file under one root, and a hash of their names alone.
-///
-/// The names are a key of their own: a file appearing or going away changes
-/// what the build graph and the lint pass see without changing the bytes of
-/// any file that already existed.
-struct Listing {
-    files: Vec<PathBuf>,
-    names: u64,
-}
-
-/// What the message being handled has already read off the disk.
-///
-/// The server answers one message at a time and nothing under it writes to the
-/// repository, so a file cannot change while one is being served — which makes
-/// reading it a second time waste rather than caution. It used to be read
-/// three or four times per request, once for each of the fingerprints
-/// `analyze`, `lint` and `diagnostic_result_id` each computed for themselves.
-///
-/// Emptied by [`State::begin_message`], and by any change to the buffers the
-/// overlay is made of.
-#[derive(Default)]
-struct Reads {
-    /// Per root, from one directory walk.
-    listings: BTreeMap<PathBuf, Rc<Listing>>,
-    /// Per file: a hash of the bytes an analysis would read for it — the open
-    /// buffer's if the editor has one, the disk's otherwise.
-    contents: BTreeMap<PathBuf, u64>,
-}
 
 // ---------------------------------------------------------------------------
 // The cache
@@ -557,9 +538,8 @@ impl State {
             outgoing: Vec::new(),
             announced: BTreeMap::new(),
             cache: Cache::default(),
-            graphs: BTreeMap::new(),
+            sources: BTreeMap::new(),
             target_findings: BTreeMap::new(),
-            reads: Reads::default(),
             work: Work::default(),
         }
     }
@@ -572,12 +552,20 @@ impl State {
     /// one message waste rather than caution. Between two messages the client
     /// may have written anything, so this is where that reasoning stops.
     pub fn begin_message(&mut self) {
-        self.reads = Reads::default();
+        for sources in self.sources.values_mut() {
+            sources.begin_round();
+        }
     }
 
-    /// What the server has done since it started.
+    /// What the server has done since it started, its own counters and the
+    /// reading `build::sources` did for it together.
     pub fn work(&self) -> Work {
-        self.work
+        let mut work = self.work;
+        for sources in self.sources.values() {
+            work.sessions_opened = work.sessions_opened.saturating_add(sources.reads.opened);
+            work.files_hashed = work.files_hashed.saturating_add(sources.reads.hashed);
+        }
+        work
     }
 
     /// Records the bytes an answer came to, for the trace line that reports it.
@@ -591,13 +579,13 @@ impl State {
     /// a buffer that moved invalidates everything this message has read.
     pub fn set_buffer(&mut self, path: PathBuf, text: String) {
         self.open.insert(path, text);
-        self.reads = Reads::default();
+        self.begin_message();
     }
 
     /// Drops one, by the same rule.
     pub fn drop_buffer(&mut self, path: &Path) -> Option<String> {
         let was = self.open.remove(path);
-        self.reads = Reads::default();
+        self.begin_message();
         was
     }
 
@@ -639,6 +627,20 @@ impl State {
         std::mem::take(&mut self.outgoing)
     }
 
+    /// This repository's loaded state, which is where every file it has read
+    /// and every parse of one is kept.
+    ///
+    /// Returned alongside the overlay because the two are read together and
+    /// are different fields: what an analysis reads for a file is the editor's
+    /// copy where there is one.
+    fn sources_of(&mut self, root: &Path) -> (&mut Sources, &Overlay) {
+        let sources = self
+            .sources
+            .entry(root.to_path_buf())
+            .or_insert_with(|| Sources::at(root, Flags::default()));
+        (sources, &self.open)
+    }
+
     /// Opens a repository, and says on screen when it does not load.
     ///
     /// This is the one failure in the server a reader cannot otherwise see. An
@@ -650,9 +652,12 @@ impl State {
     ///
     /// Said once per state of the repository: again when the file changes and
     /// is still wrong, and not at all while it sits there unedited.
-    fn opened(&mut self, root: &Path) -> Option<Session> {
-        self.work.sessions_opened = self.work.sessions_opened.saturating_add(1);
-        match session::open_at(root, &Flags::default()) {
+    ///
+    /// Shared, and therefore read-only. A caller that must write to the
+    /// session wants [`State::overlaid_session`].
+    fn opened(&mut self, root: &Path) -> Option<Rc<Session>> {
+        let (sources, open) = self.sources_of(root);
+        match sources.shared(open) {
             Ok(session) => {
                 if let Some(why) = first_error(&session) {
                     self.announce(root, &why);
@@ -669,6 +674,12 @@ impl State {
                 None
             }
         }
+    }
+
+    /// The files an analysis went on to read, kept for the next one.
+    fn keep(&mut self, root: &Path, session: &Session) {
+        let (sources, _) = self.sources_of(root);
+        sources.keep(session);
     }
 
     /// Queues the message, unless this state of the repository has already been
@@ -713,108 +724,24 @@ impl State {
         self.roots.retain(|r| *r != root);
     }
 
-    /// Every `.buri` file under a root, sorted, from one directory walk.
-    ///
-    /// Sources, every `BUILD.buri` and `REPO.buri` — they all wear the one
-    /// extension. `read_dir` order is the filesystem's and no key may be, so
-    /// the list is sorted before anything hashes it.
-    fn listing(&mut self, root: &Path) -> Rc<Listing> {
-        if let Some(known) = self.reads.listings.get(root) {
-            return Rc::clone(known);
-        }
-        let mut files = Vec::new();
-        crate::commands::format::collect(root, &mut files);
-        files.sort();
-        let mut hasher = crate::hash::FxHasher::default();
-        hasher.write(root.as_os_str().as_encoded_bytes());
-        for path in &files {
-            hasher.write(path.as_os_str().as_encoded_bytes());
-        }
-        let listing = Rc::new(Listing { files, names: hasher.finish() });
-        self.reads.listings.insert(root.to_path_buf(), Rc::clone(&listing));
-        listing
-    }
-
-    /// A hash of the bytes an analysis would read for one file.
-    ///
-    /// The open buffer's if the editor has one, because the editor's copy is
-    /// what the analysis actually reads; the disk's otherwise. A file that
-    /// cannot be read at all still has to move the hash when it appears or
-    /// goes away, so it hashes as one byte rather than as nothing.
-    ///
-    /// Reading and hashing bytes is not parsing them, which is the whole
-    /// point — this is paid per request and the analysis it replaces is orders
-    /// more expensive.
-    fn content_hash(&mut self, path: &Path) -> u64 {
-        if let Some(known) = self.reads.contents.get(path) {
-            return *known;
-        }
-        let mut hasher = crate::hash::FxHasher::default();
-        match self.open.get(path) {
-            Some(text) => hasher.write(text.as_bytes()),
-            None => match std::fs::read(path) {
-                Ok(bytes) => hasher.write(&bytes),
-                Err(_) => hasher.write_u8(0),
-            },
-        }
-        let hash = hasher.finish();
-        self.work.files_hashed = self.work.files_hashed.saturating_add(1);
-        self.reads.contents.insert(path.to_path_buf(), hash);
-        hash
-    }
-
     /// A hash of the files named in `closure`, under the graph they were
-    /// resolved through.
-    ///
-    /// Two halves, and both are needed. The closure's own bytes are what the
-    /// analysis read. The graph is what decided the closure *is* that set: a
-    /// `BUILD.buri` edit can add a dependency, and a file appearing can turn a
-    /// lint finding on, neither of which shows up in the bytes of any file
-    /// already in the closure.
+    /// resolved through. See `build::sources`, which is where the reading and
+    /// the hashing live.
     fn closure_key(&mut self, root: &Path, closure: &[PathBuf]) -> u64 {
-        let graph = self.graph_key(root);
-        let mut hasher = crate::hash::FxHasher::default();
-        hasher.write_u64(graph);
-        for path in closure {
-            hasher.write(path.as_os_str().as_encoded_bytes());
-            hasher.write_u64(self.content_hash(path));
-        }
-        hasher.finish()
+        let (sources, open) = self.sources_of(root);
+        sources.closure_key(closure, open)
     }
 
-    /// A hash of everything that decides the build graph: which `.buri` files
-    /// exist, and the bytes of `REPO.buri` and every `BUILD.buri`.
+    /// A hash of everything that decides the build graph.
     fn graph_key(&mut self, root: &Path) -> u64 {
-        let listing = self.listing(root);
-        let mut hasher = crate::hash::FxHasher::default();
-        hasher.write_u64(listing.names);
-        for path in &listing.files {
-            if !is_graph_file(path) {
-                continue;
-            }
-            hasher.write(path.as_os_str().as_encoded_bytes());
-            hasher.write_u64(self.content_hash(path));
-        }
-        hasher.finish()
+        let (sources, open) = self.sources_of(root);
+        sources.graph_key(open)
     }
 
     /// A hash of every byte that feeds an analysis of one repository.
-    ///
-    /// That is every `.buri` file under the root, read through the open
-    /// buffers layered over them. The standard library is not in it: it is
-    /// compiled into this binary and cannot change while the server runs.
-    ///
-    /// The root itself is hashed, and only the files inside it are, so two
-    /// open repositories key their answers separately and a keystroke in one
-    /// does not invalidate the other's.
     fn fingerprint(&mut self, root: &Path) -> u64 {
-        let listing = self.listing(root);
-        let mut hasher = crate::hash::FxHasher::default();
-        hasher.write_u64(listing.names);
-        for path in &listing.files {
-            hasher.write_u64(self.content_hash(path));
-        }
-        hasher.finish()
+        let (sources, open) = self.sources_of(root);
+        sources.fingerprint(open)
     }
 
     /// One number for the whole of what the client has open.
@@ -915,18 +842,6 @@ impl State {
         id
     }
 
-    /// The open buffers belonging to one repository.
-    ///
-    /// A session is loaded from one root and names its files relative to it, so
-    /// a buffer from the other open repository has no name in it and must not
-    /// be layered over it.
-    fn buffers_under<'a>(
-        &'a self,
-        root: &'a Path,
-    ) -> impl Iterator<Item = (&'a PathBuf, &'a String)> {
-        self.open.iter().filter(move |(path, _)| path.starts_with(root))
-    }
-
     /// The buffer's text if it is open, otherwise the file on disk.
     pub fn text_of(&self, path: &Path) -> Option<String> {
         if let Some(t) = self.open.get(path) {
@@ -950,18 +865,9 @@ impl State {
         self.graph(&root)
     }
 
-    /// The loaded graph of one repository, from the cache when the files it is
-    /// made of have not moved.
+    /// The loaded graph of one repository.
     fn graph(&mut self, root: &Path) -> Option<Rc<Session>> {
-        let key = self.graph_key(root);
-        if let Some((seen, session)) = self.graphs.get(root) {
-            if *seen == key {
-                return Some(Rc::clone(session));
-            }
-        }
-        let session = Rc::new(self.opened(root)?);
-        self.graphs.insert(root.to_path_buf(), (key, Rc::clone(&session)));
-        Some(session)
+        self.opened(root)
     }
 
     /// The target whose closure `path` is in, read off the graph alone.
@@ -1037,6 +943,7 @@ impl State {
             &unit,
         );
         let closure = closure_of(&analysis);
+        self.keep(root, &session);
         let analyzed = Rc::new(Analyzed { session, analysis });
         let key = self.closure_key(root, &closure);
         remember(
@@ -1114,6 +1021,7 @@ impl State {
             closure.push(path.to_path_buf());
             closure.sort();
         }
+        self.keep(&root, &session);
         let analyzed = Rc::new(Analyzed { session, analysis });
         let key = self.closure_key(&root, &closure);
         remember(
@@ -1165,6 +1073,7 @@ impl State {
             &mut session.parsed,
             &units,
         );
+        self.keep(root, &session);
         let analyzed = Rc::new(Analyzed { session, analysis });
         self.cache.whole = Some((root.to_path_buf(), fingerprint, Rc::clone(&analyzed)));
         Some(analyzed)
@@ -1172,12 +1081,8 @@ impl State {
 
     /// The findings `buri lint` reports for the target owning `path`.
     ///
-    /// A separate session and a second whole-closure analysis, because the
-    /// checks build their own. That is a real cost, and it is why this ran on
-    /// save and on open rather than on a keystroke — the same reason
-    /// `driver::analyze` did. It is keyed on the same closure as the analysis
-    /// now, so the second question about one state of that closure does not
-    /// pay it at all.
+    /// Keyed on the same closure as the analysis, so a second question about
+    /// one state of that closure is a lookup.
     ///
     /// Shared, and therefore read-only. A caller that must write to the
     /// session wants [`State::overlaid_session`].
@@ -1192,37 +1097,33 @@ impl State {
         if let Some(hit) = self.cached_lint(root, target) {
             return Some(hit);
         }
-        // What the pass will read is what its own `driver::analyze` reads, and
-        // that is the analysis of this target — which is already in hand. Its
-        // closure is therefore the key, and asking the *session* afterwards
-        // would answer with every open buffer instead, because the overlay
-        // seeds them all whether the target can see them or not.
-        let closure = self.analyze_target(root, Some(target)).map(|a| closure_of(&a.analysis));
-
-        let mut session = self.opened(root)?;
-        if session.diagnostics.has_errors() {
+        // Every rule asks about the closure this analysis already read, so it
+        // rides that one. The pass used to open a session and compile the
+        // closure again, which was a whole second front end per pull.
+        let analyzed = self.analyze_target(root, Some(target))?;
+        // A repository whose own files will not load has no lint pass: the
+        // checks read the graph, and there is no graph.
+        if analyzed.session.diagnostics.has_errors() {
             return None;
         }
-        for (p, text) in self.buffers_under(root) {
-            let rel = session.workspace.rel_of(p);
-            session.map.add(rel, p.clone(), text.clone());
-        }
         self.work.lints = self.work.lints.saturating_add(1);
-        let diagnostics = crate::commands::lint::findings_for(&mut session, &[target]);
-        let linted = Rc::new(Linted { session, diagnostics });
-        // No analysis to ask means no closure to key on, and every file the
-        // pass touched is the answer that is never stale.
-        let closure = closure.unwrap_or_else(|| read_from_disk(&linted.session));
+        let diagnostics = crate::commands::lint::findings_for_target(
+            &analyzed.session,
+            target,
+            &analyzed.analysis,
+        );
+        let closure = Rc::new(closure_of(&analyzed.analysis));
+        let linted = Rc::new(Linted { analyzed, diagnostics });
         let key = self.closure_key(root, &closure);
         remember(
             &mut self.cache.lints,
             Cached {
                 root: root.to_path_buf(),
                 target: Some(target),
-                // The lint pass runs its own whole-closure analysis.
+                // The analysis behind it checked every body in the closure.
                 scope: None,
                 key,
-                closure: Rc::new(closure),
+                closure,
                 value: Rc::clone(&linted),
             },
         );
@@ -1275,7 +1176,7 @@ impl State {
             if graph_loads {
                 self.work.lints = self.work.lints.saturating_add(1);
                 let linted =
-                    crate::commands::lint::findings_for_target(&mut session, target, &analysis);
+                    crate::commands::lint::findings_for_target(&session, target, &analysis);
                 for d in &linted.items {
                     super::add_finding_rendering(&mut found, &mut rendered, &session, d);
                 }
@@ -1288,6 +1189,7 @@ impl State {
             );
             merge_findings(&mut merged, &found);
         }
+        self.keep(root, &session);
         Some(merged)
     }
 
@@ -1300,23 +1202,18 @@ impl State {
         (known.key == now).then(|| known.found.clone())
     }
 
-    /// A session with the open buffers layered over the disk, and nothing
-    /// analysed in it yet.
+    /// A session to analyse in: the open buffers layered over the disk, every
+    /// file read so far already in it, and nothing analysed yet.
     ///
-    /// The overlay trick is `SourceMap::load` reusing an entry whose name
-    /// already exists (`diagnostics.rs`): seeding the map with each open buffer
-    /// under the name the loader will ask for means the loader never reaches
-    /// the disk, and `compiler::modules` needs no notion of an editor at all.
+    /// A copy rather than the kept one, and a cheap copy — the text and the
+    /// parses are shared. `build::sources` is where the layering and the
+    /// keeping happen; what an analysis goes on to read is offered back to it
+    /// through [`State::keep`].
     ///
     /// Public because `buri gen` writes through the session it is handed, and
-    /// a cached one is shared by everything holding an `Rc` to it.
+    /// a kept one is shared by everything holding an `Rc` to it.
     pub fn overlaid_session(&mut self, root: &Path) -> Option<Session> {
-        let mut session = self.opened(root)?;
-        for (p, text) in self.buffers_under(root) {
-            let rel = session.workspace.rel_of(p);
-            session.map.add(rel, p.clone(), text.clone());
-        }
-        Some(session)
+        Some((*self.opened(root)?).clone())
     }
 
     /// The analysis for the target owning `path`, if the closure it read is
@@ -1359,11 +1256,6 @@ impl State {
     }
 }
 
-/// Whether a path is one of the build graph's own files rather than a source.
-fn is_graph_file(path: &Path) -> bool {
-    matches!(path.file_name().and_then(|n| n.to_str()), Some("BUILD.buri" | "REPO.buri"))
-}
-
 /// What a `workspace/diagnostic` last said about one target, and the state of
 /// the closure it said it about.
 struct TargetFindings {
@@ -1389,14 +1281,6 @@ fn merge_findings(into: &mut super::Published, from: &super::Published) {
             }
         }
     }
-}
-
-/// The files a session read from disk, deduplicated and sorted.
-fn read_from_disk(session: &Session) -> Vec<PathBuf> {
-    let mut files: Vec<PathBuf> = session.map.paths().map(Path::to_path_buf).collect();
-    files.sort();
-    files.dedup();
-    files
 }
 
 /// The first error a session collected while loading the repository, named by
