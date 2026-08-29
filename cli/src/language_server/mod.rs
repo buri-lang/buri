@@ -100,7 +100,6 @@ pub enum Event {
 )]
 pub fn command_language_server(_args: &arguments::Args) -> i32 {
     let mut state = State::new();
-    let state = &mut state;
     let stdout = std::io::stdout();
     let mut output = stdout.lock();
     let (sender, events) = std::sync::mpsc::channel::<Event>();
@@ -127,7 +126,7 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
     while let Ok(event) = events.recv() {
         match event {
             Event::Message(text) => {
-                if let Some(code) = answered(state, &mut output, &text) {
+                if let Some(code) = answered(&mut state, &mut output, &text) {
                     return code;
                 }
             }
@@ -137,7 +136,7 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
             Event::Swept => {
                 if state.sweeps.mode == sweep::Mode::Asynchronous {
                     let landed = state.take_swept();
-                    for reply in swept_publishes(state, landed) {
+                    for reply in swept_publishes(&mut state, landed) {
                         echoed_to_stderr(&reply);
                         write_message(&mut output, &reply);
                     }
