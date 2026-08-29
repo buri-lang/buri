@@ -308,6 +308,7 @@ NORET void buri_rt_abort_div_zero(void);
 NORET void buri_rt_abort_unreachable(void);
 NORET void buri_rt_abort(const char *, uint64_t);
 void buri_rt_decref(uint64_t, void *);
+void buri_rt_free(uint64_t);
 uint64_t buri_rt_alloc(uint64_t);
 uint64_t buri_rt_alloc_zeroed(uint64_t);
 // 128-bit division, which is a call on every backend: clang would otherwise
@@ -1443,20 +1444,28 @@ fn memory(o: &mut Out, level: Level) {
          *rc = v + (v != (uint64_t)-1); } TAIL; }"
             .into(),
     );
-    // The decrement: the inline code is the fast path and nothing else, and a
-    // count that is one or `IMMORTAL` goes to `buri_rt_decref`, which owns the
-    // free and the drop-glue dispatch. Two backends deciding separately when a
-    // block dies is the one divergence MEMORY.md §5 cannot tolerate.
+    // The decrement's dying arm is open-coded, the way `llvm/emit.rs`'s
+    // `decref_pointer` has open-coded it all along: the glue and
+    // `buri_rt_free` are reached from here rather than through
+    // `buri_rt_decref`, which would re-load the header and re-decide what this
+    // stencil has already decided. Two backends deciding separately when a
+    // block dies is the one divergence MEMORY.md §5 cannot tolerate, and this
+    // is that divergence closed on the side that still had it.
     //
-    // `fp` is not recovered from the callee here, because `buri_rt_decref`
-    // answers nothing: the stencil keeps it across the call, which is the one
+    // `buri_rt_free` stays the sole owner of the free and of the live-block
+    // counters, so every observable allocation number is the runtime's whether
+    // a block dies here or on a generic path.
+    //
+    // `fp` is not recovered from the callee here, because neither callee
+    // answers anything: the stencil keeps it across the call, which is the one
     // place in this library where clang emits a prologue.
     o.push(
         "decref/drop",
         "void $NAME(ARGS0) { uint64_t p = AT(uint64_t, _JIT_A); if (p) { \
          uint64_t *rc = (uint64_t *)(p - 16); uint64_t v = *rc; \
          if (v > 1 && v != (uint64_t)-1) { *rc = v - 1; } \
-         else { buri_rt_decref(p, (void *)(uintptr_t)_JIT_M); } } TAIL0; }"
+         else if (v != (uint64_t)-1) { \
+         ((void (*)(uint64_t))(uintptr_t)_JIT_M)(p); buri_rt_free(p); } } TAIL0; }"
             .into(),
     );
     o.push(
@@ -1464,7 +1473,7 @@ fn memory(o: &mut Out, level: Level) {
         "void $NAME(ARGS0) { uint64_t p = AT(uint64_t, _JIT_A); if (p) { \
          uint64_t *rc = (uint64_t *)(p - 16); uint64_t v = *rc; \
          if (v > 1 && v != (uint64_t)-1) { *rc = v - 1; } \
-         else { buri_rt_decref(p, (void *)0); } } TAIL0; }"
+         else if (v != (uint64_t)-1) { buri_rt_free(p); } } TAIL0; }"
             .into(),
     );
     let _ = level;

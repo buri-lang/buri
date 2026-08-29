@@ -800,7 +800,7 @@ impl<'a> Jit<'a> {
             let bound = binds.iter().find(|(n, _)| *n == h.name.as_str()).map(|(_, v)| v.clone());
             let Some(v) = bound else {
                 // A hole the caller did not name is a symbol the stencil body
-                // reached on its own — an abort, `buri_rt_decref`, `memcpy` —
+                // reached on its own — an abort, `buri_rt_free`, `memcpy` —
                 // and becomes an import. The generated C declares nothing
                 // undefined but the `_JIT_*` holes and `cli/runtime/lib.rs`'s
                 // exports, so the name *is* the symbol; `EXTERNALS` records the
@@ -2221,7 +2221,7 @@ pub const EXTERNALS: [&str; 7] = [
     "buri_rt_abort_div_zero",
     "buri_rt_abort_unreachable",
     "buri_rt_alloc",
-    "buri_rt_decref",
+    "buri_rt_free",
     "buri_rt_i128_divmod",
     "memcpy",
 ];
