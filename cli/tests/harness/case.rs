@@ -871,6 +871,13 @@ fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super:
     argv.push("--color=never");
     let mut child = Command::new(super::buri())
         .args(&argv)
+        // A recorded session is a byte stream, and the language server sweeps
+        // whole repositories on a worker thread — so where a sweep's publishes
+        // land would otherwise be the scheduler's decision. This is the
+        // schedule that answers each message completely before reading the
+        // next. A session that wants the worker says so in its
+        // `initializationOptions`; see `language_server::sweep`.
+        .env("BURI_LSP_ANALYSIS", "synchronous")
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

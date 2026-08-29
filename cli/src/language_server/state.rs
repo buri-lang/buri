@@ -252,6 +252,13 @@ pub struct State {
     /// What has been done since the server started. `handle` reads it either
     /// side of a request and reports the difference.
     work: Work,
+    /// The whole-repository sweep, and the worker that runs it.
+    ///
+    /// Everything above this line is the request thread's alone. What the
+    /// worker sends back is bytes — findings as JSON, the closures they were
+    /// read at — which is why the two can be warm at once with no lock between
+    /// them. See `super::sweep`.
+    pub sweeps: super::sweep::Sweeps,
 }
 
 /// The edits this server has asked the client to write, and the command each
@@ -389,6 +396,9 @@ pub struct Work {
     pub files_hashed: u64,
     /// Bytes of JSON the answers came to.
     pub bytes_written: u64,
+    /// Sweeps asked for that never ran, because a newer edit replaced them
+    /// while they waited. The debounce, said out loud.
+    pub sweeps_superseded: u64,
 }
 
 impl Work {
@@ -400,20 +410,44 @@ impl Work {
             sessions_opened: self.sessions_opened.saturating_sub(before.sessions_opened),
             files_hashed: self.files_hashed.saturating_sub(before.files_hashed),
             bytes_written: self.bytes_written.saturating_sub(before.bytes_written),
+            sweeps_superseded: self.sweeps_superseded.saturating_sub(before.sweeps_superseded),
+        }
+    }
+
+    /// Two readings added, which is how what a worker did lands in what the
+    /// server has done.
+    pub fn plus(self, other: Work) -> Work {
+        Work {
+            analyses: self.analyses.saturating_add(other.analyses),
+            lints: self.lints.saturating_add(other.lints),
+            sessions_opened: self.sessions_opened.saturating_add(other.sessions_opened),
+            files_hashed: self.files_hashed.saturating_add(other.files_hashed),
+            bytes_written: self.bytes_written.saturating_add(other.bytes_written),
+            sweeps_superseded: self
+                .sweeps_superseded
+                .saturating_add(other.sweeps_superseded),
         }
     }
 
     /// The `$/logTrace` line. Every number here is deterministic, which is what
     /// lets a golden session hold it.
+    ///
+    /// The superseded sweeps are named only when there are some: a counter
+    /// that is zero in every session but the ones written to provoke it says
+    /// nothing, and every recorded line would carry it.
     pub fn spelled(&self) -> String {
-        format!(
+        let mut said = format!(
             "analyses {}, lints {}, sessions opened {}, files hashed {}, bytes written {}",
             self.analyses,
             self.lints,
             self.sessions_opened,
             self.files_hashed,
             self.bytes_written
-        )
+        );
+        if self.sweeps_superseded > 0 {
+            said.push_str(&format!(", sweeps superseded {}", self.sweeps_superseded));
+        }
+        said
     }
 }
 
@@ -541,7 +575,21 @@ impl State {
             sources: BTreeMap::new(),
             target_findings: BTreeMap::new(),
             work: Work::default(),
+            sweeps: super::sweep::Sweeps::new(),
         }
+    }
+
+    /// Points a freshly made `State` at one repository and one set of buffers.
+    ///
+    /// This is how the sweep worker is told what to sweep: it holds a `State`
+    /// of its own, and a job is a root and the editor's unsaved text. Nothing
+    /// else reaches it — the disk it reads itself.
+    pub fn stand_at(&mut self, root: &Path, buffers: Overlay) {
+        if !self.roots.iter().any(|known| known == root) {
+            self.roots.push(root.to_path_buf());
+        }
+        self.open = buffers;
+        self.begin_message();
     }
 
     /// A new message has arrived, so nothing read for the last one may be
@@ -565,6 +613,8 @@ impl State {
             work.sessions_opened = work.sessions_opened.saturating_add(sources.reads.opened);
             work.files_hashed = work.files_hashed.saturating_add(sources.reads.hashed);
         }
+        work.sweeps_superseded =
+            work.sweeps_superseded.saturating_add(self.sweeps.counters.superseded);
         work
     }
 
@@ -1143,7 +1193,19 @@ impl State {
     /// The recomputed ones share one session: opening the repository, reading
     /// its build files and parsing a module are each paid once however many
     /// targets went stale together.
-    pub fn workspace_findings(&mut self, root: &Path) -> Option<super::Published> {
+    ///
+    /// **This never runs on the thread that answers questions.** It is what the
+    /// sweep worker does with a job; the request thread reads the reports it
+    /// files and asks for a new sweep — see [`State::workspace_findings`] and
+    /// `super::sweep`. `wanted` is how a sweep hears that the bytes it is
+    /// reading have moved: the targets it has finished stay filed under the
+    /// closures they were read at, and the rest are left for the sweep that
+    /// replaces this one.
+    pub fn sweep_now(
+        &mut self,
+        root: &Path,
+        wanted: &super::sweep::Wanted,
+    ) -> Option<super::Published> {
         let targets = self.graph(root)?.workspace.targets();
         let mut merged = super::Published::new();
         let mut stale = Vec::new();
@@ -1167,6 +1229,12 @@ impl State {
         // difference between a sweep and a stall. See `add_finding_rendering`.
         let mut rendered = super::Rendered::new();
         for target in stale {
+            // Between targets and not inside one: a target's findings are
+            // filed whole or not at all, so this is the only place where
+            // stopping leaves the cache saying something true.
+            if wanted.superseded() {
+                break;
+            }
             self.work.analyses = self.work.analyses.saturating_add(1);
             let analysis = crate::commands::lint::analysis_of(&mut session, target);
             let mut found = super::Published::new();
@@ -1191,6 +1259,125 @@ impl State {
         }
         self.keep(root, &session);
         Some(merged)
+    }
+
+    /// The answer to a `workspace/diagnostic`, from what the server knows now.
+    ///
+    /// Per target, and each target's entry is one of three things: the report
+    /// the last sweep filed, if the closure it was read at has not moved; the
+    /// report the last sweep filed anyway, marked stale, with a fresh sweep
+    /// asked for; or nothing at all, on the first question of a session, which
+    /// is the one case worth waiting for.
+    ///
+    /// **Nothing here compiles.** A keystroke in a library twelve targets can
+    /// see used to cost a fifth of a second on this thread and every request
+    /// behind it the same again; now it costs a hash of each target's closure
+    /// and a job handed to the worker. What the client gets in exchange is a
+    /// report a keystroke old, followed by a `workspace/diagnostic/refresh` and
+    /// a publish when the sweep lands — which is the flow the protocol has that
+    /// request *for*.
+    pub fn workspace_findings(&mut self, root: &Path) -> Option<super::Published> {
+        // Three rounds is one for the answer, one for a sweep that was
+        // overtaken, and one to spare. Nothing writes to the repository while
+        // a message is being answered, so the first is normally the last.
+        for _ in 0..3 {
+            let targets = self.graph(root)?.workspace.targets();
+            let mut merged = super::Published::new();
+            let mut stale = false;
+            let mut unknown = false;
+            for target in targets {
+                match self.cached_findings(root, target) {
+                    Some(found) => merge_findings(&mut merged, &found),
+                    None => {
+                        stale = true;
+                        match self.target_findings.get(&(root.to_path_buf(), target)) {
+                            Some(known) => {
+                                let found = known.found.clone();
+                                merge_findings(&mut merged, &found);
+                            }
+                            None => unknown = true,
+                        }
+                    }
+                }
+            }
+            if !stale {
+                return Some(merged);
+            }
+            self.sweeps.schedule(root, &self.open);
+            // A target nobody has ever swept has no report to quote, and an
+            // empty one would tell the client its errors are fixed. That is
+            // the cold start, and it is paid once behind the `$/progress` this
+            // request already sends.
+            if !unknown && self.sweeps.mode != super::sweep::Mode::Synchronous {
+                return Some(merged);
+            }
+            self.settle_sweeps();
+        }
+        None
+    }
+
+    /// Everything the last complete sweep of this repository said, merged.
+    pub fn reported_findings(&mut self, root: &Path) -> super::Published {
+        let mut merged = super::Published::new();
+        for ((at, _), known) in &self.target_findings {
+            if at == root {
+                let found = known.found.clone();
+                merge_findings(&mut merged, &found);
+            }
+        }
+        merged
+    }
+
+    /// Waits for every sweep asked for, and believes what they found.
+    pub fn settle_sweeps(&mut self) -> Vec<PathBuf> {
+        self.sweeps.settle(&self.open);
+        self.take_swept()
+    }
+
+    /// Believes whatever the worker has finished, and says which repositories
+    /// that was.
+    pub fn take_swept(&mut self) -> Vec<PathBuf> {
+        self.sweeps.collect(&self.open);
+        let mut roots = Vec::new();
+        for swept in self.sweeps.take_landed() {
+            if !roots.contains(&swept.root) {
+                roots.push(swept.root.clone());
+            }
+            self.absorb(swept);
+        }
+        roots
+    }
+
+    /// One sweep's report, filed where the request thread reads it.
+    ///
+    /// The closures come back as paths rather than as the `Rc`s the worker
+    /// holds, which is the whole of what makes this two threads: what is
+    /// shared is bytes, and each side hashes them with its own `Sources`
+    /// against the same files.
+    fn absorb(&mut self, swept: super::sweep::Swept) {
+        for (target, key, closure, found) in swept.targets {
+            self.target_findings.insert(
+                (swept.root.clone(), target),
+                TargetFindings { key, closure: Rc::new(closure), found },
+            );
+        }
+        self.work = self.work.plus(swept.work);
+        self.outgoing.extend(swept.said);
+    }
+
+    /// What this repository's targets are filed as saying, in the shape a
+    /// report travels between threads in.
+    pub fn swept_findings(
+        &self,
+        root: &Path,
+    ) -> Vec<(TargetId, u64, Vec<PathBuf>, super::Published)> {
+        self.target_findings
+            .iter()
+            .filter(|((at, _), _)| at == root)
+            .map(|((_, target), known)| {
+                (*target, known.key, (*known.closure).clone(), known.found.clone())
+            })
+            .collect()
     }
 
     /// What was last said about this target, if the closure it was said about
