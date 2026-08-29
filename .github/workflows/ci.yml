@@ -366,25 +366,27 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # Linux x86_64: the refusals, and the cross emission.
+  # Linux x86_64: the programs a dev build produces are executed, and the cross
+  # emission.
   #
-  # `asm::AVAILABLE_X86_64` is false — there is no SysV entry point yet — so on
-  # this host the executing suite skips, correctly and for a stated reason. What
-  # must NOT happen is that an object with arm64 bytes in its entry point is
-  # produced, or that anything panics. Both halves are asserted here, because
-  # "it skipped" and "it ran and was fine" are the same green otherwise.
+  # The twin of the job above on the other instruction set, and it is the only
+  # place any of this is executed: nothing on a maintainer's machine can run a
+  # single x86-64 instruction, so `asm.rs`'s SysV `main`, `jit.rs`'s `rel32` and
+  # rip-relative patches and `glue.rs`'s SysV stub are proved here or nowhere.
+  # This job used to assert that the executing suite SKIPPED; it now asserts
+  # that it RAN, by the same census line, which is the difference the entry
+  # point made.
   #
-  # The cross half is the other reason for this job: this host emits
-  # `linux-arm64` objects, links them with `ld.lld` and checks every relocation
-  # resolves. Running that on a second host is what says the emission does not
-  # depend on the machine it was made on.
+  # The cross half stays: this host emits `linux-arm64` objects, links them with
+  # `ld.lld` and checks every relocation resolves. Running that on a second host
+  # is what says the emission does not depend on the machine it was made on.
   # ---------------------------------------------------------------------------
   linux-x86_64:
-    name: linux x86_64 (refusals and cross emission)
+    name: linux x86_64 (the programs run)
     runs-on: ubuntu-24.04
     env:
       CC: clang
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -398,41 +400,97 @@ jobs:
           sudo apt-get install -y --no-install-recommends clang lld mold llvm binutils
           ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
       - run: cargo build -p buri --tests
-
-      # A refusal is only worth anything if the LIBRARY is there: a host with no
-      # x86-64 stencils refuses for the wrong reason, and the test's own
-      # availability guard would skip its assertion.
-      - name: The stencil libraries are not empty, so the refusal is the real one
+      - name: The stencil libraries are not empty
         run: bash .github/scripts/assert-stencils.sh
 
-      - name: The refusal names the missing piece, and is not a crash
+      # FIRST, and alone — the liveness gate, for the reason the arm64 job
+      # states: every test in `cli/tests/native/stencil.rs` opens with
+      # `if !supported() { return; }`, so a host the backend cannot serve runs
+      # the whole file, reports every test as PASSED, and proves nothing.
+      - name: The suite was live, and the corpus is at macOS parity
         run: |
           set -o pipefail
-          # One filter, so the summary line is the assertion: `1 passed` says
-          # the test both existed and ran. A filter that matched nothing exits
-          # 0 with `0 passed`, which is the failure this catches.
-          cargo test -p buri --test native \
-            stencil::an_unsupported_cross_target_is_refused_with_a_reason \
-            2>&1 | tee refusal.log
-          grep -qE 'test result: ok\. 1 passed' refusal.log \
-            || { echo "::error::the refusal test did not run"; exit 1; }
+          cargo test -p buri --test native stencil::the_corpus_census_is_a_ratchet \
+            -- --nocapture --test-threads=1 2>&1 | tee census.log
+          bash .github/scripts/assert-suite-ran.sh census.log
 
-      - name: And the executing suite skips, for the stated reason
+      # Every test here RUNS A PROGRAM built by the SysV entry point, including
+      # `a_runaway_recursion_faults_at_the_guard`, which is the first execution
+      # anywhere of `install_guard`'s x86-64 `mprotect`.
+      - name: The programs run
         run: |
           set -o pipefail
-          cargo test -p buri --test native stencil:: -- --nocapture 2>&1 | tee suite.log
-          # The contrapositive of the arm64 job's liveness check: on x86-64 the
-          # executing suite MUST skip, because there is no SysV entry point to
-          # put in front of the stencils. A census here would mean
-          # `stencil::AVAILABLE` became true without `asm.rs` gaining one.
-          #
-          # Unanchored on purpose: libtest's `test <name> ... ` prefix shares a
-          # line with a test's first `println!`, so `^` here would be a check
-          # that cannot fail, which is worse than no check.
-          if grep -qE 'stencil compiles [0-9]+ of' suite.log; then
-            echo "::error::the corpus ran on x86-64, which has no entry point"
-            exit 1
-          fi
+          cargo test -p buri --test native stencil:: -- --nocapture \
+            --skip the_corpus_census_is_a_ratchet 2>&1 | tee suite.log
+
+      - name: Leak parity through buri_rt_heap_stats
+        run: |
+          set -o pipefail
+          cargo test -p buri --test native -- \
+            stencil::nothing_is_leaked \
+            stencil::the_glue_balances \
+            cranelift::interpolating_in_a_loop_leaks_nothing \
+            2>&1 | tee leaks.log
+          grep -qE 'test result: ok\. 3 passed' leaks.log \
+            || { echo "::error::the three heap-stats tests did not all run"; exit 1; }
+
+      # The same four-line program the arm64 job builds, for the same reason:
+      # both native binaries in `cli/tests/example` are refused by the dev
+      # build, and a small artifact's bytes are no less reproducible.
+      - name: --check-reproducible on a linked Linux artifact
+        run: |
+          set -euo pipefail
+          cargo build -p buri
+          bin=$PWD/target/debug/buri
+          work=$(mktemp -d)
+          mkdir -p "$work/repo/cmd/app"
+          printf '# a repository with no tags\n' > "$work/repo/REPO.buri"
+          cat > "$work/repo/cmd/app/BUILD.buri" <<'BUILD'
+          binary {
+              outputs: [
+                  { platform: LINUX, arch: X86_64 },
+              ]
+          }
+          BUILD
+          cat > "$work/repo/cmd/app/main.buri" <<'SRC'
+          from "core/host" import { stdout };
+          export fn main(): Result<(), Str> {
+            let _ = stdout.println("reproducible");
+            .Ok(())
+          }
+          SRC
+          cd "$work/repo"
+          "$bin" build //cmd/app --output=linux/x86_64 --check-reproducible
+
+      - name: Both linkers, and the image each produces
+        run: |
+          set -euo pipefail
+          for linker in mold lld; do
+            echo "::group::BURI_LINKER=$linker"
+            rm -rf target/tmp
+            set -o pipefail
+            BURI_LINKER=$linker cargo test -p buri --test native \
+              stencil::the_products_own_link -- --nocapture 2>&1 | tee "link-$linker.log"
+            grep -q "linked with cc+$linker" "link-$linker.log" || {
+              echo "::error::BURI_LINKER=$linker did not reach link::choose — the test may have skipped"
+              exit 1
+            }
+            app=$(find target/tmp -path '*/product-link/app' -type f -print -quit 2>/dev/null || true)
+            [ -n "$app" ] || {
+              echo "::error::the product's link left no artifact, so the suite skipped"
+              exit 1
+            }
+            bash .github/scripts/assert-elf.sh "$app"
+            if grep -qiE 'requires executable stack|missing \.note\.GNU-stack' "link-$linker.log"; then
+              echo "::error::$linker warned about an executable stack"
+              exit 1
+            fi
+            [ "$("$app")" = "500500" ] || {
+              echo "::error::the artifact $linker produced printed the wrong answer"
+              exit 1
+            }
+            echo "::endgroup::"
+          done
 
       - name: Cross emission and cross link, from x86-64
         run: |
@@ -450,8 +508,10 @@ jobs:
           name: scratch-linux-x86_64
           path: |
             target/tmp
-            refusal.log
+            census.log
             suite.log
+            leaks.log
+            link-*.log
             cross.log
           retention-days: 7
           if-no-files-found: ignore

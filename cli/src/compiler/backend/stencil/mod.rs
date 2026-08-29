@@ -22,8 +22,10 @@
 //!    the geomean against LLVM `-O0` is 0.927, which is the paper's bar met for
 //!    the first time. What is left is one kernel — `core/list`'s closure
 //!    surface — rather than the runtime boundary;
-//!  * **it is one target and Cranelift is four**, which is now by a wide margin
-//!    the largest of the differences and is not a performance one at all.
+//!  * **it is three targets and Cranelift is four** — `macos-arm64`,
+//!    `linux-arm64` and `linux-x86_64` all emit, link and run; the fourth,
+//!    `macos-x86_64`, is a combination this repository builds no library for
+//!    and does not intend to.
 //!
 //! Design: `design/native/CODEGEN-STENCIL.md`. The technique is Xu and
 //! Kjolstad's *Copy-and-Patch Compilation* (OOPSLA 2021).
@@ -80,10 +82,11 @@
 //! # The frame-threaded convention, and what it costs
 //!
 //! A stencil is a C function, so it can only take what C can pass. Every one
-//! here takes the **frame pointer** in `x0` and three CPS registers, and a call
-//! is `fp + frame_size`: the caller writes the callee's arguments where the
-//! callee will look for them and branches. There is no machine stack use in
-//! generated code at all, and the Buri stack is [`asm::STACK_SYMBOL`].
+//! here takes the **frame pointer** in `x0` — `rdi` on x86-64 — and three CPS
+//! registers, and a call is `fp + frame_size`: the caller writes the callee's
+//! arguments where the callee will look for them and branches. There is no
+//! machine stack use in generated code at all, and the Buri stack is
+//! [`asm::STACK_SYMBOL`].
 //!
 //! That is not the C convention, so two things have to bridge it, and both are
 //! hand-written rather than emitted from stencils:
@@ -103,16 +106,16 @@
 //! `design/native/CODEGEN-STENCIL.md` §9 is the list and separates the two kinds.
 //! What is **this backend's**:
 //!
-//!  * **x86-64 execution.** The stencils are built and extracted (`x86.rs`) and
-//!    `elf.rs` writes the container, but `asm.rs` has no SysV entry point —
-//!    [`asm::AVAILABLE_X86_64`] — so [`supported`] refuses the target with that
-//!    sentence rather than emitting an object with arm64 bytes in `main`.
-//!  * **Linux execution, on any architecture.** `linux-arm64` emits objects a
-//!    real linker accepts and fully resolves, and nothing on the machine this
-//!    was written on can run one: `link::can_link` refuses a cross target and
+//!  * **macOS on x86-64.** No stencil library is built for it and none is
+//!    intended: those stencils would be x86-64 instructions in a Mach-O, and
+//!    nothing this repository runs on or ships to is that. [`supported`]
+//!    refuses it by name.
+//!  * **Linux execution, from a macOS host.** Both Linux targets emit objects a
+//!    real linker accepts and fully resolves, and nothing on a macOS machine
+//!    can run one: `link::can_link` refuses a cross target and
 //!    `runtime_native::ARCHIVE` is the host's alone.
 //!    `design/native/CODEGEN-STENCIL.md` §10 is what was checked, what was not,
-//!    and the checklist a Linux CI run has to confirm.
+//!    and what the Linux CI legs confirm.
 //!  * **Debug information.** Neither DWARF nor `.buri_symbols`, which is the
 //!    same gap `cranelift/mod.rs` records for itself.
 //!  * **In-place `str.concat`**, whose absence is an allocation count and not
@@ -458,10 +461,11 @@ fn supported(opts: &Options<'_>) -> Result<abi::StencilTarget, String> {
             target.triple()
         ));
     }
-    // x86-64 has stencils and a patcher, and no `main`. Refused here rather
-    // than at the end of a whole emission, and refused with the one sentence
-    // that says what is missing: `asm.rs` is hand-written machine code and its
-    // SysV counterpart is the remaining work.
+    // A target whose stencils exist but whose `main` does not can emit unit
+    // objects and not a program, which is a different thing to be told than a
+    // missing library. No target is in that position today —
+    // [`asm::AVAILABLE_X86_64`] — and the sentence stays because the condition
+    // is what a fourth target would arrive in.
     if !target.is_arm64() && !asm::AVAILABLE_X86_64 {
         return Err(format!(
             "the stencil backend has {} stencils but no hand-written entry point for SysV \
@@ -495,7 +499,7 @@ fn compile_unit(
     members: &[usize],
 ) -> Result<Emitted, Vec<String>> {
     let Whole { lib, program, tables, frames, root, target } = *w;
-    let mut j = jit::Jit::new(lib, tables, frames);
+    let mut j = jit::Jit::new(lib, tables, frames, target);
     j.compile_unit(program, members);
 
     // A refused IR shape is a diagnostic naming the shape, never an artifact
@@ -518,18 +522,18 @@ fn compile_unit(
     // binary has no `main` to own it, so it goes in the unit that owns the
     // *first* test — the same rule `cranelift/mod.rs` applies to the root that
     // exists.
-    let mut shim: Option<asm::Asm> = None;
+    let mut shim: Option<asm::Shim> = None;
     match root {
         Root::Main(idx) if members.contains(idx) => {
             let sym = jit::symbol_of(program, u32::try_from(*idx).unwrap_or(0));
-            shim = Some(asm::program_entry(&sym, main_result(program, tables, *idx)));
+            shim = Some(asm::program_entry(target, &sym, main_result(program, tables, *idx)));
         }
         Root::Tests(tests) if tests.first().is_some_and(|i| members.contains(i)) => {
             let names: Vec<String> = tests
                 .iter()
                 .map(|i| jit::symbol_of(program, u32::try_from(*i).unwrap_or(0)))
                 .collect();
-            shim = Some(asm::test_entry(&names));
+            shim = Some(asm::test_entry(target, &names));
         }
         _ => {}
     }
@@ -601,6 +605,8 @@ fn compile_unit(
                 region::RelocKind::Abs64 => object::RelKind::Abs64,
                 region::RelocKind::Page21 => object::RelKind::Page21,
                 region::RelocKind::PageOff12 => object::RelKind::PageOff12,
+                region::RelocKind::Rel32 => object::RelKind::Rel32,
+                region::RelocKind::Pc32 => object::RelKind::Pc32,
             },
             symbol: sym,
             addend: r.addend,
@@ -632,7 +638,11 @@ fn compile_unit(
         object::Section {
             name: const_,
             segment: const_seg,
-            align: region::POOL_ALIGN,
+            align: if target.is_arm64() {
+                region::POOL_ALIGN
+            } else {
+                region::POOL_ALIGN_X86_64
+            },
             attributes: 0,
             zerofill: 0,
             data: emitted.pool,
@@ -646,20 +656,19 @@ fn compile_unit(
             code.push(0);
         }
         let at = code.len() as u64;
-        let (bytes, srelocs) = shim.finish();
-        code.extend_from_slice(&bytes);
+        code.extend_from_slice(&shim.bytes);
         let main = want(&mut symbols, &mut index, "main");
         if let Some(s) = symbols.get_mut(main) {
             s.defined = Some(object::Definition { section: 0, offset: at });
         }
-        for (off, kind, target) in srelocs {
+        for (off, kind, target, addend) in shim.relocs {
             let sym = want(&mut symbols, &mut index, &name_of(&target));
             out.push(object::Reloc {
                 section: CODE,
                 offset: at.saturating_add(off),
                 kind,
                 symbol: sym,
-                addend: 0,
+                addend,
             });
         }
         // The Buri stack, in its own zero-filled section so that it costs no
@@ -894,12 +903,11 @@ mod tests {
         assert!(bm.len() > 10_000, "{} base keys is not a library", bm.len());
     }
 
-    /// **What x86-64 is missing, and that it is only that.**
+    /// **The three libraries cover exactly the same operations.**
     ///
-    /// `x86.rs` drops a stencil that reaches a constant clang spilled into
-    /// `.rodata`, because there is no hole to put one in. Three families do it,
-    /// and all three are cases where AArch64 has an instruction and x86-64 has
-    /// a constant:
+    /// x86-64 used to drop thirty keys of thirteen thousand nine hundred, in
+    /// three families where AArch64 has an instruction and x86-64 has a
+    /// constant clang spilled into `.rodata`:
     ///
     ///  * `un/neg/f32`, `un/neg/f64` — `fneg` against an `xorps` with a sign
     ///    mask;
@@ -908,25 +916,46 @@ mod tests {
     ///  * `chk/div/i128` — the 128-bit divide's zero check, which spills its
     ///    comparison constant.
     ///
-    /// The test is the *bound*, not the list: thirty keys of thirteen thousand
-    /// nine hundred, and nothing outside those three families. A drop that
-    /// spread would be a silent loss of coverage, which is exactly what a
-    /// per-key refusal is easy to let happen.
+    /// The spilled bytes now travel with the stencil and the emitter copies
+    /// them into the unit's own constant pool (`library::ConstRef`), so the
+    /// list is empty and this asserts that it stays empty. A drop that
+    /// reappeared would be a silent loss of coverage on the one target that has
+    /// no second backend behind it.
     #[test]
-    fn the_x86_64_library_drops_only_the_spilled_constant_families() {
+    fn the_x86_64_library_covers_what_the_arm64_ones_do() {
         let (Ok(m), Ok(x)) =
             (load(abi::StencilTarget::MacosArm64), load(abi::StencilTarget::LinuxX86_64))
         else {
             return;
         };
         let missing: Vec<String> = base_keys(m).difference(&base_keys(x)).cloned().collect();
-        for k in &missing {
-            assert!(
-                k.starts_with("un/neg/f") || k.starts_with("cvt/u2f") || k == "chk/div/i128",
-                "{k} is not one of the three families x86-64 is documented to drop"
-            );
+        assert!(missing.is_empty(), "x86-64 has no {missing:?}");
+    }
+
+    /// And the spilled constants are actually carried, rather than the three
+    /// families having quietly stopped needing them: a `cvt/u2f` with no
+    /// `ConstRef` would be a stencil reading `.rodata` that is not there.
+    #[test]
+    fn the_spilled_constant_families_carry_their_bytes() {
+        let Ok(x) = load(abi::StencilTarget::LinuxX86_64) else { return };
+        let s = x.get("cvt/u2f").unwrap_or_else(|| panic!("no cvt/u2f"));
+        assert!(!s.const_refs.is_empty(), "cvt/u2f reads no spilled constant");
+        let carriers = x.stencils.iter().filter(|s| !s.const_refs.is_empty()).count();
+        assert!(carriers >= 4, "only {carriers} stencils carry spilled constants");
+        for s in &x.stencils {
+            assert_eq!(s.consts.is_empty(), s.const_refs.is_empty(), "{}", s.name);
+            assert!(s.consts_align <= 16, "{} asks for {} alignment", s.name, s.consts_align);
+            for c in &s.const_refs {
+                assert!(c.insn_end > c.field, "{}: a field past its instruction", s.name);
+                assert!(c.insn_end - c.field <= 8, "{}: an eight-byte trailer", s.name);
+                assert!((c.at as usize) < s.consts.len(), "{}: a reference past the bytes", s.name);
+                assert!((c.insn_end as usize) <= s.code.len(), "{}: a field outside the body", s.name);
+            }
         }
-        assert!(missing.len() <= 32, "x86-64 dropped {} keys: {missing:?}", missing.len());
+        // No AArch64 stencil has any: `extract.rs` refuses an object that
+        // spilled anything at all.
+        let Ok(m) = load(abi::StencilTarget::MacosArm64) else { return };
+        assert!(m.stencils.iter().all(|s| s.const_refs.is_empty() && s.consts.is_empty()));
     }
 
     /// Every key in the x86-64 library has exactly one entry — no fold twins —
