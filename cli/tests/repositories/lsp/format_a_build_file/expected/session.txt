@@ -2,6 +2,6 @@
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/cmd/f/BUILD.buri"}}
 {"id":2,"jsonrpc":"2.0","result":[{"newText":"# What this binary is.\nbinary {\n    dependencies: []\n    outputs: [\n        { platform: JS },\n    ]\n}\n","range":{"end":{"character":0,"line":5},"start":{"character":0,"line":0}}}]}
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/cmd/f/BUILD.buri"}}
-{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/cmd/g/BUILD.buri"}}
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[{"code":"build-file-syntax","message":"unterminated message","range":{"end":{"character":0,"line":1},"start":{"character":7,"line":0}},"relatedInformation":[{"location":{"range":{"end":{"character":0,"line":1},"start":{"character":7,"line":0}},"uri":"file://<scratch>/cmd/g/BUILD.buri"},"message":"fix: close it with `}`"}],"severity":1,"source":"buri"},{"code":"build-file-syntax","message":"unterminated message","range":{"end":{"character":0,"line":1},"start":{"character":7,"line":0}},"relatedInformation":[{"location":{"range":{"end":{"character":0,"line":1},"start":{"character":7,"line":0}},"uri":"file://<scratch>/cmd/g/BUILD.buri"},"message":"fix: close it with `}`"}],"severity":1,"source":"buri"}],"uri":"file://<scratch>/cmd/g/BUILD.buri"}}
 {"id":3,"jsonrpc":"2.0","result":[]}
 {"id":4,"jsonrpc":"2.0","result":null}

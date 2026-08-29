@@ -1792,9 +1792,16 @@ fn hierarchy_symbol(
 /// parse publishes its parse errors, and when it parses again what the analysis
 /// last said goes back.
 fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> Vec<Value> {
-    let parsed = crate::parsing::parser::parse(text, crate::diagnostics::FileId(0));
+    // Which parser reads the buffer is decided by what kind of file it is. A
+    // `BUILD.buri` is textproto, and the Buri lexer refused its every
+    // `# comment` — a syntax error on a file that is not in that syntax.
+    let errors = if build_files::is_build_file(path) {
+        build_files::diagnostics(text)
+    } else {
+        crate::parsing::parser::parse(text, crate::diagnostics::FileId(0)).errors
+    };
     let uri = convert::uri_of(path);
-    if parsed.errors.is_empty() {
+    if errors.is_empty() {
         if !state.showing_parse_errors.remove(&uri) {
             return Vec::new();
         }
@@ -1802,8 +1809,7 @@ fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> V
         return vec![publish(&uri, items)];
     }
     state.showing_parse_errors.insert(uri.clone());
-    let items: Vec<Value> =
-        parsed.errors.iter().map(|d| convert::diagnostic(text, d, &uri)).collect();
+    let items: Vec<Value> = errors.iter().map(|d| convert::diagnostic(text, d, &uri)).collect();
     vec![publish(&uri, items)]
 }
 
@@ -1867,6 +1873,19 @@ type Published = std::collections::BTreeMap<String, Vec<Value>>;
 
 /// Everything both passes have to say about the closure `path` is in.
 fn findings_for(state: &mut State, path: &std::path::Path, published: &mut Published) {
+    // A build file's own syntax. No analysis reports it — `driver::analyze`
+    // never opens one — so an unreadable `BUILD.buri` used to be a repository
+    // that quietly stopped answering rather than a file with a squiggle in it.
+    if build_files::is_build_file(path) {
+        if let Some(text) = state.text_of(path) {
+            let uri = convert::uri_of(path);
+            let items: Vec<Value> = build_files::diagnostics(&text)
+                .iter()
+                .map(|d| convert::diagnostic(&text, d, &uri))
+                .collect();
+            published.entry(uri).or_default().extend(items);
+        }
+    }
     if let Some(analyzed) = state.analyze(path) {
         for d in &analyzed.analysis.diagnostics.items {
             add_finding(published, &analyzed.session, d);

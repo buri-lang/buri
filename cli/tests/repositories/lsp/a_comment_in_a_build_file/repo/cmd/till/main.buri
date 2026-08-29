@@ -1,0 +1,5 @@
+//! The till.
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

@@ -576,3 +576,12 @@ fn word_at(text: &str, offset: u32) -> Option<(String, u32, u32)> {
     let word = text.get(start..end)?;
     (!word.is_empty()).then(|| (word.to_string(), start as u32, end as u32))
 }
+
+/// Every syntax error a build file holds.
+///
+/// This is the reader a build file is written against, and running the *Buri*
+/// parser over one instead is what made a `# comment` — the comment syntax
+/// textproto has and Buri does not — an error on every keystroke.
+pub fn diagnostics(text: &str) -> Vec<crate::diagnostics::Diagnostic> {
+    textproto::parse(text, FileId(0)).errors
+}
