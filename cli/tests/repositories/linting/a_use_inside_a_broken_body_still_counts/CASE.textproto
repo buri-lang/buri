@@ -1,0 +1,25 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an import and a local whose only use sits in the expression that failed to check: the type error is the whole report, because a rule reading a body the checker gave up on would be reporting the gap rather than the code"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The method call was the whole mistake. With it gone the file checks, and the
+# import and the local are used exactly as they always were — which is what
+# says the silence above was scoped rather than lucky.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "fromInt(ctx, amount.doubled())"
+  with: "fromInt(ctx, amount)"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

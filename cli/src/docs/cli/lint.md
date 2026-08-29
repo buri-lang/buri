@@ -11,10 +11,36 @@ check can be talked about by name. Every one of them is a warning: there is one
 catalogue and one severity, the same in every repository, and
 [`cli.md`](../build/cli.md#lint) is the whole list.
 
+## When the target does not type check
+
+The catalogue still runs, and the report holds both halves: the type errors the
+front end found, and every finding those errors cannot have caused. A file with
+a mistake in one function is still a file with an import nothing uses, and
+holding the second answer back until the first is fixed makes the tool tell you
+one thing at a time about a file you are already looking at.
+
+What a type error does take away is the typed tree under it. The checker stops
+where the body stopped making sense, so everything written inside the failed
+expression is gone — and a rule that read it would report the gap rather than
+the code, calling a name unused because its only use went missing. The four
+rules that read bodies — `unused-variable`, `test-without-assertion`,
+`dead-code`, `ctx-rebinding` — therefore stay silent for exactly the scope that
+failed: the body the checker gave up on, and, when the failure is at a module's
+top level, every body in that module, because an import that resolved to
+nothing changes what all of them can see. Nothing wider goes quiet, and the
+rules that read the source rather than the tree — parameter counts, nesting
+depth, function length, warning comments, test titles, duplicate imports,
+unused imports — answer the same either way.
+
+The silence is one-directional: a finding may be missed inside a broken body,
+and none is invented there. Fix the type error and run the linter again to see
+what the gap was hiding.
+
 ## Exit status
 
 `0` if there was nothing to report, `1` if there was anything at all. Severity
-does not enter into it — every finding is a warning, and a warning is still the
+does not enter into it — every finding is a warning, a type error riding along
+in the same report is an error, and both are `1`, because a warning is still the
 answer to the question you asked. Running the linter is itself the request to be
 told, and a report that exits zero is one no script can branch on, so `buri
 lint //...` is usable directly as a gate with no flag to make it one.

@@ -1,0 +1,12 @@
+// `I64` has no `doubled`, so the checker gives up on that call and everything
+// written inside it — `fromInt` and `amount` — is gone from the typed tree.
+// Both are used, and the report says nothing about either: the rules that read
+// bodies stay silent for the body that failed, not for the file or the target.
+
+from "core/effect" import { Alloc };
+from "core/str" import { fromInt };
+
+export fn describe<C: Alloc>(ctx: C): Str {
+  let amount = 3;
+  fromInt(ctx, amount.doubled())
+}

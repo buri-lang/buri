@@ -1,0 +1,37 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a file that does not type check and imports a name nothing uses: the checker's answer and the catalogue's are both reported, and neither waits for the other"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The type error goes. The finding beside it was never a consequence of it, so
+# it is still there afterwards — which is what makes the report above two
+# answers rather than one answer and one accident.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  c\n"
+  with: "  \"some cents\"\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "without_the_error.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "from \"core/str\" import * as str;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

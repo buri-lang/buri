@@ -1,0 +1,33 @@
+warning: str is imported but not used [unused-import]
+ --> lib/money/cents.buri:6:29
+  |
+6 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: expected `Str`, found `Cents` [type-mismatch]
+  --> lib/money/cents.buri:12:35
+   |
+12 | export fn describe(c: Cents): Str {
+   |                                   ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `Cents`
+   = fix: produce a `Str` here, or change what surrounds it to accept a `Cents`
+
+     What to do
+     ──────────
+
+     Convert explicitly. The diagnostic names the conversion: .toI64() is exact
+     for every I32, while a narrowing one returns a Result because not every
+     value fits.
+
+     Why
+     ───
+
+     No promotion of any kind, in either direction. A language that widened
+     silently would make the width of an arithmetic result a property of the
+     expression's shape rather than of what was written, and the one place it
+     matters is the one place nobody looks.
+
