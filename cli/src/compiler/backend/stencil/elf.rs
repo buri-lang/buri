@@ -112,13 +112,10 @@ const R_AARCH64_JUMP26: u32 = 282;
 const R_AARCH64_CALL26: u32 = 283;
 const R_AARCH64_LDST64_ABS_LO12_NC: u32 = 286;
 
-// x86-64 psABI §4.4.1. Only the two an emitted unit could need are named; the
-// x86-64 emitter is not finished (`design/native/CODEGEN-STENCIL.md`, "the x86-64
-// checklist") and `mod.rs::supported` refuses the target, so nothing reaches
-// them yet. They are here because the *mapping* is the part of that work this
-// file owns, and leaving it out would hide which of the four kinds x86-64 has
-// no counterpart for.
+// x86-64 psABI §4.4.1. Three kinds, which is the whole vocabulary an emitted
+// unit uses: an absolute pool word, a branch, and a rip-relative reference.
 const R_X86_64_64: u32 = 1;
+const R_X86_64_PC32: u32 = 2;
 const R_X86_64_PLT32: u32 = 4;
 
 /// The widest alignment a section may ask for. `2^15` is far past anything a
@@ -220,22 +217,38 @@ fn r_type(target: StencilTarget, kind: RelKind, w: u32, where_: &str) -> Result<
                     ));
                 }
             }
+            // A64 has no `rel32` field of any width, so neither x86-64 kind
+            // can be spelled for this machine.
+            RelKind::Rel32 | RelKind::Pc32 => {
+                return Err(format!("{where_}: {} has no aarch64 relocation type", x86_name(kind)))
+            }
         });
     }
     match kind {
         RelKind::Abs64 => Ok(R_X86_64_64),
-        RelKind::Branch26 => Ok(R_X86_64_PLT32),
-        // The two halves of an `adrp` pair have no x86-64 counterpart at all:
-        // a rip-relative reference is one `disp32` field, so the emitter that
-        // produces these has to produce one relocation and not two. It does not
-        // exist yet, and this is where that shows.
+        RelKind::Rel32 => Ok(R_X86_64_PLT32),
+        RelKind::Pc32 => Ok(R_X86_64_PC32),
+        // The three A64 kinds have no x86-64 counterpart: a rip-relative
+        // reference is one `disp32` field, so an x86-64 emission produces one
+        // relocation where A64 produces two, and a 26-bit word displacement is
+        // not a field this machine has.
         k => Err(format!(
             "{where_}: {} has no x86-64 relocation type",
             match k {
                 RelKind::Page21 => "the page half of an adrp pair",
+                RelKind::Branch26 => "the 26-bit displacement of a b/bl",
                 _ => "the offset half of an adrp pair",
             }
         )),
+    }
+}
+
+/// What an x86-64-only kind is called, for the message that says A64 has no
+/// counterpart for it.
+fn x86_name(kind: RelKind) -> &'static str {
+    match kind {
+        RelKind::Pc32 => "a rip-relative disp32",
+        _ => "the rel32 of a jmp/call/jcc",
     }
 }
 
