@@ -17,9 +17,36 @@ use super::convert::{self, Position};
 use super::state::Analyzed;
 use super::symbols;
 
+/// Which `MarkupKind` the client said it can render, from its `initialize`.
+///
+/// A client that named its `contentFormat`s and left `markdown` out of them
+/// draws a fence as three literal backticks, so the same content goes out
+/// without one.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Markup {
+    Markdown,
+    PlainText,
+}
+
+impl Markup {
+    /// The protocol's name for it, which is what goes in `contents.kind`.
+    fn named(self) -> &'static str {
+        match self {
+            Markup::Markdown => "markdown",
+            Markup::PlainText => "plaintext",
+        }
+    }
+}
+
 /// The symbol under the cursor, rendered; failing that, the type of the
 /// innermost expression covering it.
-pub fn hover(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Option<Value> {
+pub fn hover(
+    analyzed: &Analyzed,
+    path: &Path,
+    text: &str,
+    position: Position,
+    kind: Markup,
+) -> Option<Value> {
     let offset = convert::offset_of(text, position);
     let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
 
@@ -29,7 +56,7 @@ pub fn hover(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -
     // thing about it.
     if let Some(found) = symbols::at(analyzed, path, text, offset) {
         let (signature, docs) = symbols::describe(analyzed, &found.symbol);
-        return Some(rendered(text, &signature, &docs, found.span));
+        return Some(rendered(text, &signature, &docs, found.span, kind));
     }
 
     // Otherwise the innermost expression whose span contains the offset. It is
@@ -51,10 +78,7 @@ pub fn hover(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -
         });
     }
     if let Some((_, ty, span)) = best {
-        return Some(Value::object(vec![
-            ("contents", markup(&format!("```buri\n{ty}\n```"))),
-            ("range", convert::range(text, span)),
-        ]));
+        return Some(rendered(text, &ty, &[], span, kind));
     }
 
     // Above the first declaration there is nothing to point at but the file,
@@ -65,26 +89,36 @@ pub fn hover(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -
         return None;
     }
     let at = crate::diagnostics::Span::point(file, offset as usize);
-    Some(rendered(text, &format!("from \"{}\"", module.path), &module.ast.docs, at))
+    Some(rendered(text, &format!("from \"{}\"", module.path), &module.ast.docs, at, kind))
 }
 
 /// The hover payload: the signature in a fence, then the doc comment under it.
+///
+/// Plain text is the same two parts without the fence — the client asked for a
+/// kind that has no way to say "this is code".
 fn rendered(
     text: &str,
     signature: &str,
     docs: &[String],
     span: crate::diagnostics::Span,
+    kind: Markup,
 ) -> Value {
-    let mut markdown = format!("```buri\n{signature}\n```");
+    let mut value = match kind {
+        Markup::Markdown => format!("```buri\n{signature}\n```"),
+        Markup::PlainText => signature.to_string(),
+    };
     if !docs.is_empty() {
-        markdown.push_str("\n\n");
-        markdown.push_str(&docs.join("\n"));
+        value.push_str("\n\n");
+        value.push_str(&docs.join("\n"));
     }
-    Value::object(vec![("contents", markup(&markdown)), ("range", convert::range(text, span))])
+    Value::object(vec![
+        ("contents", markup(kind, &value)),
+        ("range", convert::range(text, span)),
+    ])
 }
 
-fn markup(markdown: &str) -> Value {
-    Value::object(vec![("kind", Value::str("markdown")), ("value", Value::str(markdown))])
+fn markup(kind: Markup, value: &str) -> Value {
+    Value::object(vec![("kind", Value::str(kind.named())), ("value", Value::str(value))])
 }
 
 /// Where the name under the cursor was declared.

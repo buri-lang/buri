@@ -6,7 +6,10 @@
 # document the client has open.
 {"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
 # The refusal is a refusal of the request and not of the session: the server is
-# still the one it was, and still answers.
+# still the one it was, and still answers. The outline comes back flat because
+# this client claimed no `hierarchicalDocumentSymbolSupport` — the shape is
+# negotiated, and the second `initialize` did not change what the first one
+# said.
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
 {"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

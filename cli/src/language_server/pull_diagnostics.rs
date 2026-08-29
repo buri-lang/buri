@@ -70,8 +70,32 @@ pub fn document(state: &mut State, id: &Value, params: &Value) -> Vec<Value> {
     // Everything else the analysis of this file's closure had to say. The
     // protocol's own field for it, and a client that did not claim it gets
     // nothing extra — `workspace/diagnostic` is the answer for that client.
-    let related = if state.related_documents_supported { found } else { Published::new() };
+    let mut related = if state.related_documents_supported { found } else { Published::new() };
+    if state.related_documents_supported {
+        retract(state, &uri, &mut related);
+    }
     vec![super::response(id, full(Some(&result_id), items, related))]
+}
+
+/// Names again, with empty `items`, every related document the last report for
+/// this document carried findings for and this one does not.
+///
+/// A report saying "nothing here" is how a client is told the error it was
+/// showing is fixed — the rule the asked-about document is already seeded with.
+/// A related file that simply vanished from the map told the client nothing, so
+/// the squiggle stayed on screen after the fix.
+fn retract(state: &mut State, asked: &str, related: &mut Published) {
+    for uri in state.related_reported.get(asked).cloned().unwrap_or_default() {
+        if uri != asked {
+            related.entry(uri).or_default();
+        }
+    }
+    // Only the ones with findings are worth remembering: an empty entry has
+    // just been sent, and sending it forever would be reporting on files this
+    // document has nothing to say about.
+    let named =
+        related.iter().filter(|(_, items)| !items.is_empty()).map(|(uri, _)| uri.clone()).collect();
+    state.related_reported.insert(asked.to_string(), named);
 }
 
 /// The answer to one `workspace/diagnostic`: every file of every open

@@ -1,5 +1,5 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
-{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"documentSymbol": {"hierarchicalDocumentSymbolSupport": true}}}}}
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # The blank line between two top-level items. Nothing is declared there and no
 # body covers it, so there is nothing to describe.

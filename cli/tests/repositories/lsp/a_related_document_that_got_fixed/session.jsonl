@@ -1,0 +1,20 @@
+# A pull client that claims `relatedDocumentSupport`, an error in the library
+# the pulled file imports, and the fix for it.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"diagnostic": {"relatedDocumentSupport": true}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The library buffer, opened with an error in it that is not on disk.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "export struct Cents(export I64);\n\nderive Eq, Show for Cents;\n\nexport fn fromCents(c: I64): Cents { \"not a Cents\" }\n"}}}
+# The pull is about the binary, which is clean. The finding travels in
+# `relatedDocuments`, which is what that field is for.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}}}
+# The keystroke that fixes it. A buffer that parses publishes nothing, so the
+# push channel says nothing here — the pull is where the retraction has to be.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "export struct Cents(export I64);\n\nderive Eq, Show for Cents;\n\nexport fn fromCents(c: I64): Cents { Cents(c) }\n"}]}}
+# The same pull, and `cents.buri` is named again with empty `items`. A related
+# document that had simply vanished from the map would have left the squiggle
+# on screen.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}}}
+# And once retracted it is not named again: the client has been told.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

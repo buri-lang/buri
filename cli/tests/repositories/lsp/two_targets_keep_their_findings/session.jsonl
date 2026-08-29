@@ -1,0 +1,15 @@
+# Two buffers in two targets that do not depend on each other, and the most
+# ordinary thing an editor does to them: open both, then save one.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The buffer with the finding. It is published, and it is the only file the
+# server has been asked about so far.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/kit/tokens.buri", "languageId": "buri", "version": 1, "text": "export struct Token(export I64);\n\nderive Eq, Show for Token;\n\n// The finding that has to survive a save in the other target.\nexport fn widen(t: Token): I64 { undefinedName }\n"}}}
+# A clean buffer in the other target. Its analysis reaches nothing in
+# //lib/kit — and the finding above must still be published, because a publish
+# replaces everything the editor holds for that file.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "export struct Cents(export I64);\n\nderive Eq, Show for Cents;\n\n// Clean, and in a target of its own. Saving this is what used to erase the\n// finding in //lib/kit.\nexport fn fromCents(c: I64): Cents { Cents(c) }\n"}}}
+# And the save, which is the same rule from the other side.
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

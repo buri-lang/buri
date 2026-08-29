@@ -1,0 +1,11 @@
+# The same outline, asked by a client that did not claim
+# `hierarchicalDocumentSymbolSupport`.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# `SymbolInformation[]`, which is the protocol's other shape for this answer:
+# every symbol carries the `location` a `DocumentSymbol` does not have, the
+# nesting is written as `containerName`, and a variant's field names the variant
+# rather than the enum above it.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

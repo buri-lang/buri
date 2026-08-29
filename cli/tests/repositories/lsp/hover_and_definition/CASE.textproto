@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "hover renders a declaration's signature and doc comment, and go-to-definition finds the declaration a call resolves to"
+doc: "hover renders a declaration's signature and doc comment, and go-to-definition finds the declaration a call resolves to — and a client that reads no markdown gets the same words without the fence"
 
 # `stdin` names a file of one JSON-RPC request per line; the harness adds the
 # Content-Length framing and records the decoded responses, so the golden is
@@ -12,4 +12,15 @@ run {
   stdin: "session.jsonl"
   stream: OUT
   golden: "session.txt"
+}
+
+# The same question from a client that reads plain text. Which `MarkupKind` a
+# hover carries is negotiated rather than assumed, and a session claims its
+# capabilities once — so the other client is a second session.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "plain.jsonl"
+  stream: OUT
+  golden: "plain.txt"
 }

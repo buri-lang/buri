@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "the nested outline, what an editor may collapse, and the chain expanding a selection outwards"
+doc: "the nested outline, what an editor may collapse, the chain expanding a selection outwards, and the same outline flat for a client that did not claim the tree"
 
 # No `didOpen`: an unopened file is read from disk, and leaving the buffers out
 # keeps the golden about the answers rather than about the diagnostics.
@@ -11,4 +11,14 @@ run {
   stdin: "session.jsonl"
   stream: OUT
   golden: "session.txt"
+}
+
+# Which of the two shapes the outline takes is negotiated, and a session claims
+# its capabilities once — so the client that claimed neither is a second one.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "flat.jsonl"
+  stream: OUT
+  golden: "flat.txt"
 }
