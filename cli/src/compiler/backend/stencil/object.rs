@@ -165,22 +165,30 @@ pub enum RelKind {
     Page21,
     /// `ARM64_RELOC_PAGEOFF12` on the `add`/`ldr` that follows a `Page21`.
     PageOff12,
+    /// x86-64: the `rel32` of a `jmp`, `call` or `jcc`. `R_X86_64_PLT32`.
+    Rel32,
+    /// x86-64: the `disp32` of a rip-relative operand. `R_X86_64_PC32`.
+    Pc32,
 }
 
 impl RelKind {
-    fn r_type(self) -> u32 {
+    /// The Mach-O relocation type, and `None` for the two kinds only an ELF
+    /// target has — a Mach-O object is arm64 here and there is no x86-64
+    /// Mach-O stencil library for one to belong to.
+    fn r_type(self) -> Option<u32> {
         match self {
-            Self::Branch26 => ARM64_RELOC_BRANCH26,
-            Self::Abs64 => ARM64_RELOC_UNSIGNED,
-            Self::Page21 => ARM64_RELOC_PAGE21,
-            Self::PageOff12 => ARM64_RELOC_PAGEOFF12,
+            Self::Branch26 => Some(ARM64_RELOC_BRANCH26),
+            Self::Abs64 => Some(ARM64_RELOC_UNSIGNED),
+            Self::Page21 => Some(ARM64_RELOC_PAGE21),
+            Self::PageOff12 => Some(ARM64_RELOC_PAGEOFF12),
+            Self::Rel32 | Self::Pc32 => None,
         }
     }
 
     /// `adrp` and `b`/`bl` are relative to the instruction; the `add` of a
     /// `PAGEOFF12` pair and an absolute pointer are not.
     fn pcrel(self) -> bool {
-        matches!(self, Self::Branch26 | Self::Page21)
+        matches!(self, Self::Branch26 | Self::Page21 | Self::Rel32 | Self::Pc32)
     }
 
     /// log2 of the field width: one instruction word, or one pointer.
@@ -631,6 +639,13 @@ fn group_relocs(
         let symbolnum = *slot
             .get(r.symbol)
             .ok_or_else(|| format!("relocation names symbol {}", r.symbol))?;
+        let r_type = r.kind.r_type().ok_or_else(|| {
+            format!(
+                "a relocation in {} is an x86-64 kind, which no Mach-O object this \
+                 backend writes can carry",
+                section.name
+            )
+        })?;
 
         let entries = out
             .get_mut(r.section)
@@ -665,7 +680,7 @@ fn group_relocs(
             pcrel: r.kind.pcrel(),
             length: r.kind.length(),
             external: true,
-            r_type: r.kind.r_type(),
+            r_type,
         });
     }
     Ok(out)
