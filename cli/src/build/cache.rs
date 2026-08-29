@@ -81,6 +81,10 @@ pub enum Action {
     Codegen,
     Link,
     Test,
+    /// What the lint catalogue found for one target. Keyed on the build graph
+    /// and on the bytes of the files the target's analysis read, which is the
+    /// whole of what a finding depends on.
+    Lint,
 }
 
 impl Action {
@@ -91,6 +95,7 @@ impl Action {
             Action::Codegen => "codegen",
             Action::Link => "link",
             Action::Test => "test",
+            Action::Lint => "lint",
         }
     }
 }
@@ -126,18 +131,17 @@ impl Status {
 /// keyed  compile //lib/money js c40e19b7ad22
 /// run    link //cmd/web js 3f9a1c2b8d4e
 /// cached test //lib/money js 71c0aa38f5b1
+/// cached lint //lib/money - 8b2e77c1904a
 /// ```
+///
+/// The fourth column is the platform, or `-` for an action no platform decides
+/// ([`explain_without_platform`]).
 ///
 /// Deliberately boring — fixed fields, single spaces, no timings and no sizes —
 /// so it is both greppable and recordable. Only the first twelve characters of
 /// the key are printed: enough to compare two runs of one tree, and short
 /// enough that nobody is tempted to check a whole key into a golden file, which
 /// would break on every toolchain version (the key includes `arguments::VERSION`).
-#[expect(
-    clippy::print_stdout,
-    reason = "this is `buri build --explain`'s own output — the record of what the build did — \
-              rather than a diagnostic, which still leaves through Session::emit"
-)]
 pub fn explain(
     on: bool,
     status: Status,
@@ -146,16 +150,35 @@ pub fn explain(
     platform: Platform,
     key: &ActionKey,
 ) {
+    line(on, status, action, label, platform.slug(), key);
+}
+
+/// The same line for an action no platform decides.
+///
+/// `buri lint` asks one question of a target's whole closure whatever that
+/// target is built for, so the column reads `-` rather than naming a platform
+/// the answer does not depend on. A field kept and left empty rather than a
+/// second shape, so one `--explain` parser reads every line.
+pub fn explain_without_platform(
+    on: bool,
+    status: Status,
+    action: Action,
+    label: &str,
+    key: &ActionKey,
+) {
+    line(on, status, action, label, "-", key);
+}
+
+#[expect(
+    clippy::print_stdout,
+    reason = "this is `--explain`'s own output — the record of what the command did — rather \
+              than a diagnostic, which still leaves through Session::emit"
+)]
+fn line(on: bool, status: Status, action: Action, label: &str, platform: &str, key: &ActionKey) {
     if !on {
         return;
     }
-    println!(
-        "{:<6} {} {label} {} {}",
-        status.name(),
-        action.name(),
-        platform.slug(),
-        key.short()
-    );
+    println!("{:<6} {} {label} {platform} {}", status.name(), action.name(), key.short());
 }
 
 /// A finished cache key: the hex SHA-256 a [`KeyBuilder`] produced.
@@ -439,6 +462,15 @@ mod tests {
         let mut b = KeyBuilder::new(Action::Compile, BuildMode::Debug);
         b.rule_identity("//lib/money", "library", &["cents.buri".into()]);
         assert_eq!(a.finish(), b.finish());
+    }
+
+    /// Every key starts from the name of the action it is for, so a lint
+    /// record and a compile entry cannot be served for one another.
+    #[test]
+    fn the_action_is_in_the_key() {
+        let of = |action| KeyBuilder::new(action, BuildMode::Debug).finish();
+        assert_ne!(of(Action::Compile), of(Action::Lint));
+        assert_ne!(of(Action::Test), of(Action::Lint));
     }
 
     #[test]
