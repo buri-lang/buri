@@ -1,0 +1,2 @@
+/// What the binary starts from.
+export fn helper(): I64 { 2 }

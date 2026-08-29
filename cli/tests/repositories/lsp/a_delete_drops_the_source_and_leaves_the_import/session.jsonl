@@ -1,0 +1,18 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# A `!` line is the harness acting as the editor would; see harness/case.rs.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Two buffers: the one about to be deleted, and the one that names it.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/shop/catalog\" export { Item, Stock, Priced, listing, defaultPrice };\nfrom \"//lib/shop/cart\" export { subtotal, ticket, sample };\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/shop/catalog\" import { Item, Stock, Priced, listing, defaultPrice };\n\n/// What the whole shelf is worth, counting only what is in stock.\nexport fn subtotal(items: [Item]): I64 {\n  items.fold(fn(running, item) => running + held(item.stock) * item.price, 0)\n}\n\n/// How many of a thing are on the shelf.\nfn held(stock: Stock): I64 {\n  match (stock) {\n    .Out => 0,\n    .OnHand { count } => count,\n  }\n}\n\n/// What one of anything priced costs.\nexport fn ticket<T: Priced>(thing: T): I64 {\n  thing.cents()\n}\n\n/// The cheapest thing a shop can list.\nexport fn sample(): Item {\n  let plain: Item = listing(\"plain\", defaultPrice);\n  plain\n}\n"}}}
+# The one edit a delete earns: the entry that listed the file. The re-export in
+# `lib.buri` is left alone on purpose — what it should say instead is a
+# decision, and a server that guessed would be editing code nobody asked it to.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/willDeleteFiles", "params": {"files": [{"uri": "file://<scratch>/lib/shop/cart.buri"}]}}
+!edit 2
+!remove lib/shop/cart.buri
+# The file is gone: its own findings are cleared, and the file that still names
+# it says so.
+{"jsonrpc": "2.0", "method": "workspace/didDeleteFiles", "params": {"files": [{"uri": "file://<scratch>/lib/shop/cart.buri"}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

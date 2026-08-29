@@ -1,0 +1,28 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a rename that crosses packages moves the sources entry between two build files and rewrites the imports, and what it does not answer arrives as ordinary findings"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}
+
+# Both halves of the moved entry, recorded either side of the boundary.
+file {
+  path: "lib/shop/BUILD.buri"
+  golden: "shop.BUILD.buri"
+}
+
+file {
+  path: "lib/pricing/BUILD.buri"
+  golden: "pricing.BUILD.buri"
+}
+
+file {
+  path: "lib/shop/cart.buri"
+  golden: "cart.buri"
+}

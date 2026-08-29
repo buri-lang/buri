@@ -1,0 +1,25 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "deleting a module drops its sources entry and nothing else, so the imports it leaves behind arrive as ordinary findings"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}
+
+# The entry is gone and the rest of the rule is untouched.
+file {
+  path: "lib/shop/BUILD.buri"
+  golden: "BUILD.buri"
+}
+
+# And the re-export that named the deleted module is exactly as it was: the
+# server does not decide what a dangling import should have said instead.
+file {
+  path: "lib/shop/lib.buri"
+  golden: "lib.buri"
+}

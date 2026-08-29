@@ -116,8 +116,8 @@ pub enum Step {
         /// something a person can read and diff.
         ///
         /// A line beginning with `!` is the harness acting as the editor
-        /// rather than a message: `!apply <id>` waits for the response to that
-        /// request and writes the workspace edit it carried. See
+        /// rather than a message: writing back an edit the server returned, or
+        /// moving and deleting files the way the editor is about to. See
         /// [`drive_session`].
         stdin: Option<String>,
         /// A directory inside the repository to run from, for the forms that
@@ -857,8 +857,11 @@ fn frame_requests(text: &str) -> Vec<u8> {
 /// request landed on to the scheduler rather than to the case.
 ///
 /// ```text
-/// !apply 2    wait for the response to request 2, then write the workspace
-///             edit its first code action carried
+/// !apply 2       wait for the response to request 2, then write the workspace
+///                edit its first code action carried
+/// !edit 2        the same, for a response that is a workspace edit itself
+/// !move a.buri b.buri   move a file, as the editor is about to
+/// !remove a.buri        delete one
 /// ```
 fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super::Run {
     use std::io::{Read, Write};
@@ -893,13 +896,7 @@ fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super:
         };
         input.write_all(&frame_requests(&pending)).expect("writing the session");
         pending.clear();
-        let awaited = directive
-            .strip_prefix("apply ")
-            .and_then(|id| id.trim().parse::<u32>().ok())
-            .unwrap_or_else(|| panic!("{case}: `!{directive}` is not `!apply <id>`"));
-        let body = read_until(&mut output, awaited, &mut read_early)
-            .unwrap_or_else(|| panic!("{case}: the server never answered request {awaited}"));
-        apply_workspace_edit(case, &body);
+        act(case, dir, directive, &mut output, &mut read_early);
     }
     input.write_all(&frame_requests(&pending)).expect("writing the session");
     // Dropped here, which closes the pipe and is what tells the server the
@@ -917,6 +914,68 @@ fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super:
         stdout: super::strip_ansi(&format!("{read_early}{}", String::from_utf8_lossy(&rest))),
         stderr: super::strip_ansi(&stderr),
         what: format!("buri {}", args.join(" ")),
+    }
+}
+
+/// One `!` line: the harness doing what an editor would do between messages.
+///
+/// The two that wait take a request id and read up to its response first, which
+/// is the whole reason these exist — piping the session and touching the disk
+/// partway through would leave which side of the change each request landed on
+/// to the scheduler rather than to the case. The three that touch the file tree
+/// need no wait: nothing has been sent since the last flush.
+fn act(
+    case: &str,
+    dir: &Path,
+    directive: &str,
+    output: &mut impl std::io::Read,
+    read_early: &mut String,
+) {
+    let (verb, rest) = directive.split_once(' ').unwrap_or((directive, ""));
+    let rest = rest.trim();
+    match verb {
+        // The first action's edit, because a fixture that asked for this asked
+        // about one fix. A `will*Files` answer *is* the edit, with no action
+        // wrapped around it, which is the difference between the two.
+        "apply" | "edit" => {
+            let id = rest
+                .parse::<u32>()
+                .unwrap_or_else(|_| panic!("{case}: `!{directive}` does not name a request id"));
+            let body = read_until(output, id, read_early)
+                .unwrap_or_else(|| panic!("{case}: the server never answered request {id}"));
+            let parsed = buri::json::parse(&body)
+                .unwrap_or_else(|e| panic!("{case}: the response is not JSON: {e}"));
+            let edit = match verb {
+                "apply" => parsed
+                    .at("result")
+                    .and_then(|r| r.as_array())
+                    .and_then(|actions| actions.first())
+                    .unwrap_or_else(|| {
+                        panic!("{case}: the response carries no code action:\n{body}")
+                    })
+                    .at("edit"),
+                _ => parsed.at("result"),
+            };
+            apply_workspace_edit(case, edit, &body);
+        }
+        "move" => {
+            let (from, to) = rest
+                .split_once(' ')
+                .map(|(a, b)| (dir.join(a.trim()), dir.join(b.trim())))
+                .unwrap_or_else(|| panic!("{case}: `!{directive}` does not name two paths"));
+            if let Some(parent) = to.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            std::fs::rename(&from, &to).unwrap_or_else(|e| {
+                panic!("{case}: cannot move {}: {e}", from.display());
+            });
+        }
+        "remove" => {
+            let path = dir.join(rest);
+            std::fs::remove_file(&path)
+                .unwrap_or_else(|e| panic!("{case}: cannot remove {}: {e}", path.display()));
+        }
+        _ => panic!("{case}: `!{directive}` is not a directive this harness has"),
     }
 }
 
@@ -971,23 +1030,14 @@ fn read_frame(output: &mut impl std::io::Read) -> Option<(String, String)> {
     Some((raw, body))
 }
 
-/// Writes the `WorkspaceEdit` a code-action response carried, the way an editor
-/// would when someone accepts the fix.
+/// Writes a `WorkspaceEdit`, the way an editor would when someone accepts it.
 ///
-/// The first action's edit, because a fixture that asked for this asked about
-/// one fix. Later edits are applied first so that an earlier one's offsets are
-/// still the ones the server measured.
-fn apply_workspace_edit(case: &str, response: &str) {
-    let parsed = buri::json::parse(response)
-        .unwrap_or_else(|e| panic!("{case}: the response is not JSON: {e}"));
-    let action = parsed
-        .at("result")
-        .and_then(|r| r.as_array())
-        .and_then(|actions| actions.first())
-        .unwrap_or_else(|| panic!("{case}: the response carries no code action:\n{response}"));
-    let changes = action
-        .at("edit.changes")
-        .unwrap_or_else(|| panic!("{case}: the code action carries no edit:\n{response}"));
+/// Later edits are applied first so that an earlier one's offsets are still the
+/// ones the server measured.
+fn apply_workspace_edit(case: &str, edit: Option<&buri::json::Value>, response: &str) {
+    let changes = edit
+        .and_then(|e| e.at("changes"))
+        .unwrap_or_else(|| panic!("{case}: the response carries no workspace edit:\n{response}"));
     let buri::json::Value::Object(files) = changes else {
         panic!("{case}: `edit.changes` is not an object:\n{response}")
     };
