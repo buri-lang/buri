@@ -348,6 +348,10 @@ struct Generation {
     targets: Vec<(Option<TargetId>, Rc<Analyzed>)>,
     /// The whole-repository analysis, which has no target to key on.
     whole: Option<Rc<Analyzed>>,
+    /// Analyses that checked one file's bodies and nothing else. Keyed by that
+    /// file rather than by its target: two files of one target are two of
+    /// these, which is the whole point of them.
+    queries: Vec<(PathBuf, Rc<Analyzed>)>,
     lints: Vec<(TargetId, Rc<Linted>)>,
     /// The lint pass over every target at once, which has no target to key on
     /// either. `workspace/diagnostic` is what asks for it.
@@ -399,6 +403,9 @@ impl Generation {
             return Some(&analyzed.session);
         }
         if let Some(analyzed) = &self.whole {
+            return Some(&analyzed.session);
+        }
+        if let Some((_, analyzed)) = self.queries.first() {
             return Some(&analyzed.session);
         }
         if let Some((_, linted)) = self.lints.first() {
@@ -737,6 +744,67 @@ impl State {
         let analyzed = Rc::new(Analyzed { session, analysis });
         if let Some(generation) = self.cache.generation(fingerprint) {
             remember(&mut generation.targets, target, Rc::clone(&analyzed));
+        }
+        Some(analyzed)
+    }
+
+    /// The analysis a question *about one position in one file* needs.
+    ///
+    /// The same closure as [`State::analyze`] — loaded, resolved, every
+    /// signature, type, trait, impl and module-level `let` elaborated — but the
+    /// bodies are type-checked for this file only. Hover, definition,
+    /// completion, the tokens, the hints, the highlights and signature help all
+    /// walk the bodies of the file under the cursor and filter every other one
+    /// out by file id, so checking the rest of the repository was work whose
+    /// entire result they discarded. `tests/language/scoped_bodies.rs` holds
+    /// the two to being the same answer, file by file, over every fixture
+    /// repository here.
+    ///
+    /// A full analysis already in hand for this fingerprint is a superset and
+    /// is used instead — a hover right after a save costs nothing, and pays for
+    /// nothing either.
+    ///
+    /// **Not for diagnostics.** A file this did not check reports nothing, so a
+    /// problem list built from it would go quiet in every file but one. Those
+    /// paths ask [`State::analyze`], and are untouched.
+    pub fn analyze_for_query(&mut self, path: &Path) -> Option<Rc<Analyzed>> {
+        let root = self.root_of(path)?;
+        let fingerprint = self.fingerprint(&root);
+        if let Some(hit) = self.cached_analysis(fingerprint, path) {
+            return Some(hit);
+        }
+        if let Some(hit) = self
+            .cache
+            .find(fingerprint)
+            .and_then(|g| g.queries.iter().find(|(p, _)| p == path))
+            .map(|(_, a)| Rc::clone(a))
+        {
+            return Some(hit);
+        }
+
+        let mut session = self.overlaid_session(&root)?;
+        let target = target_for(&session, path);
+        let unit = Unit { target, platform: None, with_tests: true };
+        // The file as the loader will name it. A file the editor has open is
+        // already in the map, layered over the disk by `overlaid_session`; one
+        // it does not is seeded here with the same bytes the loader would have
+        // read, which is the same trick and for the same reason — `SourceMap::
+        // load` reuses an entry whose name already exists.
+        let name = session.workspace.rel_of(path);
+        let file = match session.map.find(&name) {
+            Some(file) => file,
+            None => session.map.add(name, path.to_path_buf(), self.text_of(path)?),
+        };
+        let analysis = crate::compiler::driver::analyze_bodies_in(
+            Some(&session.workspace),
+            &mut session.map,
+            &mut session.parsed,
+            &unit,
+            &[file],
+        );
+        let analyzed = Rc::new(Analyzed { session, analysis });
+        if let Some(generation) = self.cache.generation(fingerprint) {
+            remember(&mut generation.queries, path.to_path_buf(), Rc::clone(&analyzed));
         }
         Some(analyzed)
     }
