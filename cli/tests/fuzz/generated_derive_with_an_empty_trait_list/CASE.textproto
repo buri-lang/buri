@@ -1,3 +1,3 @@
 doc:    "`--param derives=0` made the benchmark generator print `derive  for Rec0_0;` — a derive clause naming no traits, which is not a declaration and does not parse. `derive_list` returned the empty string and both `chunk_record_struct` and `chunk_enum` emitted the clause unconditionally. Fixed by `derive_clause`, which emits nothing at all when nothing is derived; this case pins that the whole `derives` dimension, zero included, generates a corpus that compiles."
-oracle: "generated"
+property: "generated"
 status: FIXED

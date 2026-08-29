@@ -12,8 +12,8 @@
 //!
 //! ```text
 //! cargo test -p buri --test fuzz                       # CI mode: fixed seeds, bounded
-//! BURI_FUZZ_SECONDS=600 cargo test -p buri --test fuzz # soak: per-oracle wall clock
-//! BURI_FUZZ_ITERS=50000 cargo test -p buri --test fuzz # soak: per-oracle iterations
+//! BURI_FUZZ_SECONDS=600 cargo test -p buri --test fuzz # soak: per-property wall clock
+//! BURI_FUZZ_ITERS=50000 cargo test -p buri --test fuzz # soak: per-property iterations
 //! BURI_FUZZ_SEED=0x1234 cargo test -p buri --test fuzz # a different point to start from
 //! BURI_FUZZ_RECORD=1 …                                 # write findings into the corpus
 //! ```
@@ -29,10 +29,10 @@
 //!
 //! A finding is only useful if it can be replayed, and it can only be replayed
 //! if what it claims is one sentence. So every search reduces its finding to
-//! one of five oracles, each of which takes a file and answers "does this still
+//! one of five properties, each of which takes a file and answers "does this still
 //! break":
 //!
-//! | Oracle | The claim |
+//! | Property | The claim |
 //! |---|---|
 //! | `safety` | The **binary** neither panics, nor overflows its stack, nor prints `internal compiler error`, nor fails to stop, on these bytes. |
 //! | `roundtrip` | `format` accepts its own output, is a fixed point, and keeps every comment and token. |
@@ -48,7 +48,7 @@
 //! `native/agreement.rs`'s comparison — one analysis, two backends, stdout
 //! compared byte for byte — with the program generated rather than written.
 //!
-//! # What each oracle catches
+//! # What each property catches
 //!
 //! `safety` catches the crash: a panic, a stack overflow, an allocation that
 //! kills the process, a loop that does not end. `roundtrip` catches the
@@ -65,22 +65,22 @@
 //! # The regression corpus
 //!
 //! A fuzzer that finds a bug and forgets it has found nothing. Every finding
-//! is minimised — lines first, then tokens, then characters, the oracle
-//! re-asked at each step — and written into `cli/tests/fuzz/` as a directory
+//! is minimised — lines first, then tokens, then characters, the property
+//! re-checked at each step — and written into `cli/tests/fuzz/` as a directory
 //! holding a manifest and the input:
 //!
 //! ```text
 //! cli/tests/fuzz/roundtrip_trailing_block_comment/
-//!   CASE.textproto     doc, oracle, status, and where it came from
+//!   CASE.textproto     doc, property, status, and where it came from
 //!   input.buri         the minimised bytes, and nothing else
 //! ```
 //!
 //! The manifest's `status` is what lets a fuzzer live in a suite that has to
 //! stay green:
 //!
-//!   * `status: FIXED` — the oracle must **not** fire. This is the ordinary
+//!   * `status: FIXED` — the property must **hold**. This is the ordinary
 //!     regression: the bug was fixed and may never come back.
-//!   * `status: OPEN` — the oracle must **still** fire, and `replay` prints
+//!   * `status: OPEN` — the property must **still** fail, and `replay` prints
 //!     it. A known-open finding is pinned rather than quarantined, so it
 //!     cannot be forgotten, and the day somebody fixes it the suite fails and
 //!     says to move the case to `FIXED`.
@@ -118,7 +118,7 @@ mod harness;
 // The benchmark's generator, as a module rather than a copy. It is the
 // repository's Csmith: seeded, parameterised over twenty-seven dimensions, and
 // already required to emit programs that compile — which is exactly the
-// contract the `compiles` oracle checks over the rest of the space.
+// contract the `compiles` property checks over the rest of the space.
 #[path = "../benches/generate.rs"]
 #[allow(dead_code)]
 mod generate;
@@ -143,7 +143,7 @@ use std::time::{Duration, Instant};
 /// nobody can reproduce is a rumour.
 const BASE_SEED: u64 = 0x0B00_1A57_F0FF_0001;
 
-/// How long one oracle may take in CI, as a wall-clock ceiling.
+/// How long one property's search may take in CI, as a wall-clock ceiling.
 ///
 /// A bound in iterations alone is not enough: an iteration's cost is a
 /// function of the input, and one draw that generates ten thousand lines
@@ -182,7 +182,7 @@ impl Budget {
                 + match (iters, seconds) {
                     (_, Some(s)) => Duration::from_secs(s as u64),
                     // The CI deadline is a safety valve rather than a bound: a
-                    // machine slow enough to reach it has an oracle that
+                    // machine slow enough to reach it has a search that
                     // covered less ground, and a suite that took a minute
                     // instead of ten seconds would be worse.
                     (Some(_), None) => Duration::from_secs(86_400),
@@ -450,11 +450,11 @@ fn splice(out: &mut Vec<u8>, at: usize, what: &[u8]) {
 }
 
 // ---------------------------------------------------------------------------
-// The oracles
+// The properties
 // ---------------------------------------------------------------------------
 
 /// Every property a recorded case can pin, by the name its manifest carries.
-const ORACLES: &[&str] = &[
+const PROPERTIES: &[&str] = &[
     "safety",
     "roundtrip",
     "compiles",
@@ -465,34 +465,34 @@ const ORACLES: &[&str] = &[
 
 /// What a case's input file is called, which is also what says how to read it.
 ///
-/// Five of the six oracles take Buri source. `generated` takes a point in the
+/// Five of the six properties take Buri source. `generated` takes a point in the
 /// benchmark generator's parameter space — `key=value`, one per line — because
 /// the finding it reports is *what the generator emitted*, and recording the
 /// emitted source instead would pin a claim about the language that nobody
 /// makes: `derive  for Rec;` is not a program the compiler should accept, it
 /// is a program the generator should not print.
-fn input_name(oracle: &str) -> &'static str {
-    if oracle == "generated" {
+fn input_name(property: &str) -> &'static str {
+    if property == "generated" {
         "input.params"
     } else {
         "input.buri"
     }
 }
 
-/// Why this input breaks the named oracle, or `None` when it does not.
+/// Why this input breaks the named property, or `None` when it does not.
 ///
 /// One function rather than five, because the minimiser and the corpus replay
 /// both have to ask a question they were handed the name of. `expects` is the
-/// `output` oracle's other half and is ignored by the rest.
-fn fires(oracle: &str, input: &str, expects: Option<&str>) -> Option<String> {
-    match oracle {
+/// `output` property's other half and is ignored by the rest.
+fn fires(property: &str, input: &str, expects: Option<&str>) -> Option<String> {
+    match property {
         "safety" => safety_fires(input),
         "roundtrip" => roundtrip_fires(input),
         "compiles" => compiles_fires(input),
         "deterministic" => deterministic_fires(input),
         "output" => output_fires(input, expects.unwrap_or_default()),
         "generated" => generated_fires(input),
-        other => Some(format!("`{other}` is not an oracle; they are {ORACLES:?}")),
+        other => Some(format!("`{other}` is not a property; they are {PROPERTIES:?}")),
     }
 }
 
@@ -505,7 +505,7 @@ fn fires(oracle: &str, input: &str, expects: Option<&str>) -> Option<String> {
 /// finding nobody can reproduce. A real hang is not a slow compile.
 const WATCHDOG: Duration = Duration::from_secs(30);
 
-/// The `safety` oracle: the toolchain, through the binary, on these bytes.
+/// The `safety` property: the toolchain, through the binary, on these bytes.
 ///
 /// Through the binary rather than the library for `adversarial.rs`'s two
 /// reasons — the binary is what a user runs, and the stack it runs on is
@@ -701,12 +701,12 @@ fn comments_sorted(text: &str) -> Vec<Shape> {
     out
 }
 
-/// The `roundtrip` oracle: `formatting.rs`'s four claims, over any source that
+/// The `roundtrip` property: `formatting.rs`'s four claims, over any source that
 /// parses.
 ///
 /// A file that does not parse is not a finding — there is nothing to format
-/// and `buri format` leaves it alone — so the oracle is vacuously satisfied
-/// there. That is what makes it usable as a mutation oracle: most mutants do
+/// and `buri format` leaves it alone — so the property is vacuously satisfied
+/// there. That is what makes it usable over mutated input: most mutants do
 /// not parse, and the ones that do are exactly the interesting ones.
 fn roundtrip_fires(input: &str) -> Option<String> {
     if !buri::parsing::parser::parse(input, FileId(0)).errors.is_empty() {
@@ -760,7 +760,7 @@ fn roundtrip_fires(input: &str) -> Option<String> {
 
 // -- compiles ---------------------------------------------------------------
 
-/// The `compiles` oracle: this source type-checks and exports a `main`.
+/// The `compiles` property: this source type-checks and exports a `main`.
 ///
 /// The benchmark's `--validate`, over one module instead of a corpus. What it
 /// is really asking is whether the front end accepts a program it should —
@@ -787,7 +787,7 @@ fn compiles_fires(input: &str) -> Option<String> {
 
 // -- deterministic ----------------------------------------------------------
 
-/// The `deterministic` oracle: the same bytes twice, in one process and in
+/// The `deterministic` property: the same bytes twice, in one process and in
 /// two, produce the same diagnostics.
 ///
 /// Both halves, because they catch different things. Two calls in one process
@@ -808,7 +808,7 @@ fn deterministic_fires(input: &str) -> Option<String> {
     // Two repositories rather than two runs in one. A second `build` in the
     // same tree is served by the cache and says so — `(N bytes, cached)` —
     // which is the cache working rather than the compiler disagreeing with
-    // itself, and it is what this oracle reported as a finding until it did
+    // itself, and it is what this property reported as a finding until it did
     // not. Two trees at two paths also make the comparison the stronger one:
     // neither the cache nor the directory the build ran in may reach the
     // output. Both are normalised, because the scratch path is the one thing
@@ -840,7 +840,7 @@ fn diagnostics_of(input: &str) -> String {
 
 // -- output -----------------------------------------------------------------
 
-/// The `output` oracle: every backend runs this program and prints `expects`.
+/// The `output` property: every backend runs this program and prints `expects`.
 ///
 /// `native/agreement.rs`'s comparison, with the program handed in rather than
 /// written down. Its three claims are kept: JavaScript prints the expected
@@ -848,16 +848,16 @@ fn diagnostics_of(input: &str) -> String {
 /// third alone would pass on a program that had rotted on both sides at once.
 ///
 /// Where the host cannot answer — no JavaScript engine, no runtime archive, no
-/// linker — the oracle reports nothing rather than a failure, which is the
+/// linker — the property reports nothing rather than a failure, which is the
 /// same skip `native/agreement.rs` takes and for the same reason.
 fn output_fires(input: &str, expects: &str) -> Option<String> {
     let js = match run_on_js(input) {
         Ok(Some(out)) => out,
-        // No engine on this host: the oracle cannot answer, which is not the
+        // No engine on this host: the property cannot answer, which is not the
         // same as answering yes.
         Ok(None) => return None,
         // A program the reference backend will not compile or will not run is
-        // a finding in its own right: every input this oracle is handed —
+        // a finding in its own right: every input this property is handed —
         // generated here or recorded in the corpus — is one that did both.
         Err(why) => return Some(why),
     };
@@ -920,7 +920,7 @@ fn engine_present() -> bool {
     })
 }
 
-/// The native half of the `output` oracle.
+/// The native half of the `output` property.
 ///
 /// Its own module because it is the one part of this file that does not exist
 /// under `--no-default-features`, and because the concurrent work on the two
@@ -941,7 +941,7 @@ mod native {
     use std::sync::OnceLock;
 
     /// Every native backend this binary was built with, named. Stencil is the
-    /// debug oracle; LLVM arrives with its feature.
+    /// debug-profile backend; LLVM arrives with its feature.
     const NATIVES: &[(&str, Profile)] = &[
         #[cfg(feature = "backend-stencil")]
         ("stencil", Profile::Debug),
@@ -956,23 +956,50 @@ mod native {
         }
     }
 
-    /// Whether this host can compile, link and run a native binary at all.
+    /// Why one backend cannot answer on this host, or `None`.
+    ///
+    /// The backend's own availability query, so the day a host grows the half
+    /// it is missing this leg fires with no edit here. Stencil is the one that
+    /// answers today: it has an x86-64 library and no entry point to put in
+    /// front of it.
+    fn unavailable(name: &str) -> Option<String> {
+        #[cfg(feature = "backend-stencil")]
+        if name == "stencil" {
+            return buri::compiler::backend::stencil::unavailable_reason();
+        }
+        let _ = name;
+        None
+    }
+
+    /// Why this host cannot compile, link and run a native binary, or `None`.
     ///
     /// `native_ready` answers for the backend `select` returns, which is not
-    /// yet stencil, so the stencil library's own host question is asked beside
-    /// it: a host with no library for itself has no debug oracle.
-    pub fn ready() -> bool {
-        #[cfg(feature = "backend-stencil")]
-        if !buri::compiler::backend::stencil::AVAILABLE {
-            return false;
+    /// yet stencil, so each backend's own host question is asked beside it: a
+    /// host where every native column is unavailable has nothing left to
+    /// compare against, and one where a single column is keeps the rest.
+    pub fn off_reason() -> Option<String> {
+        if !actions::native_ready(host_target(), Profile::Debug) {
+            return Some(String::from("`native_ready` is false on this host"));
         }
-        actions::native_ready(host_target(), Profile::Debug)
+        let unavailable: Vec<String> = NATIVES
+            .iter()
+            .filter_map(|(name, _)| unavailable(name).map(|why| format!("`{name}`: {why}")))
+            .collect();
+        if unavailable.len() == NATIVES.len() {
+            return Some(unavailable.join("; "));
+        }
+        None
+    }
+
+    /// [`off_reason`] as a `bool`, for the `output` property's own guard.
+    pub fn ready() -> bool {
+        off_reason().is_none()
     }
 
     /// How many times a native backend has actually produced an answer.
     ///
     /// A backend that refuses every program is indistinguishable from one that
-    /// agrees with every program, and the difference is the whole oracle. The
+    /// agrees with every program, and the difference is the whole comparison. The
     /// searches print this, so a run in which the native leg never fired says
     /// so rather than passing quietly.
     static ANSWERED: AtomicUsize = AtomicUsize::new(0);
@@ -1001,7 +1028,7 @@ mod native {
     /// backend, so that the `Ok` arm takes over the day `select` grows the arm.
     fn select(name: &str, target: Target, profile: Profile) -> Option<Box<dyn backend::Backend>> {
         // `select` does not answer with the copy-and-patch backend yet, so the
-        // debug oracle is named here rather than selected.
+        // debug-profile backend is named here rather than selected.
         #[cfg(feature = "backend-stencil")]
         if name == "stencil" {
             return Some(Box::new(backend::stencil::Stencil));
@@ -1063,6 +1090,11 @@ mod native {
             let target = host_target();
             actions::prepare(&mut program, target);
             let opts = Options { profile: *profile, target, unit_prefix: "" };
+            // A backend with no seat on this host refuses every program, which
+            // is a fact about the host rather than a disagreement.
+            if unavailable(name).is_some() {
+                continue;
+            }
             let Some(mut backend) = select(name, target, *profile) else { continue };
             if !backend.missing_intrinsics(&program, &analysis.checked.tables).is_empty() {
                 continue;
@@ -1113,22 +1145,22 @@ mod native {
 
 /// The finding, shrunk until nothing more can come out of it.
 ///
-/// Three passes, coarse to fine, each greedy and each re-asking the oracle:
+/// Three passes, coarse to fine, each greedy and each re-checking the property:
 /// runs of lines, then runs of whitespace-separated tokens, then single
 /// characters. That is delta debugging's shape (Zeller's `ddmin`) without its
 /// generality — a compiler input is a line-oriented tree, and the three
 /// granularities that matter are the ones a person would try.
 ///
 /// Bounded, because a minimiser that runs longer than the search that fed it
-/// is a minimiser nobody will leave switched on. `oracle` is re-asked at every
+/// is a minimiser nobody will leave switched on. `property` is re-checked at every
 /// step against the *same* message class rather than merely "still fails", so
 /// shrinking cannot silently walk from one bug to another.
-fn minimize(oracle: &str, input: &str, expects: Option<&str>) -> String {
-    let Some(first) = fires(oracle, input, expects) else { return input.to_string() };
+fn minimize(property: &str, input: &str, expects: Option<&str>) -> String {
+    let Some(first) = fires(property, input, expects) else { return input.to_string() };
     let signature = signature_of(&first);
     let still = |candidate: &str| -> bool {
         candidate != input
-            && fires(oracle, candidate, expects)
+            && fires(property, candidate, expects)
                 .is_some_and(|why| signature_of(&why) == signature)
     };
 
@@ -1320,8 +1352,8 @@ fn quoted_names_removed(message: &str) -> String {
 struct Recorded {
     name: String,
     doc: String,
-    oracle: String,
-    /// `true` where the finding is still open, and the oracle must still fire.
+    property: String,
+    /// `true` where the finding is still open, and the property must still fail.
     open: bool,
     expects: Option<String>,
     input: String,
@@ -1369,18 +1401,21 @@ fn read_case(dir: &Path) -> Recorded {
     let status = field("status").unwrap_or_default();
     assert!(
         status == "OPEN" || status == "FIXED",
-        "{name}: `status` is {status:?}; it is OPEN (the oracle must still fire) or \
-         FIXED (it must not)"
+        "{name}: `status` is {status:?}; it is OPEN (the property must still fail) or \
+         FIXED (it must hold)"
     );
-    let oracle = field("oracle").unwrap_or_default();
-    assert!(ORACLES.contains(&oracle.as_str()), "{name}: `{oracle}` is not one of {ORACLES:?}");
-    let file = input_name(&oracle);
+    let property = field("property").unwrap_or_default();
+    assert!(
+        PROPERTIES.contains(&property.as_str()),
+        "{name}: `{property}` is not one of {PROPERTIES:?}"
+    );
+    let file = input_name(&property);
     let input = std::fs::read_to_string(dir.join(file))
         .unwrap_or_else(|e| panic!("{name}: cannot read {file}: {e}"));
     Recorded {
         name,
         doc: field("doc").unwrap_or_default(),
-        oracle,
+        property,
         open: status == "OPEN",
         expects: field("expects"),
         input,
@@ -1394,34 +1429,34 @@ fn read_case(dir: &Path) -> Recorded {
 /// under `CARGO_TARGET_TMPDIR` and nothing writes into a checked-in tree, and a
 /// fuzzer that silently grew the corpus on every CI run would be the loudest
 /// possible exception to that.
-fn record(name: &str, doc: &str, oracle: &str, input: &str, expects: Option<&str>, open: bool) {
+fn record(name: &str, doc: &str, property: &str, input: &str, expects: Option<&str>, open: bool) {
     let dir = corpus_dir().join(name);
     std::fs::create_dir_all(&dir).unwrap();
     let mut manifest = format!(
-        "doc: {doc:?}\noracle: {oracle:?}\nstatus: {}\n",
+        "doc: {doc:?}\nproperty: {property:?}\nstatus: {}\n",
         if open { "OPEN" } else { "FIXED" }
     );
     if let Some(e) = expects {
         manifest.push_str(&format!("expects: {e:?}\n"));
     }
     std::fs::write(dir.join("CASE.textproto"), manifest).unwrap();
-    std::fs::write(dir.join(input_name(oracle)), input).unwrap();
+    std::fs::write(dir.join(input_name(property)), input).unwrap();
     eprintln!("fuzz: recorded {}", dir.display());
 }
 
-/// A name a directory can carry and a person can read: the oracle, then what
+/// A name a directory can carry and a person can read: the property, then what
 /// broke.
 ///
 /// Derived from the signature, so a recorded finding lands in a directory a
 /// second sighting of the same bug would land in too. The half of the
 /// signature that is worth reading is the diagnostic rather than the headline,
-/// which the oracle's own name already says.
+/// which the property's own name already says.
 ///
 /// The name is a *label*, not the key. Renaming a case to something a person
 /// would choose — which the checked-in cases have all had — costs nothing,
 /// because [`known_signatures`] dedups by replaying the case rather than by
 /// reading its directory.
-fn case_name(oracle: &str, why: &str) -> String {
+fn case_name(property: &str, why: &str) -> String {
     let signature = signature_of(why);
     let readable = signature.split_once(" | ").map_or(signature.as_str(), |(head, first)| {
         if first.trim().is_empty() {
@@ -1448,7 +1483,7 @@ fn case_name(oracle: &str, why: &str) -> String {
         }
     }
     let slug: String = slug.trim_end_matches('_').chars().take(48).collect();
-    format!("{oracle}_{}", slug.trim_end_matches('_'))
+    format!("{property}_{}", slug.trim_end_matches('_'))
 }
 
 /// The signature of every finding the corpus already holds open.
@@ -1464,7 +1499,7 @@ fn known_signatures() -> Vec<String> {
         .iter()
         .filter(|c| c.open)
         .filter_map(|c| {
-            fires(&c.oracle, &c.input, c.expects.as_deref()).map(|why| signature_of(&why))
+            fires(&c.property, &c.input, c.expects.as_deref()).map(|why| signature_of(&why))
         })
         .collect()
 }
@@ -1476,7 +1511,7 @@ fn known_signatures() -> Vec<String> {
 /// none of them — and reported, fatally, where it does not.
 fn triage(
     seen: &mut Seen,
-    oracle: &str,
+    property: &str,
     raw: &str,
     why: &str,
     expects: Option<&str>,
@@ -1486,7 +1521,7 @@ fn triage(
         seen.skipped += 1;
         return;
     }
-    report(oracle, raw, why, expects, provenance);
+    report(property, raw, why, expects, provenance);
 }
 
 /// What a search knows before it starts, and what it met on the way.
@@ -1512,18 +1547,18 @@ impl Seen {
 
 /// What a search does with a finding: minimise it, say so, record it where
 /// asked, and fail.
-fn report(oracle: &str, raw: &str, why: &str, expects: Option<&str>, provenance: &str) -> ! {
-    let small = minimize(oracle, raw, expects);
-    let confirmed = fires(oracle, &small, expects).unwrap_or_else(|| why.to_string());
-    let name = case_name(oracle, &confirmed);
+fn report(property: &str, raw: &str, why: &str, expects: Option<&str>, provenance: &str) -> ! {
+    let small = minimize(property, raw, expects);
+    let confirmed = fires(property, &small, expects).unwrap_or_else(|| why.to_string());
+    let name = case_name(property, &confirmed);
     if recording() {
-        record(&name, provenance, oracle, &small, expects, true);
+        record(&name, provenance, property, &small, expects, true);
     }
     // Both messages, because the minimiser holds the signature and not the
     // wording: the first is what the search saw, the second is what the
     // recorded case will say, and a difference between them is worth reading.
     panic!(
-        "fuzz {oracle}: {provenance}\n\nas found:\n{}\n\nminimised to {} bytes:\n{}\n\n\
+        "fuzz {property}: {provenance}\n\nas found:\n{}\n\nminimised to {} bytes:\n{}\n\n\
          which still says:\n{}\n\n\
          Record it with BURI_FUZZ_RECORD=1, which writes cli/tests/fuzz/{name}/.",
         indent(why),
@@ -1549,7 +1584,7 @@ fn replay_the_regression_corpus() {
     let mut failures = Vec::new();
     let mut open = 0;
     for case in &cases {
-        let fired = fires(&case.oracle, &case.input, case.expects.as_deref());
+        let fired = fires(&case.property, &case.input, case.expects.as_deref());
         match (case.open, fired) {
             (false, Some(why)) => failures.push(format!(
                 "{}: a FIXED case broke again — {}\n{}",
@@ -1586,12 +1621,12 @@ fn the_corpus_is_wired_up() {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
         entries.sort();
-        if entries != ["CASE.textproto", input_name(&case.oracle)] {
+        if entries != ["CASE.textproto", input_name(&case.property)] {
             wrong.push(format!(
                 "{}: holds {entries:?}, not the manifest and the `{}` a {} case is",
                 case.name,
-                input_name(&case.oracle),
-                case.oracle
+                input_name(&case.property),
+                case.property
             ));
         }
         if case.doc.len() < 20 {
@@ -1602,7 +1637,7 @@ fn the_corpus_is_wired_up() {
                 wrong.push(format!("{}: has {other}'s `doc` word for word", case.name));
             }
         }
-        if case.oracle == "output" && case.expects.is_none() {
+        if case.property == "output" && case.expects.is_none() {
             wrong.push(format!(
                 "{}: an `output` case with no `expects` asserts only that the backends \
                  agree, which they do on the wrong answer too",
@@ -1826,7 +1861,7 @@ fn shape_name(shape: generate::Shape) -> &'static str {
     }
 }
 
-/// The `generated` oracle: the benchmark generator emits a program that
+/// The `generated` property: the benchmark generator emits a program that
 /// compiles at this point in its parameter space.
 ///
 /// `generate.rs` states the claim in its own opening — "it is not a fuzzer;
@@ -2042,7 +2077,7 @@ fn two_processes_print_the_same_diagnostics() {
 ///
 /// This is the Csmith constraint, in this language's terms. Csmith's whole
 /// engineering achievement is emitting C with no undefined and no unspecified
-/// behaviour, because a differential oracle over a program whose answer is not
+/// behaviour, because a differential test over a program whose answer is not
 /// pinned by the language proves nothing. Buri's list of things two backends
 /// may legally answer differently is written down — `design/native/VALUE-MODEL.md`
 /// §12 — so the generator is built to reach none of it:
@@ -2241,7 +2276,7 @@ fn generated_programs_print_the_same_answer_on_every_backend() {
     report_native_participation(done);
 }
 
-/// What the native half of the `output` oracle actually did.
+/// What the native half of the `output` property actually did.
 ///
 /// Printed rather than asserted, because a host with no backend, no runtime
 /// archive or no linker is a legitimate place to run this suite, and
@@ -2251,11 +2286,11 @@ fn generated_programs_print_the_same_answer_on_every_backend() {
 fn report_native_participation(done: usize) {
     #[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
     {
-        if !native::ready() {
-            eprintln!("fuzz differential: the native leg is off (`native_ready` is false)");
+        if let Some(why) = native::off_reason() {
+            eprintln!("fuzz differential: the native leg is off ({why})");
         } else {
             // A count for the process rather than for this search: the EMI
-            // search runs the same oracle, and one counter says whether the
+            // search runs the same property, and one counter says whether the
             // native leg fired at all, which is the question.
             eprintln!(
                 "fuzz differential: {done} program(s) here; the native leg has answered {} \
@@ -2282,7 +2317,7 @@ fn report_native_participation(done: usize) {
 /// The language makes this cheaper than it is in C. There is no `catch`, no
 /// mutable global, and no address to observe, so a function nobody calls and a
 /// branch nobody takes cannot be observed by any means except a compiler bug —
-/// which means the oracle needs no undefined-behaviour analysis at all, and
+/// which means the technique needs no undefined-behaviour analysis at all, and
 /// the whole apparatus Orion needs to be sure the mutant is still legal
 /// collapses into two `format!` calls. What it catches is what EMI catches:
 /// a pass whose analysis of what is reachable is wrong, monomorphization
@@ -2302,7 +2337,7 @@ fn dead_code_does_not_change_what_a_program_prints() {
     while !budget.spent(done) {
         let p = printer(&mut rng);
         // The original has to be right before its twin can be interesting: a
-        // program the backends already disagree about is the other oracle's
+        // program the backends already disagree about is the other property's
         // finding, not this one's.
         if let Some(why) = output_fires(&p.text, &p.expected) {
             triage(&mut seen, "output", &p.text, &why, Some(&p.expected), "the program EMI started from");
@@ -2366,17 +2401,17 @@ fn with_dead_code(text: &str, rng: &mut Rng) -> String {
 ///
 /// `lib/canary` exists in the conformance repository for this reason and says
 /// so: a suite that cannot fail is not evidence. A fuzzer is worse than most
-/// in that respect — every oracle here answers `None` on the overwhelming
-/// majority of its input, and an oracle wired up wrongly answers `None` on all
+/// in that respect — every property here answers `None` on the overwhelming
+/// majority of its input, and a property wired up wrongly answers `None` on all
 /// of it and passes forever.
 ///
-/// So each oracle that can be handed a *fabricated* failure is handed one. The
+/// So each property that can be handed a *fabricated* failure is handed one. The
 /// three that cannot — `safety`, `roundtrip` and `deterministic` fire only on
 /// a real bug, and there is none to hand them — are covered instead by the
-/// property that they are the same function the corpus replay calls, and by
+/// fact that they are the same function the corpus replay calls, and by
 /// the corpus itself.
 #[test]
-fn the_oracles_can_fail() {
+fn the_properties_can_fail() {
     assert!(
         fires("compiles", "fn broken(", None).is_some(),
         "`compiles` accepted a file that is not a declaration"
@@ -2385,7 +2420,7 @@ fn the_oracles_can_fail() {
         fires("compiles", "fn ok(): Int { 1 }\n", None).is_some(),
         "`compiles` accepted a module with no `main`"
     );
-    // The corpus this hands the oracle is the one `derives=0` used to emit.
+    // The corpus this hands the property is the one `derives=0` used to emit.
     // The parameter point compiles now, so the canary is the source rather
     // than the point: without it nothing would hold the half of `generated`
     // that compiles what the generator wrote.
@@ -2422,7 +2457,7 @@ fn the_oracles_can_fail() {
     );
     assert!(
         fires("nonsense", "", None).is_some(),
-        "an oracle nobody implemented answered a question"
+        "a property nobody implemented answered a question"
     );
 }
 

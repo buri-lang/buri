@@ -165,7 +165,7 @@
 //! ask — `middle::native` is handed a `Program`. So `monomorphize` records
 //! them: [`monomorphize::Shapes`] is every declared type's field list, taken
 //! by the pass that still had a `Tables`, and [`Syntactic`] substitutes into
-//! it. [`Counted`] is the oracle interface, and a type it cannot classify is
+//! it. [`Counted`] is the classifier interface, and a type it cannot classify is
 //! listed in [`FuncPlan::unclassified`] and gets **no reference operations at
 //! all** — that direction is a leak, and the other direction is an increment
 //! applied to an integer, which is a miscompile.
@@ -180,7 +180,7 @@
 //!
 //! **Both native backends build a [`Syntactic`] from the same `Program`** and
 //! ask it rather than their own layout table wherever they emit one half of a
-//! pair this pass completes (`stencil::emit`'s `rc_counted`). An oracle
+//! pair this pass completes (`stencil::emit`'s `rc_counted`). A classifier
 //! that answered differently there would be a retain with no release or a
 //! release with no retain, so the answer travelling *with* the program is what
 //! keeps the two halves from disagreeing.
@@ -370,7 +370,7 @@ pub enum Answer {
     Unknown,
 }
 
-/// The oracle.
+/// The classifier.
 pub trait Counted {
     fn counted(&mut self, ty: &Ty) -> Answer;
 }
@@ -613,7 +613,7 @@ pub fn run(program: &Program) -> Plan {
 }
 
 /// The same, against a caller's own [`Counted`] and options — which is how wave
-/// 2 hands in a `middle::layout`-backed oracle.
+/// 2 hands in a `middle::layout`-backed classifier.
 pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> Plan {
     let ownership = infer_ownership(program, counted);
     let (purity, can_abort) = infer_effects(program);
@@ -731,7 +731,7 @@ fn infer_ownership(program: &Program, counted: &mut dyn Counted) -> Vec<Vec<ir::
                     let ty = f.locals.get(p.index()).map(|l| l.ty.clone()).unwrap_or(Ty::Error);
                     // A value with no count to take is `Own` by convention and
                     // costs nothing either way; saying `Borrow` would make a
-                    // backend's signature depend on an oracle's uncertainty.
+                    // backend's signature depend on the classifier's uncertainty.
                     match counted.counted(&ty) {
                         Answer::Yes => ir::Ownership::Borrow,
                         _ => ir::Ownership::Own,
@@ -1814,7 +1814,7 @@ impl Scan<'_> {
     /// is the same set either way, so **`probe \ live` is `G \ live`** and the
     /// enclosing liveness never enters the answer. `G` is what this computes:
     ///
-    /// * [`ExprKind::Local`] contributes itself; a local the layout oracle does
+    /// * [`ExprKind::Local`] contributes itself; a local the layout classifier does
     ///   not count is filtered out by `owned` at the caller, which only ever
     ///   holds counted locals.
     /// * [`ExprKind::Lambda`] contributes its **captures and not its body**,
@@ -3590,10 +3590,10 @@ export fn main(): Result<(), Str> {
         assert_eq!(plan.func(find(&program, "double")).map(|f| f.can_abort), Some(false));
     }
 
-    /// A type the oracle cannot classify carries no operations and is named,
+    /// A type the classifier cannot answer for carries no operations and is named,
     /// which is the difference between a leak and a wrong answer.
     #[test]
-    fn what_the_oracle_cannot_answer_is_recorded_rather_than_guessed() {
+    fn what_the_classifier_cannot_answer_is_recorded_rather_than_guessed() {
         struct Nothing;
         impl Counted for Nothing {
             fn counted(&mut self, _ty: &Ty) -> Answer {

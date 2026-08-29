@@ -18,16 +18,20 @@
 //! than a suite of its own.
 //!
 //! Every test here starts with the same guard: a host with no stencil library
-//! (no C compiler, or not arm64) has no backend to ask, and skips rather than
-//! fails. That is the "degrades rather than breaks" clause of the dependency
-//! bar applied to the suite.
+//! (no C compiler) and one with no entry point to put in front of it (x86-64,
+//! today) have no backend to ask, and skip rather than fail — printing which of
+//! the two it was, one line per test. That is the "degrades rather than breaks"
+//! clause of the dependency bar applied to the suite, without the silence that
+//! would make a skipped suite look like a passing one.
 use buri::build::buildfile::{Arch, Platform};
 use buri::build::link::{self, Row};
 use buri::build::workspace::Workspace;
 use buri::compiler::backend::{LinkOptions, Linker};
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
 use buri::compiler::backend::{Backend, Options, Profile, Target};
-use buri::compiler::backend::stencil::{abi as stencil_abi, Stencil, AVAILABLE as STENCILS};
+use buri::compiler::backend::stencil::{
+    abi as stencil_abi, unavailable_reason as stencil_unavailable_reason, Stencil,
+};
 use buri::compiler::driver;
 use buri::compiler::middle::{self, monomorphize};
 use buri::compiler::modules::Role;
@@ -36,22 +40,42 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-/// Whether this host can build and run a stencil artifact at all.
+/// Why this host cannot build and run a stencil artifact, or `None`.
 ///
 /// Two conditions, and each is a real one: no runtime archive means nothing to
-/// link against, and `stencil::AVAILABLE` is "this host has a stencil library
-/// *and* an entry point to put in front of it" — which is false on x86-64,
-/// where `asm.rs` has no SysV shim, and false wherever `cc` could not build the
-/// host's library.
+/// link against, and `stencil::unavailable_reason` is "this host has a stencil
+/// library *and* an entry point to put in front of it" answered as a sentence —
+/// it is false on x86-64, where `asm.rs` has no SysV shim, and false wherever
+/// `cc` could not build the host's library.
 ///
-/// It used to be four, with `cfg!(target_os = "macos")` and
+/// It used to be four conditions, with `cfg!(target_os = "macos")` and
 /// `cfg!(target_arch = "aarch64")` spelled out here. They are gone deliberately:
-/// with three libraries the host question belongs to `stencil::AVAILABLE`, and a
+/// with three libraries the host question belongs to the backend, and a
 /// suite that answered it for itself would have to be edited again the first
 /// time this backend runs on a Linux runner. Everything below then runs
 /// unchanged wherever the backend does.
+fn skip_reason() -> Option<String> {
+    if !AVAILABLE {
+        return Some(String::from("this toolchain carries no native runtime archive"));
+    }
+    stencil_unavailable_reason()
+}
+
+/// Whether this host can build and run a stencil artifact at all, printing the
+/// reason where it cannot.
+///
+/// The print is the whole point of routing every guard through here: a suite
+/// that returned quietly would report every test as passed on a host with no
+/// backend, which is exactly what `.github/scripts/assert-stencils.sh` exists
+/// to catch.
 fn supported() -> bool {
-    AVAILABLE && STENCILS
+    match skip_reason() {
+        Some(why) => {
+            eprintln!("stencil: skipped ({why})");
+            false
+        }
+        None => true,
+    }
 }
 
 fn host_platform() -> Platform {

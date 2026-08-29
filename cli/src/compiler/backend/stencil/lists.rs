@@ -54,9 +54,9 @@
 //!
 //! # What "counted" means here
 //!
-//! `cranelift` asks `middle::rc`'s oracle (`Cx::rc_counted`) rather than the
+//! `cranelift` asks `middle::rc`'s classifier (`Cx::rc_counted`) rather than the
 //! layout table's, because retaining what rc does not count adds one half of a
-//! pair nothing completes. `emit.rs::rc_counted` is this backend's one oracle
+//! pair nothing completes. `emit.rs::rc_counted` is this backend's one classifier
 //! and `counted` below is that same predicate — the *deep* question, not the
 //! top-level repr: a struct of two `Str`s is counted and its layout is
 //! `Aggregate`, so the shallow test skipped exactly the retains a step handed
