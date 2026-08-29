@@ -301,7 +301,8 @@ Two further native jobs, `linux-arm64` and `linux-x86_64`, run the artifacts
 rather than only compiling them, and CODEGEN-STENCIL.md §10 is where they are
 described. `lean`, `tree-sitter` and `nix` complete the eight.
 
-The cross-backend agreement oracle is not a CI feature: `cli/tests/native/agreement.rs`
+The cross-backend agreement differential test is not a CI feature:
+`cli/tests/native/agreement.rs`
 runs in the ordinary suite on every leg (ARCHITECTURE.md §4).
 
 ### 3.4 Without nix

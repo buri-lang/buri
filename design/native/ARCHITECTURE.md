@@ -2,8 +2,9 @@
 
 Two native backends, one middle end, and a link step that reuses object files.
 LLVM through `inkwell` for `--release`; the copy-and-patch backend of
-CODEGEN-STENCIL.md, written here and depending on nothing, for everything else. This document says where the code goes, what the interface
-between the middle end and a backend is, how the build graph grows, and what
+CODEGEN-STENCIL.md, written here and depending on nothing, for everything
+else. This document says where the code goes, what the interface between the
+middle end and a backend is, how the build graph grows, and what
 `--check-reproducible` means once an artifact is an executable.
 
 Everything here is decided. Where a decision contradicts something already
@@ -394,10 +395,10 @@ debug row could change hands on a measurement rather than on an opinion.
 
 Two things sit on top of the table:
 
-- **There is no `--backend` flag, and the agreement oracle does not need one.**
+- **There is no `--backend` flag, and the agreement test does not need one.**
   Selection is `backend::select(target, profile)` and it takes no name, so a
   backend is chosen by what is being built rather than by an argument a user
-  passes. The cross-backend oracle — the native analogue of the existing
+  passes. The cross-backend differential test — the native analogue of the existing
   `release_and_debug_agree` — is `cli/tests/native/agreement.rs`, which compiles
   one source twice from one analysis, through `actions::prepare` and `select`
   for each side, and compares stdout byte for byte. It is written against
