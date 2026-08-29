@@ -51,7 +51,11 @@ pub struct Parsed {
 /// parsing — and the diagnostics travel with it, because a cache that dropped
 /// them would make a file's syntax errors appear only for whichever target
 /// happened to reach it first.
-#[derive(Default)]
+///
+/// Cheap to clone — every entry is a pair of pointers — which is what lets a
+/// command hand one analysis its own copy and keep the parses afterwards
+/// (`build::sources`).
+#[derive(Default, Clone)]
 pub struct Cache {
     entries: crate::hash::Map<FileId, (std::rc::Rc<Module>, std::rc::Rc<Vec<Diagnostic>>)>,
 }
@@ -76,6 +80,15 @@ impl Cache {
         let entry = (std::rc::Rc::new(parsed.module), std::rc::Rc::new(parsed.errors));
         self.entries.insert(file, entry.clone());
         entry
+    }
+
+    /// Drops the parse of one file, because its text has been replaced.
+    ///
+    /// The pair with [`SourceMap::replace`](crate::diagnostics::SourceMap::replace):
+    /// an id that stands for a file rather than for a revision of one needs
+    /// somewhere to say that the revision moved.
+    pub fn forget(&mut self, file: FileId) {
+        self.entries.remove(&file);
     }
 }
 

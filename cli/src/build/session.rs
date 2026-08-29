@@ -25,6 +25,7 @@ pub enum Rendering {
     Json,
 }
 
+#[derive(Clone)]
 pub struct Session {
     pub root: PathBuf,
     pub map: SourceMap,
@@ -33,19 +34,26 @@ pub struct Session {
     /// this the same files are lexed and parsed once per target.
     pub parsed: crate::parsing::parser::Cache,
     pub diagnostics: Diagnostics,
-    pub workspace: Workspace,
+    /// Shared rather than owned, so that a session is cheap to copy: the
+    /// graph is read-only once loaded.
+    pub workspace: std::rc::Rc<Workspace>,
     pub rendering: Rendering,
 }
 
 /// Finds the repository root, reads `REPO.buri`, and loads every package.
 pub fn open(flags: &Flags) -> Result<Session, String> {
+    open_at(&root_of_cwd()?, flags)
+}
+
+/// The repository the process is standing in.
+///
+/// A command finds its repository from where it was run, and that is the whole
+/// of it. Its own function because `build::sources` asks the same question for
+/// a caller that keeps the repository between commands.
+pub fn root_of_cwd() -> Result<PathBuf, String> {
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-    let Some(root) = find_root(&cwd) else {
-        return Err(
-            "not in a Buri repository: no REPO.buri in this directory or any above it".into()
-        );
-    };
-    open_at(&root, flags)
+    find_root(&cwd)
+        .ok_or_else(|| "not in a Buri repository: no REPO.buri in this directory or any above it".into())
 }
 
 /// The same, for a root that is already known.
@@ -73,7 +81,7 @@ pub fn open_at(root: &std::path::Path, flags: &Flags) -> Result<Session, String>
         map,
         parsed: crate::parsing::parser::Cache::new(),
         diagnostics,
-        workspace,
+        workspace: std::rc::Rc::new(workspace),
         rendering,
     })
 }
@@ -156,7 +164,25 @@ impl Session {
               `emit` to route it through yet"
 )]
 pub fn open_or_exit(flags: &Flags) -> Result<Session, u8> {
-    match open(flags) {
+    let mut sources = match crate::build::sources::open(flags.clone()) {
+        Ok(sources) => sources,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return Err(2);
+        }
+    };
+    resume_or_exit(&mut sources)
+}
+
+/// The same, for a caller that keeps its repository between commands.
+///
+/// `buri test --watch` is the one that does: a pass asks for a session, and
+/// every file the last pass read and parsed is already in it. Everything above
+/// goes through here too, with a `Sources` that lives for the one command —
+/// same work, and one door.
+#[expect(clippy::print_stderr, reason = "the same argument as `open_or_exit` above")]
+pub fn resume_or_exit(sources: &mut crate::build::sources::Sources) -> Result<Session, u8> {
+    match sources.session(&crate::build::sources::Overlay::new()) {
         Ok(session) => Ok(session),
         Err(msg) => {
             eprintln!("error: {msg}");
@@ -172,13 +198,17 @@ pub fn open_or_exit(flags: &Flags) -> Result<Session, u8> {
 /// All three failures exit 2, and for one reason: an unparseable build file, a
 /// missing repository and a label naming nothing are each a problem with the
 /// invocation rather than with the code.
+pub fn open_and_resolve(flags: &Flags, args: &[String]) -> Result<(Session, Vec<TargetId>), u8> {
+    resolve_in(open_or_exit(flags)?, args)
+}
+
+/// The two steps above, over a session that is already open.
 #[expect(
     clippy::print_stderr,
     reason = "the same argument as `open_or_exit` above: a target argument that resolves to \
               nothing is not a diagnostic about a source file, so there is no `emit` for it"
 )]
-pub fn open_and_resolve(flags: &Flags, args: &[String]) -> Result<(Session, Vec<TargetId>), u8> {
-    let mut session = open_or_exit(flags)?;
+pub fn resolve_in(mut session: Session, args: &[String]) -> Result<(Session, Vec<TargetId>), u8> {
     if session.report() {
         return Err(2);
     }
