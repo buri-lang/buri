@@ -1,3 +1,3 @@
 doc:    "A `fields_per_struct` range reaching below two made `chunk_record_struct` emit a `render` method interpolating `${self.f0}/${self.f1}` into a struct that had only `f0`. The method's body was a fixed string while the field count is a dimension, so any draw of one field was a program that did not compile. Fixed by building the interpolation and the accessor from the fields the draw actually made; two fields is the low end of the default range, so what the checked-in corpora contain is unchanged."
-oracle: "generated"
+property: "generated"
 status: FIXED

@@ -1709,7 +1709,7 @@ export fn main(): Result<(), Str> {
 /// *tree* and has no `NodeId` to name one with. So until `template`
 /// dropped them itself, a program that interpolated in a loop grew the
 /// heap by a block an iteration — and `Prim::Template` was
-/// `Answer::Unknown` in `rc`'s oracle, so the block the chain *ended*
+/// `Answer::Unknown` in `rc`'s classifier, so the block the chain *ended*
 /// holding leaked once per evaluation on top of that.
 ///
 /// Counted rather than asserted against zero at one size: a per-iteration

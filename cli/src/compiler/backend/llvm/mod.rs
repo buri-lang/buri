@@ -180,7 +180,7 @@ impl Backend for Llvm {
         }
         let root = root_of(program);
         let lowered = lower::run(program, tables);
-        emit_selected(&lowered, tables, opts, root, units, Some(&oracle(program)))
+        emit_selected(&lowered, tables, opts, root, units, Some(&classifier(program)))
     }
 }
 
@@ -212,7 +212,8 @@ fn uses_template(f: &monomorphize::Func) -> bool {
 /// rather than from a hash order, which is a free first approximation of a
 /// call-order layout (CODEGEN-LLVM.md §6).
 ///
-/// It passes **no** reference-counting oracle, and cannot: [`oracle`] is built
+/// It passes **no** reference-counting classifier, and cannot: [`classifier`] is
+/// built
 /// from the `monomorphize::Program` `rc::run` was handed, and this signature
 /// has only the lowered one. `emit::Unit::rc_counted` states what stands in and
 /// why the substitution is leak-safe rather than unsound.
@@ -257,14 +258,14 @@ fn owns(program: &ir::Program, root: &Root, unit: u32) -> bool {
     }
 }
 
-/// The oracle `middle::rc` decided its own operations with, rebuilt over the
+/// The classifier `middle::rc` decided its own operations with, rebuilt over the
 /// same program it ran on so that the reference operations this backend adds
 /// around the calls it *invents* — the loops of `emit::Unit::list_closure` —
 /// are the ones rc would have added (`emit::Unit::rc_counted`).
 ///
 /// One for the whole emission rather than one per unit: it memoises, and
 /// building it is a walk of every body.
-fn oracle(program: &monomorphize::Program) -> Rc<RefCell<rc::Syntactic>> {
+fn classifier(program: &monomorphize::Program) -> Rc<RefCell<rc::Syntactic>> {
     Rc::new(RefCell::new(rc::Syntactic::new(program)))
 }
 
@@ -348,7 +349,7 @@ fn emit_selected(
             Rc::clone(&cycles),
         );
         if let Some(counted) = counted {
-            emitter.use_rc_oracle(Rc::clone(counted));
+            emitter.use_rc_classifier(Rc::clone(counted));
         }
         emitter.module.set_triple(&inkwell::targets::TargetTriple::create(&triple));
         emitter.module.set_data_layout(&data_layout);
