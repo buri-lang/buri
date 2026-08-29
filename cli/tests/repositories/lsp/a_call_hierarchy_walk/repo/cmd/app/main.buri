@@ -1,0 +1,13 @@
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "//lib/shop" import { defaultPrice, Item, listing, subtotal };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let plain: Item = listing("plain", defaultPrice);
+    let _ = ctx.println("total: ${subtotal([plain]).show(ctx)}");
+    .Ok(())
+}

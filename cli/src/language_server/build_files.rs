@@ -48,6 +48,56 @@ pub fn definition(
     }
 }
 
+/// Every string in a build file that names a file, underlined.
+///
+/// The same two producers `definition` answers with, run over all of them
+/// instead of over the one under the cursor: a `sources` or `data` entry is a
+/// file beside this one, and a dependency label is a package, which is its
+/// `BUILD.buri`.
+///
+/// A `tags` entry is deliberately not a link. What a tag names is a block
+/// inside `REPO.buri` — a line rather than a file — and a `DocumentLink` has
+/// nowhere to put a line, so a link for one would land at the top of a file
+/// and claim to have found the tag. `definition` still answers for it.
+pub fn links(session: &Session, path: &Path, text: &str) -> Value {
+    let parsed = textproto::parse(text, FileId(0));
+    let mut found = Vec::new();
+    strings(&parsed.document.fields, &mut |field, entry, span| {
+        let target = match field {
+            // `//visibility:public` is in a label field and names no package,
+            // so it resolves to nothing and gets no underline.
+            "dependencies" | "visibility" => label_path(session, path, entry),
+            "sources" | "proto_sources" | "data" => file_path(path, entry),
+            _ => None,
+        };
+        if let Some(target) = target {
+            let (start, end) = super::links::inside_quotes(text, span);
+            found.push((start, end, convert::uri_of(&target)));
+        }
+    });
+    super::links::render(text, found)
+}
+
+/// Every string the document writes, with the name of the field holding it.
+fn strings(fields: &[Field], out: &mut impl FnMut(&str, &str, crate::diagnostics::Span)) {
+    for field in fields {
+        match &field.value {
+            Node::Str(s, span) => out(&field.name, s, *span),
+            Node::Message(m, _) => strings(&m.fields, out),
+            Node::List(items, _) => {
+                for item in items {
+                    match item {
+                        Node::Str(s, span) => out(&field.name, s, *span),
+                        Node::Message(m, _) => strings(&m.fields, out),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// The repository root, spelled the way the editor spells it.
 ///
 /// A `sources` entry is a path beside the build file the request named, so it
@@ -95,6 +145,10 @@ fn covers(span: crate::diagnostics::Span, offset: u32) -> bool {
 /// such a directory to the package above — or, where there was none, nowhere
 /// at all.
 fn label_target(session: &Session, build_file: &Path, label: &str) -> Option<Value> {
+    Some(convert::top_of(&label_path(session, build_file, label)?))
+}
+
+fn label_path(session: &Session, build_file: &Path, label: &str) -> Option<PathBuf> {
     let path = label.strip_prefix("//")?;
     let id = session
         .workspace
@@ -106,16 +160,20 @@ fn label_target(session: &Session, build_file: &Path, label: &str) -> Option<Val
         file.push(package);
     }
     file.push("BUILD.buri");
-    Some(convert::top_of(&file))
+    Some(file)
 }
 
 /// A source or data entry is a path relative to the package's own directory,
 /// which is the directory this build file is in.
 fn file_target(build_file: &Path, entry: &str) -> Option<Value> {
+    Some(convert::top_of(&file_path(build_file, entry)?))
+}
+
+fn file_path(build_file: &Path, entry: &str) -> Option<PathBuf> {
     let file = build_file.parent()?.join(entry);
     // A declared file that is not there is a build error somebody else
     // reports; there is still nowhere to send the editor.
-    file.is_file().then(|| convert::top_of(&file))
+    file.is_file().then_some(file)
 }
 
 /// A tag is declared once, in `REPO.buri`, and named from wherever it applies.

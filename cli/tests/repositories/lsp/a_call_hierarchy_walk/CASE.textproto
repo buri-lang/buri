@@ -1,0 +1,18 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "prepare, then walk both ways: who calls a function — including a `test` and a module-level `let` — what it calls, a call of a trait method through a bound, a function nobody calls, and a type, which is not a node in a call hierarchy at all"
+
+# No `didOpen`: an unopened file is read from disk, and leaving the buffers out
+# keeps the golden about the answers rather than about the diagnostics.
+#
+# Every item in a walk request is copied verbatim out of the `prepare` (or the
+# incoming answer) above it, which is what a client does with one — so a change
+# to what the server hands out breaks these lines rather than passing quietly.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

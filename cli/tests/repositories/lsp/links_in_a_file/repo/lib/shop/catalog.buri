@@ -1,0 +1,15 @@
+//! What a shop sells.
+//!
+//! Prices follow https://example.org/pricing, which is the rule here.
+
+from "//lib/money" import { Cents };
+
+// The shelf-edge format is at http://example.com/shelves and nowhere else.
+
+/// One thing for sale, priced as <https://example.org/pricing#cents> says.
+export struct Item { export name: Str, export price: Cents }
+
+/// Where to buy one.
+export fn shopfront(): Str {
+    "https://example.org/shop"
+}

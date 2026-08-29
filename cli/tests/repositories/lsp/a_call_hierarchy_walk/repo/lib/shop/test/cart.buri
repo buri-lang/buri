@@ -1,0 +1,7 @@
+from "core/testing/assert" import * as assert;
+from "//lib/shop" import { defaultPrice, listing, subtotal };
+
+test "a shelf holds nothing until it is stocked" {
+    let plain = listing("plain", defaultPrice);
+    assert.eq(subtotal([plain]), 0);
+}

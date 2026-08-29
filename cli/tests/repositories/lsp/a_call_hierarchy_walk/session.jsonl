@@ -1,0 +1,47 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A function, from its declaration. The item carries the whole declaration as
+# `range`, the name as `selectionRange`, and the position the two walks below
+# resolve it back from as `data`.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/prepareCallHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 3, "character": 12}}}
+# Who calls it: `main` in //cmd/app, and a `test` in //lib/shop's test source.
+# Both are outside the target the file under the cursor belongs to, which is
+# why this asks the whole repository.
+{"jsonrpc": "2.0", "id": 3, "method": "callHierarchy/incomingCalls", "params": {"item": {"data": {"position": {"character": 10, "line": 3}, "uri": "file://<scratch>/lib/shop/cart.buri"}, "detail": "//lib/shop/cart", "kind": 12, "name": "subtotal", "range": {"end": {"character": 1, "line": 5}, "start": {"character": 0, "line": 3}}, "selectionRange": {"end": {"character": 18, "line": 3}, "start": {"character": 10, "line": 3}}, "uri": "file://<scratch>/lib/shop/cart.buri"}}}
+# What it calls: `held`, written inside the closure it hands to `fold`. `fold`
+# itself is a standard-library function compiled into the binary, so it has no
+# file and no item — the same silence `definition` answers with for one.
+{"jsonrpc": "2.0", "id": 4, "method": "callHierarchy/outgoingCalls", "params": {"item": {"data": {"position": {"character": 10, "line": 3}, "uri": "file://<scratch>/lib/shop/cart.buri"}, "detail": "//lib/shop/cart", "kind": 12, "name": "subtotal", "range": {"end": {"character": 1, "line": 5}, "start": {"character": 0, "line": 3}}, "selectionRange": {"end": {"character": 18, "line": 3}, "start": {"character": 10, "line": 3}}, "uri": "file://<scratch>/lib/shop/cart.buri"}}}
+# A trait method, from its declaration in the `trait` block.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/prepareCallHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 22, "character": 9}}}
+# `ticket` calls it through the bound `T: Priced`, which is a call of the trait
+# method rather than of any implementation of it.
+{"jsonrpc": "2.0", "id": 6, "method": "callHierarchy/incomingCalls", "params": {"item": {"data": {"position": {"character": 7, "line": 22}, "uri": "file://<scratch>/lib/shop/catalog.buri"}, "detail": "//lib/shop/catalog", "kind": 6, "name": "cents", "range": {"end": {"character": 24, "line": 22}, "start": {"character": 4, "line": 22}}, "selectionRange": {"end": {"character": 12, "line": 22}, "start": {"character": 7, "line": 22}}, "uri": "file://<scratch>/lib/shop/catalog.buri"}}}
+# And it calls nothing: a Buri trait method is a signature, with no default
+# body, so there is no body here to walk. Empty, not absent.
+{"jsonrpc": "2.0", "id": 7, "method": "callHierarchy/outgoingCalls", "params": {"item": {"data": {"position": {"character": 7, "line": 22}, "uri": "file://<scratch>/lib/shop/catalog.buri"}, "detail": "//lib/shop/catalog", "kind": 6, "name": "cents", "range": {"end": {"character": 24, "line": 22}, "start": {"character": 4, "line": 22}}, "selectionRange": {"end": {"character": 12, "line": 22}, "start": {"character": 7, "line": 22}}, "uri": "file://<scratch>/lib/shop/catalog.buri"}}}
+# A function nobody calls. `ticket` is exported and reachable, and no line in
+# the repository writes its name at a call.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/prepareCallHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 16, "character": 12}}}
+{"jsonrpc": "2.0", "id": 9, "method": "callHierarchy/incomingCalls", "params": {"item": {"data": {"position": {"character": 10, "line": 16}, "uri": "file://<scratch>/lib/shop/cart.buri"}, "detail": "//lib/shop/cart", "kind": 12, "name": "ticket", "range": {"end": {"character": 1, "line": 18}, "start": {"character": 0, "line": 16}}, "selectionRange": {"end": {"character": 16, "line": 16}, "start": {"character": 10, "line": 16}}, "uri": "file://<scratch>/lib/shop/cart.buri"}}}
+# A `test` is a caller with a name of its own: the sentence it is written with,
+# rather than the generated `test#0` the tables file it under. Prepared here
+# from the opening quote of that sentence, which is where the item points.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/prepareCallHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/test/cart.buri"}, "position": {"line": 3, "character": 5}}}
+# So the walk works from a test too. `assert.eq` is standard-library and drops
+# out for having no file.
+{"jsonrpc": "2.0", "id": 11, "method": "callHierarchy/outgoingCalls", "params": {"item": {"data": {"position": {"character": 5, "line": 3}, "uri": "file://<scratch>/lib/shop/test/cart.buri"}, "detail": "//lib/shop/test/cart", "kind": 12, "name": "a shelf holds nothing until it is stocked", "range": {"end": {"character": 1, "line": 6}, "start": {"character": 0, "line": 3}}, "selectionRange": {"end": {"character": 48, "line": 3}, "start": {"character": 5, "line": 3}}, "uri": "file://<scratch>/lib/shop/test/cart.buri"}}}
+# A module-level `let` is a caller too — its value is checked on its own, with
+# no body around it, and a list of callers that dropped one would be wrong
+# rather than shorter. It comes back as a Constant item.
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/prepareCallHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 40, "character": 12}}}
+{"jsonrpc": "2.0", "id": 13, "method": "callHierarchy/incomingCalls", "params": {"item": {"data": {"position": {"character": 10, "line": 40}, "uri": "file://<scratch>/lib/shop/catalog.buri"}, "detail": "//lib/shop/catalog", "kind": 12, "name": "twice", "range": {"end": {"character": 1, "line": 42}, "start": {"character": 0, "line": 40}}, "selectionRange": {"end": {"character": 15, "line": 40}, "start": {"character": 10, "line": 40}}, "uri": "file://<scratch>/lib/shop/catalog.buri"}}}
+# And the Constant item that came back walks like any other: handing it to the
+# outgoing request answers with what its value calls.
+{"jsonrpc": "2.0", "id": 14, "method": "callHierarchy/outgoingCalls", "params": {"item": {"data": {"position": {"character": 11, "line": 45}, "uri": "file://<scratch>/lib/shop/catalog.buri"}, "detail": "//lib/shop/catalog", "kind": 14, "name": "twoPlain", "range": {"end": {"character": 47, "line": 45}, "start": {"character": 0, "line": 45}}, "selectionRange": {"end": {"character": 19, "line": 45}, "start": {"character": 11, "line": 45}}, "uri": "file://<scratch>/lib/shop/catalog.buri"}}}
+# A type is not a node in a call hierarchy. "Nothing calls this struct" is not
+# a shorter answer than the list; it is not the question.
+{"jsonrpc": "2.0", "id": 15, "method": "textDocument/prepareCallHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 11, "character": 16}}}
+{"jsonrpc": "2.0", "id": 16, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

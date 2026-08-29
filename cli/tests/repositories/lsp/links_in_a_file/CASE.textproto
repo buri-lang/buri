@@ -1,0 +1,14 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the underlines in a file: import and re-export paths, addresses written in comments but not in string literals, the `sources`, `data` and dependency entries of a build file, a file with none of them, and the refusal `resolveProvider: false` promises"
+
+# No `didOpen`: an unopened file is read from disk, and leaving the buffers out
+# keeps the golden about the answers rather than about the diagnostics.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

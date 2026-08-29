@@ -1,0 +1,31 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A source file, with all three things a link can be under: the path of an
+# import, an address in the module's `//!` documentation, an address in an
+# ordinary `//` comment, and one written inside `< >` in a `///` line — where
+# the underline stops at the angle bracket somebody wrote around it.
+#
+# The address on line 14 is inside a string literal and is **not** a link. Which
+# text is a comment is asked of the lexer, so a spelling that a scan for `//`
+# would have caught is not caught here.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/documentLink", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}}}
+# A re-export's path is a link on the same terms an import's is.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/documentLink", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/lib.buri"}}}
+# A build file: every `sources` and `data` entry is the file beside it, and a
+# dependency label is a package, which is its `BUILD.buri`. The entries nested
+# inside the `test` block are found too. `//visibility:public` is in a label
+# field and names no package, so it gets nothing.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/documentLink", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/BUILD.buri"}}}
+# A file that imports nothing and writes no address: the empty answer, which is
+# an answer.
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/documentLink", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/lib.buri"}}}
+# `core/testing/assert` is compiled into the binary and has no file, so its
+# import path is not underlined while the one beside it is.
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/documentLink", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/test/catalog.buri"}}}
+# Nothing is left to resolve: every link above already carries its `target`,
+# which is what `documentLinkProvider: { resolveProvider: false }` claims. A
+# client that sends this one anyway is refused rather than answered.
+{"jsonrpc": "2.0", "id": 7, "method": "documentLink/resolve", "params": {"range": {"start": {"line": 4, "character": 6}, "end": {"line": 4, "character": 17}}}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
