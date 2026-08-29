@@ -90,6 +90,10 @@ pub struct Swept {
     /// Per target: the files it read, the state those files were in, and what
     /// the two passes said about them.
     pub targets: Vec<(TargetId, u64, Vec<PathBuf>, Published)>,
+    /// The same, merged into one report. Merging is deduplication across
+    /// targets that share a library, and the worker has already done it — the
+    /// request thread would be doing it again to publish from.
+    pub found: Published,
     /// What the sweep cost, to be added to the counters the trace reports.
     pub work: Work,
     /// What the worker decided to say out loud — a repository that will not
@@ -337,8 +341,9 @@ fn serve(
 fn one(analyst: &mut State, job: Job, wanted: &Wanted) -> Swept {
     let before = analyst.work();
     analyst.stand_at(&job.root, job.buffers);
-    analyst.sweep_now(&job.root, wanted);
+    let found = analyst.sweep_now(&job.root, wanted).unwrap_or_default();
     Swept {
+        found,
         targets: analyst.swept_findings(&job.root),
         work: analyst.work().since(before),
         said: analyst.take_outgoing(),

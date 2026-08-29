@@ -188,16 +188,16 @@ fn answered(state: &mut State, output: &mut impl Write, text: &str) -> Option<i3
 /// published about before — because a report saying "nothing here" is how the
 /// editor is told the error it is showing is fixed, and a file that simply
 /// dropped out of the report would keep its squiggle.
-fn swept_publishes(state: &mut State, roots: Vec<PathBuf>) -> Vec<Value> {
-    if roots.is_empty() {
+fn swept_publishes(state: &mut State, reports: Vec<Published>) -> Vec<Value> {
+    if reports.is_empty() {
         return Vec::new();
     }
     let mut published = seeded(state, None);
     for uri in state.published.keys().cloned().collect::<Vec<_>>() {
         published.entry(uri).or_default();
     }
-    for root in &roots {
-        for (uri, items) in state.reported_findings(root) {
+    for report in reports {
+        for (uri, items) in report {
             published.insert(uri, items);
         }
     }
@@ -216,6 +216,12 @@ fn swept_publishes(state: &mut State, roots: Vec<PathBuf>) -> Vec<Value> {
             .collect::<Vec<_>>();
         published.entry(uri).or_default().extend(items);
     }
+    // Only the files whose findings moved. A sweep lands after every keystroke
+    // and a large repository has findings in dozens of files it has not
+    // touched: publishing all of them again would be a hundred notifications
+    // per character typed, each one saying what the editor is already showing.
+    // A request that *asked* still gets the whole report.
+    published.retain(|uri, items| state.published.get(uri) != Some(items));
     let mut out = remember(state, published);
     // The report the client is holding was computed from bytes that have
     // moved. This is the request the protocol has for saying so.
