@@ -109,7 +109,7 @@ pub fn run(program: &mut Program) {
 /// Which `core/list` combinator a call is.
 ///
 /// The argument positions below are `core/list`'s own declaration order, and
-/// they are the same six keys `backend::cranelift::emit::list_call` reads.
+/// they are the same six keys `backend::stencil::lists::list_call` reads.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Combinator {
     /// `map(self, ctx, f)`.

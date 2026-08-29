@@ -232,6 +232,22 @@ fn bump(t: &mut [u32], i: usize) {
     }
 }
 
+/// A literal zero on the right of an integer `/` or `%`, which is the one
+/// constant that must **not** become a stencil immediate.
+///
+/// `sources.rs` puts SPEC 6.2's abort in the stencil itself, as
+/// `if ((B) == 0) buri_rt_abort_div_zero();`. In the immediate variant `B`
+/// reads `(uintptr_t)_JIT_K`, and `_JIT_K` is an `extern char[]` — an address
+/// the stencil's own compiler proves non-null, so it deletes the guard. Every
+/// other variant reads a frame slot or a register and keeps it.
+///
+/// Refusing the fold leaves the zero in a frame slot, where the guard is a real
+/// comparison. A non-zero divisor still folds: there the deleted guard is a
+/// guard that could not have fired.
+fn zero_divisor(name: &str, tag: &str, k: u64) -> bool {
+    matches!(name, "div" | "rem") && !matches!(tag, "f32" | "f64") && k == 0
+}
+
 /// The representative of `v`'s slot class.
 ///
 /// `uf` starts as the identity and [`Jit::coalesce`] only ever points an entry
@@ -1991,6 +2007,9 @@ impl<'a> Jit<'a> {
 
     /// Which `Inst::Const`s never need a frame slot, because every use of them
     /// is an immediate operand of a stencil that has an immediate variant.
+    ///
+    /// [`zero_divisor`] is the one use that is *not* eligible however good the
+    /// stencil is.
     fn constants(&mut self, code: &ir::Code) -> (Vec<Option<u64>>, Vec<bool>) {
         let mut constants: Vec<Option<u64>> = vec![None; code.values()];
         let mut folded = vec![false; code.values()];
@@ -2014,13 +2033,11 @@ impl<'a> Jit<'a> {
                     bump(&mut total, o.index());
                 }
                 if let ir::Inst::Binary { op, prim, rhs, .. } = i {
-                    if ent(&constants, rhs.index(), None).is_some() {
+                    if let Some(k) = ent(&constants, rhs.index(), None) {
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
-                            let k = format!(
-                                "bin/{}/{tag}/fi/f",
-                                super::emit::binop_name(*op)
-                            );
-                            if self.has(&k) {
+                            let name = super::emit::binop_name(*op);
+                            let key = format!("bin/{name}/{tag}/fi/f");
+                            if self.has(&key) && !zero_divisor(name, tag, k) {
                                 bump(&mut imm, rhs.index());
                             }
                         }
