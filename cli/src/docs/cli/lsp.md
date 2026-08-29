@@ -13,7 +13,7 @@ end is a library, and `driver::analyze` is what the server calls.
 | Request | |
 |---|---|
 | `publishDiagnostics` | Every finding the front end has, for every file it looked at — including files you did not open, because a change in one module is usually reported in another. |
-| `diagnostic` | The same findings, when the editor asks for them instead of waiting to be told. Quoting the result id of the last answer gets `unchanged` back for the price of a hash. |
+| `diagnostic` | The same findings, when the editor asks for them instead of waiting to be told. Quoting the result id of the last answer gets `unchanged` back for the price of a hash of the file's closure — so a keystroke in a library leaves every file that cannot see it answered without a compilation. |
 | `workspace/diagnostic` | Every file of every open repository, whether or not anything has it open — which is the half a publish cannot reach, because a `BUILD.buri` that does not describe its package is a finding about a file nobody opens. |
 | `hover` | On any name — a call, a type, a field, a variant, a local — the declaration's signature and its doc comment, wherever the declaration is. On something that is not a name, the type of the innermost expression under the cursor. |
 | `definition` | Where the name under the cursor was declared, for every kind of name a file can write: functions and methods, types in expressions and in annotations, traits in bounds and in `impl` heads, module-level `let`s, locals and parameters, fields, variants, and the names in an import clause. Also the path of an import, and — in a `BUILD.buri` — a dependency label, a source entry and a tag. |
@@ -49,7 +49,7 @@ end is a library, and `driver::analyze` is what the server calls.
 | `didChangeWorkspaceFolders` | A repository opened or closed while the server is running, and which one owns each file recomputed. |
 | `$/cancelRequest` | A request you withdrew before its turn came is refused rather than run, so a workspace-wide analysis nobody is waiting for any more is not paid for. |
 | `$/progress` | The requests that analyse the whole repository report `begin` and `end` around the work, to the token the client sent with the request. |
-| `$/setTrace` / `$/logTrace` | What the server is doing, in the editor's own log: the method and the id of every message, and at `verbose` how long the answer took. |
+| `$/setTrace` / `$/logTrace` | What the server is doing, in the editor's own log: the method and the id of every message, and at `verbose` how long the answer took and how much work it was. |
 | `window/showMessage` / `window/logMessage` | The failures that have nowhere else to appear: a repository whose `REPO.buri` does not read, and the transcript of a test a lens ran. |
 
 **Diagnostics include the build-graph findings**, not only the type errors —
@@ -77,13 +77,20 @@ saying "nothing here" is how a client is told the error it was showing is fixed.
 
 **A result id is the state the answer was computed from.** Every report carries
 one, and a client that quotes it back is asking "is anything my report was
-computed from different now". That comparison is the analysis fingerprint — the
-same hash the analysis cache is keyed on — so an unchanged answer costs a read
-of the repository rather than a compilation of it. One id per repository rather
-than per file: the front end is whole-closure, so there is no file whose answer
-an edit elsewhere provably does not change, and a per-file id would be a promise
-nothing can keep. Two open repositories keep their own, and an edit in one
-leaves the other's current.
+computed from different now". That comparison is a hash of the *closure* the
+file is in — the same key the analysis cache is filed under — so an unchanged
+answer costs a read of those files rather than a compilation of them. One id
+per closure: a keystroke in a library gives every file that can see it a fresh
+id and leaves every other file's where it was, which is what lets a hundred-file
+repository answer a sweep after a keystroke by restating a handful of reports.
+A file no rule in the graph claims — `REPO.buri` — is keyed on the build graph,
+which is the only thing that could give it findings. Two open repositories keep
+their own, and an edit in one leaves the other's current.
+
+The two pulls share the id space, deliberately. A client keeps one id per file
+and does not remember which request gave it — Zed quotes the id from a
+`workspace/diagnostic` back in the next `textDocument/diagnostic` — so two
+spaces would make every such quote a miss: correct, and useless.
 
 **`interFileDependencies: true`** is advertised for the same reason, and it is a
 fact about the language rather than a preference: editing a library changes what
@@ -542,8 +549,8 @@ so out loud is what a command invoked from a palette owes whoever invoked it.
 
 **A save can tell the client its colours, its hints, its lenses and its
 diagnostics are stale.** After a `didSave` or a `didChangeWatchedFiles` that
-moved the analysis fingerprint — the same key the cached analyses are filed
-under, so "something changed" is a comparison rather than a guess — the server
+moved the analysis fingerprint — a hash of every byte under every open folder,
+so "something changed" is a comparison rather than a guess — the server
 sends `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh`,
 `workspace/codeLens/refresh` and `workspace/diagnostic/refresh`. An import that
 newly resolves turns a name that had no colour into a type, a binding that had
@@ -636,8 +643,21 @@ waiting for arrives on time. That is why every `begin` says
 
 **`$/setTrace` turns the log on.** At `messages` the server writes a `$/logTrace`
 line when a message arrives and another when the request has been answered,
-each naming the method and the id. At `verbose` those same lines carry how long
-the answer took. The level is read from `initialize` as well, which is how a
+each naming the method and the id. At `verbose` the answering line also carries
+how long it took and what it cost:
+
+```text
+answered in 3ms; analyses 0, lints 0, sessions opened 0, files hashed 61, bytes written 158568
+```
+
+Five counters, and they are the ones worth watching. `analyses` and `lints` are
+front-end runs and lint passes — a request that answers out of the cache does
+neither, and a keystroke should move them for the targets that can see the
+edited file and for no others. `sessions opened` counts the times `REPO.buri`
+and every `BUILD.buri` were read and parsed. `files hashed` is how many files
+were read to decide what had moved, and `bytes written` is what the answer came
+to. The milliseconds vary with the machine; the counters do not, which is why
+the test suite pins those and not the clock. The level is read from `initialize` as well, which is how a
 client sets it for the messages before it could have sent a `$/setTrace`; a
 value that is not one of the three levels leaves it where it was, because a
 notification has no error reply and guessing which level was meant would be
@@ -665,7 +685,7 @@ nothing, and a golden pins that it is nothing.
 | `initialize`, `initialized`, `shutdown`, `exit` | served | the handshake, and the four ways a client gets it wrong: a second `initialize` is `-32600` and not a restart, because answering it would move the root out from under every open document; a request before the first one is `-32002`, because a root is what there is to answer about; a request after `shutdown` is `-32002` again; and `exit` without a `shutdown` before it exits 1. A notification that arrives outside the handshake is dropped rather than refused — a notification has no reply to put an error in |
 | `didOpen`, `didChange`, `didSave`, `didClose` | served | `textDocumentSync` is sent as options rather than as the bare number, which is what negotiates `didSave` at all: the number form advertises `change` and nothing else, and a spec-strict client reading it never saves. An open and a save publish for every open buffer, each out of its own target, because a publish replaces what the editor holds for a file. A closed buffer's text falls back to the file on disk, and everything keyed by that buffer — the semantic-token result id among it — dies with it |
 | `publishDiagnostics` | served | |
-| `textDocument/diagnostic` | served | the pull half, over the same two producers. `previousResultId` is answered `unchanged` when the analysis fingerprint has not moved; a request with no document to answer about is a `-32602 InvalidParams`, because a `DocumentDiagnosticReport` has no null among its shapes |
+| `textDocument/diagnostic` | served | the pull half, over the same two producers. `previousResultId` is answered `unchanged` when nothing in the file's closure has moved; a request with no document to answer about is a `-32602 InvalidParams`, because a `DocumentDiagnosticReport` has no null among its shapes |
 | `workspace/diagnostic` | served | one report per `.buri` file in every open repository, clean ones included — which is how a client is told a finding is gone, and the only shape that reaches a file no editor has open |
 | `hover` | served | markdown, or plain text for a client whose `contentFormat` named formats and not `markdown` |
 | `definition` | served | |
@@ -718,7 +738,7 @@ nothing, and a golden pins that it is nothing.
 | `workspace/configuration` | complete and empty | never sent. There is no setting to read — the same fact `didChangeConfiguration` is ignored for — and asking would be asking about options that do not exist |
 | `client/unregisterCapability` | complete and empty | never sent. The one dynamic registration is the `**/*.buri` watcher, and it is wanted for as long as the session is |
 | `workspace/inlineValue/refresh` | complete and empty | never sent, and it is the one refresh family with no request behind it: `inlineValue` is itself complete and empty, so there is no answer a client could be told to ask for again |
-| `$/setTrace`, `$/logTrace` | served | the method and the id of every message on the way in and on the way out, and at `verbose` how long the answer took. The level comes from `initialize` as well, for the messages before a `$/setTrace` could have been sent |
+| `$/setTrace`, `$/logTrace` | served | the method and the id of every message on the way in and on the way out, and at `verbose` how long the answer took and what it cost — analyses, lint passes, sessions opened, files hashed, bytes written. The level comes from `initialize` as well, for the messages before a `$/setTrace` could have been sent |
 
 **Everything not in that table is refused**, with the protocol's own
 `-32601 MethodNotFound` and the method's name in the message. A refusal is still
@@ -773,9 +793,11 @@ server that keeps up with typing and one that does not:
   same target — unless the client quoted the result id it was last given and
   nothing has moved, in which case it reads the repository's bytes and answers
   `unchanged` without compiling anything. **On a `workspace/diagnostic`** it
-  analyses every target in every open repository as one compilation, and runs
-  the lint catalogue over every target too; a repository whose id the client
-  quoted and whose files have not moved costs the hash and nothing else.
+  runs both passes over every target in every open repository — but per target
+  and keyed per target, so the second sweep after a keystroke recompiles the
+  targets whose closure holds the edited file and quotes the rest of the report
+  back unchanged. The first sweep of a repository is the whole of it, and it is
+  paid at startup rather than under a person's hands.
 - **On an `inlayHint/resolve`** it analyses the file the hint's `data` names,
   which is where the declaration is rather than where the hint is painted, and
   asks the resolver once — for the one hint under the pointer. **On a

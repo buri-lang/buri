@@ -1,0 +1,4 @@
+library {
+    sources: ["clock.buri"]
+    visibility: ["//visibility:public"]
+}
