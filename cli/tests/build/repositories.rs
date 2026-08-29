@@ -97,6 +97,100 @@ fn language_server() {
     run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 86);
 }
 
+/// Every method a 3.17 client can send is answered by name, and is sent by at
+/// least one recorded session.
+///
+/// `cli/src/docs/cli/lsp.md`'s table says "there is no third column of things
+/// left for later", and until this test nothing held it to that: the claim was
+/// prose, the enumeration was prose, and `$/progress` sat with neither an arm
+/// nor a golden while the table read complete. The list is
+/// `language_server::CLIENT_TO_SERVER`, beside the dispatch it describes.
+///
+/// Two things are asked of every name, because either alone is passable and
+/// the pair is not:
+///
+///  * **it is answered by name** — a string literal somewhere in
+///    `cli/src/language_server/`, which is how every arm is written, or a
+///    golden that records the `-32601` refusal *naming it*. The catch-all
+///    matches anything and proves nothing;
+///  * **a recorded session sends it**, so the answer is a thing that ran rather
+///    than a branch nobody has taken.
+#[test]
+fn the_protocol_surface_is_covered() {
+    let dir = tests_dir().join("repositories/lsp");
+    let mut sessions = String::new();
+    let mut refusals = String::new();
+    let mut cases = 0;
+    for entry in std::fs::read_dir(&dir).expect("the lsp corpus").filter_map(Result::ok) {
+        cases += 1;
+        // A case may record several sessions — `session.jsonl` and the
+        // `session_*.jsonl` beside it, each a different client.
+        let files = std::fs::read_dir(entry.path()).into_iter().flatten().filter_map(Result::ok);
+        for file in files {
+            let path = file.path();
+            let named = path.file_name().is_some_and(|n| {
+                let n = n.to_string_lossy();
+                n.starts_with("session") && n.ends_with(".jsonl")
+            });
+            if named {
+                sessions.push_str(&std::fs::read_to_string(&path).unwrap_or_default());
+            }
+        }
+        if let Ok(text) = std::fs::read_to_string(entry.path().join("expected/session.txt")) {
+            refusals.push_str(&text);
+        }
+    }
+    assert!(cases > 50, "found {cases} lsp cases; the walk is broken");
+
+    let mut source = String::new();
+    walk_rust(&repo_root().join("cli/src/language_server"), &mut source);
+    assert!(source.len() > 10_000, "the language server's sources did not read");
+
+    let mut missing = Vec::new();
+    for method in buri::language_server::CLIENT_TO_SERVER {
+        let named = source.contains(&format!("{q}{method}{q}", q = '"'))
+            || refusals.contains(&format!("`{method}` is not implemented"));
+        let sent = sessions.contains(&format!("{q}method{q}: {q}{method}{q}", q = '"'))
+            || sessions.contains(&format!("{q}method{q}:{q}{method}{q}", q = '"'));
+        if !named || !sent {
+            missing.push(format!(
+                "  {method}: {}{}",
+                if named { "" } else { "no dispatch arm and no golden refusal naming it; " },
+                if sent { "" } else { "no recorded session sends it" }
+            ));
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "{} of {} client methods are not covered:\n{}\n\nEither answer them in the \
+         dispatch and record a session under the lsp corpus, or take them out of \
+         `language_server::CLIENT_TO_SERVER` with the reason — but do not leave the \
+         `lsp` reference page claiming a surface no case exercises.",
+        missing.len(),
+        buri::language_server::CLIENT_TO_SERVER.len(),
+        missing.join("\n")
+    );
+    eprintln!(
+        "protocol surface: {} client methods, all answered and all sent",
+        buri::language_server::CLIENT_TO_SERVER.len()
+    );
+}
+
+/// Every `.rs` file under `dir`, concatenated, for the test above.
+fn walk_rust(dir: &Path, out: &mut String) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
+    entries.sort_by_key(std::fs::DirEntry::path);
+    for e in entries {
+        let p = e.path();
+        if p.is_dir() {
+            walk_rust(&p, out);
+        } else if p.extension().is_some_and(|x| x == "rs") {
+            out.push_str(&std::fs::read_to_string(&p).unwrap_or_default());
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The language server's budget
 // ---------------------------------------------------------------------------

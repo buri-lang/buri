@@ -14,6 +14,10 @@
 {"jsonrpc": "2.0", "method": "notebookDocument/didChange", "params": {"notebookDocument": {"uri": "file://<scratch>/notes.ipynb", "version": 2}, "change": {}}}
 {"jsonrpc": "2.0", "method": "notebookDocument/didSave", "params": {"notebookDocument": {"uri": "file://<scratch>/notes.ipynb"}}}
 {"jsonrpc": "2.0", "method": "notebookDocument/didClose", "params": {"notebookDocument": {"uri": "file://<scratch>/notes.ipynb"}, "cellTextDocuments": []}}
+# `$/progress` runs both ways. Inbound it could only report under a token this
+# server issued, and it issues none, so there is nothing for one to name.
+{"jsonrpc": "2.0", "method": "$/progress", "params": {"token": "b0", "value": {"kind": "report", "message": "half way"}}}
+{"jsonrpc": "2.0", "method": "$/progress", "params": {"token": 2, "value": {"kind": "end"}}}
 # What "ignored" has to mean, observably: the server is still there and the
 # next request is answered. A notification that had crashed it, or one that had
 # been replied to, would show up here.
