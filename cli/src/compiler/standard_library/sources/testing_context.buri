@@ -212,7 +212,7 @@ export fn randSeed(seed: Int): TestRand;
 export struct TestEnv(I64);
 impl Env for TestEnv {
   fn variable(self, name: Str): Option<Str>;
-  fn arguments(self): [Str];
+  fn args(self): [Str];
 }
 export fn envOf(variables: [(Str, Str)], arguments: [Str]): TestEnv;
 

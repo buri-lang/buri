@@ -1437,13 +1437,50 @@ fn memory(o: &mut Out, level: Level) {
     // Reference counting, open-coded against VALUE-MODEL.md §2's one header:
     // `rc` at `ptr - 16`, `IMMORTAL` is `u64::MAX`, and the increment saturates
     // so that it is branchless.
+    //
+    // === G2 begin: the shared fork ==========================================
+    //
+    // `cap` at `ptr - 8` carries the multi-threaded mark in bit 63
+    // (`middle::layout::CAP_SHARED_FLAG`, VALUE-MODEL.md §2.1), and it chooses
+    // between the two counts below. **Nothing sets it**, so on every program
+    // this toolchain compiles today the shared arm is dead code and the fork
+    // is what it costs: one load — of the word next to the count, in the same
+    // 16-byte header, so on the same cache line — and one `tbnz`. The hint is
+    // what keeps the unshared arm the fallthrough; the `< 0` spelling is what
+    // makes the test a single bit-test-and-branch rather than a mask and a
+    // compare.
+    //
+    // The hint is `__builtin_expect_with_probability(…, 0, 0.9)` and **not**
+    // `__builtin_expect`, which is the same hint at 1-in-2000. At that ratio
+    // clang's hot/cold splitter reads the atomic arm as a *cold region*,
+    // outlines it into `<fn>.cold.1` and gives that function the `unlikely`
+    // section prefix — a second executable section, `.text.unlikely.…`, which
+    // `extract.rs` refuses: a stencil is one contiguous run of bytes copied
+    // out of `.text`, and a body that branches to a sibling section is not
+    // one. Apple's clang turns that splitting on at `-O2`; upstream's does
+    // not, which is why the `linux-arm64` library built here and not on the
+    // macOS CI runner. Measured on Apple clang 21: the arm splits at `0.999`,
+    // stays whole at `0.99`, and `0.9` leaves a decade of margin while
+    // emitting *byte-identical* code on the arm every program takes —
+    // `ldur`+`tbnz`, unshared arm falling through, atomic arm after the tail.
+    //
+    // The atomic arm's `delta` is `0` for an `IMMORTAL` block and `1`
+    // otherwise, which is MEMORY.md §5.1's saturation carried onto the atomic
+    // path: a plain `fetch_add(1)` would wrap `u64::MAX` to zero and free
+    // every string literal in the program. Relaxed is right for an increment,
+    // which publishes nothing; the decrement below is the side that orders.
     o.push(
         "incref",
         "void $NAME(ARGS) { uint64_t p = AT(uint64_t, _JIT_A); if (p) { \
-         uint64_t *rc = (uint64_t *)(p - 16); uint64_t v = *rc; \
-         *rc = v + (v != (uint64_t)-1); } TAIL; }"
+         uint64_t *rc = (uint64_t *)(p - 16); \
+         if (__builtin_expect_with_probability( \
+         (int64_t)*(uint64_t *)(p - 8) < 0, 0, 0.9)) { \
+         uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
+         __atomic_fetch_add(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_RELAXED); \
+         } else { uint64_t v = *rc; *rc = v + (v != (uint64_t)-1); } } TAIL; }"
             .into(),
     );
+    // === G2 end =============================================================
     // The decrement's dying arm is open-coded, the way `llvm/emit.rs`'s
     // `decref_pointer` has open-coded it all along: the glue and
     // `buri_rt_free` are reached from here rather than through
@@ -1459,23 +1496,48 @@ fn memory(o: &mut Out, level: Level) {
     // `fp` is not recovered from the callee here, because neither callee
     // answers anything: the stencil keeps it across the call, which is the one
     // place in this library where clang emits a prologue.
+    //
+    // === G2 begin: the shared fork, again ===================================
+    //
+    // The decrement's atomic arm reads the count *before* the subtraction, so
+    // the block is this thread's to free when that value was `1` — the atomic
+    // spelling of the `v == 1` the unshared arm tests, and the reason it
+    // cannot be a separate load: two threads that each read `1` would each
+    // free. `ACQ_REL` is release so this thread's writes to the value reach
+    // whichever thread performs the last decrement, and acquire so that thread
+    // sees them before it runs the glue. An `IMMORTAL` block subtracts nothing
+    // and answers `u64::MAX`, which is not `1`, so it is not freed — the same
+    // no-op `buri_rt_free` promises for one.
     o.push(
         "decref/drop",
         "void $NAME(ARGS0) { uint64_t p = AT(uint64_t, _JIT_A); if (p) { \
-         uint64_t *rc = (uint64_t *)(p - 16); uint64_t v = *rc; \
+         uint64_t *rc = (uint64_t *)(p - 16); \
+         if (__builtin_expect_with_probability( \
+         (int64_t)*(uint64_t *)(p - 8) < 0, 0, 0.9)) { \
+         uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
+         if (__atomic_fetch_sub(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_ACQ_REL) == 1) { \
+         ((void (*)(uint64_t))(uintptr_t)_JIT_M)(p); buri_rt_free(p); } \
+         } else { uint64_t v = *rc; \
          if (v > 1 && v != (uint64_t)-1) { *rc = v - 1; } \
          else if (v != (uint64_t)-1) { \
-         ((void (*)(uint64_t))(uintptr_t)_JIT_M)(p); buri_rt_free(p); } } TAIL0; }"
+         ((void (*)(uint64_t))(uintptr_t)_JIT_M)(p); buri_rt_free(p); } } } TAIL0; }"
             .into(),
     );
     o.push(
         "decref/free",
         "void $NAME(ARGS0) { uint64_t p = AT(uint64_t, _JIT_A); if (p) { \
-         uint64_t *rc = (uint64_t *)(p - 16); uint64_t v = *rc; \
+         uint64_t *rc = (uint64_t *)(p - 16); \
+         if (__builtin_expect_with_probability( \
+         (int64_t)*(uint64_t *)(p - 8) < 0, 0, 0.9)) { \
+         uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
+         if (__atomic_fetch_sub(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_ACQ_REL) == 1) { \
+         buri_rt_free(p); } \
+         } else { uint64_t v = *rc; \
          if (v > 1 && v != (uint64_t)-1) { *rc = v - 1; } \
-         else if (v != (uint64_t)-1) { buri_rt_free(p); } } TAIL0; }"
+         else if (v != (uint64_t)-1) { buri_rt_free(p); } } } TAIL0; }"
             .into(),
     );
+    // === G2 end =============================================================
     let _ = level;
 }
 
