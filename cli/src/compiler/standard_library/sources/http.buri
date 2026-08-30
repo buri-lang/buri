@@ -1,42 +1,114 @@
 //! core/net/http — HTTP over the `Net` effect.
+//!
+//! `Request` and `Response` are declared in `core/effect` and re-exported here.
+//! They live there because `effect Net`'s own signature names them, and
+//! `core/effect` cannot import a module that imports it — the same reason
+//! `IoError` is declared beside `effect Fs` rather than in `core/fs`. This
+//! module is where the things that build them *out of text* live, because
+//! turning a `Str` into octets is `core/bytes`' job and `core/bytes` imports
+//! `core/effect`.
+//!
+//! ## Constructing a message
+//!
+//! There are no associated functions in this language: a function inside an
+//! `impl` block must take `self` (SPEC 6.7.1), so `Response.text("pong")` is
+//! not something a type can offer. The construction surface is therefore split
+//! in two, and the split is not an accident:
+//!
+//! * **free functions here, for making a message out of text** — `request`,
+//!   `textRequest`, `status`, `ok`, `text`, `json`. They read
+//!   `http.text(ctx, "pong")` and `http.status(404)` at the call site.
+//! * **`with*` methods on the value, for changing one** — `withHeader`,
+//!   `withBody`, `withStatus`, `withMethod`. Each answers a new value, so a
+//!   message is built by chaining and never by mutation.
+//!
+//! A struct literal is always available too — every field of both types is
+//! exported — and is what to write when every field is known at once.
+//!
+//! ```buri
+//! from "core/effect/lib.buri" import { Alloc, Stdout };
+//! from "core/host/lib.buri" import * as host;
+//! from "core/net/http/lib.buri" import * as http;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+//!   let reply = http.text(ctx, "pong").withHeader(ctx, "X-Served-By", "buri");
+//!   let kind = reply.header("content-type").withDefault("none");
+//!   let _ = ctx.println("${reply.status} ${kind}");
+//!   .Ok(())
+//! }
+//! ```
 
-from "core/effect/lib.buri" import { Alloc, Net, NetError };
-from "core/effect/lib.buri" export { NetError };
-from "core/order/lib.buri" import { Eq, Show };
+from "core/effect/lib.buri" import {
+  Alloc, Header, Method, Net, NetError, Request, Response,
+};
+from "core/effect/lib.buri" export { Header, Method, NetError, Request, Response };
+from "core/bytes/lib.buri" import * as bytes;
+from "core/bytes/lib.buri" import { Utf8Error };
+from "core/bytes/lib.buri" export { Utf8Error };
 
-export struct Request {
-  export method: Str,
-  export url: Str,
-  export body: Str,
+// --- Building a request -------------------------------------------------------
+
+/// A request with no headers and an empty body.
+export fn request(method: Method, url: Str): Request {
+  Request { method: method, url: url, headers: [], body: [] }
 }
 
-export struct Response {
-  export status: Int,
-  export body: Str,
+/// The same, with a text body encoded as UTF-8.
+export fn textRequest<C: Alloc>(ctx: C, method: Method, url: Str, body: Str): Request {
+  Request { method: method, url: url, headers: [], body: bytes.toUtf8(ctx, body) }
 }
 
-derive Eq, Show for Request;
-derive Eq, Show for Response;
+// --- Building a response ------------------------------------------------------
+
+/// A status and nothing else: no headers, empty body. `http.status(404)`.
+export fn status(code: Int): Response {
+  Response { status: code, headers: [], body: [] }
+}
+
+/// `200` with a text body and **no** `content-type`, for a caller that will
+/// set its own.
+export fn ok<C: Alloc>(ctx: C, body: Str): Response {
+  Response { status: 200, headers: [], body: bytes.toUtf8(ctx, body) }
+}
+
+/// `200 text/plain; charset=utf-8`.
+export fn text<C: Alloc>(ctx: C, body: Str): Response {
+  ok(ctx, body).withHeader(ctx, "content-type", "text/plain; charset=utf-8")
+}
+
+/// `200 application/json`. The body is written, not validated — encoding is
+/// `core/json`'s job and a second parse here could only disagree with it.
+export fn json<C: Alloc>(ctx: C, body: Str): Response {
+  ok(ctx, body).withHeader(ctx, "content-type", "application/json")
+}
+
+// --- Bodies -------------------------------------------------------------------
+
+/// A message body decoded as UTF-8, strictly: `http.bodyText(ctx, reply.body)`.
+///
+/// A `Result` rather than a lossy `Str` because a body that is not text should
+/// say so where it is read, not turn into U+FFFD and be discovered later. It is
+/// `bytes.fromUtf8` under an HTTP name, so that reading a response needs no
+/// second import.
+export fn bodyText<C: Alloc>(ctx: C, body: [U8]): Result<Str, Utf8Error> {
+  bytes.fromUtf8(ctx, body)
+}
+
+// --- Sending ------------------------------------------------------------------
+
+/// The request, as written. Needs only `Net`: the request already exists and
+/// the response is the platform's, so nothing here allocates.
+export fn send<C: Net>(ctx: C, request: Request): Result<Response, NetError> {
+  ctx.fetch(request)
+}
 
 export fn get<C: Alloc + Net>(ctx: C, url: Str): Result<Response, NetError> {
-  send(ctx, Request { method: "GET", url: url, body: "" })
+  send(ctx, request(.Get, url))
 }
 
 export fn post<C: Alloc + Net>(ctx: C, url: Str, body: Str): Result<Response, NetError> {
-  send(ctx, Request { method: "POST", url: url, body: body })
-}
-
-export fn send<C: Alloc + Net>(ctx: C, request: Request): Result<Response, NetError> {
-  match (ctx.fetch(request.method, request.url, request.body)) {
-    .Ok(r) => .Ok(Response { status: r.status, body: r.body }),
-    .Err(e) => .Err(e),
-  }
-}
-
-impl Response {
-  export fn isOk(self): Bool {
-    self.status >= 200 && self.status < 300
-  }
+  send(ctx, textRequest(ctx, .Post, url, body))
 }
 
 /// A free function rather than a method: `NetError` is declared in
@@ -47,5 +119,6 @@ export fn errorText(e: NetError): Str {
     .Refused => "the connection was refused",
     .BadUrl(_u) => "the url could not be parsed",
     .Transport(_m) => "the transport failed",
+    .Aborted => "the request was called off",
   }
 }
