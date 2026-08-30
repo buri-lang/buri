@@ -79,7 +79,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Record `argc`/`argv` and install the panic hook. `lib.rs` §6.
 ///
 /// The generated `main` calls this as its first statement. It is not required —
-/// `env.arguments()` falls back to `std::env` — but it is preferred, because
+/// `env.args(ctx)` falls back to `std::env` — but it is preferred, because
 /// `std::env::args` in a **staticlib** reaches the argument vector through a
 /// platform startup hook (`.init_array` on Linux, `_NSGetArgv` on macOS) whose
 /// survival across a `--gc-sections` link is not something this runtime should
@@ -845,7 +845,7 @@ pub unsafe extern "C" fn buri_rt_host_env_variable(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_env_arguments(out: *mut BuriList) {
+pub unsafe extern "C" fn buri_rt_host_env_args(out: *mut BuriList) {
     let recorded = lock(&ARGS).clone();
     let args = recorded.unwrap_or_else(|| {
         std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect()

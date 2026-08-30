@@ -146,6 +146,10 @@ load-bearing rather than decorative:
   proved non-zero, or calls one that can. Where it can, the attribute is
   `memory(argmem: read, inaccessiblemem: write)` — it reads its arguments and may
   write to a place the caller cannot observe except by not returning.
+  The **"terminate"** half of that qualifier is a *second* condition and not the
+  same one. It governs `willreturn` rather than `memory(...)`, `middle` does not
+  compute it, and reading it as though it were the abort condition is the
+  miscompile §3.6 records.
 - **"in the absence of undefined behaviour"**: overflow is undefined (SPEC 6.2),
   and §3.4 declines to tell LLVM so.
 
@@ -161,7 +165,7 @@ The table:
 | Bounded only by `Alloc` — deterministic (SPEC 10.5) | `memory(write, argmem: read, inaccessiblemem: readwrite, errnomem: readwrite)` — §3.2.1's second half |
 | Bounded by an observable effect | no memory attribute; the default `memory(readwrite)` |
 | Every function, on every backend | `nounwind` — there is no unwinding in the language at all (SPEC 6.10) |
-| A function `middle` proved terminates | `willreturn`, and `mustprogress` |
+| A function **this backend** proved returns: no loop, and no cycle in the call graph it can reach | `willreturn`, and `mustprogress` — §3.6 |
 | `memory(none)` + `willreturn` + `nounwind` | add `speculatable` — a call may be hoisted above a branch |
 | Every function that cannot abort | `nofree` is *not* set: `decref` frees |
 
@@ -360,6 +364,50 @@ constructed in exactly one place — `backend/llvm/attrs.rs`, a small
 `MemoryEffects` builder gated on the LLVM version — and no call site anywhere
 writes a literal. A hard-coded `0x55` is a silent miscompilation of the attribute
 on an LLVM bump, which is the worst kind: the IR still verifies.
+
+### 3.6 `willreturn` needs a proof, and the middle end does not have one
+
+§3.1's table used to read *"a function `middle` proved terminates"*. `middle`
+proves nothing of the kind: `rc::infer_effects`'s columns are purity,
+abortability and parkability, and none of them is about coming back. The
+backend read the row as `Purity::Pure` with no abort — and
+
+```buri
+fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }
+```
+
+is pure, cannot abort, and recurses. It was given `memory(none)` and
+`willreturn`, hence `speculatable`, which is exactly the licence to hoist the
+recursive call **above the branch that guards it**. `default<O2>` took it: the
+emitted body became an unconditional call to itself with the base-case test
+folded in afterwards, and the program recursed until the machine stack ran out.
+`default<O0>` printed the right answer all along, which is what a false
+attribute looks like from outside.
+
+`mustprogress` is the same promise from the other side, and no better. It
+permits deleting a loop LLVM cannot prove terminates, and SPEC 10.4 says the
+opposite — *"an implementation may drop a pure call only where it can also show
+the call returns"*. Divergence is observable in this language, so neither
+attribute may be emitted without a proof.
+
+**What the backend proves instead is "no cycle".** A function with no loop in
+its control-flow graph, which can reach no cycle in the call graph, executes a
+bounded number of instructions and returns. `emit::observe` carries the negation
+as `Observed::may_diverge` — beside the allocation, abort and reference-count
+bits, and for the same soundness reason as those: a declaration in one unit and
+a definition in another must carry the same attributes. Its seed is
+`emit::reaches_a_cycle`, a peel of the call graph, and it has to be a separate
+walk: `observe`'s propagation is a *least* fixpoint from an optimistic start, so
+a function whose only unproven callee is itself would converge on "proven",
+which is the miscompile.
+
+This is weaker than the row it replaces, and the gap is named rather than
+hidden: a `for` over a list terminates, a recursion down a `[T]` terminates, and
+neither is proven here. Proving them wants a decreasing-measure analysis in
+`middle`; the day there is one, the bit belongs in `ir::Facts` beside
+`can_abort` and the backend reads it instead of counting cycles. Until then a
+loop costs `willreturn`, and the trade is not close — the attribute buys
+hoisting and dead-call elimination, and a wrong one buys an unbounded recursion.
 
 ## 4. The pass pipeline
 

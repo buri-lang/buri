@@ -1,0 +1,81 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> cmd/app/main.buri:15:20
+   |
+15 | fn plain<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+
+     ctx is not a convenience. It is the one place a Buri signature says what a
+     function is allowed to do, and the reason a reader can answer "does this
+     touch the world?" without opening the body. A function that declares one
+     and never reads it says yes and means no, and the cost lands on the
+     callers: each of them has to be holding a context, so a pure computation
+     drags the ability to write files up through every function that reaches it.
+
+     The body is the whole of the evidence, and there are exactly three ways to
+     use a context: call a method it declares, hand it to a callee that asks for
+     one, or hand it to a function-typed parameter. Each of the three reads the
+     parameter, so the rule is one question — does anything in the body name
+     ctx? — and it has no other cases to get wrong.
+
+     What is not asked
+     ─────────────────
+
+     A method supplied by an `impl` is not asked. The signature is the trait's,
+     and an implementation cannot drop a parameter the trait declared; the
+     question about a bound the trait itself does not need belongs to the
+     trait's own declaration.
+
+     A function with no body is not asked. A trait method's signature, an
+     effect's operation and the standard library's intrinsic declarations
+     describe what an implementation will be handed. There is no body to read,
+     so there is nothing to say.
+
+     A lambda is not asked, and it is worth saying why the rule does not need a
+     case for one. A lambda may not capture an effect-carrying value at all
+     (lambda-captures-effect), so a ctx parameter is never inside a closure's
+     environment; a lambda that *is* handed a context is handed it as a
+     parameter, which is a parameter of the lambda and not of the function this
+     rule is about.
+
+     The fix, and when it comes as bytes
+     ───────────────────────────────────
+
+     The answer is to delete the parameter and the argument at every call site —
+     the same edit buri lint --fix and an editor's quick fix apply, when they
+     can see the whole of it. They decline, and leave you the sentence, in three
+     cases:
+
+     * the name is on the library's surface. lib.buri publishes it, so a call
+     site may be in a package this analysis has never loaded, and half a rewrite
+     is worse than none. Decide whether the signature is part of what you
+     publish before changing it.
+
+     * something takes the function as a value. A function passed where a
+     fn(C, ...) is expected has the shape that type demands rather than the one
+     its body needs, and deleting the parameter would make it the wrong type.
+     Change the type that asks for it, or leave the parameter alone.
+
+     * the package did not check whole. A body that failed has lost the calls
+     written under the failure, and a run of declarations the parser skipped may
+     hold one, so the list of call sites is short by an unknown amount. The
+     finding itself still stands: where the typed tree is truncated this rule
+     reads the text instead, and a context has one spelling, so "does this
+     declaration write ctx anywhere but at the parameter" is a question the
+     lexer can still answer.
+
+     Nothing about this rule is about *which* effects the context carries.
+     Whether a body uses every bound it asked for is a different question, with
+     a different answer and a different edit; this one is only about a context
+     nothing in the body names at all.
+
+warning: `ctx` is not used; the function is pure [unused-context]
+ --> lib/label/stamp.buri:7:27
+  |
+7 | export fn stamp<C: Alloc>(ctx: C, label: Str): Int {
+  |                           ^^^^^^
+  |
+  = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+  = fix: remove the `ctx` parameter, and the context argument at every call site

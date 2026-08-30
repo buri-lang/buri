@@ -180,6 +180,56 @@ Null checks: eliminated wherever the layout says the pointer is non-null, which 
 everywhere except a niche-encoded `Option` (VALUE-MODEL.md §6). LLVM gets this for
 free from `nonnull` (CODEGEN-LLVM.md §3).
 
+#### The shared fork
+
+The sequences above are the **unshared** arm. Since the multi-threaded mark was
+reserved (VALUE-MODEL.md §2.1) each operation is two counts behind one branch:
+
+```
+incref(p):                             decref(p):
+  if p == null: return                   if p == null: return
+  if cap[63]: atomic_incref(p); return   if cap[63]: atomic_decref(p); return
+  ... the sequence above ...             ... the sequence above ...
+
+atomic_incref(p):                      atomic_decref(p):
+  d = load p[-16] != IMMORTAL            d = load p[-16] != IMMORTAL
+  atomicrmw add p[-16], d relaxed        if atomicrmw sub p[-16], d acq_rel == 1:
+                                           drop_T(p); free(p)
+```
+
+**Nothing sets the bit.** Every program this toolchain compiles takes the
+unshared arm, and the atomic arms are dead code until the values that cross a
+task boundary are marked. What the fork costs the shipping program is therefore
+its own test, and that is the number worth stating: **two instructions** on each
+of the two operations, on both instruction sets — `ldur x, [p, #-8]` +
+`tbnz x, #63` on aarch64, `cmpq $0, -8(p)` + `js` on x86-64. The load is of the
+word beside the count, in the same sixteen-byte header, so it is on a cache line
+the operation was going to touch anyway; the branch is perfectly predicted,
+because its answer never changes; and the emitters mark the unshared arm as the
+hot one, so it is the fallthrough and the atomic arm is out of line. The
+measured cost is in `design/PERFORMANCE.md`.
+
+Two properties of the count survive the fork, and preserving them is why the
+mark is a bit of `cap` and not of `rc`:
+
+- **`IMMORTAL` saturation.** The atomic arms add and subtract a *delta* — `0`
+  for an `IMMORTAL` block, `1` otherwise — which is the branchless `select` of
+  the unshared arm written as the `atomicrmw`'s operand. A plain `fetch_add(1)`
+  would wrap `u64::MAX` to zero and free every literal in the program.
+- **The `rc == 1` uniqueness test** (§5.3) is not forked at all. A thread
+  holding no reference cannot make a second one, so a count of one cannot move
+  under the caller who read it, and the test is right on both sides.
+
+`decref`'s atomic arm reads the count *before* the subtraction and frees on `1`,
+rather than reading the count and then subtracting: two threads that each read
+`1` from a separate load would each free the block. `acq_rel` is release so a
+thread's writes to the value reach whichever thread performs the last decrement,
+and acquire so that thread sees them before it runs the drop glue.
+
+Both backends open-code the fork, and `cli/runtime`'s own `buri_rt_incref` and
+`buri_rt_decref` take it too, so a block reached from a generic path is counted
+the same way as one reached from emitted code.
+
 ### 5.2 Elision, which is where the cost goes
 
 Naive reference counting increments on every parameter pass and decrements on
@@ -443,6 +493,50 @@ per-thread caches. That is a real cost — atomic RC is roughly 2-3× the
 uncontended cost of non-atomic — and it should be priced into any future
 concurrency proposal rather than discovered by it. Writing it here is how it gets
 priced.
+
+**Both halves of that sentence are now in the tree, and neither has been paid
+yet.** The first is §5.1's fork, which is two instructions until something sets
+the bit. The second is this:
+
+**The per-thread caches.** A free list per thread in front of `malloc`, keyed on
+the **exact** payload size for payloads up to 256 bytes, with a byte budget per
+thread that is one process-wide number divided by the carrier count. Three
+decisions in that sentence:
+
+- **Exact sizes, not size classes.** A class allocator rounds a request up, so
+  `cap` comes back larger than the payload asked for — which the paragraph above
+  anticipates and §5.3 forbids for one case: the release glue of a `[T]` walks
+  `cap / stride` elements, so spare capacity in a block of counted elements is a
+  walk over slots nothing wrote. `buri_rt_grown_capacity` is allowed to overshoot
+  only because the fast paths that use it are restricted to element types holding
+  no references, and a cache is under no such restriction — every block in the
+  program passes through it. Keying on the exact size gives a cache with *no*
+  semantic footprint: `cap` is what it always was, `layout_for` recovers the
+  layout the block was made with, and the drop walk counts what it always
+  counted. When the size-class allocator of the growth path lands, it is the
+  thing that decides `cap`, and this cache becomes its per-thread front end
+  rather than a second answer to the same question.
+- **256 bytes.** Where this language's allocation histogram is: a short `Str`'s
+  bytes, a fixed-size aggregate, a list below the first few doublings of the
+  growth floor. A block above it is rare enough that a `malloc` per block is the
+  right answer.
+- **A budget divided by the carriers, not multiplied by them.** The budget is
+  stated for the process and split, so the cache's total footprint is a property
+  of the program rather than of how wide the carrier pool is: sixteen carriers
+  get a sixteenth each rather than sixteen times the memory. That is the
+  "sized for carrier count" this section asked for.
+
+The block's own header carries the free list's link — `rc` holds the next
+block's pointer while it is dead — so the lists cost one head per size per
+thread and not one byte per block.
+
+**`buri_rt_heap_stats` is unmoved by any of it.** It counts blocks the *program*
+asked for, not calls this file made to `malloc`: a cache hit still increments
+`live_blocks` and `total_blocks`, and a free still decrements `live_blocks`
+before the block goes into a list. So a cached block is not live and is not a
+leak — it is memory this runtime holds, exactly as an allocator holds a free
+list — and `cli/tests/native`'s allocation-count assertions keep measuring the
+compiler's elision rather than this file's hit rate.
 
 ### 5.5 The same opportunity in JavaScript, without a count
 

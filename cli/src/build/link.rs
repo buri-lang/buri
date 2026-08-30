@@ -140,7 +140,13 @@ pub fn can_link(target: Target) -> bool {
 /// It used to be one question — "does this toolchain *have* an archive" — and
 /// the answer to "does this program *need* one" was left to `-dead_strip` and
 /// `--gc-sections`. That still works, and it is still what decides the
-/// artifact's size (BUILD-AND-WATCH.md §2.2: 470 KB out of a 6.0 MB archive).
+/// artifact's size — per target rather than by BUILD-AND-WATCH.md §2.2's single
+/// number: hello world is 356 KB with its debug information removed against a
+/// 6.05 MB archive on arm64 macOS, and 401 KB against 8.73 MB on x86-64 Linux.
+/// The *linked* file on Linux is 2.19 MB, and the difference is not the
+/// stripping: an ELF link copies the archive members' DWARF into the executable
+/// where `ld64` leaves it in the members. The numbers, and how each was taken,
+/// are in `tests/native/stencil.rs::hello_world_still_links_the_runtime_archive`.
 /// What it could not do is keep the archive out of the `link` **key**: an
 /// artifact that names no runtime symbol was still relinked whenever the
 /// runtime changed, because the key held the archive's digest unconditionally.
@@ -646,6 +652,13 @@ impl CDriver {
                 // A build id is a hash of content that is about to be compared
                 // byte for byte.
                 flags.push("-Wl,--build-id=none".into());
+                // `-dead_strip`'s counterpart: the artifact keeps the part of
+                // the archive it reaches. Measured by relinking the x86-64
+                // Linux CI job's own objects and archive with and without it,
+                // debug information removed from both: 373 936 bytes against
+                // 673 440. It does not touch `.debug_*` — the linked file is
+                // 2.19 MB either way — which is why the test that polices this
+                // measures the stripped size.
                 flags.push("-Wl,--gc-sections".into());
                 // What `std` reaches for. Harmless where glibc has folded them
                 // in, and required where it has not — the same three
