@@ -407,26 +407,27 @@ exactly the way the runner's own implementations are:
 ```buri role=test
 # from "core/testing/assert/lib.buri" import * as assert;
 # from "core/testing/context/lib.buri" import { Hermetic };
-# from "core/effect/lib.buri" import { Net, NetError, NetResponse };
-# fn body<C: Net>(ctx: C, url: Str): Result<Str, NetError> {
-#   ctx.fetch("GET", url, "").map(fn(r) => r.body)
+# from "core/effect/lib.buri" import { Net, NetError, Request, Response };
+# from "core/net/http/lib.buri" import * as http;
+# fn status<C: Net>(ctx: C, url: Str): Result<Int, NetError> {
+#   http.send(ctx, http.request(.Get, url)).map(fn(r) => r.status)
 # }
 struct StubNet { export failing: Str }
 
 impl Net for StubNet {
-  fn fetch(self, method: Str, url: Str, body: Str): Result<NetResponse, NetError> {
-    if (url == self.failing) {
+  fn fetch(self, request: Request): Result<Response, NetError> {
+    if (request.url == self.failing) {
       .Err(.Timeout)
     } else {
-      .Ok(NetResponse { status: 200, body: "{}" })
+      .Ok(http.status(200))
     }
   }
 }
 
 test "a timeout reaches the caller as an error" {
   let ctx = context { ..Hermetic(), Net: StubNet { failing: "https://example.test/slow" } };
-  assert.eq(assert.err(body(ctx, "https://example.test/slow")), NetError.Timeout);
-  assert.eq(assert.ok(body(ctx, "https://example.test/x")), "{}");
+  assert.eq(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
+  assert.eq(assert.ok(status(ctx, "https://example.test/x")), 200);
 }
 ```
 

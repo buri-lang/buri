@@ -1,0 +1,25 @@
+// EXPECT: `fetch` takes 1 arguments, but 3 were given
+//
+// `Net.fetch` took a method, a URL and a body, and takes a `Request` now. The
+// old spelling is not a subtle mistake — it is a different arity — so it is
+// refused at the call, with the count, rather than somewhere inside a type.
+// `http.request(.Get, url)` is what goes there instead, and the second
+// diagnostic names that: what belongs in the first position is a `Request`.
+//
+// (`1 arguments` is the renderer's, not this fixture's: `wrong-argument-count`
+// does not inflect its count. The `EXPECT` line quotes what a user reads.)
+from "core/effect/lib.buri" import { Alloc, Net };
+from "core/host/lib.buri" import * as host;
+
+fn outcome<C: Alloc + Net>(ctx: C, url: Str): Str {
+  match (ctx.fetch("GET", url, "")) {
+    .Ok(_r) => "ok",
+    .Err(_e) => "err",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Net: host.net };
+  let _ = outcome(ctx, "http://example.com");
+  .Ok(())
+}
