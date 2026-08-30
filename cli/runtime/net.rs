@@ -31,9 +31,18 @@
 //! They are not scaffolding in the sense of a stub to be filled in — the
 //! carrier runtime is `rt.rs` (design/native, track B) and the HTTP client is
 //! `http.rs`. They are the *question* "was this toolchain built with the
-//! networking stack" made answerable from a generated program, which is the
-//! question `Backend::missing_intrinsics` will ask on the toolchain's side and
-//! a `Net`-using program will want answered on the runtime's.
+//! networking stack" made answerable **from a generated program**.
+//!
+//! The toolchain asks the same question and does **not** ask it here. Reading
+//! this constant back out of the archive's symbol table was one of the three
+//! candidates and it lost: it would make the compiler parse `ar` and a Mach-O
+//! or ELF symbol table to learn something `cli/build.rs` already knew when it
+//! ran the build. The script writes `libburi_rt.a.features` beside the archive
+//! instead, and `runtime_native::net()` is a line of an `include_str!` of it —
+//! `Backend::missing_intrinsics` reads that. So there are two answers to one
+//! question, deliberately, on the two sides of the C ABI: this one is for a
+//! program that has already been linked, and the file is for the compiler
+//! deciding whether to link it at all.
 //!
 //! They obey `lib.rs` §1 and §2 like every other entry: `buri_rt_` plus
 //! `snake_case`, `extern "C"`, scalar parameters and a scalar result. Nothing

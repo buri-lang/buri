@@ -114,6 +114,12 @@ impl Backend for Llvm {
     /// outside this backend's surface is told so *before* LLVM is started,
     /// which is the whole reason this hook is on the trait.
     ///
+    /// One key it names that is not about this backend at all: an operation the
+    /// **runtime archive** carries only behind its `net` feature
+    /// ([`super::networking_gap`]). A toolchain built without it would
+    /// otherwise meet networking as an unresolved `buri_rt_*` symbol at `cc`
+    /// time, which is the one failure mode this hook exists to replace.
+    ///
     /// Two things it cannot answer, both stated so the absence reads as a
     /// consequence rather than an oversight. `derivePrimShow` and
     /// `derivePrimHash` are claimed at the key and still refuse the arms whose
@@ -131,6 +137,11 @@ impl Backend for Llvm {
             })
             .filter(|key| !emit::implemented(key))
             .collect();
+        // The second source: the keys *no* backend can answer on a toolchain
+        // whose runtime archive was built without `net`. Empty on an ordinary
+        // toolchain, and the sentence it earns is `super::gap_refusals`'s
+        // rather than this backend's.
+        missing.extend(super::networking_gap(program));
         // `str.concat` is emitted by `lower::template` at every interpolation
         // and never appears as a `FuncKind::Intrinsic`, so scanning the
         // function list alone would miss the single most common way a program
