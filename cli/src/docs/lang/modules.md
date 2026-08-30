@@ -85,7 +85,8 @@ distinction is enforced with the visibility rules in
 
 One path segment is reserved: **`testing`**. A module path containing it is
 test-only, and may be imported only from a test source (Section 11.2). That
-covers `"core/testing/assert/lib.buri"`, `"core/testing/context/lib.buri"`, a
+covers `"core/testing/assert/lib.buri"`, `"core/host/testing/lib.buri"`,
+`"core/testing/context/lib.buri"`, a
 library's own utilities-for-testing-it at `"//lib/money/testing/lib.buri"`, and
 a whole package of shared fixtures at `"//lib/testing/fakes/lib.buri"` — one
 rule, visible in the import line, with nothing to declare. The segment is a
@@ -96,7 +97,10 @@ name.
 One module is reserved the other way: **`"core/host/lib.buri"`**, the platform's
 implementations of the effects it grants, is importable only from the module
 that exports `main` (Section 10.3). The two restrictions are the same shape, and
-between them they name every place in a program where authority can enter.
+between them they name every place in a program where authority can enter. They
+are also separate: `"core/host/testing/lib.buri"` is the same surface for a test
+source, and it is governed by the `testing` segment alone — the module that
+exports `main` may not import it, and a test source may.
 
 None of this applies to method calls. `sq.area()` resolves through the receiver's
 type rather than through scope (Section 6.7.3), so a type's own operations are

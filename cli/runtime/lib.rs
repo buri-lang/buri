@@ -40,14 +40,17 @@
 //!     754 does not fix their answers, so V8's fdlibm port and the platform's
 //!     libm differ in the last bit, and a rendered `Float` shows seventeen
 //!     digits of it;
-//!   * **the stateful half of `core/testing/context`** ([`testing`]) — a
-//!     captured stdout, a seeded generator, a test clock, a fixture
-//!     environment and a stdin that was handed its lines. Every one of them is
-//!     mutable process state outliving the expression that made it, which is
-//!     why `testing_context.buri` gives each implementation an `I64` handle and
-//!     puts the state on the runner's side; on JavaScript that side is
-//!     `runtime.js`'s `$t.h`, and here it is one table. `alloc()` is the
-//!     exception and both backends open-code it, because it reads no state;
+//!   * **the stateful half of `core/testing/context` and of
+//!     `core/host/testing`** ([`testing`]) — a captured stdout, a seeded
+//!     generator, a test clock, a fixture environment, a stdin that was handed
+//!     its lines, and a process that records its exit rather than taking it.
+//!     Every one of them is mutable process state outliving the expression
+//!     that made it, which is why each implementation carries an `I64` handle
+//!     and puts the state on the runner's side; on JavaScript that side is
+//!     `runtime.js`'s `$t.h`, and here it is one table — one, not two, because
+//!     the two modules are two vocabularies over one handle store. `alloc()`
+//!     is the exception in both and both backends open-code it, because it
+//!     reads no state;
 //!   * **128-bit arithmetic** — [`buri_rt_i128_divmod`], [`buri_rt_i128_checked`]
 //!     and [`buri_rt_i128_saturating`], at the bottom of this file. They are
 //!     here for one reason: the overflow test both backends use at 64 bits is
