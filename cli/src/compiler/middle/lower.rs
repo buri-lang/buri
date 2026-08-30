@@ -2227,6 +2227,7 @@ export fn step(n: Int): Int {
                 sites,
                 reuse: Vec::new(),
                 unclassified: Vec::new(),
+                inherits: Vec::new(),
             });
         }
 

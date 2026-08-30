@@ -1,0 +1,34 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "the vendored google.rpc.Status compiles: `google.protobuf.Any` is a two-field message like any other, opaque in both directions, and the name is resolved rather than recognised"
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# Round trip, then the two fields on their own: a type URL nothing validates
+# and bytes only the program's own codec reads. The JSON is the two-field
+# object rather than the canonical `@type` inlining, which is the deviation
+# `proto.md` records.
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+}
+
+# And the acceptance is name resolution rather than recognition: with the
+# import gone the field names nothing, and the diagnostic is the one any
+# unimported type gets.
+edit {
+  file: "lib/rpc/status.proto"
+  replace: "import \"lib/rpc/any.proto\";\n\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//lib/rpc"]
+  exit: 1
+  golden: "unknown.txt"
+}

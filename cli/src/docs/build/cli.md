@@ -88,7 +88,7 @@ Build-graph rules:
 | `proto-syntax-declaration` | A `syntax = "proto2"` or `syntax = "proto3"` file. The fix is the migration to editions. |
 | `proto-edition-missing` | A `.proto` file with no `edition` line at all, which every other tool reads as proto2. |
 | `proto-schema` | A `.proto` file that is not a well-formed schema: a field number outside 1..536870911, an enum whose first value is not zero, an unclosed message. |
-| `proto-unsupported` | A construct or a feature value the schema reader refuses, named: `service`, `extend`, `extensions`, `group`, `map<>`, `google.protobuf.Any`, `import public`, the removed `optional` and `required` labels, and the `features.…` values it cannot express — `LEGACY_REQUIRED`, `CLOSED`, `DELIMITED`, `NONE`, `LEGACY_BEST_EFFORT`. [`proto.md`](./proto.md) says why each one is out. |
+| `proto-unsupported` | A construct or a feature value the schema reader refuses, named: `service`, `extend`, `extensions`, `group`, `map<>`, `import public`, the removed `optional` and `required` labels, and the `features.…` values it cannot express — `LEGACY_REQUIRED`, `CLOSED`, `DELIMITED`, `NONE`, `LEGACY_BEST_EFFORT`. [`proto.md`](./proto.md) says why each one is out. |
 | `proto-unknown-feature` | A `features.…` name the reader does not model at all, as against a value of a known one it refuses. Suggests the nearest name it knows. |
 | `proto-unknown-type` | A field whose type names no message or enum, in this schema or in one it imports. |
 | `proto-ambiguous-type` | A field whose type names a short name two imported schemas both claim. Which one it meant is not something import order should decide, so it is asked rather than guessed. |

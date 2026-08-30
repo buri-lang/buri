@@ -37,10 +37,17 @@
 //! The branch is real: closure conversion is a *pessimisation* in JavaScript,
 //! where an arrow function closing over its scope is exactly what the engine
 //! wants, so the JS backend is handed the tree before `closures` runs and the
-//! native backends after it. `derives` and `rc` are on the native branch only —
-//! JavaScript walks a type descriptor at run time and is garbage collected, and
-//! `fuse` is there too so that the unfused JavaScript stays the reference the
-//! agreement tests compare both natives against (`fuse.rs`'s header).
+//! native backends after it. `derives` is on the native branch only —
+//! JavaScript walks a type descriptor at run time — and `fuse` is there too so
+//! that the unfused JavaScript stays the reference the agreement tests compare
+//! both natives against (`fuse.rs`'s header).
+//!
+//! `rc` is the one that is on both, and it is on them for different halves of
+//! itself. The native branch runs it here for the whole thing. The JavaScript
+//! backend calls `rc::sharing` for itself, out of `backend::js::generate`,
+//! and reads only where a *second reference* comes into existence: a garbage
+//! collector needs no releases, and what it cannot supply is the `rc == 1` test
+//! an in-place update asks. MEMORY.md §5.5.
 //!
 //! # The module list is deliberately complete
 //!
