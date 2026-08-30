@@ -1,0 +1,78 @@
+# `libburi_rt.a`, the native runtime, as a package of its own.
+#
+# It is not a member of the workspace and it is not built by `cargo build -p
+# buri`: `cli/build.rs` builds it, once per toolchain build, with an explicit
+# `--manifest-path`, and `backend::runtime_native` `include_bytes!`es the
+# archive that falls out. The root `Cargo.toml` lists this directory in
+# `exclude` for the same reason it lists `editors/zed`: a package that the
+# toolchain's own `cargo test` must not resolve.
+#
+# **Zero dependencies, and that is the point.** The archive is linked into
+# every native binary this compiler produces, so anything admitted here is
+# admitted into every program a user ships — a stricter bar than the
+# toolchain's own, not a looser one. The bar itself is stated in the root
+# `Cargo.toml`, and `dependencies_stay_behind_the_bar` reads *both* manifests
+# so that a crate added here is as loud as a crate added there.
+[package]
+name = "buri-rt"
+version = "0.3.0"
+edition = "2024"
+description = "The Buri native runtime: the `buri_rt_*` symbols every native backend emits calls to."
+license = "MIT"
+repository = "https://github.com/buri-lang/buri"
+# Built from the checkout, never from a registry.
+publish = false
+
+[lib]
+# `buri_rt`, because the symbols are `buri_rt_*` and the archive is
+# `libburi_rt.a`; the two backends emit the name, so it is a contract rather
+# than a preference.
+name = "buri_rt"
+# The sources sit directly in this directory rather than under `src/`, because
+# they predate the manifest and moving fifteen files to gain a level of nesting
+# would be churn in every `#[path]`, every doc link and every git blame.
+path = "lib.rs"
+# A static library and nothing else: `build/link.rs` hands the archive to the
+# platform C driver alongside the objects the backend emitted.
+crate-type = ["staticlib"]
+
+[dependencies]
+
+# The flags that used to be spelled out in `cli/build.rs`'s `rustc` command
+# line, in the one place a `cargo build --release` reads them from. Each is a
+# decision rather than a default:
+#
+# * `lto = "fat"` is a **size** decision, not a speed one, and the size is
+#   embedded in every `buri` binary: measured on aarch64-apple-darwin, 17.7 MB
+#   without it and 6.0 MB with, for about 2.6 seconds of build time once per
+#   toolchain build. It is whole-program across the runtime *and* the copy of
+#   `std` a staticlib bundles.
+# * `panic = "abort"` because an abort in this language is a write to standard
+#   error and an exit, never an unwind (SPEC 6.10), so the unwinder tables
+#   would be dead weight in every artifact.
+# * `codegen-units = 1` and `debug = 0` are reproducibility and size: one unit
+#   removes the parallel-codegen non-determinism that `--check-reproducible`
+#   would otherwise catch as a byte difference between two builds of the same
+#   tree, and there is no debugger that steps into this archive.
+# * `strip = "none"` pins what Cargo would otherwise infer from `debug = 0`,
+#   which is `strip = "debuginfo"`. There is no debug info to strip, so it
+#   changes nothing about the archive's contents — it is pinned so that a
+#   Cargo whose inference changes cannot silently change the archive's bytes.
+#
+# `opt-level = 3` is `release`'s own default and is left to it.
+[profile.release]
+lto = "fat"
+panic = "abort"
+codegen-units = 1
+debug = 0
+strip = "none"
+
+# Its own workspace root, and it has to be spelled out: `exclude` in the root
+# manifest is *not* enough on its own, because Cargo's exclusion check is
+# defeated by the member prefix — this directory is inside `cli/`, and `cli` is
+# a member, so `cargo build --manifest-path cli/runtime/Cargo.toml` without
+# this table fails with "current package believes it's in a workspace when it's
+# not". The root's `exclude` line stays, because it is what keeps `cargo test
+# -p buri` from resolving this package; this table is what lets the nested
+# build resolve it alone.
+[workspace]

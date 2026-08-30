@@ -9,19 +9,43 @@
 //! BUILD-AND-WATCH.md §2.2 settles the shape and this file is it:
 //!
 //! ```text
-//! rustc --crate-type=staticlib --edition 2024 -C opt-level=3 -C panic=abort \
-//!       --target <host triple> -o $OUT_DIR/libburi_rt.a cli/runtime/lib.rs
+//! cargo build --release --manifest-path cli/runtime/Cargo.toml \
+//!             --target <host triple> --target-dir $OUT_DIR/rt
 //! ```
 //!
 //! Three properties are worth naming, because each of them is a decision:
 //!
-//! * **No build dependency.** `rustc` is already required to build the
-//!   toolchain, so shelling out to it adds no tool, nothing to the lockfile,
-//!   and nothing to `cargo install buri`. The obvious alternative — the `cc`
-//!   crate and a runtime written in C — costs a build dependency *and* makes a
-//!   C compiler a build-time requirement rather than a link-time one, which is
-//!   heavier than the Rust dependency the toolchain already has
+//! * **No build dependency, and now a manifest with none either.** `cargo` and
+//!   `rustc` are already required to build the toolchain, so driving the one
+//!   that is already running adds no tool, nothing to the toolchain's
+//!   lockfile, and nothing to `cargo install buri`. The obvious alternative —
+//!   the `cc` crate and a runtime written in C — costs a build dependency *and*
+//!   makes a C compiler a build-time requirement rather than a link-time one,
+//!   which is heavier than the Rust dependency the toolchain already has
 //!   (VALUE-MODEL.md §10).
+//!
+//!   What changed is only *who spells the flags*. This was a raw `rustc`
+//!   command line over `cli/runtime/lib.rs`, because fifteen `.rs` files and no
+//!   manifest was the smallest thing that could work. It is now a package —
+//!   `cli/runtime/Cargo.toml`, **zero dependencies**, outside the workspace
+//!   beside `editors/zed` — and the optimization flags live in its
+//!   `[profile.release]` where a reader looks for them. The bar the archive is
+//!   held to is *stricter* than the toolchain's, not looser: the archive is
+//!   linked into every native binary this compiler produces, so a crate
+//!   admitted there is a crate shipped in every user's program.
+//!   `dependencies_stay_behind_the_bar` reads that manifest as well as
+//!   `cli/Cargo.toml`, so the emptiness is a test rather than a habit.
+//!
+//!   One cost the manifest carries, stated where it will be read rather than
+//!   discovered: `cargo package -p buri` **skips a directory that contains a
+//!   `Cargo.toml` of its own**, unconditionally and with no `include` that can
+//!   override it, so the fifteen runtime sources that used to ride inside the
+//!   published `buri` crate no longer do. A checkout builds; a `cargo install
+//!   buri` from a registry tarball would not. That is a packaging decision and
+//!   not a compiler one, and it has the answer ARCHITECTURE.md §9 already
+//!   writes for the same shape of problem — publish the runtime as its own
+//!   crate, or ship prebuilt archives per triple — which is a change to make
+//!   deliberately rather than as a side effect of this one.
 //!
 //! * **Precompiled, not compiled on demand.** The archive is produced once when
 //!   the toolchain is built, not once per `buri build`. A compile-on-demand
@@ -132,15 +156,47 @@ fn digest_beside(out: &Path) {
     }
 }
 
+/// The three flags that stay on the command line rather than moving into
+/// `cli/runtime/Cargo.toml`, because Cargo has no profile key for any of them.
+///
+/// They are all for one property: two builds of the same tree must produce the
+/// same archive, because `--check-reproducible` compares linked artifacts byte
+/// for byte (ARCHITECTURE.md §7) and the archive is an input to every link.
+///
+/// * `--remap-path-prefix` keeps the checkout's absolute path out of the
+///   panic locations the runtime's own `#[track_caller]` sites bake in. The
+///   empty *from* prefix is not a typo and it is not a trick: Cargo runs
+///   `rustc` with the package root as its working directory and passes the
+///   crate root as the **relative** path `lib.rs`, so there is no absolute
+///   prefix left to strip. An empty prefix matches every relative path and
+///   nothing else — `Path::strip_prefix("")` fails on an absolute one — so
+///   `abort.rs` becomes `./runtime/abort.rs`, which is exactly the string the
+///   raw-`rustc` invocation produced, and the sysroot's own already-remapped
+///   `/rustc/<hash>/library/...` paths are untouched.
+/// * `-C metadata` and an empty `-C extra-filename` pin *our* half of the
+///   crate disambiguator and the output file name. Cargo prepends a
+///   disambiguator of its own — `-C metadata` is a list rustc hashes whole, so
+///   ours does not replace it — and that one is derived from the package's
+///   name, version and profile rather than from where the tree is checked out,
+///   so the archive is still the same bytes at any path. The empty
+///   `extra-filename` is what keeps the artifact at a name this script can
+///   name: `<target-dir>/<triple>/release/deps/libburi_rt.a`, with no hash in
+///   it, and with the archive's own member names free of one too.
+const RUNTIME_RUSTFLAGS: &str = "--remap-path-prefix==./runtime \
+                                 -Cmetadata=buri_rt \
+                                 -Cextra-filename=";
+
 fn runtime_archive(manifest: &Path) {
     let runtime = manifest.join("runtime");
-    let out = PathBuf::from(env("OUT_DIR")).join("libburi_rt.a");
+    let out_dir = PathBuf::from(env("OUT_DIR"));
+    let out = out_dir.join("libburi_rt.a");
 
     // Cargo reruns this script when anything under `runtime/` changes, and
     // *only* then: without these lines it reruns on every change to any file in
     // the package, which would put a rustc invocation in front of every edit to
     // the compiler.
     println!("cargo:rerun-if-changed={}", runtime.display());
+    println!("cargo:rerun-if-env-changed=BURI_RUNTIME_CARGO");
     println!("cargo:rerun-if-env-changed=BURI_RUNTIME_RUSTC");
 
     let target = env("TARGET");
@@ -155,54 +211,83 @@ fn runtime_archive(manifest: &Path) {
         return;
     }
 
+    // The cargo that is already running this script, unless something names
+    // another. `CARGO` is cleared from the *child's* environment below, so it
+    // is read here while it is still there.
+    let cargo = std::env::var("BURI_RUNTIME_CARGO")
+        .or_else(|_| std::env::var("CARGO"))
+        .unwrap_or_else(|_| "cargo".to_string());
+    // Likewise the compiler: `RUSTC` is how Cargo is told which one to use, and
+    // the toolchain's own is the right answer, so a nested build that picked a
+    // different `rustc` off `PATH` would produce an archive built by a compiler
+    // the rest of the binary was not.
     let rustc = std::env::var("BURI_RUNTIME_RUSTC")
         .or_else(|_| std::env::var("RUSTC"))
         .unwrap_or_else(|_| "rustc".to_string());
 
-    let status = Command::new(&rustc)
-        .arg("--crate-type=staticlib")
-        .arg("--crate-name=buri_rt")
-        .args(["--edition", "2024"])
-        .args(["-C", "opt-level=3"])
-        // No unwinder: an abort in this language is a write to standard error
-        // and an exit, never an unwind (SPEC 6.10), so the tables would be dead
-        // weight in every artifact.
-        .args(["-C", "panic=abort"])
-        .args(["-C", "debuginfo=0"])
-        // Whole-program LTO over the runtime *and* the copy of `std` a
-        // staticlib bundles. It is not an optimization decision — it is a size
-        // one, and the size is embedded in every `buri` binary: measured on
-        // aarch64-apple-darwin, 17.7 MB without it and 6.0 MB with, for 2.6
-        // seconds of build time once per toolchain build.
-        .args(["-C", "lto=fat"])
-        // Three flags, all for one property: two builds of the same tree must
-        // produce the same archive, because `--check-reproducible` compares
-        // linked artifacts byte for byte (ARCHITECTURE.md §7) and the archive
-        // is an input to every link.
-        //
-        // `-C metadata` and an empty `-C extra-filename` pin the symbol hash,
-        // which otherwise varies with the output path — so an archive built in
-        // `target/debug` and one built in `target/release` differed by a few
-        // dozen bytes, and the difference was invisible until something hashed
-        // it. `--remap-path-prefix` keeps the checkout's absolute path out.
-        .args(["-C", "codegen-units=1"])
-        .args(["-C", "metadata=buri_rt"])
-        .args(["-C", "extra-filename="])
-        .arg(format!("--remap-path-prefix={}=.", manifest.display()))
+    let target_dir = out_dir.join("rt");
+    let mut command = Command::new(&cargo);
+
+    // **Every `CARGO_*` variable but one, removed.** A build script runs inside
+    // a cargo invocation and inherits its whole state: `CARGO_ENCODED_RUSTFLAGS`
+    // would silently outrank the `RUSTFLAGS` set below (it is the one Cargo
+    // reads first), `CARGO_MAKEFLAGS` hands over a jobserver whose tokens this
+    // process is holding, and `CARGO_TARGET_DIR` would point the nested build
+    // at the workspace's target directory — whose lock the outer cargo owns for
+    // as long as this script runs, which is a deadlock rather than a slowdown.
+    // `--target-dir` below says where instead, and `cli/runtime` is its own
+    // workspace root, so there are two independent reasons the nested build
+    // cannot reach the outer lock.
+    //
+    // `CARGO_HOME` is the exception, and it is deliberate: it is not build
+    // state, it is *where cargo lives*. A sandboxed build — `nix build`'s
+    // `buildRustPackage` is the one that matters here — points it at a writable
+    // vendored directory precisely because `$HOME` is not writable, so clearing
+    // it would turn a hermetic build into a failure. It cannot cause the
+    // deadlock this loop exists to prevent: it names no target directory and
+    // carries no jobserver.
+    for (name, _) in std::env::vars() {
+        if name.starts_with("CARGO_") && name != "CARGO_HOME" {
+            command.env_remove(&name);
+        }
+    }
+    command.env_remove("CARGO");
+
+    let status = command
+        .env("RUSTC", &rustc)
+        // Set rather than appended: an archive built with a contributor's
+        // ambient `RUSTFLAGS` would be a different archive on every machine,
+        // and the raw `rustc` invocation this replaces never read them either.
+        .env("RUSTFLAGS", RUNTIME_RUSTFLAGS)
+        .arg("build")
+        // `--release` is what selects `[profile.release]` in the runtime's
+        // manifest: `lto = "fat"`, `panic = "abort"`, `codegen-units = 1`,
+        // `debug = 0`. Each is argued where it is written.
+        .arg("--release")
+        .arg("--manifest-path")
+        .arg(runtime.join("Cargo.toml"))
         .args(["--target", &target])
-        .arg("-o")
-        .arg(&out)
-        .arg(runtime.join("lib.rs"))
+        .arg("--target-dir")
+        .arg(&target_dir)
         .status();
 
     match status {
         Ok(s) if s.success() => {}
-        Ok(s) => fail(&format!("{rustc} failed to build cli/runtime ({s})")),
-        Err(e) => fail(&format!("could not run {rustc} to build cli/runtime: {e}")),
+        Ok(s) => fail(&format!("{cargo} failed to build cli/runtime ({s})")),
+        Err(e) => fail(&format!("could not run {cargo} to build cli/runtime: {e}")),
     }
 
-    if !out.exists() {
-        fail("rustc reported success but produced no libburi_rt.a");
+    // `deps/` rather than the profile directory above it: Cargo hard-links an
+    // artifact up one level only when the copy in `deps/` has a different name,
+    // and an empty `-C extra-filename` makes the two names the same, so the
+    // uplift does not happen and `deps/` is where the archive actually is.
+    let built = target_dir.join(&target).join("release/deps/libburi_rt.a");
+    if let Err(e) = std::fs::copy(&built, &out) {
+        fail(&format!(
+            "cargo reported success but {} could not be copied to {}: {e}",
+            built.display(),
+            out.display()
+        ));
     }
     digest_beside(&out);
 }
