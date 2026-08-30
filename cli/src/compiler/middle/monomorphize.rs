@@ -590,6 +590,12 @@ impl<'a> Monomorphizer<'a> {
     }
 
     /// The name the backend looks up for an operation the runtime supplies.
+    ///
+    /// **The key does not carry `targs`, and that is deliberate**: one key
+    /// names one runtime body, so every instantiation of a generic intrinsic
+    /// shares a key and the type it was instantiated at does not survive the
+    /// call. [`GENERIC_INTRINSICS`] is the rule for which keys that is allowed
+    /// for, and this is where it is enforced.
     fn intrinsic_key(&self, info: &FnInfo, targs: &[Ty]) -> String {
         let module = self
             .module_paths
@@ -603,7 +609,7 @@ impl<'a> Monomorphizer<'a> {
         // three tables.
         let stem = module.strip_suffix("/lib.buri").unwrap_or(&module);
         let short = stem.strip_prefix("core/").unwrap_or(stem).replace('/', "_");
-        match info.self_ty {
+        let key = match info.self_ty {
             // `core/str` exists for `Str`, so `str.Str.len` says it twice.
             // `core/num` is the defining module of a dozen types, so there the
             // type is what tells two conversions apart.
@@ -620,11 +626,28 @@ impl<'a> Monomorphizer<'a> {
             Some(con) if self.tables().tycon(con).module.0 != u32::MAX => {
                 format!("{short}.{}.{}", self.tables().tycon(con).name, info.name)
             }
-            _ => {
-                let _ = targs;
-                format!("{short}.{}", info.name)
-            }
+            _ => format!("{short}.{}", info.name),
+        };
+        // Only a bundled standard-library module can declare an operation the
+        // runtime supplies — `resolve::record_intrinsic` guards on exactly this
+        // — and a bodyless `fn` anywhere else is `declaration-without-a-body`
+        // from the parser. So this cannot be reached by any input, which is
+        // what makes an `ice` the right shape for it rather than a diagnostic:
+        // there is nothing the author of the *program* could do about it.
+        let generic = !targs.is_empty() || !info.generics.is_empty();
+        if generic
+            && crate::compiler::standard_library::find(&module).is_some()
+            && !generic_intrinsic_allowed(&key)
+        {
+            crate::ice!(
+                "the intrinsic `{key}` is generic, and the key the runtime is reached by \
+                 carries no type arguments — so nothing tells the runtime what it was \
+                 instantiated at; if that is intended, add `{key}` to `GENERIC_INTRINSICS` \
+                 in `middle/monomorphize.rs` alongside the stride, glue or descriptor \
+                 that makes it sound"
+            );
         }
+        key
     }
 
     // -----------------------------------------------------------------------
@@ -1356,6 +1379,172 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
     heads.iter().zip(recvs).all(|(h, r)| match_head(h, r, bound))
 }
 
+// ---------------------------------------------------------------------------
+// Which intrinsics may be generic
+// ---------------------------------------------------------------------------
+
+/// The standard-library intrinsic keys whose declaration may be generic.
+///
+/// [`Monomorphizer::intrinsic_key`] builds a key out of the module, the type
+/// and the name, and out of **nothing else** — the type arguments an instance
+/// was requested at are not in it. One key names one runtime body, so every
+/// instantiation of a generic intrinsic reaches the same body, and the type
+/// stops at the boundary: `cli/runtime` is compiled once, against no Buri type
+/// at all, and `runtime.js` is one function per key.
+///
+/// A generic intrinsic is therefore **type-erased at the call**, and anything
+/// the runtime needs to know about the erased type has to arrive as a value.
+/// There are exactly three ways it does, and each has a column of its own:
+///
+/// * the element **stride and retain glue** of
+///   [`Extra::Element`](crate::compiler::backend::runtime_table::Extra::Element)
+///   — every `core/list` entry;
+/// * an **address**, for an argument whose type is a bare `T` and so has no
+///   leaf list a C signature could name
+///   ([`Entry::by_ref`](crate::compiler::backend::runtime_table::Entry));
+/// * a **runtime descriptor** ([`Func::desc`]), which is the whole shape of a
+///   type — `json.decode` and the two `core/testing/assert` entries.
+///
+/// A key whose erased parameter is only ever a **context** needs none of the
+/// three: a `C: Alloc` appears in argument position, and rule 1 of the emission
+/// order flattens an argument into its leaves whatever its type is. That is
+/// most of this list, and it is still listed, because "the parameter happens to
+/// be a context" is a fact about today's signature rather than a rule the next
+/// author will re-derive.
+///
+/// **Anything not here is an `ice`**, from `intrinsic_key`. Adding a generic
+/// intrinsic is therefore a deliberate two-line edit — the declaration, and a
+/// row here — and the second line is where a reviewer asks which of the three
+/// carries the type.
+///
+/// Sorted, and asserted sorted, so a reader can find a key and a duplicate is
+/// visible. `num.<Prim>.show` and `num.<Prim>.toJson` are **not** here: they
+/// are one fact about every primitive rather than twenty-six, and
+/// [`prim_show_or_to_json`] states it once.
+const GENERIC_INTRINSICS: &[&str] = &[
+    // `core/bool` and `core/char`: `show` and `toJson` are minted by
+    // `semantics::builtins` at every primitive and both name `C: Alloc`,
+    // because rendering allocates. The type is in the key already.
+    "bool.show",
+    "bool.toJson",
+    // `core/bytes`: four `C: Alloc` conversions. Every one of them answers a
+    // `[U8]` or takes one, and the element type is fixed at `U8` — which is
+    // why `runtime_table` gives them `Extra::None` and the stride is known.
+    "bytes.f32ToBytes",
+    "bytes.f64ToBytes",
+    "bytes.fromUtf8",
+    "bytes.toUtf8",
+    "char.show",
+    "char.toJson",
+    // `core/host`'s two reactive impls, on WEB. `Ui.signal<T>`/`read<T>` name
+    // a slot in the host's own table by `Int`, and the value never crosses in
+    // a shape the runtime reads: `runtime.js` stores whatever it was handed.
+    "host.HostUi.memo",
+    "host.HostUi.read",
+    "host.HostUi.signal",
+    "host.HostUi.write",
+    "host.HostWatch.read",
+    // The one operation whose subject is in neither a parameter nor the
+    // receiver: `decode` is asked for a `T` and handed a `Json`. `T` reaches
+    // the runtime as a descriptor, built in `build_fn`.
+    "json.decode",
+    // `core/list`. Every entry here is generic in the element type, because
+    // the whole module is `impl<T> [T]`, and every one of them gets its stride
+    // and glue from `Extra::Element` (`runtime_table`) — `push` and `repeat`
+    // additionally pass their bare `T` by address.
+    "list.all",
+    "list.any",
+    "list.concat",
+    "list.count",
+    "list.drop",
+    "list.empty",
+    "list.filter",
+    "list.filterCtx",
+    "list.find",
+    "list.findIndex",
+    "list.flatten",
+    "list.fold",
+    "list.foldCtx",
+    "list.foldResult",
+    "list.foldResultCtx",
+    "list.get",
+    "list.join",
+    "list.len",
+    "list.map",
+    "list.mapCtx",
+    "list.push",
+    "list.range",
+    "list.repeat",
+    "list.reverse",
+    "list.slice",
+    "list.sortBy",
+    "list.take",
+    "list.zip",
+    // `Bounded`'s two, which take no argument at all and are generic in their
+    // *return* type. Neither backend emits a call: both open-code the constant
+    // from the destination's own width (`stencil/emit.rs`, `js/intrinsics.rs`),
+    // so the erasure is repaired by there being no runtime call to erase into.
+    "num.maxValue",
+    "num.minValue",
+    // `core/str`. Every one names `C: Alloc` for the block it builds and
+    // nothing else; `Str` is three leaves at every instantiation, so there is
+    // no element pair to supply and `runtime_table` gives them `Extra::None`.
+    "str.chars",
+    "str.concat",
+    "str.format",
+    "str.fromChars",
+    "str.fromFloat",
+    "str.fromInt",
+    "str.lines",
+    "str.padEnd",
+    "str.padStart",
+    "str.repeat",
+    "str.replace",
+    "str.show",
+    "str.split",
+    "str.splitAny",
+    "str.toJson",
+    "str.toLower",
+    "str.toUpper",
+    // The test runner's two. Both render values the program never rendered
+    // itself, so both are given a descriptor in `build_fn` — the `desc` field
+    // on `Func` exists for exactly these.
+    "testing_assert.failExpected",
+    "testing_assert.report",
+    // `ui/effect` and `ui/testing`: the same reactive slots as `core/host`'s,
+    // at the scope and at the headless test host. `ui_node.mount` and
+    // `ui_testing.render` are generic in the *context* alone.
+    "ui_effect.Scope.read",
+    "ui_node.mount",
+    "ui_testing.Headless.memo",
+    "ui_testing.Headless.read",
+    "ui_testing.Headless.signal",
+    "ui_testing.Headless.write",
+    "ui_testing.Observer.read",
+    "ui_testing.render",
+];
+
+/// Whether a generic intrinsic named `key` is one the erasure has been thought
+/// about for. See [`GENERIC_INTRINSICS`].
+fn generic_intrinsic_allowed(key: &str) -> bool {
+    GENERIC_INTRINSICS.contains(&key) || prim_show_or_to_json(key)
+}
+
+/// `num.I64.show`, `num.F64.toJson` and their siblings: the two generic methods
+/// `semantics::builtins` mints at every primitive, for every primitive whose
+/// defining module is `core/num` and whose key therefore carries the type.
+///
+/// Read off `Prim::all()` rather than written out, for the reason
+/// `backend::intrinsic_keys::derive_key` is: the family is *every* primitive,
+/// and a hand-written list of thirteen is a list that can be short by one.
+/// Both methods name `C: Alloc` and nothing else — the type they are at is in
+/// the key, which is what `short != "num"` in `intrinsic_key` arranges.
+fn prim_show_or_to_json(key: &str) -> bool {
+    let Some(rest) = key.strip_prefix("num.") else { return false };
+    let Some((ty, op)) = rest.split_once('.') else { return false };
+    matches!(op, "show" | "toJson") && Prim::all().iter().any(|p| p.name() == ty)
+}
+
 /// The subject and the descriptor of an intrinsic's argument list, dropping
 /// everything between them. `structural_call` appends the descriptor last, so
 /// this is never empty on the paths that call it.
@@ -1574,6 +1763,117 @@ mod tests {
             instance_targs(&order, &order, counts(1, 1), &[int()]),
             Err(TargError::GenericTrait)
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Which intrinsics may be generic
+    // -----------------------------------------------------------------------
+    //
+    // `intrinsic_key` reports a key outside the list with `ice`, which exits
+    // the process — so these test the predicate it asks rather than the call,
+    // which is also the only half a new key's author has to get right.
+
+    /// The list, pinned. A key added to `GENERIC_INTRINSICS` and not here is a
+    /// failing test, which is the point: erasing a *new* type at the runtime
+    /// boundary should be a line in a review rather than a silent consequence
+    /// of writing `fn f<T>(…);` in a standard-library module.
+    ///
+    /// Written as one string rather than as a second `&[&str]` so that the
+    /// duplication is legible at a glance instead of being seventy lines that
+    /// look like the constant and might not be it.
+    const PINNED: &str = "\
+        bool.show bool.toJson \
+        bytes.f32ToBytes bytes.f64ToBytes bytes.fromUtf8 bytes.toUtf8 \
+        char.show char.toJson \
+        host.HostUi.memo host.HostUi.read host.HostUi.signal host.HostUi.write \
+        host.HostWatch.read \
+        json.decode \
+        list.all list.any list.concat list.count list.drop list.empty \
+        list.filter list.filterCtx list.find list.findIndex list.flatten \
+        list.fold list.foldCtx list.foldResult list.foldResultCtx list.get \
+        list.join list.len list.map list.mapCtx list.push list.range \
+        list.repeat list.reverse list.slice list.sortBy list.take list.zip \
+        num.maxValue num.minValue \
+        str.chars str.concat str.format str.fromChars str.fromFloat \
+        str.fromInt str.lines str.padEnd str.padStart str.repeat str.replace \
+        str.show str.split str.splitAny str.toJson str.toLower str.toUpper \
+        testing_assert.failExpected testing_assert.report \
+        ui_effect.Scope.read ui_node.mount \
+        ui_testing.Headless.memo ui_testing.Headless.read \
+        ui_testing.Headless.signal ui_testing.Headless.write \
+        ui_testing.Observer.read ui_testing.render";
+
+    #[test]
+    fn the_generic_intrinsics_are_exactly_these() {
+        let pinned: Vec<&str> = PINNED.split_whitespace().collect();
+        assert_eq!(GENERIC_INTRINSICS, pinned.as_slice());
+    }
+
+    /// Sorted and without repeats, so that a reader can find a key and a
+    /// second copy of one is visible in the diff rather than harmless.
+    #[test]
+    fn the_list_is_sorted_and_has_no_duplicates() {
+        let mut sorted: Vec<&str> = GENERIC_INTRINSICS.to_vec();
+        sorted.sort_unstable();
+        assert_eq!(GENERIC_INTRINSICS, sorted.as_slice(), "the list is not in order");
+        sorted.dedup();
+        assert_eq!(sorted.len(), GENERIC_INTRINSICS.len(), "the list repeats a key");
+    }
+
+    /// The whole of the slice: a generic intrinsic nobody wrote a rule for is
+    /// refused. Each of these is a plausible next entry in the module it names
+    /// — `core/list` gaining a `chunk`, `core/tasks` gaining the `parallel`
+    /// the concurrency work wants — and each would be type-erased at the
+    /// boundary with nothing carrying the element type across.
+    #[test]
+    fn a_generic_intrinsic_outside_the_list_is_refused() {
+        for key in [
+            "list.chunk",
+            "tasks.parallel",
+            "str.splitInto",
+            "host.HostUi.observe",
+            "json.encodeAs",
+            // Near-misses of entries that *are* on the list: the rule matches
+            // a key, not a module or a name.
+            "list.mapCtx2",
+            "listx.map",
+            "ui_testing.Headless.observe",
+        ] {
+            assert!(!generic_intrinsic_allowed(key), "`{key}` was let through");
+        }
+    }
+
+    #[test]
+    fn every_listed_key_is_allowed() {
+        for key in GENERIC_INTRINSICS {
+            assert!(generic_intrinsic_allowed(key), "`{key}` is on the list and was refused");
+        }
+    }
+
+    /// The primitive family is stated once, over `Prim::all()`, so it cannot
+    /// be short by a type the way a written-out list of thirteen can.
+    #[test]
+    fn show_and_to_json_are_allowed_at_every_primitive() {
+        for p in Prim::all() {
+            let name = p.name();
+            assert!(generic_intrinsic_allowed(&format!("num.{name}.show")), "{name} show");
+            assert!(generic_intrinsic_allowed(&format!("num.{name}.toJson")), "{name} toJson");
+        }
+    }
+
+    /// And says nothing about anything else in `core/num`. `hash`, `eq` and
+    /// `compare` are minted with no generics at all, so they never reach the
+    /// check — this pins that widening the family would take an edit.
+    #[test]
+    fn the_primitive_family_is_those_two_methods_and_no_others() {
+        for key in ["num.I64.hash", "num.I64.eq", "num.F64.compare", "num.I64.showOff"] {
+            assert!(!generic_intrinsic_allowed(key), "`{key}` was let through");
+        }
+        // A type that is not a primitive, spelled into the same shape.
+        assert!(!generic_intrinsic_allowed("num.Decimal.show"));
+        // And the prefix alone is not enough.
+        assert!(!generic_intrinsic_allowed("num.show"));
+        assert!(!generic_intrinsic_allowed("numeric.I64.show"));
     }
 
     /// Every rejection says something specific enough to act on.

@@ -13,12 +13,16 @@
 //! be given half of: a client that silently downgraded to cleartext would be
 //! worse than one that refuses.
 //!
-//! The growth path is a `net-tls` cargo feature over `rustls`, which clears the
-//! bar on all three clauses (a platform interface this repository could not
-//! reasonably write, behind a feature the default build turns off, and its
-//! absence degrades `fetch` rather than breaking the toolchain). It is a piece
-//! of work in its own right, and it is named here so nobody has to rediscover
-//! the shape of it.
+//! The growth path this header named — a cargo feature over `rustls` — **has
+//! landed halfway**, and the half that landed is the dependency and not the
+//! code. `rustls` is in `manifest.toml` behind the `net` feature, which is on
+//! by default and which also carries `tokio`, `hyper` and `tungstenite`;
+//! nothing references any of them (`net.rs`), the archive is twenty-four bytes
+//! larger for it, and this file is unchanged. So the refusal above is still the
+//! whole of what `https://` does, and it is now a refusal for want of *code*
+//! rather than for want of a crate. Routing the client through hyper and rustls
+//! — and choosing the crypto provider `manifest.toml` deliberately did not —
+//! is the slice that deletes this section.
 //!
 //! What *is* here is complete for cleartext: absolute-URI parsing, `Host`,
 //! request bodies with `Content-Length`, chunked and identity response bodies,
@@ -71,7 +75,13 @@ fn parse(url: &str) -> Result<Url<'_>, NetFail> {
         Some(r) => r,
         None if url.starts_with("https://") => {
             return Err(NetFail::Transport(
-                "https is not supported by the native runtime (build with the `net-tls` feature)"
+                // It named a `net-tls` feature to build with until the crates
+                // landed and the feature turned out to be called `net`, to be
+                // on by default, and to not help: what is missing is the TLS
+                // client, not the crate. A message naming a flag that changes
+                // nothing is worse than one that says what is true.
+                "https is not supported by the native runtime (its TLS client is not written \
+                 yet; `Net.fetch` speaks cleartext http only)"
                     .to_string(),
             ))
         }

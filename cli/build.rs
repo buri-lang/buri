@@ -9,43 +9,62 @@
 //! BUILD-AND-WATCH.md §2.2 settles the shape and this file is it:
 //!
 //! ```text
-//! cargo build --release --manifest-path cli/runtime/Cargo.toml \
-//!             --target <host triple> --target-dir $OUT_DIR/rt
+//! <assemble $OUT_DIR/rt-pkg from cli/runtime/>
+//! cargo fetch --locked --manifest-path $OUT_DIR/rt-pkg/Cargo.toml   # offline first
+//! cargo rustc --release --lib --manifest-path $OUT_DIR/rt-pkg/Cargo.toml \
+//!             --target <host triple> --target-dir $OUT_DIR/rt \
+//!             -- --remap-path-prefix==./runtime -Cmetadata=buri_rt -Cextra-filename=
 //! ```
 //!
-//! Three properties are worth naming, because each of them is a decision:
+//! Five properties are worth naming, because each of them is a decision:
 //!
-//! * **No build dependency, and now a manifest with none either.** `cargo` and
-//!   `rustc` are already required to build the toolchain, so driving the one
-//!   that is already running adds no tool, nothing to the toolchain's
-//!   lockfile, and nothing to `cargo install buri`. The obvious alternative —
-//!   the `cc` crate and a runtime written in C — costs a build dependency *and*
-//!   makes a C compiler a build-time requirement rather than a link-time one,
-//!   which is heavier than the Rust dependency the toolchain already has
-//!   (VALUE-MODEL.md §10).
+//! * **No build dependency for the *toolchain*.** `cargo` and `rustc` are
+//!   already required to build it, so driving the one that is already running
+//!   adds no tool and nothing to the toolchain's own lockfile. The obvious
+//!   alternative — the `cc` crate and a runtime written in C — costs a build
+//!   dependency *and* makes a C compiler a build-time requirement rather than a
+//!   link-time one, which is heavier than the Rust dependency the toolchain
+//!   already has (VALUE-MODEL.md §10).
 //!
-//!   What changed is only *who spells the flags*. This was a raw `rustc`
-//!   command line over `cli/runtime/lib.rs`, because fifteen `.rs` files and no
-//!   manifest was the smallest thing that could work. It is now a package —
-//!   `cli/runtime/Cargo.toml`, **zero dependencies**, outside the workspace
-//!   beside `editors/zed` — and the optimization flags live in its
-//!   `[profile.release]` where a reader looks for them. The bar the archive is
-//!   held to is *stricter* than the toolchain's, not looser: the archive is
-//!   linked into every native binary this compiler produces, so a crate
-//!   admitted there is a crate shipped in every user's program.
-//!   `dependencies_stay_behind_the_bar` reads that manifest as well as
-//!   `cli/Cargo.toml`, so the emptiness is a test rather than a habit.
+//!   The *runtime* is a different set and a different bar, and since the `net`
+//!   feature it is no longer empty: `tokio`, `hyper`, `rustls` and
+//!   `tungstenite`, closed by an exact list. The root `Cargo.toml` states both
+//!   halves of the bar, `cli/runtime/manifest.toml` argues each entry, and
+//!   `dependencies_stay_behind_the_bar` asserts the equality — so a fifth crate
+//!   is a failing test rather than a review comment. What the toolchain's build
+//!   inherits from that set is one thing only: the nested `cargo` now has a
+//!   dependency tree to resolve, which is the degradation path below.
 //!
-//!   One cost the manifest carries, stated where it will be read rather than
-//!   discovered: `cargo package -p buri` **skips a directory that contains a
-//!   `Cargo.toml` of its own**, unconditionally and with no `include` that can
-//!   override it, so the fifteen runtime sources that used to ride inside the
-//!   published `buri` crate no longer do. A checkout builds; a `cargo install
-//!   buri` from a registry tarball would not. That is a packaging decision and
-//!   not a compiler one, and it has the answer ARCHITECTURE.md §9 already
-//!   writes for the same shape of problem — publish the runtime as its own
-//!   crate, or ship prebuilt archives per triple — which is a change to make
-//!   deliberately rather than as a side effect of this one.
+//! * **The package is assembled in `OUT_DIR`, not checked in.** `cli/runtime/`
+//!   holds the sources, `manifest.toml` and `manifest.lock`; this script copies
+//!   them to `$OUT_DIR/rt-pkg/` as `Cargo.toml`, `Cargo.lock` and the same
+//!   `.rs` files, and builds there.
+//!
+//!   The reason is packaging, and it is the regression this repairs. `cargo
+//!   package` **skips any subdirectory containing a `Cargo.toml`**,
+//!   unconditionally and before `include`/`exclude` are consulted, in both its
+//!   git-driven and its filesystem-driven listers — verified, not assumed, and
+//!   an explicit `include = ["runtime/**"]` does not override it. A manifest in
+//!   `cli/runtime/` therefore deleted the entire directory from the published
+//!   `buri` crate: a checkout built, and a `cargo install buri` from a registry
+//!   tarball failed here with no runtime to compile. With the manifest under a
+//!   name Cargo does not recognise, `cli/runtime/` is an ordinary directory of
+//!   ordinary files and ships whole. `.github/scripts/assert-package-ships-
+//!   runtime.sh` is the assertion; `cli/tests/language/corpus.rs` holds the
+//!   invariant it rests on — no second `Cargo.toml` anywhere under `cli/`.
+//!
+//!   Nothing about the compile changes: Cargo still runs `rustc` with the
+//!   package root as its working directory and the crate root as the relative
+//!   path `lib.rs`, which is exactly what `RUNTIME_RUSTC_ARGS`'s empty
+//!   `--remap-path-prefix` prefix depends on. Copies are written **only when
+//!   the contents differ**, so a rerun of this script for an unrelated reason
+//!   does not move an mtime and does not rebuild the runtime.
+//!
+//!   The lockfile is regenerated with `BURI_RUNTIME_RELOCK=1 cargo build -p
+//!   buri`, which drops `--locked`, lets Cargo resolve, and copies the result
+//!   back over `cli/runtime/manifest.lock`. That is the only path on which this
+//!   script writes into the source tree, and it is opt-in for exactly that
+//!   reason.
 //!
 //! * **Precompiled, not compiled on demand.** The archive is produced once when
 //!   the toolchain is built, not once per `buri build`. A compile-on-demand
@@ -61,6 +80,24 @@
 //!   `runtime_native::AVAILABLE` is false, so the toolchain still builds and
 //!   still runs the JavaScript backend, which is the "degrades rather than
 //!   breaks" clause of the dependency bar applied to the runtime itself.
+//!
+//! * **A dependency tree that cannot be resolved degrades; one that cannot be
+//!   compiled does not.** The second half of the same clause, and the two
+//!   halves are deliberately not the same answer. A host that cannot *reach*
+//!   the four crates — no network and a cold registry, a `nix` sandbox whose
+//!   vendoring covers the toolchain's lockfile and not the runtime's, a
+//!   lockfile this manifest has outgrown — is a host with no archive: empty,
+//!   `AVAILABLE == false`, a `cargo:warning` naming which of the three it was,
+//!   and a toolchain that still builds and still runs the JavaScript backend. A
+//!   host that resolved the tree and then failed to *compile* it has a broken
+//!   runtime, not a missing one, and that fails the build.
+//!
+//!   The probe is `cargo fetch --locked`, run `--offline` first so that the
+//!   warm case costs no network and the sandboxed case is answered without one.
+//!   It is deliberately a **separate command** from the build: a single `cargo
+//!   rustc` cannot tell the two failures apart, and "the archive quietly went
+//!   empty because a crate failed to compile" is precisely the silent green
+//!   that `.github/scripts/assert-runtime-archive.sh` exists to refuse.
 
 #![allow(
     clippy::print_stderr,
@@ -156,8 +193,9 @@ fn digest_beside(out: &Path) {
     }
 }
 
-/// The three flags that stay on the command line rather than moving into
-/// `cli/runtime/Cargo.toml`, because Cargo has no profile key for any of them.
+/// The three flags that reach `rustc` on the command line rather than through
+/// `cli/runtime/manifest.toml`, because Cargo has no profile key for any of
+/// them.
 ///
 /// They are all for one property: two builds of the same tree must produce the
 /// same archive, because `--check-reproducible` compares linked artifacts byte
@@ -182,9 +220,148 @@ fn digest_beside(out: &Path) {
 ///   `extra-filename` is what keeps the artifact at a name this script can
 ///   name: `<target-dir>/<triple>/release/deps/libburi_rt.a`, with no hash in
 ///   it, and with the archive's own member names free of one too.
-const RUNTIME_RUSTFLAGS: &str = "--remap-path-prefix==./runtime \
-                                 -Cmetadata=buri_rt \
-                                 -Cextra-filename=";
+///
+/// **They are passed through `cargo rustc --`, which applies them to the
+/// runtime crate alone, and not through `RUSTFLAGS`, which would apply them to
+/// every crate in the tree.** That distinction was free while the tree was one
+/// crate and is not free now: an empty `-C extra-filename` is a *collision* the
+/// moment two versions of one crate appear, and two do — the runtime's lockfile
+/// carries `getrandom` at 0.2 and 0.3 — so both would compile to
+/// `deps/libgetrandom.rlib`.
+const RUNTIME_RUSTC_ARGS: &[&str] =
+    &["--remap-path-prefix==./runtime", "-Cmetadata=buri_rt", "-Cextra-filename="];
+
+/// Copies `from` over `to`, **only if the bytes differ**.
+///
+/// Cargo's fingerprints are mtimes, so an unconditional copy would rebuild the
+/// runtime — now a dependency tree rather than one crate — every time this
+/// script reran for an unrelated reason, of which there are several: an edit to
+/// `sha256.rs`, an edit to any stencil generator, a change to `CC`.
+fn copy_if_different(from: &Path, to: &Path) {
+    let bytes = match std::fs::read(from) {
+        Ok(b) => b,
+        Err(e) => fail(&format!("could not read {}: {e}", from.display())),
+    };
+    if std::fs::read(to).is_ok_and(|existing| existing == bytes) {
+        return;
+    }
+    if let Err(e) = std::fs::write(to, &bytes) {
+        fail(&format!("could not write {}: {e}", to.display()));
+    }
+}
+
+/// Assembles the runtime's cargo package in `OUT_DIR` from the plain directory
+/// of files `cli/runtime/` is, and answers where it put it.
+///
+/// The header's second bullet is the whole argument for why the package is
+/// assembled rather than checked in. Mechanically it is three things: the
+/// manifest and the lockfile under the names Cargo insists on, the `.rs` files
+/// beside them, and the removal of anything left over from a previous build —
+/// a source file deleted from `cli/runtime/` must not go on being compiled out
+/// of a stale `OUT_DIR`.
+fn assemble(runtime: &Path, out_dir: &Path) -> PathBuf {
+    let pkg = out_dir.join("rt-pkg");
+    if let Err(e) = std::fs::create_dir_all(&pkg) {
+        fail(&format!("could not create {}: {e}", pkg.display()));
+    }
+
+    let mut wanted = vec![String::from("Cargo.toml"), String::from("Cargo.lock")];
+    copy_if_different(&runtime.join("manifest.toml"), &pkg.join("Cargo.toml"));
+    copy_if_different(&runtime.join("manifest.lock"), &pkg.join("Cargo.lock"));
+
+    let entries = match std::fs::read_dir(runtime) {
+        Ok(e) => e,
+        Err(e) => fail(&format!("could not read {}: {e}", runtime.display())),
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "rs") {
+            let name = entry.file_name().to_string_lossy().to_string();
+            copy_if_different(&path, &pkg.join(&name));
+            wanted.push(name);
+        }
+    }
+
+    if let Ok(existing) = std::fs::read_dir(&pkg) {
+        for entry in existing.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if entry.path().is_file() && !wanted.contains(&name) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    pkg
+}
+
+/// A `cargo` for the assembled package, with the parent invocation's state
+/// taken out of its environment.
+///
+/// **Every `CARGO_*` variable but one, removed.** A build script runs inside a
+/// cargo invocation and inherits its whole state: `CARGO_ENCODED_RUSTFLAGS`
+/// would silently outrank `RUSTFLAGS` (it is the one Cargo reads first),
+/// `CARGO_MAKEFLAGS` hands over a jobserver whose tokens this process is
+/// holding, and `CARGO_TARGET_DIR` would point the nested build at the
+/// workspace's target directory — whose lock the outer cargo owns for as long
+/// as this script runs, which is a deadlock rather than a slowdown.
+/// `--target-dir` says where instead, and the assembled package is its own
+/// workspace root, so there are two independent reasons the nested build cannot
+/// reach the outer lock.
+///
+/// `CARGO_HOME` is the exception, and it is deliberate: it is not build state,
+/// it is *where cargo lives*. A sandboxed build — `nix build`'s
+/// `buildRustPackage` is the one that matters here — points it at a writable
+/// vendored directory precisely because `$HOME` is not writable, so clearing it
+/// would turn a hermetic build into a failure. It cannot cause the deadlock
+/// this loop exists to prevent: it names no target directory and carries no
+/// jobserver.
+///
+/// `RUSTFLAGS` is **emptied** rather than left alone. A contributor's ambient
+/// flags would make the archive a different archive on every machine, and the
+/// flags this build does need go to the runtime crate alone
+/// ([`RUNTIME_RUSTC_ARGS`]).
+fn nested(cargo: &str, rustc: &str) -> Command {
+    let mut command = Command::new(cargo);
+    for (name, _) in std::env::vars() {
+        if name.starts_with("CARGO_") && name != "CARGO_HOME" {
+            command.env_remove(&name);
+        }
+    }
+    command.env_remove("CARGO");
+    command.env("RUSTC", rustc);
+    command.env("RUSTFLAGS", "");
+    command
+}
+
+/// Whether the runtime's dependency tree can be reached, and whether reaching
+/// it needed the network.
+///
+/// `Some(true)` means the lockfile resolved with no network at all, which is
+/// the warm case and the sandboxed one; `Some(false)` means it took a fetch.
+/// `None` is the degradation: the tree is out of reach, and the caller writes
+/// an empty archive rather than failing the toolchain's build.
+///
+/// Offline first, deliberately. `cargo fetch` without `--offline` updates the
+/// registry index, which is a network round trip on every cold build script
+/// even when every crate is already in `CARGO_HOME` — and the answer it would
+/// give is the one `--offline` already gave.
+///
+/// `--locked` on both, because a lockfile the manifest has outgrown is not a
+/// thing to resolve around silently: the archive's contents would stop being a
+/// function of the tree. Regenerating it is `BURI_RUNTIME_RELOCK=1`.
+fn resolves(cargo: &str, rustc: &str, pkg: &Path, target: &str) -> Option<bool> {
+    for offline in [true, false] {
+        let mut command = nested(cargo, rustc);
+        command.arg("fetch").arg("--locked").arg("--manifest-path").arg(pkg.join("Cargo.toml"));
+        command.args(["--target", target]);
+        if offline {
+            command.arg("--offline");
+        }
+        if command.status().is_ok_and(|s| s.success()) {
+            return Some(offline);
+        }
+    }
+    None
+}
 
 fn runtime_archive(manifest: &Path) {
     let runtime = manifest.join("runtime");
@@ -196,8 +373,11 @@ fn runtime_archive(manifest: &Path) {
     // the package, which would put a rustc invocation in front of every edit to
     // the compiler.
     println!("cargo:rerun-if-changed={}", runtime.display());
-    println!("cargo:rerun-if-env-changed=BURI_RUNTIME_CARGO");
-    println!("cargo:rerun-if-env-changed=BURI_RUNTIME_RUSTC");
+    for name in
+        ["BURI_RUNTIME_CARGO", "BURI_RUNTIME_RUSTC", "BURI_RUNTIME_NET", "BURI_RUNTIME_RELOCK"]
+    {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
 
     let target = env("TARGET");
     if !supported(&target) {
@@ -212,8 +392,8 @@ fn runtime_archive(manifest: &Path) {
     }
 
     // The cargo that is already running this script, unless something names
-    // another. `CARGO` is cleared from the *child's* environment below, so it
-    // is read here while it is still there.
+    // another. `CARGO` is cleared from the *child's* environment, so it is read
+    // here while it is still there.
     let cargo = std::env::var("BURI_RUNTIME_CARGO")
         .or_else(|_| std::env::var("CARGO"))
         .unwrap_or_else(|_| "cargo".to_string());
@@ -225,56 +405,75 @@ fn runtime_archive(manifest: &Path) {
         .or_else(|_| std::env::var("RUSTC"))
         .unwrap_or_else(|_| "rustc".to_string());
 
+    let pkg = assemble(&runtime, &out_dir);
     let target_dir = out_dir.join("rt");
-    let mut command = Command::new(&cargo);
+    // `BURI_RUNTIME_NET=0` is the runtime's `net` feature off: no dependency
+    // tree, no resolution to fail, and the archive this repository had before
+    // the feature existed. It is how the twenty-four-byte figure in
+    // `manifest.toml` was measured and what a host with an unreachable registry
+    // can fall back to by hand.
+    let net = !matches!(std::env::var("BURI_RUNTIME_NET").as_deref(), Ok("0"));
+    // The opt-in write-back path. Without `--locked` Cargo resolves and updates
+    // the assembled package's `Cargo.lock`; this is what carries the result back
+    // to the file a reviewer reads.
+    let relock = std::env::var_os("BURI_RUNTIME_RELOCK").is_some();
 
-    // **Every `CARGO_*` variable but one, removed.** A build script runs inside
-    // a cargo invocation and inherits its whole state: `CARGO_ENCODED_RUSTFLAGS`
-    // would silently outrank the `RUSTFLAGS` set below (it is the one Cargo
-    // reads first), `CARGO_MAKEFLAGS` hands over a jobserver whose tokens this
-    // process is holding, and `CARGO_TARGET_DIR` would point the nested build
-    // at the workspace's target directory — whose lock the outer cargo owns for
-    // as long as this script runs, which is a deadlock rather than a slowdown.
-    // `--target-dir` below says where instead, and `cli/runtime` is its own
-    // workspace root, so there are two independent reasons the nested build
-    // cannot reach the outer lock.
-    //
-    // `CARGO_HOME` is the exception, and it is deliberate: it is not build
-    // state, it is *where cargo lives*. A sandboxed build — `nix build`'s
-    // `buildRustPackage` is the one that matters here — points it at a writable
-    // vendored directory precisely because `$HOME` is not writable, so clearing
-    // it would turn a hermetic build into a failure. It cannot cause the
-    // deadlock this loop exists to prevent: it names no target directory and
-    // carries no jobserver.
-    for (name, _) in std::env::vars() {
-        if name.starts_with("CARGO_") && name != "CARGO_HOME" {
-            command.env_remove(&name);
-        }
+    let offline = match (net, relock) {
+        (false, _) => Some(true),
+        (true, true) => Some(false),
+        (true, false) => match resolves(&cargo, &rustc, &pkg, &target) {
+            Some(offline) => Some(offline),
+            None => {
+                // The degradation the header's fifth bullet argues for. A
+                // `cargo:warning` rather than silence, because the consequence
+                // — no native backend — is one a contributor will otherwise
+                // meet as a test that skipped.
+                println!(
+                    "cargo:warning=the runtime's dependency tree could not be resolved, so this \
+                     toolchain has no native runtime archive and no native backend. Either the \
+                     registry is unreachable and CARGO_HOME holds none of the crates, or \
+                     cli/runtime/manifest.lock no longer matches manifest.toml — \
+                     `BURI_RUNTIME_RELOCK=1 cargo build -p buri` fixes the second. \
+                     `BURI_RUNTIME_NET=0` builds the runtime without the networking crates."
+                );
+                write_empty(&out);
+                return;
+            }
+        },
+    };
+
+    let mut command = nested(&cargo, &rustc);
+    // `cargo rustc`, not `cargo build`: the flags after `--` are for the crate
+    // being built and not for its dependencies. See `RUNTIME_RUSTC_ARGS`.
+    command.arg("rustc").arg("--lib");
+    // `--release` is what selects `[profile.release]` in the runtime's
+    // manifest: `lto = "fat"`, `panic = "abort"`, `codegen-units = 1`,
+    // `debug = 0`. Each is argued where it is written.
+    command.arg("--release");
+    command.arg("--manifest-path").arg(pkg.join("Cargo.toml"));
+    command.args(["--target", &target]);
+    command.arg("--target-dir").arg(&target_dir);
+    if !relock {
+        command.arg("--locked");
     }
-    command.env_remove("CARGO");
+    if offline == Some(true) {
+        command.arg("--offline");
+    }
+    if !net {
+        command.arg("--no-default-features");
+    }
+    command.arg("--").args(RUNTIME_RUSTC_ARGS);
 
-    let status = command
-        .env("RUSTC", &rustc)
-        // Set rather than appended: an archive built with a contributor's
-        // ambient `RUSTFLAGS` would be a different archive on every machine,
-        // and the raw `rustc` invocation this replaces never read them either.
-        .env("RUSTFLAGS", RUNTIME_RUSTFLAGS)
-        .arg("build")
-        // `--release` is what selects `[profile.release]` in the runtime's
-        // manifest: `lto = "fat"`, `panic = "abort"`, `codegen-units = 1`,
-        // `debug = 0`. Each is argued where it is written.
-        .arg("--release")
-        .arg("--manifest-path")
-        .arg(runtime.join("Cargo.toml"))
-        .args(["--target", &target])
-        .arg("--target-dir")
-        .arg(&target_dir)
-        .status();
-
-    match status {
+    match command.status() {
         Ok(s) if s.success() => {}
-        Ok(s) => fail(&format!("{cargo} failed to build cli/runtime ({s})")),
-        Err(e) => fail(&format!("could not run {cargo} to build cli/runtime: {e}")),
+        // A tree that resolved and then failed to compile is a broken runtime
+        // rather than a missing one, so this is a failure and not a degrade.
+        Ok(s) => fail(&format!("{cargo} failed to build the runtime ({s})")),
+        Err(e) => fail(&format!("could not run {cargo} to build the runtime: {e}")),
+    }
+
+    if relock {
+        copy_if_different(&pkg.join("Cargo.lock"), &runtime.join("manifest.lock"));
     }
 
     // `deps/` rather than the profile directory above it: Cargo hard-links an

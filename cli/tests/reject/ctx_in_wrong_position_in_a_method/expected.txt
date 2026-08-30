@@ -1,0 +1,38 @@
+error: `ctx` must come first, or immediately after `self` [ctx-not-first]
+  --> cmd/ctx_in_wrong_position_in_a_method/main.buri:13:40
+   |
+13 |   fn ring<C: Stdout>(self, times: Int, ctx: C): ();
+   |                                        ^^^^^^
+   |
+   = the calling convention is receiver first, context second, everything else after
+   = fix: move `ctx` to that position
+
+     What to do
+     ──────────
+
+     Move ctx to that position.
+
+     Why
+     ───
+
+     The position is the whole of what makes effectfulness readable: a reader
+     answers "can this function touch the world?" from the first two parameters
+     and stops. A ctx in fourth place would make that a question about the whole
+     signature.
+
+error: `ctx` must come first, or immediately after `self` [ctx-not-first]
+  --> cmd/ctx_in_wrong_position_in_a_method/main.buri:17:40
+   |
+17 |   fn ring<C: Stdout>(self, times: Int, ctx: C): () {
+   |                                        ^^^^^^
+   |
+   = the calling convention is receiver first, context second, everything else after
+   = fix: move `ctx` to that position
+error: `ctx` must come first, or immediately after `self` [ctx-not-first]
+  --> cmd/ctx_in_wrong_position_in_a_method/main.buri:23:40
+   |
+23 |   fn peal<C: Stdout>(self, times: Int, ctx: C): () {
+   |                                        ^^^^^^
+   |
+   = the calling convention is receiver first, context second, everything else after
+   = fix: move `ctx` to that position

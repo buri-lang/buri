@@ -1,0 +1,38 @@
+// EXPECT: carries an effect, so it must be named `ctx`
+//
+// Rule 26 holds of every signature, not only the ones written at module scope.
+// It used to be checked from the `fn` item path alone, so a `trait` body and
+// an `impl` block were both exempt — and a method is exactly where a context
+// is most often taken, `Actor.step` and `WebSocket.onMessage` being the shape.
+//
+// Three signatures, one mistake each: the declaration, the implementation that
+// mirrors it, and a method of the type's own.
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/io/lib.buri" import * as io;
+
+export struct Ledger { export lines: Int }
+
+export trait Report {
+  fn write<C: Stdout>(self, sink: C): ();
+}
+
+impl Report for Ledger {
+  fn write<C: Stdout>(self, sink: C): () {
+    io.println(sink, "${self.lines}")
+  }
+}
+
+impl Ledger {
+  fn dump<C: Stdout>(self, sink: C): () {
+    io.println(sink, "dump")
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let book = Ledger { lines: 1 };
+  let _ = book.write(ctx);
+  let _ = book.dump(ctx);
+  .Ok(())
+}
