@@ -39,9 +39,42 @@ mod migrate;
 use harness::{indent, repo_root, Scratch};
 use migrate::{plan, sources_under, Style};
 
-/// The packages design slice E7 moves. Named here rather than passed in, so
+/// The packages the migration has moved. Named here rather than passed in, so
 /// that the idempotence sweep and the migration cannot drift apart.
-const PACKAGES: &[&str] = &["lib/data", "lib/collections"];
+///
+/// E7 is the first two, E8 the last three.
+const PACKAGES: &[&str] =
+    &["lib/data", "lib/collections", "lib/semantics", "lib/json", "lib/proto"];
+
+/// The files under [`PACKAGES`] the migration is **not** run over, and why.
+///
+/// One entry, and it is not a limitation of the script: `effects.buri` is
+/// `core/testing/context`'s own conformance file. Its subject is the module
+/// being migrated away from — `readOnly`'s attenuator, `noNet`'s refusals,
+/// `capturedErr`, `advance`, and `..Hermetic()` spread through three named
+/// context declarations — and `core/host/testing`'s equivalent is the file
+/// next door, `host_testing.buri`, written for E1–E4 precisely so that the two
+/// spellings are covered side by side while they coexist. Rewriting it would
+/// leave a module this repository still ships with no conformance file at all,
+/// six waves before E12 deletes it. It moves with the module, in E12.
+const HELD: &[(&str, &str)] = &[(
+    "lib/semantics/test/effects.buri",
+    "`core/testing/context`'s own conformance file — it moves with the module, in E12",
+)];
+
+/// The files the migration runs over and cannot finish, and what each is
+/// waiting for.
+///
+/// Each is migrated as far as `core/host/testing` reaches and keeps importing
+/// `core/testing/context` for the one name that has no twin.
+/// [`the_migrated_packages_have_nothing_left_to_rewrite`] holds the list to
+/// both halves of that: a file here that no longer names the old module is a
+/// row to delete, and a file that names it and is not here is a migration that
+/// stopped early without saying so.
+const PARTIAL: &[(&str, &str)] = &[(
+    "lib/semantics/test/http.buri",
+    "`noNet()`, which E3's `net()` replaces; the rest of the file is migrated",
+)];
 
 /// The corpus both halves work in.
 const CORPUS: &str = "cli/tests/conformance";
@@ -210,6 +243,69 @@ fn a_name_the_file_also_binds_is_refused_rather_than_guessed_at() {
 }
 
 #[test]
+fn a_file_that_names_none_of_this_is_left_exactly_as_it_is() {
+    // Every file of a package is planned, including the ones that never named
+    // `core/testing/context` — and what the migration owes those is nothing at
+    // all. The `core/effect` import is the trap: it is a line this rewrite
+    // knows how to write, and a plan that rewrote it here would reorder a
+    // neighbour's imports for no reason. `lib/semantics/shapes.buri` and
+    // `host_testing.buri` are the two real files that shape came from.
+    let source = "from \"core/effect/lib.buri\" import { Stdout, Alloc, Fs };\n\
+                  from \"core/host/testing/lib.buri\" import { alloc };\n\
+                  test \"t\" {\n  let ctx = context { Alloc: alloc() };\n}\n";
+    let p = plan("test/case.buri", source);
+    assert!(!p.work_left(), "there is nothing here to do");
+    assert!(!p.still_names_the_old_module());
+    assert_eq!(p.render(Style::Final).0, source, "and so nothing is written");
+}
+
+/// The same, one step in: a file that *is* migrated but already imports every
+/// effect its contexts name keeps its own import line, in its own order.
+#[test]
+fn an_effect_import_that_is_already_enough_is_left_alone() {
+    let source = "from \"core/testing/context/lib.buri\" import { Hermetic };\n\
+                  from \"core/effect/lib.buri\" import { Stdout, Alloc };\n\
+                  test \"t\" {\n  let ctx = Hermetic();\n}\n";
+    let out = rewritten(source, &["Alloc"]);
+    assert!(
+        out.contains("from \"core/effect/lib.buri\" import { Stdout, Alloc };"),
+        "{}",
+        indent(&out)
+    );
+}
+
+#[test]
+fn a_name_with_no_twin_keeps_its_import_and_nothing_else_does() {
+    // `lib/semantics/test/http.buri`'s shape: two names from the old module,
+    // one of which — `noNet` — this migration has nothing to put in place of.
+    // The call stays, so the import of *that* name has to stay with it, and
+    // the import of `alloc` has to move all the same. Dropping the line whole
+    // would leave the file naming something it no longer imports; keeping it
+    // whole would leave `alloc` imported from two modules at once.
+    let source = "from \"core/testing/context/lib.buri\" import { alloc, noNet };\n\
+                  from \"core/effect/lib.buri\" import { Alloc, Net };\n\
+                  test \"t\" {\n  let ctx = context { Alloc: alloc(), Net: noNet() };\n}\n";
+    let out = rewritten(source, &[]);
+    assert!(
+        out.contains("from \"core/testing/context/lib.buri\" import { noNet };"),
+        "{}",
+        indent(&out)
+    );
+    assert!(
+        out.contains("from \"core/host/testing/lib.buri\" import { alloc };"),
+        "{}",
+        indent(&out)
+    );
+    assert!(out.contains("context { Alloc: alloc(), Net: noNet() }"), "{}", indent(&out));
+
+    // And the inverse: a file with nothing left to keep loses the line.
+    let clean = "from \"core/testing/context/lib.buri\" import { alloc };\n\
+                 test \"t\" {\n  let ctx = context { Alloc: alloc() };\n}\n";
+    let out = rewritten(clean, &[]);
+    assert!(!out.contains("core/testing/context"), "{}", indent(&out));
+}
+
+#[test]
 fn a_function_with_no_twin_is_left_alone_and_named() {
     let source = "from \"core/testing/context/lib.buri\" import { noNet };\n\
                   test \"t\" {\n  let n = noNet();\n}\n";
@@ -221,6 +317,42 @@ fn a_function_with_no_twin_is_left_alone_and_named() {
         p.notes
     );
     assert!(p.render(Style::Final).0.contains("let n = noNet();"));
+}
+
+/// A `Hermetic()` written in a *named context declaration* is answered by the
+/// diagnostic its callers draw.
+///
+/// `context Inherited { ..Hermetic() }` is a declaration nothing is missing
+/// from until somebody calls it, and the compiler reports the missing binding
+/// where it is called — a test with no `Hermetic()` in it at all. So the
+/// attribution follows the edge: a declaration with no site of its own hands
+/// the diagnostic to the context declarations it names. `lib/semantics`'s
+/// `evaluation.buri` is the file this came from, and `effects.buri` — held
+/// back for E12 — is the one that chains three of them.
+#[test]
+fn a_context_declaration_is_answered_by_the_diagnostic_its_caller_drew() {
+    let source = "from \"core/testing/context/lib.buri\" import { Hermetic };\n\
+                  context Inherited {\n  ..Hermetic(),\n}\n\
+                  test \"t\" {\n  let ctx = Inherited();\n  let _ = ticked(ctx);\n}\n";
+    let files = vec![("test/case.buri".to_string(), source.to_string())];
+    let mut round = 0;
+    let report = migrate::migrate(&files, |rendered| {
+        round += 1;
+        if round > 1 {
+            return String::new();
+        }
+        // Reported at the call, which is the only place it can be.
+        let line = rendered[0].1.lines().position(|l| l.contains("ticked(ctx)")).unwrap() + 1;
+        format!(
+            "{{\"code\": \"unsatisfied-bound\", \"severity\": \"error\", \
+             \"message\": \"`a context` does not satisfy `Clock`\", \
+             \"location\": {{\"file\": \"test/case.buri\", \"line\": {line}}}}}"
+        )
+    });
+    assert_eq!(report.derived, 1, "one site, and the compiler named its effect");
+    assert_eq!(report.approximated, 0, "and named it, so nothing was approximated");
+    let out = report.plans[0].render(Style::Final).0;
+    assert!(out.contains("..context { Clock: clock() },"), "{}", indent(&out));
 }
 
 // ---------------------------------------------------------------------------
@@ -237,24 +369,63 @@ fn a_function_with_no_twin_is_left_alone_and_named() {
 fn the_migrated_packages_have_nothing_left_to_rewrite() {
     let root = repo_root();
     let mut left = Vec::new();
+    let mut residue = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
     let mut checked = 0;
     for package in PACKAGES {
         for rel in sources_under(&root.join(CORPUS), package) {
+            if HELD.iter().any(|(held, _)| *held == rel) {
+                continue;
+            }
             let text = std::fs::read_to_string(root.join(CORPUS).join(&rel)).unwrap();
             let p = plan(&rel, &text);
             assert!(p.refused.is_none(), "{}", p.refused.unwrap());
             checked += 1;
-            if p.touches_anything() {
+            if p.work_left() {
                 left.push(format!("{rel}: {} site(s) and an import to move", p.sites.len()));
+            }
+            // A file that still names the old module has to say why, in a list
+            // somebody reads — and the list has to still be true.
+            if p.still_names_the_old_module() {
+                seen.push(rel.clone());
+                if !PARTIAL.iter().any(|(f, _)| *f == rel) {
+                    residue.push(format!("{rel} still imports the old module and is not in PARTIAL"));
+                }
             }
         }
     }
-    assert!(checked >= 8, "expected the two packages' sources, found {checked}");
+    for (file, why) in PARTIAL {
+        if !seen.iter().any(|rel| rel == file) {
+            residue.push(format!("{file} no longer needs the old module — delete its row ({why})"));
+        }
+    }
+    assert!(checked >= 22, "expected the five packages' sources, found {checked}");
     assert!(
         left.is_empty(),
         "the migration is not finished in {PACKAGES:?}:\n  {}",
         left.join("\n  ")
     );
+    assert!(residue.is_empty(), "the residue is not what it says it is:\n  {}", residue.join("\n  "));
+}
+
+/// Every file [`HELD`] and [`PARTIAL`] name exists and still names the old
+/// module.
+///
+/// Both lists are prose about files, and prose about files rots. This is the
+/// half of that which is checkable: a row naming a file that is gone, or one
+/// that has nothing to do with `core/testing/context` any more, fails here.
+#[test]
+fn the_held_and_partial_lists_name_files_that_are_still_there() {
+    let corpus = repo_root().join(CORPUS);
+    for (file, why) in HELD.iter().chain(PARTIAL) {
+        let path = corpus.join(file);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{file} ({why}) cannot be read: {e}"));
+        assert!(
+            text.contains("core/testing/context"),
+            "{file} no longer names the old module, so its row is stale: {why}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +454,15 @@ fn migrate_the_corpus() {
     let files: Vec<(String, String)> = chosen
         .iter()
         .flat_map(|package| sources_under(&corpus, package))
+        .filter(|rel| {
+            match HELD.iter().find(|(held, _)| held == rel) {
+                Some((held, why)) => {
+                    println!("held: {held} — {why}");
+                    false
+                }
+                None => true,
+            }
+        })
         .map(|rel| {
             let text = std::fs::read_to_string(corpus.join(&rel)).unwrap();
             (rel, text)

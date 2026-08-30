@@ -6,7 +6,7 @@
 // ordinary member of the enclosing object rather than a tagged one.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
 from "core/effect/lib.buri" import { Alloc };
 from "core/json/lib.buri" import { Json };
 from "core/json/lib.buri" import * as json;
@@ -36,13 +36,13 @@ fn doc<C: Alloc>(ctx: C, source: Str): Json {
 // --- what is written and what is left out ---------------------------------------
 
 test "a default-valued field is omitted, so an empty message is an empty object" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, defaultEverything()), "{}");
   assert.eq(json.stringify(ctx, encodeEmptyJson(ctx, defaultEmpty())), "{}");
 }
 
 test "an omitted member and a null member mean the same thing" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(decodeEverythingJson(ctx, doc(ctx, "{}")), .Ok(defaultEverything()));
   assert.eq(
     decodeEverythingJson(ctx, doc(ctx, "{\"name\":null,\"age\":null}")),
@@ -51,7 +51,7 @@ test "an omitted member and a null member mean the same thing" {
 }
 
 test "a field name is lowerCamelCase, and a keyword does not rename it" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // `user_name` is `userName` in the document and in Buri; `type` is `type`
   // in the document and `type_` in Buri, because the document is not ours to
   // rename.
@@ -63,7 +63,7 @@ test "a field name is lowerCamelCase, and a keyword does not rename it" {
 // --- the four differences from `derive ToJson` ------------------------------------
 
 test "a 64-bit integer is a string and a 32-bit one is a number" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // A JSON number is a double, and 2^53 + 1 is not one. Every proto3 JSON
   // implementation writes the 64-bit types as strings for this reason.
   let v = Everything { ..defaultEverything(), count: .Some(7), total: .Some(7), serial: .Some(7), signedBig: .Some(7)};
@@ -74,7 +74,7 @@ test "a 64-bit integer is a string and a 32-bit one is a number" {
 }
 
 test "a 64-bit integer is also accepted as a number" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // A reader is more permissive than a writer, which is what the mapping asks
   // for.
   assert.eq(
@@ -88,14 +88,14 @@ test "a 64-bit integer is also accepted as a number" {
 }
 
 test "bytes are base64 with padding" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let v = Everything { ..defaultEverything(), blob: .Some([1.wrapToU8(), 255.wrapToU8()])};
   assert.eq(text(ctx, v), "{\"blob\":\"Af8=\"}");
   assert.eq(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
 }
 
 test "an enum is the name of its value" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let v = Everything { ..defaultEverything(), shade: .Some(Shade.DARK)};
   assert.eq(text(ctx, v), "{\"shade\":\"DARK\"}");
   // The number is accepted too, and one the schema does not name is kept —
@@ -111,7 +111,7 @@ test "an enum is the name of its value" {
 }
 
 test "a oneof case is an ordinary member of the object" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // `{"phone":"9"}`, not `{"contact":{"Phone":"9"}}`: the tagged form is what
   // `derive ToJson` would write, and no other protobuf implementation reads it.
   let v = Everything { ..defaultEverything(), contact: .Some(Everything_Contact.Phone("9")) };
@@ -130,7 +130,7 @@ test "a oneof case is an ordinary member of the object" {
 // --- presence ---------------------------------------------------------------------
 
 test "a field set to its own zero value is still written" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // Explicit presence, in the other format: proto3 JSON omitted a default and
   // editions writes one that was *set*.
   assert.eq(text(ctx, Everything { ..defaultEverything(), count: .Some(0) }), "{\"count\":0}");
@@ -142,20 +142,20 @@ test "a field set to its own zero value is still written" {
 }
 
 test "an IMPLICIT field is omitted at its default, the way proto3 did it" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, Everything { ..defaultEverything(), age: 0 }), "{}");
   assert.eq(text(ctx, Everything { ..defaultEverything(), age: 7 }), "{\"age\":7}");
 }
 
 test "a message field is written when it is present, empty or not" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let v = Everything { ..defaultEverything(), home: .Some(defaultAddress()) };
   assert.eq(text(ctx, v), "{\"home\":{}}");
   assert.eq(decodeEverythingJson(ctx, encodeEverythingJson(ctx, v)), .Ok(v));
 }
 
 test "an empty repeated field is omitted rather than written as []" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, Everything { ..defaultEverything(), scores: list.empty<Int>() }), "{}");
   assert.eq(
     text(ctx, Everything { ..defaultEverything(), scores: [1, 2] }),
@@ -171,7 +171,7 @@ test "an empty repeated field is omitted rather than written as []" {
 // --- nesting -----------------------------------------------------------------------
 
 test "a nested message and an imported one are objects" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let v = Everything {
     ..defaultEverything(),
     home: .Some(Address { city: .Some("Kyoto"), zip: .Some(600), country: .Some(Country.JP)}),
@@ -186,7 +186,7 @@ test "a nested message and an imported one are objects" {
 }
 
 test "every field kind at once round-trips through JSON" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let v = Everything {
     name: .Some("Ada"),
     count: .Some(-7),
@@ -223,7 +223,7 @@ test "every field kind at once round-trips through JSON" {
 // --- a document that is not the message ----------------------------------------
 
 test "a member of the wrong shape names the path it was at" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     decodeEverythingJson(ctx, doc(ctx, "{\"name\":5}")),
     .Err(.BadJson { path: "$.name", wanted: "a string" }),
@@ -259,7 +259,7 @@ test "a member of the wrong shape names the path it was at" {
 }
 
 test "a member the schema does not know is ignored" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // The same forward compatibility the binary decoder has, in the other format.
   assert.eq(
     decodeEverythingJson(ctx, doc(ctx, "{\"name\":\"Ada\",\"somethingNewer\":[1,2]}")),
