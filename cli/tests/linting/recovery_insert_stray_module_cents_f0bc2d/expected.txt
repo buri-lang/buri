@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_module_cents_f0bc2d/lib.buri:5:47
+  |
+5 | export fn fromCents(c: I64): Cents { Cents(c) , }
+  |                                               ^
+  |
+ --> lib/recovery_insert_stray_module_cents_f0bc2d/lib.buri:5:36
+  |
+5 | export fn fromCents(c: I64): Cents { Cents(c) , }
+  |                                    ^ opened here
+  |
+  = fix: write `}` here

@@ -1,0 +1,37 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_module_app_6605f0/main.buri:13:3
+   |
+13 |   .Ok(())
+   |   ^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: `.Ok` needs a known expected type [unannotated-variant]
+  --> lib/recovery_insert_stray_module_app_6605f0/main.buri:13:3
+   |
+13 |   .Ok(())
+   |   ^^^
+   |
+   = fix: write the qualified form, as in `Option.Ok(...)`, or annotate what this value is being used as
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_module_app_6605f0/main.buri:13:10
+   |
+13 |   .Ok(())
+   |          ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_module_app_6605f0/main.buri:14:1
+   |
+14 | extra }
+   | ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+warning: `ctx` is bound to something other than a context [ctx-rebinding]
+  --> lib/recovery_insert_stray_module_app_6605f0/main.buri:17:3
+   |
+17 |   let ctx = "not a context";
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `ctx` is where a function's effects arrive, and a repository in which it means that everywhere is one where a reader can tell what a function may do by reading its signature
+   = fix: give the binding a name of its own

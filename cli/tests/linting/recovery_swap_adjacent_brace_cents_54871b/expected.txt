@@ -1,0 +1,32 @@
+error: an expression statement is legal only in a test source [expression-statement]
+ --> lib/recovery_swap_adjacent_brace_cents_54871b/lib.buri:6:3
+  |
+6 |   doubled let = n * 2;
+  |   ^^^^^^^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `doubled` in scope [unresolved-name]
+ --> lib/recovery_swap_adjacent_brace_cents_54871b/lib.buri:6:3
+  |
+6 |   doubled let = n * 2;
+  |   ^^^^^^^
+  |
+  = did you mean `Bounded`?
+  = fix: correct the spelling, or declare it
+error: a statement ends with `;` [missing-terminator]
+ --> lib/recovery_swap_adjacent_brace_cents_54871b/lib.buri:6:10
+  |
+6 |   doubled let = n * 2;
+  |          ^
+  |
+  = fix: write `;` here
+error: expected a pattern, found `=` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_cents_54871b/lib.buri:6:15
+  |
+6 |   doubled let = n * 2;
+  |               ^
+  |
+  = expected: a pattern
+  = actual: `=`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

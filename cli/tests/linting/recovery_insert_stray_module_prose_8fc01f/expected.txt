@@ -1,0 +1,9 @@
+error: expected a type, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_module_prose_8fc01f/lib.buri:1:26
+  |
+1 | export fn shout(s: Str): ? Str { s }
+  |                          ^
+  |
+  = expected: a type
+  = actual: `?`
+  = fix: name a type here, as in `Int` or `[Str]`

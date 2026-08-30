@@ -1,0 +1,29 @@
+warning: `spell` is 47 lines long [oversized-function]
+ --> lib/recovery_delete_closer_brace_app_c7034c/main.buri:9:4
+  |
+9 | fn spell(n: I64): Str {
+  |    ^^^^^
+  |
+  = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+  = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: expected an identifier, found `0` [unexpected-token]
+  --> lib/recovery_delete_closer_brace_app_c7034c/main.buri:11:5
+   |
+11 |     0 => "zero",
+   |     ^
+   |
+   = expected: an identifier
+   = actual: `0`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_c7034c/main.buri:56:1
+   |
+56 | 
+   | ^
+   |
+ --> lib/recovery_delete_closer_brace_app_c7034c/main.buri:9:23
+  |
+9 | fn spell(n: I64): Str {
+  |                       ^ opened here
+  |
+  = fix: write `}` here

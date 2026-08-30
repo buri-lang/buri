@@ -1,0 +1,9 @@
+error: expected `:`, found `Cents` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_cents_7b810d/lib.buri:5:28
+  |
+5 | export fn fromCents(c: I64)Cents : { Cents(c) }
+  |                            ^^^^^
+  |
+  = expected: `:`
+  = actual: `Cents`
+  = fix: write `:` here

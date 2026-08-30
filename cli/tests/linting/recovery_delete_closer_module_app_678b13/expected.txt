@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_678b13/main.buri:51:1
+   |
+51 | export fn main(): Result<(), Str> {
+   | ^^^^^^
+   |
+ --> lib/recovery_delete_closer_module_app_678b13/main.buri:9:23
+  |
+9 | fn spell(n: I64): Str {
+  |                       ^ opened here
+  |
+  = fix: write `}` here

@@ -1,0 +1,14 @@
+error: `extra` is not a trait [derive-not-a-trait]
+ --> lib/recovery_insert_stray_module_cents_122b13/lib.buri:3:12
+  |
+3 | derive Eq, extra Show for Cents;
+  |            ^^^^^
+  |
+  = fix: name a declared trait; `derive` generates a trait's methods
+error: a derived trait ends with `,` [missing-separator]
+ --> lib/recovery_insert_stray_module_cents_122b13/lib.buri:3:17
+  |
+3 | derive Eq, extra Show for Cents;
+  |                 ^
+  |
+  = fix: write `,` here

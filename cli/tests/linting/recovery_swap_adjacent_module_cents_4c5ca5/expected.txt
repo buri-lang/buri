@@ -1,0 +1,9 @@
+error: expected a type, found `{` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_cents_4c5ca5/lib.buri:5:30
+  |
+5 | export fn fromCents(c: I64): { Cents Cents(c) }
+  |                              ^
+  |
+  = expected: a type
+  = actual: `{`
+  = fix: name a type here, as in `Int` or `[Str]`

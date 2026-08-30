@@ -1,0 +1,9 @@
+error: expected a function body, found `if` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_cents_470f53/lib.buri:3:31
+  |
+3 | export fn format(n: I64): Str if { (n == 0) { "zero" } else { "some" } }
+  |                               ^^
+  |
+  = expected: a function body
+  = actual: `if`
+  = fix: write `{ ... }` after the return type

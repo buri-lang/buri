@@ -1,0 +1,20 @@
+warning: str is imported but not used [unused-import]
+ --> lib/recovery_insert_stray_module_cents_d82f84/lib.buri:9:29
+  |
+9 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: this generic parameter list is missing its closing `>` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_module_cents_d82f84/lib.buri:17:28
+   |
+17 | export fn describe<C: Alloc@ >(ctx: C, c: Cents): Str {
+   |                            ^
+   |
+  --> lib/recovery_insert_stray_module_cents_d82f84/lib.buri:17:19
+   |
+17 | export fn describe<C: Alloc@ >(ctx: C, c: Cents): Str {
+   |                   ^ opened here
+   |
+   = fix: write `>` here

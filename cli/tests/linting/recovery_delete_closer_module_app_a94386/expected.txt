@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_a94386/main.buri:20:1
+   |
+20 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_app_a94386/main.buri:16:20
+   |
+16 | fn describe(): Str {
+   |                    ^ opened here
+   |
+   = fix: write `}` here

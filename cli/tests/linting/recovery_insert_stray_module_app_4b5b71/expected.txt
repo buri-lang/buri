@@ -1,0 +1,22 @@
+error: an import name ends with `,` [missing-separator]
+ --> lib/recovery_insert_stray_module_app_4b5b71/main.buri:6:42
+  |
+6 | from "core/effect" import { Alloc, Stdout extra };
+  |                                          ^
+  |
+  = fix: write `,` here
+error: "core/effect" does not export `extra` [no-such-export]
+ --> lib/recovery_insert_stray_module_app_4b5b71/main.buri:6:43
+  |
+6 | from "core/effect" import { Alloc, Stdout extra };
+  |                                           ^^^^^
+  |
+  = fix: check the spelling, or add `export` to `extra`'s declaration in "core/effect"
+warning: extra is imported but not used [unused-import]
+ --> lib/recovery_insert_stray_module_app_4b5b71/main.buri:6:43
+  |
+6 | from "core/effect" import { Alloc, Stdout extra };
+  |                                           ^^^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import

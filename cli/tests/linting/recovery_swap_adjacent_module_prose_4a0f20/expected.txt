@@ -1,0 +1,9 @@
+error: expected `:`, found `Str` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_prose_4a0f20/lib.buri:1:24
+  |
+1 | export fn shout(s: Str)Str : { s }
+  |                        ^^^
+  |
+  = expected: `:`
+  = actual: `Str`
+  = fix: write `:` here

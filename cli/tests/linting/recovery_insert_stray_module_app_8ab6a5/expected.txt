@@ -1,0 +1,16 @@
+error: expected a function body, found `@` [unexpected-token]
+ --> lib/recovery_insert_stray_module_app_8ab6a5/main.buri:9:23
+  |
+9 | fn spell(n: I64): Str @ {
+  |                       ^
+  |
+  = expected: a function body
+  = actual: `@`
+  = fix: write `{ ... }` after the return type
+error: there is nothing named `spell` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_module_app_8ab6a5/main.buri:53:27
+   |
+53 |   let _ = io.println(ctx, spell(7));
+   |                           ^^^^^
+   |
+   = fix: declare `spell`, or import it — a name is in scope only from this module's own declarations and its imports

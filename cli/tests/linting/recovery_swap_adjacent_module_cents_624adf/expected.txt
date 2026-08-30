@@ -1,0 +1,9 @@
+error: expected a function body, found `Cents` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_cents_624adf/lib.buri:5:36
+  |
+5 | export fn fromCents(c: I64): Cents Cents {(c) }
+  |                                    ^^^^^
+  |
+  = expected: a function body
+  = actual: `Cents`
+  = fix: write `{ ... }` after the return type

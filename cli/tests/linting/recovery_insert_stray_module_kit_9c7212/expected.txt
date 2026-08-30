@@ -1,0 +1,9 @@
+error: expected `{`, found `extra` [unexpected-token]
+ --> lib/recovery_insert_stray_module_kit_9c7212/lib.buri:4:25
+  |
+4 | from "core/list" import extra * as list;
+  |                         ^^^^^
+  |
+  = expected: `{`
+  = actual: `extra`
+  = fix: write `{` here

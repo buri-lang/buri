@@ -1,0 +1,17 @@
+warning: `spell` is 41 lines long [oversized-function]
+ --> lib/recovery_swap_adjacent_brace_app_fd4c36/main.buri:9:4
+  |
+9 | fn spell(n: I64): Str {
+  |    ^^^^^
+  |
+  = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+  = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: expected a pattern, found `=>` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_fd4c36/main.buri:14:5
+   |
+14 |     => 3 "three",
+   |     ^^
+   |
+   = expected: a pattern
+   = actual: `=>`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

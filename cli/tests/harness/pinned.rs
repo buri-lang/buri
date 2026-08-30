@@ -258,6 +258,23 @@ pub fn select(
     total: usize,
     keep: &mut dyn FnMut(&Mutation) -> bool,
 ) -> Vec<Pick> {
+    select_with(sources, seed, total, PER_KIND, PER_CELL, keep)
+}
+
+/// The same, with the two bounds named.
+///
+/// A suite drawing from twenty seeds rather than three hundred runs out of
+/// cells long before it runs out of budget, and widening the offer is how it
+/// gets the rest — so the numbers are arguments where that matters rather than
+/// constants every corpus has to share.
+pub fn select_with(
+    sources: &[Source],
+    seed: u64,
+    total: usize,
+    per_kind: usize,
+    per_cell: usize,
+    keep: &mut dyn FnMut(&Mutation) -> bool,
+) -> Vec<Pick> {
     // Every candidate, bucketed by cell, ordered shortest-seed-first inside it.
     let mut cells: BTreeMap<String, Vec<(usize, String, Mutation)>> = BTreeMap::new();
     for src in sources {
@@ -265,7 +282,7 @@ pub fn select(
             continue;
         }
         let Some(shape) = Shape::of(&src.text) else { continue };
-        for m in mutations_of(src, seed, PER_KIND) {
+        for m in mutations_of(src, seed, per_kind) {
             let Some(cell) = cell_of(&shape, &m) else { continue };
             cells.entry(cell).or_default().push((src.text.len(), src.name.clone(), m));
         }
@@ -279,11 +296,11 @@ pub fn select(
     // rows are the mutation shapes, and taking every row's first cell before
     // any row's second is the whole of "thins every shape evenly".
     let mut ranks: BTreeMap<String, usize> = BTreeMap::new();
-    let mut per_cell: Vec<(usize, Vec<Pick>)> = Vec::with_capacity(cells.len());
+    let mut buckets: Vec<(usize, Vec<Pick>)> = Vec::with_capacity(cells.len());
     for (cell, candidates) in cells {
         let mut taken: Vec<Pick> = Vec::new();
         for (_, _, m) in candidates {
-            if taken.len() >= PER_CELL {
+            if taken.len() >= per_cell {
                 break;
             }
             if !keep(&m) {
@@ -296,15 +313,15 @@ pub fn select(
         }
         let row = cell.split(" | ").next().unwrap_or_default().to_string();
         let rank = ranks.entry(row).or_default();
-        per_cell.push((*rank, taken));
+        buckets.push((*rank, taken));
         *rank = rank.saturating_add(1);
     }
 
     // Round-robin: every row's first cell, then every row's second, and only
     // then a second case from any cell.
     let mut order: Vec<(usize, usize)> = Vec::new();
-    for slot in 0..PER_CELL {
-        let mut round: Vec<(usize, usize, usize)> = per_cell
+    for slot in 0..per_cell {
+        let mut round: Vec<(usize, usize, usize)> = buckets
             .iter()
             .enumerate()
             .filter(|(_, (_, picks))| slot < picks.len())
@@ -316,7 +333,7 @@ pub fn select(
     order.truncate(total);
     order.sort_unstable();
     let mut out: Vec<Pick> = Vec::new();
-    for (at, (_, cell)) in per_cell.into_iter().enumerate() {
+    for (at, (_, cell)) in buckets.into_iter().enumerate() {
         for (slot, pick) in cell.into_iter().enumerate() {
             if order.binary_search(&(at, slot)).is_ok() {
                 out.push(pick);

@@ -1,0 +1,40 @@
+error: expected a declaration, found a string literal [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_app_097f7e/main.buri:6:1
+  |
+6 | "core/host" from import * as host;
+  | ^^^^^^^^^^^
+  |
+  = expected: a declaration
+  = actual: a string literal
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected a string literal, found `import` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_app_097f7e/main.buri:6:18
+  |
+6 | "core/host" from import * as host;
+  |                  ^^^^^^
+  |
+  = expected: a string literal
+  = actual: `import`
+  = fix: quote it, as in `"core/list"`
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_swap_adjacent_module_app_097f7e/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: there is nothing named `host` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_module_app_097f7e/main.buri:13:30
+   |
+13 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+   |                              ^^^^
+   |
+   = fix: declare `host`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `host` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_module_app_097f7e/main.buri:13:50
+   |
+13 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+   |                                                  ^^^^
+   |
+   = fix: declare `host`, or import it — a name is in scope only from this module's own declarations and its imports

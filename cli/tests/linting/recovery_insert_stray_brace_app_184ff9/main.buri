@@ -1,0 +1,19 @@
+// `core/effect` is named by two statements, so the top of this file is not the
+// whole account of what it borrows from that module.
+//
+// `core/io` is named twice as well and is not a finding: a statement carries
+// one clause, so a namespace import cannot be merged into a named one and
+// there is no single statement for the two to become.
+
+from "core/effect" import { Alloc };
+from "core/effect" import { Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/io" import { print };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = print(ctx, "half a line")@ ;
+  let _ = io.println(ctx, " and the rest");
+  .Ok(())
+}

@@ -1,0 +1,22 @@
+error: expected a declaration, found `extra` [unexpected-token]
+ --> lib/recovery_insert_stray_module_app_08c9b8/main.buri:9:1
+  |
+9 | extra from "core/effect" import { Stdout };
+  | ^^^^^
+  |
+  = expected: a declaration
+  = actual: `extra`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+warning: `core/effect` is imported twice [duplicate-import]
+ --> lib/recovery_insert_stray_module_app_08c9b8/main.buri:9:12
+  |
+9 | extra from "core/effect" import { Stdout };
+  |            ^^^^^^^^^^^^^
+  |
+ --> lib/recovery_insert_stray_module_app_08c9b8/main.buri:8:6
+  |
+8 | from "core/effect" import { Alloc };
+  |      ^^^^^^^^^^^^^ first imported here
+  |
+  = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
+  = fix: merge the two into one import

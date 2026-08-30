@@ -1,0 +1,7 @@
+error: a derived trait ends with `,` [missing-separator]
+ --> lib/recovery_delete_separator_module_cents_d3c285/lib.buri:3:10
+  |
+3 | derive Eq Show for Cents;
+  |          ^
+  |
+  = fix: write `,` here
