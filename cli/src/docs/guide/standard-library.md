@@ -180,11 +180,11 @@ are used through. `core/testing/assert`, `core/host/testing` and
 `core/testing/context` are importable only from a test source.
 
 `core/host/testing` is `core/host`'s surface for a test: the same names —
-`alloc`, `stdout`, `stderr`, `clock`, `rand`, `env`, `proc` — **called** rather
-than referred to, so each one is a fresh double, and configured by a method that
-answers a new handle (`clock().at(1000)`, `rand().seed(7)`,
-`env().variables([...]).args([...])`). See
-[testing](../build/testing.md).
+`alloc`, `stdout`, `stderr`, `stdin`, `fs`, `clock`, `rand`, `env`, `proc` —
+**called** rather than referred to, so each one is a fresh double, and
+configured by a method that answers a new handle (`clock().at(1000)`,
+`rand().seed(7)`, `env().variables([...]).args([...])`,
+`fs().files([...]).readOnly()`). See [testing](../build/testing.md).
 
 ### Allocators
 
