@@ -620,6 +620,10 @@ Stmt            ::= LetStmt
 LetStmt         ::= "let" pattern=Pattern (":" Type)? "=" value=Expr ";"
                   | "let" "ctx" "=" value=Expr ";"
 
+(* Any Expr, not only a call: what restricts it is the static rule on its type,
+   not the grammar. The ";" is what tells a statement from the result
+   expression, so every one of them carries it -- a "{"-initial expression
+   included, which is what keeps a block's last item unambiguous. *)
 ExprStmt        ::= Expr ";"
 
 

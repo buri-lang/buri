@@ -91,7 +91,7 @@ several sets of assertions.
 | `formatting` | A directory per decision the formatter makes, plus every output being a fixed point, keeping its comments and tokens, and fitting the margin. |
 | `adversarial` | That no input panics the toolchain. Malformed sources, build files, schemas, flags and language-server messages, through the binary, asserting on *how* it stops rather than on what it says. |
 | `fuzz` | That the properties every other suite states over a corpus hold over input nobody chose: no mutation of a checked-in source panics the toolchain, the formatter is a fixed point that keeps its tokens and comments on shapes nobody wrote, the benchmark generator emits programs that compile at points in its parameter space no profile names, the same input twice says the same thing, and a generated program prints the answer the generator computed — under every backend, and with code that cannot run inserted into it. Bounded and seeded in CI; `BURI_FUZZ_SECONDS` soaks. |
-| `recovery` | That one mistake reads as one mistake: every compiling source in the repository with a token deleted, inserted or exchanged, held to invariants — one diagnostic per mistake, its caret at the mistake, its `fix` naming the token, no type error invented downstream, and the file still formatting — plus a hand-written case per list context pinning the exact message, span and edit. The four the parser owns run by default; the two the formatter owns are still `#[ignore]`d, and their reason names the wave that deletes the attribute. An invariant is held per mutation shape, against a ceiling rather than against zero where the mutated text has a second reading the grammar accepts — `ceiling()` states which rows those are and what each residue is. |
+| `recovery` | That one mistake reads as one mistake: every compiling source in the repository with a token deleted, inserted or exchanged, held to invariants — one diagnostic per mistake, its caret at the mistake, its `fix` naming the token, no type error invented downstream, and the file still formatting — plus a hand-written case per list context pinning the exact message, span and edit. All six run by default. An invariant is held per mutation shape, against a ceiling rather than against zero where the mutated text has a second reading the grammar accepts — `ceiling()` states which rows those are and what each residue is. A ceiling is a **percentage of the row's population**, read off a `BURI_RECOVERY_CAP=0` run, so a source landing in the repository cannot tip a row whose per-case behaviour did not change; the two invariants that sample rather than sweep add the spread of a sample that size on top, and `a_ceiling_moves_with_the_row_and_not_with_the_corpus` is that property as a test. |
 | `failing` | That a failing `buri test` fails *well*: the report a user reads — line, expected, got, counts, exit code — pinned byte for byte across every value shape, abort, title edge case and multi-module ordering, so the failure path is held to the same standard as the success path. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
@@ -105,7 +105,7 @@ cargo test -p buri --test language                    # one domain
 cargo test -p buri --test language conformance::      # one suite in it
 cargo test -p buri --test native -- --skip float_parity
 cargo test -p buri --features backend-llvm --test native
-cargo test -p buri --test recovery -- --ignored          # the formatter's two as well
+BURI_RECOVERY_CAP=0 cargo test -p buri --test recovery   # every case, not a stride
 ```
 
 A merged domain costs nothing in selection: a module is a name prefix, so
@@ -326,6 +326,17 @@ A case named `textproto_*` is a build file rather than source — `buri format`
 has two printers and this corpus pins both — and `every_checked_in_build_file_is_formatted`
 holds the repository's own two hundred `BUILD.buri` and `REPO.buri` files to what
 the second one prints.
+
+A case named `recovery_*` is source with a **syntax error** in it, and it pins
+what the formatter does about that: the declaration the parser could not read
+comes back byte for byte and everything around it is laid out. Every other
+case's input must parse, and the harness says so rather than quietly formatting
+a broken file. The four claims hold for these too, restated where a broken file
+makes them: the output is a fixed point, it keeps every comment and token, it
+carries the same number of syntax errors as its input with every region byte
+for byte what was written, and every line the formatter *laid out* fits the
+margin — a line inside a region is the author's, the same argument `width_*`
+makes.
 
 It is deliberately outside the repository-wide walkers: an `input.buri` is
 misformatted on purpose, and a suite asking whether every source in the

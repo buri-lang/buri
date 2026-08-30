@@ -1086,14 +1086,30 @@ compile column is itself the faster one.
   fused-pipeline kernel while the other three sit at 1.08–1.15× (§6.2). It is
   `rtcall.rs`'s stated exclusion rather than a defect, and it is the one shape
   where the exclusion costs a reader something visible.
-- **`buri_rt_list_get`**, which is the whole of the matmul kernel's remaining
-  gap — 1.56× when that was measured, 1.38× against LLVM `-O2` in §6.2's newer
-  series — and is an out-of-line call that bounds-checks and `memmove`s one
-  element into an `Option` payload. Open-coding it the way `list.map` already
-  open-codes its loop is the next 2× on that shape.
 - **The producer half of fusion.** `range` is still materialized.
 - **Derived `Show`**, which needs the design decision in §6.4 rather than more
   tuning.
+- **~~`buri_rt_list_get`.~~ Closed 2026-08-30, on both backends.** It was the
+  whole of the matmul kernel's remaining gap — 1.56× when that was measured,
+  1.38× against LLVM `-O2` in §6.2's series — and it was an out-of-line call
+  that bounds-checks and `memmove`s one element into an `Option` payload, twice
+  per inner iteration there. Both backends now open-code it out of the same
+  bounds test and load that `list.map`'s loop already uses, and both beat the
+  2× this row predicted. The dev backend went first (`4aa877f`, `3ba487e`):
+  `matmul` at **0.468×** its old time and `queens` at **0.628×**, with the four
+  held-out kernels — written after the fix was committed — at a geomean of
+  **0.519×**, a *larger* win than the tuned pair's 0.542×. The release backend
+  followed (`3b262681`): **0.255×** over the six kernels that index a list, the
+  held-out four at **0.250×**, again ahead of the tuned pair's 0.266×. Neither
+  half was tuned against a kernel, and the held-out column saying so twice is
+  the reason the numbers are here rather than in a footnote. Landing the dev
+  half alone put the dev backend *ahead* of `--release` on exactly those six,
+  dev÷release falling to 0.65×, and the release half restores the ordering with
+  room to spare, at **2.59×**. A counted element still takes the call on both
+  backends: the runtime entry retains through the glue it is handed and the
+  open-coded sequence does not, so that half is a reference-counting question
+  rather than a codegen one. §6.2's three-generator table predates all three
+  commits and is not re-taken here.
 - **~~Realistic native lowering's last 1.72×.~~ Closed 2026-08-29.** The
   measurement said 88% of the row was inside Cranelift's own `define_function`
   and 42% regalloc2 alone, so the lowering this repository owned was not the

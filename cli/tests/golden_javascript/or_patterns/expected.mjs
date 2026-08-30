@@ -1,6 +1,6 @@
 const $k0=[2];
 const $k1=[0];
-const $k2=[4,503];
+const $k2=[4,503n];
 const $k3=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
@@ -22,7 +22,7 @@ function __cmd_x_main$kind(s_0){
       }
     case 4:
       {
-        return s_0[1]>=500?'server':'other';
+        return s_0[1]>=500n?'server':'other';
       }
     default:
       {

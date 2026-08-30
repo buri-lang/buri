@@ -1,13 +1,13 @@
-const $k0=[0,2];
+const $k0=[0,2n];
 const $k1=[1];
-const $k2=[0,3];
+const $k2=[0,3n];
 const $k3=[3];
-const $k4=[0,4];
+const $k4=[0,4n];
 const $k5=[2];
 const $k6=[5];
-const $k7=[0,10];
+const $k7=[0,10n];
 const $k8=[4];
-const $k9=[0,5];
+const $k9=[0,5n];
 const $k10=[6];
 const $k11=[$k0,$k1,$k2,$k3,$k4,$k5,$k6,$k7,$k8,$k9,$k10];
 const $k12=[0,0];
@@ -15,10 +15,11 @@ const $k13=[1,$k5];
 const $k14=[7];
 const $k15=[1,'expected )'];
 const $k16=[1,$k15];
-const $k17=[1,'expected a value'];
-const $k18=[1,$k17];
+const $k17=[0,0n];
+const $k18=[1,'expected a value'];
+const $k19=[1,$k18];
 function __cmd_x_main$main(){
-  const parsed_2=__cmd_x_main$parseSum([$k11,0]);
+  const parsed_2=__cmd_x_main$parseSum([$k11,0n]);
   let $t1;
   if(parsed_2[0]===0){
     const pair_3=parsed_2[1];
@@ -96,14 +97,14 @@ function __cmd_x_main$eval(e_0){
           return $t11;
         }
         const d_10=$t11[1];
-        if(d_10===0){
+        if(d_10===0n){
           return $k13;
         }else{
           const $t12=__cmd_x_main$eval(e_0[1]);
           if($t12[0]!==0){
             return $t12;
           }
-          return [0,$divi($t12[1],d_10)];
+          return [0,$divb($t12[1],d_10)];
         }
       }
       break;
@@ -118,14 +119,14 @@ function __cmd_x_main$depth(e_0){
   switch(e_0[0]){
     case 0:
       {
-        return 1;
+        return 1n;
       }
     case 1:
     case 2:
     case 3:
     case 4:
       {
-        return 1+__cmd_x_main$max_(__cmd_x_main$depth(e_0[1]),__cmd_x_main$depth(e_0[2]));
+        return 1n+__cmd_x_main$max_(__cmd_x_main$depth(e_0[1]),__cmd_x_main$depth(e_0[2]));
       }
     default:
       {
@@ -204,7 +205,7 @@ function __cmd_x_main$peek(c_0){
   }
 }
 function __cmd_x_main$advance(c_0){
-  return [c_0[0],c_0[1]+1];
+  return [c_0[0],c_0[1]+1n];
 }
 function __cmd_x_main$parsePrimary(c_0){
   const $t1=__cmd_x_main$peek(c_0);
@@ -230,11 +231,11 @@ function __cmd_x_main$parsePrimary(c_0){
           return $t4;
         }
         const inner_3=$t4[1];
-        return [0,[[2,$k12,inner_3[0]],$fromShared(inner_3,inner_3[1])]];
+        return [0,[[2,$k17,inner_3[0]],$fromShared(inner_3,inner_3[1])]];
       }
     default:
       {
-        return $k18;
+        return $k19;
       }
   }
 }

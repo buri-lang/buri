@@ -45,7 +45,7 @@ fn tag_policy() {
 /// repository from wherever they are run.
 #[test]
 fn cli_contract() {
-    run_corpus(&tests_dir().join("repositories/cli"), "cli", 11);
+    run_corpus(&tests_dir().join("repositories/cli"), "cli", 12);
 }
 
 /// CLI.md's `query`: what the graph says, asked without building anything.
