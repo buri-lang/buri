@@ -1,0 +1,24 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an enum whose remaining variants are met only by a `_` arm: both reported, because a wildcard names no variant — while the one a dot shorthand builds without naming its enum is not"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "findings.txt"
+}
+
+# Writing the two arms out is one of the two fixes, and it is the one that says
+# the wildcard was the whole of what was missing.
+edit {
+  file: "lib/money/steps.buri"
+  replace: "    _ => n,\n"
+  with: "    .Decrement => n - 1,\n    .Reset => 0,\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

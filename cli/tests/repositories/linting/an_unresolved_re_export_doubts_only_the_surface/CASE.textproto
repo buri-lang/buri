@@ -1,0 +1,44 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a re-export that did not resolve: nothing is reported about a published name, because the line that did not resolve may be the one publishing it — and the field with no `export` on it is reported all the same"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# Spelling it right is the whole fix. The surface is the list the author meant
+# again, `Ledger` turns out to have been on it, and the finding that was never
+# in doubt does not move — which is what says the silence above was the
+# exemption's and not the file's.
+edit {
+  file: "lib/money/lib.buri"
+  replace: "export { Ledgor, ledger, markupCents };"
+  with: "export { Ledger, ledger, markupCents };"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "seal.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  seal: Str,\n"
+  with: ""
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  Ledger { entries, seal: \"\" }\n"
+  with: "  Ledger { entries }\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

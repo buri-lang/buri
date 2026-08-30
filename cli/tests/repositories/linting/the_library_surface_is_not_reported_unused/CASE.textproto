@@ -1,0 +1,43 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a published type whose fields nothing reads and a published enum whose variants nothing builds: neither reported, because a name on the library's surface is public API — and the field without `export` on the same type is"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# Taking one word off one field is the whole edit. It leaves the type
+# published and the field private, and the finding appears — which is what says
+# the silence above is about the surface rather than about the file.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  export label: Str,\n"
+  with: "  label: Str,\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "label.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  label: Str,\n"
+  with: ""
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  Entry { cents, label: \"\" }\n"
+  with: "  Entry { cents }\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

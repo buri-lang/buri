@@ -1,0 +1,31 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a struct and an enum declared and used by nothing at all: one finding each, at the name, and not one per field or per variant"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "findings.txt"
+}
+
+# Deleting them is the fix the diagnostic asks for, and afterwards there is
+# nothing left to say — which is what makes the report above two answers rather
+# than one answer and its wake.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "struct Ledger {\n  entries: I64,\n}\n\n"
+  with: ""
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "enum Tally {\n  Open,\n  Closed,\n}\n\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

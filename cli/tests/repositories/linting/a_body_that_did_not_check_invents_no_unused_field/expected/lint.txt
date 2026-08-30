@@ -1,0 +1,81 @@
+warning: nothing reads `Entry.packer` [unused-field]
+  --> lib/money/cents.buri:18:3
+   |
+18 |   packer: Str,
+   |   ^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+
+     Writing a field and reading one are different questions, and this rule asks
+     the second. A field every literal dutifully fills, that no expression ever
+     projects out and no pattern ever binds, costs a value at every construction
+     site and answers nothing.
+
+     Deleting it is an edit at every literal, which is the point: those are the
+     sites that were computing a value for nobody. Work through them rather than
+     leaving the field in place to avoid the churn.
+
+     If the field is there because a caller outside this library reads it, then
+     it belongs to public API and the answer is the library's surface: the
+     exported fields of a type lib.buri re-exports are not reported, because the
+     reader this analysis can see is not the only one there is.
+
+     Two things read every field of a type at once, and neither leaves a
+     projection behind to find. A derive is a fold over the whole type
+     definition, so a derived Eq, Ord, Hash or Show reads every field — a type
+     with one is never reported. So is a value handed to the runtime, or
+     compared structurally. What is left is the field nothing at all looks at.
+
+error: `Str` does not implement `Add` [missing-conformance]
+  --> lib/money/cents.buri:22:3
+   |
+22 |   e.label + 1
+   |   ^^^^^^^^^^^
+   |
+   = conformance is nominal: a type satisfies a trait only where a declaration says so
+   = fix: add `derive Add for Str;` in that type's own module, or write `impl Add for Str { ... }` there
+
+     What to do
+     ──────────
+
+     Bind a value whose type has impl Alloc for ....
+
+     Why
+     ───
+
+     Conformance is declared and never inferred, so a type with all the right
+     methods still does not satisfy an effect until an impl says it does. An
+     effect is an ordinary interface, which is why a test double is a struct
+     with those methods and an impl block.
+
+error: expected `Str`, found `Int` [type-mismatch]
+  --> lib/money/cents.buri:22:13
+   |
+22 |   e.label + 1
+   |             ^ the left operand's type is `Str`
+   |
+   = expected: `Str`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `Str` is not one
+   = fix: produce a `Str` here, or change what surrounds it to accept an `Int`
+
+     What to do
+     ──────────
+
+     Convert explicitly. The diagnostic names the conversion: .toI64() is exact
+     for every I32, while a narrowing one returns a Result because not every
+     value fits.
+
+     A bare numeric literal is reported as Int or Float, the type it takes when
+     nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
+     let x: U8 = 1 — and it becomes any type of the same kind.
+
+     Why
+     ───
+
+     No promotion of any kind, in either direction. A language that widened
+     silently would make the width of an arithmetic result a property of the
+     expression's shape rather than of what was written, and the one place it
+     matters is the one place nobody looks.
+

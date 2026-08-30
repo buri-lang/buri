@@ -1,0 +1,36 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a field read by no line of the file that declares it and by the module next door: read, because the census is the package's and not the file's — and reported the moment that module stops reading it"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# The only read of `issued` was in the other file. Taking it out is the whole
+# edit, and the finding lands on the declaration two files away.
+edit {
+  file: "lib/money/routes.buri"
+  replace: "  match (s.issued) {\n    true => s.amount,\n    false => 0,\n  }\n"
+  with: "  s.amount\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "issued.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  export issued: Bool,\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

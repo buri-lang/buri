@@ -1,0 +1,23 @@
+// The body below does not check, and everything the checker would have read
+// under the expression it stopped on is gone from the typed tree with it.
+// `label` is named in that body, so nothing here says it is unread — the read
+// that is missing may be exactly the one that went. `packer` is named nowhere
+// in the unreadable text, and a body that does not mention a field is a body
+// that does not read it, so it is reported beside the error.
+//
+// That is where this rule parts company with `dead-code`, which stops for the
+// whole package: what a broken body costs is a set of names, and the lexer can
+// still see which names they are.
+//
+// `cents` is exempt for a different reason again: it carries `export` on a
+// type `lib.buri` publishes, so it is public API rather than dead weight.
+
+export struct Entry {
+  export cents: I64,
+  label: Str,
+  packer: Str,
+}
+
+export fn shown(e: Entry): Str {
+  e.label + 1
+}
