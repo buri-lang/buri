@@ -1,0 +1,24 @@
+// No value of either type is ever built, and both are used. `Ledger` is used
+// by being a parameter's type and `Tally` by being an alias's right-hand side,
+// and the rule counts a name written down anywhere that is not the type's own
+// declaration. That over-approximates use, which is the safe direction for a
+// finding nobody can turn off: a name a reader can see is a name they can
+// follow.
+
+struct Ledger {
+  entries: I64,
+}
+
+enum Tally {
+  Open,
+  Closed,
+}
+
+type Money = Tally;
+
+export fn describe(l: Ledger, m: Money): I64 {
+  match (m) {
+    .Open l =>.entries,
+    .Closed => 0,
+  }
+}

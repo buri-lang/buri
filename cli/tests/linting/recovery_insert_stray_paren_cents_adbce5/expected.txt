@@ -1,0 +1,16 @@
+error: a function parameter ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_paren_cents_adbce5/lib.buri:19:28
+   |
+19 | export fn describe(l: extra Ledger, m: Money): I64 {
+   |                            ^
+   |
+   = fix: write `,` here
+error: expected `:`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_cents_adbce5/lib.buri:19:35
+   |
+19 | export fn describe(l: extra Ledger, m: Money): I64 {
+   |                                   ^
+   |
+   = expected: `:`
+   = actual: `,`
+   = fix: write `:` here

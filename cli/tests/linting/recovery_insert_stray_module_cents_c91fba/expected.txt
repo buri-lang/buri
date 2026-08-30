@@ -1,0 +1,17 @@
+error: expected a declaration, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_module_cents_c91fba/lib.buri:15:8
+   |
+15 | export @ enum Tally {
+   |        ^
+   |
+   = expected: a declaration
+   = actual: `@`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+warning: nothing uses `Tally` [unused-type]
+  --> lib/recovery_insert_stray_module_cents_c91fba/lib.buri:15:15
+   |
+15 | export @ enum Tally {
+   |               ^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface

@@ -1,0 +1,17 @@
+warning: nothing reads `Ledger.seal` [unused-field]
+  --> lib/recovery_insert_stray_module_cents_15edd9/lib.buri:13:3
+   |
+13 |   seal: Str,
+   |   ^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+error: expected a declaration, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_module_cents_15edd9/lib.buri:16:1
+   |
+16 | , export fn ledger(entries: I64): Ledger {
+   | ^
+   |
+   = expected: a declaration
+   = actual: `,`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

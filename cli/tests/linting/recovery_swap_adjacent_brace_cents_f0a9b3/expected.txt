@@ -1,0 +1,17 @@
+error: this `match` does not cover `.Open` [match-not-exhaustive]
+  --> lib/recovery_swap_adjacent_brace_cents_f0a9b3/lib.buri:20:3
+   |
+20 |   match (m) {
+   |   ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Open`, or a `_` arm for everything left
+error: expected an identifier, found `=>` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_f0a9b3/lib.buri:21:6
+   |
+21 |     .=> Open l.entries,
+   |      ^^
+   |
+   = expected: an identifier
+   = actual: `=>`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

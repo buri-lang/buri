@@ -1,0 +1,16 @@
+error: a struct-literal field ends with `,` [missing-separator]
+  --> lib/recovery_swap_adjacent_brace_cents_d698b4/lib.buri:21:24
+   |
+21 |   Entry { cents, tax: 0packer ,: "till" }
+   |                        ^
+   |
+   = fix: write `,` here
+error: expected an identifier, found `:` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_d698b4/lib.buri:21:32
+   |
+21 |   Entry { cents, tax: 0packer ,: "till" }
+   |                                ^
+   |
+   = expected: an identifier
+   = actual: `:`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

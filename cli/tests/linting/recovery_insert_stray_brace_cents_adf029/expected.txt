@@ -1,0 +1,19 @@
+error: there is nothing named `label` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_cents_adf029/lib.buri:21:18
+   |
+21 |   Entry { cents, label@ : "" }
+   |                  ^^^^^
+   |
+   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_cents_adf029/lib.buri:21:23
+   |
+21 |   Entry { cents, label@ : "" }
+   |                       ^
+   |
+  --> lib/recovery_insert_stray_brace_cents_adf029/lib.buri:21:9
+   |
+21 |   Entry { cents, label@ : "" }
+   |         ^ opened here
+   |
+   = fix: write `}` here

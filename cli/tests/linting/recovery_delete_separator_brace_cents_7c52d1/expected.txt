@@ -1,0 +1,27 @@
+error: this `match` does not cover `.Closed` [match-not-exhaustive]
+  --> lib/recovery_delete_separator_brace_cents_7c52d1/lib.buri:20:3
+   |
+20 |   match (m) {
+   |   ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Closed`, or a `_` arm for everything left
+error: `I64` has no field `Closed` [no-such-field]
+  --> lib/recovery_delete_separator_brace_cents_7c52d1/lib.buri:22:6
+   |
+22 |     .Closed => 0,
+   |      ^^^^^^
+   |
+   = fix: check the spelling, or name a field the type declares
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_separator_brace_cents_7c52d1/lib.buri:22:13
+   |
+22 |     .Closed => 0,
+   |             ^^
+   |
+  --> lib/recovery_delete_separator_brace_cents_7c52d1/lib.buri:20:13
+   |
+20 |   match (m) {
+   |             ^ opened here
+   |
+   = fix: write `}` here

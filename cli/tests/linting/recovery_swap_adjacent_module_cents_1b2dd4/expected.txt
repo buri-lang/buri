@@ -1,0 +1,9 @@
+error: expected an identifier, found `{` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_cents_1b2dd4/lib.buri:6:15
+  |
+6 | export struct { Slip
+  |               ^
+  |
+  = expected: an identifier
+  = actual: `{`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

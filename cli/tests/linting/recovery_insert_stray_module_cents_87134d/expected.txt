@@ -1,0 +1,16 @@
+error: expected an identifier, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_module_cents_87134d/lib.buri:17:6
+   |
+17 | type ? Money = Tally;
+   |      ^
+   |
+   = expected: an identifier
+   = actual: `?`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is no type `Money` [unresolved-type]
+  --> lib/recovery_insert_stray_module_cents_87134d/lib.buri:19:34
+   |
+19 | export fn describe(l: Ledger, m: Money): I64 {
+   |                                  ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling

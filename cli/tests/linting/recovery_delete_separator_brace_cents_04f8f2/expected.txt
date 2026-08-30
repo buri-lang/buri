@@ -1,0 +1,7 @@
+error: a struct-literal field ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_cents_04f8f2/lib.buri:21:16
+   |
+21 |   Entry { cents label: "" }
+   |                ^
+   |
+   = fix: write `,` here

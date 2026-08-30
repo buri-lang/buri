@@ -1,0 +1,26 @@
+// `Increment` is built by `.Increment`, which names the variant and never
+// names its enum — so the evidence for this rule is the typed tree rather than
+// the token, and a shorthand counts exactly as the long form would. It is
+// named a second time by the arm that matches it.
+//
+// `Decrement` and `Reset` are neither built nor named. The `_` arm meets them
+// and says nothing about them: a wildcard is what a reader writes when they do
+// not care which case it is, which is the opposite of evidence that a case
+// occurs.
+
+enum Step {
+  Increment,
+  Decrement,
+  Reset,
+}
+
+export fn apply(s: Step, n: I64): I64 {
+  match (s) {
+    .Increment => n + 1,
+    _ => n,
+  ? }
+}
+
+export fn up(): Step {
+  .Increment
+}

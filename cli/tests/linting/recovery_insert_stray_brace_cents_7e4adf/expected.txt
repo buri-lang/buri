@@ -1,0 +1,45 @@
+warning: nothing reads `Entry.packer` [unused-field]
+  --> lib/recovery_insert_stray_brace_cents_7e4adf/lib.buri:16:3
+   |
+16 |   packer: Str,
+   |   ^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+warning: nothing reads `Entry.note` [unused-field]
+  --> lib/recovery_insert_stray_brace_cents_7e4adf/lib.buri:17:3
+   |
+17 |   note: Option<Str>,
+   |   ^^^^^^^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_brace_cents_7e4adf/lib.buri:25:3
+   |
+25 |   e.extra cents + e.tax
+   |   ^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: `Entry` has no field `extra` [no-such-field]
+  --> lib/recovery_insert_stray_brace_cents_7e4adf/lib.buri:25:5
+   |
+25 |   e.extra cents + e.tax
+   |     ^^^^^
+   |
+   = fix: check the spelling, or name a field the type declares
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_brace_cents_7e4adf/lib.buri:25:10
+   |
+25 |   e.extra cents + e.tax
+   |          ^
+   |
+   = fix: write `;` here
+error: there is nothing named `cents` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_cents_7e4adf/lib.buri:25:11
+   |
+25 |   e.extra cents + e.tax
+   |           ^^^^^
+   |
+   = fix: declare `cents`, or import it — a name is in scope only from this module's own declarations and its imports

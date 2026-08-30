@@ -1,0 +1,17 @@
+warning: nothing uses `Ledger` [unused-type]
+  --> lib/recovery_insert_stray_module_cents_b061dd/lib.buri:10:8
+   |
+10 | struct Ledger {
+   |        ^^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface
+error: expected `{`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_module_cents_b061dd/lib.buri:14:12
+   |
+14 | enum Tally , {
+   |            ^
+   |
+   = expected: `{`
+   = actual: `,`
+   = fix: write `{` here

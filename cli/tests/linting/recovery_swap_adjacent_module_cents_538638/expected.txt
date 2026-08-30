@@ -1,0 +1,18 @@
+error: expected an identifier, found `export` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_cents_538638/lib.buri:20:4
+   |
+20 | fn export entry(cents: I64): Entry {
+   |    ^^^^^^
+   |
+   = expected: an identifier
+   = actual: `export`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: expected a declaration, found `entry` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_cents_538638/lib.buri:20:11
+   |
+20 | fn export entry(cents: I64): Entry {
+   |           ^^^^^
+   |
+   = expected: a declaration
+   = actual: `entry`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

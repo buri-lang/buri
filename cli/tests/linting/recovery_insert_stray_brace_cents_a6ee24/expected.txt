@@ -1,0 +1,16 @@
+error: a record field ends with `,` [missing-separator]
+ --> lib/recovery_insert_stray_brace_cents_a6ee24/lib.buri:7:23
+  |
+7 |   export amount: extra I64,
+  |                       ^
+  |
+  = fix: write `,` here
+error: expected `:`, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_brace_cents_a6ee24/lib.buri:7:27
+  |
+7 |   export amount: extra I64,
+  |                           ^
+  |
+  = expected: `:`
+  = actual: `,`
+  = fix: write `:` here

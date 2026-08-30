@@ -1,0 +1,34 @@
+error: this `match` does not cover `.Closed` [match-not-exhaustive]
+  --> lib/recovery_insert_stray_brace_cents_eeb43b/lib.buri:20:3
+   |
+20 |   match (m) {
+   |   ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Closed`, or a `_` arm for everything left
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_insert_stray_brace_cents_eeb43b/lib.buri:21:10
+   |
+21 |     .Open extra => l.entries,
+   |          ^
+   |
+   = fix: write `=>` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_cents_eeb43b/lib.buri:21:11
+   |
+21 |     .Open extra => l.entries,
+   |           ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_cents_eeb43b/lib.buri:21:17
+   |
+21 |     .Open extra => l.entries,
+   |                 ^^
+   |
+  --> lib/recovery_insert_stray_brace_cents_eeb43b/lib.buri:20:13
+   |
+20 |   match (m) {
+   |             ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,9 @@
+error: expected a function body, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_module_steps_add6c9/lib.buri:24:22
+   |
+24 | export fn up(): Step , {
+   |                      ^
+   |
+   = expected: a function body
+   = actual: `,`
+   = fix: write `{ ... }` after the return type

@@ -1,0 +1,23 @@
+warning: nothing uses `Ledger` [unused-type]
+  --> lib/recovery_delete_separator_brace_cents_1d6a59/lib.buri:10:8
+   |
+10 | struct Ledger {
+   |        ^^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface
+warning: nothing uses `Tally` [unused-type]
+  --> lib/recovery_delete_separator_brace_cents_1d6a59/lib.buri:14:6
+   |
+14 | enum Tally {
+   |      ^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface
+error: an enum variant ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_cents_1d6a59/lib.buri:15:7
+   |
+15 |   Open
+   |       ^
+   |
+   = fix: write `,` here

@@ -35,8 +35,8 @@ export fn main(): Result<(), Str> {
   match (append(ctx, path, [entry("startup", fromCents(0))])) {
     .Err(_) => .Err(str.format(ctx, "could not open the ledger log at ${path}")),
     .Ok(_) => {
-      let _ = ctx.println("serving ${hit.name} from ${path}");
-      .Ok(()
+      let _ = ctx.println("serving ${hit.name} at ${hit.path} from ${path}";
+      .Ok(())
     },
   }
 }
