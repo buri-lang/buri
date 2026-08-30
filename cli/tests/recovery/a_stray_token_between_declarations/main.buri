@@ -1,0 +1,10 @@
+// EXPECT: expected a declaration, found `@`
+export fn one(): Int {
+  1
+}
+
+@
+
+export fn two(): Int {
+  2
+}

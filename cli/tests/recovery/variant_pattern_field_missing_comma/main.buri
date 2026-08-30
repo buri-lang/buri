@@ -1,0 +1,12 @@
+// EXPECT: a variant-pattern field ends with `,`
+export enum Shape {
+  Rect(Float, Float),
+  Empty,
+}
+
+export fn width(s: Shape): Float {
+  match (s) {
+    .Rect(w h) => w,
+    .Empty => 0.0,
+  }
+}

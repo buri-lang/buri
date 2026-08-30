@@ -1,0 +1,5 @@
+// EXPECT: a variant payload field ends with `,`
+export enum Shape {
+  Rect(Float Float),
+  Empty,
+}

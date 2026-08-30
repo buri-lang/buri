@@ -1,0 +1,4 @@
+// EXPECT: an array element ends with `,`
+export fn seeds(): [Int] {
+  [1, 2 3]
+}

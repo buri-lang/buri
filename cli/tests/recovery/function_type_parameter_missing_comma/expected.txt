@@ -1,0 +1,5 @@
+error [missing-separator] 2:26-2:26
+message: a function-type parameter ends with `,`
+fix: write `,` here
+edit: 2:26-2:26 ","
+
