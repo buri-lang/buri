@@ -328,11 +328,12 @@ const PACKAGES: &[Case] = &[
     // by the checker and never reaches a backend — so this file is here to say
     // that out loud on the native one too (SPEC 12.3).
     included("semantics/anonymous.buri"),
-    // The eighth: `core/host/testing`'s seven doubles. Every one of them is a
-    // handle over `cli/runtime/testing.rs`'s table — the same table
-    // `core/testing/context`'s implementations use — plus the two instructions
-    // `TestAlloc` is open-coded as, so the file reaches nothing the archive did
-    // not already have. It is here rather than folded into `effects.buri`
+    // The eighth: `core/host/testing`'s ten doubles. Seven of them are handles
+    // over `cli/runtime/testing.rs`'s table — the same table
+    // `core/testing/context`'s implementations use; `TestAlloc` is the two
+    // instructions both backends open-code, and `TestNet` and `TestProc` are
+    // Buri bodies with no row at all. So the file reaches nothing the archive
+    // did not already have. It is here rather than folded into `effects.buri`
     // because the claim is about the *other* module: the two spellings of the
     // test platform coexist, and this is the one that has to keep agreeing with
     // the JavaScript runner while the migration runs.
@@ -948,7 +949,7 @@ test "an environment holds what it was given and nothing else" {
   assert.eq(assert.some(ctx.variable("HOME")), "/tmp");
   assert.eq(assert.some(ctx.variable("LANG")), "C");
   assert.isTrue(ctx.variable("PATH").isNone());
-  let args = ctx.arguments();
+  let args = ctx.args();
   assert.eq(args.len(), 2);
   assert.eq(args.join(ctx, " "), "--verbose x");
 }
@@ -956,7 +957,7 @@ test "an environment holds what it was given and nothing else" {
 test "an empty environment has no variables and no arguments" {
   let ctx = context { Alloc: alloc(), Env: envOf([], []) };
   assert.isTrue(ctx.variable("HOME").isNone());
-  assert.eq(ctx.arguments().len(), 0);
+  assert.eq(ctx.args().len(), 0);
 }
 
 test "stdin reads its lines, then end of input" {
@@ -1007,24 +1008,31 @@ test "stdinBytes reads octets, and readLine finds nothing there" {
 ///   have. `semantics/expressions.rs`'s `implementing_ty` is what makes it
 ///   compile, and `OneShotListen` invoking the handler is what makes the
 ///   answer depend on the bytes being right.
-/// * `serveOnce(ctx, …)` and `runInOrder(ctx, …)`, which reach the same two
-///   methods through a **bounded type parameter**. The front end cannot settle
+/// * `serveOnce(ctx, …)` and `runInOrder(ctx, …)`, which reach the same
+///   method through a **bounded type parameter**. The front end cannot settle
 ///   `Self` there — a generic body is checked once for every instantiation at
 ///   once — so `middle/monomorphize.rs`'s `rewrite_call_args` is what makes
 ///   the call land on a handler with the implementation's layout. Before it,
 ///   this exited `-1` with no stdout and no stderr.
+///
+/// And the rule's other side, which is `Tasks.parallel`'s: a step is handed the
+/// caller's **context**, spelled `ctx: C` in the declaration rather than `Self`.
+/// `ctx.parallel(ctx, …)`'s step reads a clock the scheduler does not have, and
+/// `runInOrderNamed` allocates inside a step reached through a bound — the
+/// first is a wrong answer if the wrong value arrives, the second does not
+/// compile at all.
 #[test]
 fn self_through_a_context_is_the_implementing_type() {
     if !supported() {
         return;
     }
     const SOURCE: &str = r#"from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { alloc };
+from "core/testing/context/lib.buri" import { alloc, clockAt };
 from "core/effect/lib.buri" import {
-  Alloc, Listen, Net, Request, Response, Sockets, Tasks,
+  Alloc, Clock, Listen, Net, Request, Response, Sockets, Tasks,
 };
 from "//lib/semantics/lib.buri" import {
-  OneShotListen, QuietSockets, SerialTasks, TeapotNet, runInOrder, serveOnce,
+  OneShotListen, QuietSockets, SerialTasks, TeapotNet, runInOrder, runInOrderNamed, serveOnce,
 };
 
 test "the handler is handed the implementation" {
@@ -1038,8 +1046,21 @@ test "the handler is handed the implementation" {
     headers: [],
     body: [],
   }));
-  let out = ctx.parallel([1], fn(runner, i, item) => runner.bias + item);
-  assert.eq(out[0] ?? 0, 5);
+  let _ = assert.err(ctx.listen("127.0.0.1", 0, fn(server, request) => Response {
+    status: if (server.bindsTo == request.url) { 200 } else { 500 },
+    headers: [],
+    body: [],
+  }));
+}
+
+test "and a task is handed the context" {
+  let ctx = context {
+    Alloc: alloc(),
+    Clock: clockAt(5),
+    Tasks: SerialTasks { label: "serial", bias: 4 },
+  };
+  let out = ctx.parallel(ctx, [1], fn(c, i, item) => c.nowMillis() + item);
+  assert.eq(out[0] ?? 0, 6);
 }
 
 test "and through a bound the call still lands" {
@@ -1052,6 +1073,7 @@ test "and through a bound the call still lands" {
   };
   assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
   assert.eq(runInOrder(ctx, [3, 4]), 107);
+  assert.eq(runInOrderNamed(ctx, [3, 4]), ["0:3", "1:4"]);
 }
 "#;
     let Some((status, out, err, blocks)) = run("semantics/self-through-a-context.buri", SOURCE)
@@ -1062,7 +1084,7 @@ test "and through a bound the call still lands" {
         );
     };
     assert_eq!(status, 0, "stdout:\n{out}\nstderr:\n{err}");
-    assert_eq!(blocks, 2, "the fixture lost a `test` block");
+    assert_eq!(blocks, 3, "the fixture lost a `test` block");
 }
 
 /// The harness has to be able to fail.

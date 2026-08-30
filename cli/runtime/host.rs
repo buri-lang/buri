@@ -5,15 +5,18 @@
 //! every one a *native* platform grants has a counterpart here, named by the
 //! rule in `lib.rs` §1: `host.HostFs.readFile` is `buri_rt_host_fs_read_file`.
 //!
-//! Six of the implementations have no counterpart, for two reasons and neither
-//! of them an omission. `HostUi`, `HostWatch` and `HostFetch` drive a document,
-//! and a native binary has none. `HostTasks`, `HostListen` and `HostSockets`
-//! are granted by no platform at all — they are declared ahead of the scheduler
-//! that will answer `parallel` and the acceptor that will answer `listen`, so
-//! there is a signature to implement and, deliberately, nothing yet
-//! implementing it. Those three are also the three whose bodies will not live
-//! here when they arrive: they need tokio, which lives behind the `net` feature
-//! (`manifest.toml`, `net.rs`) rather than in this file's synchronous world.
+//! Five of the implementations have no counterpart *here*, for two reasons and
+//! neither of them an omission. `HostUi`, `HostWatch` and `HostFetch` drive a
+//! document, and a native binary has none. `HostListen` and `HostSockets` are
+//! granted by no platform at all — they are declared ahead of the acceptor that
+//! will answer `listen`, so there is a signature to implement and, deliberately,
+//! nothing yet implementing it. `HostTasks` does have one, and it is in `rt.rs`
+//! rather than in this file — which is where the two arrivals will land as well:
+//! `parallel` is the scheduler's, so it lives with the carrier pool and behind
+//! feature `net`, where a toolchain without a reactor refuses the key with a
+//! sentence instead of a missing symbol, and the acceptor will need tokio from
+//! behind that same feature (`manifest.toml`, `net.rs`) rather than this file's
+//! synchronous world.
 //!
 //! ## Buffering, and why it matches JavaScript
 //!
@@ -78,7 +81,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Record `argc`/`argv` and install the panic hook. `lib.rs` §6.
 ///
 /// The generated `main` calls this as its first statement. It is not required —
-/// `env.arguments()` falls back to `std::env` — but it is preferred, because
+/// `env.args(ctx)` falls back to `std::env` — but it is preferred, because
 /// `std::env::args` in a **staticlib** reaches the argument vector through a
 /// platform startup hook (`.init_array` on Linux, `_NSGetArgv` on macOS) whose
 /// survival across a `--gc-sections` link is not something this runtime should
@@ -723,7 +726,21 @@ pub unsafe extern "C" fn buri_rt_host_net_fetch(
         // is one, so the payload is the bytes themselves.
         unsafe { std::slice::from_raw_parts(bptr, blen as usize) }
     };
-    match http::fetch(method, &url, &sent, body) {
+    // **A suspension point** (`rt.rs` §2). The transport underneath is still
+    // `http.rs`'s synchronous client, so the future completes on this thread
+    // and the answer is byte for byte the one it always was; what `park_on`
+    // adds is that the carrier is not holding the run baton while it waits.
+    // C7 replaces the body of that future with a real one and this line does
+    // not move.
+    //
+    // The Buri blocks below are built **after** the park returns, on the
+    // carrier and under the baton, because the allocator and the refcounts are
+    // single-threaded (`memory.rs`) and stay that way until track G.
+    #[cfg(feature = "net")]
+    let outcome = crate::rt::park_on(async { http::fetch(method, &url, &sent, body) });
+    #[cfg(not(feature = "net"))]
+    let outcome = http::fetch(method, &url, &sent, body);
+    match outcome {
         Ok(response) => {
             let fields = list_of_headers(&response.headers);
             let bytes = list_of_bytes(&response.body);
@@ -758,10 +775,30 @@ pub extern "C" fn buri_rt_host_clock_now_millis() -> i64 {
 }
 
 /// `Clock::sleepMillis`. A negative or zero duration returns immediately.
+///
+/// **A suspension point** (`rt.rs` §2): with the `net` feature the wait is the
+/// reactor's timer wheel and the carrier gives up the run baton for its
+/// duration, so another carrier may run Buri code meanwhile. Without the
+/// feature there is no reactor and this is `thread::sleep`, which is what it
+/// has always been.
+///
+/// The two are now distinguishable, and `Tasks.parallel` is what distinguishes
+/// them: two steps that each sleep here finish in one sleep's time rather than
+/// two, because the first gives the baton to the second while it waits. Outside
+/// a fan-out the sleeping thread is still the only one there is, and the two
+/// answer the same nothing after the same wait.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_clock_sleep_millis(millis: i64) {
     if millis > 0 {
-        std::thread::sleep(std::time::Duration::from_millis(millis as u64));
+        let duration = std::time::Duration::from_millis(millis as u64);
+        // The sleep is built *inside* the future, not handed to `park_on`
+        // ready-made: `tokio::time::sleep` registers with the timer driver
+        // where it is constructed, and this thread is in no runtime context
+        // until `park_on` enters one.
+        #[cfg(feature = "net")]
+        crate::rt::park_on(async move { tokio::time::sleep(duration).await });
+        #[cfg(not(feature = "net"))]
+        std::thread::sleep(duration);
     }
 }
 
@@ -812,7 +849,7 @@ pub unsafe extern "C" fn buri_rt_host_env_variable(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_env_arguments(out: *mut BuriList) {
+pub unsafe extern "C" fn buri_rt_host_env_args(out: *mut BuriList) {
     let recorded = lock(&ARGS).clone();
     let args = recorded.unwrap_or_else(|| {
         std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect()

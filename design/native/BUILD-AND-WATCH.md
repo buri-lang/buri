@@ -68,15 +68,33 @@ missing effect rather than a link error, which is why the toolchain learns the
 feature's state through `Backend::missing_intrinsics` instead of finding out at
 `cc` time.
 
-As of the slice that admitted them, **nothing references any of the four**.
+As of the slice that admitted them, **nothing referenced any of the four**.
 `cli/runtime/net.rs` names one type from each and exports two entries that
 answer "was this toolchain built with the networking stack"; no intrinsic key
-mangles to a symbol in that file. That is deliberate, and it is what makes the
-cost measurable before anything depends on the answer: on
+mangles to a symbol in that file. That was deliberate, and it is what made the
+cost measurable before anything depended on the answer: on
 `aarch64-apple-darwin` the archive is 5 987 472 bytes with `net` off and
 5 987 496 with it on. Twenty-four bytes, because `lto = "fat"` is whole-program
 across the dependency rlibs and Rust code nothing reaches does not reach the
 archive.
+
+**`tokio` has since been linked, once and deliberately.** `cli/runtime/rt.rs`
+is the carrier runtime — the reactor handle, the run baton, the carrier pool
+with its 512 KiB stacks and the task table — and `Clock::sleepMillis` and
+`Net::fetch` wait on it through `park_on`, so the reactor and its timer wheel
+are in the archive on purpose:
+
+| `aarch64-apple-darwin`, `libburi_rt.a` | bytes |
+|---|---|
+| before `rt.rs` | 6 035 480 |
+| after | 6 220 904 |
+| the reactor | +185 424 |
+
+`mio` and `socket2` arrive with it and are tokio's platform layer rather than a
+fifth and sixth dependency; the direct set is still four, and
+`dependencies_stay_behind_the_bar` is what holds it there. The other three
+crates are still reached by nothing, and the CI symbol check names them
+still.
 
 The one thing that would *not* be dropped is a dependency's **native** object
 code, which `rustc` bundles into a `staticlib` whether anything references it or
@@ -84,8 +102,8 @@ not — measured at 842 544 bytes and twenty-four `.o` members for `rustls`'s
 obvious crypto provider, `ring`. So `rustls` is admitted with no provider, and
 picking one is the decision of the slice that makes `https://` work, where the
 bytes are bought rather than spent. `.github/scripts/assert-runtime-archive.sh`
-holds both halves in CI: a size budget, and a symbol table with none of the four
-crates in it.
+holds both halves in CI: a size budget, and a symbol table with none of the
+crates nothing calls into in it.
 
 **How the toolchain knows.** `cli/build.rs` writes `libburi_rt.a.features`
 beside the archive and beside its digest — the Cargo features the archive was
@@ -105,11 +123,17 @@ body for, and `backend::split_networking` sorts that half out from the ordinary
 "this backend has no implementation of" half at each of the two emission sites.
 The refusal is `networking-not-available`, whose fix names the feature rather
 than asking for a bug report: the program is fine and the toolchain is what has
-to change. No program reaches those keys yet — the three effects are declared in
-`core/effect` and granted by no platform, so the host values their operations
-hang off cannot be constructed — and the refusal is in place first, so that the
-day a platform grants one the key lands with its diagnostic already written
-rather than as an unresolved `buri_rt_*` symbol from `cc`.
+to change. The refusal landed **before any of those keys existed**, on purpose,
+so that the day one arrived it arrived with its diagnostic already written
+rather than as an unresolved `buri_rt_*` symbol from `cc`. The first one is
+`host.HostTasks.parallel`, and it is answered by `cli/runtime/rt.rs` — behind
+`net`, beside the carrier pool it fans out onto — so on a `BURI_RUNTIME_NET=0`
+toolchain a program that calls `core/tasks` is refused by name before code
+generation. That is what was designed, and it is now exercised rather than only
+argued for. `host.HostListen.*` and `host.HostSockets.*` are still ahead of
+their first key: both effects are declared in `core/effect` and granted by no
+platform, so the host values their operations hang off cannot be constructed,
+and what exists for them is the refusal alone.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 
@@ -389,9 +413,28 @@ Four notes, each of which is a mistake someone would otherwise make:
 
 Built **with** `backend-llvm`, because a `nix build` produces the release
 toolchain and a release toolchain must be able to produce release artifacts. That
-means `nativeBuildInputs = [ llvm.dev ]`, `LLVM_SYS_211_PREFIX`, and — the change
-the current flake comment is about — a real `cargoHash`, since vendoring now
-fetches four crates and their closures.
+means `nativeBuildInputs = [ llvm.dev ]` and `LLVM_SYS_211_PREFIX`. The vendoring
+needs nothing: `inkwell`'s closure is named by `./Cargo.lock` and is fetched
+already, whether or not the feature is on.
+
+**Two lockfiles, one vendor directory.** §1.1 and §1.1.1 are two dependency
+trees, and a sandboxed build carries both or it carries neither usefully:
+`cli/build.rs` runs a nested `cargo` for `cli/runtime`, and a vendor directory
+holding only `./Cargo.lock`'s closure sends it down the degradation path of §2.2
+— empty archive, `runtime_native::AVAILABLE == false`, a green `nix build` and a
+toolchain with no native backend. `rustPlatform.importCargoLock` takes one
+`lockFile`, so the flake calls it twice and links both results into a third
+directory, keyed by `name-version`; the merge is of the *directories* rather than
+of the lockfiles because nixpkgs' `cargoSetupPostPatchHook` diffs the vendor
+directory's `Cargo.lock` against the one in `src` and refuses a build where they
+differ. `cargoDeps` takes that directory, so there is still no `cargoHash`.
+
+The flake then runs `.github/scripts/assert-runtime-archive.sh` in its own
+`postBuild`. This is the one place the script is not redundant with §3.3's CI
+jobs: `nix build` is a *packaging* path, its failure mode is a silently less
+capable compiler, and the four systems `eachDefaultSystem` covers are all systems
+`cli/build.rs`'s `supported` accepts — so there is nothing here to degrade to and
+the empty archive is unambiguously a bug.
 
 ### 3.3 CI
 

@@ -63,14 +63,37 @@ impl<'a, 'b> Infer<'a, 'b> {
                 flat::StmtKind::Expr => {
                     // An expression statement is legal only in a test source,
                     // and only when its type is `()`.
-                    if self.role != Role::TestSource {
+                    //
+                    // The diagnostic is pushed here rather than after the
+                    // expression is checked, so that it keeps its place among
+                    // whatever the expression itself reports; its *fix* cannot
+                    // be written yet, because the answer depends on a type
+                    // nothing has inferred. So the slot is remembered and
+                    // filled in below. A page's `fix` that reads
+                    // "bind it: `let _ = ...;`" is the wrong edit for a
+                    // `Result`, and a diagnostic whose fix provokes the next
+                    // diagnostic is worse than one that offers none.
+                    let slot = if self.role == Role::TestSource {
+                        None
+                    } else {
+                        let at = self.c.diags.items.len();
                         self.templated("expression-statement", span);
-                    }
+                        Some(at)
+                    };
                     let e = self.check_expr(ExprId(s.value), None);
                     let ty = self.resolve(&e.ty);
+                    let dropped_result = self.is_known_result(&ty).then(result_discard_fix).flatten();
                     if !matches!(ty, Ty::Unit | Ty::Error) {
                         let shown = self.show_ty(&ty);
-                        self.templated("statement-not-unit", span).bind("type", shown);
+                        let d = self.templated("statement-not-unit", span).bind("type", shown);
+                        if let Some(fix) = dropped_result {
+                            d.fix(fix);
+                        }
+                    }
+                    if let (Some(fix), Some(at)) = (dropped_result, slot) {
+                        if let Some(d) = self.c.diags.items.get_mut(at) {
+                            d.fix(fix);
+                        }
                     }
                     stmts.push(typed::Stmt::Expr(e));
                 }
@@ -111,15 +134,27 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let ty = expected.unwrap_or_else(|| value_hir.ty.clone());
 
-        // A value of type `Result<T, E>` may not be discarded by a `_`
-        // pattern. Since `let _ =` is the only place a value can be thrown
-        // away, the rule has no holes (SPEC 5.7.1).
-        if self.tree().pkind(pattern) == flat::PatternKind::Wild && self.is_known_result(&ty) {
-            self.templated("result-discarded", span);
-        }
-
         self.pattern_names.clear();
         let pat = self.check_pattern(pattern, &ty);
+
+        // A value of type `Result<T, E>` may not be discarded by a `_`
+        // pattern (SPEC 5.7.1). The question is asked of the whole pattern
+        // rather than of its head, because a wildcard one level down drops a
+        // `Result` exactly as thoroughly as one at the top:
+        //
+        //   let (count, _) = (1, mayFail());
+        //   let Job { name, outcome: _ } = job;
+        //
+        // Reading the *checked* pattern is what makes that affordable — every
+        // node carries the type it matches, so the walk is a walk rather than
+        // a second, parallel elaboration of the syntax against `ty`.
+        //
+        // It runs after `check_pattern` for the same reason: before it, only
+        // the head's type is known. A wildcard at the top still reports at the
+        // statement's span, because the edit a reader has to make is the
+        // statement; a nested one reports at itself, because the statement is
+        // otherwise fine and the `_` is the whole of what is wrong.
+        self.report_discarded_results(&pat, span);
         // The pattern in a `let` must be irrefutable. Use `match` for anything
         // else.
         if !pat.is_irrefutable(&self.c.tables) {
@@ -155,6 +190,21 @@ impl<'a, 'b> Infer<'a, 'b> {
         match self.role {
             Role::Entry => self.in_main,
             other => other.may_build_context(),
+        }
+    }
+
+    /// Every `_` in a `let`'s pattern that throws a `Result` away, reported.
+    ///
+    /// `at` is where a wildcard standing as the whole pattern reports — the
+    /// statement, because that is the line to edit. Everything nested reports
+    /// at its own span.
+    fn report_discarded_results(&mut self, pat: &typed::Pattern, at: Span) {
+        let mut wildcards = Vec::new();
+        wildcard_types(pat, at, &mut wildcards);
+        for (span, ty) in wildcards {
+            if self.is_known_result(&ty) {
+                self.templated("result-discarded", span);
+            }
         }
     }
 
@@ -1081,13 +1131,19 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// records which. Monomorphization already reads that row to dispatch
     /// (`resolve_trait_call`, `middle/monomorphize.rs`, which rewrites the
     /// receiver into a `CtxGet` of exactly this type), so substituting the
-    /// receiver here left a method whose signature names `Self` — `Tasks`'
-    /// `f: fn(Self, Int, A) => B`, `Listen`'s `onRequest: fn(Self, Request) =>
-    /// Response` — handing the caller's handler the **context's** layout while
-    /// the `impl` body hands it the implementation's. Two different types, and
-    /// nothing between here and the machine to notice: the front end had
-    /// agreed with itself, so it typechecked, and the native backends read the
-    /// wrong bytes and crashed with no output at all.
+    /// receiver here left a method whose signature names `Self` — `Listen`'s
+    /// `onRequest: fn(Self, Request) => Response` — handing the caller's
+    /// handler the **context's** layout while the `impl` body hands it the
+    /// implementation's. Two different types, and nothing between here and the
+    /// machine to notice: the front end had agreed with itself, so it
+    /// typechecked, and the native backends read the wrong bytes and crashed
+    /// with no output at all.
+    ///
+    /// The rule is one-directional and that is the point: `Self` is the
+    /// implementation *everywhere*, and an effect whose callback is meant to
+    /// receive the caller's context takes that context as a `ctx` parameter and
+    /// names it, the way `Tasks.parallel` does (SPEC 10.6). Nothing here ever
+    /// answers "the receiver", so there is no second reading to get wrong.
     ///
     /// This is the same answer A1 gives a written `Self` in an `impl`
     /// signature (the head's type) and A3 gives an impl head matched against a
@@ -2825,6 +2881,47 @@ fn collect_locals(e: &typed::Expr, out: &mut Vec<LocalId>) {
             out.push(*l);
         }
     });
+}
+
+/// Every `_` in `pat`, paired with the type it matches and the span to report
+/// it at. The root is given `at`; everything below it reports at itself.
+///
+/// A `Bind` with no sub-pattern is a name, not a discard — `let _x = mayFail()`
+/// is legal, and `unused-variable` is the rule that has an opinion about it.
+fn wildcard_types(pat: &typed::Pattern, at: Span, out: &mut Vec<(Span, Ty)>) {
+    match &pat.kind {
+        typed::PatKind::Wild => out.push((at, pat.ty.clone())),
+        typed::PatKind::Bind { sub: Some(sub), .. } => wildcard_types(sub, sub.span, out),
+        typed::PatKind::Tuple(ps) | typed::PatKind::Or(ps) => {
+            for p in ps {
+                wildcard_types(p, p.span, out);
+            }
+        }
+        typed::PatKind::Struct { fields, .. } | typed::PatKind::Variant { fields, .. } => {
+            for f in fields {
+                wildcard_types(&f.pattern, f.pattern.span, out);
+            }
+        }
+        // The elements only. A `..` drops a *slice*, which is a list rather
+        // than a `Result`, and no wildcard is written for it.
+        typed::PatKind::Array { elems, .. } => {
+            for p in elems {
+                wildcard_types(p, p.span, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The fix the `result-discarded` page prints.
+///
+/// Borrowed rather than repeated, because a `Result` left in statement
+/// position is the same mistake as one bound to `_`, and the two diagnostics
+/// that shape earns — `expression-statement` and `statement-not-unit` — would
+/// otherwise answer it with `let _ = ...;`, which is the error the reader hits
+/// next. One rule, one sentence, and it lives on the page that explains it.
+fn result_discard_fix() -> Option<&'static str> {
+    crate::documentation::errors::page("result-discarded").and_then(|p| p.front.fix.as_deref())
 }
 
 #[cfg(test)]

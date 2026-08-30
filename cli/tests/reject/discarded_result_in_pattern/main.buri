@@ -1,0 +1,22 @@
+// EXPECT: a `Result` may not be discarded
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+
+fn parse(text: Str): Result<Int, Str> {
+  if (text == "") { .Err("empty") } else { .Ok(1) }
+}
+
+struct Job {
+  name: Str,
+  outcome: Result<Int, Str>,
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  // A tuple hides the wildcard one level down, and the rule is about the
+  // wildcard rather than about the head of the pattern.
+  let (count, _) = (1, parse("hi"));
+  let Job { name, outcome: _ } = Job { name: "one", outcome: parse("ho") };
+  let _ = ctx.println("${count} ${name}");
+  .Ok(())
+}
