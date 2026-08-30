@@ -134,9 +134,10 @@ thing is worse than no rule:
   off: a shadowed binding with the same spelling silences the finding rather
   than producing a wrong one.
 - `discarded-result` cannot be about `let _ = <Result>`, because that is
-  already a hard type error — `result-discarded`, in the error catalog. The only
-  way a `Result` is dropped on purpose is `ignore`, so that is what the rule
-  reports — it is the grep, run for you.
+  already a hard type error — `result-discarded`, in the error catalog — as is
+  a `_` further down the pattern, and as is leaving the `Result` standing as a
+  statement. The only way a `Result` is dropped on purpose is `ignore`, so that
+  is what the rule reports — it is the grep, run for you.
 - `test-without-assertion` is **transitive**. Read as "the body contains no
   `assert`" it fires on every test that asserts through a helper, which is most
   of the ones worth writing. A test passes the rule if anything reachable from

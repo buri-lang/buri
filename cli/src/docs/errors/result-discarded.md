@@ -1,7 +1,7 @@
 ---
 title: A `Result` may not be discarded
 message: a `Result` may not be discarded
-fix: consume it: `?` to propagate, `match` to handle both cases, `result.withDefault` to supply one — or, when you really mean to drop it, the explicit and greppable `result.ignore`
+fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
 ---
 # A `Result` may not be discarded
 
@@ -11,17 +11,21 @@ error: a `Result` may not be discarded [result-discarded]
 
 ## What to do
 
-Consume it: `?` to propagate, `match` to handle both cases, `result.withDefault`
+Consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)`
 to supply one — or, when you really mean to drop it, the explicit and greppable
-`result.ignore`.
+`.ignore()`.
 
 ## Why
 
-There are no expression statements outside a test source, so `let _ =` is the
-only way to discard a value at all. Closing that one hole is what makes
-must-use total rather than a convention: `result.ignore` is then the single
-spelling of a deliberate drop, and `buri lint` reports it as
-`discarded-result`.
+A `Result` can be thrown away in two places and no third: bound to a `_` in a
+`let`, or left standing as an expression statement. Both are this error, so
+must-use is total rather than a convention — and `.ignore()` is then the single
+spelling of a deliberate drop, which `buri lint` reports as `discarded-result`.
+
+The `_` is looked for anywhere in the pattern rather than only at its head. A
+`let (count, _) = (1, mayFail());` drops the failure exactly as thoroughly as a
+`let _ =` does, and a rule that read only the head would be a rule with a
+one-character way around it.
 
 ## A program that provokes it
 
