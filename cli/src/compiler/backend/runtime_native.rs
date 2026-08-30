@@ -162,12 +162,14 @@ pub fn net() -> bool {
 /// covered the day it is added rather than the day somebody remembers this
 /// list.
 ///
-/// **None of these keys exists yet.** They arrive with `core/tasks` and the
-/// server surface; what exists now is the refusal, so that the day a key lands
-/// it lands with the diagnostic already written. A key this returns true for
-/// and the archive answers anyway is not a problem — the gap is only ever
-/// consulted when [`net`] is false, and with `net` off the archive answers none
-/// of them.
+/// **`host.HostTasks.parallel` is the first of these keys that exists**, and it
+/// is answered by `cli/runtime/rt.rs` — behind `net`, beside the carrier pool
+/// D4 fans it out onto — which is what keeps this rule honest for it. `Listen`
+/// and `Sockets` are still ahead of their first key; what exists for them is
+/// the refusal, so that the day one lands it lands with the diagnostic already
+/// written. A key this returns true for and the archive answers anyway is not a
+/// problem — the gap is only ever consulted when [`net`] is false, and with
+/// `net` off the archive answers none of them.
 ///
 /// `host.HostNet.fetch` is deliberately **not** here: `cli/runtime/http.rs`
 /// writes its own cleartext client and reaches none of the four crates. The day

@@ -1,0 +1,36 @@
+// CRASH: division by zero
+//
+// An abort inside a task. SPEC 6.10 makes an abort a write to standard error
+// and an exit rather than an unwind, and the point of this file is that the
+// rule survives the one boundary that could have been tempted to catch it:
+// `Tasks.parallel` runs its step through the runtime, so the aborting frame is
+// several frames below a call the runtime made rather than inside the caller.
+//
+// It is not the first task that aborts, so the line printed above the message
+// was printed by a task that had already finished.
+//
+// `cli/tests/native/agreement.rs` runs the same shape through both native
+// backends and compares the message and the status; this file is what runs
+// wherever the JavaScript corpus runs.
+from "core/effect/lib.buri" import { Alloc, Env, Stdout, Tasks };
+from "core/host/lib.buri" import * as host;
+from "core/env/lib.buri" import * as env;
+from "core/tasks/lib.buri" import * as tasks;
+from "core/list/lib.buri" import * as list;
+
+fn ratio(a: Int, b: Int): Int { a / b }
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Env: host.env,
+    Tasks: host.tasks,
+  };
+  // A zero the compiler cannot fold: the process was given no arguments.
+  let zero = env.args(ctx).len();
+  let _ = ctx.println("the first task finished");
+  let answers = tasks.parallel(ctx, [2, 1, zero], fn(c, i, n) => ratio(12, n));
+  let _ = ctx.println("${answers.len()}");
+  .Ok(())
+}
