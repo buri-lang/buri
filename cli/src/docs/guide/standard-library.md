@@ -52,8 +52,8 @@ prelude, so `derive Eq for Point;` works in a module that imports nothing.
   because a varint is an encoding of a number as bytes, it has exactly one
   definition, and anything speaking a length-prefixed format needs the same
   one. They do 64-bit arithmetic on two 32-bit halves, so a negative `int64`
-  writes the ten bytes protoc writes; an `Int` is still a double, so a value
-  past 2^53 survives only to that precision.
+  writes the ten bytes protoc writes, and every digit of a value past 2^53
+  survives on every backend.
 
 - **`core/json`** — a `Json` tree, `parse`, and `stringify`. **An object is an
   ordered association list, not a map**, so key order round-trips, no `Hash`
