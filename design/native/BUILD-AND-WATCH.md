@@ -87,6 +87,29 @@ bytes are bought rather than spent. `.github/scripts/assert-runtime-archive.sh`
 holds both halves in CI: a size budget, and a symbol table with none of the four
 crates in it.
 
+**How the toolchain knows.** `cli/build.rs` writes `libburi_rt.a.features`
+beside the archive and beside its digest — the Cargo features the archive was
+built with, one per line, and empty when there is no archive at all.
+`runtime_native::FEATURES` is an `include_str!` of it and `runtime_native::net()`
+a whole-line lookup in that, which is the same "one `OUT_DIR`, one run of the script,
+so the bytes and the facts about them travel together" argument the baked digest
+is written for. Not a `--cfg`, for the reason the archive's *emptiness* rather
+than a `--cfg` is the availability signal: conditional compilation would need a
+`check-cfg` list to know about, and a fact that travels beside the bytes cannot
+be paired with another build's.
+
+What reads it is `Backend::missing_intrinsics`, on both native backends. The
+`host.HostListen.*`, `host.HostSockets.*` and `host.HostTasks.*` family is
+missing on a toolchain whose archive has no `net`, whatever the backend has a
+body for, and `backend::split_networking` sorts that half out from the ordinary
+"this backend has no implementation of" half at each of the two emission sites.
+The refusal is `networking-not-available`, whose fix names the feature rather
+than asking for a bug report: the program is fine and the toolchain is what has
+to change. None of those keys exists yet — they arrive with `core/tasks` and the
+server surface — and the refusal is in place first, so that the day one lands it
+lands with its diagnostic already written rather than as an unresolved
+`buri_rt_*` symbol from `cc`.
+
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 
 `notify` is the obvious dependency for `--watch`, and it does not clear the bar —

@@ -531,6 +531,15 @@ pub fn rendered(body: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// `(effect name, effect type, host value)`.
+///
+/// The set is what a fence's generated `main` can actually *bind*, which is a
+/// smaller thing than what `core/effect` declares. The three UI effects are
+/// absent because a fence builds no output and so has no platform, and `Tasks`
+/// is absent for the opposite reason: it is declared and granted by nobody, so
+/// `__host.tasks` resolves on no platform and a fence naming it would fail at
+/// a line the fence's author never wrote. Refusing `ctx=tasks` up front, with
+/// the list below, says so at the fence instead. The row lands here when a
+/// platform grants it.
 fn effect_binding(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
         "alloc" => ("Alloc", "alloc"),

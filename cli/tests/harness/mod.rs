@@ -8,6 +8,10 @@
 //! `cli/tests/example` leaves `.buri/` and an `out` symlink behind, and a
 //! test that edits a fixture in place corrupts it if it panics first — so every
 //! suite works on a copy under `CARGO_TARGET_TMPDIR` instead.
+//!
+//! `migrate.rs` sits beside this file rather than inside it: it is the
+//! `Hermetic()` rewriter, one target includes it by `#[path]`, and the other
+//! twelve have no use for a parse-tree walker.
 // Each test binary gets its own copy of this module and uses a subset of it.
 #![allow(dead_code, unused_imports)]
 
