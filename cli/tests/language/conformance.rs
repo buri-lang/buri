@@ -438,6 +438,85 @@ fn the_example_monorepo_is_clean() {
 }
 
 // ---------------------------------------------------------------------------
+// Where a lint finding may point
+// ---------------------------------------------------------------------------
+
+/// A source a lint reads is not a source it may report, and the reason is the
+/// **cache** rather than the caret.
+///
+/// `lint_cache.rs`'s `place` turns a recorded span's file name back into a
+/// `FileId` for the run that reads the record, and answers `None` for a name
+/// with no file behind it — an embedded standard library module, or one
+/// generated from a schema. One such name makes the whole record unusable, so
+/// a single finding pointing into `core/…` re-lints that target from scratch
+/// for ever. `editable_modules_of` is what stops it, and this is the test that
+/// holds the body-reading rules to it.
+///
+/// `unused-context-bound` is what makes the question live. `core/fs` declares
+/// six functions whose `Alloc` bound the body never exercises — `readText` is
+/// `ctx.readFile(path)`, which is an `Fs` method and nothing else — so a rule
+/// that walked every body in the closure would report six findings inside the
+/// standard library for a repository that merely reads a file. Measured with
+/// the module filter lifted, it reports exactly those six.
+///
+/// The repository below reaches all six through one import, and the assertion
+/// is in two halves so that neither can pass by the rule having gone silent:
+/// nothing outside the repository is named, **and** the one dead bound the
+/// repository itself wrote is reported.
+#[test]
+fn a_finding_never_names_a_file_the_author_cannot_edit() {
+    let repo = Scratch::repo("lint-spans");
+    repo.binary_package("cmd/app", FS_BOUNDS);
+    let run = repo.run(&["lint", "//...", "--error-format=json"]);
+    run.exits(1);
+
+    let mut named: Vec<String> = Vec::new();
+    let mut mine: Vec<String> = Vec::new();
+    for line in run.all().lines() {
+        let Some(file) = line.split("\"file\":\"").nth(1).and_then(|r| r.split('"').next()) else {
+            continue;
+        };
+        named.push(file.to_string());
+        if repo.path(file).exists() {
+            mine.push(file.to_string());
+        }
+    }
+    assert!(
+        named.len() == mine.len(),
+        "a finding names a file outside the repository: {named:?}\n{}",
+        indent(&run.all())
+    );
+    assert!(
+        run.all().contains("unused-context-bound"),
+        "the repository's own dead bound went unreported, so this proves nothing:\n{}",
+        indent(&run.all())
+    );
+}
+
+/// `fs.readText<C: Alloc + Fs>` demands both of `read`'s bounds; `fs.exists<C:
+/// Fs>` demands one of `touch`'s. So exactly one finding is this repository's,
+/// and the six inside `core/fs` are nobody's.
+const FS_BOUNDS: &str = r#"from "core/effect/lib.buri" import { Alloc, Fs };
+from "core/fs/lib.buri" import * as fs;
+from "core/host/lib.buri" import * as host;
+
+fn read<C: Alloc + Fs>(ctx: C, path: Str): Bool {
+  fs.readText(ctx, path).isOk()
+}
+
+fn touch<C: Alloc + Fs>(ctx: C, path: Str): Bool {
+  fs.exists(ctx, path)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Fs: host.fs };
+  let _ = read(ctx, "a.txt");
+  let _ = touch(ctx, "b.txt");
+  .Ok(())
+}
+"#;
+
+// ---------------------------------------------------------------------------
 // The CLI contract
 // ---------------------------------------------------------------------------
 

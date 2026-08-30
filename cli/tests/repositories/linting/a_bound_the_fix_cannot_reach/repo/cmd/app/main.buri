@@ -1,0 +1,11 @@
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+
+from "//lib/label/lib.buri" import { note, stamp };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = stamp(ctx, "ledger");
+  let _ = note(ctx, "ledger");
+  .Ok(())
+}
