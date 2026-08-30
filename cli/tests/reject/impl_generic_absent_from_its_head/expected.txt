@@ -1,0 +1,8 @@
+error: `Describe` could not be resolved to a concrete type [type-arguments-required]
+  --> cmd/impl_generic_absent_from_its_head/main.buri:22:3
+   |
+22 |   d.describe()
+   |   ^^^^^^^^^^^^
+   |
+   = the implementation's type parameter 0 is never mentioned in the type it is written for, so the receiver does not say what it is
+   = fix: mention every one of the `impl`'s type parameters in the type it is written for, or drop the ones it does not use
