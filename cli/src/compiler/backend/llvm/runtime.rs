@@ -1424,6 +1424,19 @@ pub const FREE: &str = "buri_rt_free";
 pub const ARGV_INIT: &str = "buri_rt_argv_init";
 /// `buri_rt_flush()` — required before every return path from `main`.
 pub const FLUSH: &str = "buri_rt_flush";
+/// `buri_rt_frames_are_per_carrier()` — the artifact's one statement about
+/// itself, made once at startup (`cli/runtime/lib.rs` §6).
+///
+/// **This backend makes it and the frame-threaded one does not**, and that is
+/// a fact about where a Buri frame lives rather than a difference of opinion
+/// about scheduling. Here a Buri function is an ordinary LLVM function and its
+/// locals are `alloca`s, so a carrier's 512 KiB thread stack is its own and the
+/// runtime may run two `Tasks.parallel` steps at once. There a program has one
+/// Buri stack — the `buri$stencil$stack` block its `main` guards — and a step
+/// runs in a frame the *call site* set aside, so two of them would share it.
+/// Saying nothing is the safe answer, which is why the call is here and not a
+/// parameter of one over there.
+pub const FRAMES_PER_CARRIER: &str = "buri_rt_frames_are_per_carrier";
 /// `buri_rt_i128_divmod(a_lo, a_hi, b_lo, b_hi, signed, quot, rem)`.
 pub const I128_DIVMOD: &str = "buri_rt_i128_divmod";
 /// `buri_rt_i128_checked(op, a_lo, a_hi, b_lo, b_hi, signed, out) -> i32` and

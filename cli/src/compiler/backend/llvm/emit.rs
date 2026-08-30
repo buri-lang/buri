@@ -7604,12 +7604,33 @@ pub fn numeric_op(key: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
-    /// `int main(int, char**)`, the two calls `cli/runtime/lib.rs` §6 requires,
-    /// and SPEC's `Result<(), Str>` contract.
+    /// `buri_rt_frames_are_per_carrier()`, in both emitted entry points.
+    ///
+    /// A Buri frame here is a machine frame — `middle::layout`'s locals area
+    /// becomes `alloca`s in an ordinary LLVM function — so a carrier that
+    /// enters Buri code brings its own, and `Tasks.parallel` may run two steps
+    /// at once. The frame-threaded backend emits no such call and must not
+    /// until each carrier owns a Buri stack: `runtime::FRAMES_PER_CARRIER` is
+    /// where the difference is argued, and `cli/runtime/lib.rs` §6 is the
+    /// contract.
+    ///
+    /// It is the one call in §6's list that is *optional*, so an entry point
+    /// that lost it would be a program whose tasks stopped overlapping — slow,
+    /// never wrong.
+    fn declare_frames_are_per_carrier(&mut self) {
+        let f = self.declare_rt(runtime::FRAMES_PER_CARRIER, &[], None);
+        if let Ok(call) = self.builder.build_call(f, &[], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
+    }
+
+    /// `int main(int, char**)`, the calls `cli/runtime/lib.rs` §6 names, and
+    /// SPEC's `Result<(), Str>` contract.
     ///
     /// ```c
     /// int main(int argc, char** argv) {
     ///     buri_rt_argv_init(argc, argv);
+    ///     buri_rt_frames_are_per_carrier();
     ///     r = buri_main();
     ///     buri_rt_flush();
     ///     if (tag(r) != Ok) { eprintln(payload(r)); buri_rt_flush(); return 1; }
@@ -7638,6 +7659,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 attrs::set_call_convention(call, attrs::C);
             }
         }
+        self.declare_frames_are_per_carrier();
 
         let Ok(call) = self.builder.build_call(callee, &[], "r") else { return };
         attrs::set_call_convention(call, attrs::FAST);
@@ -7757,6 +7779,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 attrs::set_call_convention(call, attrs::C);
             }
         }
+        self.declare_frames_are_per_carrier();
         let word = self.ctx.i64_type();
         for (i, test) in tests.iter().enumerate() {
             let Some(callee) = self.declare(*test) else { continue };

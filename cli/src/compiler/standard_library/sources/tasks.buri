@@ -34,12 +34,20 @@
 //! | Backend | Today |
 //! |---|---|
 //! | JavaScript | genuinely concurrent — the tasks are started together and awaited together, so two that wait overlap |
-//! | native | sequential, in index order, on the calling carrier |
+//! | native, `--release` | genuinely concurrent — each task runs on a carrier of its own, so two that wait overlap |
+//! | native, `buri run` | sequential, in index order, on the calling carrier |
 //!
-//! Both answer the same list. The native scheduler that overlaps the waits is
-//! the next slice of the concurrency work, and it changes no signature, no
-//! result and no test in this module — which is the point of writing the order
-//! promise down before the fan-out exists rather than after.
+//! All three answer the same list, and that is the whole of what this module
+//! promises. Two tasks that *compute* do not overlap on either native backend
+//! yet — one runs at a time, whichever of them is waiting — so `parallel` buys
+//! overlapped waiting rather than more processors.
+//!
+//! The development backend is sequential because a program it builds has one
+//! Buri stack: a task that is waiting is a task still holding a frame in it, so
+//! a second task could not have one. That is a fact about where its frames live
+//! and not a scheduler that has not been written, and it changes no signature,
+//! no result and no test — which is the point of writing the order promise down
+//! before any of this rather than after.
 //!
 //! ## Why this module is not `core/list`
 //!
