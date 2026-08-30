@@ -737,6 +737,16 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if !self.may_build_context() {
                     self.templated("context-not-allowed", span);
                 }
+                // Checked here if checking has not reached it yet. A
+                // declaration built from another reads the base's *recorded*
+                // type, and the order the declarations are checked in is the
+                // order their ids were minted — the order the modules were
+                // discovered in, which says nothing about which spreads which.
+                // So the use asks for it, and `ctx_decls_reached` makes that
+                // happen once.
+                if self.c.tables.ctx_decl(cid).checked.is_none() {
+                    super::inference::check_context_decl(self.c, cid);
+                }
                 let ty = match self.c.tables.ctx_decl(cid).checked {
                     Some(c) => Ty::Ctx(c.ty),
                     None => Ty::Error,

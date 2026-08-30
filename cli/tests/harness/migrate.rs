@@ -35,7 +35,11 @@
 //! so a site whose test needs `Net` has nothing to bind it to. Those sites are
 //! left spelled `Hermetic()`, and [`Report::unmigrated`] names every one.
 //! `core/testing/context` coexists with `core/host/testing` until E12 deletes
-//! it, so a file may hold both imports and still compile.
+//! it, so a file may hold both imports and still compile — and a file that
+//! calls `noNet()`, which has no twin either, keeps importing exactly that one
+//! name from the old module. [`Plan::old_names_kept`] is what works out which
+//! names those are, and it reads them off the surviving *references* rather
+//! than off the import line.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -185,8 +189,15 @@ pub struct Plan {
     /// The whole line the `core/testing/context` import is written on.
     old_import: Option<Span>,
     /// The names the file still needs from `core/testing/context` after the
-    /// rewrite — `Hermetic`, where a site is blocked, and nothing else.
+    /// rewrite: a call this has no twin for, in the order the file's own
+    /// import wrote them. `Hermetic` is not one of them — whether *it* is
+    /// still needed is a question about the sites, and is asked there.
     old_names_kept: Vec<String>,
+    /// Whether the file imported `Hermetic` at all. A file can name the old
+    /// module without it — `lib/semantics/test/http.buri` imports `noNet` and
+    /// builds its contexts by hand — and the probe rendering must not import
+    /// a name such a file never had.
+    hermetic_imported: bool,
     /// The constructors the rewritten body calls, other than the ones the
     /// contexts themselves call.
     ctors_used: BTreeSet<&'static str>,
@@ -195,6 +206,15 @@ pub struct Plan {
     effect_import: Option<(Span, Vec<String>)>,
     /// The item spans, in source order, for carrying a diagnostic to a site.
     items: Vec<Span>,
+    /// Per item, the *named context declarations* in this file that it calls.
+    ///
+    /// `context Inherited { ..Hermetic() }` is a declaration, and the test
+    /// that writes `let ctx = Inherited();` is where the compiler reports what
+    /// the context does not bind — a declaration with no `Hermetic()` in it.
+    /// This is the edge that carries such a diagnostic back to the site that
+    /// has to change. It is a graph rather than a map because a declaration
+    /// can be built from another (`context Deep { ..Fixture() }`).
+    ctx_edges: Vec<BTreeSet<usize>>,
 }
 
 /// Whether a rendering is for the compiler or for the tree.
@@ -235,9 +255,11 @@ pub fn plan(rel: &str, text: &str) -> Plan {
         edits: Vec::new(),
         old_import: None,
         old_names_kept: Vec::new(),
+        hermetic_imported: false,
         ctors_used: BTreeSet::new(),
         effect_import: None,
         items: Vec::new(),
+        ctx_edges: Vec::new(),
     };
 
     let file = FileId(0);
@@ -253,6 +275,9 @@ pub fn plan(rel: &str, text: &str) -> Plan {
     // out of `core/effect`. A namespace import (`import * as tc`) is read too:
     // `tc.files(...)` is the same call written the other way.
     let mut locals: BTreeMap<String, String> = BTreeMap::new();
+    // The same names in the order the import wrote them, which is the order a
+    // line this rewrite has to write again is written in.
+    let mut import_order: Vec<String> = Vec::new();
     let mut namespace: Option<String> = None;
     let mut hermetic: Option<String> = None;
     for item in &module.items {
@@ -267,6 +292,7 @@ pub fn plan(rel: &str, text: &str) -> Plan {
                         if declared == "Hermetic" {
                             hermetic = Some(local);
                         } else {
+                            import_order.push(declared.clone());
                             locals.insert(local, declared);
                         }
                     }
@@ -281,6 +307,12 @@ pub fn plan(rel: &str, text: &str) -> Plan {
         }
     }
     if plan.old_import.is_none() {
+        // Nothing here is this migration's, so neither is the file's
+        // `core/effect` import: a plan that kept it would rewrite that line —
+        // reordering its names — in a file the migration has no business
+        // touching. `a_file_that_names_none_of_this_is_left_exactly_as_it_is`
+        // is the case.
+        plan.effect_import = None;
         return plan;
     }
 
@@ -298,6 +330,30 @@ pub fn plan(rel: &str, text: &str) -> Plan {
 
     for item in &module.items {
         plan.items.push(item.span());
+    }
+
+    // The named context declarations, and who calls them.
+    let declared_contexts: BTreeMap<String, usize> = module
+        .items
+        .iter()
+        .enumerate()
+        .filter_map(|(n, item)| match item {
+            Item::Context(d) => Some((tree.name(d.name).to_string(), n)),
+            _ => None,
+        })
+        .collect();
+    for item in &module.items {
+        let mut calls = BTreeSet::new();
+        walk_item(tree, item, &mut |tree, id| {
+            let ExprView::Call { callee, .. } = tree.expr(id) else { return };
+            let ExprView::Ident { name, .. } = tree.expr(tree.strip_type_args(callee)) else {
+                return;
+            };
+            if let Some(n) = declared_contexts.get(name) {
+                calls.insert(*n);
+            }
+        });
+        plan.ctx_edges.push(calls);
     }
 
     // The values this file binds to a constructor, so a method on one of them
@@ -372,6 +428,38 @@ pub fn plan(rel: &str, text: &str) -> Plan {
             kept.push(edit);
         }
     }
+
+    // The names the file still needs from `core/testing/context` once the
+    // rewrite has been applied. A reference the rewrite replaced goes with the
+    // call it was written in; one it did not — `noNet()` has no twin, so
+    // `rewrite_call` refused it above — is still there, and an import line
+    // that dropped it would leave the file naming something it no longer
+    // imports. So the survivors are read off the tree rather than off the
+    // import: an `Ident` naming a watched import whose span no kept edit
+    // covers is a use this migration is leaving behind.
+    //
+    // `readOnly(files(..))` is why the test is containment rather than
+    // equality: the inner `files` is a reference inside the *outer* call's
+    // replacement, which already spells it `fs().files(..)`, so it is gone
+    // even though no edit starts at it.
+    let mut surviving: BTreeSet<String> = BTreeSet::new();
+    for item in &module.items {
+        walk_item(tree, item, &mut |tree, id| {
+            let ExprView::Ident { name, span } = tree.expr(id) else { return };
+            let Some(declared) = locals.get(name) else { return };
+            let covered = kept
+                .iter()
+                .any(|e| span.start >= e.span().start && span.end <= e.span().end);
+            if !covered {
+                surviving.insert(declared.clone());
+            }
+        });
+    }
+    // In the order the file's own import wrote them, so the line this
+    // rewrites is the line it was, minus what left.
+    plan.old_names_kept =
+        import_order.into_iter().filter(|n| surviving.contains(n)).collect();
+    plan.hermetic_imported = hermetic.is_some();
 
     plan.sites = sites;
     plan.edits = kept;
@@ -562,9 +650,22 @@ fn shadowing(module: &Module, watched: &BTreeSet<&str>) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 impl Plan {
-    /// Whether this file has anything to do.
-    pub fn touches_anything(&self) -> bool {
-        self.refused.is_none() && (!self.edits.is_empty() || self.old_import.is_some())
+    /// Whether anything here is still this migration's to do: a `Hermetic()`
+    /// to replace, or a call it has a twin for.
+    ///
+    /// The import line is deliberately not part of the question. A file that
+    /// still imports `core/testing/context` for `noNet()` alone is finished as
+    /// far as this script goes — what it is waiting for is design slice E3,
+    /// not another run — so a sweep asserting the migration has nothing left
+    /// to do asks this, and asks [`Plan::still_names_the_old_module`]
+    /// separately.
+    pub fn work_left(&self) -> bool {
+        self.refused.is_none() && (!self.sites.is_empty() || !self.edits.is_empty())
+    }
+
+    /// Whether the file still names `core/testing/context` at all.
+    pub fn still_names_the_old_module(&self) -> bool {
+        self.old_import.is_some()
     }
 
     /// The migrated text, in one of the two styles.
@@ -586,17 +687,25 @@ impl Plan {
             spliced.push((span, self.import_lines(style)));
         }
         if let Some((span, names)) = &self.effect_import {
+            // Rewritten only where a name has to be *added* to it. A file
+            // whose import already holds every effect its new contexts name is
+            // a file whose import line this has nothing to say about, and
+            // rewriting it anyway would reorder the author's names for
+            // nothing.
             let mut merged: Vec<String> = names.clone();
+            let before = merged.len();
             for effect in self.effects_named(style) {
                 if !merged.iter().any(|n| n == effect) {
                     merged.push(effect.to_string());
                 }
             }
-            merged.sort_by_key(|n| effect_order(n));
-            spliced.push((
-                *span,
-                format!("from \"{EFFECT_MODULE}\" import {{ {} }};\n", merged.join(", ")),
-            ));
+            if merged.len() != before {
+                merged.sort_by_key(|n| effect_order(n));
+                spliced.push((
+                    *span,
+                    format!("from \"{EFFECT_MODULE}\" import {{ {} }};\n", merged.join(", ")),
+                ));
+            }
         }
         for edit in &self.edits {
             let text = match edit {
@@ -634,19 +743,20 @@ impl Plan {
     fn import_lines(&self, style: Style) -> String {
         let mut out = String::new();
         // The old module stays imported for as long as something still needs
-        // it: a blocked site is still spelled `Hermetic()`. In the probe form
-        // it always stays, because whether a site is blocked is one of the
-        // things the fixpoint is still finding out, and the line count must
-        // not move while it does.
-        let keep_old = style == Style::Probe
-            || !self.old_names_kept.is_empty()
-            || self.sites.iter().any(|s| s.blocked.is_some());
-        if keep_old {
+        // it: a call with no twin — `noNet()` — or a blocked site, which is
+        // still spelled `Hermetic()`. In the probe form `Hermetic` always
+        // stays where the file imported it, because whether a site is blocked
+        // is one of the things the fixpoint is still finding out and the line
+        // count must not move while it does. What the file needs *besides*
+        // `Hermetic` is settled before the first round, so it is the same set
+        // in both forms.
+        let hermetic = self.hermetic_imported
+            && (style == Style::Probe || self.sites.iter().any(|s| s.blocked.is_some()));
+        if hermetic || !self.old_names_kept.is_empty() {
             let mut names = self.old_names_kept.clone();
-            if self.sites.iter().any(|s| s.blocked.is_some()) || style == Style::Probe {
+            if hermetic {
                 names.insert(0, "Hermetic".to_string());
             }
-            names.dedup();
             out.push_str(&format!("from \"{OLD_MODULE}\" import {{ {} }};\n", names.join(", ")));
         }
         let ctors = self.ctors_named(style);
@@ -996,15 +1106,41 @@ pub fn migrate(
                 continue;
             };
             let offset = line_offset(&rendered[index].1, d.line);
-            let owning: Vec<usize> = (0..plans[index].sites.len())
-                .filter(|n| {
-                    let item = plans[index].sites[*n].item;
-                    items[index].get(item).is_some_and(|(s, e)| offset >= *s && offset <= *e)
-                })
+            let reported_in: Vec<usize> = (0..items[index].len())
+                .filter(|n| items[index].get(*n).is_some_and(|(s, e)| offset >= *s && offset <= *e))
                 .collect();
+            let sites_in = |item: usize| -> Vec<usize> {
+                (0..plans[index].sites.len())
+                    .filter(|n| plans[index].sites[*n].item == item)
+                    .collect()
+            };
+            let mut owning: Vec<usize> =
+                reported_in.iter().flat_map(|item| sites_in(*item)).collect();
+            // A declaration with no site of its own, reporting a context it
+            // did not build: it built it by *calling* one this file declares,
+            // so the diagnostic is carried along that edge — transitively,
+            // because a declaration can be built from another. The rule is
+            // still one answer or none: two sites reachable from one use is
+            // the ambiguity the `many` arm below approximates.
+            if owning.is_empty() {
+                let mut seen: BTreeSet<usize> = reported_in.iter().copied().collect();
+                let mut frontier: Vec<usize> = reported_in.clone();
+                while let Some(item) = frontier.pop() {
+                    let Some(edges) = plans[index].ctx_edges.get(item) else { continue };
+                    for next in edges.clone() {
+                        if seen.insert(next) {
+                            frontier.push(next);
+                            owning.extend(sites_in(next));
+                        }
+                    }
+                }
+                owning.sort_unstable();
+                owning.dedup();
+            }
             match (owning.as_slice(), effect) {
                 ([], _) => unattributed.push(format!(
-                    "{}:{} {} — no `Hermetic()` in the declaration it is reported in",
+                    "{}:{} {} — no `Hermetic()` in the declaration it is reported in, nor in \
+                     any context declaration that one names",
                     d.file, d.line, d.message
                 )),
                 ([one], Some(effect)) if constructor_for(effect).is_some() => {
