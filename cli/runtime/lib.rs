@@ -40,14 +40,17 @@
 //!     754 does not fix their answers, so V8's fdlibm port and the platform's
 //!     libm differ in the last bit, and a rendered `Float` shows seventeen
 //!     digits of it;
-//!   * **the stateful half of `core/testing/context`** ([`testing`]) — a
-//!     captured stdout, a seeded generator, a test clock, a fixture
-//!     environment and a stdin that was handed its lines. Every one of them is
-//!     mutable process state outliving the expression that made it, which is
-//!     why `testing_context.buri` gives each implementation an `I64` handle and
-//!     puts the state on the runner's side; on JavaScript that side is
-//!     `runtime.js`'s `$t.h`, and here it is one table. `alloc()` is the
-//!     exception and both backends open-code it, because it reads no state;
+//!   * **the stateful half of `core/testing/context` and of
+//!     `core/host/testing`** ([`testing`]) — a captured stdout, a seeded
+//!     generator, a test clock, a fixture environment, a stdin that was handed
+//!     its lines, and a process that records its exit rather than taking it.
+//!     Every one of them is mutable process state outliving the expression
+//!     that made it, which is why each implementation carries an `I64` handle
+//!     and puts the state on the runner's side; on JavaScript that side is
+//!     `runtime.js`'s `$t.h`, and here it is one table — one, not two, because
+//!     the two modules are two vocabularies over one handle store. `alloc()`
+//!     is the exception in both and both backends open-code it, because it
+//!     reads no state;
 //!   * **128-bit arithmetic** — [`buri_rt_i128_divmod`], [`buri_rt_i128_checked`]
 //!     and [`buri_rt_i128_saturating`], at the bottom of this file. They are
 //!     here for one reason: the overflow test both backends use at 64 bits is
@@ -299,6 +302,25 @@
 //! macOS and Linux, by `cfg(unix)` plus `std`. There is no Windows support and
 //! no cross-compilation: the archive is built for the host by `cli/build.rs`
 //! and for nothing else (ARCHITECTURE.md §9).
+//!
+//! ## 8. Features, and the manifest that is not called `Cargo.toml`
+//!
+//! One feature, `net`, on by default: `tokio`, `hyper`, `rustls` and
+//! `tungstenite`, which is the runtime's whole admitted dependency set and is
+//! closed by an exact list rather than by a habit (`manifest.toml` argues each
+//! entry, the root `Cargo.toml` states the bar, and
+//! `dependencies_stay_behind_the_bar` asserts the equality). As of this slice
+//! **nothing references any of them** — `net.rs` names one type from each and
+//! stops — so the archive is twenty-four bytes larger with the feature than
+//! without it, and neither backend has a symbol to emit a call to.
+//!
+//! The package's manifest is `manifest.toml` and its lockfile is
+//! `manifest.lock`, neither named the way Cargo would name it, because a
+//! `Cargo.toml` in this directory would delete the directory from the
+//! published `buri` crate: `cargo package` skips a nested package
+//! unconditionally, ahead of `include`. `cli/build.rs` assembles the real
+//! package in `OUT_DIR` and builds it there; that file's header is the
+//! workflow, including how the lockfile is regenerated.
 
 #![allow(clippy::missing_safety_doc)]
 
@@ -312,6 +334,7 @@ mod http;
 mod list;
 mod math;
 mod memory;
+mod net;
 mod rng;
 mod testing;
 mod text;
@@ -326,6 +349,7 @@ pub use host::*;
 pub use list::*;
 pub use math::*;
 pub use memory::*;
+pub use net::*;
 pub use testing::*;
 pub use text::*;
 pub use value::*;

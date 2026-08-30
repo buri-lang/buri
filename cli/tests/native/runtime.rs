@@ -547,7 +547,7 @@ fn the_network_effect_refuses_what_it_cannot_do() {
     assert_eq!(
         stdout(&out).trim_end(),
         "err=3 message=https is not supported by the native runtime \
-         (build with the `net-tls` feature)"
+         (its TLS client is not written yet; `Net.fetch` speaks cleartext http only)"
     );
 
     let out = run(&["net", "not-a-url"]);

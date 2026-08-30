@@ -1,0 +1,262 @@
+//! core/host/testing — the test runner's platform, one double per effect.
+//!
+//! `core/host` is importable only from the module that exports `main`; this is
+//! the same surface for a test source, and the `testing` segment in the path is
+//! the whole of that rule (SPEC 4.1.1). The two restrictions are the same
+//! shape, so between them they still name every place in a program where
+//! authority can enter.
+//!
+//! Every name here is `core/host`'s name — `alloc`, `stdout`, `stderr`,
+//! `stdin`, `fs`, `clock`, `rand`, `env`, `proc` — but **called** rather than
+//! referred to.
+//! `core/host`'s `clock` is one clock because a process has one; `clock()` is a
+//! fresh one every call, so what one test does to it is invisible to the next.
+//! That is the whole reason these are functions and `core/host`'s are `let`s.
+//!
+//! Configuration is a **method on the value that answers a new handle**:
+//! `clock().at(1000)`, `rand().seed(7)`, `env().variables([...]).args([...])`.
+//! There are no free `clockAt`/`randSeed`/`envOf` constructors, because a
+//! reader who knows `clock()` should not have to learn a second name to start
+//! it somewhere else, and because a chain reads in the order it is applied.
+//!
+//! The structs carry an `I64` handle rather than their state. A captured
+//! stdout accumulates what a test writes to it and Buri has no mutation, so the
+//! state lives on the runner's side and the value here names it —
+//! `backend/js/runtime.js`'s `$t.h` on one backend and
+//! `cli/runtime/testing.rs`'s `TABLE` on the other, which is one design written
+//! twice because the *program* is what has to behave identically.
+//!
+//! ## `args`, and the one name that could not be the spelling it wants
+//!
+//! `Env` declares `arguments(self): [Str]` — the reader — and a type has one
+//! method of each name (`duplicate-method`), so the *builder* beside it cannot
+//! also be `arguments`. It is `args`, and it is the only place in this module
+//! where the name is not the one the design note asks for. Every other builder
+//! — `at`, `seed`, `variables`, `captured` — is spelled exactly as written.
+
+from "core/effect/lib.buri" import {
+  Alloc, Clock, Env, Fs, IoError, Proc, Rand, Stderr, Stdin, Stdout, Region,
+};
+
+// --- Alloc --------------------------------------------------------------------
+
+/// Real, from a per-test arena the runner reclaims.
+///
+/// The one double with no state at all: the charge is a function of the *types*
+/// (`core/effect`'s `Alloc`), so `allocate` answers the byte count it was asked
+/// for and the handle names nothing. Both native backends open-code it for
+/// exactly that reason.
+export struct TestAlloc(I64);
+impl Alloc for TestAlloc {
+  fn allocate(self, bytes: Int): Region;
+}
+export fn alloc(): TestAlloc;
+
+// --- Output -------------------------------------------------------------------
+
+/// Captured, and never printed. `captured` is the only way to read it back,
+/// which is what makes a test's output something to assert on rather than
+/// something to watch scroll past — a failing test says so through its
+/// assertion.
+export struct TestStdout(I64);
+impl Stdout for TestStdout {
+  fn print(self, text: Template): ();
+  fn println(self, text: Template): ();
+  /// Captured as the UTF-8 text the octets spell, so `captured` answers one
+  /// question rather than two.
+  fn writeBytes(self, b: [U8]): ();
+}
+export fn stdout(): TestStdout;
+
+impl TestStdout {
+  /// Everything written to this stream so far.
+  export fn captured(self): Str;
+}
+
+/// The same, for standard error.
+export struct TestStderr(I64);
+impl Stderr for TestStderr {
+  fn eprint(self, text: Template): ();
+  fn eprintln(self, text: Template): ();
+}
+export fn stderr(): TestStderr;
+
+impl TestStderr {
+  /// Everything written to this stream so far. The same name `TestStdout`
+  /// carries: two types, one question, and the receiver says which stream.
+  export fn captured(self): Str;
+}
+
+// --- Input --------------------------------------------------------------------
+
+/// End of input, until a test says otherwise: `readLine` and `readBytes` both
+/// answer `.None`.
+///
+/// `core/host`'s `stdin` is the process's, which a test must never read — a
+/// suite that blocked on a pipe nobody was writing to would hang rather than
+/// fail. This one is a fixture, and the default fixture is the empty one.
+export struct TestStdin(I64);
+impl Stdin for TestStdin {
+  fn readLine(self): Option<Str>;
+  fn readBytes(self, n: Int): Option<[U8]>;
+}
+export fn stdin(): TestStdin;
+
+impl TestStdin {
+  /// A **new** stdin reading those lines, then end of input.
+  export fn lines(self, lines: [Str]): TestStdin;
+  /// A **new** stdin reading those octets, then end of input.
+  ///
+  /// `lines` and `bytes` **replace** each other rather than composing the way
+  /// `TestEnv`'s two builders do, and that is the difference between two axes
+  /// and one: a stream is either the lines a test wrote or the octets it wrote,
+  /// and a stdin built from octets answers `.None` to `readLine`. The last
+  /// builder in the chain is the stream.
+  export fn bytes(self, b: [U8]): TestStdin;
+}
+
+// --- Filesystem ---------------------------------------------------------------
+
+/// In-memory and empty. Writes are visible to that test and discarded after it.
+///
+/// A file holds **octets**, and `readFile` decodes them as UTF-8 the way a real
+/// filesystem's does — so `writeFileBytes` of a byte a text encoding cannot
+/// carry reads back through `readFileBytes` unchanged.
+///
+/// Two places where an in-memory filesystem is thinner than a real one, both
+/// observable and both deliberate. It is a flat map of paths, so the parents of
+/// a fixture's path are not directories until `makeDir` says so; and `sync` has
+/// nothing to flush, so it is `.Ok` for any path that exists. Everything else —
+/// append creating a file, rename replacing one, removing what is not there —
+/// answers exactly what a real filesystem answers, which is what lets one
+/// conformance block run against both.
+export struct TestFs(I64);
+impl Fs for TestFs {
+  fn readFile(self, path: Str): Result<Str, IoError>;
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
+  fn fileExists(self, path: Str): Bool;
+  fn readDir(self, path: Str): Result<[Str], IoError>;
+  fn readFileBytes(self, path: Str): Result<[U8], IoError>;
+  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
+  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
+  fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
+  fn removeFile(self, path: Str): Result<(), IoError>;
+  fn makeDir(self, path: Str): Result<(), IoError>;
+  fn syncFile(self, path: Str): Result<(), IoError>;
+}
+export fn fs(): TestFs;
+
+impl TestFs {
+  /// A **new** filesystem holding this one's files and these as well, as the
+  /// UTF-8 the text spells. The last entry for a path wins, and so does a later
+  /// builder: `fs().files(a).files(b)` is `a` overwritten by `b`.
+  export fn files(self, entries: [(Str, Str)]): TestFs;
+  /// The byte twin, for a fixture that is not text. It composes with `files` in
+  /// either order, because both write into the one map a file lives in.
+  export fn filesBytes(self, entries: [(Str, [U8])]): TestFs;
+  /// A **new** handle onto the *same* files, through which every write fails
+  /// with `.ReadOnly`.
+  ///
+  /// This is `core/testing/context`'s `ReadOnly<C>` folded into a method, and
+  /// the fold keeps what made the wrapper a wrapper: it holds the inner value
+  /// rather than a copy of it, so a read through the attenuated handle sees
+  /// whatever the filesystem holds *now*. `readFile`, `fileExists`, `readDir`,
+  /// `readFileBytes` and `syncFile` are forwarded — `sync` is not a write and
+  /// there is nothing this could be hiding — and the six that write are
+  /// refused.
+  ///
+  /// `ReadOnly<C>` itself stays: it attenuates *any* `Fs`, including one a test
+  /// wrote, and this method attenuates only this one.
+  export fn readOnly(self): TestFs;
+  /// What this filesystem holds at `path`, or `.Err(.NotFound)`.
+  ///
+  /// The same answer `readFile` gives, reachable without the `Fs` effect: a
+  /// test asserting on what a function *wrote* is reading an environment back
+  /// rather than performing an effect, and should not have to bind one to do
+  /// it.
+  export fn read(self, path: Str): Result<Str, IoError>;
+  /// Every file, as text, **sorted by path**.
+  ///
+  /// Sorted rather than in the order the writes happened, because the order of
+  /// the writes is `calls()`'s question and the contents is this one's: a test
+  /// that asserted on insertion order would fail the day a function under test
+  /// reordered two writes that do not interact.
+  ///
+  /// A directory `makeDir` created holds no octets and is not a file, so it is
+  /// not here; `readDir` is the question it answers.
+  export fn snapshot(self): [(Str, Str)];
+}
+
+// --- Clock --------------------------------------------------------------------
+
+/// Starts at zero and advances only when the test advances it. `sleepMillis`
+/// advances it without sleeping, which is the whole point of a test clock.
+export struct TestClock(I64);
+impl Clock for TestClock {
+  fn nowMillis(self): I64;
+  fn sleepMillis(self, millis: Int): ();
+}
+export fn clock(): TestClock;
+
+impl TestClock {
+  /// A **new** clock, at that instant. The one it was called on is untouched,
+  /// so a test holding both holds two independent clocks.
+  export fn at(self, millis: Int): TestClock;
+}
+
+// --- Randomness ---------------------------------------------------------------
+
+/// Seeded — at zero unless a test says otherwise — so a failure reproduces.
+export struct TestRand(I64);
+impl Rand for TestRand {
+  fn nextInt(self, lo: Int, hi: Int): Int;
+  fn nextFloat(self): Float;
+}
+export fn rand(): TestRand;
+
+impl TestRand {
+  /// A **new** generator, at that seed and drawing from the start of its
+  /// sequence.
+  export fn seed(self, n: Int): TestRand;
+}
+
+// --- Environment --------------------------------------------------------------
+
+/// Empty: no variables and no arguments, whatever the host happens to have.
+export struct TestEnv(I64);
+impl Env for TestEnv {
+  fn variable(self, name: Str): Option<Str>;
+  fn arguments(self): [Str];
+}
+export fn env(): TestEnv;
+
+impl TestEnv {
+  /// A **new** environment with these variables and this one's arguments, so
+  /// the two builders compose in either order. The last binding of a name
+  /// wins.
+  export fn variables(self, vars: [(Str, Str)]): TestEnv;
+  /// A **new** environment with these arguments and this one's variables.
+  ///
+  /// `args` rather than `arguments`: `Env.arguments` is the reader, and a type
+  /// has one method of each name.
+  export fn args(self, arguments: [Str]): TestEnv;
+}
+
+// --- Process ------------------------------------------------------------------
+
+/// Records the exit rather than taking it. A test that ended the process would
+/// take every block after it with it, and the runner would report a suite that
+/// stopped rather than a function that exited.
+export struct TestProc(I64);
+impl Proc for TestProc {
+  fn exitWith(self, code: Int): ();
+}
+export fn proc(): TestProc;
+
+impl TestProc {
+  /// The code the first `exitWith` asked for, or `.None` where nothing exited.
+  ///
+  /// The first, not the last: a program that exits does not carry on, so a
+  /// second call is one a real process could never have made.
+  export fn exited(self): Option<Int>;
+}
