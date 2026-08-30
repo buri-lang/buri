@@ -1069,13 +1069,27 @@ fn objects_named(
     };
     let missing = backend.missing_intrinsics(program, tables);
     if !missing.is_empty() {
-        diagnostics.push(
-            Diagnostic::error(
-                Span::NONE,
-                format!("the {} backend has no implementation of {}", backend.name(), missing.join(", ")),
-            )
-            .with_fix("report it: this is a toolchain bug, not a problem with your program"),
-        );
+        // One diagnostic per cause rather than one per program: an operation a
+        // toolchain built without the runtime's `net` feature cannot answer is
+        // a different sentence, and asks for a different thing, from an
+        // operation the backend has no body for.
+        let (networking, rest) = backend::split_networking(&missing);
+        if !networking.is_empty() {
+            diagnostics.push(backend::no_networking(&networking, Span::NONE));
+        }
+        if !rest.is_empty() {
+            diagnostics.push(
+                Diagnostic::error(
+                    Span::NONE,
+                    format!(
+                        "the {} backend has no implementation of {}",
+                        backend.name(),
+                        rest.join(", ")
+                    ),
+                )
+                .with_fix("report it: this is a toolchain bug, not a problem with your program"),
+            );
+        }
         return Err(std::mem::take(diagnostics));
     }
 

@@ -654,9 +654,9 @@ fn run_on(
     // Only a *defaulted* platform is asked. A suite that named one is already
     // past here, on the platform it named.
     if platform.is_native() && chosen == Chosen::Default {
-        if let Some(reason) = native_gap(platform, &args.flags, &program, &analysis.checked.tables)
+        if let Some(gap) = native_gap(platform, &args.flags, &program, &analysis.checked.tables)
         {
-            return Err(gap_refusal(&session.workspace.label(target), &reason));
+            return Err(gap_refusal(&session.workspace.label(target), gap));
         }
     }
 
@@ -878,8 +878,22 @@ fn default_platform(flags: &arguments::Flags, notices: &mut Notices) -> Platform
     Platform::Js
 }
 
-/// What this program reaches that the native backend has no body for, in one
-/// line, or `None` when it reaches nothing of the kind.
+/// Why a program cannot run natively, in the shape the refusal needs.
+///
+/// Two variants, because `backend::split_networking` names two causes and they
+/// are not the same kind of news. A key the backend has no body for is a
+/// toolchain bug and a suite that could be declared `platforms: [JS]`; an
+/// operation this toolchain has no networking for is neither — the program is
+/// fine, and running it on JavaScript instead would prove something else.
+enum Gap {
+    /// Operations only a runtime built with networking answers.
+    NoNetworking(Vec<String>),
+    /// A key this backend has no body for, and how many more there were.
+    NoBody { backend: &'static str, first: String, more: usize },
+}
+
+/// What this program reaches that a native run cannot answer, or `None` when it
+/// reaches nothing of the kind.
 ///
 /// The answer is the backend's own, not a list kept here: keeping one would be
 /// a second statement of the surface that drifts from the first the day a gap
@@ -889,19 +903,18 @@ fn native_gap(
     flags: &arguments::Flags,
     program: &monomorphize::Program,
     tables: &crate::compiler::semantics::types::Tables,
-) -> Option<String> {
+) -> Option<Gap> {
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
     let backend =
         crate::compiler::backend::select(actions::target_of(&output), actions::profile_of(flags))
             .ok()?;
     let missing = backend.missing_intrinsics(program, tables);
-    let (first, rest) = missing.split_first()?;
-    let more = match rest.len() {
-        0 => String::new(),
-        1 => String::from(" and one more"),
-        n => format!(" and {n} more"),
-    };
-    Some(format!("the {} backend has no implementation of {first}{more}", backend.name()))
+    let (networking, rest) = crate::compiler::backend::split_networking(&missing);
+    if !networking.is_empty() {
+        return Some(Gap::NoNetworking(networking));
+    }
+    let (first, more) = rest.split_first()?;
+    Some(Gap::NoBody { backend: backend.name(), first: first.clone(), more: more.len() })
 }
 
 /// Whether a native compilation failed because this backend has no body for
@@ -928,12 +941,28 @@ const GAP_FIX: &str = "declare `test { platforms: [JS] }` for this suite if it b
 /// on a backend nobody chose, and what it proves is that the other backend
 /// agrees with itself. `buri build` has always refused this; `buri test` does
 /// now too (buri-lang/buri#4).
-fn gap_refusal(label: &str, reason: &str) -> Diagnostics {
+fn gap_refusal(label: &str, gap: Gap) -> Diagnostics {
     let mut diagnostics = Diagnostics::new();
-    diagnostics.push(
-        Diagnostic::error(Span::NONE, format!("{label} cannot run natively: {reason}"))
-            .with_fix(GAP_FIX),
-    );
+    match gap {
+        // The page's own words, and its own fix: what this suite needs is a
+        // toolchain, and [`GAP_FIX`]'s two suggestions — declare `platforms:
+        // [JS]`, or report a bug — are both the wrong instruction for it.
+        Gap::NoNetworking(operations) => {
+            diagnostics.push(crate::compiler::backend::no_networking(&operations, Span::NONE));
+        }
+        Gap::NoBody { backend, first, more } => {
+            let more = match more {
+                0 => String::new(),
+                1 => String::from(" and one more"),
+                n => format!(" and {n} more"),
+            };
+            let reason = format!("the {backend} backend has no implementation of {first}{more}");
+            diagnostics.push(
+                Diagnostic::error(Span::NONE, format!("{label} cannot run natively: {reason}"))
+                    .with_fix(GAP_FIX),
+            );
+        }
+    }
     diagnostics
 }
 
