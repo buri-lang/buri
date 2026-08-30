@@ -762,6 +762,12 @@ jobs:
   # ---------------------------------------------------------------------------
   # Packaging: the flake evaluates and the package builds. This is the
   # `nix run github:...` path users take, so it is held to green like a test.
+  #
+  # `nix build` also carries the runtime-archive assertion, inside the
+  # derivation rather than as a step here: the sandbox is where the archive is
+  # built and it is the only place the file exists. flake.nix's `postBuild` says
+  # why, and the short version is that this job's failure mode is not a red
+  # build but a green one that shipped a toolchain with no native backend.
   # ---------------------------------------------------------------------------
   nix:
     runs-on: ubuntu-latest

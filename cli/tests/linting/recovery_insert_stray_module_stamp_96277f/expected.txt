@@ -1,0 +1,25 @@
+error: expected `;`, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_module_stamp_96277f/lib.buri:1:45
+  |
+1 | from "core/effect/lib.buri" import { Alloc }, ;
+  |                                             ^
+  |
+  = expected: `;`
+  = actual: `,`
+  = fix: write `;` here
+error: `Alloc` is not a trait or effect [not-a-trait]
+ --> lib/recovery_insert_stray_module_stamp_96277f/lib.buri:7:20
+  |
+7 | export fn stamp<C: Alloc>(ctx: C, label: Str): Int {
+  |                    ^^^^^
+  |
+  = a bound names a declared trait; there are no where clauses
+  = fix: name a declared trait or effect, or declare `Alloc` as one
+warning: `ctx` is not used; the function is pure [unused-context]
+ --> lib/recovery_insert_stray_module_stamp_96277f/lib.buri:7:27
+  |
+7 | export fn stamp<C: Alloc>(ctx: C, label: Str): Int {
+  |                           ^^^^^^
+  |
+  = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+  = fix: remove the `ctx` parameter, and the context argument at every call site

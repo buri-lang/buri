@@ -84,7 +84,7 @@
 //! * **A dependency tree that cannot be resolved degrades; one that cannot be
 //!   compiled does not.** The second half of the same clause, and the two
 //!   halves are deliberately not the same answer. A host that cannot *reach*
-//!   the four crates — no network and a cold registry, a `nix` sandbox whose
+//!   the four crates — no network and a cold registry, a sandbox whose
 //!   vendoring covers the toolchain's lockfile and not the runtime's, a
 //!   lockfile this manifest has outgrown — is a host with no archive: empty,
 //!   `AVAILABLE == false`, a `cargo:warning` naming which of the three it was,
@@ -98,6 +98,13 @@
 //!   rustc` cannot tell the two failures apart, and "the archive quietly went
 //!   empty because a crate failed to compile" is precisely the silent green
 //!   that `.github/scripts/assert-runtime-archive.sh` exists to refuse.
+//!
+//!   **A sandbox is meant to land in the resolvable case, not in the degraded
+//!   one.** `flake.nix` vendors *both* lockfiles into the one directory this
+//!   nested cargo sees, and runs `assert-runtime-archive.sh` on what comes out,
+//!   because a packaging path that quietly drops the native backend ships a
+//!   different compiler under the same version. The degradation above is for a
+//!   contributor on a plane, not for a release.
 //!
 //!   There is a third answer beside those two, and it is a **probe** for the
 //!   same reason: `ring`, the TLS provider `https://` runs on, compiles C and

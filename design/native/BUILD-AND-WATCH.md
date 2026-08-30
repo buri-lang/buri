@@ -157,10 +157,11 @@ body for, and `backend::split_networking` sorts that half out from the ordinary
 "this backend has no implementation of" half at each of the two emission sites.
 The refusal is `networking-not-available`, whose fix names the feature rather
 than asking for a bug report: the program is fine and the toolchain is what has
-to change. None of those keys exists yet — they arrive with `core/tasks` and the
-server surface — and the refusal is in place first, so that the day one lands it
-lands with its diagnostic already written rather than as an unresolved
-`buri_rt_*` symbol from `cc`.
+to change. No program reaches those keys yet — the three effects are declared in
+`core/effect` and granted by no platform, so the host values their operations
+hang off cannot be constructed — and the refusal is in place first, so that the
+day a platform grants one the key lands with its diagnostic already written
+rather than as an unresolved `buri_rt_*` symbol from `cc`.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 
@@ -343,6 +344,29 @@ command line because Cargo has no profile key for it:
   lost: every entry point is `#[unsafe(no_mangle)]`, so LTO has no root to
   internalize away, and the linked artifact is dead-stripped either way — a C
   driver linking the whole surface comes out at 470 KB.
+
+  Since 2026-08-30 the link also *decides* whether to name the archive at all
+  (`build/link.rs::runtime_archive_for`): the objects are asked whether any of
+  them carries a `buri_rt_*` symbol, and the answer gates both the staged file
+  and the `runtime` term in the `link` key. **It does not make any artifact
+  smaller, and it was measured before it was believed.** Both native entry
+  points call `buri_rt_argv_init` and `buri_rt_flush` on every path, so the
+  emptiest program the language can express already names three runtime symbols
+  and the answer is "link it" for every Buri program there is:
+
+  ```text
+  libburi_rt.a                          6 035 480 bytes
+  export fn main() { .Ok(()) }            370 288    6.1% of it
+  hello world                             374 640    6.2%
+  ```
+
+  Dead-stripping is still the whole of what keeps an artifact small, exactly as
+  the paragraph above says. What the decision buys today is the cache: a link
+  that names no archive no longer folds the archive's digest into its key, so
+  editing `cli/runtime` stops relinking artifacts that never linked it — a set
+  that is empty for Buri programs and is not empty for the object-level link
+  suite. What it will buy is the day an entry point stops needing the runtime,
+  which is a change to one answer rather than to the key's format.
 - **`-C metadata=buri_rt -C extra-filename=`.** Without these, the archive's
   bytes depend on the *output path*, because the member names inside it carry
   rustc's symbol hash. Two `OUT_DIR`s produced archives differing by a few dozen
@@ -417,9 +441,28 @@ Four notes, each of which is a mistake someone would otherwise make:
 
 Built **with** `backend-llvm`, because a `nix build` produces the release
 toolchain and a release toolchain must be able to produce release artifacts. That
-means `nativeBuildInputs = [ llvm.dev ]`, `LLVM_SYS_211_PREFIX`, and — the change
-the current flake comment is about — a real `cargoHash`, since vendoring now
-fetches four crates and their closures.
+means `nativeBuildInputs = [ llvm.dev ]` and `LLVM_SYS_211_PREFIX`. The vendoring
+needs nothing: `inkwell`'s closure is named by `./Cargo.lock` and is fetched
+already, whether or not the feature is on.
+
+**Two lockfiles, one vendor directory.** §1.1 and §1.1.1 are two dependency
+trees, and a sandboxed build carries both or it carries neither usefully:
+`cli/build.rs` runs a nested `cargo` for `cli/runtime`, and a vendor directory
+holding only `./Cargo.lock`'s closure sends it down the degradation path of §2.2
+— empty archive, `runtime_native::AVAILABLE == false`, a green `nix build` and a
+toolchain with no native backend. `rustPlatform.importCargoLock` takes one
+`lockFile`, so the flake calls it twice and links both results into a third
+directory, keyed by `name-version`; the merge is of the *directories* rather than
+of the lockfiles because nixpkgs' `cargoSetupPostPatchHook` diffs the vendor
+directory's `Cargo.lock` against the one in `src` and refuses a build where they
+differ. `cargoDeps` takes that directory, so there is still no `cargoHash`.
+
+The flake then runs `.github/scripts/assert-runtime-archive.sh` in its own
+`postBuild`. This is the one place the script is not redundant with §3.3's CI
+jobs: `nix build` is a *packaging* path, its failure mode is a silently less
+capable compiler, and the four systems `eachDefaultSystem` covers are all systems
+`cli/build.rs`'s `supported` accepts — so there is nothing here to degrade to and
+the empty archive is unambiguously a bug.
 
 ### 3.3 CI
 
