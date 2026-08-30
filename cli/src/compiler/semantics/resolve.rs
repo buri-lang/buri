@@ -505,7 +505,9 @@ impl<'a> Checker<'a> {
             | tree::Item::ReExport(_)
             | tree::Item::Impl(_)
             | tree::Item::Derive(_)
-            | tree::Item::Test(_) => {}
+            | tree::Item::Test(_)
+            // The parser already said what is wrong with it.
+            | tree::Item::Error(_) => {}
         }
     }
 

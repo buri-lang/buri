@@ -1,4 +1,4 @@
-//! The fourteen rows of `design/native/VALUE-MODEL.md` §12, as tests.
+//! The rows of `design/native/VALUE-MODEL.md` §12, as tests.
 //!
 //! §12 is a table of every way the JavaScript backend and a native backend
 //! could differ, and every row is either **must agree** or is a **documented
@@ -1933,6 +1933,54 @@ export fn main(): Result<(), Str> {
 }
 
 // -------------------------------------------------------------------
+// Row 16 — the NaN payload through `core/bytes`
+// -------------------------------------------------------------------
+
+/// A NaN payload does not survive `f64FromBytes`, on either backend.
+///
+/// It used to survive natively and not on JavaScript, where a `Float` is a
+/// `number` and moving a NaN through one canonicalizes it — so the same
+/// program computed different bytes on different backends, on a round trip
+/// the module documents. SPEC §6.2 had already ruled that every NaN equals
+/// every other "regardless of sign or payload", and `f64FromBytes` is the
+/// only way to construct one, so native was the side that moved:
+/// `cli/runtime/bytes.rs` canonicalizes on ingress.
+///
+/// The last line is the other half of the claim. Signed zero was never
+/// affected and is pinned here so that a future canonicalization cannot
+/// quietly widen: `-0.0` still round-trips to its own eight bytes.
+#[test]
+fn row_16_nan_payloads_canonicalize_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "row 16",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/bytes" import * as bytes;
+from "core/str" import * as str;
+
+fn ends(b: [U8]): Str {
+  str.format(alloc, "${b[0].withDefault(0)} ${b[6].withDefault(0)} ${b[7].withDefault(0)}")
+}
+
+export fn main(): Result<(), Str> {
+  let one = bytes.f64FromBytes([1, 0, 0, 0, 0, 0, 248, 127], 0).withDefault(0.0);
+  let two = bytes.f64FromBytes([2, 0, 0, 0, 0, 0, 248, 127], 0).withDefault(0.0);
+  let signalling = bytes.f64FromBytes([1, 0, 0, 0, 0, 0, 240, 255], 0).withDefault(0.0);
+  let negativeZero = bytes.f64FromBytes([0, 0, 0, 0, 0, 0, 0, 128], 0).withDefault(1.0);
+  let _ = stdout.println(ends(bytes.f64ToBytes(alloc, one)));
+  let _ = stdout.println(ends(bytes.f64ToBytes(alloc, two)));
+  let _ = stdout.println(ends(bytes.f64ToBytes(alloc, signalling)));
+  let _ = stdout.println("${one == two} ${one == signalling}");
+  let _ = stdout.println(ends(bytes.f64ToBytes(alloc, negativeZero)));
+  .Ok(())
+}
+"#,
+        "0 248 127\n0 248 127\n0 248 127\ntrue true\n0 0 128\n",
+    );
+}
+
+// -------------------------------------------------------------------
 // The table itself
 // -------------------------------------------------------------------
 
@@ -1980,5 +2028,5 @@ fn every_row_of_the_table_names_a_test_that_exists() {
     }
     // A table this failed to find would "pass" having checked nothing,
     // which is the failure a self-checking document has.
-    assert_eq!(rows, 15, "§12 has {rows} numbered rows rather than fifteen");
+    assert_eq!(rows, 16, "§12 has {rows} numbered rows rather than sixteen");
 }

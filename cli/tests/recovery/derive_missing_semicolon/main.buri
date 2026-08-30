@@ -1,0 +1,3 @@
+// EXPECT: a `derive` declaration ends with `;`
+derive Eq for Meters
+export struct Meters(export Float);
