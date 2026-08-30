@@ -55,6 +55,13 @@ const SHT_NOBITS: u32 = 8;
 /// stencil spilled.
 const SHF_ALLOC: u64 = 0x2;
 
+/// `SHF_EXECINSTR`. A section with it holds instructions, and the only
+/// instructions a stencil may consist of are `.text`'s: a second executable
+/// section is a piece of a function a compiler carved out — `.text.unlikely.`,
+/// `.text.split.` — never a constant. Carried so `x86.rs` can refuse it while
+/// still accepting the read-only sections a spilled SSE constant lives in.
+const SHF_EXECINSTR: u64 = 0x4;
+
 /// `EM_X86_64` and `EM_AARCH64`, the only two `e_machine` values this reader
 /// accepts. The machine decides how a relocation type number is read, so it is
 /// returned rather than checked and forgotten.
@@ -132,6 +139,10 @@ pub struct Other {
     pub align: u64,
     /// The section's bytes; empty for a `NOBITS` section, which has none.
     pub data: Vec<u8>,
+    /// Whether the section holds instructions ([`SHF_EXECINSTR`]). `x86.rs`
+    /// refuses one that does; the arm64 reader refuses every section here and
+    /// never looks.
+    pub exec: bool,
 }
 
 pub struct Obj {
@@ -266,7 +277,13 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
             } else {
                 bytes.get(at..at + sh.size as usize).ok_or_else(|| truncated(at))?.to_vec()
             };
-            other_sections.push(Other { name, index: i as u16, align: sh.align, data });
+            other_sections.push(Other {
+                name,
+                index: i as u16,
+                align: sh.align,
+                data,
+                exec: sh.flags & SHF_EXECINSTR != 0,
+            });
         }
     }
     if text.is_empty() && text_index == 0 {
