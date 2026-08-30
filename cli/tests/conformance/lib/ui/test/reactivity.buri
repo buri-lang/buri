@@ -323,6 +323,62 @@ fn plusOne(n: Signal<Int>): Prop<Int> {
     .Computed(fn(s) => n.get(s) + 1)
 }
 
+// --- explicit type arguments ---------------------------------------------------------
+
+// A method an effect declares takes explicit type arguments like any other
+// generic call. `Ui.memo<T>` and `Watch.read<T>` are the two the standard
+// library ships with a type parameter of their own, and neither effect declares
+// one itself, so what a call writes is the method's list alone.
+
+/// `Watch.read<T>` reached through a bound rather than through `Scope`'s own
+/// method: the receiver is a type parameter, so this is a trait-method call,
+/// which is the path the type arguments travel.
+fn readInt<C: Watch>(ctx: C, id: Int): Int {
+    ctx.read<Int>(id)
+}
+
+/// The same at `Str`, so the argument is doing work rather than agreeing with
+/// what inference would have picked anyway.
+fn readStr<C: Watch>(ctx: C, id: Int): Str {
+    ctx.read<Str>(id)
+}
+
+fn yesNo(flag: Bool): Str {
+    if (flag) { "yes" } else { "no" }
+}
+
+fn noteStr(log: Recorder, text: Str): () {
+    let _ = log.record(text);
+}
+
+test "an effect method takes its type arguments explicitly" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 4);
+    let doubled = ctx.memo<Int>(fn(s) => n.get(s) * 2);
+    let _ = watch(ctx, fn(s) => ignore(log.note(readInt(s, doubled))));
+    assert.eq(log.noted(), [8]);
+    let _ = n.set(ctx, 5);
+    assert.eq(log.noted(), [8, 10]);
+}
+
+test "an explicit type argument on an effect method pins the type" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let flag = signal(ctx, true);
+    let label = ctx.memo<Str>(fn(s) => yesNo(flag.get(s)));
+    let _ = watch(ctx, fn(s) => noteStr(log, readStr(s, label)));
+    assert.eq(log.recorded(), ["yes"]);
+    let _ = flag.set(ctx, false);
+    assert.eq(log.recorded(), ["yes", "no"]);
+}
+
 // --- the design's example ------------------------------------------------------------
 
 // design/ui-reactivity.md, "Example". Everything reactive about the counter is

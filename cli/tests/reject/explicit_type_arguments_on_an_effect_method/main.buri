@@ -1,0 +1,26 @@
+// EXPECT: expected 1 type arguments, found 2
+//
+// `Ui.memo<T>` declares one type parameter of its own, and `Ui` — like every
+// effect the standard library ships — declares none. The two lists are stored
+// flattened, the owner's first, so the count a call is measured against is the
+// method's tail rather than the whole list. Getting that wrong would either
+// wave `memo<Int, Str>` through or ask for a number no reader could have
+// written.
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "core/effect/lib.buri" import { Alloc };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Ui, Watch };
+
+/// `Watch.read<T>`, the other method-generic effect method, at the wrong type.
+/// The right count, the wrong argument: this is the half that proves the
+/// written list reaches instantiation rather than being counted and dropped.
+fn readWrong<C: Watch>(ctx: C, id: Int): Int {
+  ctx.read<Str>(id)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
+  let _ = ctx.memo<Int, Str>(fn(s) => 1);
+  let _ = readWrong(ctx, 0);
+  .Ok(())
+}
