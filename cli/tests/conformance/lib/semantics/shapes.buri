@@ -5,7 +5,9 @@
 // of structs that implement an effect so a test can bind one in a context and
 // prove its own implementation is the one that ran.
 
-from "core/effect/lib.buri" import { Alloc, Clock, Env, Fs, IoError, Net, NetError, Request, Response, Stdout };
+from "core/effect/lib.buri" import {
+  Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Request, Response, Sockets, Stdout,
+};
 from "core/net/http/lib.buri" import * as http;
 from "core/num/lib.buri" import { Add, Div, Mul, Neg, Rem, Sub };
 from "core/order/lib.buri" import { Eq, Hash, Ord, Order, Show };
@@ -895,6 +897,119 @@ export struct TeapotNet {
 impl Net for TeapotNet {
   fn fetch(self, request: Request): Result<Response, NetError> {
     .Ok(Response { status: 418, headers: [], body: self.body })
+  }
+}
+
+/// A `Listen` that binds, serves nothing, and stops.
+///
+/// No platform grants `Listen`, so `host.listen` is unreachable from any
+/// program — but an effect is an ordinary interface and anyone may write a
+/// type that satisfies it (SPEC 10.9), which is what lets the *shape* be
+/// exercised years before there is a server behind it. It answers `.Ok(())`
+/// when `bindsTo` names an address and `.Err(.Refused)` when it is empty, so a
+/// test can tell the two returns apart.
+///
+/// **A recorded compiler bug: this fake does not call `onRequest`, and it
+/// cannot yet.** `Self` in an effect method's signature is substituted with
+/// the *receiver's* type (`call_trait_method`, `semantics/expressions.rs`), so
+/// a call through a `context` value gives the handler's first parameter the
+/// **context's** type while the `impl` body would hand it the implementation —
+/// two different layouts. JavaScript never notices; the stencil backend
+/// segfaults, with no output, the moment such a handler is invoked. Called on
+/// a concrete receiver, or through a bare `C: Listen` bound holding the
+/// implementation itself, the same body is correct on every backend.
+///
+/// The shape is not this file's invention: `Tasks.parallel` takes
+/// `fn(Self, Int, A) => B` and `ui/effect`'s `Fetch.fetch` takes
+/// `fn(Self, …) => ()`, and neither has ever been called through a context on
+/// a native backend — `Tasks` is granted nowhere and `Fetch` only on WEB. So
+/// the bug is older than these effects and is the front end's, not the
+/// declaration's. The server slice that makes `serve` run has to fix it, and
+/// the fix is to carry the implementing type out of the context's bindings
+/// (`Ty::Ctx`'s `bindings` already hold it) instead of substituting the
+/// receiver. Until then, what a fake here may do is *take* a handler and not
+/// run it.
+export struct OneShotListen {
+  export bindsTo: Str,
+}
+
+impl Listen for OneShotListen {
+  fn listen(
+    self,
+    address: Str,
+    port: Int,
+    onRequest: fn(OneShotListen, Request) => Response,
+  ): Result<(), NetError> {
+    match (self.bindsTo) {
+      "" => .Err(.Refused),
+      _ => .Ok(()),
+    }
+  }
+}
+
+/// A `Sockets` that swallows everything.
+///
+/// Every method answers `()`, and an effect method takes only `self`, so a
+/// fake here cannot record what it was told — `sockets()` in `core/host/testing`
+/// is where that lands, with the `Slot` machinery the other doubles use. What
+/// this one is for is the part that *is* checkable without a runtime: that a
+/// context can bind `Sockets` beside `Listen` and `Net` and still call every
+/// one of their methods by name.
+export struct QuietSockets {}
+
+impl Sockets for QuietSockets {
+  fn socketSendText(self, socket: Int, text: Str): () {
+    ()
+  }
+  fn socketSendBytes(self, socket: Int, body: [U8]): () {
+    ()
+  }
+  fn socketClose(self, socket: Int, code: Int, reason: Str): () {
+    ()
+  }
+}
+
+/// Every method of the three effects a server binds together, reached through
+/// one context.
+///
+/// This is a compile-time claim before it is a runtime one, and the compile-
+/// time half is the point. Method lookup on a bounded `C` searches *every*
+/// bound (`find_in_bounds`, `semantics/expressions.rs`), and two bounds
+/// declaring one name make the **call** ambiguous rather than either
+/// declaration wrong — `Ui.read` and `Watch.read` are the shipped case, and
+/// there is no way to un-claim a name once programs are written against it.
+/// Five method names across `Listen`, `Sockets` and `Net`, all called here by
+/// name: a build error in this function is the failure, and it arrives at the
+/// only moment the answer is cheap to change.
+///
+/// Answers the network's status when the fake server bound its address, and
+/// its negation when it refused, so the runtime half sees which effect
+/// answered which call.
+///
+/// The handler is written and passed and — see `OneShotListen` — deliberately
+/// not run: a handler invoked through a context is a native crash today, for a
+/// reason older than these two effects. Passing one is what this function has
+/// to do; running one is the server slice's.
+export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
+  let _ = ctx.socketSendText(7, "opened");
+  let _ = ctx.socketSendBytes(7, []);
+  let _ = ctx.socketClose(7, 1000, "done");
+  let fetched = match (ctx.fetch(Request { method: .Get, url: url, headers: [], body: [] })) {
+    .Ok(reply) => reply.status,
+    .Err(_) => 0,
+  };
+  let served = ctx.listen(
+    "127.0.0.1",
+    0,
+    fn(c, request) => Response {
+      status: if (request.url == url) { 200 } else { 404 },
+      headers: [],
+      body: [],
+    },
+  );
+  match (served) {
+    .Ok(_) => fetched,
+    .Err(_) => 0 - fetched,
   }
 }
 
