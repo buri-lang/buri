@@ -1,0 +1,33 @@
+# `core/fs`'s appending, renaming and syncing half, against a real filesystem.
+#
+# `buri run` is the one command that hands a program authority, so it is the
+# only place a checked-in case can reach `host.fs` at all — everything before
+# `run` in the pipeline is hermetic, and `MemFs` is what a `test` block sees.
+#
+# The claims, in the order the program makes them:
+#
+#   * `makeDir` is idempotent, so a WAL opens its own directory on every start
+#     with one call rather than a check and a race;
+#   * `append` creates the file and adds to its end, so two records read back
+#     as four octets in the order they were written;
+#   * `sync` answers on a file and on a directory, which is what makes the
+#     commit point and the checkpoint swap durable rather than merely visible;
+#   * `rename` replaces the destination and leaves nothing at the source;
+#   * `remove` deletes, and says `NotFound` the second time rather than
+#     answering `.Ok` to a path that names nothing.
+#
+# The same sequence runs against `MemFs` in
+# `conformance/lib/semantics/test/effects.buri` and against the native runtime
+# in `cli/tests/native/runtime.rs`. Three implementations of one story is the
+# point: a divergence is a failure in exactly one of them.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the appending, renaming and syncing half of core/fs commits a write-ahead log against a real filesystem"
+
+run {
+  args: ["run", "//cmd/wal"]
+  exit: 0
+  golden: "wal.txt"
+}

@@ -12,10 +12,11 @@
 from "core/testing/assert" import * as assert;
 from "core/testing/context" import {
   Hermetic, alloc, captureOut, captureErr, captured, capturedErr, stdin, stdinBytes, files,
-  data, readOnly, noNet, clockAt, advance, randSeed, envOf,
+  filesBytes, data, readOnly, noNet, clockAt, advance, randSeed, envOf,
 };
 from "core/effect" import { Alloc, Clock, Env, Fs, IoError, Net, Rand, Stderr, Stdin, Stdout };
 
+from "core/bytes" import * as bytes;
 from "core/env" import * as env;
 from "core/fs" import * as fs;
 from "core/io" import * as io;
@@ -220,6 +221,7 @@ test "reading a path files does not have gives IoError.NotFound" {
     .Err(.ReadOnly) => "ReadOnly",
     .Err(.AlreadyExists) => "AlreadyExists",
     .Err(.NotADirectory) => "NotADirectory",
+    .Err(.CrossDevice) => "CrossDevice",
     .Err(.Other(_m)) => "Other",
   };
   assert.eq(which, "NotFound");
@@ -263,6 +265,7 @@ test "reading a path data does not have gives IoError.NotFound" {
     .Err(.ReadOnly) => "ReadOnly",
     .Err(.AlreadyExists) => "AlreadyExists",
     .Err(.NotADirectory) => "NotADirectory",
+    .Err(.CrossDevice) => "CrossDevice",
     .Err(.Other(_m)) => "Other",
   };
   assert.eq(which, "NotFound");
@@ -298,6 +301,169 @@ test "readOnly leaves the wrapped filesystem untouched" {
 test "listDir sees the entries" {
   let ctx = context { Alloc: alloc(), Fs: files([("a", "A")]) };
   assert.isTrue(assert.ok(fs.listDir(ctx, "")).len() >= 1);
+}
+
+// -----------------------------------------------------------------------------
+// The binary, appending, renaming half of core/fs (issue #1)
+//
+// Every block here runs against `MemFs`, and `cli/tests/native/runtime.rs`'s
+// `wal` mode runs the same sequence against a real filesystem through
+// `buri_rt_host_fs_*`. That the two agree is the point of the fake.
+// -----------------------------------------------------------------------------
+
+test "writeBytes and readBytes carry octets a text encoding cannot" {
+  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let raw: [U8] = [0, 1, 254, 255, 128];
+  assert.ok(fs.writeBytes(ctx, "blob", raw));
+  assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
+}
+
+test "readBytes of a path that is not there is NotFound" {
+  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  assert.eq(assert.err(fs.readBytes(ctx, "missing")), .NotFound);
+}
+
+test "filesBytes is the byte twin of files" {
+  let raw: [U8] = [255, 0, 17];
+  let ctx = context { Alloc: alloc(), Fs: filesBytes([("blob", raw)]) };
+  assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
+  assert.isTrue(fs.exists(ctx, "blob"));
+}
+
+test "text written as octets reads back as text" {
+  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  assert.ok(fs.writeBytes(ctx, "note", bytes.toUtf8(ctx, "héllo")));
+  assert.eq(assert.ok(fs.readText(ctx, "note")), "héllo");
+}
+
+test "writeBytes replaces the whole file" {
+  let ctx = context { Alloc: alloc(), Fs: files([("a", "one")]) };
+  let two: [U8] = [50];
+  assert.ok(fs.writeBytes(ctx, "a", two));
+  assert.eq(assert.ok(fs.readBytes(ctx, "a")), two);
+}
+
+test "append CREATES the file when it is absent" {
+  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let record: [U8] = [1, 2];
+  assert.isFalse(fs.exists(ctx, "log"));
+  assert.ok(fs.append(ctx, "log", record));
+  assert.isTrue(fs.exists(ctx, "log"));
+  assert.eq(assert.ok(fs.readBytes(ctx, "log")), record);
+}
+
+test "append adds to the end rather than replacing" {
+  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  assert.ok(fs.append(ctx, "log", [1, 2]));
+  assert.ok(fs.append(ctx, "log", [3]));
+  assert.eq(assert.ok(fs.readBytes(ctx, "log")), [1, 2, 3]);
+}
+
+test "rename REPLACES the destination" {
+  let ctx = context { Alloc: alloc(), Fs: files([("new", "N"), ("old", "O")]) };
+  assert.ok(fs.rename(ctx, "new", "old"));
+  assert.eq(assert.ok(fs.readText(ctx, "old")), "N");
+}
+
+test "rename leaves nothing at the source" {
+  let ctx = context { Alloc: alloc(), Fs: files([("new", "N")]) };
+  assert.ok(fs.rename(ctx, "new", "old"));
+  assert.isFalse(fs.exists(ctx, "new"));
+  assert.isTrue(fs.exists(ctx, "old"));
+}
+
+test "rename of a source that is not there is NotFound" {
+  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  assert.eq(assert.err(fs.rename(ctx, "missing", "other")), .NotFound);
+}
+
+test "remove deletes the file" {
+  let ctx = context { Alloc: alloc(), Fs: files([("a", "A")]) };
+  assert.ok(fs.remove(ctx, "a"));
+  assert.isFalse(fs.exists(ctx, "a"));
+  assert.isTrue(fs.readText(ctx, "a").isErr());
+}
+
+test "remove OF A MISSING FILE is NotFound, not a silent success" {
+  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  assert.eq(assert.err(fs.remove(ctx, "never-there")), .NotFound);
+}
+
+test "makeDir ON AN EXISTING DIRECTORY is Ok" {
+  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  assert.ok(fs.makeDir(ctx, "tenants/one"));
+  assert.ok(fs.makeDir(ctx, "tenants/one"));
+  assert.isTrue(fs.exists(ctx, "tenants/one"));
+}
+
+test "makeDir creates the parents too" {
+  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  assert.ok(fs.makeDir(ctx, "a/b/c"));
+  assert.eq(assert.ok(fs.listDir(ctx, "a")), ["b"]);
+  assert.eq(assert.ok(fs.listDir(ctx, "a/b")), ["c"]);
+}
+
+test "makeDir where a file already sits is AlreadyExists" {
+  let ctx = context { Alloc: alloc(), Fs: files([("a", "A")]) };
+  assert.eq(assert.err(fs.makeDir(ctx, "a")), .AlreadyExists);
+}
+
+test "sync of a file that is there is Ok" {
+  let ctx = context { Alloc: alloc(), Fs: files([("a", "A")]) };
+  assert.ok(fs.sync(ctx, "a"));
+}
+
+test "sync of a path that is not there is NotFound" {
+  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  assert.eq(assert.err(fs.sync(ctx, "missing")), .NotFound);
+}
+
+test "readOnly forwards readBytes" {
+  let raw: [U8] = [7, 8];
+  let ctx = context { Alloc: alloc(), Fs: readOnly(filesBytes([("blob", raw)])) };
+  assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
+}
+
+test "every writing half of the new surface FAILS through readOnly" {
+  let ctx = context { Alloc: alloc(), Fs: readOnly(files([("a", "A")])) };
+  assert.eq(assert.err(fs.writeBytes(ctx, "a", [1])), .ReadOnly);
+  assert.eq(assert.err(fs.append(ctx, "a", [1])), .ReadOnly);
+  assert.eq(assert.err(fs.rename(ctx, "a", "b")), .ReadOnly);
+  assert.eq(assert.err(fs.remove(ctx, "a")), .ReadOnly);
+  assert.eq(assert.err(fs.makeDir(ctx, "d")), .ReadOnly);
+  assert.eq(assert.ok(fs.readText(ctx, "a")), "A");
+}
+
+test "sync is not a write, so readOnly forwards it" {
+  let ctx = context { Alloc: alloc(), Fs: readOnly(files([("a", "A")])) };
+  assert.ok(fs.sync(ctx, "a"));
+}
+
+/// The whole reason the seven exist: a log that is appended to, a commit point
+/// that is a call, and a checkpoint that swaps in atomically.
+test "a write-ahead log commits through append, sync and rename" {
+  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  assert.ok(fs.makeDir(ctx, "wal"));
+
+  // Two records, each one append, with the commit point stated after each.
+  assert.ok(fs.append(ctx, "wal/log", [1, 10]));
+  assert.ok(fs.sync(ctx, "wal/log"));
+  assert.ok(fs.append(ctx, "wal/log", [2, 20]));
+  assert.ok(fs.sync(ctx, "wal/log"));
+  assert.eq(assert.ok(fs.readBytes(ctx, "wal/log")), [1, 10, 2, 20]);
+
+  // Checkpoint: write the temporary, make it durable, swap it in, then make
+  // the directory entry durable so the swap survives too.
+  assert.ok(fs.writeBytes(ctx, "wal/checkpoint.tmp", [30]));
+  assert.ok(fs.sync(ctx, "wal/checkpoint.tmp"));
+  assert.ok(fs.rename(ctx, "wal/checkpoint.tmp", "wal/checkpoint"));
+  assert.ok(fs.sync(ctx, "wal"));
+  assert.isFalse(fs.exists(ctx, "wal/checkpoint.tmp"));
+  assert.eq(assert.ok(fs.readBytes(ctx, "wal/checkpoint")), [30]);
+
+  // Truncation after the checkpoint, which is what `remove` is for here.
+  assert.ok(fs.remove(ctx, "wal/log"));
+  assert.eq(assert.ok(fs.listDir(ctx, "wal")), ["checkpoint"]);
 }
 
 // -----------------------------------------------------------------------------
