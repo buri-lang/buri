@@ -503,17 +503,23 @@ language one, and the existing machinery covers it:
   "per output" costs and buys.
 
   WEB grants `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand`, `Ui`, `Watch` and
-  `Fetch`, and withholds `Fs`, `Net`, `Stdin`, `Env` and `Proc`. `LINUX`,
-  `MACOS` and `JS` grant those ten non-UI effects and none of the three UI ones.
-  Telling the first three apart from each other is a table edit, not new
-  machinery, and is deferred (see Open).
+  `Fetch`, and withholds `Fs`, `Net`, `Stdin`, `Env`, `Proc` and `Tasks`.
+  `LINUX`, `MACOS` and `JS` grant those eleven non-UI effects and none of the
+  three UI ones. Telling the first three apart from each other is a table edit,
+  not new machinery, and is deferred (see Open).
 
-  The eleventh non-UI effect, `Tasks`, is granted by **nobody**, and that is the
-  same mechanism read in its third direction. Its row names an empty platform
-  list, so the names exist, the signature is fixed and reviewable, and every
-  `Tasks: host.tasks` is refused with the reason until a scheduler answers
-  `parallel`. A table whose rows can be empty is what lets a declaration land
-  before its runtime without a second "not implemented yet" flag anywhere.
+  `Tasks` is the eleventh, and it arrived by a route worth recording, because it
+  is the same mechanism read in a third direction. It landed **declared and
+  granted by nobody** — a row with an empty platform list — so the names existed,
+  the signature was fixed and reviewable, and every `Tasks: host.tasks` was
+  refused everywhere with the reason. Two waves later the scheduler existed and
+  the grant was that one row gaining three platforms. A table whose rows can be
+  empty is what let the declaration land before its runtime with no second "not
+  implemented yet" flag anywhere, and no program written against the reviewed
+  signature had to change when the runtime arrived. `WEB` is where the row is
+  still short, and for the ordinary reason rather than that one: `parallel`
+  returns only when the last task has finished, and a page's concurrency is its
+  event loop.
 - **Email is a different effect grant, not a lesser web.** Its host exports
   rendering but nothing interactive — no `Ui`, no `Fetch`; a `render` evaluates
   the tree once (`Const` and `Computed` props resolve; `Cell` has nothing to
@@ -623,12 +629,13 @@ design is *for*.
 ## Open
 
 - **Host subsetting among the non-UI platforms.** The mechanism is a table, and
-  `LINUX`, `MACOS` and `JS` all still grant the same ten effects — so
+  `LINUX`, `MACOS` and `JS` all still grant the same eleven effects — so
   `Fs: host.fs` under `platform: JS` compiles, which it should not. Telling them
   apart is a table edit and a reject case.
-- **A scheduler for `Tasks`.** The effect is declared and its row is empty, so
-  no platform grants it. Granting it is a table edit; earning the grant is the
-  runtime work.
+- **`Tasks` on `WEB`.** Granted on the other three; withheld from the page
+  because `parallel` waits for its last task and a page has an interface that a
+  wait is visible in. The shape a page would want is the callback one `Fetch`
+  already has, and it is the concurrency work's, not this document's.
 - **A per-target vocabulary check.** A style or widget with no meaning on some
   target — hover in email, a form in a static render. Backend degradation with a
   warning is the answer until real components hit it.

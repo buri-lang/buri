@@ -3752,7 +3752,19 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
         }
 
         if depth == 0 && current.is_none() {
-            for kw in [b"function $".as_slice(), b"const $".as_slice(), b"let $".as_slice()] {
+            // `async function $x` is scanned **before** `function $x`, so that
+            // the declaration this cuts out begins at the `async` rather than
+            // after it. A runtime function that awaits is one the emitter hands
+            // out verbatim, and a body printed without its own `async` keyword
+            // is a syntax error in the artifact rather than a wrong answer —
+            // which is how this was found. The order of the list is therefore
+            // load-bearing: the second pattern is a prefix of the first's tail.
+            for (kw, is_fn) in [
+                (b"async function $".as_slice(), true),
+                (b"function $".as_slice(), true),
+                (b"const $".as_slice(), false),
+                (b"let $".as_slice(), false),
+            ] {
                 if b.get(i..).is_some_and(|rest| rest.starts_with(kw)) {
                     // The keyword ends with the `$` that begins the name.
                     let ns = i + kw.len() - 1;
@@ -3764,7 +3776,7 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
                         j += 1;
                     }
                     if let Some(Ok(name)) = b.get(ns..j).map(std::str::from_utf8) {
-                        current = Some((name.to_string(), kw.starts_with(b"function")));
+                        current = Some((name.to_string(), is_fn));
                         start = i;
                     }
                     break;
@@ -3913,6 +3925,35 @@ mod tests {
 
     fn p(e: Expr) -> String {
         print(&[Stmt::Expr(e)], false)
+    }
+
+    /// A runtime declaration is cut out **whole**, and for an `async function`
+    /// that includes the word `async`.
+    ///
+    /// The emitter hands these out verbatim, so a body cut after its keyword is
+    /// an artifact that does not parse — `await` outside an async function —
+    /// rather than an artifact that answers wrongly. That is the failure this
+    /// pins, and it was a real one: `$host_HostTasks_parallel` is the first
+    /// runtime function that awaits, and the first artifact built with it did
+    /// not run.
+    #[test]
+    fn an_async_runtime_declaration_keeps_its_keyword() {
+        let src = "\
+function $plain(a) { return a; }
+async function $waits(xs) {
+  return await Promise.all(xs);
+}
+const $c = 1;
+";
+        let cut = split_declarations(src);
+        let names: Vec<&str> = cut.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["$plain", "$waits", "$c"]);
+        let body = &cut.get(1).expect("the async declaration").1;
+        assert!(body.trim_start().starts_with("async function $waits"), "{body:?}");
+        assert!(body.trim_end().ends_with('}'), "{body:?}");
+        // And the one before it did not swallow the `async`, which is the other
+        // way the scan could have gone wrong.
+        assert!(!cut.first().expect("the plain one").1.contains("async"));
     }
 
     #[test]

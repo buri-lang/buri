@@ -123,10 +123,15 @@ body for, and `backend::split_networking` sorts that half out from the ordinary
 "this backend has no implementation of" half at each of the two emission sites.
 The refusal is `networking-not-available`, whose fix names the feature rather
 than asking for a bug report: the program is fine and the toolchain is what has
-to change. None of those keys exists yet — they arrive with `core/tasks` and the
-server surface — and the refusal is in place first, so that the day one lands it
-lands with its diagnostic already written rather than as an unresolved
-`buri_rt_*` symbol from `cc`.
+to change. The refusal landed **before any of those keys existed**, on purpose,
+so that the day one arrived it arrived with its diagnostic already written
+rather than as an unresolved `buri_rt_*` symbol from `cc`. The first one is
+`host.HostTasks.parallel`, and it is answered by `cli/runtime/rt.rs` — behind
+`net`, beside the carrier pool it will fan out onto — so on a
+`BURI_RUNTIME_NET=0` toolchain a program that calls `core/tasks` is refused by
+name before code generation. That is what was designed, and it is now exercised
+rather than only argued for. `host.HostListen.*` and `host.HostSockets.*` are
+still ahead of their first key.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 

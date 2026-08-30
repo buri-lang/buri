@@ -643,6 +643,10 @@ impl Jit<'_> {
     /// [`Extra::Step`]'s four words: the generated entry thunk, the state
     /// record, and the two element strides.
     ///
+    /// The runtime's own loop counter is the fifth thing the boundary carries
+    /// and it is **not** one of these: it is an argument of the thunk rather
+    /// than of the entry, because it changes per element and these do not.
+    ///
     /// The record's shape is `glue.rs`'s [`super::glue::E_FRAME`] — the
     /// closure's two words, the frame the entry thunk is to work in, and the
     /// step's contexts. It is built **past this function's own frame**, which is
@@ -683,7 +687,7 @@ impl Jit<'_> {
 
         let widths: Vec<u32> =
             params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
-        let (ctx_at, bytes) = super::glue::state_shape(&widths);
+        let (ctx_at, bytes) = super::glue::state_shape(&widths, call.index);
         // A context is a *value* here rather than the dropped argument a
         // runtime entry takes, because what reads it is the step and not the
         // runtime. One that owned a count would need a retain per element, and
@@ -699,7 +703,14 @@ impl Jit<'_> {
                 supplied.len()
             ));
         }
-        for (i, (off, (from, t))) in ctx_at.iter().copied().zip(supplied).enumerate() {
+        // `ctx_at` is parallel to the supplied contexts; `widths` to the
+        // closure's parameters. An index parameter sits in the second and not
+        // in the first, so the walk carries its own cursor rather than reusing
+        // the enumeration.
+        let ctx_params: Vec<usize> = (0..params.len().saturating_sub(1))
+            .filter(|i| call.index != Some(*i))
+            .collect();
+        for ((off, (from, t)), i) in ctx_at.iter().copied().zip(supplied).zip(ctx_params) {
             let w = widths.get(i).copied().unwrap_or(0);
             if w == 0 {
                 continue;
@@ -724,7 +735,8 @@ impl Jit<'_> {
                 ("JIT_CONT", V::Fall),
             ],
         );
-        let thunk = self.helper(super::glue::Helper::Entry { params, ret: *ret });
+        let thunk =
+            self.helper(super::glue::Helper::Entry { params, ret: *ret, index: call.index });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(in_stride)));
