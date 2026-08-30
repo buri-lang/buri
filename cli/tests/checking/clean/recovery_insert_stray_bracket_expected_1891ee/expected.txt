@@ -1,0 +1,9 @@
+error: expected a type, found `@` [unexpected-token]
+ --> main.buri:1:9
+  |
+1 | let K: [@ U32] = [
+  |         ^
+  |
+  = expected: a type
+  = actual: `@`
+  = fix: name a type here, as in `Int` or `[Str]`

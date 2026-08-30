@@ -1,0 +1,9 @@
+error: expected an identifier, found `?` [unexpected-token]
+  --> main.buri:24:23
+   |
+24 |   export fn add(self, ? other: Cents): Cents { Cents(self.0 + other.0) }
+   |                       ^
+   |
+   = expected: an identifier
+   = actual: `?`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

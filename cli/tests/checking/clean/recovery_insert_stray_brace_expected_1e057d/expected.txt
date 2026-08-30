@@ -1,0 +1,7 @@
+error: an enum variant ends with `,` [missing-separator]
+ --> main.buri:3:41
+  |
+3 |     Rect { width: Float, height: Float }extra ,
+  |                                         ^
+  |
+  = fix: write `,` here

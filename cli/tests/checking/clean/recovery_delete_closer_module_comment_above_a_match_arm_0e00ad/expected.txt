@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:1:27
+  |
+1 | export fn f(x: Option<Int>: Int {
+  |                           ^
+  |
+ --> main.buri:1:12
+  |
+1 | export fn f(x: Option<Int>: Int {
+  |            ^ opened here
+  |
+  = fix: write `)` here

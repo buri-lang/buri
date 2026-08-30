@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+ --> main.buri:3:20
+  |
+3 |   let b = [1, 2, 3]
+  |                    ^
+  |
+  = fix: write `;` here

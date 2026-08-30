@@ -1,0 +1,18 @@
+error: expected an identifier, found `export` [unexpected-token]
+ --> main.buri:9:4
+  |
+9 | fn export b(): Int { 2 }
+  |    ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `export`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: expected a declaration, found `b` [unexpected-token]
+ --> main.buri:9:11
+  |
+9 | fn export b(): Int { 2 }
+  |           ^
+  |
+  = expected: a declaration
+  = actual: `b`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

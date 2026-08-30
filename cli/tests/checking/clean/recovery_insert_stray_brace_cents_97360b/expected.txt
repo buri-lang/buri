@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> main.buri:26:44
+   |
+26 |   export fn isZero(self): Bool { self.0 == @ 0 }
+   |                                            ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

@@ -1,0 +1,9 @@
+error: expected `fn`, found `,` [unexpected-token]
+ --> main.buri:3:17
+  |
+3 | export trait T {, }
+  |                 ^
+  |
+  = expected: `fn`
+  = actual: `,`
+  = fix: write `fn` here

@@ -1,0 +1,12 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:15:1
+   |
+15 | test "the canary holds under a context" {
+   | ^^^^
+   |
+  --> main.buri:11:25
+   |
+11 | test "the canary holds" {
+   |                         ^ opened here
+   |
+   = fix: write `}` here

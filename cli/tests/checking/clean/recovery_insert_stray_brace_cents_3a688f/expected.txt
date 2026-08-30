@@ -1,0 +1,9 @@
+error: expected a type, found `?` [unexpected-token]
+  --> main.buri:49:26
+   |
+49 |   export fn parts(self): ? (I64, I64) { (self.0 / 100, self.0 % 100) }
+   |                          ^
+   |
+   = expected: a type
+   = actual: `?`
+   = fix: name a type here, as in `Int` or `[Str]`

@@ -1,0 +1,14 @@
+error: there is no type `extra` [unresolved-type]
+  --> main.buri:11:7
+   |
+11 |     B(extra Int),
+   |       ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling
+error: a variant payload field ends with `,` [missing-separator]
+  --> main.buri:11:12
+   |
+11 |     B(extra Int),
+   |            ^
+   |
+   = fix: write `,` here

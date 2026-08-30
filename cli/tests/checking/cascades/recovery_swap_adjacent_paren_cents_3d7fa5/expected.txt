@@ -1,0 +1,17 @@
+error: expected an expression, found `<` [unexpected-token]
+  --> main.buri:34:19
+   |
+34 |     let pad = if (< rest 10) { "0" } else { "" };
+   |                   ^
+   |
+   = expected: an expression
+   = actual: `<`
+   = fix: write a value here
+error: there is nothing named `pad` in scope [unresolved-name]
+  --> main.buri:35:35
+   |
+35 |     str.format(ctx, "\$${whole}.${pad}${rest}")
+   |                                   ^^^
+   |
+   = did you mean `Add`?
+   = fix: correct the spelling, or declare it

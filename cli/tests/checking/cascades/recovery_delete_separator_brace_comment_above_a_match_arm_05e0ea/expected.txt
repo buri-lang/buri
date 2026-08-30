@@ -1,0 +1,27 @@
+error: this `match` does not cover `.Some(_)` [match-not-exhaustive]
+ --> main.buri:2:3
+  |
+2 |   match (x) {
+  |   ^^^^^^^^^^^ not covered
+  |
+  = every `match` must cover its scrutinee's type
+  = fix: add an arm for `.Some(_)`, or a `_` arm for everything left
+error: `I64` has no method `Some` [no-such-method]
+ --> main.buri:5:6
+  |
+5 |     .Some(n) => n,
+  |      ^^^^
+  |
+  = fix: check the spelling — `buri docs core/num` lists every method `I64` has, and one may not be added to it from outside `core/num`
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:5:14
+  |
+5 |     .Some(n) => n,
+  |              ^^
+  |
+ --> main.buri:2:13
+  |
+2 |   match (x) {
+  |             ^ opened here
+  |
+  = fix: write `}` here

@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:16:56
+   |
+16 |   let doubled = [1, 2, 3].fold(fn(acc, x) => acc + x, 0;
+   |                                                        ^
+   |
+  --> main.buri:16:31
+   |
+16 |   let doubled = [1, 2, 3].fold(fn(acc, x) => acc + x, 0;
+   |                               ^ opened here
+   |
+   = fix: write `)` here

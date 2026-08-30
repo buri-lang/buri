@@ -1,0 +1,9 @@
+error: expected `:`, found `height` [unexpected-token]
+ --> main.buri:3:32
+  |
+3 |     Rect { width: Float, extra height: Float },
+  |                                ^^^^^^
+  |
+  = expected: `:`
+  = actual: `height`
+  = fix: write `:` here

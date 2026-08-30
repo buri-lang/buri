@@ -1,0 +1,18 @@
+error: expected an identifier, found `export` [unexpected-token]
+ --> main.buri:6:4
+  |
+6 | fn export parseFlags(args: [Str]): Flags {
+  |    ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `export`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: expected a declaration, found `parseFlags` [unexpected-token]
+ --> main.buri:6:11
+  |
+6 | fn export parseFlags(args: [Str]): Flags {
+  |           ^^^^^^^^^^
+  |
+  = expected: a declaration
+  = actual: `parseFlags`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

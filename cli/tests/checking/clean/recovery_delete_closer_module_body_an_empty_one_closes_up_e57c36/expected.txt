@@ -1,0 +1,12 @@
+error: this `impl` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:11:1
+   |
+11 | 
+   | ^
+   |
+  --> main.buri:10:8
+   |
+10 | impl S {
+   |        ^ opened here
+   |
+   = fix: write `}` here

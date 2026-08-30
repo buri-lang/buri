@@ -1,0 +1,9 @@
+error: expected a pattern, found `@` [unexpected-token]
+  --> main.buri:53:9
+   |
+53 |     let @ _ = fetch(ctx, get("https://example.invalid/a"), fn(c, result) => {
+   |         ^
+   |
+   = expected: a pattern
+   = actual: `@`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

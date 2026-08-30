@@ -1,0 +1,16 @@
+error: a tuple element ends with `,` [missing-separator]
+ --> main.buri:2:6
+  |
+2 |   ((a b +) * c) + (a * (b + c)) - ((a) - (b))
+  |      ^
+  |
+  = fix: write `,` here
+error: expected an expression, found `)` [unexpected-token]
+ --> main.buri:2:10
+  |
+2 |   ((a b +) * c) + (a * (b + c)) - ((a) - (b))
+  |          ^
+  |
+  = expected: an expression
+  = actual: `)`
+  = fix: write a value here

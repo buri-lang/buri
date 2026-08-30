@@ -1,0 +1,12 @@
+error: this array type is missing its closing `]` [unclosed-delimiter]
+ --> main.buri:6:32
+  |
+6 | export fn parseFlags(args: [Str): Flags {
+  |                                ^
+  |
+ --> main.buri:6:28
+  |
+6 | export fn parseFlags(args: [Str): Flags {
+  |                            ^ opened here
+  |
+  = fix: write `]` here

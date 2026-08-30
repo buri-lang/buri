@@ -1,0 +1,32 @@
+error: an expression statement is legal only in a test source [expression-statement]
+ --> main.buri:2:5
+  |
+2 |     a let = [];
+  |     ^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `a` in scope [unresolved-name]
+ --> main.buri:2:5
+  |
+2 |     a let = [];
+  |     ^
+  |
+  = did you mean `f`?
+  = fix: correct the spelling, or declare it
+error: a statement ends with `;` [missing-terminator]
+ --> main.buri:2:6
+  |
+2 |     a let = [];
+  |      ^
+  |
+  = fix: write `;` here
+error: expected a pattern, found `=` [unexpected-token]
+ --> main.buri:2:11
+  |
+2 |     a let = [];
+  |           ^
+  |
+  = expected: a pattern
+  = actual: `=`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

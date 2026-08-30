@@ -1,0 +1,9 @@
+error: expected `=`, found `[` [unexpected-token]
+ --> main.buri:2:9
+  |
+2 |   let a [ =];
+  |         ^
+  |
+  = expected: `=`
+  = actual: `[`
+  = fix: write `=` here

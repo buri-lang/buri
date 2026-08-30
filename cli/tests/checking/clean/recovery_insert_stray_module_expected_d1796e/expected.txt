@@ -1,0 +1,9 @@
+error: expected a type, found `,` [unexpected-token]
+ --> main.buri:9:6
+  |
+9 | impl , S {}
+  |      ^
+  |
+  = expected: a type
+  = actual: `,`
+  = fix: name a type here, as in `Int` or `[Str]`

@@ -1,0 +1,28 @@
+error: expected `[I64]`, found `Option<<error>>` [type-mismatch]
+ --> main.buri:1:22
+  |
+1 | export fn f(): [Int] {
+  |                      ^ the declared return type is `[I64]`
+  |
+  = expected: `[I64]`
+  = actual: `Option<<error>>`
+  = fix: produce a `[I64]` here, or change what surrounds it to accept a `Option<<error>>`
+error: there is nothing named `extra` in scope [unresolved-name]
+ --> main.buri:3:11
+  |
+3 |   let b = extra [1, 2, 3];
+  |           ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this index is missing its closing `]` [unclosed-delimiter]
+ --> main.buri:3:19
+  |
+3 |   let b = extra [1, 2, 3];
+  |                   ^
+  |
+ --> main.buri:3:17
+  |
+3 |   let b = extra [1, 2, 3];
+  |                 ^ opened here
+  |
+  = fix: write `]` here

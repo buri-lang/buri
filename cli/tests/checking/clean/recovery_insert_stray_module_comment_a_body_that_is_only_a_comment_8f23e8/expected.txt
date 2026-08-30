@@ -1,0 +1,9 @@
+error: expected `{`, found `extra` [unexpected-token]
+ --> main.buri:1:17
+  |
+1 | export struct S extra {
+  |                 ^^^^^
+  |
+  = expected: `{`
+  = actual: `extra`
+  = fix: write `{` here

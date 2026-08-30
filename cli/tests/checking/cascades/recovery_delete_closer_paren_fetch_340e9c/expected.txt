@@ -1,0 +1,30 @@
+error: `fetch` takes 3 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:56:13
+   |
+56 |     let _ = fetch(ctx, get("https://example.invalid/b", fn(c, result) => {
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 2
+   = fix: pass the context: the convention is receiver first, context second, everything else after
+error: `get` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:56:24
+   |
+56 |     let _ = fetch(ctx, get("https://example.invalid/b", fn(c, result) => {
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:58:7
+   |
+58 |     });
+   |       ^
+   |
+  --> main.buri:56:18
+   |
+56 |     let _ = fetch(ctx, get("https://example.invalid/b", fn(c, result) => {
+   |                  ^ opened here
+   |
+   = fix: write `)` here

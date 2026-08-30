@@ -1,0 +1,7 @@
+error: a function parameter ends with `,` [missing-separator]
+  --> main.buri:31:34
+   |
+31 |   export fn format<C: Alloc>(self ctx: C): Str {
+   |                                  ^
+   |
+   = fix: write `,` here

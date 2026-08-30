@@ -1,0 +1,21 @@
+error: expected an identifier, found a string literal [unexpected-token]
+ --> main.buri:2:17
+  |
+2 |     if (x > 0 { "yes" } else { "no" }
+  |                 ^^^^^
+  |
+  = expected: an identifier
+  = actual: a string literal
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:4:1
+  |
+4 | 
+  | ^
+  |
+ --> main.buri:1:26
+  |
+1 | export fn f(x: Int): Str {
+  |                          ^ opened here
+  |
+  = fix: write `}` here

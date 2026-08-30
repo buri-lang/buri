@@ -1,0 +1,29 @@
+error: `I64` has no method `fold` [no-such-method]
+  --> main.buri:16:26
+   |
+16 |   let doubled = [1, 2, 3.fold(fn(acc, x) => acc + x, 0);
+   |                          ^^^^
+   |
+   = fix: check the spelling — `buri docs core/num` lists every method `I64` has, and one may not be added to it from outside `core/num`
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:16:56
+   |
+16 |   let doubled = [1, 2, 3.fold(fn(acc, x) => acc + x, 0);
+   |                                                        ^
+   |
+  --> main.buri:16:17
+   |
+16 |   let doubled = [1, 2, 3.fold(fn(acc, x) => acc + x, 0);
+   |                 ^ opened here
+   |
+   = fix: write `]` here
+error: expected `[Int]`, found `Int` [type-mismatch]
+  --> main.buri:17:22
+   |
+17 |   assert.eq(doubled, 6);
+   |                      ^ the parameter type is `[Int]`
+   |
+   = expected: `[Int]`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `[Int]` is not one
+   = fix: produce a `[Int]` here, or change what surrounds it to accept an `Int`

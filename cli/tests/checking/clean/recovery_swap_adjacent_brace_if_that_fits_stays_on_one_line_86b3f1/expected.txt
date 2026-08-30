@@ -1,0 +1,9 @@
+error: expected `{`, found a string literal [unexpected-token]
+ --> main.buri:1:54
+  |
+1 | export fn f(x: Int): Str { if (x > 0) { "yes" } else "no" { } }
+  |                                                      ^^^^
+  |
+  = expected: `{`
+  = actual: a string literal
+  = fix: write `{` here

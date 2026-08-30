@@ -1,0 +1,9 @@
+error: expected a function body, found `1` [unexpected-token]
+ --> main.buri:1:20
+  |
+1 | export fn f(): Int 1 { }
+  |                    ^
+  |
+  = expected: a function body
+  = actual: `1`
+  = fix: write `{ ... }` after the return type

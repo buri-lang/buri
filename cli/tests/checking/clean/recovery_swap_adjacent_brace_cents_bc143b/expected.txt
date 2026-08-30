@@ -1,0 +1,9 @@
+error: expected `:`, found `Bool` [unexpected-token]
+  --> main.buri:26:25
+   |
+26 |   export fn isZero(self)Bool : { self.0 == 0 }
+   |                         ^^^^
+   |
+   = expected: `:`
+   = actual: `Bool`
+   = fix: write `:` here

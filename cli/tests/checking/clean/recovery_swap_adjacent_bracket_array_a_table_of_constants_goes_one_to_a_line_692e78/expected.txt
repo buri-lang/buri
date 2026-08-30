@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+ --> main.buri:1:39
+  |
+1 | let K: [U32] = [11163524081899447441 ,, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221, 3624381080, 310598401, 607225278, 1426881987, 1925078388, 2162078206, 2614888103, 3248222580];
+  |                                       ^
+  |
+  = expected: an expression
+  = actual: `,`
+  = fix: write a value here

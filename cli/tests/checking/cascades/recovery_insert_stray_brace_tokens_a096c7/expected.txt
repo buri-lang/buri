@@ -1,0 +1,29 @@
+error: this `match` does not cover `.OnSurface` [match-not-exhaustive]
+  --> main.buri:38:5
+   |
+38 |     match (self) {
+   |     ^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.OnSurface`, or a `_` arm for everything left
+error: expected `Color`, found `fn(Str, Str) => Color` [type-mismatch]
+  --> main.buri:39:19
+   |
+39 |       .Surface => style.token@ ("kit", "surface"),
+   |                   ^^^^^^^^^^^ the other arms is `Color`
+   |
+   = expected: `Color`
+   = actual: `fn(Str, Str) => Color`
+   = fix: produce a `Color` here, or change what surrounds it to accept a `fn(Str, Str) => Color`
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:39:30
+   |
+39 |       .Surface => style.token@ ("kit", "surface"),
+   |                              ^
+   |
+  --> main.buri:38:18
+   |
+38 |     match (self) {
+   |                  ^ opened here
+   |
+   = fix: write `}` here

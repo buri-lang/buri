@@ -1,0 +1,9 @@
+error: expected an identifier, found `struct` [unexpected-token]
+ --> main.buri:8:8
+  |
+8 | export struct Wide {
+  |        ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `struct`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

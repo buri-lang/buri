@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+ --> main.buri:2:33
+  |
+2 |     if (x > 0) { "yes" } else { , "no" }
+  |                                 ^
+  |
+  = expected: an expression
+  = actual: `,`
+  = fix: write a value here

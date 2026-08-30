@@ -1,0 +1,18 @@
+// The canary suite. `tests/language/conformance.rs::conformance_suite_can_fail` edits
+// the CANARY marker below and asserts the runner reports a failure — a suite
+// that cannot fail is not evidence of anything.
+//
+// The marker is on the *value*, not on a name: renaming a constant and its use
+// together would leave the assertion true, which is exactly the mistake this
+// file exists to catch.
+
+from "core/testing/assert" import * as assert;
+
+test "the canary holds" {
+  assert.eq(6 * 7, 42);   // CANARY_42
+}
+
+test "the canary holds under a context" {
+  let doubled = [1, 2, 3].fold(fn(acc, x) => acc + x, 0);
+  assert.eq(doubled, 6);
+

@@ -1,0 +1,26 @@
+error: expected a declaration, found `S` [unexpected-token]
+ --> main.buri:5:8
+  |
+5 | export S struct {}
+  |        ^
+  |
+  = expected: a declaration
+  = actual: `S`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected an identifier, found `{` [unexpected-token]
+ --> main.buri:5:17
+  |
+5 | export S struct {}
+  |                 ^
+  |
+  = expected: an identifier
+  = actual: `{`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is no type `S` [unresolved-type]
+ --> main.buri:9:6
+  |
+9 | impl S {}
+  |      ^
+  |
+  = did you mean `E`?
+  = fix: declare it, import it, or correct the spelling

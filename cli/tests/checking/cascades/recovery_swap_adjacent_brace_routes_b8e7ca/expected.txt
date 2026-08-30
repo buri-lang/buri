@@ -1,0 +1,34 @@
+error: this `match` does not cover `_` [match-not-exhaustive]
+ --> main.buri:9:3
+  |
+9 |   match (path) {
+  |   ^^^^^^^^^^^^^^ not covered
+  |
+  = exhaustiveness is not attempted over integer or string ranges
+  = fix: add a `_` arm
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> main.buri:11:14
+   |
+11 |     "/health" Route => { name: "health", path },
+   |              ^
+   |
+   = fix: write `=>` here
+error: `Route` is a type, not a value [type-not-a-value]
+  --> main.buri:11:15
+   |
+11 |     "/health" Route => { name: "health", path },
+   |               ^^^^^
+   |
+   = fix: construct one, as in `Point { x: 1, y: 2 }`, or name a value
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:11:21
+   |
+11 |     "/health" Route => { name: "health", path },
+   |                     ^^
+   |
+ --> main.buri:9:16
+  |
+9 |   match (path) {
+  |                ^ opened here
+  |
+  = fix: write `}` here

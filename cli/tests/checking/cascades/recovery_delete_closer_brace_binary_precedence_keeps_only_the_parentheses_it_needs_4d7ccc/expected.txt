@@ -1,0 +1,29 @@
+error: expected `I64`, found `(I64)` [type-mismatch]
+ --> main.buri:1:42
+  |
+1 | export fn f(a: Int, b: Int, c: Int): Int {
+  |                                          ^ the declared return type is `I64`
+  |
+  = expected: `I64`
+  = actual: `(I64)`
+  = fix: produce a `I64` here, or change what surrounds it to accept a `(I64)`
+error: a tuple has arity 2 or more [tuple-arity]
+ --> main.buri:2:3
+  |
+2 |   ((a + b) * c + (a * (b + c)) - ((a) - (b))
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = `(e)` is grouping and `()` is the unit value
+  = fix: drop the parentheses for one element, or write `()` for none
+error: this tuple is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:3:1
+  |
+3 | }
+  | ^
+  |
+ --> main.buri:2:3
+  |
+2 |   ((a + b) * c + (a * (b + c)) - ((a) - (b))
+  |   ^ opened here
+  |
+  = fix: write `)` here

@@ -1,0 +1,8 @@
+error: `if` requires an `else` branch [if-without-else]
+ --> main.buri:2:16
+  |
+2 |     if (x > 0) { "yes" } { else "no" }
+  |                ^^^^^^^^^
+  |
+  = `if` is an expression, so both branches must produce a value of the same type
+  = fix: add `else { ... }`; an `if` is an expression, so it has a value either way

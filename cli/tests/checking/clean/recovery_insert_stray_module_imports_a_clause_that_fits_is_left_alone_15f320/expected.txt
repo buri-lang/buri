@@ -1,0 +1,18 @@
+error: expected `{`, found `extra` [unexpected-token]
+ --> main.buri:1:24
+  |
+1 | from "core/str" import extra { concat, split };
+  |                        ^^^^^
+  |
+  = expected: `{`
+  = actual: `extra`
+  = fix: write `{` here
+error: expected a declaration, found `;` [unexpected-token]
+ --> main.buri:1:47
+  |
+1 | from "core/str" import extra { concat, split };
+  |                                               ^
+  |
+  = expected: a declaration
+  = actual: `;`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

@@ -1,0 +1,9 @@
+error: expected an identifier, found `enum` [unexpected-token]
+ --> main.buri:7:8
+  |
+7 | export enum E {}
+  |        ^^^^
+  |
+  = expected: an identifier
+  = actual: `enum`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -1,0 +1,16 @@
+error: a function parameter ends with `,` [missing-separator]
+  --> main.buri:11:4
+   |
+11 | Int
+   |    ^
+   |
+   = fix: write `,` here
+error: expected `:`, found `)` [unexpected-token]
+  --> main.buri:12:7
+   |
+12 | extra )
+   |       ^
+   |
+   = expected: `:`
+   = actual: `)`
+   = fix: write `:` here
