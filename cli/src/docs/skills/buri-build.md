@@ -165,8 +165,8 @@ library {}
 
 The `sources` sets are disjoint. The binary **implicitly depends on the
 co-located library** — do not list it — and reaches it only through
-`//tools/report`, never `//tools/report/render`. The library may not reach the
-binary at all.
+`//tools/report/lib.buri`, never `//tools/report/render.buri`. The library may
+not reach the binary at all.
 
 ## Visibility
 
@@ -196,16 +196,23 @@ a binary reaching the library in its own package.
 
 ## Module paths
 
-| Written | Resolves to | Legal from |
-|---|---|---|
-| `"core/list"` | a standard library module | anywhere |
-| `"//lib/money"` | `lib/money/lib.buri`, the surface | where the dependency is declared and visibility granted |
-| `"//lib/money/cents"` | one module inside it | only from inside `//lib/money` |
-| `"//cmd/server/main"` | a binary's entry point | only from that binary's own test sources |
-| `"//lib/money/testing"` | `lib/money/testing/lib.buri` | only from a test source |
+**A module path names a file.** It is a root — `//` for this repository,
+`core/` or `ui/` for the standard library — and then the path of a file under
+it, extension and all.
 
-`//lib/money/lib` is not a legal path — one spelling per module. A module path
-may not also be a package path.
+| Written | Is | Legal from |
+|---|---|---|
+| `"core/list/lib.buri"` | a standard library module | anywhere |
+| `"//lib/money/lib.buri"` | the library's surface | where the dependency is declared and visibility granted |
+| `"//lib/money/cents.buri"` | one module inside it | only from inside `//lib/money` |
+| `"//cmd/server/main.buri"` | a binary's entry point | only from that binary's own test sources |
+| `"//lib/money/testing/lib.buri"` | the testing surface | only from a test source |
+| `"//proto/address.proto"` | a schema | as an ordinary module of its package |
+
+`//lib/money` is a *label* — it names a package in `dependencies` and on the
+command line — and is not a module path. Writing one where the other belongs is
+`import-path-without-a-file`, and inside a repository the diagnostic names the
+file the old spelling meant.
 
 `lib.buri` is made of re-exports and may also declare things itself:
 

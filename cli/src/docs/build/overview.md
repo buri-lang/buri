@@ -64,7 +64,7 @@ from them:
    rule declares which outputs to produce — a Linux binary, a macOS binary, a JS
    module, or several at once.
 4. **Tests live in `test/` and see only the target's surface.** A library's
-   tests import `//lib/money`, not `//lib/money`'s internals. You test what
+   tests import `//lib/money/lib.buri`, not the files behind it. You test what
    dependents can call, so refactoring internals never rewrites a test. A
    library's fixtures *for other people's tests* live in `testing/`, and that
    segment in a path is what makes them unimportable from production code.
@@ -106,9 +106,10 @@ from "//lib/money/cents.buri" export { Cents, fromDollars, fromCents, add, isZer
 from "//lib/money/parse.buri" export { ParseError, parse };
 ```
 
-Module paths are absolute — there are no relative imports — so `//lib/money`
-is the library's surface and `//lib/money/cents` is one module inside it, which
-resolves only from within the library.
+Module paths are absolute — there are no relative imports — and each one names
+a file, so `//lib/money/lib.buri` is the library's surface and
+`//lib/money/cents.buri` is one module inside it, which resolves only from
+within the library.
 
 `lib/money/cents.buri`:
 

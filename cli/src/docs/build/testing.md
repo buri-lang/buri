@@ -120,12 +120,12 @@ A test source may import:
 
 | | |
 |---|---|
-| The target under test | `//lib/money` for a library, `//lib/money/main` for a binary |
+| The target under test | `//lib/money/lib.buri` for a library, `//cmd/server/main.buri` for a binary |
 | The target's `dependencies` | The same libraries the target itself depends on |
 | The suite's `test.dependencies` | Fakes, fixtures, matchers |
-| `core/*` | Including the test platform: `core/testing/assert`, `core/testing/context` |
+| `core/*` | Including the test platform: `core/testing/assert/lib.buri`, `core/testing/context/lib.buri` |
 
-| Any test-only path | `//lib/ledger/testing`, `//lib/testing/fakes` — declared in `test.dependencies` like any other library |
+| Any test-only path | `//lib/ledger/testing/lib.buri`, `//lib/testing/fakes/lib.buri` — the package is declared in `test.dependencies` like any other library |
 
 and may not:
 
@@ -144,7 +144,7 @@ error: lib/money/test/cents.buri imports a library-internal module
   --> lib/money/test/cents.buri:3:6
    |
  3 | from "//lib/money/cents.buri" import { toCents };
-   |      ^^^^^^^^^^^^^^^^^^^
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = tests reach their library the same way dependents do
    = import //lib/money, and re-export `toCents` from lib/money/lib.buri if it
@@ -241,9 +241,9 @@ test "unknown paths route to the fallback" {
 }
 ```
 
-`//cmd/server/main` is a module inside the package, so only that package's own
-test sources may import it — the same rule that keeps `//lib/money/cents`
-internal. Everything else is identical to testing a library: the test sees what
+`//cmd/server/main.buri` is a module inside the package, so only that package's
+own test sources may import it — the same rule that keeps
+`//lib/money/cents.buri` internal. Everything else is identical to testing a library: the test sees what
 `main.buri` exports and nothing more, so pushing logic behind the entry point is
 what makes it testable, which is the pressure you want.
 

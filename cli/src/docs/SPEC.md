@@ -243,12 +243,34 @@ Import declarations are terminated with `;`. Circular imports are an error.
 
 #### 4.1.1 Module paths
 
-A module path is one of two forms, told apart by their first characters:
+**A module path names a file.** It is a root, and then the path of a file
+under it — the path you would type into an editor, extension and all.
 
 | Form | Example | Names |
 |---|---|---|
-| Standard library | `"core/list"`, `"ui/signal"` | A module of the standard library, which ships with the compiler. |
-| Repository-absolute | `"//lib/money"`, `"//lib/money/cents"` | A module of this repository, by its path from the root. |
+| Standard library | `"core/list/lib.buri"`, `"ui/signal/lib.buri"` | A module of the standard library, which ships with the compiler. |
+| Repository-absolute | `"//lib/money/lib.buri"`, `"//lib/money/cents.buri"` | A file of this repository, by its path from the root. |
+
+A path used to be a name with the file left off, and the rule connecting the
+two was something you had to know: a library was its *directory*, a module
+inside one dropped its extension, a binary's entry point was the word `main`,
+and a testing surface was a directory that meant a file two levels down. Four
+spellings for four kinds of the same thing, and a module with two names.
+
+Now there is one name. `//` is the repository root, `core/` and `ui/` are the
+standard library, and everything after that is a file:
+
+| What it is | Path |
+|---|---|
+| A library's surface | `"//lib/money/lib.buri"` |
+| A module inside a library | `"//lib/money/cents.buri"` |
+| A library's testing surface | `"//lib/money/testing/lib.buri"` |
+| A binary's entry point | `"//cmd/server/main.buri"` |
+| A schema | `"//proto/address.proto"` |
+
+A path that names no file — `"//lib/money"`, `"core/list"` — is
+`import-path-without-a-file`, and inside a repository the diagnostic works out
+which file the old spelling meant and offers the edit.
 
 The standard library owns two reserved roots. `core/` is the deliberately small
 set of essentials — the types every program uses and the effects every platform
@@ -263,8 +285,8 @@ means the same module wherever it is written, a file can be moved between
 directories without rewriting the imports inside it, and a reader never has to
 know where a file sits to know what it imports.
 
-`"//lib/money"` names the *library* rooted at `lib/money` — its `lib.buri`, and
-transitively only what that file exports. `"//lib/money/cents"` names an
+`"//lib/money/lib.buri"` names the *library* rooted at `lib/money` — that file,
+and transitively only what it exports. `"//lib/money/cents.buri"` names an
 individual module inside it, which the build system permits only from within
 the same library. Both are ordinary module paths to the compiler; the
 distinction is enforced with the visibility rules in
@@ -272,12 +294,15 @@ distinction is enforced with the visibility rules in
 
 One path segment is reserved: **`testing`**. A module path containing it is
 test-only, and may be imported only from a test source (Section 11.2). That
-covers `"core/testing/assert"`, `"core/testing/context"`, a library's own
-utilities-for-testing-it at `"//lib/money/testing"`, and a whole package of
-shared fixtures at `"//lib/testing/fakes"` — one rule, visible in the import
-line, with nothing to declare.
+covers `"core/testing/assert/lib.buri"`, `"core/testing/context/lib.buri"`, a
+library's own utilities-for-testing-it at `"//lib/money/testing/lib.buri"`, and
+a whole package of shared fixtures at `"//lib/testing/fakes/lib.buri"` — one
+rule, visible in the import line, with nothing to declare. The segment is a
+*directory* name: `"//lib/money/testing.buri"` is a module called `testing` and
+is not test-only, because the segment that would have made it so is a file
+name.
 
-One module is reserved the other way: **`"core/host"`**, the platform's
+One module is reserved the other way: **`"core/host/lib.buri"`**, the platform's
 implementations of the effects it grants, is importable only from the module
 that exports `main` (Section 10.3). The two restrictions are the same shape, and
 between them they name every place in a program where authority can enter.

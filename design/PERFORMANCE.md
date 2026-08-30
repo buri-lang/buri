@@ -869,6 +869,34 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > command. That is a bug of its own, being fixed separately; until it is, nobody
 > can take this table in a single invocation.
 
+> **Generator revision 5, 2026-08-30 — a break in the series, announced, and
+> the first one that moves a corpus holding no import.**
+> Every import names a file, so `core/list` became `core/list/lib.buri` and
+> `//bench/m0007` became `//bench/m0007.buri`: every generated import line is
+> longer by a suffix. §3.1's rule applies and was followed — **all eight** saved
+> corpora were re-recorded and **all forty** pinned manifests re-pinned.
+>
+> All eight, and that is the part the revision-2 note did not anticipate. Six of
+> the corpora have imports and their source bytes grew: `mixed-10k` 346,270 →
+> 347,800, `mixed-many-files-1k` 39,356 → 40,168, `mixed-1k` 35,570 → 35,741,
+> `derive-heavy-1k` 35,295 → 35,502, `mixed-few-files-1k` 37,152 → 37,202,
+> `many-small-fns-1k` 30,482 → 30,492. The other two — `few-large-fns-1k` and
+> `wide-match-1k` — have **no import at all**, and not one byte of their source
+> moved: 23,867 and 18,722 before and after. Their digests moved anyway, because
+> a corpus digest folds each module's *path* as well as its text, and the paths
+> are what this change is about: `//bench/main` is `//bench/main.buri` now. So
+> there was no corpus to leave where it was, and the revision-2 exemption —
+> "byte-stability across a generator change is the whole point of saving one" —
+> had nothing to protect: the byte stability is intact and visible in the two
+> unchanged `bytes` figures, and only the name of the thing those bytes are
+> under has changed.
+>
+> **Nothing measurable moved with it.** `lines` and `modules` are identical for
+> all forty pinned and all eight saved corpora — checked over the diff, not
+> assumed — and only `bytes` and the digest differ. Every reading below is still
+> comparable with one taken at revision 5; a rate quoted in lines/s is unmoved
+> because the line count is unmoved.
+
 > **Generator revision 4, 2026-08-27 — a break in the series, announced.**
 > An enum variant stopped carrying `export`, so every generated variant line
 > lost the keyword and a space and every recorded digest of a corpus containing
