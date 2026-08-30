@@ -1,7 +1,0 @@
-export fn f(): Str {
-    let someRatherLongBindingName = extra anotherName
-        .aFieldHere
-        .aSecondFieldName
-        .aThirdFieldName;
-    someRatherLongBindingName
-}

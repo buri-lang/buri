@@ -9,6 +9,7 @@ library {
             "test/evaluation.buri",
             "test/variance.buri",
             "test/elision.buri",
+            "test/anonymous.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

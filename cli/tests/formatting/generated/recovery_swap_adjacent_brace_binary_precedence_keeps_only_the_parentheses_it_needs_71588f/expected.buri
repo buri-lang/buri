@@ -1,3 +1,0 @@
-export fn f(a: Int, b: Int, c: Int): Int {
-  ((a + b) * c) + (a * (b + c)- ) ((a) - (b))
-}

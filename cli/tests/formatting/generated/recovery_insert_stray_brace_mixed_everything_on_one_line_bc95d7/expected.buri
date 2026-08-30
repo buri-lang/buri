@@ -1,1 +1,0 @@
-export fn f<C: Alloc>(ctx: C, o: Option<Int>): Str { let a = match (o) { .None => 0, .Some(n) => n }; let b = if (a > 0) { "yes" } else { "no" }; let c = ? [1, 2, 3].map(ctx, fn(x) => { let y = x * 2; y + 1 }); str.format(ctx, "${a} ${b} ${c}") }

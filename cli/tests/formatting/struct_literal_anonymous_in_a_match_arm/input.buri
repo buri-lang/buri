@@ -1,0 +1,6 @@
+export fn f(s: Source): Route {
+  match (s) {
+    .Shelf => { name: "shelf", page: 0 },
+    .Catalogue { page } => { name: "catalogue", page },
+  }
+}
