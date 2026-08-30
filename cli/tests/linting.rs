@@ -112,45 +112,65 @@ const INVENTED_CEILING: usize = 2;
 
 /// What share of the cases may lose a finding whose evidence survived.
 ///
-/// Not zero, and the residue has one cause worth naming. `Unchecked::of` in
-/// `cli/src/commands/lint.rs` reads an error that is *not* inside any body as
-/// an error about the module, and marks every body in that module unread — so
-/// a missing `;` on an import silences `unused-variable` in a function twenty
-/// lines below it, which parsed and checked. That was a safe rule to write
-/// when a parse error meant the file was not read at all; with recovery it is
-/// wider than it needs to be, and this number is what narrowing it would buy.
+/// **Three points, down from nine, and the drop is a fix rather than a draw.**
+/// `Unchecked::of` in `cli/src/commands/lint.rs` used to read an error that
+/// was not inside any body as an error about the *module*, and mark every body
+/// in that module unread — so a missing `;` on an import silenced
+/// `unused-variable` in a function twenty lines below it, and a used alias
+/// that closed a cycle silenced every lint beside it, both from files the
+/// parser read whole. It now marks a module unread only where the parser
+/// actually skipped a declaration, and a body unread only where an error
+/// landed in it. The population rate fell from **145 of 2,000 (7.25%) to 47 of
+/// 2,000 (2.35%)**, measured over the same seeds either side of the change;
+/// the pinned corpus fell from 10 of 528 to **6 of 545 (1.1%)**.
 ///
-/// Nine points, and the number is read off the **whole population** — 151 of
-/// 2,000 candidates, 7.5% — rather than off the pinned corpus, which shows
-/// 1.9% because it is one case per shape and the shapes are not equally
-/// common. That is `recovery.rs`'s rule for a ceiling, and this is the same
-/// mistake it was written to stop: a bound fitted to a sample goes red on the
-/// next draw for a reason that has nothing to do with the toolchain.
+/// The number is read off the **whole population** rather than off the pinned
+/// corpus, which is one case per shape and whose shapes are not equally
+/// common. That is `recovery.rs`'s rule for a ceiling, and the reason for it
+/// is that a bound fitted to a sample goes red on the next draw for a reason
+/// that has nothing to do with the toolchain.
 ///
-/// Re-measured after the formatter style change and the `circular-type-alias`
-/// diagnostic landed: still 151 of 2,000, to the case. The seeds are the lint
-/// fixtures under `repositories/linting/`, which neither change touched, and
-/// no mutation in the population produces an alias cycle — a one-token edit
-/// makes a *syntax* error far more readily than it makes an alias refer back
-/// to itself. So the nine stands unchanged.
+/// # The residue, which is a different thing from the bug that was fixed
 ///
-/// It is worth naming what would move it, because `Unchecked::of` reads the
-/// **position** of an error and not its code, so the new diagnostic is on the
-/// same footing as a syntax error. A `circular-type-alias` sits on a type
-/// alias, which is at module level and inside no body, so it takes the same
-/// path a missing `;` on an import does: the module is marked unread and every
-/// lint in it goes quiet. Confirmed by hand rather than assumed — a module
-/// with a cyclic alias and an unused local reports the cycle and *not* the
-/// `unused-variable`, while the same module with the cycle removed reports the
-/// `unused-variable`. It takes a *used* alias to do it: an unused cyclic alias
-/// is never expanded, so nothing fires and nothing goes quiet, which is why no
-/// mutation in this population reaches it.
+/// Forty-seven cases, and **none of them is a lint going quiet about code that
+/// was read**. Two of the three lints in the residue — `duplicate-import` and
+/// `discarded-result` — never consulted `Unchecked` at all, and the third is
+/// stopped by the per-body rule, which is the rule doing its job:
 ///
-/// So the ceiling is unmoved but the surface under it is now wider: it is not
-/// only broken syntax that can silence a module's lints. That is the second
-/// case for narrowing `Unchecked::of`, and this number is still where the cost
-/// of not narrowing it is visible.
-const LOST_A_FINDING_CEILING: usize = 9;
+/// * **`unused-variable`, 30 cases.** The mutation broke the import the body
+///   depends on, so the body itself no longer checks — `not-an-effect`,
+///   `unsatisfied-bound`, `unresolved-name`, reported *inside* it. A body the
+///   checker stopped in has lost the reads under wherever it stopped, so what
+///   the binding is read by is not something the report can claim to know.
+/// * **`discarded-result`, 11 cases.** The rule looks for calls landing on
+///   `core/result.ignore` in the typed tree. The mutation broke the callee's
+///   declaration, so the call resolves to nothing and is not in the tree to
+///   find.
+/// * **`duplicate-import`, 6 cases.** The rule counts two statements naming
+///   one module. The mutation destroyed one of the two, so there is no longer
+///   a pair — the evidence is half gone, not overlooked.
+///
+/// Every one of the forty-seven has an error inside a body, checked rather
+/// than asserted. What makes them show up here at all is the invariant's proxy
+/// for "the evidence survived": a finding is counted as surviving when its
+/// byte offset lands outside every region the *parser* skipped. That is a
+/// coarser question than "the declaration this finding is about still checks",
+/// and the gap between the two is exactly this residue. Narrowing the proxy
+/// would need the harness to model what the checker stopped on, which is the
+/// toolchain's own answer restated in the test — so the residue is described
+/// here instead, and the ceiling sits above it.
+///
+/// `Option`-field elision, merged in from main after the measurement above,
+/// moves none of it. The lint fixtures under `cli/tests/repositories/linting`
+/// are this corpus's whole seed set, and not one of them — nor any page it
+/// records — mentions `Option` or `missing-field-value`, so neither the
+/// desugar nor its reworded fix has anything here to change. Re-measured
+/// after the merge: **47 of 2,000 and 6 of 545, to the case.**
+///
+/// Three points, against 2.35% measured: the ratchet is one point of headroom,
+/// which is what makes it a bound and not a description. It is not zero and
+/// cannot be while the proxy is a byte offset.
+const LOST_A_FINDING_CEILING: usize = 3;
 
 fn corpus_dir() -> PathBuf {
     tests_dir().join("linting")

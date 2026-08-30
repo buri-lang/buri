@@ -1,9 +1,0 @@
-error: expected a type, found `?` [unexpected-token]
- --> lib/recovery_insert_stray_paren_cents_eb98ee/lib.buri:5:24
-  |
-5 | export fn fromCents(c: ? I64): Cents { Cents(c) }
-  |                        ^
-  |
-  = expected: a type
-  = actual: `?`
-  = fix: name a type here, as in `Int` or `[Str]`

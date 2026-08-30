@@ -1,0 +1,9 @@
+error: expected a type, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_cents_d90a34/lib.buri:1:30
+  |
+1 | export fn markupCents(cents: , I64): I64 { cents + 5 }
+  |                              ^
+  |
+  = expected: a type
+  = actual: `,`
+  = fix: name a type here, as in `Int` or `[Str]`

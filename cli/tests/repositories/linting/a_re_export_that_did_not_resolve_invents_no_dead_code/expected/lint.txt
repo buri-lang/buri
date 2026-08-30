@@ -1,0 +1,23 @@
+error: "//lib/money/cents" does not export `markup` [no-such-export]
+ --> lib/money/lib.buri:7:35
+  |
+7 | from "//lib/money/cents" export { markup };
+  |                                   ^^^^^^
+  |
+  = a re-export may name only what its module path exports
+  = fix: check the spelling, or drop `markup` from this list
+
+    What to do
+    ──────────
+
+    If the module declares the name and holds it back, add export to the
+    declaration there. If it declares no such name, the spelling is the mistake
+    — the diagnostic says which of the two it is, and offers the nearest
+    exported name.
+
+    Why
+    ───
+
+    A re-export may name only what its module path exports, so a library's
+    surface can never be wider than the modules it is built from.
+

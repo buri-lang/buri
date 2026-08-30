@@ -1,9 +1,0 @@
-error: expected a declaration, found `@` [unexpected-token]
- --> lib/recovery_insert_stray_module_cents_d06203/lib.buri:5:8
-  |
-5 | export @ fn fromCents(c: I64): Cents { Cents(c) }
-  |        ^
-  |
-  = expected: a declaration
-  = actual: `@`
-  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

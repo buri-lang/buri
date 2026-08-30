@@ -1,0 +1,4 @@
+library {
+    sources: ["orders.buri", "desk.buri"]
+    visibility: ["//visibility:public"]
+}

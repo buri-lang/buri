@@ -1,0 +1,32 @@
+error: an expression statement is legal only in a test source [expression-statement]
+ --> lib/recovery_swap_adjacent_brace_cents_a11e63/lib.buri:1:42
+  |
+1 | export fn markupCents(cents: I64): I64 { cents 5 + }
+  |                                          ^^^^^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `I64`, not `()` [statement-not-unit]
+ --> lib/recovery_swap_adjacent_brace_cents_a11e63/lib.buri:1:42
+  |
+1 | export fn markupCents(cents: I64): I64 { cents 5 + }
+  |                                          ^^^^^
+  |
+  = only an expression whose type is `()` may stand alone; bind anything else
+  = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+ --> lib/recovery_swap_adjacent_brace_cents_a11e63/lib.buri:1:47
+  |
+1 | export fn markupCents(cents: I64): I64 { cents 5 + }
+  |                                               ^
+  |
+  = fix: write `;` here
+error: expected an expression, found `}` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_cents_a11e63/lib.buri:1:52
+  |
+1 | export fn markupCents(cents: I64): I64 { cents 5 + }
+  |                                                    ^
+  |
+  = expected: an expression
+  = actual: `}`
+  = fix: write a value here
