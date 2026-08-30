@@ -585,7 +585,15 @@ fn head_type(
     }
 }
 
-/// The fields a literal still has to give.
+/// The fields a literal has not written yet.
+///
+/// Not the fields it *must* write: an `Option` field may be left out (SPEC
+/// 5.6) and is still offered, because elidable is not the same as gone — a
+/// literal that leaves `note` out is complete, and a reader who wants to say
+/// `.Some(\"…\")` has to be able to reach the name. Nothing here distinguishes
+/// the two, and the detail text is the field's declaration as
+/// `symbols::describe` renders it — `export note: Option<Str>` — which says
+/// what the field is and claims nothing about whether it is required.
 ///
 /// A field the declaring module did not export is left out of a literal
 /// written anywhere else, the same rule [`members_of`] reads by: offering one
