@@ -5,6 +5,11 @@
 //! `core/testing/context`, so a test builds the context it wants rather than
 //! being handed a world.
 //!
+//! Only the two graph effects are here. A page's requests used to need a
+//! third — `ui/effect`'s callback-shaped `Fetch`, and a `noFetch()` that
+//! refused — and a page asks for `Net` now, so the double a test wants is
+//! `core/testing/context`'s `noNet()` or one it writes itself.
+//!
 //! The implementations are the real reactive runtime with no document
 //! attached. That is deliberate: the graph is what the tests here are about,
 //! and a second implementation of it would be a second thing to be right.
@@ -15,10 +20,9 @@
 //! named by an index nothing else can produce, so a test can only reach the
 //! cells it made.
 
-from "ui/effect/lib.buri" import { Fetch, FetchError, Request, Scope, Ui, Watch };
+from "ui/effect/lib.buri" import { Scope, Ui, Watch };
 from "ui/node/lib.buri" import { Node };
 from "ui/theme/lib.buri" import { Theme };
-from "core/effect/lib.buri" import { NetResponse };
 
 /// Creates and writes signals, and runs computations, with no rendering.
 export struct Headless(I64);
@@ -44,24 +48,6 @@ impl Watch for Observer {
 
 /// A headless `Watch`.
 export fn observer(): Observer;
-
-/// Refuses every request. A fake goes in `test.dependencies`.
-export struct NoFetch {}
-
-impl Fetch for NoFetch {
-  fn fetch(
-    self,
-    request: Request,
-    done: fn(Self, Result<NetResponse, FetchError>) => (),
-  ): () {
-    done(self, .Err(.Refused))
-  }
-}
-
-/// A `Fetch` that refuses.
-export fn noFetch(): NoFetch {
-  NoFetch {}
-}
 
 /// A tree that has been rendered, and can be looked at and acted on.
 ///

@@ -2,10 +2,10 @@
 # an output that is a page.
 #
 # `platform: WEB` is not a flag on the JavaScript output: it is a different set
-# of effects. `core/host` exports `ui`, `watch` and `fetch` there and nowhere
-# else, and exports no `fs`, `net`, `stdin`, `env` or `proc` there at all — so
-# main.buri below builds for this output and would not build for //cmd/web's,
-# and //cmd/server/main.buri is the same refusal the other way round. A WEB
+# of effects. `core/host` exports `ui` and `watch` there and nowhere else, and
+# exports no `fs`, `stdin`, `env` or `proc` there at all — so main.buri below
+# builds for this output and would not build for //cmd/web's, and
+# //cmd/server/main.buri is the same refusal the other way round. A WEB
 # output takes no `arch` (JavaScript has none) and no `js { module }` (a browser
 # loads an ES module; there is no other kind), and naming either is a build-file
 # error rather than a field the toolchain then ignores.

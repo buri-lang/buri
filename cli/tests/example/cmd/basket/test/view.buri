@@ -9,7 +9,7 @@
 //
 // The response body is recorded rather than fetched. A suite that needed
 // //cmd/server running would be a suite that fails for reasons that have
-// nothing to do with the page, and `Fetch` is an effect, so the way to supply
+// nothing to do with the page, and `Net` is an effect, so the way to supply
 // one is to write one.
 
 from "//cmd/basket/main.buri" import {
@@ -18,50 +18,53 @@ from "//cmd/basket/main.buri" import {
 from "//lib/kit/lib.buri" import { themed };
 from "//lib/ledger/lib.buri" import { Entry, entry };
 from "//lib/money/lib.buri" import { fromCents };
-from "core/effect/lib.buri" import { Alloc, NetResponse };
+from "core/effect/lib.buri" import { Alloc, Net, NetError, Request, Response };
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { alloc };
-from "ui/effect/lib.buri" import { Fetch, FetchError, Request, Ui, Watch };
+from "core/testing/context/lib.buri" import { alloc, noNet };
+from "ui/effect/lib.buri" import { Ui, Watch };
 from "ui/prop/lib.buri" import { memo };
 from "ui/signal/lib.buri" import { signal, watch };
 from "ui/testing/lib.buri" import {
-  headless, install, noFetch, observer, recorder, render, variables,
+  headless, install, observer, recorder, render, variables,
 };
 from "ui/theme/lib.buri" import * as theme;
 
 /// What //cmd/server's `/entries` route answers, recorded — the same three
-/// lines test/model.buri parses directly.
-let RECORDED: Str = "coffee 4.50\nbooks 32.00\ntram 2.75\n";
+/// lines test/model.buri parses directly, as the octets a body is made of.
+///
+/// Octets and not a `Str`, because an effect method takes only `self`: a
+/// double holds no allocator and so cannot encode text, which is the wall
+/// `core/testing`'s `StaticFs` documents on its own octet half. These are
+/// `"coffee 4.50\nbooks 32.00\ntram 2.75\n"`, written out.
+let RECORDED: [U8] = [
+  99, 111, 102, 102, 101, 101, 32, 52, 46, 53, 48, 10,
+  98, 111, 111, 107, 115, 32, 51, 50, 46, 48, 48, 10,
+  116, 114, 97, 109, 32, 50, 46, 55, 53, 10,
+];
 
 /// A platform that answers every request with the recording.
 ///
 /// An effect is an interface, and a test supplies its own implementation the
 /// same way the runner supplies `MemFs`: there is no distinction between the
-/// runner's implementations and yours. `done` is called before `fetch` returns
-/// here, which a real one would not do — and the page does not care, because
-/// the only thing it promises is that the callback arrives with a context.
+/// runner's implementations and yours. This one answers on the spot, where a
+/// real one would wait — and the page cannot tell, because what it asked for
+/// is a response and not a moment. That is the whole of what retiring the
+/// callback bought: the double is four lines, and it is the same four lines
+/// //cmd/server's own suite would write.
 struct Recorded {}
 
-impl Fetch for Recorded {
-  fn fetch(
-    self,
-    request: Request,
-    done: fn(Recorded, Result<NetResponse, FetchError>) => (),
-  ): () {
-    done(self, .Ok(NetResponse { status: 200, body: RECORDED }))
+impl Net for Recorded {
+  fn fetch(self, request: Request): Result<Response, NetError> {
+    .Ok(Response { status: 200, headers: [], body: RECORDED })
   }
 }
 
 /// A platform whose server is there but unhappy.
 struct Broken {}
 
-impl Fetch for Broken {
-  fn fetch(
-    self,
-    request: Request,
-    done: fn(Broken, Result<NetResponse, FetchError>) => (),
-  ): () {
-    done(self, .Ok(NetResponse { status: 503, body: "" }))
+impl Net for Broken {
+  fn fetch(self, request: Request): Result<Response, NetError> {
+    .Ok(Response { status: 503, headers: [], body: [] })
   }
 }
 
@@ -72,7 +75,7 @@ test "an empty basket says so, and puts no list on the page" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   let seen = render(ctx, page(ctx, newState(ctx)));
   assert.isTrue(seen.text().contains("Nothing in the basket"));
@@ -86,7 +89,7 @@ test "typing a line and submitting the form adds it" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   let seen = render(ctx, page(ctx, newState(ctx)));
 
@@ -109,7 +112,7 @@ test "the Add button does what submitting the form does" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   let seen = render(ctx, page(ctx, newState(ctx)));
   let _ = seen.fill("Item", "books");
@@ -124,7 +127,7 @@ test "an amount nobody can read is quoted back, and nothing is added" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   let seen = render(ctx, page(ctx, newState(ctx)));
   let _ = seen.fill("Item", "coffee");
@@ -142,7 +145,7 @@ test "there is no live region at all while there is nothing to say" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   let seen = render(ctx, page(ctx, newState(ctx)));
   assert.isFalse(seen.markup().contains("role=\"alert\""));
@@ -155,7 +158,7 @@ test "settling a line moves the row rather than rebuilding it" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   let state = newState(ctx);
   let seen = render(ctx, page(ctx, state));
@@ -180,7 +183,7 @@ test "what changes about a settled row is its class and nothing else" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   let state = newState(ctx);
   let seen = render(ctx, page(ctx, state));
@@ -206,7 +209,7 @@ test "the running total is the sum of the lines, announced politely" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   let seen = render(ctx, page(ctx, newState(ctx)));
   assert.isTrue(seen.text().contains("\$0.00"));
@@ -223,7 +226,7 @@ test "the meter's width is inline, and follows what is settled" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   let seen = render(ctx, page(ctx, newState(ctx)));
   let _ = seen.press("Load the ledger");
@@ -242,7 +245,7 @@ test "a refused request says why, and leaves the basket alone" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: noFetch(),
+    Net: noNet(),
   };
   let seen = render(ctx, page(ctx, newState(ctx)));
   let _ = seen.press("Load the ledger");
@@ -255,7 +258,7 @@ test "a response that is not a 200 is reported as the number it was" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Broken {},
+    Net: Broken {},
   };
   let seen = render(ctx, page(ctx, newState(ctx)));
   let _ = seen.press("Load the ledger");
@@ -270,7 +273,7 @@ test "dark mode rewrites the values and changes no class" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   let state = newState(ctx);
   // Exactly what main.buri hands to `mount`: one theme per package whose
@@ -302,7 +305,7 @@ test "a library's token follows the app's theme without knowing it exists" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   let state = newState(ctx);
   let installed = install([
@@ -323,7 +326,7 @@ test "a memo recomputes once per change, however many things read it" {
     Alloc: alloc(),
     Ui: headless(),
     Watch: observer(),
-    Fetch: Recorded {},
+    Net: Recorded {},
   };
   // A reactive closure is handed a `Scope`, which grants reading the graph and
   // nothing else — so it cannot write a signal to say that it ran. A recorder
