@@ -815,9 +815,296 @@ fn index(handle: i64) -> Option<usize> {
     usize::try_from(handle).ok()
 }
 
+// ---------------------------------------------------------------------------
+// The per-carrier Buri data stack (design/native track B, slice B7)
+// ---------------------------------------------------------------------------
+//
+// A stencil artifact runs on **two** stacks. The machine stack is the OS's and
+// the kernel guards it. The *Buri* stack is the one `middle::layout` addresses
+// every local against, it grows **upward** from a base a caller is handed in
+// `x0`/`rdi`, and nothing in the kernel knows it exists.
+//
+// Until this slice there was exactly one of them: a 64 MiB `__bss` symbol
+// (`backend/stencil/asm.rs`'s `buri$stencil$stack`) with a 1 MiB `PROT_NONE`
+// guard `main` installs once. One block is right for one thread and wrong for
+// two — a second carrier entering Buri code would write its frames into the
+// first carrier's, and the fault a runaway recursion is *supposed* to take at
+// the guard would instead be a silent overwrite of somebody else's locals.
+//
+// So a carrier asks for its own. `main` does not: it keeps the static block,
+// which is why nothing about a single-threaded program's startup moves — no
+// `mmap`, no page faulted in, no bytes in the executable.
+
+/// How much Buri stack one carrier may use: 64 MiB.
+///
+/// **The same number as `backend/stencil/asm.rs`'s `STACK_USABLE`, and it has
+/// to be.** A program's frames are the same size whichever stack they land on,
+/// so a carrier that got less than the process's own would fault at a depth
+/// the process's own survives — a concurrency bug that reads as a stack bug.
+/// The two constants are in two crates because the compiler cannot link the
+/// runtime, and each one's test names the number so a change to either is a
+/// failure rather than a divergence.
+pub const BURI_RT_STACK_USABLE: usize = 64 * 1024 * 1024;
+
+/// The guard above the usable stack, turned `PROT_NONE`: 1 MiB.
+///
+/// Above, not below, for `asm.rs`'s reason — this stack grows upward, so the
+/// address a runaway recursion reaches first is the top of the block. A
+/// megabyte rather than a page for the other of `asm.rs`'s reasons: a guard
+/// narrower than the widest frame can be *stepped over*.
+pub const BURI_RT_STACK_GUARD: usize = 1024 * 1024;
+
+/// The whole reservation: the usable stack, then the guard.
+pub const BURI_RT_STACK_BYTES: usize = BURI_RT_STACK_USABLE + BURI_RT_STACK_GUARD;
+
+/// The alignment a block is mapped at: 16 KiB, `asm.rs`'s `STACK_ALIGN`.
+///
+/// Two requirements and the second is the larger: every frame offset is
+/// computed from a base of zero so the base must satisfy the widest alignment
+/// a layout asks for (sixteen), and [`mprotect`] wants a page and arm64 macOS
+/// pages are 16 KiB. `mmap` already answers page-aligned on both platforms;
+/// asserting it is what makes that an observed fact rather than an assumption.
+pub const BURI_RT_STACK_ALIGN: usize = 16 * 1024;
+
+// The three calls this file makes into the C library, declared rather than
+// depended on.
+//
+// `cli/runtime/manifest.toml`'s dependency set is closed by an exact list and
+// asserted as an equality, so `libc` is not a thing this crate may add for
+// three declarations. Declaring them here is the same thing the *compiler*
+// already does from the other side: `backend/stencil/asm.rs` emits a `bl` to
+// `mprotect` and to `abort` by name into every artifact, so both symbols are
+// already part of what a Buri program links against.
+//
+// Unix only, which is what this runtime is: `ARCHITECTURE.md` §9 admits
+// `Linux` and `Macos` and refuses cross-linking, and `cli/build.rs` builds
+// the archive for the host triple alone.
+unsafe extern "C" {
+    fn mmap(
+        addr: *mut core::ffi::c_void,
+        len: usize,
+        prot: i32,
+        flags: i32,
+        fd: i32,
+        offset: i64,
+    ) -> *mut core::ffi::c_void;
+    fn mprotect(addr: *mut core::ffi::c_void, len: usize, prot: i32) -> i32;
+    fn munmap(addr: *mut core::ffi::c_void, len: usize) -> i32;
+}
+
+const PROT_NONE: i32 = 0;
+const PROT_READ: i32 = 1;
+const PROT_WRITE: i32 = 2;
+const MAP_PRIVATE: i32 = 0x2;
+/// `MAP_ANONYMOUS`, whose value is the one thing here that is not the same
+/// number on both platforms.
+#[cfg(target_os = "macos")]
+const MAP_ANON: i32 = 0x1000;
+#[cfg(not(target_os = "macos"))]
+const MAP_ANON: i32 = 0x20;
+const MAP_FAILED: usize = usize::MAX;
+
+thread_local! {
+    /// The blocks this carrier has mapped and is not currently inside.
+    ///
+    /// A **free list rather than a single pointer**, because entries nest: an
+    /// entry thunk that calls Buri code which calls out and comes back in
+    /// needs a second block, and handing it the first would put the inner
+    /// frames on top of the outer ones' live locals. A list makes the nested
+    /// case correct at the price of address space, which is the price this
+    /// whole mechanism is already paying.
+    ///
+    /// Thread-local, so no lock is taken on the path a carrier actually runs,
+    /// and so a thread that ends takes its blocks with it: the destructor
+    /// unmaps them.
+    static STACKS: core::cell::RefCell<Blocks> = const { core::cell::RefCell::new(Blocks(Vec::new())) };
+}
+
+/// A carrier's idle blocks, unmapped when the thread ends.
+struct Blocks(Vec<*mut u8>);
+
+impl Drop for Blocks {
+    fn drop(&mut self) {
+        for p in self.0.drain(..) {
+            // SAFETY: every pointer in this list came from `map_stack` and was
+            // mapped with exactly this length; a block that is *in* the list is
+            // one no entry thunk is inside.
+            unsafe {
+                munmap(p.cast(), BURI_RT_STACK_BYTES);
+            }
+        }
+    }
+}
+
+/// Maps one 64 MiB stack with its own 1 MiB `PROT_NONE` guard on top.
+///
+/// Zero-filled by the kernel and never faulted in until a frame lands on a
+/// page, so the cost of a carrier that enters Buri code once and returns is
+/// two system calls and the pages it actually used.
+fn map_stack() -> *mut u8 {
+    // SAFETY: a fresh anonymous private mapping; no fd, no fixed address.
+    let p = unsafe {
+        mmap(
+            core::ptr::null_mut(),
+            BURI_RT_STACK_BYTES,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANON,
+            -1,
+            0,
+        )
+    };
+    if p.is_null() || p as usize == MAP_FAILED {
+        buri_rt_abort_oom(BURI_RT_STACK_BYTES as u64);
+    }
+    // `mmap` answers page-aligned and a page is at least 4 KiB, but the frame
+    // offsets this block is addressed with were computed against `STACK_ALIGN`
+    // and the guard below has to start on a page. Both are the same question
+    // and this is where it is asked.
+    assert!(
+        (p as usize).is_multiple_of(BURI_RT_STACK_ALIGN),
+        "mmap answered a block that is not 16 KiB aligned"
+    );
+    // SAFETY: `p` names `BURI_RT_STACK_BYTES` of this process's own mapping and
+    // the guard is the top `BURI_RT_STACK_GUARD` of it, which is a whole
+    // number of pages at a page boundary.
+    let rc = unsafe { mprotect(p.wrapping_add(BURI_RT_STACK_USABLE).cast(), BURI_RT_STACK_GUARD, PROT_NONE) };
+    assert!(rc == 0, "a carrier stack could not be given its guard");
+    p.cast()
+}
+
+/// **This carrier's Buri data stack**: the base a generated entry thunk puts
+/// in `x0` (`rdi` on x86-64) before it calls into frame-threaded code.
+///
+/// The block is this thread's alone and carries its own `PROT_NONE` guard, so
+/// a runaway recursion on a carrier faults at *its* boundary rather than
+/// walking into whatever the linker placed after the process's static block.
+///
+/// Answers a block that is **not** in use by any other entry on this thread —
+/// nested entries get different blocks — and it is the caller's business to
+/// hand the same pointer back to [`buri_rt_stack_release`]. A carrier that
+/// enters Buri code repeatedly pays the mapping once: the block goes back on
+/// this thread's free list rather than to the kernel.
+///
+/// `main` never calls this. The process's own carrier keeps the `__bss` block
+/// `backend/stencil/asm.rs` emits, which is why a program that never starts a
+/// second carrier makes no system call it did not make before.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_stack_acquire() -> *mut u8 {
+    let idle = STACKS.with(|s| s.borrow_mut().0.pop());
+    match idle {
+        Some(p) => p,
+        None => map_stack(),
+    }
+}
+
+/// Gives a block from [`buri_rt_stack_acquire`] back to this carrier's free
+/// list.
+///
+/// It is **not** unmapped: a carrier is reused (`cli/runtime/rt.rs`'s pool
+/// never retires one), so returning the address space would mean two system
+/// calls per entry for no gain. The mapping goes away when the thread does.
+///
+/// A null pointer is ignored rather than aborting, for the reason
+/// [`buri_rt_decref`]'s null check gives: a released nothing is a caller that
+/// never acquired, which is a no-op and not a corruption.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_stack_release(base: *mut u8) {
+    if base.is_null() {
+        return;
+    }
+    STACKS.with(|s| s.borrow_mut().0.push(base));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The two stack constants are the ones `backend/stencil/asm.rs` emits
+    /// against.**
+    ///
+    /// They live in two crates because the compiler does not link the runtime,
+    /// so nothing but a pair of tests naming the same numbers keeps them equal.
+    /// The compiler's half is `asm::tests::the_carrier_stack_is_the_size_the_
+    /// runtime_maps`.
+    #[test]
+    fn a_carrier_stack_is_the_size_the_static_block_is() {
+        assert_eq!(BURI_RT_STACK_USABLE, 64 * 1024 * 1024);
+        assert_eq!(BURI_RT_STACK_GUARD, 1024 * 1024);
+        assert_eq!(BURI_RT_STACK_BYTES, 65 * 1024 * 1024);
+        assert_eq!(BURI_RT_STACK_ALIGN, 16 * 1024);
+        // The guard has to start on a page and be a whole number of them, at
+        // the widest page any supported target has.
+        assert!(BURI_RT_STACK_USABLE.is_multiple_of(BURI_RT_STACK_ALIGN));
+        assert!(BURI_RT_STACK_GUARD.is_multiple_of(BURI_RT_STACK_ALIGN));
+    }
+
+    /// **A carrier's stack is writable to its last usable byte, aligned, and
+    /// reused.**
+    ///
+    /// The write at `USABLE - 1` is the assertion that matters: it is the
+    /// address one below the guard, so a block whose guard had been installed
+    /// a page low would fault here instead of answering.
+    #[test]
+    fn a_carrier_stack_is_writable_up_to_its_guard_and_comes_back() {
+        let a = buri_rt_stack_acquire();
+        assert!(!a.is_null());
+        assert!((a as usize).is_multiple_of(BURI_RT_STACK_ALIGN), "not 16 KiB aligned");
+        // SAFETY: `a` names `BURI_RT_STACK_USABLE` writable bytes.
+        unsafe {
+            a.write(0xab);
+            a.add(BURI_RT_STACK_USABLE - 1).write(0xcd);
+            assert_eq!(a.read(), 0xab);
+            assert_eq!(a.add(BURI_RT_STACK_USABLE - 1).read(), 0xcd);
+        }
+        buri_rt_stack_release(a);
+        // The mapping is kept, so the next acquire on this thread is the same
+        // block and no system call.
+        let b = buri_rt_stack_acquire();
+        assert_eq!(a, b, "a released block was not reused");
+        buri_rt_stack_release(b);
+    }
+
+    /// **Nested entries get different blocks.**
+    ///
+    /// The case a single per-thread pointer would get wrong: an entry thunk
+    /// inside another one would be handed the outer entry's base and would
+    /// write its frames over the outer frames' live locals.
+    #[test]
+    fn a_nested_acquire_is_a_different_block() {
+        let outer = buri_rt_stack_acquire();
+        let inner = buri_rt_stack_acquire();
+        assert_ne!(outer, inner, "a nested entry was handed the outer entry's stack");
+        // Neither overlaps the other, which is the property the frames rest on.
+        let (lo, hi) = if outer < inner { (outer, inner) } else { (inner, outer) };
+        assert!(
+            (hi as usize) - (lo as usize) >= BURI_RT_STACK_BYTES,
+            "two live carrier stacks overlap"
+        );
+        buri_rt_stack_release(inner);
+        buri_rt_stack_release(outer);
+    }
+
+    /// **Two carriers get two stacks**, which is the whole reason this exists.
+    #[test]
+    fn two_carriers_do_not_share_a_stack() {
+        let mine = buri_rt_stack_acquire();
+        let theirs = std::thread::spawn(|| {
+            let p = buri_rt_stack_acquire();
+            buri_rt_stack_release(p);
+            p as usize
+        })
+        .join()
+        .expect("the second carrier panicked");
+        assert_ne!(mine as usize, theirs, "two carriers were handed one stack");
+        buri_rt_stack_release(mine);
+    }
+
+    /// **Releasing nothing is nothing**, for `buri_rt_decref`'s reason.
+    #[test]
+    fn releasing_a_null_stack_is_a_no_op() {
+        buri_rt_stack_release(core::ptr::null_mut());
+    }
+
 
     /// The reserved bit is bit 63, the mask is its complement, and neither
     /// touches a capacity a block can have.

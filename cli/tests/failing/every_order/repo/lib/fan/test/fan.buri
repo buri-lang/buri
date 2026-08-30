@@ -1,0 +1,34 @@
+// The three claims about `tasks()` that no passing block can make about itself.
+//
+// A block that survives cannot say "the body ran a sixth time", because the
+// sixth run is the one it is in; and neither half of the fault plan leaves a
+// block alive to assert on — a fault that fires ends it, and a fault that never
+// fires fails it on the way out.
+
+from "core/effect/lib.buri" import { Tasks };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing/lib.buri" import { task, tasks };
+from "//lib/fan/lib.buri" import { labelled };
+
+test "everyOrder reaches the sixth order of three tasks" {
+    let scheduler = tasks().everyOrder();
+    let ctx = context { Tasks: scheduler };
+    let _ = labelled(ctx, [1, 2, 3]);
+    // True on the first five runs and false on the sixth, so a report with this
+    // failure in it is the body having run six times — and one without it would
+    // be the reruns having stopped early.
+    assert.isTrue(scheduler.runs() < 6);
+}
+
+test "a fault ends the block at the task it names" {
+    let scheduler = tasks().faults([task(1).fails("upstream went away")]);
+    let ctx = context { Tasks: scheduler };
+    // Task 0 runs; task 1 is the one the plan fails, and nothing after it starts.
+    assert.eq(labelled(ctx, [1, 2, 3]), [1, 102, 203]);
+}
+
+test "a fault whose task is never reached fails the test" {
+    let scheduler = tasks().faults([task(4).fails("never reached")]);
+    let ctx = context { Tasks: scheduler };
+    assert.eq(labelled(ctx, [1, 2]), [1, 102]);
+}

@@ -1,0 +1,1 @@
+from "//lib/journal/journal.buri" export { record };
