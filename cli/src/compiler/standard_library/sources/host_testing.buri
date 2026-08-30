@@ -1,0 +1,161 @@
+//! core/host/testing — the test runner's platform, one double per effect.
+//!
+//! `core/host` is importable only from the module that exports `main`; this is
+//! the same surface for a test source, and the `testing` segment in the path is
+//! the whole of that rule (SPEC 4.1.1). The two restrictions are the same
+//! shape, so between them they still name every place in a program where
+//! authority can enter.
+//!
+//! Every name here is `core/host`'s name — `alloc`, `stdout`, `stderr`,
+//! `clock`, `rand`, `env`, `proc` — but **called** rather than referred to.
+//! `core/host`'s `clock` is one clock because a process has one; `clock()` is a
+//! fresh one every call, so what one test does to it is invisible to the next.
+//! That is the whole reason these are functions and `core/host`'s are `let`s.
+//!
+//! Configuration is a **method on the value that answers a new handle**:
+//! `clock().at(1000)`, `rand().seed(7)`, `env().variables([...]).args([...])`.
+//! There are no free `clockAt`/`randSeed`/`envOf` constructors, because a
+//! reader who knows `clock()` should not have to learn a second name to start
+//! it somewhere else, and because a chain reads in the order it is applied.
+//!
+//! The structs carry an `I64` handle rather than their state. A captured
+//! stdout accumulates what a test writes to it and Buri has no mutation, so the
+//! state lives on the runner's side and the value here names it —
+//! `backend/js/runtime.js`'s `$t.h` on one backend and
+//! `cli/runtime/testing.rs`'s `TABLE` on the other, which is one design written
+//! twice because the *program* is what has to behave identically.
+//!
+//! ## `args`, and the one name that could not be the spelling it wants
+//!
+//! `Env` declares `arguments(self): [Str]` — the reader — and a type has one
+//! method of each name (`duplicate-method`), so the *builder* beside it cannot
+//! also be `arguments`. It is `args`, and it is the only place in this module
+//! where the name is not the one the design note asks for. Every other builder
+//! — `at`, `seed`, `variables`, `captured` — is spelled exactly as written.
+
+from "core/effect/lib.buri" import {
+  Alloc, Clock, Env, Proc, Rand, Stderr, Stdout, Region,
+};
+
+// --- Alloc --------------------------------------------------------------------
+
+/// Real, from a per-test arena the runner reclaims.
+///
+/// The one double with no state at all: the charge is a function of the *types*
+/// (`core/effect`'s `Alloc`), so `allocate` answers the byte count it was asked
+/// for and the handle names nothing. Both native backends open-code it for
+/// exactly that reason.
+export struct TestAlloc(I64);
+impl Alloc for TestAlloc {
+  fn allocate(self, bytes: Int): Region;
+}
+export fn alloc(): TestAlloc;
+
+// --- Output -------------------------------------------------------------------
+
+/// Captured, and never printed. `captured` is the only way to read it back,
+/// which is what makes a test's output something to assert on rather than
+/// something to watch scroll past — a failing test says so through its
+/// assertion.
+export struct TestStdout(I64);
+impl Stdout for TestStdout {
+  fn print(self, text: Template): ();
+  fn println(self, text: Template): ();
+  /// Captured as the UTF-8 text the octets spell, so `captured` answers one
+  /// question rather than two.
+  fn writeBytes(self, b: [U8]): ();
+}
+export fn stdout(): TestStdout;
+
+impl TestStdout {
+  /// Everything written to this stream so far.
+  export fn captured(self): Str;
+}
+
+/// The same, for standard error.
+export struct TestStderr(I64);
+impl Stderr for TestStderr {
+  fn eprint(self, text: Template): ();
+  fn eprintln(self, text: Template): ();
+}
+export fn stderr(): TestStderr;
+
+impl TestStderr {
+  /// Everything written to this stream so far. The same name `TestStdout`
+  /// carries: two types, one question, and the receiver says which stream.
+  export fn captured(self): Str;
+}
+
+// --- Clock --------------------------------------------------------------------
+
+/// Starts at zero and advances only when the test advances it. `sleepMillis`
+/// advances it without sleeping, which is the whole point of a test clock.
+export struct TestClock(I64);
+impl Clock for TestClock {
+  fn nowMillis(self): I64;
+  fn sleepMillis(self, millis: Int): ();
+}
+export fn clock(): TestClock;
+
+impl TestClock {
+  /// A **new** clock, at that instant. The one it was called on is untouched,
+  /// so a test holding both holds two independent clocks.
+  export fn at(self, millis: Int): TestClock;
+}
+
+// --- Randomness ---------------------------------------------------------------
+
+/// Seeded — at zero unless a test says otherwise — so a failure reproduces.
+export struct TestRand(I64);
+impl Rand for TestRand {
+  fn nextInt(self, lo: Int, hi: Int): Int;
+  fn nextFloat(self): Float;
+}
+export fn rand(): TestRand;
+
+impl TestRand {
+  /// A **new** generator, at that seed and drawing from the start of its
+  /// sequence.
+  export fn seed(self, n: Int): TestRand;
+}
+
+// --- Environment --------------------------------------------------------------
+
+/// Empty: no variables and no arguments, whatever the host happens to have.
+export struct TestEnv(I64);
+impl Env for TestEnv {
+  fn variable(self, name: Str): Option<Str>;
+  fn arguments(self): [Str];
+}
+export fn env(): TestEnv;
+
+impl TestEnv {
+  /// A **new** environment with these variables and this one's arguments, so
+  /// the two builders compose in either order. The last binding of a name
+  /// wins.
+  export fn variables(self, vars: [(Str, Str)]): TestEnv;
+  /// A **new** environment with these arguments and this one's variables.
+  ///
+  /// `args` rather than `arguments`: `Env.arguments` is the reader, and a type
+  /// has one method of each name.
+  export fn args(self, arguments: [Str]): TestEnv;
+}
+
+// --- Process ------------------------------------------------------------------
+
+/// Records the exit rather than taking it. A test that ended the process would
+/// take every block after it with it, and the runner would report a suite that
+/// stopped rather than a function that exited.
+export struct TestProc(I64);
+impl Proc for TestProc {
+  fn exitWith(self, code: Int): ();
+}
+export fn proc(): TestProc;
+
+impl TestProc {
+  /// The code the first `exitWith` asked for, or `.None` where nothing exited.
+  ///
+  /// The first, not the last: a program that exits does not carry on, so a
+  /// second call is one a real process could never have made.
+  export fn exited(self): Option<Int>;
+}

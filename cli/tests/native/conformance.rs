@@ -27,9 +27,12 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Twenty-nine of the thirty-nine files are in it** — the number the
+//! **Thirty of the forty files are in it** — the number the
 //! harness prints, and one the prose had off by one before
-//! `semantics/generics.buri` joined them. `semantics/anonymous.buri` is the
+//! `semantics/generics.buri` joined them. `semantics/host_testing.buri` is the
+//! thirtieth — `core/host/testing`'s seven doubles, which are the same handle
+//! table `core/testing/context`'s implementations already use, so it needed
+//! nothing the archive did not have. `semantics/anonymous.buri` is the
 //! twenty-ninth and `semantics/elision.buri` the twenty-eighth, with
 //! `collections/ordmap.buri` the twenty-seventh; none of them needed anything
 //! the backend did not already have.
@@ -271,6 +274,15 @@ const PACKAGES: &[Case] = &[
     // by the checker and never reaches a backend — so this file is here to say
     // that out loud on the native one too (SPEC 12.3).
     included("semantics/anonymous.buri"),
+    // The eighth: `core/host/testing`'s seven doubles. Every one of them is a
+    // handle over `cli/runtime/testing.rs`'s table — the same table
+    // `core/testing/context`'s implementations use — plus the two instructions
+    // `TestAlloc` is open-coded as, so the file reaches nothing the archive did
+    // not already have. It is here rather than folded into `effects.buri`
+    // because the claim is about the *other* module: the two spellings of the
+    // test platform coexist, and this is the one that has to keep agreeing with
+    // the JavaScript runner while the migration runs.
+    included("semantics/host_testing.buri"),
     // -- out: the backend has no body for what they reach ---------------
     //
     // Every one of these is reported by `Backend::missing_intrinsics`

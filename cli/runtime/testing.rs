@@ -1,5 +1,12 @@
-//! `core/testing/context` — the test runner's platform, natively — and the
-//! runner's own protocol, at the bottom of this file.
+//! `core/testing/context` and `core/host/testing` — the test runner's
+//! platform, natively — and the runner's own protocol, at the bottom of this
+//! file.
+//!
+//! The two modules are one handle table and two vocabularies.
+//! `core/testing/context` — free constructors, `Hermetic()` — comes first and
+//! is unchanged. `core/host/testing`, further down, is `core/host`'s names
+//! *called* rather than referred to, with configuration as a builder that
+//! answers a new handle; its own section states what is different.
 //!
 //! Two halves of one subject, and the second is the shorter: a native test
 //! binary tells `buri test` which block it was in when it aborted, and with
@@ -102,6 +109,15 @@ enum Slot {
     Rand(u32),
     /// `TestEnv`.
     Env { vars: Vec<(String, String)>, args: Vec<String> },
+    /// `core/host/testing`'s `TestProc` — the code the first `exitWith` asked
+    /// for, and `None` where nothing exited.
+    ///
+    /// The one shape `core/testing/context` has no counterpart for, because it
+    /// has no `Proc` double at all. Everything else `core/host/testing` needs is
+    /// one of the variants above: a captured stream is a transcript whichever
+    /// module minted it, and one table with one shape per *state* beats one
+    /// table with one shape per module.
+    Proc { code: Option<i64> },
 }
 
 static TABLE: Mutex<Vec<Slot>> = Mutex::new(Vec::new());
@@ -1102,6 +1118,329 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_env_arguments(
     let value = list_of_strs(&args);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
+}
+
+// ---------------------------------------------------------------------------
+// `core/host/testing` — the same doubles, under `core/host`'s names
+// ---------------------------------------------------------------------------
+//
+// One table, not two: these share [`TABLE`] with the entries above, because a
+// handle is a position in it and no two implementations ever read each other's
+// — the Buri type of the value carrying the handle says which one made it.
+// Two tables would be two allocators for one array.
+//
+// Two things are different from `core/testing/context`, and both are the point
+// of the module rather than an accident of it:
+//
+//   * **Every constructor takes no arguments.** `clock()` is at zero and
+//     `rand()` is at seed zero; a test that wants another says so with a
+//     builder.
+//   * **A builder answers a new handle.** `at`, `seed`, `variables` and `args`
+//     each `install` rather than editing the slot they were called on, so the
+//     value a test already holds is unchanged and two clocks built from one
+//     are two clocks. That is what makes `let base = env(); base.args([..])`
+//     safe to write twice.
+//
+// `alloc()` and `TestAlloc::allocate` are absent for the reason the module
+// header gives about `core/testing/context`'s: both native backends open-code
+// them, because the handle names nothing and `allocate` answers the count it
+// was handed.
+
+/// `stdout()` — a fresh, empty transcript.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_stdout(out: *mut i64) {
+    let handle = install(Slot::Text(String::new()));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `stderr()` — the same, for standard error.
+///
+/// # Safety
+/// As [`buri_rt_host_testing_stdout`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_stderr(out: *mut i64) {
+    let handle = install(Slot::Text(String::new()));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+sink!(buri_rt_host_testing_test_stdout_print, false);
+sink!(buri_rt_host_testing_test_stdout_println, true);
+sink!(buri_rt_host_testing_test_stderr_eprint, false);
+sink!(buri_rt_host_testing_test_stderr_eprintln, true);
+
+/// `TestStdout::writeBytes` — captured as the text the octets spell, so
+/// `captured` answers one question rather than two.
+///
+/// # Safety
+/// `ptr` must be readable for `len` bytes, or null with `len == 0`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_stdout_write_bytes(
+    handle: i64,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller.
+    unsafe { buri_rt_testing_context_capture_out_write_bytes(handle, ptr, len) }
+}
+
+/// `TestStdout::captured`.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_stdout_captured(
+    handle: i64,
+    out: *mut BuriStr,
+) {
+    let text = transcript(handle);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&text)) }
+}
+
+/// `TestStderr::captured` — the same question of the other stream, which is
+/// why it is the same name and a different receiver.
+///
+/// # Safety
+/// As [`buri_rt_host_testing_test_stdout_captured`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_stderr_captured(
+    handle: i64,
+    out: *mut BuriStr,
+) {
+    let text = transcript(handle);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&text)) }
+}
+
+/// `clock()` — at zero, and advancing only when a test advances it.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_clock(out: *mut i64) {
+    let handle = install(Slot::Clock(0));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `TestClock::at` — a **new** clock at that instant. The receiver is read for
+/// nothing, and that is the whole shape: a builder answers a handle rather than
+/// editing one.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_clock_at(
+    _handle: i64,
+    millis: i64,
+    out: *mut i64,
+) {
+    let handle = install(Slot::Clock(millis));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `TestClock::nowMillis`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_test_clock_now_millis(handle: i64) -> i64 {
+    buri_rt_testing_context_test_clock_now_millis(handle)
+}
+
+/// `TestClock::sleepMillis` — moves the clock without sleeping.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_test_clock_sleep_millis(handle: i64, millis: i64) {
+    advance(handle, millis);
+}
+
+/// `rand()` — seeded at zero, which is the state `randSeed(0)` produces: a
+/// zero state is a fixed point of xorshift, so it becomes one.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_rand(out: *mut i64) {
+    let handle = install(Slot::Rand(1));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `TestRand::seed` — a **new** generator at that seed, drawing from the start
+/// of its sequence.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_rand_seed(
+    _handle: i64,
+    seed: i64,
+    out: *mut i64,
+) {
+    let state = seed as u32;
+    let handle = install(Slot::Rand(if state == 0 { 1 } else { state }));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `TestRand::nextInt`, the same xorshift32 sequence `randSeed` draws.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_test_rand_next_int(handle: i64, lo: i64, hi: i64) -> i64 {
+    buri_rt_testing_context_test_rand_next_int(handle, lo, hi)
+}
+
+/// `TestRand::nextFloat`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_test_rand_next_float(handle: i64) -> f64 {
+    buri_rt_testing_context_test_rand_next_float(handle)
+}
+
+/// `env()` — no variables and no arguments.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_env(out: *mut i64) {
+    let handle = install(Slot::Env { vars: Vec::new(), args: Vec::new() });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// The arguments a handle holds, or none where it names no `Env` slot.
+fn env_args(handle: i64) -> Vec<String> {
+    with(handle, Vec::new(), |slot| match slot {
+        Slot::Env { args, .. } => args.clone(),
+        _ => Vec::new(),
+    })
+}
+
+/// `TestEnv::variables` — a **new** environment with these variables and this
+/// one's arguments, so the two builders compose in either order.
+///
+/// # Safety
+/// `xs` points at `count` `(Str, Str)` elements; `out` is writable and aligned
+/// for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_variables(
+    handle: i64,
+    xs: *const u8,
+    count: u64,
+    out: *mut i64,
+) {
+    // SAFETY: forwarded to the caller.
+    let vars = unsafe { pairs(xs, count) };
+    let args = env_args(handle);
+    let fresh = install(Slot::Env { vars, args });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(fresh) }
+}
+
+/// `TestEnv::args` — a **new** environment with these arguments and this one's
+/// variables.
+///
+/// `args` rather than `arguments` because `Env` already declares the reader of
+/// that name and a Buri type has one method of each name; the module header
+/// says so where a reader of the source will meet it.
+///
+/// # Safety
+/// `xs` points at `count` [`BuriStr`]s; `out` is writable and aligned for an
+/// `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_args(
+    handle: i64,
+    xs: *const u8,
+    count: u64,
+    out: *mut i64,
+) {
+    // SAFETY: forwarded to the caller.
+    let args = unsafe { strings(xs, count) };
+    let vars = with(handle, Vec::new(), |slot| match slot {
+        Slot::Env { vars, .. } => vars.clone(),
+        _ => Vec::new(),
+    });
+    let fresh = install(Slot::Env { vars, args });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(fresh) }
+}
+
+/// `TestEnv::variable`.
+///
+/// # Safety
+/// As [`buri_rt_testing_context_test_env_variable`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_variable(
+    handle: i64,
+    base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded to the caller.
+    unsafe { buri_rt_testing_context_test_env_variable(handle, base, ptr, len, out) }
+}
+
+/// `TestEnv::arguments`.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
+    handle: i64,
+    out: *mut BuriList,
+) {
+    let value = list_of_strs(&env_args(handle));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `proc()` — nothing has exited.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_proc(out: *mut i64) {
+    let handle = install(Slot::Proc { code: None });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `TestProc::exitWith` — **records** the exit rather than taking it.
+///
+/// A test that ended the process would take every block after it with it, and
+/// the runner would report a suite that stopped rather than a function that
+/// exited. The *first* code is kept, because a program that exits does not
+/// carry on and a second call is one a real process could never have made.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_test_proc_exit_with(handle: i64, code: i64) {
+    with(handle, (), |slot| {
+        if let Slot::Proc { code: recorded } = slot {
+            if recorded.is_none() {
+                *recorded = Some(code);
+            }
+        }
+    });
+}
+
+/// `TestProc::exited` — `.Some(code)` or `.None`.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_proc_exited(
+    handle: i64,
+    out: *mut i64,
+) -> i32 {
+    let code = with(handle, None, |slot| match slot {
+        Slot::Proc { code } => *code,
+        _ => None,
+    });
+    let Some(code) = code else { return 0 };
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(code) };
+    BURI_OK
 }
 
 // ---------------------------------------------------------------------------
