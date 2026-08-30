@@ -12,7 +12,8 @@ from "//cmd/basket/main.buri" import {
 from "//lib/ledger/lib.buri" import { entry, total };
 from "//lib/money/lib.buri" import { fromCents };
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 /// What //cmd/server's `/entries` route answers, recorded. The same text
 /// test/view.buri feeds through a stub `Net`, as the octets a body is made
@@ -20,7 +21,7 @@ from "core/testing/context/lib.buri" import { Hermetic };
 let RECORDED: Str = "coffee 4.50\nbooks 32.00\ntram 2.75\n";
 
 test "a recorded response becomes entries" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let lines = entriesFrom(ctx, RECORDED);
   assert.eq(lines.len(), 3);
   assert.eq(lines, [
@@ -33,14 +34,14 @@ test "a recorded response becomes entries" {
 }
 
 test "a line nobody can read is dropped, and the rest survive" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let lines = entriesFrom(ctx, "coffee 4.50\nnonsense\ntram not-a-number\nbooks 32.00\n");
   assert.eq(lines.len(), 2);
   assert.eq(lines, [entry("coffee", fromCents(450)), entry("books", fromCents(3200))]);
 }
 
 test "an empty body is an empty basket rather than a failure" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.isTrue(entriesFrom(ctx, "").isEmpty());
 }
 
@@ -64,7 +65,7 @@ test "a complete draft is a line, trimmed" {
 }
 
 test "flipping a memo adds it, and flipping it again takes it away" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let once = flip(ctx, [], "coffee");
   assert.eq(once, ["coffee"]);
   assert.isTrue(isTicked(once, "coffee"));
@@ -75,7 +76,7 @@ test "flipping a memo adds it, and flipping it again takes it away" {
 }
 
 test "flipping one memo leaves the others alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(flip(ctx, ["coffee", "books"], "coffee"), ["books"]);
   assert.eq(flip(ctx, ["coffee"], "tram"), ["coffee", "tram"]);
 }

@@ -694,10 +694,11 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     scratch.write(
         "lib/g/test/g.buri",
         "from \"core/testing/assert/lib.buri\" import * as assert;\n\
-         from \"core/testing/context/lib.buri\" import { Hermetic };\n\
+         from \"core/host/testing/lib.buri\" import { alloc };\n\
+         from \"core/effect/lib.buri\" import { Alloc };\n\
          from \"core/json/lib.buri\" import * as json;\n\
          \ntest \"decodes\" {\n\
-         \x20 let ctx = Hermetic();\n\
+         \x20 let ctx = context { Alloc: alloc() };\n\
          \x20 let parsed = assert.ok(json.parse(ctx, \"1\"));\n\
          \x20 let n: Float = assert.ok(json.decode(ctx, parsed));\n\
          \x20 assert.eq(n, 1.0);\n}\n",

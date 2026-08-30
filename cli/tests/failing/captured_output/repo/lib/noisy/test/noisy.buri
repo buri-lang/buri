@@ -5,11 +5,11 @@
 
 from "core/effect/lib.buri" import { Alloc, Stdout };
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { alloc, captured, captureOut };
+from "core/host/testing/lib.buri" import { alloc, stdout };
 from "//lib/noisy/lib.buri" import { announce };
 
 test "what a failing test printed is not in its report" {
-    let sink = captureOut();
+    let sink = stdout();
     let ctx = context {
         Alloc: alloc(),
         Stdout: sink,
@@ -18,7 +18,7 @@ test "what a failing test printed is not in its report" {
 }
 
 test "the captured text is only visible to an assertion" {
-    let sink = captureOut();
+    let sink = stdout();
     let ctx = context {
         Alloc: alloc(),
         Stdout: sink,
