@@ -381,6 +381,12 @@ impl<'a> Jit<'a> {
         self.layouts.of(ty)
     }
 
+    /// The same, for a type reached through another type's arguments rather
+    /// than through the program's interner.
+    pub(crate) fn layout_of_type(&mut self, ty: Ty) -> Layout {
+        self.layouts.of(ty)
+    }
+
     pub(crate) fn width_of(&mut self, prog: &ir::Program, t: ir::Type) -> u32 {
         self.width(prog, t)
     }

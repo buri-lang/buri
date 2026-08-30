@@ -1,0 +1,24 @@
+error: an expression statement is legal only in a test source [expression-statement]
+ --> cmd/match_statement_in_program/main.buri:7:3
+  |
+7 |   match (1) {
+  |   ^^^^^^^^^^^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+
+    What to do
+    ──────────
+
+    Bind it — let _ = ...; — or make it the block's result expression.
+
+    Why
+    ───
+
+    A block is lets followed by a result expression, and there is no third
+    statement form. That is the hole that must-use closes: with no expression
+    statements, let _ = is the only way to discard a value, so Result cannot be
+    dropped by accident. A test source is the one exception, which is what lets
+    assert.eq(...) stand alone — and there, any expression of type () may, a
+    match or an if whose branches all assert included, each terminated by ;.
+

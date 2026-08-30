@@ -319,17 +319,17 @@ test "toInt rejects a lone minus" {
   assert.none("-".toInt());
 }
 
-test "toInt parses the largest value a number holds exactly" {
+test "toInt parses a value on either side of zero" {
   assert.eq(assert.some("9007199254740991".toInt()), 9007199254740991);
   assert.eq(assert.some("-9007199254740991".toInt()), -9007199254740991);
 }
 
-test "toInt rejects a value it could not hold exactly" {
-  // `Int` is a JS `number`, which represents every integer up to 2^53 and no
-  // integer above it. Handing back a value that is not the one written would
-  // be worse than `.None`.
-  assert.none("9007199254740992".toInt());
-  assert.none("9223372036854775807".toInt());
+test "toInt parses every I64, and refuses what is not one" {
+  // `Int` is `I64` on every backend and holds its whole range, so the only
+  // string refused here is one naming a number that is not an `I64` at all.
+  assert.eq(assert.some("9007199254740992".toInt()), 9007199254740992);
+  assert.eq(assert.some("9223372036854775807".toInt()), 9223372036854775807);
+  assert.eq(assert.some("-9223372036854775808".toInt()), -9223372036854775808);
   assert.none("9223372036854775808".toInt());
 }
 

@@ -102,17 +102,20 @@ alike.
    collectively turns the lookup into a search. By then the compiler's
    architecture will assume constant-time resolution. The risk is not the cost of
    what was built; it is the difficulty of refusing the next request.
-8. *`I64` on a JavaScript target.* `Int` is `I64` on every target, which is the
-   right call for portability, and it is defensible only because overflow is
-   undefined behaviour — Section 6.2 states what that means on a backend where
-   every integer is a `number`. The two alternatives are worse in different
-   directions: `BigInt` everywhere taxes every loop counter in every program for
-   a case most never reach, and a target-dependent `Int` width trades a
-   performance problem for a portability one. What remains open is whether
-   "undefined above 2^53" is a rule programmers internalize, or one they
-   discover. The mitigations are that `Checked` answers `.None` rather than a
-   wrong value, `str.toInt` refuses a string it cannot parse exactly, and
-   `core/bits` computes on the bit pattern.
+8. *`I64` on a JavaScript target.* **Answered, and not the way this entry
+   expected.** `Int` is `I64` on every target, and the question was whether
+   "undefined above 2^53" is a rule programmers internalize or one they
+   discover. It is one they discover: buri-lang/buri#8 and #4 are the same
+   person finding it twice, from two directions, porting nanosecond timestamps.
+   So `I64`, `U64`, `I128` and `U128` are `BigInt`s on that backend now. The
+   objection this entry raised to that — it taxes every loop counter for a case
+   most never reach — is real and was paid rather than argued away: the
+   narrow widths keep the `number` representation, and a loop counter that does
+   not need the range can say `I32`. What the tax actually is, measured on the
+   conformance corpus rather than guessed, is in
+   `design/native/VALUE-MODEL.md` §12. The alternative that stays refused is a
+   target-dependent `Int` width, which trades a performance problem for a
+   portability one.
 9. *Must-use is hard-coded to `Result` (5.7.1).* A general `@mustUse` marker on
    user types would be more honest than a compiler that knows one type by name,
    but it is the first piece of attribute syntax in a language with none, and

@@ -75,12 +75,31 @@ export fn stdinBytes(b: [U8]): TestStdin;
 // --- Filesystem ---------------------------------------------------------------
 
 /// In-memory. Writes are visible to that test and discarded after it.
+///
+/// A file holds **octets**, and `readFile` decodes them as UTF-8 the way a real
+/// filesystem's does — so `writeBytes` of a byte a text encoding cannot carry
+/// reads back through `readBytes` unchanged.
+///
+/// Two places where an in-memory filesystem is thinner than a real one, both
+/// observable and both deliberate. It is a flat map of paths, so the parents of
+/// a fixture's path are not directories until `makeDir` says so; and `sync` has
+/// nothing to flush, so it is `.Ok` for any path that exists. Everything else —
+/// append creating a file, rename replacing one, removing what is not there —
+/// answers exactly what a real filesystem answers, which is what lets one
+/// conformance block run against both.
 export struct MemFs(I64);
 impl Fs for MemFs {
   fn readFile(self, path: Str): Result<Str, IoError>;
   fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
   fn fileExists(self, path: Str): Bool;
   fn readDir(self, path: Str): Result<[Str], IoError>;
+  fn readFileBytes(self, path: Str): Result<[U8], IoError>;
+  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
+  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
+  fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
+  fn removeFile(self, path: Str): Result<(), IoError>;
+  fn makeDir(self, path: Str): Result<(), IoError>;
+  fn syncFile(self, path: Str): Result<(), IoError>;
 }
 
 /// Rooted at the package directory, containing exactly `test { data: [...] }`.
@@ -88,6 +107,9 @@ export fn data(): MemFs;
 
 /// Containing exactly these entries.
 export fn files(entries: [(Str, Str)]): MemFs;
+
+/// The byte twin of `files`, for a fixture that is not text.
+export fn filesBytes(entries: [(Str, [U8])]): MemFs;
 
 /// Wraps an `Fs` so every write fails.
 ///
@@ -114,6 +136,29 @@ impl<C: Fs> Fs for ReadOnly<C> {
   }
   fn readDir(self, path: Str): Result<[Str], IoError> {
     self.0.readDir(path)
+  }
+  fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+    self.0.readFileBytes(path)
+  }
+  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+    .Err(.ReadOnly)
+  }
+  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+    .Err(.ReadOnly)
+  }
+  fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+    .Err(.ReadOnly)
+  }
+  fn removeFile(self, path: Str): Result<(), IoError> {
+    .Err(.ReadOnly)
+  }
+  fn makeDir(self, path: Str): Result<(), IoError> {
+    .Err(.ReadOnly)
+  }
+  /// Not a write, and there is nothing this wrapper could be hiding: whatever
+  /// the inner filesystem already holds is what gets flushed.
+  fn syncFile(self, path: Str): Result<(), IoError> {
+    self.0.syncFile(path)
   }
 }
 
