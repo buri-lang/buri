@@ -1,0 +1,61 @@
+warning: nothing reads `Stamp.note` [unused-field]
+  --> lib/money/stamps.buri:15:3
+   |
+15 |   export note: Str,
+   |   ^^^^^^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+
+     Writing a field and reading one are different questions, and this rule asks
+     the second. A field every literal dutifully fills, that no expression ever
+     projects out and no pattern ever binds, costs a value at every construction
+     site and answers nothing.
+
+     Deleting it is an edit at every literal, which is the point: those are the
+     sites that were computing a value for nobody. Work through them rather than
+     leaving the field in place to avoid the churn.
+
+     If the field is there because a caller outside this library reads it, then
+     it belongs to public API and the answer is the library's surface: the
+     exported fields of a type lib.buri re-exports are not reported, because the
+     reader this analysis can see is not the only one there is.
+
+     Two things read every field of a type at once, and neither leaves a
+     projection behind to find. A derive is a fold over the whole type
+     definition, so a derived Eq, Ord, Hash or Show reads every field — a type
+     with one is never reported. So is a value handed to the runtime, or
+     compared structurally. What is left is the field nothing at all looks at.
+
+warning: nothing uses `Ghost` [unused-type]
+  --> lib/money/stamps.buri:18:8
+   |
+18 | struct Ghost {
+   |        ^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface
+
+     A struct or an enum nobody writes down and nobody builds is a shape that
+     exists only in the file that declares it. It is usually one of three
+     things.
+
+     A leftover. The code that used it moved or went away and the declaration
+     stayed. Delete it, and anything that existed only to support it — its impl
+     block, its derive line, the constructor nobody calls. Version control
+     remembers.
+
+     A shape that was meant to be published. It models something a caller
+     outside this library needs. Then the answer is not to use it here but to
+     re-export it from lib.buri: a name on the library's surface is public API
+     and this rule does not ask about it, because the consumer this analysis can
+     see is not the only one there is.
+
+     A shape that was meant to be wired in. It was written before the code that
+     would build it, and that code was never written. That is the real bug, and
+     finishing it is the fix.
+
+     A type's own impl and derive blocks are not uses of it: they describe the
+     shape rather than reach for it. That is what keeps a dead type with ten
+     methods on it a dead type.
+
