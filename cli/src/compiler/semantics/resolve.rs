@@ -675,14 +675,17 @@ impl<'a> Checker<'a> {
             return false;
         }
         let (effect, because) = (grant.effect, grant.because);
-        let elsewhere = grant.platforms_phrase();
+        // The whole "or build it elsewhere" clause, not just the list: a row
+        // that names no platform has no elsewhere, and `HostGrant` is where
+        // that sentence is decided.
+        let elsewhere = grant.elsewhere_clause();
         let (proto, name) = (platform.proto().to_string(), name.to_string());
         self.templated("host-not-granted", span)
             .bind("platform", proto)
             .bind("name", name)
             .bind("effect", effect)
             .bind("because", because)
-            .bind("platforms", elsewhere);
+            .bind("elsewhere", elsewhere);
         true
     }
 

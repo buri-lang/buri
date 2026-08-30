@@ -1825,11 +1825,23 @@ mod tests {
     /// — `core/list` gaining a `chunk`, `core/tasks` gaining the `parallel`
     /// the concurrency work wants — and each would be type-erased at the
     /// boundary with nothing carrying the element type across.
+    ///
+    /// **`host.HostTasks.parallel` is refused on purpose, and it exists.**
+    /// `core/host` declares `impl Tasks for HostTasks` today, and the method is
+    /// generic in `A` and `B`. It stays off the list because none of the three
+    /// carriers has been chosen for it: there is no runtime body, no stride and
+    /// no descriptor, so an entry here would be this file asserting an erasure
+    /// is sound when nobody has yet made it sound. Nothing reaches the key —
+    /// no platform grants `Tasks`, so no program can construct a `HostTasks` —
+    /// and the day one does, the ice names the exact question to answer. The
+    /// entry lands in the same commit as the carrier, which is the discipline
+    /// the whole list exists for.
     #[test]
     fn a_generic_intrinsic_outside_the_list_is_refused() {
         for key in [
             "list.chunk",
             "tasks.parallel",
+            "host.HostTasks.parallel",
             "str.splitInto",
             "host.HostUi.observe",
             "json.encodeAs",

@@ -180,15 +180,15 @@ trait method as a function: `Ord.compare(x, y)`.
 
 An **effect** is an interface declared with `effect` instead of `trait`. Only
 platform modules may declare one. `core/effect` declares `Alloc`, `Fs`, `Net`,
-`Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`, `Proc`.
+`Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`, `Proc`, and `Tasks` — the
+last granted by no platform yet, so binding it is refused everywhere.
 
 An effect is a trait in every other respect. Two rules separate them:
 
 - an effect's implementors are **effect-carrying**, and may be passed only as
   `self` or `ctx`;
 - **no type may implement both an effect and a trait**, so an effect-carrying
-  type satisfies no ordinary bound — which is what makes a `T: Ord` provably
-  not a context.
+  type satisfies no ordinary bound — which is what makes `T: Ord` not a context.
 
 ### The `ctx` rule
 
