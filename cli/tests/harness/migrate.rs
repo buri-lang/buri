@@ -117,7 +117,7 @@ const FUNCTIONS: &[(&str, Rewrite)] = &[
     ("filesBytes", Rewrite { ctor: "fs", methods: &["filesBytes"] }),
     ("clockAt", Rewrite { ctor: "clock", methods: &["at"] }),
     ("randSeed", Rewrite { ctor: "rand", methods: &["seed"] }),
-    ("envOf", Rewrite { ctor: "env", methods: &["variables", "args"] }),
+    ("envOf", Rewrite { ctor: "env", methods: &["variables", "arguments"] }),
 ];
 
 /// Method renames on a *value* rather than on a call: `capturedErr` reads back

@@ -1645,7 +1645,7 @@ export fn main(): Result<(), Str> {
 /// The divisor is `"".len()` rather than a literal zero because a division
 /// by a literal is decided at compile time and there is nothing left to
 /// ask; `cli/tests/crash/` reaches for `env.args(ctx).len()` instead, which
-/// is `host.HostEnv.arguments` and has no native body yet.
+/// is `host.HostEnv.args` and has no native body yet.
 #[test]
 fn row_11_division_by_zero() {
     rows_or_skip!();

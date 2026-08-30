@@ -1866,7 +1866,7 @@ function $host_HostEnv_variable(self, name) {
   return v === undefined ? undefined : $some(v);
 }
 
-function $host_HostEnv_arguments(self) {
+function $host_HostEnv_args(self) {
   if (typeof Bun !== "undefined") return Bun.argv.slice(2);
   if (typeof process !== "undefined") return process.argv.slice(2);
   return [];
@@ -3593,7 +3593,7 @@ function $testing_context_TestEnv_variable(self, name) {
   return name in v ? $some(v[name]) : undefined;
 }
 
-function $testing_context_TestEnv_arguments(self) {
+function $testing_context_TestEnv_args(self) {
   return $slot(self).args.slice();
 }
 
@@ -4000,7 +4000,7 @@ function $host_testing_TestEnv_variables(self, vars) {
   return $handle({ vars: v, args: $slot(self).args.slice() });
 }
 
-function $host_testing_TestEnv_args(self, args) {
+function $host_testing_TestEnv_arguments(self, args) {
   return $handle({ vars: Object.assign({}, $slot(self).vars), args: args.slice() });
 }
 
@@ -4009,27 +4009,14 @@ function $host_testing_TestEnv_variable(self, name) {
   return name in v ? $some(v[name]) : undefined;
 }
 
-function $host_testing_TestEnv_arguments(self) {
+function $host_testing_TestEnv_args(self) {
   return $slot(self).args.slice();
 }
 
-// Records the exit rather than taking it: a test that ended the process would
-// take every block after it with it. The *first* code is kept, because a
-// program that exits does not carry on.
-function $host_testing_proc() {
-  return $handle({ code: undefined });
-}
-
-function $host_testing_TestProc_exitWith(self, code) {
-  const s = $slot(self);
-  if (s.code === undefined) s.code = code;
-  return 0;
-}
-
-function $host_testing_TestProc_exited(self) {
-  const c = $slot(self).code;
-  return c === undefined ? undefined : $some(c);
-}
+// `proc()` has no function here and no slot: `TestProc` records nothing,
+// because nothing can read it back. `proc()` is `TestProc(0)` and `exitWith`
+// is an empty body, both written in `host_testing.buri` — the same shape
+// `TestNet` has, reached for the plainer reason.
 
 // --- core/testing/assert ------------------------------------------------------------
 //
