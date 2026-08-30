@@ -1,0 +1,42 @@
+//! What a delivery is made of.
+
+/// How a delivery was paid for.
+export enum Payment {
+  /// Nothing has been paid yet.
+  Unpaid,
+  /// Paid in full, in whole cents.
+  Paid { cents: I64 },
+}
+
+/// Where a delivery is going.
+export struct Address {
+  /// The street and the number.
+  export street: Str,
+  /// The city it is in.
+  export city: Str,
+}
+
+/// One delivery.
+export struct Delivery {
+  /// What the customer is called.
+  export customer: Str,
+  /// Where it is going.
+  export destination: Address,
+  /// How it was paid for.
+  export payment: Payment,
+  /// What the customer asked for, where they asked for anything.
+  export note: Option<Str>,
+  /// Who packed it. Private to this module.
+  packer: Str,
+}
+
+/// A delivery with nothing decided about it.
+export fn blank(): Delivery {
+  Delivery {
+    customer: "",
+    destination: Address { street: "", city: "" },
+    payment: .Unpaid,
+    note: .None,
+    packer: "",
+  }
+}
