@@ -64,8 +64,8 @@ use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, IntType};
 use inkwell::values::{
-    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue,
-    PointerValue,
+    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, InstructionValue,
+    IntValue, PointerValue,
 };
 use inkwell::{FloatPredicate, IntPredicate};
 
@@ -76,8 +76,8 @@ use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::middle::layout::{
-    self, EnumRepr, Repr as LayoutRepr, Scalar, CAP_MASK, HEADER_CAP_OFFSET, HEADER_RC_OFFSET,
-    IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
+    self, EnumRepr, Repr as LayoutRepr, Scalar, CAP_MASK, CAP_SHARED_FLAG, HEADER_CAP_OFFSET,
+    HEADER_RC_OFFSET, IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
 };
 use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty};
@@ -376,6 +376,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let p = self.ptr_ty().into();
         self.declare_rt(runtime::FREE, &[p], None)
     }
+
+    // === G2 begin: the two shared arms =====================================
+
+    fn rt_incref(&mut self) -> FunctionValue<'ctx> {
+        let p = self.ptr_ty().into();
+        self.declare_rt(runtime::INCREF, &[p], None)
+    }
+
+    fn rt_decref(&mut self) -> FunctionValue<'ctx> {
+        let p = self.ptr_ty();
+        self.declare_rt(runtime::DECREF, &[p.into(), p.into()], None)
+    }
+
+    // === G2 end ============================================================
 
     // -----------------------------------------------------------------------
     // Constants
@@ -2510,7 +2524,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let word = self.ctx.i64_type();
         let header =
             repr::byte_offset(self.ctx, &self.builder, p, i64::from(HEADER_RC_OFFSET), "rc.p");
+
+        // === G2 begin: the shared fork (MEMORY.md §5.1, VALUE-MODEL.md §2.1) =
+        // `cap`'s bit 63 says the block may be reached from more than one
+        // thread, and it chooses which of the two counts below runs. It is
+        // never set today, so the whole of what the fork costs a shipping
+        // program is itself: one load, from the same 16-byte header line the
+        // count is already in, and one bit test whose answer never changes.
+        let shared = self.fork_on_shared(state, p, "inc");
+        let meet = self.ctx.append_basic_block(state.value, "inc.meet");
+        // === G2 end =========================================================
+
         let Ok(BasicValueEnum::IntValue(rc)) = self.builder.build_load(word, header, "rc") else {
+            let _ = self.builder.build_unconditional_branch(meet);
+            self.builder.position_at_end(meet);
             return;
         };
         if let Some(instr) = rc.as_instruction() {
@@ -2532,11 +2559,120 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Ok(store) = self.builder.build_store(header, next) {
             let _ = store.set_alignment(8);
         }
+        let _ = self.builder.build_unconditional_branch(meet);
+
+        // === G2 begin: the atomic increment =================================
+        // A **call**, where the unshared arm is open-coded, and the asymmetry
+        // is the point. `buri_rt_incref` forks on the same bit and takes the
+        // same atomic arm, so there is one atomic sequence in the tree per
+        // backend rather than two — and the sequence is cold by construction,
+        // because nothing sets the bit.
+        //
+        // It is also **half the price**. Open-coding the saturating
+        // `atomicrmw` here instead puts it in front of `opt` at every
+        // reference operation in the program, and that was measured: the
+        // open-coded form cost a median **+46 %** of native release lowering
+        // where this one costs **+21 %** (design/PERFORMANCE.md §6.6). The
+        // machine code on the arm every program actually takes is the same two
+        // instructions either way.
+        self.builder.position_at_end(shared);
+        let incref = self.rt_incref();
+        if let Ok(call) = self.builder.build_call(incref, &[p.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+            attrs::cold_call(self.ctx, call);
+        }
+        let _ = self.builder.build_unconditional_branch(meet);
+        // === G2 end =========================================================
+
+        self.builder.position_at_end(meet);
         if let (Some(_), Some(join)) = (body, join) {
             let _ = self.builder.build_unconditional_branch(join);
             self.builder.position_at_end(join);
         }
     }
+
+    // === G2 begin: the three pieces both counts share =======================
+
+    /// The fork on `cap`'s bit 63: emit the test, and leave the builder in the
+    /// **unshared** arm.
+    ///
+    /// Returns the block the caller fills with the atomic form; where the two
+    /// arms rejoin is the caller's business, because the increment's arms meet
+    /// and the decrement's do not (its two both run into `dec.free`).
+    ///
+    /// The load is of `cap` at `p - 8`, which shares a cache line with the
+    /// count at `p - 16` by construction (the header is 16 bytes and the
+    /// payload is 16-byte aligned, VALUE-MODEL.md §2), so on a block whose
+    /// count is about to be touched anyway the fork's memory cost is nothing.
+    /// The test is a sign test on a 64-bit word: `tbz`/`tbnz` on aarch64, a
+    /// `js`/`jns` on x86-64.
+    ///
+    /// The unshared arm is the *false* arm, so it is the fallthrough, and the
+    /// branch carries a weight saying so. Today that is exactly right — G1
+    /// reserved the bit and nothing sets it — and after G3 it is still right:
+    /// a value that crosses a task boundary is the exception.
+    fn fork_on_shared(
+        &mut self,
+        state: &mut Function<'ctx>,
+        p: PointerValue<'ctx>,
+        tag: &str,
+    ) -> BasicBlock<'ctx> {
+        let word = self.ctx.i64_type();
+        let plain = self.ctx.append_basic_block(state.value, &format!("{tag}.plain"));
+        let shared = self.ctx.append_basic_block(state.value, &format!("{tag}.shared"));
+        let capp = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            p,
+            i64::from(HEADER_CAP_OFFSET),
+            &format!("{tag}.capp"),
+        );
+        let is_shared = match self.builder.build_load(word, capp, &format!("{tag}.cap")) {
+            Ok(BasicValueEnum::IntValue(cap)) => {
+                if let Some(instr) = cap.as_instruction() {
+                    let _ = instr.set_alignment(8);
+                }
+                let bit = self
+                    .builder
+                    .build_and(cap, word.const_int(CAP_SHARED_FLAG, false), &format!("{tag}.mt"))
+                    .unwrap_or_else(|_| word.const_zero());
+                self.builder
+                    .build_int_compare(
+                        IntPredicate::NE,
+                        bit,
+                        word.const_zero(),
+                        &format!("{tag}.isshared"),
+                    )
+                    .unwrap_or_else(|_| self.ctx.bool_type().const_zero())
+            }
+            // A load that cannot be built leaves the fork unanswerable, and
+            // the unshared arm is the answer that matches every block the
+            // program can produce today.
+            _ => self.ctx.bool_type().const_zero(),
+        };
+        if let Ok(br) = self.builder.build_conditional_branch(is_shared, shared, plain) {
+            self.unlikely(br);
+        }
+        self.builder.position_at_end(plain);
+        shared
+    }
+
+    /// Say that a two-way branch takes its *false* arm.
+    ///
+    /// `!prof` branch weights, which is how to tell LLVM which arm is hot
+    /// without an `llvm.expect` call it then has to fold away. The numbers are
+    /// the ones clang emits for `__builtin_expect`.
+    fn unlikely(&self, br: InstructionValue<'ctx>) {
+        let word = self.ctx.i32_type();
+        let node = self.ctx.metadata_node(&[
+            self.ctx.metadata_string("branch_weights").into(),
+            word.const_int(1, false).into(),
+            word.const_int(2000, false).into(),
+        ]);
+        let _ = br.set_metadata(node, self.ctx.get_kind_id("prof"));
+    }
+
+    // === G2 end ============================================================
 
     /// `decref`: the decrement, with the free on the cold path.
     ///
@@ -2576,6 +2712,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let word = self.ctx.i64_type();
         let header =
             repr::byte_offset(self.ctx, &self.builder, p, i64::from(HEADER_RC_OFFSET), "rc.p");
+
+        // === G2 begin: the shared fork ======================================
+        // The same fork the increment takes, and for the same reason. The two
+        // arms rejoin at `dec.free`, not at `dec.meet`: whichever count found
+        // the block dead, it dies exactly once and through one copy of the
+        // glue call and one copy of `buri_rt_free`.
+        let shared = self.fork_on_shared(state, p, "dec");
+        // === G2 end =========================================================
+
         let Ok(BasicValueEnum::IntValue(rc)) = self.builder.build_load(word, header, "rc") else {
             let _ = self.builder.build_unconditional_branch(join);
             self.builder.position_at_end(join);
@@ -2601,6 +2746,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let free_block = self.ctx.append_basic_block(state.value, "dec.free");
         let live_block = self.ctx.append_basic_block(state.value, "dec.live");
         let _ = self.builder.build_conditional_branch(last, free_block, live_block);
+
+        // === G2 begin: the atomic decrement =================================
+        // A cold call to `buri_rt_decref`, for `incref`'s reasons, and it
+        // carries the glue pointer because the runtime owns the whole of the
+        // dying arm on that side: the `atomicrmw sub` whose *returned* value
+        // decides who frees, the glue call, and the free. Two threads that
+        // each read `1` from a separate load would each free the block, which
+        // is why that decision cannot be split across a call boundary and the
+        // free path here is not reused.
+        //
+        // `glue` is null for a type holding no counted references, which is
+        // the same null `buri_rt_decref` already documents.
+        self.builder.position_at_end(shared);
+        let decref = self.rt_decref();
+        let glue_arg = glue.unwrap_or_else(|| self.ptr_ty().const_null());
+        if let Ok(call) = self.builder.build_call(decref, &[p.into(), glue_arg.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+            attrs::cold_call(self.ctx, call);
+        }
+        let _ = self.builder.build_unconditional_branch(join);
+        // === G2 end =========================================================
 
         self.builder.position_at_end(free_block);
         if let Some(glue) = glue {
