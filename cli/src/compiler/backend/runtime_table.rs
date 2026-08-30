@@ -521,9 +521,12 @@ pub const ENTRIES: &[Entry] = &[
         "buri_rt_host_testing_test_stdin_read_bytes",
         Ret::Opt,
     ),
-    // `TestFs`'s sixteen. The eleven the `Fs` effect declares are `MemFs`'s
-    // shapes, and the five above them are this module's: two builders, the
-    // attenuator, and the two read-backs a test asserts through.
+    // The stream's log, read back. A log is state the runner keeps, so it is
+    // here for the reason the handle table itself is.
+    e("host_testing.TestStdin.calls", "buri_rt_host_testing_test_stdin_calls", Ret::Out),
+    // `TestFs`'s seventeen. The eleven the `Fs` effect declares are `MemFs`'s
+    // shapes, and the six above them are this module's: two builders, the
+    // attenuator, and the three read-backs a test asserts through.
     //
     // `snapshot` is `Ret::Out` over a `[(Str, Str)]` — one block of two-`Str`
     // elements, which is the layout `str.splitOnce` already writes through an
@@ -534,6 +537,7 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.TestFs.readOnly", "buri_rt_host_testing_test_fs_read_only", Ret::Out),
     e("host_testing.TestFs.read", "buri_rt_host_testing_test_fs_read", Ret::Res),
     e("host_testing.TestFs.snapshot", "buri_rt_host_testing_test_fs_snapshot", Ret::Out),
+    e("host_testing.TestFs.calls", "buri_rt_host_testing_test_fs_calls", Ret::Out),
     e("host_testing.TestFs.readFile", "buri_rt_host_testing_test_fs_read_file", Ret::Res),
     e("host_testing.TestFs.writeFile", "buri_rt_host_testing_test_fs_write_file", Ret::Res),
     e(
@@ -557,6 +561,25 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.TestFs.removeFile", "buri_rt_host_testing_test_fs_remove_file", Ret::Res),
     e("host_testing.TestFs.makeDir", "buri_rt_host_testing_test_fs_make_dir", Ret::Res),
     e("host_testing.TestFs.syncFile", "buri_rt_host_testing_test_fs_sync_file", Ret::Res),
+    // -- the call log's remaining four --------------------------------------
+    //
+    // `spelled` is an `FsCall` constructor's decode and not a filesystem
+    // operation at all: a test writing a call down performs no effect, so it
+    // has no context to reach `bytes.fromUtf8` with.
+    //
+    // The other three are `TestNet`'s. `net()` and `TestNet.fetch` are Buri
+    // bodies and have no row — the absent-key list below says why — but the
+    // *log* is state, so the handle naming it is minted here
+    // (`alloc.newCounter`'s shape), written by `recordFetch` once the responder
+    // has answered, and read back by `netCalls`. `recordFetch` takes `Request`
+    // flattened by §2 rule 1, which is `buri_rt_host_net_fetch`'s argument list
+    // without its answer; `netCalls` takes the handle rather than the `TestNet`,
+    // because that value carries the responder too and an argument crosses as
+    // its leaves.
+    e("host_testing.spelled", "buri_rt_host_testing_spelled", Ret::Out),
+    e("host_testing.newNet", "buri_rt_host_testing_new_net", Ret::Scalar),
+    e("host_testing.recordFetch", "buri_rt_host_testing_record_fetch", Ret::Void),
+    e("host_testing.netCalls", "buri_rt_host_testing_net_calls", Ret::Out),
     e("host_testing.clock", "buri_rt_host_testing_clock", Ret::Out),
     e("host_testing.TestClock.at", "buri_rt_host_testing_test_clock_at", Ret::Out),
     e(
@@ -653,7 +676,9 @@ mod tests {
             // side — a responder is a `{ code, env }` pair the archive has no
             // way to invoke, and its answer is the `Result<Response, NetError>`
             // §2.1 cannot name — and it is why widening §2.1 later changes
-            // nothing about the double.
+            // nothing about the double. Its *log* is a different question and
+            // has three rows above: `newNet`, `recordFetch` and
+            // `netCalls` cross nothing §2.1 restricts.
             // Open-coded, and named here so that "it has no symbol" and "the
             // backend cannot compile it" stay two different statements.
             "testing_context.alloc",
