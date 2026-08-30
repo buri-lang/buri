@@ -1,6 +1,8 @@
 from "//lib/util" import { isEmpty };
 
-export struct Cents { export value: Int }
+export struct Cents {
+    export value: Int,
+}
 
 export fn fromCents(n: Int): Cents {
     Cents { value: n }

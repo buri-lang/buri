@@ -246,7 +246,8 @@ Values are immutable, so lambdas capture by value and capture is unobservable
 `UpperCamelCase` types and variants, `lowerCamelCase` functions and bindings,
 `SCREAMING_SNAKE_CASE` constants, `lowercase` modules. None of it is enforced
 by the grammar. `buri format` is the one canonical layout — four-space indent,
-sorted leading imports, no options.
+sorted leading imports, a struct's fields and an enum's variants one to a line
+however short they are, no options.
 
 ## When something does not compile
 
