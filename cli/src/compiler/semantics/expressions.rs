@@ -500,7 +500,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 ));
                 self.error_expr(span)
             }
-            Some(Sym::Ty(_)) | Some(Sym::Trait(_)) | Some(Sym::Namespace(_)) => {
+            Some(Sym::Ty(_))
+            | Some(Sym::Trait(_))
+            | Some(Sym::Namespace(_))
+            | Some(Sym::Alias(..)) => {
                 self.templated("type-not-a-value", span).bind("name", name);
                 self.error_expr(span)
             }

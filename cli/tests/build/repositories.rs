@@ -28,7 +28,7 @@ fn build_file_rules() {
 /// boundary it draws applies to methods as much as to names.
 #[test]
 fn library_boundaries() {
-    run_corpus(&tests_dir().join("repositories/libraries"), "libraries", 8);
+    run_corpus(&tests_dir().join("repositories/libraries"), "libraries", 9);
 }
 
 /// TAGS.md: a tag is a property of a whole dependency closure, and the two

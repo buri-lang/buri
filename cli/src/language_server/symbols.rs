@@ -1022,6 +1022,9 @@ pub(super) fn symbol_of(sym: &Sym) -> Option<Symbol> {
         Sym::Overloaded(ids) => ids.first().copied().map(Symbol::Function),
         // A method is reached through a receiver, never through this name.
         Sym::Method(_) => None,
+        // An alias is transparent: it expands to a type that has a symbol of
+        // its own, and the alias itself has no table entry to point at.
+        Sym::Alias(..) => None,
     }
 }
 

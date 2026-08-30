@@ -1,11 +1,12 @@
-error: "core/list" does not export `notAThing` [no-such-export]
- --> cmd/reexport_name_not_exported/main.buri:4:27
+error: "//lib/units/units" does not export `Raw` [no-such-export]
+ --> lib/units/lib.buri:4:49
   |
-4 | from "core/list" export { notAThing };
-  |                           ^^^^^^^^^
+4 | from "//lib/units/units" export { Meters, Trip, Raw, Sample, widen, sample, depth };
+  |                                                 ^^^
   |
   = a re-export may name only what its module path exports
-  = fix: check the spelling, or drop `notAThing` from this list
+  = `Raw` is declared in "//lib/units/units" but not exported
+  = fix: add `export` to `Raw`'s declaration in "//lib/units/units", or drop it from this list
 
     What to do
     ──────────
