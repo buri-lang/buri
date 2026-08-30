@@ -1,3 +1,3 @@
-from "core/list" export { fold, , map };
+from "core/list/lib.buri" export { fold, , map };
 // and the one that maps
 /// the one that folds

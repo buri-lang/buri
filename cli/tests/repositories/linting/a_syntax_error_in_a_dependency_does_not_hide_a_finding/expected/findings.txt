@@ -23,7 +23,7 @@ warning: `leftover` is bound and never used [unused-variable]
 warning: str is imported but not used [unused-import]
  --> lib/money/cents.buri:7:29
   |
-7 | from "core/str" import * as str;
+7 | from "core/str/lib.buri" import * as str;
   |                             ^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up

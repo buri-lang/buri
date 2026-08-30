@@ -108,7 +108,7 @@ Labels are always repository-absolute. There is no relative label form: a label
 means the same thing wherever it is written, including in a CLI invocation from
 a subdirectory.
 
-Module paths in source use the same spelling — `from "//lib/money" import …` —
+Module paths in source use the same spelling — `from "//lib/money/lib.buri" import …` —
 and resolve to that library's `lib.buri`. See
 [`libraries.md`](./libraries.md#module-paths).
 
@@ -367,8 +367,8 @@ who wrote the edge that pulled the code in.
   method resolves through its receiver's type rather than through scope, so
 
   ```buri repo=cli/tests/example
-# from "core/effect" import { Alloc };
-  from "//lib/ledger" import { Entry };
+# from "core/effect/lib.buri" import { Alloc };
+  from "//lib/ledger/lib.buri" import { Entry };
   // `amount` is a Cents from //lib/money, and `format` is one of its methods —
   // no import names //lib/money, and this target still depends on it.
   fn line<C: Alloc>(ctx: C, e: Entry): Str { e.amount.format(ctx) }
@@ -393,7 +393,7 @@ who wrote the edge that pulled the code in.
 error: cmd/server/routes.buri imports //lib/money, which is not in dependencies
   --> cmd/server/routes.buri:3:6
    |
- 3 | from "//lib/money" import { Cents, format };
+ 3 | from "//lib/money/lib.buri" import { Cents, format };
    |      ^^^^^^^^^^^^^
    |
    = fix: add "//lib/money" to dependencies in cmd/server/BUILD.buri — `buri gen //cmd/server` does this automatically

@@ -1,5 +1,5 @@
-from "//lib/greeting" import { greeting };
-from "core/testing/assert" import * as assert;
+from "//lib/greeting/lib.buri" import { greeting };
+from "core/testing/assert/lib.buri" import * as assert;
 
 /// Ill-typed on purpose: `greeting` returns a `Str`. The edit at the bottom of
 /// the case makes it compile, which is what keeps the counted summary honest.

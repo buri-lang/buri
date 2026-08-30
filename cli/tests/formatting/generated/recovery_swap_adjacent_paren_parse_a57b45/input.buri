@@ -1,5 +1,5 @@
-from "//lib/money" import { fromCents, parse, ParseError };
-from "core/testing/assert" import * as assert;
+from "//lib/money/lib.buri" import { fromCents, parse, ParseError };
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "parses dollars and cents" {
   assert.eq(assert.ok(parse("19.05")), fromCents(1905));

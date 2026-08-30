@@ -25,5 +25,5 @@ module path with a `testing` segment is covered — `core/testing/assert`,
 ## A program that provokes it
 
 ```buri fail code=test-only-import
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 ```

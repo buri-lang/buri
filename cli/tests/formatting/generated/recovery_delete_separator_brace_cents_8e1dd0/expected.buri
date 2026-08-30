@@ -6,8 +6,8 @@
 // file. That is the constraint that decides how a library's files are laid out:
 // one type, one module, however many free functions elsewhere.
 
-from "core/effect" import { Alloc };
-from "core/str" import * as str;
+from "core/effect/lib.buri" import { Alloc };
+from "core/str/lib.buri" import * as str;
 
 derive Eq, Ord, Show for Cents;
 /// Money is never a raw integer. The field is not exported, so there is no way

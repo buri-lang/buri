@@ -1,1 +1,1 @@
-from "//lib/routes/routes" export { Route, route };
+from "//lib/routes/routes.buri" export { Route, route };

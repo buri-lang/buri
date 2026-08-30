@@ -7,7 +7,7 @@
 // have to be talking about the same types for a round trip to mean anything. A
 // test source may not `export`.
 
-from "core/json" import { ToJson, FromJson };
+from "core/json/lib.buri" import { ToJson, FromJson };
 
 // --- structs ------------------------------------------------------------------
 

@@ -12,10 +12,10 @@
 // both backends. See `core/alloc`'s module comment for why, and for what would
 // have to change on both backends at once to widen it.
 
-from "core/alloc" import { Stats };
-from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc };
-from "core/testing/assert" import * as assert;
+from "core/alloc/lib.buri" import { Stats };
+from "core/alloc/lib.buri" import * as alloc;
+from "core/effect/lib.buri" import { Alloc };
+from "core/testing/assert/lib.buri" import * as assert;
 
 // --- The model, as arithmetic ------------------------------------------------------
 

@@ -1,8 +1,8 @@
 // EXPECT: has no method `second`
 // The receiver is the user's own type, so the impl-block advice stands — spelt
 // in the form that is actually writable, with the parameters declared.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 struct Pair<A, B> { export left: A, export right: B }
 

@@ -1,1 +1,1 @@
-from "//lib/b/b" export { fromB, viaA };
+from "//lib/b/b.buri" export { fromB, viaA };

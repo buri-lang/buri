@@ -1,7 +1,7 @@
 error: an import name ends with `,` [missing-separator]
  --> lib/recovery_delete_separator_brace_app_46187f/main.buri:5:34
   |
-5 | from "core/effect" import { Alloc Stdout };
+5 | from "core/effect/lib.buri" import { Alloc Stdout };
   |                                  ^
   |
   = fix: write `,` here

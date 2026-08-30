@@ -1,2 +1,2 @@
 // The testing surface of //lib/money.
-from "//lib/money/testing/fixtures" export { sample };
+from "//lib/money/testing/fixtures.buri" export { sample };

@@ -1,1 +1,1 @@
-from "//lib/probe/probe" export { probe };
+from "//lib/probe/probe.buri" export { probe };

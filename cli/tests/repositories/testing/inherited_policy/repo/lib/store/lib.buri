@@ -1,1 +1,1 @@
-from "//lib/store/file_store" export { encode };
+from "//lib/store/file_store.buri" export { encode };

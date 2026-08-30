@@ -4,12 +4,12 @@
 // leap years the rules disagree about, the epoch, a day either side of it, and
 // the month-end clamping that date arithmetic has to choose an answer for.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
 
-from "core/date" import { Date, DateTime, Duration, Weekday };
-from "core/date" import * as date;
-from "core/time" import { Instant };
+from "core/date/lib.buri" import { Date, DateTime, Duration, Weekday };
+from "core/date/lib.buri" import * as date;
+from "core/time/lib.buri" import { Instant };
 
 fn d(y: Int, m: Int, day: Int): Date {
   assert.some(date.date(y, m, day))

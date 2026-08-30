@@ -1,8 +1,8 @@
 // The target under test, reached from its own test sources. A private library
 // that its own suite could not import would be a library that cannot be tested.
 
-from "//cmd/tool" import { render };
-from "core/testing/assert" import * as assert;
+from "//cmd/tool/lib.buri" import { render };
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "render distinguishes zero" {
   assert.eq(render(0), "zero");

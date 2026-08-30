@@ -1,6 +1,6 @@
 //! The counter a delivery is written up at.
 
-from "//lib/shop/orders" import * as orders;
+from "//lib/shop/orders.buri" import * as orders;
 
 /// The same delivery under another name.
 export fn relabel(): orders.Delivery {

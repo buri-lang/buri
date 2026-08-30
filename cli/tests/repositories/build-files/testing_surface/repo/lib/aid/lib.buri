@@ -1,1 +1,1 @@
-from "//lib/aid/a" export { aid };
+from "//lib/aid/a.buri" export { aid };

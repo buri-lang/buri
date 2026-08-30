@@ -11,7 +11,7 @@
 // this literal supplies and nothing consults is reported. A headless literal
 // writes a field exactly as a headed one does, and neither is a read.
 
-from "//lib/money/stamps" import { Stamp };
+from "//lib/money/stamps.buri" import { Stamp };
 
 fn stamp(): Stamp {
   { mark: "wax", note: "unread" }

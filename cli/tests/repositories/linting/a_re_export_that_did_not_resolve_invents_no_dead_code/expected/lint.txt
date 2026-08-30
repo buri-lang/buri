@@ -1,7 +1,7 @@
 error: "//lib/money/cents" does not export `markup` [no-such-export]
  --> lib/money/lib.buri:7:35
   |
-7 | from "//lib/money/cents" export { markup };
+7 | from "//lib/money/cents.buri" export { markup };
   |                                   ^^^^^^
   |
   = a re-export may name only what its module path exports

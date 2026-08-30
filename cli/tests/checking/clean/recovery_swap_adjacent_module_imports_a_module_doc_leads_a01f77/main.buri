@@ -1,6 +1,6 @@
 //! What this module is.
 //!
 //! And a second paragraph about it.
-from "core/str" import * str as;
+from "core/str/lib.buri" import * str as;
 
 export fn f(): Int { 1 }

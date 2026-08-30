@@ -16,7 +16,7 @@ receiver — a name resolved through a type instead of through scope. What it bu
 is that a type's operations travel with it —
 
 ```buri ignore why="names a module in another repository, so it cannot be compiled standalone; the same pattern is compiled in cli/tests/example"
-from "//lib/square" import { Square };   // the type — not `area`, not `scaled`
+from "//lib/square/lib.buri" import { Square };   // the type — not `area`, not `scaled`
 sq.scaled(2).area()                      // both resolve with no further imports
 ```
 

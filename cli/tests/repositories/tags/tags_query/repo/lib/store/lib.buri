@@ -1,1 +1,1 @@
-from "//lib/store/m" export { fromStore };
+from "//lib/store/m.buri" export { fromStore };

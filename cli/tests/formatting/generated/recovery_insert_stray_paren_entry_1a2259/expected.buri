@@ -1,7 +1,7 @@
 // A `//` import needs a matching entry in this target's `dependencies`, and an
 // entry that nothing uses is an error too, so the build file and the code cannot
 // drift apart.
-from "//lib/money" import { Cents, fromCents };
+from "//lib/money/lib.buri" import { Cents, fromCents };
 
 // `Eq` because a list of entries is rendered by `ui.each`, which bounds its
 // element type with it (SPEC rule 5: an unbounded type parameter could be a

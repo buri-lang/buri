@@ -1,8 +1,8 @@
 // Tests for the binary half of the same package, in the same test/ directory.
 // The target under test is main.buri, so the path carries `/main`.
 
-from "core/testing/assert" import * as assert
-from "//tools/report/main" import { parseFlags };
+from "core/testing/assert/lib.buri" import * as assert
+from "//tools/report/main.buri" import { parseFlags };
 
 test "verbose is off by default" {
     assert.isFalse(parseFlags([]).verbose);

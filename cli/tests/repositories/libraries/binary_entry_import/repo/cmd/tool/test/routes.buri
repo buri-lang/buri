@@ -2,8 +2,8 @@
 // is the one place `//cmd/tool/main` may be written (TESTING.md, "Testing a
 // binary").
 
-from "//cmd/tool/main" import { banner, route };
-from "core/testing/assert" import * as assert;
+from "//cmd/tool/main.buri" import { banner, route };
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "the entry point's own exports are what the suite sees" {
   assert.eq(banner(), "tool");

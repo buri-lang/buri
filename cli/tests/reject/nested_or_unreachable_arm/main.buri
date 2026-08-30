@@ -1,8 +1,8 @@
 // EXPECT: this arm is unreachable
 // The alternation covers both of `Bool`'s constructors, so an arm naming one
 // of them afterwards can never run.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn describe(x: Option<Bool>): Int {
   match (x) {

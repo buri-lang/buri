@@ -5,11 +5,11 @@
 // context" rests on. Its field is private, so the type is nameable everywhere
 // and constructible nowhere, and reading a signal outside a computation the
 // runtime started is not expressible rather than merely discouraged.
-from "core/effect" import { Alloc };
+from "core/effect/lib.buri" import { Alloc };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
-from "ui/effect" import { Scope, Ui, Watch };
-from "ui/signal" import { Signal, signal };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Scope, Ui, Watch };
+from "ui/signal/lib.buri" import { Signal, signal };
 
 fn peek(n: Signal<Int>): Int {
   n.get(Scope(0))

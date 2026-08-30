@@ -1,2 +1,2 @@
 // The testing surface of //lib/util: importable only from a test source.
-from "//lib/util/testing/checks" export { blank };
+from "//lib/util/testing/checks.buri" export { blank };

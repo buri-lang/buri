@@ -5,8 +5,8 @@ them. It receives the same value and cannot use — or pass on — anything its
 bounds omit:
 
 ```buri
-# from "core/effect" import { Alloc, Fs, Stdout };
-# from "core/host" import * as host;
+# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+# from "core/host/lib.buri" import * as host;
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
   let _ = ctx.println(msg);
   let _f = ctx.readFile("/etc/passwd");  // ERROR: `C` has no method `readFile`

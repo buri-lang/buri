@@ -1,6 +1,6 @@
 // Inside the library. `toCents` resolves here, because this module is within
 // the boundary that lib.buri draws.
 
-from "//lib/money/cents" import { Cents, fromCents };
+from "//lib/money/cents.buri" import { Cents, fromCents };
 
 export fn isSmall(c: Cents): Bool { c.toCents() < 100 }

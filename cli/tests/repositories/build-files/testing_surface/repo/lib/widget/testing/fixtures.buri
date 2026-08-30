@@ -1,5 +1,5 @@
 // A test-only surface, reachable as //lib/widget/testing.
 
-from "//lib/aid" import { aid };
+from "//lib/aid/lib.buri" import { aid };
 
 export fn fixture(): I64 { aid() }

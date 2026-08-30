@@ -1,7 +1,7 @@
 // EXPECT: //cmd/discarded_result
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-from "//cmd/discarded_result" import { main };
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "//cmd/discarded_result/lib.buri" import { main };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

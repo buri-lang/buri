@@ -18,15 +18,15 @@
 // painting, focus order, and the browser's own dispatch of a press — and that
 // needs a browser rather than a substitute for one.
 
-from "core/testing/assert" import * as assert;
-from "ui/effect" import { Ui, Watch };
-from "ui/node" import * as ui;
-from "ui/node" import { Node };
-from "ui/prop" import { Prop };
-from "ui/signal" import { Signal, signal, watch };
-from "ui/style" import { Shadow, Style };
-from "ui/testing" import { headless, observer, recorder, render, stylesheet };
-from "ui/theme" import { Theme };
+from "core/testing/assert/lib.buri" import * as assert;
+from "ui/effect/lib.buri" import { Ui, Watch };
+from "ui/node/lib.buri" import * as ui;
+from "ui/node/lib.buri" import { Node };
+from "ui/prop/lib.buri" import { Prop };
+from "ui/signal/lib.buri" import { Signal, signal, watch };
+from "ui/style/lib.buri" import { Shadow, Style };
+from "ui/testing/lib.buri" import { headless, observer, recorder, render, stylesheet };
+from "ui/theme/lib.buri" import { Theme };
 
 // --- helpers -------------------------------------------------------------------------
 

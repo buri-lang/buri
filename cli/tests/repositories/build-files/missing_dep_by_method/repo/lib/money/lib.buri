@@ -2,4 +2,4 @@
 // is what makes the case possible: //cmd/app can call it without naming
 // //lib/money in an import.
 
-from "//lib/money/cents" export { Cents, fromCents, format };
+from "//lib/money/cents.buri" export { Cents, fromCents, format };

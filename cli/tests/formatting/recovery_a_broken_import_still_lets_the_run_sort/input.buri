@@ -1,6 +1,6 @@
-from "core/order" import { Ord };
-from "core/list" import * as list;
-from "core/option" import { Option }
-from "core/hash" import { Hash };
+from "core/order/lib.buri" import { Ord };
+from "core/list/lib.buri" import * as list;
+from "core/option/lib.buri" import { Option }
+from "core/hash/lib.buri" import { Hash };
 
 export fn f(  x:Int ):Int { x }

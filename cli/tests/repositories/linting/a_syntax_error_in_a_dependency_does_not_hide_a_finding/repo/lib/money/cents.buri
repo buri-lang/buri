@@ -3,8 +3,8 @@
 // parser read whole, in a package whose dependency did not parse — which is
 // the thing a run that stopped at the first error would lose.
 
-from "//lib/routes" import { Route };
-from "core/str" import * as str;
+from "//lib/routes/lib.buri" import { Route };
+from "core/str/lib.buri" import * as str;
 
 export fn describe(r: Route): Str {
   let spare = 3;

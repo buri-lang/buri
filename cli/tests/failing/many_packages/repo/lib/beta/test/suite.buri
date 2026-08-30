@@ -1,6 +1,6 @@
 // The second of two packages.
 
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "beta fails" {
     assert.eq(3, 4);

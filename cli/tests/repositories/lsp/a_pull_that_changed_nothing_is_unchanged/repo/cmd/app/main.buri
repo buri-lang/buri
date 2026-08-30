@@ -2,8 +2,8 @@
 // below, so a report that moved is a report about a different repository state
 // rather than about a different line.
 
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 export fn total(): I64 { "not a number" }
 

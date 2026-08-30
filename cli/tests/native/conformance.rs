@@ -781,14 +781,14 @@ fn the_testing_context_agrees_with_the_runner() {
     if !supported() {
         return;
     }
-    const SOURCE: &str = r##"from "core/testing/assert" import * as assert;
-from "core/testing/context" import {
+    const SOURCE: &str = r##"from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import {
   alloc, captureOut, captureErr, captured, capturedErr,
   clockAt, randSeed, envOf, stdin, stdinBytes,
 };
-from "core/effect" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
-from "core/list" import * as list;
-from "core/str" import * as str;
+from "core/effect/lib.buri" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
+from "core/list/lib.buri" import * as list;
+from "core/str/lib.buri" import * as str;
 
 fn speak<C: Stdout>(ctx: C, what: Str): () {
   let _ = ctx.print("[");

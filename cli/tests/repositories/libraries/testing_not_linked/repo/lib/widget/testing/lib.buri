@@ -1,1 +1,1 @@
-from "//lib/widget/testing/fixtures" export { fakeWidget };
+from "//lib/widget/testing/fixtures.buri" export { fakeWidget };

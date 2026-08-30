@@ -1,6 +1,6 @@
-from "core/effect" import { Alloc };
-from "core/str" import * as str;
-from "//lib/ledger" import { Entry };
+from "core/effect/lib.buri" import { Alloc };
+from "core/str/lib.buri" import * as str;
+from "//lib/ledger/lib.buri" import { Entry };
 
 /// The on-disk line format, append-only: memo, tab, rendered amount.
 /// Internal to //lib/store — see lib.buri.

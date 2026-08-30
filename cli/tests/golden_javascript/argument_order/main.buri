@@ -2,8 +2,8 @@
 // statements to compute turns into statements placed *before* the call, so
 // anything written to its left has to be pinned ahead of them rather than left
 // sitting in the argument list to run afterwards.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 enum Pick { A, B }
 

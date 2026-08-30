@@ -1,10 +1,10 @@
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 // Through the library's entry point, which is the only way the binary may
 // reach it (BUILD-FILES.md:301-305). What this case is about is one file
 // listed twice, so nothing else here is allowed to fire.
-from "//tools/report" import { render };
+from "//tools/report/lib.buri" import { render };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

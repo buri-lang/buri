@@ -1,7 +1,7 @@
 error: expected an identifier, found `,` [unexpected-token]
  --> main.buri:1:33
   |
-1 | from "core/list" export { fold, , map };
+1 | from "core/list/lib.buri" export { fold, , map };
   |                                 ^
   |
   = expected: an identifier
@@ -10,7 +10,7 @@ error: expected an identifier, found `,` [unexpected-token]
 error: expected a declaration, found `;` [unexpected-token]
  --> main.buri:1:40
   |
-1 | from "core/list" export { fold, , map };
+1 | from "core/list/lib.buri" export { fold, , map };
   |                                        ^
   |
   = expected: a declaration

@@ -3,6 +3,6 @@
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # No type error now, so the catalogue runs — and REPO.buri says a finding is
 # an error, so this arrives at severity 1 rather than 2.
-{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "languageId": "buri", "version": 1, "text": "from \"core/str\" import * as str;\n\nlet myStr: Str = \"one\";\n\n/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "languageId": "buri", "version": 1, "text": "from \"core/str/lib.buri\" import * as str;\n\nlet myStr: Str = \"one\";\n\n/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}}}
 {"jsonrpc": "2.0", "id": 2, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

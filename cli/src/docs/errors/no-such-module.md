@@ -23,5 +23,5 @@ written rather than where the missing name is later used.
 ## A program that provokes it
 
 ```buri fail code=no-such-module
-from "core/lists" import * as lists;
+from "core/lists/lib.buri" import * as lists;
 ```

@@ -1,7 +1,7 @@
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
 
-from "//tools/report" import { render };
+from "//tools/report/lib.buri" import { render };
 
 // `startsWith` rather than `eq`, because the case edits render.buri to reach
 // stray.buri and what that adds is a suffix. What the suite is for here is

@@ -1,6 +1,6 @@
 // EXPECT: this `match` does not cover `.Empty`
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 enum Shape { Circle(Int), Square(Int), Empty }
 

@@ -1,1 +1,1 @@
-from "//lib/widget/w" export { widget };
+from "//lib/widget/w.buri" export { widget };

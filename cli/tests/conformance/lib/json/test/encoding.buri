@@ -5,13 +5,13 @@
 // reads. A round trip alone is symmetric: it would pass just as happily if
 // both halves changed together.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
-from "core/effect" import { Alloc };
-from "core/json" import { Json, ToJson };
-from "core/json" import * as json;
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
+from "core/effect/lib.buri" import { Alloc };
+from "core/json/lib.buri" import { Json, ToJson };
+from "core/json/lib.buri" import * as json;
 
-from "//lib/json" import {
+from "//lib/json/lib.buri" import {
   Point, Segment, Meters, Pair, Hollow, Everything, Wrapper,
   Colour, Shape, Rose, Chain,
   point, rose, chain, everything,

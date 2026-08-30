@@ -1,1 +1,1 @@
-from "//cmd/tool/render" export { render };
+from "//cmd/tool/render.buri" export { render };

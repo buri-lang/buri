@@ -1,7 +1,7 @@
 error: an import declaration ends with `;` [missing-terminator]
  --> lib/money/cents.buri:7:36
   |
-7 | from "core/effect" import { Alloc }
+7 | from "core/effect/lib.buri" import { Alloc }
   |                                    ^
   |
   = fix: write `;` here

@@ -1,8 +1,8 @@
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-from "core/bytes" import * as bytes;
-from "core/json" import * as json;
-from "//lib/rpc" import {
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/bytes/lib.buri" import * as bytes;
+from "core/json/lib.buri" import * as json;
+from "//lib/rpc/lib.buri" import {
   Any, ErrorInfo, Status,
   encodeErrorInfo, decodeErrorInfo,
   encodeStatus, decodeStatus, encodeStatusJson,

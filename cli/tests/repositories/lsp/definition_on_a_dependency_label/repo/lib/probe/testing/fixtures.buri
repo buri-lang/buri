@@ -1,4 +1,4 @@
-from "//lib/probe/inner" import { depth };
+from "//lib/probe/inner/lib.buri" import { depth };
 
 /// A number every suite that uses this library agrees about.
 export fn sample(): I64 { depth() + 5 }

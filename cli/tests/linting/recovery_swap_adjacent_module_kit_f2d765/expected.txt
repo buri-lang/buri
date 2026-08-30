@@ -1,7 +1,7 @@
 error: a namespace import must be named [unnamed-namespace-import]
  --> lib/recovery_swap_adjacent_module_kit_f2d765/lib.buri:4:25
   |
-4 | from "core/list" import * list as;
+4 | from "core/list/lib.buri" import * list as;
   |                         ^
   |
   = write `import * as name`; bare `import *` is not derivable from the grammar, so that no identifier enters a module's scope without appearing in that module's own source

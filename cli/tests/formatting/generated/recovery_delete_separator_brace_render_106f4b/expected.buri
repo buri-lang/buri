@@ -5,10 +5,10 @@
 // library, declared in `test.dependencies`, that no production target can
 // import because its path contains a `testing` segment.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
-from "//lib/ledger/testing" import { oneOff, sample };
-from "//tools/report" import { render };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
+from "//lib/ledger/testing/lib.buri" import { oneOff, sample };
+from "//tools/report/lib.buri" import { render };
 
 test "the terse report is one line" {
     let ctx = Hermetic();

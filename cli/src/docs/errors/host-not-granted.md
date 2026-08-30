@@ -25,9 +25,9 @@ declaration anywhere that has to be kept in step.
 ## A program that provokes it
 
 ```buri fail code=host-not-granted platform=JS
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-from "ui/effect" import { Ui, Watch };
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
   let ctx = context {

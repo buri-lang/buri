@@ -42,7 +42,7 @@ leaving as an absence:
   through a `$host_*` intrinsic and nowhere else.
 - **Only `main` can name one.** `core/host` is importable only from the module
   that exports `main` ([`SPEC.md` §11](../SPEC.md)). A library, an inner module,
-  and a test source that write `from "core/host" import …` are rejected —
+  and a test source that write `from "core/host/lib.buri" import …` are rejected —
   `host-import`, pinned by the reject corpus. So no code that participates in an
   action has a *name* for ambient state.
 - **A test's capabilities are fakes.** A suite is handed a context the runner

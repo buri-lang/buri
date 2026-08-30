@@ -12,7 +12,7 @@
 // transformation only fires on a whole function, so what is under test has to
 // be a function the compiler saw as one.
 
-from "//lib/codegen/shapes" export {
+from "//lib/codegen/shapes.buri" export {
   // closures built inside a tail loop
   adders, addersEven, addersOdd, scalers, pairs,
   // tail position under the short-circuiting operators

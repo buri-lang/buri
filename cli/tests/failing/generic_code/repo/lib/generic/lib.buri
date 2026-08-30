@@ -1,1 +1,1 @@
-from "//lib/generic/generic" export { firstOr, twice };
+from "//lib/generic/generic.buri" export { firstOr, twice };

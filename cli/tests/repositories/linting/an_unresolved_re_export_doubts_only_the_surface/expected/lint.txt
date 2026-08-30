@@ -30,7 +30,7 @@ warning: nothing reads `Ledger.seal` [unused-field]
 error: "//lib/money/cents" does not export `Ledgor` [no-such-export]
  --> lib/money/lib.buri:5:35
   |
-5 | from "//lib/money/cents" export { Ledgor, ledger, markupCents };
+5 | from "//lib/money/cents.buri" export { Ledgor, ledger, markupCents };
   |                                   ^^^^^^
   |
   = a re-export may name only what its module path exports

@@ -1,6 +1,6 @@
 // EXPECT: expected `Str`, found `I64`
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 enum Event {
   Opened { value: Str },

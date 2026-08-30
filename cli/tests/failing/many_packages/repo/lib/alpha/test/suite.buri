@@ -1,7 +1,7 @@
 // One of two packages, so that `buri test //...` has more than one suite to
 // order and more than one target to name.
 
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "alpha fails" {
     assert.eq(1, 2);

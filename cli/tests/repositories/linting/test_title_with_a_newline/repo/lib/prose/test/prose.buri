@@ -3,9 +3,9 @@
 // as noise. The rule is about the prose, not about the program: a title with a
 // newline in it still compiles and still runs.
 
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 
-from "//lib/prose" import { shout };
+from "//lib/prose/lib.buri" import { shout };
 
 test "a title\nthat wraps" {
   assert.eq(shout("hi"), "hi")

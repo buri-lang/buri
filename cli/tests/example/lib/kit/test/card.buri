@@ -8,13 +8,13 @@
 // this library decides: which element each role became, which class reached
 // which element, and what the stylesheet says that class means.
 
-from "//lib/kit" import { card, meter, pill, themed, Token };
-from "core/testing/assert" import * as assert;
-from "ui/effect" import { Ui, Watch };
-from "ui/node" import * as ui;
-from "ui/signal" import { signal };
-from "ui/style" import { Color };
-from "ui/testing" import { headless, install, observer, render, stylesheet };
+from "//lib/kit/lib.buri" import { card, meter, pill, themed, Token };
+from "core/testing/assert/lib.buri" import * as assert;
+from "ui/effect/lib.buri" import { Ui, Watch };
+from "ui/node/lib.buri" import * as ui;
+from "ui/signal/lib.buri" import { signal };
+from "ui/style/lib.buri" import { Color };
+from "ui/testing/lib.buri" import { headless, install, observer, render, stylesheet };
 
 /// The mapping an app writes. Its `match` is the compatibility check, and the
 /// day //lib/kit adds a token this function stops compiling — which is the

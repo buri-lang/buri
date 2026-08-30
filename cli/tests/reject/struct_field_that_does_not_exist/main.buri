@@ -1,7 +1,7 @@
 // EXPECT: has no field `f1`
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-from "core/str" import * as str;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/str/lib.buri" import * as str;
 
 struct Rec { export f0: Int }
 

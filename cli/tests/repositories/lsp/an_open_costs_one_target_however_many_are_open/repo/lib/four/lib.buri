@@ -1,2 +1,2 @@
-from "//lib/four/a" export { fourA };
-from "//lib/four/b" export { fourB };
+from "//lib/four/a.buri" export { fourA };
+from "//lib/four/b.buri" export { fourB };

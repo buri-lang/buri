@@ -210,8 +210,8 @@ may not also be a package path.
 `lib.buri` is made of re-exports and may also declare things itself:
 
 ```buri
-from "//lib/money/cents" export { Cents, fromCents, add, format };
-from "//lib/money/parse" export { ParseError, parse };
+from "//lib/money/cents.buri" export { Cents, fromCents, add, format };
+from "//lib/money/parse.buri" export { ParseError, parse };
 ```
 
 Exporting `add` makes both `add(a, b)` and `a.add(b)` available outside;

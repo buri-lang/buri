@@ -12,17 +12,17 @@
 // `$ui_theme_install` is there, because `mount` is handed a theme; and both
 // arrive through the two assignments the backend writes above the program,
 // which are the only references to either.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect/lib.buri" import { Alloc, Stdout };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
-from "core/io" import * as io;
-from "ui/effect" import { Ui, Watch };
-from "ui/node" import * as ui;
-from "ui/signal" import { signal };
-from "ui/style" import * as style;
-from "ui/style" import { Color };
-from "ui/theme" import * as theme;
-from "ui/theme" import { Theme };
+from "core/host/lib.buri" import * as host;
+from "core/io/lib.buri" import * as io;
+from "ui/effect/lib.buri" import { Ui, Watch };
+from "ui/node/lib.buri" import * as ui;
+from "ui/signal/lib.buri" import { signal };
+from "ui/style/lib.buri" import * as style;
+from "ui/style/lib.buri" import { Color };
+from "ui/theme/lib.buri" import * as theme;
+from "ui/theme/lib.buri" import { Theme };
 
 enum Token {
   Bg,

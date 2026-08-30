@@ -1,4 +1,4 @@
-from "//lib/z" import { Zed };
+from "//lib/z/lib.buri" import { Zed };
 
 export fn f(): Int {
     1

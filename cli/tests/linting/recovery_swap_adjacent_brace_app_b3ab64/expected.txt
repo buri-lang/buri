@@ -1,7 +1,7 @@
 warning: Stdout is imported but not used [unused-import]
  --> lib/recovery_swap_adjacent_brace_app_b3ab64/main.buri:5:36
   |
-5 | from "core/effect" import { Alloc, Stdout };
+5 | from "core/effect/lib.buri" import { Alloc, Stdout };
   |                                    ^^^^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up

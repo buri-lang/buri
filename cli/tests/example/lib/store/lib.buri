@@ -2,4 +2,4 @@
 // //lib/store/codec are internal — the log format is this library's business,
 // and keeping it off the surface is what makes changing it a one-package change.
 
-from "//lib/store/file_store" export { append, readLog, StoreError };
+from "//lib/store/file_store.buri" export { append, readLog, StoreError };

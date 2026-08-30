@@ -1,1 +1,1 @@
-from "//lib/spin/spin" export { spin };
+from "//lib/spin/spin.buri" export { spin };

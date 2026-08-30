@@ -5,12 +5,12 @@
 // and a lone surrogate are both byte sequences a lenient decoder would turn
 // into something, and both are wrong.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
 
-from "core/bytes" import { DecodeError, Utf8Error };
-from "core/bytes" import * as bytes;
-from "core/list" import * as list;
+from "core/bytes/lib.buri" import { DecodeError, Utf8Error };
+from "core/bytes/lib.buri" import * as bytes;
+from "core/list/lib.buri" import * as list;
 
 // --- UTF-8 ----------------------------------------------------------------------
 

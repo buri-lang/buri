@@ -1,8 +1,8 @@
 // Reaches its own library, which is exempt, and //lib/helper, which is not.
 
-from "//lib/subject" import { triple };
-from "//lib/helper" import { double };
-from "core/testing/assert" import * as assert;
+from "//lib/subject/lib.buri" import { triple };
+from "//lib/helper/lib.buri" import { double };
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "triple, checked against double" {
   assert.eq(triple(2), 6);

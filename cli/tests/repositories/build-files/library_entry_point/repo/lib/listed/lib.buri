@@ -1,1 +1,1 @@
-from "//lib/listed/b" export { b };
+from "//lib/listed/b.buri" export { b };

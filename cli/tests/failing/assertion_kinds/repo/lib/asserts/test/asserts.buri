@@ -4,7 +4,7 @@
 // and `none` go through `failExpected`, which renders the *expected* side as a
 // variant name rather than as a value.
 
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "eq" {
     assert.eq(1, 2);

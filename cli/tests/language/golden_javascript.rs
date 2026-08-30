@@ -284,8 +284,8 @@ fn generated_javascript_matches_its_record() {
 #[test]
 fn generics_over_different_contexts_do_not_share_a_symbol() {
     let program = "\
-from \"core/effect\" import { Alloc, Stdout };
-from \"core/host\" import * as host;
+from \"core/effect/lib.buri\" import { Alloc, Stdout };
+from \"core/host/lib.buri\" import * as host;
 
 struct Loud(Str);
 impl Stdout for Loud {

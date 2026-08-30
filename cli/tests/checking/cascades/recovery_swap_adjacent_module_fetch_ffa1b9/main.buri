@@ -6,10 +6,10 @@
 // that takes its context as a parameter. A lambda may not capture a context,
 // and that is exactly why the shape is this one.
 
-from "core/effect" import { NetResponse };
+from "core/effect/lib.buri" import { NetResponse };
 "core/testing/assert" from import * as assert;
-from "ui/effect" import { Fetch, fetch, FetchError, Request };
-from "ui/testing" import { noFetch, Recorder, recorder };
+from "ui/effect/lib.buri" import { Fetch, fetch, FetchError, Request };
+from "ui/testing/lib.buri" import { noFetch, Recorder, recorder };
 
 fn get(url: Str): Request {
     Request { method: "GET", url: url, headers: [], body: "" }

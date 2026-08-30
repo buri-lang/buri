@@ -1,10 +1,10 @@
 // CRASH: random range is empty
 // `hi < lo` is the same emptiness as `hi == lo`, and is worth its own case
 // because a subtraction of the two would silently produce a negative span.
-from "core/effect" import { Alloc, Stdout, Env, Rand };
-from "core/host" import * as host;
-from "core/env" import * as env;
-from "core/random" import * as random;
+from "core/effect/lib.buri" import { Alloc, Stdout, Env, Rand };
+from "core/host/lib.buri" import * as host;
+from "core/env/lib.buri" import * as env;
+from "core/random/lib.buri" import * as random;
 
 export fn main(): Result<(), Str> {
   let ctx = context {

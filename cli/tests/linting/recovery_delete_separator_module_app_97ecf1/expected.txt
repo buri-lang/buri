@@ -1,7 +1,7 @@
 error: an import declaration ends with `;` [missing-terminator]
  --> lib/recovery_delete_separator_module_app_97ecf1/main.buri:7:30
   |
-7 | from "core/io" import * as io
+7 | from "core/io/lib.buri" import * as io
   |                              ^
   |
   = fix: write `;` here

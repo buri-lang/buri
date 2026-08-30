@@ -23,5 +23,5 @@ can never be wider than the modules it is built from.
 ## A program that provokes it
 
 ```buri fail code=no-such-export
-from "core/list" export { notAThing };
+from "core/list/lib.buri" export { notAThing };
 ```

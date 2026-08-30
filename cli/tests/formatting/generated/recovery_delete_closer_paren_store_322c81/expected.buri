@@ -6,11 +6,11 @@
 // directory and containing exactly the files in `test { data: [...] }`. Writes
 // are visible to this test and discarded when it ends.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
-from "//lib/ledger" import { entry };
-from "//lib/money" import { fromCents };
-from "//lib/store" import { append, readLog };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
+from "//lib/ledger/lib.buri" import { entry };
+from "//lib/money/lib.buri" import { fromCents };
+from "//lib/store/lib.buri" import { append, readLog };
 
 test "append writes the log format" {
     let ctx = Hermetic();

@@ -1,4 +1,4 @@
-from "//lib/shop/catalog" import { listed };
+from "//lib/shop/catalog.buri" import { listed };
 
 /// What the basket comes to, in whole cents.
 export fn total(count: I64): I64 { count * listed() }

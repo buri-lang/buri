@@ -1,4 +1,4 @@
-from "//lib/shop/inventory" import { Item, Stock, Priced, listing, defaultPrice };
+from "//lib/shop/inventory.buri" import { Item, Stock, Priced, listing, defaultPrice };
 
 /// What the whole shelf is worth, counting only what is in stock.
 export fn subtotal(items: [Item]): I64 {

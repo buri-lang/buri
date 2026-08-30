@@ -12,7 +12,7 @@ a second, above it:
 | Level | Written | Visible to |
 |---|---|---|
 | Module | `export fn toCents(...)` in `cents.buri` | Any file **inside this library** that imports `//lib/money/cents` |
-| Library | `from "//lib/money/cents" export { Cents };` in `lib.buri` | Any target that declares this library in `dependencies` |
+| Library | `from "//lib/money/cents.buri" export { Cents };` in `lib.buri` | Any target that declares this library in `dependencies` |
 
 Nothing changes about `export` itself. A library-level export is a re-export
 ([`SPEC.md` §4.2.1](../SPEC.md)) written in a file the build system knows the
@@ -22,8 +22,8 @@ not reachable from outside the library.**
 ```buri repo=cli/tests/example package=//lib/money
 // lib/money/lib.buri — the surface of //lib/money, complete.
 
-from "//lib/money/cents" export { Cents, fromDollars, fromCents, add, isZero, format };
-from "//lib/money/parse" export { ParseError, parse };
+from "//lib/money/cents.buri" export { Cents, fromDollars, fromCents, add, isZero, format };
+from "//lib/money/parse.buri" export { ParseError, parse };
 ```
 
 ```buri
@@ -49,9 +49,9 @@ impl Cents {
 From `//cmd/server`:
 
 ```buri repo=cli/tests/example package=//cmd/server
-from "//lib/money" import { Cents, format };        // fine
-from "//lib/money" import { toCents };              // ERROR: "//lib/money" does not export `toCents`
-from "//lib/money/cents" import { toCents };        // ERROR: internal to //lib/money
+from "//lib/money/lib.buri" import { Cents, format };        // fine
+from "//lib/money/lib.buri" import { toCents };              // ERROR: "//lib/money" does not export `toCents`
+from "//lib/money/cents.buri" import { toCents };        // ERROR: internal to //lib/money
 ```
 
 The property this buys is that reviewing a library's API is reading one file.
@@ -87,10 +87,10 @@ library each time. The rules the compiler enforces:
    error: //lib/ledger imports //lib/money/cents, which is internal to //lib/money
      --> lib/ledger/entry.buri:4:6
       |
-    4 | from "//lib/money/cents" import { Cents };
+    4 | from "//lib/money/cents.buri" import { Cents };
       |      ^^^^^^^^^^^^^^^^^^^
       |
-      = import the library instead: from "//lib/money" import { Cents };
+      = import the library instead: from "//lib/money/lib.buri" import { Cents };
       = only names re-exported by lib/money/lib.buri are available
    ```
 3. **A module path may not also be a package path.** If `lib/money/cents/` were
@@ -132,7 +132,7 @@ that reaches for one gets:
 error: lib/store/file_store.buri imports a test-only module
   --> lib/store/file_store.buri:6:6
    |
- 6 | from "//lib/ledger/testing" import { sample };
+ 6 | from "//lib/ledger/testing/lib.buri" import { sample };
    |      ^^^^^^^^^^^^^^^^^^^^^^
    |
    = a path containing `testing` may be imported only from a test source
@@ -175,7 +175,7 @@ unreachable.
 
 ```buri repo=cli/tests/example package=//lib/ledger role=test
 // lib/ledger/testing/lib.buri — the surface of //lib/ledger/testing.
-from "//lib/ledger/testing/fixtures" export { sample, oneOff };
+from "//lib/ledger/testing/fixtures.buri" export { sample, oneOff };
 ```
 
 Four properties come from it being *in the package* rather than beside it:
@@ -218,9 +218,9 @@ moment you try.
 `lib.buri` is made of re-exports:
 
 ```buri repo=cli/tests/example package=//lib/money
-from "//lib/money/cents" export { Cents, fromCents };
-from "//lib/money/cents" export { add as addMoney };   // renaming is allowed
-from "//lib/money/cents" export *;                     // ERROR: expected `{`, found `*`
+from "//lib/money/cents.buri" export { Cents, fromCents };
+from "//lib/money/cents.buri" export { add as addMoney };   // renaming is allowed
+from "//lib/money/cents.buri" export *;                     // ERROR: expected `{`, found `*`
 ```
 
 There is no `export *` for the same reason there is no bare `import *`: every
@@ -233,8 +233,8 @@ A `lib.buri` may also declare things itself. It is an ordinary module that
 happens to be the entry point, so this is fine:
 
 ```buri repo=cli/tests/example package=//lib/money
-from "//lib/money/cents" export { Cents, fromCents };
-from "//lib/money/cents" import { Cents, toCents };
+from "//lib/money/cents.buri" export { Cents, fromCents };
+from "//lib/money/cents.buri" import { Cents, toCents };
 
 /// Declared here rather than re-exported; both are public surface. A free
 /// function, not a method: `Cents` is declared in cents.buri, and a method must
@@ -247,7 +247,7 @@ Three consequences worth stating outright:
 - **Methods are filtered by the surface, like everything else.** Method calls
   resolve through the receiver's defining module rather than through scope
   ([`SPEC.md` §6.7](../SPEC.md)), which means a type could otherwise smuggle
-  operations across the boundary: `from "//lib/money" import { Cents }` would
+  operations across the boundary: `from "//lib/money/lib.buri" import { Cents }` would
   make every method on `Cents` callable, including `toCents`, whether or not
   `lib.buri` mentioned it. So the rule is uniform — **a name is on the surface
   if `lib.buri` exports it, and a method call from outside the library resolves
@@ -327,8 +327,8 @@ no build graph. `lib.buri` re-exports from wherever the names live:
 
 ```buri repo=cli/tests/example package=//lib/ledger
 // lib/ledger/lib.buri
-from "//lib/ledger/entry" export { Entry, entry, total };
-from "//lib/ledger/posting/rules" export { Rule, apply };
+from "//lib/ledger/entry.buri" export { Entry, entry, total };
+from "//lib/ledger/posting/rules.buri" export { Rule, apply };
 ```
 
 Subdirectory nesting has no cost in the build graph: one library is one compile

@@ -1,1 +1,1 @@
-from "//lib/ledger/entry" export { priceOf };
+from "//lib/ledger/entry.buri" export { priceOf };

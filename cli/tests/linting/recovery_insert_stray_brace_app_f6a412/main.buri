@@ -2,9 +2,9 @@
 // missing abstraction the rule is about rather than the count itself. `self`
 // and `ctx` are not counted: neither is data a caller assembled.
 
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-from "core/io" import * as io;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/io/lib.buri" import * as io;
 
 fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {
   a + b + c + d + e + f

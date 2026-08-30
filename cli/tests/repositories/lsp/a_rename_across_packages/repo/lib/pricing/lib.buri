@@ -1,1 +1,1 @@
-from "//lib/pricing/rate" export { markup };
+from "//lib/pricing/rate.buri" export { markup };

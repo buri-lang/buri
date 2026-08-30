@@ -3,8 +3,8 @@
 // payload — because "no elements" is the case a renderer written for one
 // element gets wrong.
 
-from "core/testing/assert" import * as assert;
-from "//lib/shapes" import { Colour, Deep, Hollow, Pair, Point, Shape };
+from "core/testing/assert/lib.buri" import * as assert;
+from "//lib/shapes/lib.buri" import { Colour, Deep, Hollow, Pair, Point, Shape };
 
 test "a tuple" {
     assert.eq((1, "a", true), (2, "b", false));

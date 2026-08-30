@@ -1,7 +1,7 @@
 error: expected `;`, found `,` [unexpected-token]
  --> main.buri:1:33
   |
-1 | from "core/list" export { fold }, ;
+1 | from "core/list/lib.buri" export { fold }, ;
   |                                 ^
   |
   = expected: `;`

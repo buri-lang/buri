@@ -1,7 +1,7 @@
 // EXPECT: carries an effect, so it must be named `ctx`
-from "core/effect" import { Alloc, Fs, Stdout };
-from "core/host" import * as host;
-from "core/fs" import * as fs;
+from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/fs/lib.buri" import * as fs;
 
 fn sneaky<C: Fs>(a: Int, handle: C): Bool {
   fs.exists(handle, "x")

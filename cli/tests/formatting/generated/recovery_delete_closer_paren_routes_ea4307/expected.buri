@@ -1,8 +1,8 @@
 // Tests for a binary. The target under test is main.buri, addressed by its
 // module path — which only this package's own test sources may import.
 
-from "core/testing/assert" import * as assert;
-from "//cmd/server/main" import { route };
+from "core/testing/assert/lib.buri" import * as assert;
+from "//cmd/server/main.buri" import { route };
 
 test "known paths get their handler" {
   assert.eq(route("/entries".name, "entries");

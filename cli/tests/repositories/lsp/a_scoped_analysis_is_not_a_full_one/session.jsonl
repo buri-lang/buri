@@ -10,12 +10,12 @@
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # One buffer. The open runs the target's two whole-closure passes and
 # publishes `catalog.buri`'s error along with `cart.buri`'s clean list.
-{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/shop/catalog\" import { listed };\n\n/// What the basket comes to, in whole cents.\nexport fn total(count: I64): I64 { count * listed() }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/shop/catalog.buri\" import { listed };\n\n/// What the basket comes to, in whole cents.\nexport fn total(count: I64): I64 { count * listed() }\n"}}}
 # A hover, before anything moved: the open's analysis checked every body in
 # the closure, which is a superset of what this needs. `analyses 0`.
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 3, "character": 11}}}
 # A keystroke.
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri", "version": 2}, "contentChanges": [{"text": "from \"//lib/shop/catalog\" import { listed };\n\n/// What the basket comes to, in whole cents.\nexport fn total(count: I64): I64 { count * listed() }\n\n// A keystroke, appended so that nothing above it moves.\n"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri", "version": 2}, "contentChanges": [{"text": "from \"//lib/shop/catalog.buri\" import { listed };\n\n/// What the basket comes to, in whole cents.\nexport fn total(count: I64): I64 { count * listed() }\n\n// A keystroke, appended so that nothing above it moves.\n"}]}}
 # The same hover again. Nothing in the cache holds, so this is one analysis —
 # and a scoped one: only `cart.buri`'s bodies are checked.
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 3, "character": 11}}}

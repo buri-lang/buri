@@ -6,7 +6,7 @@
 // together would leave the assertion true, which is exactly the mistake this
 // file exists to catch.
 
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "the canary holds" {
     assert.eq(6 * 7, 42);

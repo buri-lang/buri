@@ -3,8 +3,8 @@
 // reaches the rest of the library by absolute path, with no visibility rules
 // between them, because a subdirectory is not a boundary.
 
-from "core/effect" import { Alloc };
-from "//lib/ledger/entry" import { Entry };
+from "core/effect/lib.buri" import { Alloc };
+from "//lib/ledger/entry.buri" import { Entry };
 
 export enum Rule {
     DropZero,

@@ -1,1 +1,1 @@
-from "//lib/kit/kit" export { one };
+from "//lib/kit/kit.buri" export { one };

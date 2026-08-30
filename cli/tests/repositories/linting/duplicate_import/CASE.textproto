@@ -18,8 +18,8 @@ run {
 # Merging is the whole fix, and it is one statement naming both.
 edit {
   file: "cmd/app/main.buri"
-  replace: "from \"core/effect\" import { Alloc };\nfrom \"core/effect\" import { Stdout };\n"
-  with: "from \"core/effect\" import { Alloc, Stdout };\n"
+  replace: "from \"core/effect/lib.buri\" import { Alloc };\nfrom \"core/effect/lib.buri\" import { Stdout };\n"
+  with: "from \"core/effect/lib.buri\" import { Alloc, Stdout };\n"
 }
 
 run {

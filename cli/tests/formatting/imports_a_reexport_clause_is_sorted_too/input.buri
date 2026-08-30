@@ -1,1 +1,1 @@
-from "//lib/z" export { Zed, Guitar, apply as play, Banjo };
+from "//lib/z/lib.buri" export { Zed, Guitar, apply as play, Banjo };

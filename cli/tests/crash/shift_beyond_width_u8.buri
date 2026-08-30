@@ -1,8 +1,8 @@
 // CRASH: shift out of range
-from "core/effect" import { Alloc, Stdout, Env };
-from "core/bits" import * as bits;
-from "core/host" import * as host;
-from "core/env" import * as env;
+from "core/effect/lib.buri" import { Alloc, Stdout, Env };
+from "core/bits/lib.buri" import * as bits;
+from "core/host/lib.buri" import * as host;
+from "core/env/lib.buri" import * as env;
 
 fn push(x: U8, n: Int): U8 { bits.shlU8(x, n) }
 

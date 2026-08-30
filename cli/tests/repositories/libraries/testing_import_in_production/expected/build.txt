@@ -1,7 +1,7 @@
 error: this is a test-only module [test-only-import]
  --> cmd/app/main.buri:8:6
   |
-8 | from "//lib/money/testing" import { sample };
+8 | from "//lib/money/testing/lib.buri" import { sample };
   |      ^^^^^^^^^^^^^^^^^^^^^ importable only from a test source
   |
   = a path containing a `testing` segment may be imported only from a test source

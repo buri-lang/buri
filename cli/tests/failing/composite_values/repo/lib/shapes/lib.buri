@@ -1,1 +1,1 @@
-from "//lib/shapes/shapes" export { Colour, Deep, Hollow, Pair, Point, Shape };
+from "//lib/shapes/shapes.buri" export { Colour, Deep, Hollow, Pair, Point, Shape };

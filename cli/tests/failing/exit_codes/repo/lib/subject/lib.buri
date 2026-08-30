@@ -1,1 +1,1 @@
-from "//lib/subject/subject" export { answer };
+from "//lib/subject/subject.buri" export { answer };

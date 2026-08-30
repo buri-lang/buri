@@ -1,1 +1,1 @@
-from "//lib/weather/celsius" export { Celsius, fromCelsius, warmer };
+from "//lib/weather/celsius.buri" export { Celsius, fromCelsius, warmer };

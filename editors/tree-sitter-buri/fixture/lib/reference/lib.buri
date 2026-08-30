@@ -1,1 +1,1 @@
-from "//lib/reference/sections" export { anonymous, credential, describe, Source };
+from "//lib/reference/sections.buri" export { anonymous, credential, describe, Source };

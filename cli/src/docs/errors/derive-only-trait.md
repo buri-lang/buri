@@ -29,8 +29,8 @@ is a type you convert to first, which is a function visible at the call site.
 ## A program that provokes it
 
 ```buri fail code=derive-only-trait
-# from "core/effect" import { Alloc };
-# from "core/json" import { Json, ToJson };
+# from "core/effect/lib.buri" import { Alloc };
+# from "core/json/lib.buri" import { Json, ToJson };
 struct Point { export x: Int, export y: Int }
 
 impl ToJson for Point {

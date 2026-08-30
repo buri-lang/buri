@@ -1,5 +1,5 @@
-from "core/testing/assert" import * as assert;
-from "//lib/shop" import { defaultPrice, listing, subtotal };
+from "core/testing/assert/lib.buri" import * as assert;
+from "//lib/shop/lib.buri" import { defaultPrice, listing, subtotal };
 
 test "a shelf holds nothing until it is stocked" {
     let plain = listing("plain", defaultPrice);

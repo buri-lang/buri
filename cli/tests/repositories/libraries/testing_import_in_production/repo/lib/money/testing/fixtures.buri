@@ -1,6 +1,6 @@
 // A test-only surface: a second entry point of this package, reachable as
 // //lib/money/testing and importable only from a test source.
 
-from "//lib/money/cents" import { Cents, fromCents };
+from "//lib/money/cents.buri" import { Cents, fromCents };
 
 export fn sample(): Cents { fromCents(1234) }

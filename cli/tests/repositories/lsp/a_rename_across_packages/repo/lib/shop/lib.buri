@@ -1,1 +1,1 @@
-from "//lib/shop/cart" export { subtotal };
+from "//lib/shop/cart.buri" export { subtotal };

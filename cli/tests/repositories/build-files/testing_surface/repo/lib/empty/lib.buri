@@ -1,1 +1,1 @@
-from "//lib/empty/e" export { e };
+from "//lib/empty/e.buri" export { e };

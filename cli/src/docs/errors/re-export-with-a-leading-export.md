@@ -5,5 +5,5 @@ fix: 'drop the leading `export`: the `export` after the path is the one that re-
 ---
 
 ```buri fail code=re-export-with-a-leading-export
-export from "core/list" export { map }
+export from "core/list/lib.buri" export { map }
 ```

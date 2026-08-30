@@ -30,8 +30,8 @@ run {
 # import never gets that far: what is wrong with it is the path.
 edit {
   file: "lib/other/lib.buri"
-  replace: "from \"//lib/other/thing\" export { thing };\n"
-  with: "from \"//lib/other/thing\" export { thing };\nfrom \"//cmd/tool/main\" import { banner };\n"
+  replace: "from \"//lib/other/thing.buri\" export { thing };\n"
+  with: "from \"//lib/other/thing.buri\" export { thing };\nfrom \"//cmd/tool/main.buri\" import { banner };\n"
 }
 
 run {
@@ -48,7 +48,7 @@ run {
 
 edit {
   file: "lib/other/lib.buri"
-  replace: "\nfrom \"//cmd/tool/main\" import { banner };"
+  replace: "\nfrom \"//cmd/tool/main.buri\" import { banner };"
   with: ""
 }
 
@@ -58,7 +58,7 @@ edit {
 edit {
   file: "cmd/tool/routes.buri"
   replace: "export fn route"
-  with: "from \"//cmd/tool/main\" import { banner };\n\nexport fn route"
+  with: "from \"//cmd/tool/main.buri\" import { banner };\n\nexport fn route"
 }
 
 run {
@@ -69,7 +69,7 @@ run {
 
 edit {
   file: "cmd/tool/routes.buri"
-  replace: "from \"//cmd/tool/main\" import { banner };\n\nexport fn route"
+  replace: "from \"//cmd/tool/main.buri\" import { banner };\n\nexport fn route"
   with: "export fn route"
 }
 

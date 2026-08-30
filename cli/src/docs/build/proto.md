@@ -5,8 +5,8 @@ generated rather than read:
 
 ```buri repo=cli/tests/conformance package=//lib/proto
 from "//lib/proto/address.proto" import { Address, encodeAddress, decodeAddress };
-from "core/effect" import { Alloc };
-from "core/proto" import { ProtoError };
+from "core/effect/lib.buri" import { Alloc };
+from "core/proto/lib.buri" import { ProtoError };
 
 export fn roundTrip<C: Alloc>(ctx: C, a: Address): Result<Address, ProtoError> {
   decodeAddress(ctx, encodeAddress(ctx, a))

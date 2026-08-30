@@ -1,7 +1,7 @@
 // A mutually tail-recursive pair, merged into one function with a dispatch
 // switch and a forwarding stub for each member.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn isEven(n: Int): Bool {
   if (n == 0) { true } else { isOdd(n - 1) }

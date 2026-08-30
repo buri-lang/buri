@@ -1,7 +1,7 @@
-from "//lib/z" import { Zed };
-from "core/str" import * as str;
-from "//lib/a" import { Ay };
-from "core/effect" import { Alloc };
-from "core/effect" import * as effects;
+from "//lib/z/lib.buri" import { Zed };
+from "core/str/lib.buri" import * as str;
+from "//lib/a/lib.buri" import { Ay };
+from "core/effect/lib.buri" import { Alloc };
+from "core/effect/lib.buri" import * as effects;
 
 export fn f(): Int { 1 }

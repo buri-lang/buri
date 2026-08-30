@@ -1,7 +1,7 @@
 error: expected `;`, found `,` [unexpected-token]
  --> lib/recovery_insert_stray_module_app_7d2277/main.buri:7:30
   |
-7 | from "core/io" import * as io, ;
+7 | from "core/io/lib.buri" import * as io, ;
   |                              ^
   |
   = expected: `;`

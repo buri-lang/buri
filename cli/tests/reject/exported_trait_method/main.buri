@@ -2,9 +2,9 @@
 // A method of the type's own is exported on its own terms. A method that
 // satisfies a trait is not: conformance belongs to the type, so the method is
 // visible wherever the type is and there is nothing left for `export` to say.
-from "core/effect" import { Alloc, Stdout };
-from "core/order" import { Eq };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/order/lib.buri" import { Eq };
+from "core/host/lib.buri" import * as host;
 
 export struct Version { export major: Int }
 

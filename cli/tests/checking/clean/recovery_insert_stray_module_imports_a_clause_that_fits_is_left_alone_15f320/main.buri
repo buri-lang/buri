@@ -1,1 +1,1 @@
-from "core/str" import extra { concat, split };
+from "core/str/lib.buri" import extra { concat, split };

@@ -1,1 +1,1 @@
-from "//lib/probe/testing/fixtures" export { sample };
+from "//lib/probe/testing/fixtures.buri" export { sample };

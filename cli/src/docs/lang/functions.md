@@ -1,7 +1,7 @@
 ## 9. Functions
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Clock };
+# from "core/effect/lib.buri" import { Clock };
 export fn slugify(s: Str): Str { ... }
 
 fn quadratic(a: F64, b: F64, c: F64): Option<(F64, F64)> { ... }

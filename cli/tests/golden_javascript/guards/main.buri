@@ -1,7 +1,7 @@
 // Guards: an arm that matches may still fall through, which is why the whole
 // match runs inside a loop the first success breaks out of.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn size(n: Int): Str {
   match (n) {

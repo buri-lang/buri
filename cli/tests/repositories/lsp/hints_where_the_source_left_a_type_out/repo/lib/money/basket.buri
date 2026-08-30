@@ -1,4 +1,4 @@
-from "//lib/money/cents" import { Money, line };
+from "//lib/money/cents.buri" import { Money, line };
 
 /// What a basket of one thing costs.
 export fn total(count: I64): Money {

@@ -2,4 +2,4 @@
 // typo, and what this library publishes is a shorter list than the author
 // wrote — so a name that line may have carried is a name that may be exempt,
 // and nothing exported is reported unused while that stands.
-from "//lib/money/cents" export { Ledgor, ledger, markupCents };
+from "//lib/money/cents.buri" export { Ledgor, ledger, markupCents };

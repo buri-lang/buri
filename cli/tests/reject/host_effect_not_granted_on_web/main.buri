@@ -7,9 +7,9 @@
 // than by convention. `Fetch` is the shape WEB grants instead.
 //
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/effect" import { Alloc, Net, Stdout };
-from "core/host" import * as host;
-from "ui/effect" import { Ui, Watch };
+from "core/effect/lib.buri" import { Alloc, Net, Stdout };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
   let ctx = context {

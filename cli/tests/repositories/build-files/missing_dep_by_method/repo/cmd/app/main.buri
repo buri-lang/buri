@@ -3,10 +3,10 @@
 // resolves through its receiver's type rather than through scope, so this
 // target depends on //lib/money and no import says so.
 
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
-from "//lib/ledger" import { priceOf };
+from "//lib/ledger/lib.buri" import { priceOf };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

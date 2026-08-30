@@ -1,7 +1,7 @@
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
-from "//lib/widget" import { widget };
+from "//lib/widget/lib.buri" import { widget };
 
 export fn banner(): Str { widget() }
 

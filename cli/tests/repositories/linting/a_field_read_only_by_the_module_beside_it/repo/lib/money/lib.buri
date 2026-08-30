@@ -1,1 +1,1 @@
-from "//lib/money/routes" export { total };
+from "//lib/money/routes.buri" export { total };

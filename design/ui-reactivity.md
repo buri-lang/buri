@@ -549,27 +549,27 @@ standard library either: each package declares its own.
 Typical imports — a component module:
 
 ```buri
-from "ui/node" import * as ui;
-from "ui/node" import { Node };              // signature types
-from "ui/prop" import { Prop };
-from "ui/style" import { Style };
-from "//lib/cardlib" import { Token };
+from "ui/node/lib.buri" import * as ui;
+from "ui/node/lib.buri" import { Node };              // signature types
+from "ui/prop/lib.buri" import { Prop };
+from "ui/style/lib.buri" import { Style };
+from "//lib/cardlib/lib.buri" import { Token };
 ```
 
 `main`:
 
 ```buri
-from "core/host" import * as host;
-from "ui/effect" import { Fetch, Ui, Watch };
-from "ui/node" import * as ui;
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Fetch, Ui, Watch };
+from "ui/node/lib.buri" import * as ui;
 // context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch, Fetch: host.fetch }
 ```
 
 A component test:
 
 ```buri
-from "core/testing/assert" import * as assert;
-from "ui/testing" import { headless, observer, render };
+from "core/testing/assert/lib.buri" import * as assert;
+from "ui/testing/lib.buri" import { headless, observer, render };
 ```
 
 Method calls (`count.get(c)`, `prop.read(c)`, `token.color()`) need no import —

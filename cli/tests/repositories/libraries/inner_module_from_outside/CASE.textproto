@@ -21,8 +21,8 @@ run {
 # path is well-formed and the rule is about who is asking.
 edit {
   file: "cmd/app/main.buri"
-  replace: "from \"//lib/money/cents\" import { fromCents };"
-  with: "from \"//lib/money\" import { fromCents };"
+  replace: "from \"//lib/money/cents.buri\" import { fromCents };"
+  with: "from \"//lib/money/lib.buri\" import { fromCents };"
 }
 
 run {

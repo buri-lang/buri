@@ -7,8 +7,8 @@
 // the structural rendering, the second fails on `render`'s answer and shows
 // what `Show` actually produces.
 
-from "core/testing/assert" import * as assert;
-from "//lib/money" import { Money, render };
+from "core/testing/assert/lib.buri" import * as assert;
+from "//lib/money/lib.buri" import { Money, render };
 
 test "the report renders the value structurally" {
     assert.eq(Money { cents: 1 }, Money { cents: 2 });

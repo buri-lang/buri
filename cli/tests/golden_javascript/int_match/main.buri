@@ -1,7 +1,7 @@
 // A match over many integer literals — the clearest case for a jump table, and
 // today the clearest case of a linear scan.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn roman(n: Int): Str {
   match (n) {

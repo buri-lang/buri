@@ -31,7 +31,7 @@ fn library(answer: &str) -> String {
 fn suite(label: &str) -> String {
     format!(
         "from \"{label}\" import {{ answer }};\n\
-         from \"core/testing/assert\" import * as assert;\n\
+         from \"core/testing/assert/lib.buri\" import * as assert;\n\
          \n\
          test \"answers\" {{\n  assert.eq(answer(), 21);\n}}\n"
     )
@@ -157,7 +157,7 @@ fn a_test_only_dependency_is_watched() {
         "lib/helper/BUILD.buri",
         "library {\n  sources: [\"h.buri\"]\n  visibility: [\"//...\"]\n}\n",
     );
-    scratch.write("lib/helper/lib.buri", "from \"//lib/helper/h\" export { double };\n");
+    scratch.write("lib/helper/lib.buri", "from \"//lib/helper/h.buri\" export { double };\n");
     scratch.write("lib/helper/h.buri", "export fn double(n: I64): I64 { n * 2 }\n");
     scratch.write(
         "lib/subject/BUILD.buri",
@@ -167,9 +167,9 @@ fn a_test_only_dependency_is_watched() {
     scratch.write("lib/subject/lib.buri", &library("21"));
     scratch.write(
         "lib/subject/test/x.buri",
-        "from \"//lib/subject\" import { answer };\n\
-         from \"//lib/helper\" import { double };\n\
-         from \"core/testing/assert\" import * as assert;\n\
+        "from \"//lib/subject/lib.buri\" import { answer };\n\
+         from \"//lib/helper/lib.buri\" import { double };\n\
+         from \"core/testing/assert/lib.buri\" import * as assert;\n\
          \ntest \"answers\" {\n  assert.eq(answer(), double(0) + 21);\n}\n",
     );
 

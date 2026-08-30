@@ -1,7 +1,7 @@
 error: //cmd/tool/main is a binary's entry point [binary-entry-import]
  --> lib/other/lib.buri:2:6
   |
-2 | from "//cmd/tool/main" import { banner };
+2 | from "//cmd/tool/main.buri" import { banner };
   |      ^^^^^^^^^^^^^^^^^
   |
   = only that binary's own test sources may import it; a library may not reach the binary in its package at all
@@ -9,14 +9,14 @@ error: //cmd/tool/main is a binary's entry point [binary-entry-import]
 warning: lib/other/lib.buri imports //cmd/tool, which is not in dependencies [missing-dep]
  --> lib/other/lib.buri:2:6
   |
-2 | from "//cmd/tool/main" import { banner };
+2 | from "//cmd/tool/main.buri" import { banner };
   |      ^^^^^^^^^^^^^^^^^
   |
   = fix: add "//cmd/tool" to dependencies in lib/other/BUILD.buri — `buri gen //lib/other` does this automatically
 warning: banner is imported but not used [unused-import]
  --> lib/other/lib.buri:2:33
   |
-2 | from "//cmd/tool/main" import { banner };
+2 | from "//cmd/tool/main.buri" import { banner };
   |                                 ^^^^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up

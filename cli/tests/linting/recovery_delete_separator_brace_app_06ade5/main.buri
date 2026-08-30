@@ -3,9 +3,9 @@
 // the file does not keep. `_` is the way to say a value is deliberately
 // dropped, which is why the rule can be held to every other name.
 
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-from "core/io" import * as io;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/io/lib.buri" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc Stdout: host.stdout };

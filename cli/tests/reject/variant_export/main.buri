@@ -1,6 +1,6 @@
 // EXPECT: a variant carries no `export` of its own
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 // `export` before a variant was the old spelling. It is kept here, and only
 // here, so that the error a file written against the old syntax gets — and the

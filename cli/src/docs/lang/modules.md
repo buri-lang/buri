@@ -11,10 +11,10 @@ the syntax is here.
 The module path comes **first**, before the specifier list:
 
 ```buri
-from "core/list" import { map, filter };
-from "core/list" import { map as listMap };
-from "core/list" import * as list;
-from "core/effect" import { Alloc, Fs, Stdout };
+from "core/list/lib.buri" import { map, filter };
+from "core/list/lib.buri" import { map as listMap };
+from "core/list/lib.buri" import * as list;
+from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
 ```
 
 The ordering is chosen for tooling rather than for prose: by the time you open
@@ -22,7 +22,7 @@ the brace, the compiler already knows which module you mean, so an editor can
 offer the module's exports as completions. With the path last, the specifier
 list has to be typed blind and then retro-checked.
 
-A namespace import **must** be named. `from "core/list" import *;` is not
+A namespace import **must** be named. `from "core/list/lib.buri" import *;` is not
 derivable from the grammar — the only wildcard form is `* as <name>`. There is
 consequently no way for an identifier to enter a module's scope without that
 identifier, or the namespace holding it, being written in the importing file.
@@ -115,8 +115,8 @@ A module may export a name it imported, in one declaration that mirrors
 `import`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-from "//lib/money/cents" export { Cents, fromCents };
-from "//lib/money/cents" export { add as addMoney };
+from "//lib/money/cents.buri" export { Cents, fromCents };
+from "//lib/money/cents.buri" export { add as addMoney };
 ```
 
 There is no `export *`, for the same reason there is no bare `import *`: every

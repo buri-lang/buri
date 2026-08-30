@@ -6,5 +6,5 @@ fix: take what you need as a `ctx` bound instead, and let `main` supply the impl
 ---
 
 ```buri fail code=host-import
-from "core/host" import * as host;
+from "core/host/lib.buri" import * as host;
 ```

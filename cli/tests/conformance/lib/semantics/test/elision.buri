@@ -7,11 +7,11 @@
 // literal and a written one are the same value, by `Eq`, by `Show` and by
 // `Hash`.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic, alloc };
-from "core/effect" import { Alloc };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic, alloc };
+from "core/effect/lib.buri" import { Alloc };
 
-from "//lib/semantics" import { World, Holder, worldHere, Hidden, hidden, hiddenPrivate };
+from "//lib/semantics/lib.buri" import { World, Holder, worldHere, Hidden, hidden, hiddenPrivate };
 
 // -----------------------------------------------------------------------------
 // 1. What an omitted field is

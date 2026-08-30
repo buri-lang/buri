@@ -1,8 +1,8 @@
 // The type error: `total` promises an `I64` and hands back a `Str`. That is
 // the front end's half of what a pull about this file answers with.
 
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 export fn total(): I64 { "not a number" }
 

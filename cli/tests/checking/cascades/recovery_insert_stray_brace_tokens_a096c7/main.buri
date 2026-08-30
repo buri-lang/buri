@@ -5,10 +5,10 @@
 // given once at mount (`ui/theme`), which is what lets one library look at home
 // in two applications without a fork and without a configuration file.
 
-from "ui/style" import * as style;
-from "ui/style" import { Color };
-from "ui/theme" import * as theme;
-from "ui/theme" import { Theme };
+from "ui/style/lib.buri" import * as style;
+from "ui/style/lib.buri" import { Color };
+from "ui/theme/lib.buri" import * as theme;
+from "ui/theme/lib.buri" import { Theme };
 
 /// What //lib/kit paints with.
 ///

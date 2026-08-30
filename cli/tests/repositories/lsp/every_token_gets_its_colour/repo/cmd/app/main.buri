@@ -1,8 +1,8 @@
 // The shelf edge, written so that every colour this server can produce
 // appears at least once.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-from "//lib/shop" import { Item, listing, Stock };
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "//lib/shop/lib.buri" import { Item, listing, Stock };
 
 /* A block comment sits in the gap between two tokens, so it is read from the
    gap rather than from the token stream. */

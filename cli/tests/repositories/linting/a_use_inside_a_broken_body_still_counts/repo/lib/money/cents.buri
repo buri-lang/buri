@@ -3,8 +3,8 @@
 // Both are used, and the report says nothing about either: the rules that read
 // bodies stay silent for the body that failed, not for the file or the target.
 
-from "core/effect" import { Alloc };
-from "core/str" import { fromInt };
+from "core/effect/lib.buri" import { Alloc };
+from "core/str/lib.buri" import { fromInt };
 
 export fn describe<C: Alloc>(ctx: C): Str {
   let amount = 3;

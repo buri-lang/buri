@@ -6,13 +6,13 @@
 // one. The authority arrives as a parameter, every time, and that split is what
 // the rest of this package is shaped around.
 
-from "core/effect" import { Alloc, NetResponse };
-from "core/str" import * as str;
-from "ui/effect" import { Fetch, fetch, FetchError, Request, Ui, Watch };
-from "ui/signal" import { Signal, signal };
+from "core/effect/lib.buri" import { Alloc, NetResponse };
+from "core/str/lib.buri" import * as str;
+from "ui/effect/lib.buri" import { Fetch, fetch, FetchError, Request, Ui, Watch };
+from "ui/signal/lib.buri" import { Signal, signal };
 
-from "//lib/ledger" import { Entry };
-from "//cmd/basket/model" import { draft, entriesFrom, flip, LEDGER_URL };
+from "//lib/ledger/lib.buri" import { Entry };
+from "//cmd/basket/model.buri" import { draft, entriesFrom, flip, LEDGER_URL };
 
 /// The whole of this page's state.
 export struct State {

@@ -2,10 +2,10 @@
 // nothing else on disk is. `test/golden/absent.txt` is declared and missing,
 // which the in-memory filesystem reports as empty.
 
-from "//lib/report" import { footer, render, trailer };
-from "core/fs" import * as fs;
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
+from "//lib/report/lib.buri" import { footer, render, trailer };
+from "core/fs/lib.buri" import * as fs;
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
 
 test "renders the statement" {
   let ctx = Hermetic();

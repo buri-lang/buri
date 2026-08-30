@@ -1,1 +1,1 @@
-from "//lib/prose/prose" export { shout };
+from "//lib/prose/prose.buri" export { shout };

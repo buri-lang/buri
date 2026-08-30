@@ -1,1 +1,1 @@
-from "//lib/measurement/measurement" export { measurement };
+from "//lib/measurement/measurement.buri" export { measurement };

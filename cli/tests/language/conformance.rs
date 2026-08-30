@@ -301,8 +301,8 @@ fn tail_calls_run_in_constant_stack_on_v8() {
     scratch.binary_package(
         "cmd/deep",
         r#"
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn countDown(n: Int, acc: Int): Int {
   if (n == 0) { acc } else { countDown(n - 1, acc + 1) }

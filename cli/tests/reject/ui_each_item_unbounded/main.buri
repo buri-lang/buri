@@ -5,13 +5,13 @@
 // parameter could be a context. `ui.each`'s three closures capture the list
 // they are indexing, so `each` carries the bound and a caller who has not
 // carried it is told where it stopped.
-from "core/effect" import { Alloc };
+from "core/effect/lib.buri" import { Alloc };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
-from "ui/effect" import { Ui, Watch };
-from "ui/node" import * as ui;
-from "ui/node" import { Node };
-from "ui/prop" import { Prop };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Ui, Watch };
+from "ui/node/lib.buri" import * as ui;
+from "ui/node/lib.buri" import { Node };
+from "ui/prop/lib.buri" import { Prop };
 
 fn rows<C, T>(items: Prop<[T]>, name: fn(T) => Str): Node<C> {
   ui.each(items, name, fn(c, item, index) => ui.text(.Const(name(item))))

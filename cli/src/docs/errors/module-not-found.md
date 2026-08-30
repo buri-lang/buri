@@ -24,7 +24,7 @@ A module path resolves against the repository, so this one is compiled against
 the worked monorepo in `cli/tests/example`, where `//lib/nope` does not exist.
 
 ```buri fail code=module-not-found repo=cli/tests/example
-from "//lib/nope" import { Nope };
+from "//lib/nope/lib.buri" import { Nope };
 
 export fn main(): Result<(), Str> {
   .Ok(())

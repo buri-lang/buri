@@ -1,14 +1,14 @@
 error: an import declaration ends with `;` [missing-terminator]
  --> lib/recovery_swap_adjacent_brace_app_312893/main.buri:5:37
   |
-5 | from "core/effect" import { Alloc, } Stdout;
+5 | from "core/effect/lib.buri" import { Alloc, } Stdout;
   |                                     ^
   |
   = fix: write `;` here
 error: expected a declaration, found `Stdout` [unexpected-token]
  --> lib/recovery_swap_adjacent_brace_app_312893/main.buri:5:38
   |
-5 | from "core/effect" import { Alloc, } Stdout;
+5 | from "core/effect/lib.buri" import { Alloc, } Stdout;
   |                                      ^^^^^^
   |
   = expected: a declaration

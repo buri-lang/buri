@@ -1,1 +1,1 @@
-from "//lib/util/text" export { isEmpty };
+from "//lib/util/text.buri" export { isEmpty };

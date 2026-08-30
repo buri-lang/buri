@@ -44,9 +44,9 @@ there and nowhere else. `buri gen` maintains `test.sources` for you.
 ## A test
 
 ```buri
-from "//lib/money" import { fromCents, fromDollars };
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
+from "//lib/money/lib.buri" import { fromCents, fromDollars };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
 
 test "pads the cents place" {
     let ctx = Hermetic();

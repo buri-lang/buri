@@ -1,6 +1,6 @@
 // EXPECT: there is no `const` declaration
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 // `const` was the old spelling of a module-level binding. It is kept here, and
 // only here, so that the error a file written against the old syntax gets —

@@ -3,8 +3,8 @@
 // siblings broken: recovery is per file, and a second broken file is not a
 // second reason to stop.
 
-from "//lib/money/routes" import { Route };
-from "core/str" import * as str;
+from "//lib/money/routes.buri" import { Route };
+from "core/str/lib.buri" import * as str;
 
 export fn describe(r: Route): Str {
   let spare = 3;

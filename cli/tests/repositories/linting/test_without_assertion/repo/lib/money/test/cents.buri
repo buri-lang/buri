@@ -4,9 +4,9 @@
 // assert. Read syntactically — "the body contains no `assert`" — the rule would
 // fire on it, so it is transitive instead: reachability from the test's body.
 
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 
-from "//lib/money" import { Cents, fromCents };
+from "//lib/money/lib.buri" import { Cents, fromCents };
 
 // The helper. Nothing in `roundTrips` mentions `assert`; this does.
 fn isSame(a: Cents, b: Cents): () {

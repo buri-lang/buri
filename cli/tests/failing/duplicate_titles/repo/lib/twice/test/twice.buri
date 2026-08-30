@@ -4,7 +4,7 @@
 // a failure came from. `many_modules` is the other half of the rule: two
 // *files* of one suite may share a title, and each reports at its own line.
 
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "the same title" {
     assert.eq(1, 2);
