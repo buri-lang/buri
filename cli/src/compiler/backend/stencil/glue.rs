@@ -9,6 +9,7 @@
 //! | [`Helper::Walk`] | The per-type reference-count walk, as a C function `fn(*mut u8)`: the drop glue [`buri_rt_decref`](cli/runtime/memory.rs) calls, and the per-element retain `cli/runtime/list.rs` is handed. |
 //! | [`Helper::Elems`] | The same for a whole `[T]` block, whose element count is `cap / stride`. |
 //! | [`Helper::EnvGlue`] | The one indirection that lets a closure environment carry its own drop glue: `Ty::Fn` does not record what was captured, so the block holds the release function in its first word. |
+//! | [`Helper::Entry`] | The other direction through the C boundary: a `void(state, in, out)` the **runtime** calls to run one Buri step. A closure's `code` has a parameter list that depends on the element type, so the runtime cannot call it; this is generated where that type is known and is the only thing that does. |
 //!
 //! Every one is a **local** symbol of the unit that needed it, so two units
 //! that both drop a `[Str]` get a copy each and neither collides.
@@ -28,6 +29,16 @@
 //! recurses (a `[[Str]]` releases a `[Str]` releases a `Str`) and a fixed
 //! scratch frame would be re-entered by its own callee.
 //!
+//! An **entry thunk** is entered from outside as well, and by something with no
+//! frame at all to lend it: `cli/runtime/list.rs` is C, and the Buri stack is
+//! not a thing C has a pointer into. So the frame it works in is one the *call
+//! site* set aside — the first byte past its own frame, which is where a Buri
+//! callee's frame begins anyway — and the address of it travels in the third
+//! word of the state record. That is one word of ABI rather than a stack
+//! discipline, and it is the word `Helper::Entry`'s stub reads before it does
+//! anything else. When the runtime grows real per-task stacks (`design`'s B7)
+//! this is the word that changes and nothing else here does.
+//!
 //! The walk itself reads the value out of a *copy* in that frame rather than
 //! through the pointer. That is what lets `Lower::walk_rc` — which addresses
 //! everything as a frame offset — serve both an `Inst::DecRef` and a glue
@@ -43,7 +54,7 @@
               before anything is emitted"
 )]
 
-use super::asm::{Asm, RDI, RSI, RSP, SP, X86};
+use super::asm::{Asm, RAX, RDI, RDX, RSI, RSP, SP, X86};
 use super::jit::{Fn2, FrameSig, Jit, V};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{CAP_MASK, CLOSURE_ENV};
@@ -67,6 +78,16 @@ pub enum Helper {
     /// Read a release function out of a block's first word and call it on the
     /// rest.
     EnvGlue,
+    /// The C-ABI **entry thunk** a runtime-driven step is reached through:
+    /// `extern "C" fn(state, arg, out)`, which runs the closure in `state` once
+    /// on the element at `arg` and writes its answer through `out`
+    /// (`cli/runtime/list.rs`'s `StepEntry`).
+    ///
+    /// `params` and `ret` are the closure's own signature, which is what makes
+    /// one of these per step shape rather than per key: everything the runtime
+    /// cannot say about the element types is said here, at the call site, where
+    /// they are known.
+    Entry { params: Vec<Ty>, ret: Ty },
 }
 
 /// The symbol a helper is emitted under.
@@ -120,6 +141,59 @@ const G_COUNT: u32 = 16;
 const G_SPARE: u32 = 24;
 const G_VALUE: u32 = 32;
 
+/// The fixed slots an **entry thunk**'s frame opens with: its three C
+/// arguments, a zero to index them by, a pointer into the state record, the
+/// closure copied out of that record, and the element copied out of `arg`.
+const E_STATE: u32 = 0;
+const E_ARG: u32 = 8;
+const E_OUT: u32 = 16;
+const E_ZERO: u32 = 24;
+const E_CTXP: u32 = 32;
+const E_CLOS: u32 = 40;
+const E_ELEM: u32 = 56;
+
+/// The **state record** a runtime-driven step crosses the C boundary inside.
+///
+/// ```text
+///   0   code     the closure's two words, in `middle::layout`'s order,
+///   8   env      so that one load copies both
+///   16  frame    the Buri frame the entry thunk is to work in
+///   24  ctx...   the step's context arguments, each rounded up to a word
+/// ```
+///
+/// It is written by `rtcall.rs` and read by [`Jit::entry_thunk`], and by
+/// nothing else — the runtime is handed the address and passes it back
+/// untouched. That is what makes the shape this backend's business rather than
+/// part of the runtime contract, and it is why the LLVM backend's record is a
+/// different one (it needs no `frame` word: there, a frame is the machine's).
+///
+/// # Why the context is in here
+///
+/// A runtime entry **drops** its context: the runtime allocates through
+/// `buri_rt_alloc` and has no use for one (`rtcall.rs`). A *step* does not — it
+/// is a Buri closure whose signature names the context, because a lambda may
+/// not capture one (SPEC 10.6). `core/host`'s allocators are empty structs and
+/// would need no room at all; `core/testing/context`'s `TestAlloc` is
+/// `struct TestAlloc(I64)` and carries a handle, so a record with nowhere to
+/// put one would refuse every file in the conformance corpus.
+pub const E_FRAME: u32 = 16;
+const E_CTX: u32 = 24;
+
+/// Where each context argument sits inside the record, and how big the record
+/// is — which is what the call site puts the entry thunk's frame past.
+///
+/// `widths` is every step parameter's width in signature order; the last is the
+/// element, which travels through `arg` rather than through the record.
+pub fn state_shape(widths: &[u32]) -> (Vec<u32>, u32) {
+    let mut at = E_CTX;
+    let mut out = Vec::new();
+    for w in widths.iter().take(widths.len().saturating_sub(1)) {
+        out.push(at);
+        at += round8(*w);
+    }
+    (out, round16(at))
+}
+
 impl Jit<'_> {
     /// One helper, emitted at the end of the unit. Answers where it starts.
     pub(crate) fn emit_helper(&mut self, prog: &ir::Program, h: &Helper) -> u64 {
@@ -130,6 +204,7 @@ impl Jit<'_> {
             Helper::Walk { ty, retain } => self.walk_glue(ty.clone(), *retain),
             Helper::Elems { ty } => self.elems_glue(ty.clone()),
             Helper::EnvGlue => self.env_glue(),
+            Helper::Entry { params, ret } => self.entry_thunk(params.clone(), ret.clone()),
         }
         at
     }
@@ -410,6 +485,151 @@ impl Jit<'_> {
             folded: Vec::new(),
             closure_of: Vec::new(),
         }
+    }
+
+    /// `extern "C" fn(state, arg, out)` — one step of a runtime-driven call.
+    ///
+    /// This is [`Jit::thunk`]'s problem from the other side. A thunk converts a
+    /// closure's environment for a Buri caller; an entry thunk converts *three
+    /// C pointers* for one, and it is the only thing that ever calls a Buri
+    /// closure from outside the frame-threaded world.
+    ///
+    /// The sequence is six moves and a call:
+    ///
+    /// ```text
+    ///   the closure `{ code, env }`, out of the state record
+    ///   the element, out of `arg` and into the step's parameter slot
+    ///   a retain on it — the step owns what it is handed (`middle/rc.rs`)
+    ///   `calli` through `code`, into the ordinary thunk
+    ///   the answer, out of the step's frame and through `out`
+    /// ```
+    ///
+    /// The step's **context** arguments come out of the record rather than out
+    /// of `arg`: they are the same value at every element, and a C signature
+    /// has no parameter for one. A zero-sized context costs nothing here and a
+    /// context carrying a handle costs a copy, which is the whole of the
+    /// difference between `core/host`'s allocators and
+    /// `core/testing/context`'s.
+    fn entry_thunk(&mut self, params: Vec<Ty>, ret: Ty) {
+        let Some(elem) = params.last().cloned() else {
+            self.unsupported(String::from("a runtime-driven step taking no argument"));
+            self.emit("ret", &[]);
+            return;
+        };
+        let widths: Vec<u32> =
+            params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
+        let (ctx_at, _) = state_shape(&widths);
+        let elem_l = self.layouts_of(elem.clone());
+        let (elem_size, elem_slot) = (elem_l.size, round8(elem_l.size).max(8));
+        let ret_l = self.layouts_of(ret.clone());
+        let (ret_size, ret_slot) = (ret_l.size, round8(ret_l.size).max(8));
+
+        let scratch = E_ELEM + elem_slot;
+        let frame = round16(scratch + SCRATCH_BYTES);
+        self.entry_stub();
+        let mut st = self.glue_frame(frame, scratch);
+        let base = self.fixups_len();
+
+        // The step's own frame, `[ret][env: 8][params...]`, laid out exactly as
+        // `lists.rs::step_shape_ty` lays it out: what a `calli` enters is the
+        // thunk, and this is the thunk's frame.
+        let mut at = frame + ret_slot + 8;
+        let mut param_at: Vec<u32> = Vec::new();
+        for t in &params {
+            param_at.push(at);
+            at += round8(self.layouts_of(t.clone()).size).max(8);
+        }
+
+        self.imm_to(E_ZERO, 0);
+        self.elem_load(E_CLOS, E_STATE, E_ZERO, 8, 16);
+        for (i, off) in ctx_at.iter().copied().enumerate() {
+            let w = widths.get(i).copied().unwrap_or(0);
+            let Some(to) = param_at.get(i).copied().filter(|_| w > 0) else { continue };
+            self.emit(
+                "bin/add/u64/fi/f",
+                &[
+                    ("JIT_D", V::I(u64::from(E_CTXP))),
+                    ("JIT_A", V::I(u64::from(E_STATE))),
+                    ("JIT_K", V::I(u64::from(off))),
+                    ("JIT_CONT", V::Fall),
+                ],
+            );
+            self.elem_load(to, E_CTXP, E_ZERO, 8, w);
+        }
+        if elem_size > 0 {
+            self.elem_load(E_ELEM, E_ARG, E_ZERO, 8, elem_size);
+            // `middle/rc.rs`: a call through a function value owns its
+            // arguments. The runtime lends the element and keeps its own count,
+            // so the step's is taken here — the same retain `lists.rs` emits
+            // before its own `calli`, and for the same sentence.
+            if self.rc_counted(&elem) {
+                if let Err(why) = self.walk_rc(&mut st, &elem, E_ELEM, true, 0) {
+                    self.unsupported(why);
+                }
+            }
+            if let Some(to) = param_at.last().copied() {
+                self.mv(to, E_ELEM, elem_slot);
+            }
+        }
+        self.mv(frame + ret_slot, E_CLOS + ENV_WORD, 8);
+        self.emit(
+            "calli",
+            &[
+                ("JIT_A", V::I(u64::from(E_CLOS))),
+                ("JIT_N", V::I(u64::from(frame))),
+                ("JIT_P", V::I(u64::from(frame))),
+                ("JIT_CONT0", V::Fall),
+            ],
+        );
+        if ret_size > 0 {
+            self.elem_store(frame, E_OUT, E_ZERO, 8, ret_size);
+        }
+        self.emit("ret", &[]);
+        self.resolve_helper_blocks(base, &st);
+    }
+
+    /// The instructions in front of an entry thunk's body: the three C
+    /// arguments into the frame the state record names, and a call into the
+    /// frame-threaded code that follows.
+    ///
+    /// Unlike [`Jit::glue_stub`] this one makes **no machine-stack frame** and
+    /// so has no width to refuse: the Buri frame it works in already exists —
+    /// the call site set it aside past its own — and the only thing the machine
+    /// stack holds is the return address, which the stencil chain below would
+    /// otherwise lose.
+    fn entry_stub(&mut self) {
+        if !self.target.is_arm64() {
+            let mut a = X86::new();
+            // `rsp % 16` is 8 on entry and the `call` below wants 0; the push
+            // is the whole of the correction, exactly as in `glue_stub`.
+            a.push_rbp();
+            a.ldr(RAX, RDI, E_FRAME);
+            a.str_off(RDI, RAX, E_STATE);
+            a.str_off(RSI, RAX, E_ARG);
+            a.str_off(RDX, RAX, E_OUT);
+            a.mov_reg(RDI, RAX);
+            // `pop` and `ret` are one byte each: two bytes stand between the
+            // end of this call and the body.
+            a.call_ahead(2);
+            a.pop_rbp();
+            a.ret();
+            let (bytes, _) = a.finish();
+            self.region.put(&bytes);
+            return;
+        }
+        let mut a = Asm::new();
+        a.str_pre16(30, SP);
+        a.ldr(3, 0, E_FRAME);
+        a.str_off(0, 3, E_STATE);
+        a.str_off(1, 3, E_ARG);
+        a.str_off(2, 3, E_OUT);
+        a.add_imm(0, 3, 0);
+        // Two instructions stand between this one and the body.
+        a.bl_words(3);
+        a.ldr_post16(30, SP);
+        a.ret();
+        let (bytes, _) = a.finish();
+        self.region.put(&bytes);
     }
 
     /// `code(fp)` for a closure over `func`.

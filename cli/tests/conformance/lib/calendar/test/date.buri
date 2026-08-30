@@ -5,7 +5,8 @@
 // the month-end clamping that date arithmetic has to choose an answer for.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 from "core/date/lib.buri" import { Date, DateTime, Duration, Weekday };
 from "core/date/lib.buri" import * as date;
@@ -184,19 +185,19 @@ test "durations are lengths and instants are points" {
 // --- ISO 8601 ----------------------------------------------------------------------
 
 test "dates format with fixed width" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(date.formatDate(ctx, d(2024, 2, 29)), "2024-02-29");
   assert.eq(date.formatDate(ctx, d(999, 1, 2)), "0999-01-02");
 }
 
 test "date-times format as UTC with milliseconds" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let dt = DateTime { date: d(2026, 8, 15), time: assert.some(date.time(13, 45, 0, 7)) };
   assert.eq(date.formatDateTime(ctx, dt), "2026-08-15T13:45:00.007Z");
 }
 
 test "parseDate reads what formatDate writes" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let cases = [d(1970, 1, 1), d(2024, 2, 29), d(2100, 12, 31)];
   // `mapCtx`, then check: a lambda may not capture a context, so the round
   // trip is done by a combinator that passes one in.
@@ -205,7 +206,7 @@ test "parseDate reads what formatDate writes" {
 }
 
 test "parseDate is strict" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.isTrue(date.parseDate(ctx, "2024-2-29").isSome());
   assert.isTrue(date.parseDate(ctx, "2023-02-29").isNone());
   assert.isTrue(date.parseDate(ctx, "2024-02").isNone());
@@ -216,7 +217,7 @@ test "parseDate is strict" {
 // --- ordering ------------------------------------------------------------------------
 
 test "dates and times order chronologically" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.isTrue(d(2023, 1, 1) < d(2023, 1, 2));
   assert.isTrue(d(2023, 1, 31) < d(2023, 2, 1));
   assert.isTrue(d(2022, 12, 31) < d(2023, 1, 1));

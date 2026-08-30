@@ -1980,6 +1980,96 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// The **closure trampoline**: `list.mapCtxStep` answers what `list.mapCtx`
+/// answers, on both native backends, and both answer what JavaScript does.
+///
+/// Not a §12 row, and the shape of the comparison is `middle/fuse.rs`'s. That
+/// pass runs on the native branch only, and says why: "a differential test
+/// whose two sides share the transformation under test proves nothing about
+/// it", so JavaScript is left as the reference implementation. The same
+/// discipline is what makes this test worth anything. `$list_mapCtxStep` in
+/// `js/runtime.js` is the ordinary `mapCtx` loop — the *unfused* reference —
+/// while natively the step is called by `cli/runtime/list.rs` through a
+/// generated C-ABI entry thunk. The two sides share the program and nothing
+/// else, which is the only way to find out whether the boundary is right.
+///
+/// Every element type here is one whose handling differs at the boundary:
+///
+///  * `Int -> Int` — the plain case, and the strides are equal.
+///  * `Int -> Str` — the result is **counted** and wider than the source, so
+///    the two strides differ and every element the step answers is a block the
+///    result list now owns. A trampoline that lost that count prints garbage
+///    or aborts; one that took an extra leaks, which `buri_rt_heap_stats`
+///    catches in CI rather than here.
+///  * `Str -> Str` — the *source* is counted too, so the retain the entry
+///    thunk takes before entering Buri code is the thing under test. Without
+///    it the step frees a block the list still holds.
+///  * `Int -> (Int, Int)` — an aggregate result written through the
+///    out-pointer at its own stride.
+///  * the empty list — no element, no entry, and a `[B]` that allocates
+///    nothing.
+///
+/// A `mapCtxStep` inside a `mapCtx` is there because the entry thunk works in
+/// the frame the *call site* set aside, and a call site that is itself inside
+/// a running step is where two of them would collide if that frame were
+/// anything global.
+#[test]
+fn the_closure_trampoline_answers_what_the_open_coded_loop_does() {
+    rows_or_skip!();
+    agree(
+        "closure trampoline",
+        r#"
+from "core/host/lib.buri" import { stdout, alloc };
+from "core/list/lib.buri" import * as list;
+from "core/str/lib.buri" import * as str;
+
+fn show(xs: [Str]): Str { xs.join(alloc, ",") }
+
+export fn main(): Result<(), Str> {
+  let ns = [1, 2, 3, 4];
+  let doubledStep = ns.mapCtxStep(alloc, fn(c, n) => n * 2);
+  let doubledLoop = ns.mapCtx(alloc, fn(c, n) => n * 2);
+  let _ = stdout.println("${doubledStep.len()} ${doubledLoop.len()}");
+  let _ = stdout.println("${show(doubledStep.mapCtx(alloc, fn(c, n) => str.fromInt(c, n)))}");
+  let _ = stdout.println("${show(doubledLoop.mapCtx(alloc, fn(c, n) => str.fromInt(c, n)))}");
+
+  // A counted result, at a stride the source does not have.
+  let named = ns.mapCtxStep(alloc, fn(c, n) => "n".repeat(c, n));
+  let _ = stdout.println(show(named));
+
+  // A counted source: the retain the entry thunk takes is what keeps `named`
+  // alive while its elements are read.
+  let louder = named.mapCtxStep(alloc, fn(c, s) => str.format(c, "<${s}>"));
+  let _ = stdout.println(show(louder));
+  let _ = stdout.println(show(named));
+
+  // An aggregate result, through the out-pointer.
+  let pairs = ns.mapCtxStep(alloc, fn(c, n) => (n, n * n));
+  let _ = stdout.println(show(pairs.mapCtx(alloc, fn(c, p) => str.format(c, "${p.0}^${p.1}"))));
+
+  // Nested: a step that is itself a call site.
+  let nested = ns.mapCtx(alloc, fn(c, n) => [n, n].mapCtxStep(c, fn(d, m) => m + 1).len());
+  let _ = stdout.println("${nested.len()} ${nested[0].withDefault(0)}");
+
+  let empty: [Int] = [];
+  let _ = stdout.println("${empty.mapCtxStep(alloc, fn(c, n) => n + 1).len()}");
+  .Ok(())
+}
+"#,
+        concat!(
+            "4 4\n",
+            "2,4,6,8\n",
+            "2,4,6,8\n",
+            "n,nn,nnn,nnnn\n",
+            "<n>,<nn>,<nnn>,<nnnn>\n",
+            "n,nn,nnn,nnnn\n",
+            "1^1,2^4,3^9,4^16\n",
+            "4 2\n",
+            "0\n",
+        ),
+    );
+}
+
 // -------------------------------------------------------------------
 // The table itself
 // -------------------------------------------------------------------

@@ -5,11 +5,15 @@
 //! every one a *native* platform grants has a counterpart here, named by the
 //! rule in `lib.rs` §1: `host.HostFs.readFile` is `buri_rt_host_fs_read_file`.
 //!
-//! Four of the implementations have no counterpart, for two reasons and neither
+//! Six of the implementations have no counterpart, for two reasons and neither
 //! of them an omission. `HostUi`, `HostWatch` and `HostFetch` drive a document,
-//! and a native binary has none. `HostTasks` is granted by no platform at all —
-//! it is declared ahead of the scheduler that will answer `parallel`, so there
-//! is a signature to implement and, deliberately, nothing yet implementing it.
+//! and a native binary has none. `HostTasks`, `HostListen` and `HostSockets`
+//! are granted by no platform at all — they are declared ahead of the scheduler
+//! that will answer `parallel` and the acceptor that will answer `listen`, so
+//! there is a signature to implement and, deliberately, nothing yet
+//! implementing it. Those three are also the three whose bodies will not live
+//! here when they arrive: they need tokio, which lives behind the `net` feature
+//! (`manifest.toml`, `net.rs`) rather than in this file's synchronous world.
 //!
 //! ## Buffering, and why it matches JavaScript
 //!
