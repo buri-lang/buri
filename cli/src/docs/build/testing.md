@@ -415,11 +415,12 @@ buri test //lib/money --accept       update declared golden files
 
 A suite runs as a native binary for the host unless something sends it to
 JavaScript: its own `test { platforms }`, `--output=js`, `--accept`, or the
-fallback for a toolchain or a program the native backend cannot take
-(`buri docs cli test`). The fallback prints one
-line on standard error per suite; it never changes what the suite means, because
-the two backends are held to the same answers
-([`tags.md`](./tags.md#tags-and-tests)).
+fallback for a toolchain that cannot build one (`buri docs cli test`). The
+fallback prints one line on standard error per suite; it never changes what the
+suite means, because the two backends are held to the same answers
+([`tags.md`](./tags.md#tags-and-tests)). A *program* the native backend has no
+body for is refused rather than rerouted, because rerouting it would be
+answering with the backend that was not asked.
 
 The suites that run natively are compiled into one binary per tag-compatible
 batch and linked once, because a small suite's cost is the link and the first

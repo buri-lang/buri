@@ -33,15 +33,22 @@ invocation without editing a build file.
 
 Where a native run is not available the suite runs on JavaScript instead, with
 one line on standard error naming the suite and the reason: this toolchain has
-no native backend for the host in this profile, or the suite's program reaches
-something the backend has no body for yet, or `--accept` is in play — that mode
-rewrites a golden file from the two sides of a failed comparison, and only the
-JavaScript runner reports them. The fallback is decided per suite, so one suite
-on the frontier does not move the rest of the run.
+no native backend for the host in this profile, or the suite declares
+`test { data }` — which only the JavaScript runner is handed — or `--accept` is
+in play, that mode rewriting a golden file from the two sides of a failed
+comparison. The fallback is decided per suite, so one suite on the frontier does
+not move the rest of the run.
 
 A platform this toolchain cannot produce a binary for is an *error* when a suite
 named it and a fallback when nobody did. That asymmetry is the whole rule: a
 platform written down is a request, and the default is a preference.
+
+**A program the native backend has no body for is an error either way.** It used
+to be a fallback, and it was the wrong one: the suite then passed on a backend
+nobody chose, which is how a named gap turns into a wrong answer rather than
+into a report. A suite that belongs on JavaScript says so with
+`test { platforms: [JS] }`, and anything else is a toolchain bug worth hearing
+about.
 
 ## Watching
 
