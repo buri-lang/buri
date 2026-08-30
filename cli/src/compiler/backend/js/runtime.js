@@ -3370,7 +3370,10 @@ function $ui_testing_Rendered_identity(self, name, at) {
 // mutation. Each call to a constructor allocates a fresh one, which is why a
 // named context is called rather than referred to.
 
-const $t = { h: [], data: {}, fail: null };
+// `from` is the table's length as the current `test` block started, which is
+// what makes `$test_leave` a question about that block's doubles. `$run` sets
+// it; `buri_rt_test_enter` marks the same watermark natively.
+const $t = { h: [], data: {}, fail: null, from: 0 };
 
 function $handle(v) {
   $t.h.push(v);
@@ -3744,33 +3747,60 @@ function $host_testing_TestStdin_calls(self) {
 //
 // The slot holds octets per path and the directories `makeDir` has been asked
 // for, exactly as `$testing_context_data`'s does: a flat map has no empty
-// directory otherwise.
-function $host_testing_fs() {
-  return $handle({ files: {}, dirs: [], ro: false, calls: [] });
+// directory otherwise. `plan` names the fault plan this view fails through, or
+// `-1` where nothing has called `faults`; it travels with a builder exactly as
+// `ro` does.
+//
+// Every row below takes the **handle** rather than the `TestFs`, because a
+// `TestFs` is a handle *and* a fault plan and an argument crosses as its leaves.
+// That is `$host_testing_netCalls`'s reason, one slice later.
+function $tslot(h) {
+  return $t.h[Number(h)];
+}
+
+// A slot, and the bare handle that names it: `$handle` answers the newtype and
+// these answer the `I64` inside it.
+function $tmint(v) {
+  return $handle(v)[0];
+}
+
+function $host_testing_newFs() {
+  return $tmint({ files: {}, dirs: [], ro: false, plan: -1, calls: [] });
 }
 
 // This view's files with these written over them, in a map of its own, under
-// this view's attenuation — so `files` and `filesBytes` compose in either order
-// and `fs().readOnly().files(..)` is still read-only.
-function $host_testing_TestFs_files(self, entries) {
-  const s = $slot(self);
+// this view's attenuation and plan — so `files` and `filesBytes` compose in
+// either order, `fs().readOnly().files(..)` is still read-only, and
+// `fs().faults(p).files(..)` still fails what `p` names.
+function $host_testing_fsFiles(h, entries) {
+  const s = $tslot(h);
   const files = Object.assign({}, s.files);
   for (const e of entries) files[e[0]] = $bytes_toUtf8(null, e[1]);
-  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro, calls: [] });
+  return $tmint({ files, dirs: s.dirs.slice(), ro: s.ro, plan: s.plan, calls: [] });
 }
 
-function $host_testing_TestFs_filesBytes(self, entries) {
-  const s = $slot(self);
+function $host_testing_fsFilesBytes(h, entries) {
+  const s = $tslot(h);
   const files = Object.assign({}, s.files);
   for (const e of entries) files[e[0]] = e[1].slice();
-  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro, calls: [] });
+  return $tmint({ files, dirs: s.dirs.slice(), ro: s.ro, plan: s.plan, calls: [] });
 }
 
 // The same two objects, deliberately: a method that copied would be a snapshot
 // wearing an attenuator's name.
-function $host_testing_TestFs_readOnly(self) {
-  const s = $slot(self);
-  return $handle({ files: s.files, dirs: s.dirs, ro: true, calls: [] });
+function $host_testing_fsReadOnly(h) {
+  const s = $tslot(h);
+  return $tmint({ files: s.files, dirs: s.dirs, ro: true, plan: s.plan, calls: [] });
+}
+
+// A view onto the same files with a fresh, empty plan, retiring the plan this
+// handle was using: `faults` replaces rather than composing, and a promise that
+// has been replaced is not one `$test_leave` should report.
+function $host_testing_fsWithPlan(h) {
+  const s = $tslot(h);
+  $tretire(s.plan);
+  const plan = $tmint({ plan: [], retired: false });
+  return $tmint({ files: s.files, dirs: s.dirs, ro: s.ro, plan, calls: [] });
 }
 
 // Records one call on a slot's log and answers what the method answered.
@@ -3788,8 +3818,8 @@ function $host_testing_logged(s, call, answer) {
 // Every call this view was asked for, in the order they completed. Through
 // *this* handle: a builder and `readOnly` each answer a new one, with a log of
 // its own.
-function $host_testing_TestFs_calls(self) {
-  return $slot(self).calls.map(function (c) {
+function $host_testing_fsCalls(h) {
+  return $tslot(h).calls.map(function (c) {
     return c.slice();
   });
 }
@@ -3801,13 +3831,143 @@ function $host_testing_spelled(b) {
   return $utf8Lossy(b);
 }
 
+// --- the fault plan's promise -------------------------------------------------
+//
+// The plan itself never reaches this file. It is a list of Buri values holding
+// an `IoError`, and `cli/runtime/lib.rs` §2.1 cannot name an error variant that
+// carries a field, so matching is the `Eq` the `Call` records derive and happens
+// in `host_testing.buri` — on both backends, from one implementation. What is
+// here is the half a program cannot keep: which entries have fired, and what
+// each of them would read like in a failure message.
+//
+// `cli/runtime/testing.rs`'s `Slot::Plan` is the same three fields for the same
+// reason, and the two are held together by the conformance corpus.
+
+// `IoError`'s and `NetError`'s variant names, in `core/effect`'s declaration
+// order — `ioCode`'s and `netCode`'s indices.
+const $ioErrors = [
+  ".NotFound",
+  ".PermissionDenied",
+  ".ReadOnly",
+  ".AlreadyExists",
+  ".NotADirectory",
+  ".CrossDevice",
+  ".Other",
+];
+const $netErrors = [".Timeout", ".Refused", ".BadUrl", ".Transport", ".Aborted"];
+
+function $tretire(plan) {
+  const s = $tslot(plan);
+  if (s) s.retired = true;
+}
+
+// One error as a message names it: the variant, and the text it carries where
+// it carries any.
+function $terror(names, code, payload) {
+  const name = names[Number(code)] || "?";
+  return payload === "" ? name : name + '("' + payload + '")';
+}
+
+// Adds one entry to the plan the handle names, with only its call spelled. The
+// other half arrives in a second call, and the split is the frame-threaded
+// backend's: `stencil/abi.rs`'s `MAX_INT_ARGS` is ten and a `Str` is three of
+// them, so one row carrying a call *and* an error would be fifteen. This file
+// pays nothing for that and follows it anyway, because the two backends
+// implement one module.
+function $tfault(h, call) {
+  const s = $tslot(h);
+  const plan = s && $tslot(s.plan);
+  if (plan) plan.plan.push({ shown: call, fired: false });
+  return 0;
+}
+
+function $host_testing_addFsFault(h, name, path, body) {
+  return $tfault(
+    h,
+    body === "" ? name + '("' + path + '")' : name + '("' + path + '", "' + body + '")',
+  );
+}
+
+// The URL and not the whole request: matching is `NetCall`'s derived `Eq` and
+// reads every field of it, and a message naming every header would be a
+// paragraph where a reader wants a line.
+function $host_testing_addNetFault(h, url) {
+  return $tfault(h, 'fetch("' + url + '")');
+}
+
+// The failure half of the entry just added, for whichever double added it: a
+// fault fails the same way whatever it names, and only the error enum differs —
+// told apart by the slot the plan hangs from.
+function $host_testing_faultFails(h, nth, code, payload) {
+  const s = $tslot(h);
+  const plan = s && $tslot(s.plan);
+  const entry = plan && plan.plan[plan.plan.length - 1];
+  if (!entry) return 0;
+  entry.shown += " fails " + $terror("files" in s ? $ioErrors : $netErrors, code, payload);
+  if (Number(nth) !== 0) entry.shown += " on call " + Number(nth);
+  return 0;
+}
+
+// The entry at `i` has fired, so its promise is kept. Idempotent: a `fails`
+// entry fires on every matching call and the first of them keeps the promise.
+function $host_testing_noteFault(h, i) {
+  const s = $tslot(h);
+  const plan = s && $tslot(s.plan);
+  const entry = plan && plan.plan[Number(i)];
+  if (entry) entry.fired = true;
+  return 0;
+}
+
+// One call on the path that never reached the row that would have recorded it:
+// a call the plan failed is a call, because the code under test asked the
+// filesystem for something and was answered.
+function $host_testing_noteFsCall(h, name, path, body) {
+  $tslot(h).calls.push([name, path, body]);
+  return 0;
+}
+
+// The end of a `test` block: every fault the block planned has happened, or the
+// block fails now with the ones that did not.
+//
+// `middle::monomorphize` emits this call after every test body, so all three
+// backends get it from one place; `$run` marks `$t.from` as the block starts,
+// which is what `buri_rt_test_enter` marks natively. The table grows for the
+// life of the process, so without that watermark this would report the block
+// before this one.
+function $test_leave(index) {
+  const unconsumed = [];
+  for (let i = $t.from; i < $t.h.length; i++) {
+    const s = $t.h[i];
+    if (!s || !Array.isArray(s.plan) || s.retired) continue;
+    for (const e of s.plan) if (!e.fired) unconsumed.push(e.shown);
+  }
+  if (unconsumed.length === 0) return 0;
+  $abort("a fault was planned and never happened: " + unconsumed.join("; "));
+  return 0;
+}
+
 // A fresh, empty log, and the handle that names it. A bare `I64` rather than a
 // handle-carrying value, because `net()` is a Buri body that builds the
 // `TestNet` around it — the responder in the other field is a value this file
 // cannot make.
 function $host_testing_newNet() {
-  $t.h.push({ calls: [] });
-  return BigInt($t.h.length - 1);
+  return $tmint({ calls: [], plan: -1 });
+}
+
+// A fresh, empty log carrying this one's plan. `respond` answers a new network
+// and a new log, because a network that shared its receiver's log would report
+// calls made to a different one; what it does not change is what the test said
+// would fail.
+function $host_testing_netRebind(h) {
+  return $tmint({ calls: [], plan: $tslot(h).plan });
+}
+
+// `$host_testing_fsWithPlan` for the network, retiring the replaced plan for
+// the same reason.
+function $host_testing_netWithPlan(h) {
+  $tretire($tslot(h).plan);
+  const plan = $tmint({ plan: [], retired: false });
+  return $tmint({ calls: [], plan });
 }
 
 // One request, recorded once the responder has answered it. `Request`'s four
@@ -3839,15 +3999,15 @@ function $host_testing_netCalls(h) {
 
 // The read-back, without the effect: the same answer `readFile` gives, and no
 // `Fs` bound needed to ask it.
-function $host_testing_TestFs_read(self, p) {
-  const f = $slot(self).files;
+function $host_testing_fsRead(h, p) {
+  const f = $tslot(h).files;
   return p in f ? $ok($utf8Lossy(f[p])) : $err([0]);
 }
 
 // Sorted by path, which is `sort()`'s UTF-16 code-unit order and the one
 // `readDir` already uses. Files only: a directory holds no octets.
-function $host_testing_TestFs_snapshot(self) {
-  const f = $slot(self).files;
+function $host_testing_fsSnapshot(h) {
+  const f = $tslot(h).files;
   return Object.keys(f)
     .sort()
     .map(function (k) {
@@ -3857,34 +4017,34 @@ function $host_testing_TestFs_snapshot(self) {
 
 // Recorded here and not in `read`, which the two share: `read` is the read-back
 // and a read-back is not a call.
-function $host_testing_TestFs_readFile(self, p) {
+function $host_testing_fsReadFile(h, p) {
   return $host_testing_logged(
-    $slot(self),
+    $tslot(h),
     ["readFile", p, ""],
-    $host_testing_TestFs_read(self, p),
+    $host_testing_fsRead(h, p),
   );
 }
 
 // `.ReadOnly` is `IoError`'s third variant, and the six that write are the six
 // `ReadOnly<C>` refuses.
-function $host_testing_TestFs_writeFile(self, p, b) {
-  const s = $slot(self);
+function $host_testing_fsWriteFile(h, p, b) {
+  const s = $tslot(h);
   const call = ["writeFile", p, b];
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
   s.files[p] = $bytes_toUtf8(null, b);
   return $host_testing_logged(s, call, $ok(0));
 }
 
-function $host_testing_TestFs_fileExists(self, p) {
-  const s = $slot(self);
+function $host_testing_fsFileExists(h, p) {
+  const s = $tslot(h);
   return $host_testing_logged(s, ["fileExists", p, ""], p in s.files || s.dirs.includes(p));
 }
 
-function $host_testing_TestFs_readDir(self, p) {
+function $host_testing_fsReadDir(h, p) {
   // A directory that holds nothing is still not an error; only a path that
   // names nothing at all is.
   const prefix = p === "" || p === "." ? "" : p.replace(/\/$/, "") + "/";
-  const s = $slot(self);
+  const s = $tslot(h);
   const out = [];
   for (const k of Object.keys(s.files).concat(s.dirs)) {
     if (k.startsWith(prefix)) {
@@ -3895,8 +4055,8 @@ function $host_testing_TestFs_readDir(self, p) {
   return $host_testing_logged(s, ["readDir", p, ""], $ok(out.sort()));
 }
 
-function $host_testing_TestFs_readFileBytes(self, p) {
-  const s = $slot(self);
+function $host_testing_fsReadFileBytes(h, p) {
+  const s = $tslot(h);
   const f = s.files;
   return $host_testing_logged(
     s,
@@ -3905,16 +4065,16 @@ function $host_testing_TestFs_readFileBytes(self, p) {
   );
 }
 
-function $host_testing_TestFs_writeFileBytes(self, p, b) {
-  const s = $slot(self);
+function $host_testing_fsWriteFileBytes(h, p, b) {
+  const s = $tslot(h);
   const call = ["writeFileBytes", p, $utf8Lossy(b)];
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
   s.files[p] = b.slice();
   return $host_testing_logged(s, call, $ok(0));
 }
 
-function $host_testing_TestFs_appendFile(self, p, b) {
-  const s = $slot(self);
+function $host_testing_fsAppendFile(h, p, b) {
+  const s = $tslot(h);
   const call = ["appendFile", p, $utf8Lossy(b)];
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const f = s.files;
@@ -3922,8 +4082,8 @@ function $host_testing_TestFs_appendFile(self, p, b) {
   return $host_testing_logged(s, call, $ok(0));
 }
 
-function $host_testing_TestFs_renameFile(self, from, to) {
-  const s = $slot(self);
+function $host_testing_fsRenameFile(h, from, to) {
+  const s = $tslot(h);
   const call = ["renameFile", from, to];
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const f = s.files;
@@ -3933,8 +4093,8 @@ function $host_testing_TestFs_renameFile(self, from, to) {
   return $host_testing_logged(s, call, $ok(0));
 }
 
-function $host_testing_TestFs_removeFile(self, p) {
-  const s = $slot(self);
+function $host_testing_fsRemoveFile(h, p) {
+  const s = $tslot(h);
   const call = ["removeFile", p, ""];
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const f = s.files;
@@ -3945,8 +4105,8 @@ function $host_testing_TestFs_removeFile(self, p) {
 
 // Parents included, an existing directory is `.Ok`, and a path already naming
 // a file is `.AlreadyExists` — the three answers `mkdir -p` gives.
-function $host_testing_TestFs_makeDir(self, p) {
-  const s = $slot(self);
+function $host_testing_fsMakeDir(h, p) {
+  const s = $tslot(h);
   const call = ["makeDir", p, ""];
   if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const clean = p.replace(/\/+$/, "");
@@ -3963,8 +4123,8 @@ function $host_testing_TestFs_makeDir(self, p) {
 // Nothing to flush, so this answers whether there is anything to have flushed.
 // Not refused through an attenuated view: `sync` is not a write, and whatever
 // the filesystem already holds is what gets flushed.
-function $host_testing_TestFs_syncFile(self, p) {
-  const s = $slot(self);
+function $host_testing_fsSyncFile(h, p) {
+  const s = $tslot(h);
   const call = ["syncFile", p, ""];
   const clean = p.replace(/\/+$/, "");
   if (clean === "" || clean === ".") return $host_testing_logged(s, call, $ok(0));
