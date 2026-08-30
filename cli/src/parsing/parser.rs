@@ -9,9 +9,13 @@
 //!
 //! * `unary` handles block-like expressions separately from postfix chains, so
 //!   `match (x) { ... }.field` does not parse (SPEC 12.13).
-//! * A `{` following a postfix expression is always a struct literal, and a
-//!   bare `{` is always a block. Nothing competes, because there are no
-//!   records (SPEC 12.3).
+//! * A `{` following a postfix expression is always a struct literal. A bare
+//!   `{` is a block unless the two tokens after it cannot open one — `..`,
+//!   `name :` or `name ,` — in which case it is an anonymous struct literal,
+//!   whose type comes from what the expression is checked against. `{ }` and
+//!   `{ name }` are the only strings both readings accept, and both stay
+//!   blocks, so the choice is two tokens of lookahead and the grammar stays
+//!   LR(1) (SPEC 12.3).
 //! * `pattern_primary` decides binding-versus-variant on the token *after* an
 //!   identifier, never on what the identifier means (SPEC 12.7).
 
@@ -2450,6 +2454,9 @@ impl<'a> Parser<'a> {
         // two parses (SPEC 12.13). They are returned without entering
         // `postfix_ops`.
         if self.is(Punctuation::LBrace) {
+            if self.at_anonymous_struct_lit() {
+                return self.struct_lit_body(NONE, self.span(), at);
+            }
             let b = self.block("block")?;
             let span = self.tree.span_of(self.tree.block(b).span);
             return Ok(self.tree.push(Kind::Block, [b.0, 0, 0, 0], span, at));
@@ -2878,42 +2885,74 @@ impl<'a> Parser<'a> {
                 // With records gone, a `{` following a path is always a struct
                 // literal. Nothing competes, so field shorthand is unambiguous.
                 TokenKind::LBrace => {
-                    let open = self.bump();
-                    let spread = if self.is(Punctuation::DotDot) {
-                        self.bump();
-                        let e = self.expr()?;
-                        self.eat(Punctuation::Comma);
-                        e.0
-                    } else {
-                        NONE
-                    };
-                    let fbase = self.scratch.inits.len();
-                    while !self.list_ended(Punctuation::RBrace) {
-                        let fname = self.expect_name()?;
-                        let value =
-                            if self.eat(Punctuation::Colon) { self.expr()?.0 } else { NONE };
-                        let fspan = fname.to(self.prev_span());
-                        self.scratch.inits.push(InitData {
-                            name: Location::of(fname),
-                            value,
-                            span: Location::of(fspan),
-                        });
-                        if !self.more_elements(Punctuation::RBrace, "a struct-literal field", starts_name) {
-                            break;
-                        }
-                    }
-                    let end = self.expect_close(Punctuation::RBrace, "struct literal", open)?;
-                    let (is, il) = self.tree.push_inits(since(&self.scratch.inits, fbase));
-                    self.scratch.inits.truncate(fbase);
-                    base = self.tree.push(
-                        Kind::StructLit,
-                        [base.0, spread, is, il],
-                        start.to(end),
-                        at,
-                    );
+                    base = self.struct_lit_body(base.0, start, at)?;
                 }
                 _ => return Ok(base),
             }
+        }
+    }
+
+    /// The `{ ..base, name: value, name }` half of a struct literal, from the
+    /// `{` the caller is standing on to the `}`.
+    ///
+    /// Shared by the two literals that have one. `head` is the type path for
+    /// `World { ... }` and [`NONE`] for the anonymous `{ ... }`, whose type
+    /// comes from what the expression is checked against instead (SPEC 12.3).
+    /// `start` is where the whole literal begins, which is the head's own start
+    /// where there is a head and the `{` where there is not.
+    fn struct_lit_body(&mut self, head: u32, start: Span, at: u32) -> PResult<ExprId> {
+        let open = self.expect(Punctuation::LBrace)?;
+        let spread = if self.is(Punctuation::DotDot) {
+            self.bump();
+            let e = self.expr()?;
+            self.eat(Punctuation::Comma);
+            e.0
+        } else {
+            NONE
+        };
+        let fbase = self.scratch.inits.len();
+        while !self.list_ended(Punctuation::RBrace) {
+            let fname = self.expect_name()?;
+            let value = if self.eat(Punctuation::Colon) { self.expr()?.0 } else { NONE };
+            let fspan = fname.to(self.prev_span());
+            self.scratch.inits.push(InitData {
+                name: Location::of(fname),
+                value,
+                span: Location::of(fspan),
+            });
+            if !self.more_elements(Punctuation::RBrace, "a struct-literal field", starts_name) {
+                break;
+            }
+        }
+        let end = self.expect_close(Punctuation::RBrace, "struct literal", open)?;
+        let (is, il) = self.tree.push_inits(since(&self.scratch.inits, fbase));
+        self.scratch.inits.truncate(fbase);
+        Ok(self.tree.push(Kind::StructLit, [head, spread, is, il], start.to(end), at))
+    }
+
+    /// Whether the `{` the parser is standing on opens an anonymous struct
+    /// literal rather than a block.
+    ///
+    /// Two tokens, and the whole rule: a `..` spread, or a `name :` field. Both
+    /// are things no statement and no expression can begin with, so a `{`
+    /// followed by either is a literal and every other `{` is a block. No
+    /// backtracking, no lookahead past the second token, and nothing that
+    /// consults a name or a type (SPEC 12.3).
+    ///
+    /// Shorthand *after* the first field is unaffected — `{ hi: hi, hello }` is
+    /// a literal — because by then the `{` has already been decided. What the
+    /// rule declines is a literal whose first field is shorthand, which is what
+    /// keeps `{ name }` and `{ name, }` from being two different things.
+    fn at_anonymous_struct_lit(&self) -> bool {
+        // `at` clamps to the last token, so reading past the end reads the
+        // `Eof` that is always there. Saturating rather than `+`, because the
+        // repository denies arithmetic that could wrap.
+        match self.kind_at(self.pos.saturating_add(1)) {
+            TokenKind::DotDot => true,
+            TokenKind::Ident => {
+                self.kind_at(self.pos.saturating_add(2)) == TokenKind::Colon
+            }
+            _ => false,
         }
     }
 
