@@ -1,13 +1,13 @@
-error: expected `Str`, found an integer literal [type-mismatch]
+error: expected `Str`, found `Int` [type-mismatch]
  --> cmd/int_literal_where_a_string_is_expected/main.buri:7:20
   |
 7 |   let myStr: Str = 1;
   |                    ^ the annotation is `Str`
   |
   = expected: `Str`
-  = actual: an integer literal
-  = an integer literal takes any integer type, and `Str` is not one
-  = fix: produce a `Str` here, or change what surrounds it to accept an integer literal
+  = actual: `Int`
+  = an integer literal defaults to `Int` but takes any integer type, and `Str` is not one
+  = fix: produce a `Str` here, or change what surrounds it to accept an `Int`
 
     What to do
     ──────────
@@ -16,9 +16,9 @@ error: expected `Str`, found an integer literal [type-mismatch]
     for every I32, while a narrowing one returns a Result because not every
     value fits.
 
-    Where one side is a numeric literal, there is nothing to convert: a literal
-    has no type until something pins it, so the edit is an annotation — let x:
-    F64 = 1.0 — or writing the literal in the other kind.
+    A bare numeric literal is reported as Int or Float, the type it takes when
+    nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
+    let x: U8 = 1 — and it becomes any type of the same kind.
 
     Why
     ───

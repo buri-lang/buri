@@ -101,6 +101,8 @@ pub const MODULES: &[StdModule] = &[
     m("core/proto", include_str!("sources/proto.buri")),
     m("core/map", include_str!("sources/map.buri")),
     m("core/set", include_str!("sources/set.buri")),
+    m("core/ordmap", include_str!("sources/ordmap.buri")),
+    m("core/ordset", include_str!("sources/ordset.buri")),
     m("core/bytes", include_str!("sources/bytes.buri")),
     m("core/crypto", include_str!("sources/crypto.buri")),
     m("core/math", include_str!("sources/math.buri")),

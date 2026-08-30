@@ -90,7 +90,8 @@ prelude, so `derive Eq for Point;` works in a module that imports nothing.
 
 ### Collections
 
-`core/list`, `core/queue`, `core/map`, `core/set`, `core/bitset`.
+`core/list`, `core/queue`, `core/map`, `core/set`, `core/ordmap`, `core/ordset`,
+`core/bitset`.
 
 Every one of these is a value, so every "modification" returns a new one. That
 is not free, and the cost is stated per module rather than implied:
@@ -99,12 +100,22 @@ is not free, and the cost is stated per module rather than implied:
 |---|---|---|---|
 | `core/queue` | O(1) | O(1) amortized | Banker's deque: two lists, the front reversed. The reversal is what makes both ends an append. |
 | `core/map`, `core/set` | O(1) expected | O(b) in buckets | Buckets of association lists. Grows and rehashes past a load factor of 4. **Iteration order is unspecified and will change.** |
+| `core/ordmap`, `core/ordset` | O(log n) | O(log n) | A persistent B-tree, seven entries to a node. **Iteration is in key order**, and `range` and `prefix` are scans that cost O(log n + m) rather than filters over everything. |
 | `core/bitset` | O(1) | O(n/32) | 32 bits to an `Int` word — 32 and not 64 because `Int` is signed, and a bit in position 63 would make every shift a question about sign extension. |
 
-`Queue`, `Map`, `Set` and `BitSet` provide `equals` rather than deriving `Eq`,
-because a derived `Eq` would compare the *representation*: two queues holding
-the same elements need not have the same front/back split, and two maps built
-in different orders need not have the same bucket layout.
+**Two keyed collections, and the choice between them is order.** `Map` hashes
+and is faster to look one key up in; `OrdMap` compares and can answer "every key
+between these two" or "every key starting with this" without visiting the rest.
+A keyed range scan over a `Map` costs a sort per query, which is what
+`core/ordmap` exists to avoid. Its keys need `Ord` rather than `Hash + Eq`, and
+a compound key is a struct with `derive Ord` — a derived `Ord` compares fields
+in declaration order, which is what a multi-column index wants.
+
+`Queue`, `Map`, `Set`, `OrdMap`, `OrdSet` and `BitSet` provide `equals` rather
+than deriving `Eq`, because a derived `Eq` would compare the *representation*:
+two queues holding the same elements need not have the same front/back split,
+two maps built in different orders need not have the same bucket layout, and two
+ordered maps built in different orders need not have the same tree.
 
 ### Numbers and vectors
 

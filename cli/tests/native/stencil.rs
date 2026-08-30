@@ -705,7 +705,7 @@ export fn main(): Result<(), Str> {
 /// The five shapes `glue.rs` added, each of which is a **pair** that has to
 /// balance.
 ///
-/// The conformance corpus is the coverage — twenty-six files and 1,187 blocks
+/// The conformance corpus is the coverage — twenty-seven files and 1,217 blocks
 /// — and this is the *leak* half of it, which no `test` block can make an
 /// assertion about from inside the language: `buri_rt_heap_stats` is not
 /// reachable from Buri and should not be. One program, so that a count of
@@ -1138,7 +1138,7 @@ fn corpus_refusal(path: &str) -> Result<String, String> {
 /// the refusal for every file that is not here.
 ///
 /// It is **`native/conformance.rs`'s `PACKAGES`**, entry for entry: the
-/// twenty-six files that file's native set holds. The six that are not here
+/// twenty-seven files that file's native set holds. The six that are not here
 /// are the six it excludes, for the three reasons it records — an inexact
 /// numeric conversion, `json.*`, and `core/math`'s transcendentals — plus the
 /// four `ui/*` files no native backend takes.
@@ -1151,6 +1151,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "codegen/tail_calls.buri",
     "collections/bitset.buri",
     "collections/map.buri",
+    "collections/ordmap.buri",
     "collections/queue.buri",
     "crypto/sha256.buri",
     "data/lists.buri",
@@ -1216,7 +1217,7 @@ fn the_corpus_census_is_a_ratchet() {
 /// got the answers wrong would pass the census next door. A failed assertion
 /// ends the process (SPEC 6.10), so the exit status is the result.
 ///
-/// `native/conformance.rs::the_native_set_passes` now runs the same twenty-six
+/// `native/conformance.rs::the_native_set_passes` now runs the same twenty-seven
 /// files through the same backend and reports the block count with them, so
 /// this is the narrower of two readings of one corpus. It stays because CI's
 /// Linux/arm64 job selects `stencil::` by name and this is the test in that

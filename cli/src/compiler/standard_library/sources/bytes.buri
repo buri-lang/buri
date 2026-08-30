@@ -367,7 +367,10 @@ export fn unzigzag(n: Int): Int {
 export fn f64ToBytes<C: Alloc>(ctx: C, x: Float): [U8];
 
 /// The double encoded by the eight bytes at `at`, or `.None` if there are not
-/// eight.
+/// eight. A NaN comes back as the canonical quiet NaN on every backend: the
+/// payload bits are not part of a `Float`'s value (SPEC 6.2 — every NaN is `==`
+/// every other), and a backend where a `Float` is a JavaScript `number` cannot
+/// carry them. The sign of a zero is preserved.
 export fn f64FromBytes(b: [U8], at: Int): Option<Float>;
 
 /// The four bytes of an IEEE 754 single. A `Float` that is not representable at
@@ -375,4 +378,5 @@ export fn f64FromBytes(b: [U8], at: Int): Option<Float>;
 export fn f32ToBytes<C: Alloc>(ctx: C, x: Float): [U8];
 
 /// The double the four bytes at `at` encode, or `.None` if there are not four.
+/// A NaN is canonicalized, as it is at eight bytes.
 export fn f32FromBytes(b: [U8], at: Int): Option<Float>;

@@ -4,13 +4,15 @@ error: `Str` has no method `nonexistentMethod` [no-such-method]
 6 |   s.nonexistentMethod()
   |     ^^^^^^^^^^^^^^^^^
   |
-  = fix: check the spelling, or declare it in `impl Str { ... }` in that type's own module — a method may not be added from anywhere else
+  = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
 
     What to do
     ──────────
 
-    Check the spelling, or declare it in an impl block in that type's own
-    module.
+    Check the spelling. If the type is one of yours, declare the method in an
+    impl block in that type's own module. If the type ships with the toolchain —
+    a Result, an I64 — or belongs to another package, it cannot gain one from
+    here, and buri docs <module> lists the methods it has.
 
     Why
     ───
