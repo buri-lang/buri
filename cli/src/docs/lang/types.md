@@ -39,9 +39,9 @@ category and no numeric tower.
 **Every integer type holds its whole range on every backend.** An `I64` is an
 `I64` whether the program runs natively or on JavaScript, so a nanosecond
 timestamp keeps its last three digits either way. That costs something on
-JavaScript, where a double holds every integer only up to 2^53: `I64` and `U64`
-compile to a `BigInt`, which is a heap value rather than an immediate, and the
-widths up to 32 bits stay a `number`. Code on a hot path
+JavaScript, where a double holds every integer only up to 2^53: the widths up to
+32 bits compile to a `number` and the widths at 64 bits and above compile to a
+`BigInt`, which is a heap value rather than an immediate. Code on a hot path
 that does not need the range can say `I32` and get the faster representation;
 code that needs the range gets the right answer without asking.
 

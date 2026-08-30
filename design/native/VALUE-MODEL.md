@@ -567,10 +567,10 @@ should not be:
 - The amendment **does not make the backends agree**, and it is not a plan to.
   It says what each does and declines to promise either, which is what makes
   §12's divergence list a list rather than a bug queue. The 2^53 ceiling it
-  described is gone at `I64` and `U64`, which are `BigInt`s on the JavaScript
-  backend — the fix open question 8 had refused and which buri-lang/buri#8
-  answered it with. What that costs is measured rather than guessed: see the
-  note under the table.
+  described is gone: `I64`, `U64`, `I128` and `U128` are `BigInt`s on the
+  JavaScript backend — the fix open question 8 had refused, and which
+  buri-lang/buri#8 and #4 answered it with. What that costs is measured rather
+  than guessed: see the note under the table.
 - Two documents outside §6.2 said the same thing unconditionally and were
   amended with it: `docs/build/proto.md`'s 64-bit caveat, which is now the
   JavaScript backend's rather than the language's, and `core/num`'s own module
@@ -604,7 +604,7 @@ and fails if a row names a test that is not there, so the column cannot rot.
 | 1 | `Int` overflow | the exact sum, unbounded | two's-complement wrap | Undefined on both (SPEC §6.2). **Divergence, listed — and a different one than it was.** `I64` and `U64` are `BigInt`s on JavaScript as of buri-lang/buri#8, so the row is no longer about precision: every `I64` a program writes down is that `I64`, `show` prints its digits, and the ceiling that used to sit at 2^53 is gone. What is left is that a `BigInt` has no width to overflow *at*: `maxValue<I64>() + 1` is 9223372036854775808 here and −9223372036854775808 natively. Both are undefined, and a program that wants the defined answer says `wrappingAdd` — which does agree, at every width (row 3). Wrapping every arithmetic result back with `asIntN` would close this row too, and was not done: it is a call on every add in every program to make one undefined answer match another. | `row_01_int_overflow`, `row_01_integer_show_at_the_64_bit_extremes` |
 | 2 | `checkedAdd` above 2^53, within `I64` | `.Some` | `.Some` | ~~Divergence~~ — **must agree, and does.** The row was a band: `Checked` is bounded by the numbers the *backend* has (SPEC §6.2.2), and JavaScript stopped at 2^53 because past it a `number` could not say which integer the answer was. A `BigInt` says it, so `exact_int_range` and `int_range` are the same range at every width and the band is empty. `Saturating` was never bounded this way and is unaffected. | `row_02_checked_above_the_exact_range`, `row_02_saturating_is_bounded_by_the_type_on_both_backends` |
 | 3 | `wrappingMul` at 64 bits | exact | exact, native | Must agree, at every width — and **the row as written was false twice**. `$wrapTo` used to wrap a product that had already been rounded, so `U32.wrappingMul(0xffffffff, 0xffffffff)` answered 0 rather than 1: a wrong answer at 32 bits, where both operands and the answer are exact doubles. `$wrapOp` computes in `BigInt` wherever the operands are `number`s and the intermediate can leave 2^53, which is a product at 32 bits and nothing else. At 64 and 128 the operands are `BigInt`s themselves, so the operation is exact and the wrap is one `asIntN` — `(2^62 + 1024).wrappingMul(4)` is 4096 on both backends now, where it used to be 0 here and that case belonged to row 1. Row 2's ruling does not touch this row: natively `wrapping*` **is** the machine's own add, subtract and multiply (in `llvm/emit.rs` `wrappingAdd` and `add` are the same instruction, because §3.4 emits no `nsw`/`nuw`), so it was exact at the type's width before the ruling and after it. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
-| 4 | `I128`/`U128` arithmetic | inexact above 2^53 | exact | **Divergence, listed.** The native answer is the correct one. | `row_04_wide_integer_arithmetic`, `row_04_integer_show_at_the_128_bit_extremes` |
+| 4 | `I128`/`U128` arithmetic | exact | exact | ~~Divergence~~ — **must agree, and does.** JavaScript had no 128-bit integer to compute in and used a double, so `1000000007` cubed answered `1.0000000210000002e+27` and `maxValue<I128>()` printed in exponential notation. Both are `BigInt`s now (buri-lang/buri#4), and a `BigInt` is exactly what a 128-bit integer needs: `I128` is the escape hatch the language offers when 64 bits are not enough, and an escape hatch that rounds is not one. | `row_04_wide_integer_arithmetic`, `row_04_integer_show_at_the_128_bit_extremes` |
 | 5 | `Option<Option<T>>` | distinct, via `$some`/`$val`'s `$n` counter | distinct (§6) | ~~Divergence~~ — **must agree, and does.** `.Some(.None)` collided with `.None` before the depth counter landed; it does not now, at any nesting depth, through `match`, `Eq` or `Show`. | `row_05_nested_option_is_distinct` |
 | 6 | `str.len()` | scalar count | scalar count | Must agree, including on astral input. | `row_06_str_len_counts_scalars` |
 | 7 | `str.slice` past the end | clamps (`runtime.js`) | clamps | Must agree. Pinned on the boundary cases. | `row_07_str_slice_clamps` |
@@ -619,20 +619,27 @@ and fails if a row names a test that is not there, so the column cannot rot.
 
 **What the `BigInt` representation costs, measured.** Open question 8 refused
 `BigInt` because it "taxes every loop counter in every program", and the tax is
-real. Bun 1.3, macOS arm64, release builds, mean of the runs named:
+real. Bun 1.3, macOS arm64, release builds, the same sources through both
+toolchains, best of nine alternating passes:
 
 | | before | after |
 |---|---|---|
-| the conformance corpus, JavaScript runtime | 359 ms | 378 ms (+5%) |
-| a 20-million-iteration counted loop at `Int` | 94 ms | 684 ms (~7x) |
-| the same loop at `I32` | 124 ms | 124 ms |
-| the golden corpus, bytes emitted | 44 586 | 45 089 (+1%) |
+| the conformance corpus, one process per package | 313 ms | 351 ms (+12%) |
+| the same, one process for all of it | 110 ms | 144 ms (+31%) |
+| counting to twenty million twice, at `Int` and at `I32` | 220 ms | 828 ms |
+| the `I32` half of that program alone | 128 ms | 128 ms |
+| the golden corpus, bytes emitted | 44 586 | 44 925 (+1%) |
 
-Real code pays about five per cent, because real code spends its time in strings,
-lists and calls rather than in integer addition. A tight counted loop pays
-sevenfold, and that is the number to quote at anyone who says the change is free.
-The `I32` row is the mitigation: the narrow widths keep the `number`
-representation, so a loop counter that does not need the range can say so.
+Real code — the corpus is a thousand assertions over strings, lists, maps and
+JSON — pays about a third of its own runtime, and about a tenth of what a person
+waits for, because a JavaScript process spends more time starting than the
+corpus spends running. A tight counted loop pays sevenfold: the `Int` half of
+the third row went from about 90 ms to about 700 ms. That is the number to quote
+at anyone who says the change is free.
+
+The fourth row is the mitigation and the reason the line is drawn at 32 bits
+rather than at 8: a `number` holds every value of every width up to `I32`, so a
+loop counter that does not need 64 bits can say `I32` and pay nothing at all.
 
 Rows 8, 9 and 10 are the ones that actually cost work, and they are the ones
 worth the cost: a `Show` that differs between backends means every golden test in

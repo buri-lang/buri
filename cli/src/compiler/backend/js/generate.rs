@@ -2298,7 +2298,8 @@ impl<'a> Gen<'a> {
             // A `BigInt` has the bitwise operators themselves, and two
             // operands inside the type's range give a result inside it — the
             // one exception being an unsigned complement, which is negative
-            // and needs narrowing back.
+            // and needs narrowing back. JavaScript's own `&` coerces to 32-bit
+            // signed and would have discarded everything above bit 31.
             PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor | PrimOp::BitNot
                 if big =>
             {
@@ -2313,27 +2314,6 @@ impl<'a> Gen<'a> {
                 } else {
                     as_uint_n(p.bits(), v)
                 }
-            }
-            // JavaScript's bitwise operators coerce to 32-bit signed, so on a
-            // 64-bit type they discard everything above bit 31 — `a & b` was
-            // silently wrong for half the range of `Int`. Above 32 bits the
-            // operation goes through a runtime helper; at 32 and below the
-            // native operator is exact and stays.
-            PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor | PrimOp::BitNot
-                if p.bits() > 32 =>
-            {
-                let unsigned = !p.is_signed();
-                let name = match (op, unsigned) {
-                    (PrimOp::BitAnd, false) => "$and64",
-                    (PrimOp::BitAnd, true) => "$andU64",
-                    (PrimOp::BitOr, false) => "$or64",
-                    (PrimOp::BitOr, true) => "$orU64",
-                    (PrimOp::BitXor, false) => "$xor64",
-                    (PrimOp::BitXor, true) => "$xorU64",
-                    (PrimOp::BitNot, false) => "$not64",
-                    _ => "$notU64",
-                };
-                Expr::call(Expr::ident(name), args)
             }
             // Unsigned and narrow. The native operators are exact here, but
             // their result is *signed* 32-bit — `0x80000000 | 0` came back

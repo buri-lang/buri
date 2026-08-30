@@ -1092,73 +1092,18 @@ function $big(x) {
   return BigInt(Math.trunc(x));
 }
 
-// --- 64-bit bitwise ------------------------------------------------------------------
+// --- Narrow unsigned bitwise ---------------------------------------------------------
 //
-// JavaScript's `&`, `|`, `^` and `~` coerce to *32-bit signed* integers, so
-// `1 << 31` comes back negative and everything above bit 31 is discarded
-// outright. `Int` is `I64`, so using them directly made `a & b` silently wrong
-// for half the range of the type — `(1<<40) & (1<<40)` was `0`.
+// JavaScript's bitwise operators produce a *signed* 32-bit result, so
+// `0x80000000 | 0` came back as `-2147483648` and `~0` on a `U8` came back as
+// `-1` instead of `255`. The operands are in range and the answer is in range;
+// only the representation was wrong, so narrowing the result to the type's own
+// width is the whole fix.
 //
-// Only the 64-bit types route through here. At 32 bits and below the native
-// operators are exact, and staying on them keeps ordinary integer code as fast
-// as ordinary JavaScript.
-//
-// A BigInt is a heap object in every engine — no small-integer form — so each
-// of these otherwise allocates two of them and pays a `Number(bigint)`
-// conversion on the way out, which alone costs about twenty-five times an
-// ordinary addition. Almost every operand is small, and where both already fit
-// in a signed 32-bit integer JavaScript's own operator is *exact*: AND, OR, XOR
-// and NOT distribute over sign extension, so the 32-bit answer sign-extends to
-// the 64-bit one. The BigInt is built only when that is not true.
-function $and64(a, b) {
-  if ((a | 0) === a && (b | 0) === b) return a & b;
-  return Number(BigInt.asIntN(64, $big(a) & $big(b)));
-}
-function $or64(a, b) {
-  if ((a | 0) === a && (b | 0) === b) return a | b;
-  return Number(BigInt.asIntN(64, $big(a) | $big(b)));
-}
-function $xor64(a, b) {
-  if ((a | 0) === a && (b | 0) === b) return a ^ b;
-  return Number(BigInt.asIntN(64, $big(a) ^ $big(b)));
-}
-function $not64(a) {
-  if ((a | 0) === a) return ~a;
-  return Number(BigInt.asIntN(64, ~$big(a)));
-}
-
-// Unsigned, 32 bits and below. JavaScript's bitwise operators produce a
-// *signed* 32-bit result, so `0x80000000 | 0` came back as `-2147483648` and
-// `~0` on a `U8` came back as `-1` instead of `255`. The operands are in range
-// and the answer is in range; only the representation was wrong, so narrowing
-// the result to the type's own width is the whole fix.
+// The wide types need none of this: they are `BigInt`s, and the backend emits
+// the operator itself.
 function $umask(v, bits) {
   return bits >= 32 ? v >>> 0 : v & ((1 << bits) - 1);
-}
-
-// The unsigned forms differ only in how the result is narrowed, which is the
-// difference between `~0` being `-1` and being `2^64 - 1`.
-//
-// That difference is also what makes their fast path narrower than the signed
-// one: it holds only where the two narrowings agree, which is both operands
-// non-negative and below 2^31, where the result is non-negative too. `$notU64`
-// has no fast path at all — `~a` for a non-negative `a` is negative, and
-// `asUintN` maps it above 2^53, so there is nothing a 32-bit operator could
-// answer.
-function $andU64(a, b) {
-  if (a >= 0 && b >= 0 && (a | 0) === a && (b | 0) === b) return a & b;
-  return Number(BigInt.asUintN(64, $big(a) & $big(b)));
-}
-function $orU64(a, b) {
-  if (a >= 0 && b >= 0 && (a | 0) === a && (b | 0) === b) return a | b;
-  return Number(BigInt.asUintN(64, $big(a) | $big(b)));
-}
-function $xorU64(a, b) {
-  if (a >= 0 && b >= 0 && (a | 0) === a && (b | 0) === b) return a ^ b;
-  return Number(BigInt.asUintN(64, $big(a) ^ $big(b)));
-}
-function $notU64(a) {
-  return Number(BigInt.asUintN(64, ~$big(a)));
 }
 
 function $bits_shl(x, n) {

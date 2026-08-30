@@ -818,6 +818,53 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// A narrowing conversion answers `Result<T, RangeError>`, at 128 bits and
+/// below.
+///
+/// The gap buri-lang/buri#4 named: `num.I128.toI64` had no native body, so a
+/// suite touching it was rerouted onto JavaScript. The range tested is the
+/// **target's** — SPEC 6.2.1's `.Err` is "does not fit `T`" — and the `.Err`
+/// carries the value as the source renders it, which at 128 bits is the one
+/// rendering a double could never have produced.
+#[test]
+fn a_narrowing_conversion_answers_a_result() {
+    if !supported() {
+        return;
+    }
+    let ran = run(
+        "convert",
+        r#"
+from "core/host" import { stdout };
+from "core/num" import * as num;
+export fn main(): Result<(), Str> {
+  let a: I128 = 1700000000123456789;
+  let b: I128 = num.maxValue<I128>();
+  let c: I128 = num.minValue<I128>();
+  let d: U64 = 18446744073709551615;
+  let e: I64 = -1;
+  let f: I64 = 3000000000;
+  let _ = stdout.println("${a.toI64().withDefault(7)} ${b.toI64().withDefault(7)} ${c.toI64().withDefault(7)}");
+  let _ = stdout.println("${d.toI64().withDefault(7)} ${e.toU64().withDefault(7)} ${f.toI32().withDefault(7)}");
+  let shown = match (b.toI64()) { .Ok(_) => "ok", .Err(r) => r.value };
+  let named = match (b.toI64()) { .Ok(_) => "ok", .Err(r) => r.target };
+  let _ = stdout.println("${shown} ${named}");
+  .Ok(())
+}
+"#,
+    );
+    assert_eq!(ran.status, 0, "{}", ran.stderr);
+    assert_eq!(
+        ran.stdout,
+        concat!(
+            "1700000000123456789 7 7\n",
+            "7 7 7\n",
+            "170141183460469231731687303715884105727 I64\n",
+        ),
+        "{}",
+        ran.stderr
+    );
+}
+
 /// `sortBy` is **stable**, and `find`, `zip` and `flatten` answer what
 /// `runtime.js` answers.
 ///
