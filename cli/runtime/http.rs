@@ -1,8 +1,11 @@
 //! A minimal HTTP/1.1 client, for `Net::fetch`.
 //!
-//! Synchronous by necessity — Buri has no `async` in v0.3, so a request blocks,
-//! exactly as `$host_HostNet_fetch` blocks on JavaScript (`runtime.js:1392-1404`,
-//! which uses a synchronous `XMLHttpRequest` and says the same thing).
+//! Synchronous, and now alone in it. A request made through this client blocks
+//! the thread it was made on; the JavaScript half no longer does, because
+//! `$host_HostNet_fetch` awaits the platform's own `fetch` (`runtime.js`). What
+//! makes the difference is a runtime that can suspend a call, which the native
+//! backends do not yet have — not the shape of the request, which is the same
+//! `Request` on both sides.
 //!
 //! ## Scope, stated honestly
 //!
@@ -24,21 +27,37 @@
 //! — and choosing the crypto provider `manifest.toml` deliberately did not —
 //! is the slice that deletes this section.
 //!
-//! What *is* here is complete for cleartext: absolute-URI parsing, `Host`,
-//! request bodies with `Content-Length`, chunked and identity response bodies,
-//! and a connect/read deadline.
+//! What *is* here is complete for cleartext: absolute-URI parsing, `Host`, the
+//! caller's own request headers, octet request bodies with `Content-Length`,
+//! chunked and identity response bodies, the response's header fields, and a
+//! connect/read deadline.
+//!
+//! ## The two enums that cross as indices
+//!
+//! [`NetFail`] and [`METHODS`] are transcriptions of `NetError` and `Method` in
+//! `effect.buri`. Neither is a copy of a *name*: what crosses the ABI is the
+//! variant index, so what has to agree is the order. `GET` appears in
+//! [`METHODS`] and nowhere else in the runtime, and nowhere at all in Buri —
+//! the same rule `CloseReason`'s wire codes follow.
 
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
-/// `NetError`'s variants, in declaration order in `effect.buri:91-96`. The index
-/// is what crosses the ABI, so this order is the contract.
+/// `NetError`'s variants, in declaration order in `effect.buri`. The index is
+/// what crosses the ABI, so this order is the contract.
+///
+/// `Aborted` has no producer here: nothing in this runtime can call a request
+/// off yet. It is in the enum because the *index* is the contract — a variant
+/// appended later is free, one inserted in the middle silently renumbers the
+/// rest — so the tag it will use is claimed now.
 pub enum NetFail {
     Timeout,
     Refused,
     BadUrl(String),
     Transport(String),
+    #[allow(dead_code)]
+    Aborted,
 }
 
 impl NetFail {
@@ -48,17 +67,41 @@ impl NetFail {
             NetFail::Refused => 1,
             NetFail::BadUrl(_) => 2,
             NetFail::Transport(_) => 3,
+            NetFail::Aborted => 4,
         }
     }
 
-    /// The payload of the two variants that carry one; empty for the two that
-    /// do not, which is what the backend writes into an unused `Str` slot.
+    /// The payload of the two variants that carry one; empty for the three
+    /// that do not, which is what the backend writes into an unused `Str`
+    /// slot.
     pub fn message(&self) -> &str {
         match self {
-            NetFail::Timeout | NetFail::Refused => "",
+            NetFail::Timeout | NetFail::Refused | NetFail::Aborted => "",
             NetFail::BadUrl(m) | NetFail::Transport(m) => m,
         }
     }
+}
+
+/// `Method`'s variants, in declaration order in `effect.buri`. The index is
+/// what crosses the ABI, and this table is the only place in the native
+/// runtime where a wire spelling is written down — `CloseReason`'s philosophy,
+/// applied to the request line.
+pub const METHODS: [&str; 7] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+
+/// The wire spelling of a `Method` tag. An index this runtime does not know is
+/// unreachable from generated code — the enum is closed and the compiler
+/// writes the tag — and answering `GET` is a refusal to invent a verb rather
+/// than a claim it cannot happen.
+pub fn method_name(tag: i32) -> &'static str {
+    METHODS.get(tag.max(0) as usize).copied().unwrap_or("GET")
+}
+
+/// A whole HTTP response — `Response`'s three fields.
+pub struct HttpResponse {
+    pub status: i64,
+    /// Field names lowercased, as `Header` states they are.
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
 }
 
 const DEADLINE: Duration = Duration::from_secs(30);
@@ -116,8 +159,17 @@ fn io_fail(e: &std::io::Error) -> NetFail {
     }
 }
 
-/// One request, one response. Returns `(status, body)`.
-pub fn fetch(method: &str, url: &str, body: &str) -> Result<(i64, String), NetFail> {
+/// One request, one response.
+///
+/// `method` is a `Method` tag, `headers` the request's own fields — sent after
+/// the four this client writes for itself, so a caller may add and may not
+/// silently replace — and `body` its octets.
+pub fn fetch(
+    method: i32,
+    url: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> Result<HttpResponse, NetFail> {
     let url = parse(url)?;
 
     let mut addrs = (url.host, url.port)
@@ -134,16 +186,29 @@ pub fn fetch(method: &str, url: &str, body: &str) -> Result<(i64, String), NetFa
     // add a round trip's worth of delay to the front of it.
     let _ = sock.set_nodelay(true);
 
-    let mut request = format!(
+    let mut head = format!(
         "{} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: buri\r\nAccept: */*\r\nConnection: close\r\n",
-        method, url.target, url.authority
+        method_name(method),
+        url.target,
+        url.authority
     );
     if !body.is_empty() {
-        request.push_str(&format!("Content-Length: {}\r\n", body.len()));
+        head.push_str(&format!("Content-Length: {}\r\n", body.len()));
     }
-    request.push_str("\r\n");
-    request.push_str(body);
-    sock.write_all(request.as_bytes()).map_err(|e| io_fail(&e))?;
+    for (name, value) in headers {
+        // A field with a newline in it would be a second header, or a second
+        // request. Refused rather than sanitized: a caller who wrote one meant
+        // something, and quietly sending a different thing is worse than not
+        // sending it.
+        if name.contains(['\r', '\n', ':']) || value.contains(['\r', '\n']) {
+            return Err(NetFail::Transport(format!("header `{name}` is not a header field")));
+        }
+        head.push_str(&format!("{name}: {value}\r\n"));
+    }
+    head.push_str("\r\n");
+    let mut request = head.into_bytes();
+    request.extend_from_slice(body);
+    sock.write_all(&request).map_err(|e| io_fail(&e))?;
     sock.flush().map_err(|e| io_fail(&e))?;
 
     let mut raw = Vec::new();
@@ -151,7 +216,7 @@ pub fn fetch(method: &str, url: &str, body: &str) -> Result<(i64, String), NetFa
     parse_response(&raw)
 }
 
-fn parse_response(raw: &[u8]) -> Result<(i64, String), NetFail> {
+fn parse_response(raw: &[u8]) -> Result<HttpResponse, NetFail> {
     let split = find(raw, b"\r\n\r\n")
         .ok_or_else(|| NetFail::Transport("truncated response: no header terminator".to_string()))?;
     let (head, rest) = raw.split_at(split);
@@ -170,6 +235,7 @@ fn parse_response(raw: &[u8]) -> Result<(i64, String), NetFail> {
 
     let mut length = None;
     let mut chunked = false;
+    let mut fields: Vec<(String, String)> = Vec::new();
     for line in lines {
         let Some((name, value)) = line.split_once(':') else { continue };
         let value = value.trim();
@@ -178,6 +244,9 @@ fn parse_response(raw: &[u8]) -> Result<(i64, String), NetFail> {
         } else if name.eq_ignore_ascii_case("transfer-encoding") {
             chunked = value.to_ascii_lowercase().contains("chunked");
         }
+        // Lowercased on the way in, which is what `Header` promises a program
+        // reading one back. A server may send any casing it likes.
+        fields.push((name.trim().to_ascii_lowercase(), value.to_string()));
     }
 
     let bytes = if chunked {
@@ -188,7 +257,7 @@ fn parse_response(raw: &[u8]) -> Result<(i64, String), NetFail> {
             None => body.to_vec(),
         }
     };
-    Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
+    Ok(HttpResponse { status, headers: fields, body: bytes })
 }
 
 fn dechunk(mut body: &[u8]) -> Result<Vec<u8>, NetFail> {

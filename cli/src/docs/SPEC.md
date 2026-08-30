@@ -901,6 +901,14 @@ type's own may be `export`ed, and a method supplied to a trait may not. An `impl
 in either form may appear only in the defining module of its type, so there is no
 way to implement a trait for someone else's type.
 
+A supplied method's signature is the trait's. Its parameters, its return type,
+and its own type parameters — how many, and what each is bound by — are what the
+declaration wrote, reading `Self` as the implementing type: `compare` above may
+write `Version` or `Self` for its second parameter, because inside the block
+those are one type. A call reaching the method through a bound is checked
+against the *trait's* declaration and dispatched to the `impl`'s, so the two are
+one signature rather than two that happen to share a name.
+
 #### 5.12.3 `derive` generates the implementation
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
@@ -1643,12 +1651,52 @@ export effect Fs {
   fn readFile(self, path: Str): Result<Str, IoError>;
   fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
 }
+
+// An effect's signature may name types, and those types are declared here
+// beside it — `IoError` above, `Request` and `Response` below — rather than in
+// the library that wraps the effect, because `core/effect` cannot import a
+// module that imports it. The wrapper re-exports them, and that is where a
+// program meets them.
+export enum Method { Get, Head, Post, Put, Patch, Delete, Options }
+
+export struct Header { export name: Str, export value: Str }
+
+export struct Request {
+  export method: Method,
+  export url: Str,
+  export headers: [Header],
+  export body: [U8],
+}
+
+export struct Response {
+  export status: Int,
+  export headers: [Header],
+  export body: [U8],
+}
+
+export effect Net {
+  fn fetch(self, request: Request): Result<Response, NetError>;
+}
 ```
 
 `core/effect` declares `Alloc`, `Fs`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`,
 `Stdout`, `Stderr`, and `Proc`. **Only platform modules may declare effects**;
 `effect` in ordinary code is a compile error, so the set of things a Buri program
 can do to the world is fixed by its platform rather than open-ended.
+
+`Net.fetch` takes one value and answers one value, and those two types are the
+whole of what an HTTP message is in this language — the same `Request` a server
+hands a handler, not a second shape for the other direction. Three things follow
+from the declarations above and are worth saying out loud:
+
+- **A wire spelling never appears in Buri code.** `GET` is written `.Get`, and
+  the three letters live in the platform's implementation. A method the enum
+  does not name is a method a program cannot send.
+- **Header names are lowercase**, which is what HTTP/2 requires on the wire, so
+  looking one up is a comparison rather than a case-insensitive scan.
+- **A body is octets.** A body is not necessarily text; decoding it is
+  `core/bytes`' job and answers a `Result`, so a body that is not text says so
+  where it is read.
 
 An effect is a trait in every other respect — same declaration shape, same
 nominal conformance, same `impl`, same bounds. Two rules separate them:

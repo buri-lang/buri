@@ -1,0 +1,33 @@
+// EXPECT: `write` does not have the signature `Report` declares
+//
+// The counts agree, the types agree, and the signatures still disagree: the
+// `impl` asks its context for `Alloc` as well as `Stdout`, which its callers
+// were never told to supply. A call through a `Report` bound is checked
+// against the trait's declaration, so the extra bound is a requirement nothing
+// upstream of it enforces — it would surface at monomorphization, in a program
+// the reader did not write.
+//
+// The bounds are compared as a set, so an `impl` that writes the same bounds
+// in another order is not reported.
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/io/lib.buri" import * as io;
+
+export struct Ledger { export lines: Int }
+
+export trait Report {
+  fn write<C: Stdout>(self, ctx: C): ();
+}
+
+impl Report for Ledger {
+  fn write<C: Stdout + Alloc>(self, ctx: C): () {
+    io.println(ctx, "${self.lines}")
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let book = Ledger { lines: 1 };
+  let _ = book.write(ctx);
+  .Ok(())
+}

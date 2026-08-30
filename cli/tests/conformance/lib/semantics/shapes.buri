@@ -5,7 +5,8 @@
 // of structs that implement an effect so a test can bind one in a context and
 // prove its own implementation is the one that ran.
 
-from "core/effect/lib.buri" import { Alloc, Clock, Env, Fs, IoError, Net, NetError, NetResponse, Stdout };
+from "core/effect/lib.buri" import { Alloc, Clock, Env, Fs, IoError, Net, NetError, Request, Response, Stdout };
+from "core/net/http/lib.buri" import * as http;
 from "core/num/lib.buri" import { Add, Div, Mul, Neg, Rem, Sub };
 from "core/order/lib.buri" import { Eq, Hash, Ord, Order, Show };
 from "core/time/lib.buri" import { Instant };
@@ -746,8 +747,8 @@ export fn elapsed<C: Clock>(ctx: C, earlier: Instant): Int {
 }
 
 export fn fetchBody<C: Alloc + Net>(ctx: C, url: Str): Result<Str, NetError> {
-  match (ctx.fetch("GET", url, "")) {
-    .Ok(r) => .Ok(r.body),
+  match (http.get(ctx, url)) {
+    .Ok(r) => .Ok(http.bodyText(ctx, r.body).withDefault("")),
     .Err(e) => .Err(e),
   }
 }
@@ -882,13 +883,18 @@ impl Env for EchoEnv {
 }
 
 /// A network that answers everything with 418.
+///
+/// The body is octets rather than text for the same reason `StaticFs`'s octet
+/// half is refused: `Response.body` is a `[U8]`, encoding a `Str` into one
+/// needs `Alloc`, and an effect method takes only `self`. A fake that wants to
+/// answer text is handed the bytes.
 export struct TeapotNet {
-  export body: Str,
+  export body: [U8],
 }
 
 impl Net for TeapotNet {
-  fn fetch(self, method: Str, url: Str, body: Str): Result<NetResponse, NetError> {
-    .Ok(NetResponse { status: 418, body: self.body })
+  fn fetch(self, request: Request): Result<Response, NetError> {
+    .Ok(Response { status: 418, headers: [], body: self.body })
   }
 }
 

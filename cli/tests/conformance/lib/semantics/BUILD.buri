@@ -11,6 +11,7 @@ library {
             "test/elision.buri",
             "test/anonymous.buri",
             "test/host_testing.buri",
+            "test/http.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

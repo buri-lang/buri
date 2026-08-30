@@ -178,7 +178,7 @@ pluralization and the joining, and the template supplies the backticks.
 | `{edition}` | `REQUIRED_EDITION` — the one Protobuf edition this reader implements. | `proto-edition`, `proto-edition-missing`, `proto-syntax-declaration` |
 | `{effect}` | The effect's name. | `duplicate-bound`, `effect-and-trait`, `host-not-granted` |
 | `{escape}` | The one character after a backslash that is not an escape. | `unknown-escape` |
-| `{expected}` | What the declaration, the grammar or the schema says: a rendered type, a decimal count, or a finished noun phrase (`` `;` ``, `a block`, `platform names`). | `argument-count-mismatch`, `field-wrong-kind`, `not-a-bare-word`, `pattern-type-mismatch`, `type-argument-arity`, `type-argument-count`, `type-argument-mismatch`, `type-mismatch`, `unexpected-token`, `unknown-bare-word`, `wrong-argument-count`, `wrong-matched-value-count`, `wrong-value-count` |
+| `{expected}` | What the declaration, the grammar or the schema says: a rendered type, a decimal count, or a finished noun phrase (`` `;` ``, `a block`, `platform names`). | `argument-count-mismatch`, `field-wrong-kind`, `not-a-bare-word`, `pattern-type-mismatch`, `signature-mismatch`, `type-argument-arity`, `type-argument-count`, `type-argument-mismatch`, `type-mismatch`, `unexpected-token`, `unknown-bare-word`, `wrong-argument-count`, `wrong-matched-value-count`, `wrong-value-count` |
 | `{expected_plural}` | The plural of what a bare word should have been (`platforms`, `architectures`), because the fix names the whole set. | `unknown-bare-word` |
 | `{exports}` | The names a test's import asked for, quoted and joined (`` `a`, `b` ``), or the phrase `what the test needs`. | `test-internal-import` |
 | `{feature}` | The `features.<name>` a schema wrote. | `proto-unknown-feature` |
@@ -188,7 +188,7 @@ pluralization and the joining, and the template supplies the backticks.
 | `{first_origin}` | The first of the two schemas that declare one proto type. | `proto-duplicate-type` |
 | `{first_tag}` | The first of the two tags that forbid each other. | `tag-violation` |
 | `{first_trait}` | The first of the two bounds declaring one method name, in the order the search met them — the fix quotes it. | `ambiguous-trait-method` |
-| `{found}` | What is there instead of `{expected}`. | `argument-count-mismatch`, `field-wrong-kind`, `pattern-type-mismatch`, `type-argument-mismatch`, `type-mismatch`, `unexpected-token` |
+| `{found}` | What is there instead of `{expected}`. | `argument-count-mismatch`, `field-wrong-kind`, `pattern-type-mismatch`, `signature-mismatch`, `type-argument-mismatch`, `type-mismatch`, `unexpected-token` |
 | `{from}` | The error type `?` would propagate. | `error-type-mismatch` |
 | `{from_target}` | The label of the package that depends. | `visibility-violation` |
 | `{function}` | The called function's name, or the name written to the left of the type arguments. | `type-args-on-a-value`, `wrong-argument-count` |
@@ -204,7 +204,7 @@ pluralization and the joining, and the template supplies the backticks.
 | `{literal}` | The literal exactly as the source wrote it — prefix, underscores and sign included. | `float-as-a-tuple-index`, `integer-not-in-base`, `integer-too-wide`, `integer-without-digits`, `literal-out-of-range`, `not-a-float-literal`, `not-a-tuple-index` |
 | `{marker}` | Which marker a comment carries: `TODO`, `FIXME` or `HACK`. | `warning-comment` |
 | `{matched}` | How many values a pattern matched, where `{expected}` is how many the variant holds. | `wrong-matched-value-count` |
-| `{method}` | The method looked up in, or supplied to, a type or a trait. | `ambiguous-trait-method`, `method-supplied-twice`, `no-such-method`, `not-a-trait-method` |
+| `{method}` | The method looked up in, or supplied to, a type or a trait. | `ambiguous-trait-method`, `method-supplied-twice`, `no-such-method`, `not-a-trait-method`, `signature-mismatch` |
 | `{methods}` | The `diagnostics::names` enumeration of the methods an `impl` is missing. | `incomplete-impl` |
 | `{module}` | The module path two `import` statements both name, unquoted — the template supplies the backticks. | `duplicate-import` |
 | `{module_file}` | The colliding module's file, from the repository root (`lib/money/cents.buri`). | `package-shadows-a-module` |
@@ -242,7 +242,7 @@ pluralization and the joining, and the template supplies the backticks.
 | `{to}` | The error type the function returns. | `error-type-mismatch` |
 | `{to_package_path}` | The dependency's package path, for the `BUILD.buri` to edit. | `visibility-violation` |
 | `{to_target}` | The label of the dependency that is not visible. | `visibility-violation` |
-| `{trait}` | The trait, or the effect, the diagnostic is about — without backticks, which the templates carry. | `derive-only-trait`, `duplicate-implementation`, `effect-and-trait`, `effect-carrying-bound`, `incomplete-impl`, `missing-conformance`, `no-structural-derive`, `not-a-trait-method`, `trait-not-derivable`, `type-arguments-required`, `underivable`, `unsatisfied-bound` |
+| `{trait}` | The trait, or the effect, the diagnostic is about — without backticks, which the templates carry. | `derive-only-trait`, `duplicate-implementation`, `effect-and-trait`, `effect-carrying-bound`, `incomplete-impl`, `missing-conformance`, `no-structural-derive`, `not-a-trait-method`, `signature-mismatch`, `trait-not-derivable`, `type-arguments-required`, `underivable`, `unsatisfied-bound` |
 | `{type}` | The rendered type, without backticks. | `bitwise-on-a-non-integer`, `coalesce-operand`, `context-spread-operand`, `derive-only-trait`, `derive-operator-not-a-newtype`, `derive-operator-not-numeric`, `duplicate-field`, `duplicate-implementation`, `duplicate-method`, `effect-and-trait`, `effect-carrying-bound`, `enum-without-a-variant`, `field-not-callable`, `incomplete-impl`, `lambda-captures-generic`, `literal-out-of-range`, `missing-conformance`, `no-such-field`, `no-such-method`, `no-such-positional-field`, `no-such-variant`, `not-a-tuple`, `not-an-enum`, `not-callable`, `not-indexable`, `not-interpolatable`, `pattern-not-a-tuple`, `pattern-not-an-array`, `question-mark-mismatch`, `statement-not-unit`, `try-operand`, `type-argument-arity`, `type-argument-count`, `type-has-no-methods`, `underivable`, `unsatisfied-bound` |
 | `{user}` | Whoever needs the dependency: the importing file's path at the import site, the package's label at the resolution site. | `missing-dep` |
 | `{value}` | What the file wrote where a closed set of words, or a known feature value, was expected. | `proto-unknown-feature`, `unknown-bare-word` |
