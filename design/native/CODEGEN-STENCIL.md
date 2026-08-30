@@ -837,6 +837,36 @@ There is no in-process JIT mode to guard separately — this backend writes
 objects and the linker makes the artifact (§4) — so `main` is the only place a
 stack is established at all, and `install_guard` is in both of `main`'s forms.
 
+### 8.1.1 A second carrier, and its own block
+
+Everything above is about *one* stack, because until slice B7 there was one:
+`main` establishes it and `main` is the only way into Buri code. A **carrier**
+— an OS thread from `cli/runtime/rt.rs`'s pool — is a second way in, and it
+cannot share the block. Two carriers on one upward-growing stack write their
+frames into each other, and the guard at the top belongs to whichever recursion
+reached it first.
+
+So a carrier asks for its own. `buri_rt_stack_acquire` (`cli/runtime/memory.rs`)
+`mmap`s 65 MiB — **the same 64 + 1 as above**, in a constant each side names and
+each side's tests assert — and `mprotect`s the top megabyte to `PROT_NONE`, for
+all three of §8.1's reasons and by the same arithmetic. `buri_rt_stack_release`
+puts the block on that carrier's free list rather than unmapping it, because a
+carrier is reused and address space is what this whole mechanism spends.
+Nesting gets a *different* block, so an entry inside an entry does not write
+over the outer entry's live locals.
+
+The door itself is `asm::carrier_entry`: `void(void *state, void *out)` at the
+platform ABI, `backend/carrier.rs`'s signature, emitted in the unit that owns
+the root next to `main`. It is `program_entry` with one line changed — the
+frame pointer comes from the runtime instead of from `adrp buri$stencil$stack`
+— and everything else about it, including the return area copied through
+`out`, follows from that. `-dead_strip` deletes it from a program that never
+references it, so a single-threaded artifact pays nothing: no door, no `mmap`,
+no page.
+
+`main` keeps the `__bss` block. That is deliberate and is what keeps every
+number in §8.2 true of the program a user actually runs.
+
 ### 8.2 What a program does when it runs out
 
 The same thing a Cranelift-compiled one did, which is what parity meant while

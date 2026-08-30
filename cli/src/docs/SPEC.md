@@ -678,26 +678,35 @@ enum Order { Less, Equal, Greater }
 #### 5.7.1 `Result` is must-use
 
 **A value of type `Result<T, E>` may not be discarded.** Discarding means binding
-it to `_`, or to any pattern that drops it without inspecting the `Err` case:
+it to a `_` anywhere in a pattern, or leaving it standing as a statement:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let _ = fs.writeText(ctx, path, body);          // ERROR: discarded Result
+let _ = fs.writeText(ctx, path, body);                // ERROR: discarded Result
+let (n, _) = (1, fs.writeText(ctx, path, body));      // ERROR: the same one, hidden
+fs.writeText(ctx, path, body);                        // ERROR: and so is this
 ```
 
-Since there are no expression statements (Section 12.2), `let _ =` is the only
-place a value can be thrown away, so this is a one-line rule with no holes. The
-legal ways to consume a `Result` are:
+There are two ways to throw a value away and no third — a `_` in a `let`'s
+pattern, and an expression statement, which Section 12.2 admits only in a test
+source — and this rule refuses a `Result` in both. That is what makes must-use
+total rather than a convention. The `_` is looked for anywhere in the pattern
+rather than only at its head, or the second line above would be the
+one-character way around the first.
+
+The legal ways to consume a `Result` are:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-fs.writeText(ctx, path, body)?                   // propagate
-match (fs.writeText(ctx, path, body)) { ... }    // handle
-result.withDefault((), fs.writeText(ctx, path, body))
-result.ignore(fs.writeText(ctx, path, body))     // explicitly, greppably, ignore
+fs.writeText(ctx, path, body)?                        // propagate
+match (fs.writeText(ctx, path, body)) { ... }         // handle
+fs.writeText(ctx, path, body).withDefault(())         // supply one
+fs.writeText(ctx, path, body).ignore()                // explicitly, greppably, ignore
 ```
 
-`result.ignore(r): ()` exists so that "I considered this and do not care" is a
-thing you *write*, rather than a thing that happens by not writing anything. A
-reviewer can grep for it; `_` is unsearchable.
+`ignore(self): ()` is a method on `Result` and has no free-function spelling. It
+exists so that "I considered this and do not care" is a thing you *write*,
+rather than a thing that happens by not writing anything. A reviewer can grep
+for it; `_` is unsearchable, and `buri lint` reports every `ignore` as
+`discarded-result` so that the whole set is one report.
 
 The rule is on the type, not on the call: a `Result` returned from a pure
 function is just as must-use as one returned from an I/O call.
