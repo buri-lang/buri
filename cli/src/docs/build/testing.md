@@ -353,9 +353,37 @@ test "a timeout reaches the caller as an error" {
 ```
 
 The fake answers from its fields rather than from a counter, because there is no
-mutation to hold one in: a stub that has to change between calls carries a handle
-and keeps the state on the runner's side, which is exactly what
-`core/testing/context`'s own implementations do.
+mutation to hold one in. `clockAt`'s advancing clock and `captureOut`'s
+accumulating buffer do change between calls, and that is a privilege of the
+runner's own implementations rather than a mechanism a fake can borrow: each of
+those constructors is an intrinsic that installs a slot in a table the runtime
+owns, and nothing in `core/testing/context` hands one out. A fake you write is
+an immutable struct and stays one, so it answers the same way every time it is
+asked the same question.
+
+### Making the Nth call fail
+
+That boundary is where deterministic simulation meets it. "The third write
+fails" wants a counter, and a counter is the state a fake cannot hold — so the
+fault is expressed as a value the test chooses rather than a moment the fake has
+to recognise.
+
+Split each durable operation into three: a pure `prepare` that decides what to
+write, one effectful `persist` that writes it, and a pure `publish` that folds
+the outcome back into the state. `prepare` and `publish` take no context, so a
+test calls them directly and reads what they answer; `persist` is the only step
+that reaches the `Fs`, and it is called once per step, so a test that wants the
+third one to fail runs the first two and hands the third an `.Err` of its own.
+The recovery path — the state after a write that did not happen — is then
+reached with ordinary values through the real code, and the crash between a
+log append and the sequence advance that follows it is a step boundary rather
+than something to interrupt mid-call.
+
+What this does not cover is a failure *inside* one effectful step: if `persist`
+makes three `fs.writeText` calls, a test can fail all three or none of them.
+Keeping `persist` to a single call is what makes that distinction go away, and
+it is worth the split on its own — a step that writes once is a step whose
+failure has one meaning.
 
 This is defence in depth rather than the primary mechanism. The primary
 mechanism is that a test whose call never passed a `Net`-bounded context cannot

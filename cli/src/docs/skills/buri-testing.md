@@ -164,8 +164,11 @@ test "a timeout reaches the caller as an error" {
 ```
 
 A fake answers from its fields rather than from a counter — there is no
-mutation to hold one in. A stub that must change between calls keeps its state
-on the runner's side, which is what the runner's own implementations do.
+mutation to hold one in. Keeping state between calls is the runner's own
+privilege: `clockAt` and `captureOut` are intrinsics holding a slot in a table
+the runtime owns, and a fake you write cannot get one. For "the third write
+fails", split the operation into a pure `prepare`, one effectful `persist` and a
+pure `publish`, and let the test hand the step it chooses an `.Err`.
 
 This is defence in depth. The primary mechanism is that a suite whose calls
 never passed a `Net`-bounded context cannot open a socket in anything it
