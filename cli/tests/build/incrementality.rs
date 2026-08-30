@@ -677,6 +677,66 @@ fn a_suite_naming_no_platform_runs_natively_or_says_why_not() {
     );
 }
 
+/// A suite the native backend cannot compile is **refused**, and naming a
+/// platform is what un-refuses it.
+///
+/// It used to be rerouted onto JavaScript with a note on stderr, which is how a
+/// named gap becomes a wrong answer: the suite passes, on a backend nobody
+/// chose, and the note goes into a stream a passing run's reader does not read
+/// (buri-lang/buri#4). `json.decode` is the gap here because no native backend
+/// has a body for it and the corpus already says so — if that ever changes,
+/// this test fails by passing the first run, which is the right way round.
+#[test]
+fn a_suite_the_native_backend_cannot_compile_is_refused() {
+    let scratch = Scratch::repo("native-gap");
+    scratch.write("lib/g/BUILD.buri", "library {\n  test {\n    sources: [\"test/g.buri\"]\n  }\n}\n");
+    scratch.write("lib/g/lib.buri", "export fn nothing(): Int { 0 }\n");
+    scratch.write(
+        "lib/g/test/g.buri",
+        "from \"core/testing/assert\" import * as assert;\n\
+         from \"core/testing/context\" import { Hermetic };\n\
+         from \"core/json\" import * as json;\n\
+         \ntest \"decodes\" {\n\
+         \x20 let ctx = Hermetic();\n\
+         \x20 let parsed = assert.ok(json.parse(ctx, \"1\"));\n\
+         \x20 let n: Float = assert.ok(json.decode(ctx, parsed));\n\
+         \x20 assert.eq(n, 1.0);\n}\n",
+    );
+
+    let run = scratch.run(&["test", "//lib/g"]);
+    // On a host with no native backend the default is JavaScript already, and
+    // there is no gap to refuse — the suite simply runs.
+    if run.stderr.contains("names no platform runs on javascript") {
+        run.ok();
+        return;
+    }
+    assert!(
+        run.stderr.contains("cannot run natively")
+            && run.stderr.contains("no implementation of json.decode"),
+        "a native gap did not refuse the suite:\n{}",
+        indent(&run.all())
+    );
+    assert!(
+        run.stderr.contains("platforms: [JS]"),
+        "the refusal did not say what to do about it:\n{}",
+        indent(&run.all())
+    );
+    assert!(
+        !run.stderr.contains("runs on javascript —"),
+        "a native gap still rerouted the suite:\n{}",
+        indent(&run.all())
+    );
+
+    // The suite says where it belongs, and then it runs there.
+    scratch.write(
+        "lib/g/BUILD.buri",
+        "library {\n  test {\n    sources: [\"test/g.buri\"]\n    platforms: [JS]\n  }\n}\n",
+    );
+    let named = scratch.run(&["test", "//lib/g"]);
+    named.ok();
+    assert_eq!(named.tests_passed(), 1, "the named platform ran no tests:\n{}", indent(&named.all()));
+}
+
 /// The platform an `--explain` row names, which is its fourth field.
 fn platform_of(run: &Run, action_and_label: &str) -> String {
     for line in run.stdout.lines() {
