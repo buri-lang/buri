@@ -1,0 +1,5 @@
+error [missing-separator] 4:11-4:11
+message: a match arm ends with `,`
+fix: write `,` here
+edit: 4:11-4:11 ","
+

@@ -26,20 +26,30 @@ fn is_build_file(name: &str) -> bool {
 }
 
 /// The canonical form of one file, whichever of the two it is, or `None` when
-/// there is none — the file does not parse, and a file that does not parse is
-/// left exactly as it is.
+/// there is none.
 ///
 /// One function, so that the command, the language server and the tests cannot
 /// disagree about which printer a file goes through.
 pub fn file(name: &str, text: &str) -> Option<String> {
+    formatted(name, text).map(|f| f.text)
+}
+
+/// The same, and which declarations the parser could not read.
+///
+/// A source file with a syntax error still has a canonical form: what parsed
+/// is laid out and what did not is printed as it was written. `None` is left
+/// for the file there is nothing to be said about — a build file that does not
+/// read, or source the formatter could not vouch for.
+pub fn formatted(name: &str, text: &str) -> Option<crate::formatting::Formatted> {
     if is_build_file(name) {
         let parsed = textproto::parse(text, crate::diagnostics::FileId(0));
         if !parsed.errors.is_empty() {
             return None;
         }
-        return Some(textproto::print(&parsed.document));
+        let text = textproto::print(&parsed.document);
+        return Some(crate::formatting::Formatted { text, regions: Vec::new() });
     }
-    crate::formatting::source(text)
+    crate::formatting::source_with_regions(text)
 }
 
 /// Formats `.buri` sources and build files, with no options and no
@@ -63,40 +73,62 @@ pub fn command_format(args: &arguments::Args) -> i32 {
     files.sort();
 
     let mut changed = Vec::new();
+    // The files a syntax error kept part or all of out of the formatter's
+    // hands. They are named rather than skipped in silence: a file the
+    // formatter could not read whole is not a file it has checked, and a
+    // `--check` that passed one would be reporting a gate it did not run.
+    let mut unread = Vec::new();
+    let mut refused = Vec::new();
     for path in &files {
         let Ok(text) = std::fs::read_to_string(path) else { continue };
         let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
             continue;
         };
-        let Some(formatted) = file(&name, &text) else {
+        let Some(out) = formatted(&name, &text) else {
             // A build file that does not read is a hard error, because nothing
-            // else in the repository will work until it is fixed. Source that
-            // does not parse is left exactly as it is: it is being edited.
+            // else in the repository will work until it is fixed.
             if is_build_file(&name) {
                 eprintln!("error: {} does not parse", session.workspace.rel_of(path));
                 return 2;
             }
+            refused.push(session.workspace.rel_of(path));
             continue;
         };
-        if formatted != text {
+        if !out.regions.is_empty() {
+            unread.push(session.workspace.rel_of(path));
+        }
+        if out.text != text {
             changed.push(session.workspace.rel_of(path));
             if !args.flags.check {
-                let _ = std::fs::write(path, formatted);
+                let _ = std::fs::write(path, out.text);
             }
         }
     }
 
     if args.flags.check {
-        // The CI form: exit non-zero on any file that would change.
+        // The CI form: exit non-zero on any file that would change, and on any
+        // the formatter could not read.
         for c in &changed {
             println!("{c}");
         }
-        return if changed.is_empty() { 0 } else { 1 };
+        report(&unread, &refused);
+        return i32::from(!changed.is_empty() || !unread.is_empty() || !refused.is_empty());
     }
     for c in &changed {
         println!("formatted {c}");
     }
+    report(&unread, &refused);
     0
+}
+
+/// What the formatter could not read, said once per file.
+fn report(unread: &[String], refused: &[String]) {
+    for u in unread {
+        println!("{u}: has a syntax error; what did not parse was left as it was written");
+    }
+    for r in refused {
+        println!("{r}: does not parse, and was left exactly as it is");
+    }
 }
 
 /// Every `.buri` file under `dir`, skipping the directories nothing in a

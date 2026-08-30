@@ -1,0 +1,5 @@
+error [missing-separator] 3:5-3:5
+message: a tuple element ends with `,`
+fix: write `,` here
+edit: 3:5-3:5 ","
+

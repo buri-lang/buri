@@ -1,0 +1,10 @@
+export fn first(   a:Int ):Int {
+  a
+}
+
+export fn second(b: Int): Int {
+  b + 1
+
+export fn third(c: Int): Int {
+  c + 2
+}

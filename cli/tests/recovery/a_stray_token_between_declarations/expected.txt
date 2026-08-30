@@ -1,0 +1,4 @@
+error [unexpected-token] 6:1-6:2
+message: expected a declaration, found `@`
+fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+

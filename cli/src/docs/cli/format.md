@@ -21,6 +21,27 @@ Only the *leading* run moves. An import written after a declaration stays where
 it is, because moving it across that declaration could change what the module
 means.
 
+## A file with a syntax error
+
+A file being edited is a file with a syntax error in it for most of the time
+you are editing it, and it is still worth laying out. So the declaration the
+parser could not read comes back **exactly as it was written**, byte for byte,
+and everything around it is formatted as usual. What the formatter did not
+understand, it does not touch: the whole declaration is the unit, because a
+recovered tree says where a mistake was and not what you meant by the text
+around it.
+
+Formatting such a file is still a fixed point, still keeps every comment and
+every token, and still fits the margin everywhere it laid something out. Inside
+the region, the line lengths are yours.
+
+`buri format` names each file it could only partly read, and `--check` **exits
+`1`** for it — whether or not anything outside the region would change. A file
+the formatter could not read whole is not a file it has checked, and a green
+gate that got there by skipping a file is worse than a red one. So `--check`
+fails on three things: a file that would change, a file with a syntax error,
+and a file the formatter refused outright.
+
 ## Build files
 
 A build file is data, so its canonical form is decided the same way and by the
@@ -44,5 +65,8 @@ kept with the field beneath it.
 `buri gen` writes build files through this same printer, so the two cannot
 fight over a file: what `gen` leaves behind is what `format --check` accepts.
 
-The `--check` form writes nothing and exits `1` if anything would change. That
-is the form for a continuous-integration job.
+The `--check` form writes nothing and exits `1` if anything would change — or
+if any source has a syntax error, as above. That is the form for a
+continuous-integration job. A build file that does not read is a different
+matter: nothing in the repository works until it is fixed, so the run stops
+there and exits `2`.

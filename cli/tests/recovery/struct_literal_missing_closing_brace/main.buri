@@ -1,0 +1,10 @@
+// EXPECT: this struct literal is missing its closing `}`
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+export fn origin(): Point {
+  let p = Point { x: 0, y: 0;
+  p
+}
