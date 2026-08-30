@@ -1,0 +1,8 @@
+// EXPECT: a call argument ends with `,`
+export fn add(a: Int, b: Int): Int {
+  a + b
+}
+
+export fn three(): Int {
+  add(1 2)
+}
