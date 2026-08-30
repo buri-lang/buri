@@ -1,0 +1,5 @@
+// EXPECT: a tuple-pattern element ends with `,`
+export fn first(p: (Int, Int)): Int {
+  let (a b) = p;
+  a
+}

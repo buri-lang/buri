@@ -1,0 +1,11 @@
+// EXPECT: a field pattern ends with `,`
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+export fn sum(p: Point): Int {
+  match (p) {
+    Point { x y } => x + y,
+  }
+}

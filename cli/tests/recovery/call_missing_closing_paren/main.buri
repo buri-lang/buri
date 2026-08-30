@@ -1,0 +1,8 @@
+// EXPECT: this call is missing its closing `)`
+export fn add(a: Int, b: Int): Int {
+  a + b
+}
+
+export fn three(): Int {
+  add(1, 2
+}

@@ -1,0 +1,4 @@
+// EXPECT: this array is missing its closing `]`
+export fn seeds(): [Int] {
+  [1, 2, 3
+}

@@ -1,0 +1,5 @@
+error [missing-separator] 2:10-2:10
+message: a derived trait ends with `,`
+fix: write `,` here
+edit: 2:10-2:10 ","
+

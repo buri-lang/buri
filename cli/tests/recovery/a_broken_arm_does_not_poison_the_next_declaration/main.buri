@@ -1,0 +1,11 @@
+// EXPECT: the mistake is one error, and `twice` still typechecks
+export fn pick(n: Int): Int {
+  match (n) {
+    1 => 1
+    _ => 0,
+  }
+}
+
+export fn twice(n: Int): Int {
+  pick(n) * 2
+}

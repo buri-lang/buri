@@ -1,0 +1,8 @@
+// EXPECT: expected an expression, found `@`
+export fn add(a: Int, b: Int): Int {
+  a + b
+}
+
+export fn three(): Int {
+  add(1, @ 2)
+}
