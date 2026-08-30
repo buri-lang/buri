@@ -543,7 +543,7 @@ pub fn task_is_live(handle: i64) -> bool {
 // featureless would make that refusal a lie for exactly as long as it took D4
 // to make it true again.
 
-/// `Tasks.parallel(self, items, f) -> [B]` — `f` at every item, in index order.
+/// `Tasks.parallel(self, ctx, items, f) -> [B]` — `f` at every item, in index order.
 ///
 /// The four words after `len` are [`crate::StepEntry`]'s ABI, which
 /// `buri_rt_list_map_ctx_step` established and which `cli/runtime/lib.rs` §2

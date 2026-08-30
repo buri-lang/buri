@@ -1127,12 +1127,16 @@ impl Tasks for TestTasks {
   ///
   /// The runtime drives the walk, through the same closure trampoline
   /// `host.HostTasks.parallel` uses (`backend/intrinsic_keys.rs`'s `step_call`)
-  /// and for the reason that mechanism exists: calling a Buri closure is what a
-  /// Buri body cannot arrange from the outside, because the step is handed the
-  /// caller's context and a method body has no name for it. So the double runs
-  /// the *same* boundary the real implementation runs, which is what makes a
-  /// test of a program through this an honest test of the program through that.
-  fn parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B];
+  /// and for the reason that mechanism exists: this double's job is the
+  /// *order*, and choosing one is the runtime's. So the double runs the **same**
+  /// boundary the real implementation runs, which is what makes a test of a
+  /// program through this an honest test of the program through that.
+  ///
+  /// `ctx` is the caller's whole context and is what every step is handed —
+  /// `Tasks`' own promise, and the same parameter the real implementation
+  /// takes. A `Buri` body could supply it too (`SerialTasks` in the
+  /// conformance corpus does); what it could not supply is the order.
+  fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
 }
 
 /// Program order, no faults, and a fresh log.

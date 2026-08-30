@@ -1081,13 +1081,19 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// records which. Monomorphization already reads that row to dispatch
     /// (`resolve_trait_call`, `middle/monomorphize.rs`, which rewrites the
     /// receiver into a `CtxGet` of exactly this type), so substituting the
-    /// receiver here left a method whose signature names `Self` — `Tasks`'
-    /// `f: fn(Self, Int, A) => B`, `Listen`'s `onRequest: fn(Self, Request) =>
-    /// Response` — handing the caller's handler the **context's** layout while
-    /// the `impl` body hands it the implementation's. Two different types, and
-    /// nothing between here and the machine to notice: the front end had
-    /// agreed with itself, so it typechecked, and the native backends read the
-    /// wrong bytes and crashed with no output at all.
+    /// receiver here left a method whose signature names `Self` — `Listen`'s
+    /// `onRequest: fn(Self, Request) => Response` — handing the caller's
+    /// handler the **context's** layout while the `impl` body hands it the
+    /// implementation's. Two different types, and nothing between here and the
+    /// machine to notice: the front end had agreed with itself, so it
+    /// typechecked, and the native backends read the wrong bytes and crashed
+    /// with no output at all.
+    ///
+    /// The rule is one-directional and that is the point: `Self` is the
+    /// implementation *everywhere*, and an effect whose callback is meant to
+    /// receive the caller's context takes that context as a `ctx` parameter and
+    /// names it, the way `Tasks.parallel` does (SPEC 10.6). Nothing here ever
+    /// answers "the receiver", so there is no second reading to get wrong.
     ///
     /// This is the same answer A1 gives a written `Self` in an `impl`
     /// signature (the head's type) and A3 gives an impl head matched against a

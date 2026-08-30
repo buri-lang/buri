@@ -301,11 +301,15 @@ pub const ENTRIES: &[Entry] = &[
     },
     // -- Tasks --------------------------------------------------------------
     //
-    // `parallel(self, items, f)`, the second key of the closure trampoline and
-    // the one it was built for. `self` is `HostTasks`, an empty struct, so it is
-    // `Arg::Dropped` like every other host receiver; `items` is `Arg::Elems`,
-    // because the source's element type is what the entry thunk is generated at;
-    // `f` is `Arg::Step`, the four words.
+    // `parallel(self, ctx, items, f)`, the second key of the closure trampoline
+    // and the one it was built for. `self` is `HostTasks`, an empty struct, so
+    // it is `Arg::Dropped` like every other host receiver; `ctx` is the caller's
+    // whole context and is `Arg::Dropped` too — the runtime allocates through
+    // `buri_rt_alloc` and reads no capability, so no context crosses the archive
+    // boundary — but it is not *unused*: the step is handed it, out of the state
+    // record `Arg::Step` builds, which is why the shared table names its index.
+    // `items` is `Arg::Elems`, because the source's element type is what the
+    // entry thunk is generated at; `f` is `Arg::Step`, the four words.
     //
     // The body is in `cli/runtime/rt.rs` behind feature `net`, which is why
     // `runtime_native::net_intrinsic` names the `host.HostTasks.*` family: a
@@ -314,7 +318,7 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         key: "host.HostTasks.parallel",
         symbol: "buri_rt_host_tasks_parallel",
-        args: &[Arg::Dropped, Arg::Elems, Arg::Step],
+        args: &[Arg::Dropped, Arg::Dropped, Arg::Elems, Arg::Step],
         ret: Ret::Out,
     },
     // -- core/alloc's counters ----------------------------------------------
@@ -1358,11 +1362,12 @@ pub const ENTRIES: &[Entry] = &[
     // where `host.HostTasks.parallel`'s is `Arg::Dropped`, because a `TestTasks`
     // is a handle and the runtime has to ask it which order this run schedules
     // in; `items` is `Arg::Elems` and `f` is `Arg::Step`, exactly as they are
-    // there.
+    // there, and `ctx` — the caller's whole context, which the step is handed —
+    // is `Arg::Dropped` between them.
     Entry {
         key: "host_testing.TestTasks.parallel",
         symbol: "buri_rt_host_testing_test_tasks_parallel",
-        args: &[Arg::Scalar, Arg::Elems, Arg::Step],
+        args: &[Arg::Scalar, Arg::Dropped, Arg::Elems, Arg::Step],
         ret: Ret::Out,
     },
     Entry {

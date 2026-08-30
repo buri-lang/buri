@@ -22,6 +22,14 @@
 //! capture because a lambda may not capture an effect-carrying value (SPEC
 //! 10.6); that is the same shape `ui/effect`'s `Fetch` uses.
 //!
+//! That is `C` in the signature below and `C` again in `effect Tasks`, and it
+//! is **not** `Self`. `Self` is whatever implements `Tasks` — `host.tasks`, or
+//! a test's double — which grants that one effect and nothing else; a step
+//! handed it could not read a clock or allocate. The one line of this module's
+//! body is `ctx.parallel(ctx, items, f)`, and the repetition is the whole
+//! point: the first is who does the scheduling, the second is what the work is
+//! done with.
+//!
 //! There is no detached spawn and no handle to join. Every task has finished
 //! before `parallel` returns, so a task cannot outlive the context that granted
 //! it — which is what keeps "a program that never names `host.fs` cannot read a
@@ -83,5 +91,5 @@ export fn parallel<C: Alloc + Tasks, A, B>(
   items: [A],
   f: fn(C, Int, A) => B,
 ): [B] {
-  ctx.parallel(items, f)
+  ctx.parallel(ctx, items, f)
 }
