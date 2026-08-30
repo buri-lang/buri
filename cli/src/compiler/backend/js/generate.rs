@@ -276,13 +276,21 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     g.waits = waiting_functions(program);
 
     let mut stmts = Vec::new();
-    // A program that reaches the filesystem or standard input needs node's
-    // `require`, which an ES module does not have. Emitted only when it is
-    // needed, so a browser artifact never names `node:module`.
+    // A program that reaches a node module by name needs `require`, which an
+    // ES module does not have. Emitted only when it is needed, so a browser
+    // artifact never names `node:module` — and *guarded*, because a program
+    // may reach `Stdout.writeBytes`, which every platform grants including
+    // `WEB`, where there is no such module to resolve. A static `import` is
+    // resolved before a line of the artifact runs and would fail the whole
+    // page; a dynamic one behind `typeof process` is never reached there, and
+    // `$fs`/`$fsp` answer the absence with a refusal that names it.
+    //
+    // The `await` is module top level, where it is available because every
+    // artifact this backend writes is an ES module.
     if needs_require(program) {
         stmts.push(Stmt::Raw(
-            "import{createRequire as $createRequire}from\"node:module\";\n\
-             const $require=$createRequire(import.meta.url);"
+            "const $require=typeof process===\"undefined\"?undefined:\
+             (await import(\"node:module\")).createRequire(import.meta.url);"
                 .to_string(),
         ));
     }
@@ -570,11 +578,20 @@ fn waiting_functions(program: &Program) -> Vec<bool> {
     waits
 }
 
-/// Whether any reachable intrinsic touches the host filesystem.
+/// Whether any reachable intrinsic reaches a node module by name.
+///
+/// Two do, and they are not the same module. `runtime.js`'s `$fsp` is
+/// `node:fs/promises`, which every `Fs` method waits on; `$fs` is the
+/// synchronous `fs`, and the one caller left for it is `$writeRaw`, behind
+/// `Stdout.writeBytes` — a write that must land before the next request is
+/// read, so it does not wait and cannot use the other one.
+///
+/// `Stdin` is no longer on this list: it reads `process.stdin`, which is a
+/// global rather than a module.
 fn needs_require(program: &Program) -> bool {
     program.funcs.iter().any(|f| {
         f.intrinsic_key().is_some_and(|k| {
-            k.starts_with("host.HostFs.") || k.starts_with("host.HostStdin.")
+            k.starts_with("host.HostFs.") || k == "host.HostStdout.writeBytes"
         })
     })
 }
