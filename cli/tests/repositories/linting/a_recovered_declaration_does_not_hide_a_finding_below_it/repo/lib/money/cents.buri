@@ -1,0 +1,13 @@
+// The first import has no `;`. The parser writes the whole declaration down
+// anyway — the path, the names it binds, all of it — and reports the one thing
+// that is missing. So the file's scope is the scope it says it is, and the
+// binding four lines below is as readable as it would be in a file with
+// nothing wrong with it. Both are reported, because they are two things.
+
+from "core/effect" import { Alloc }
+from "core/str" import { fromInt };
+
+export fn describe<C: Alloc>(ctx: C, n: I64): Str {
+  let spare = 7;
+  fromInt(ctx, n)
+}

@@ -24,17 +24,52 @@ where the body stopped making sense, so everything written inside the failed
 expression is gone — and a rule that read it would report the gap rather than
 the code, calling a name unused because its only use went missing. The four
 rules that read bodies — `unused-variable`, `test-without-assertion`,
-`dead-code`, `ctx-rebinding` — therefore stay silent for exactly the scope that
-failed: the body the checker gave up on, and, when the failure is at a module's
-top level, every body in that module, because an import that resolved to
-nothing changes what all of them can see. Nothing wider goes quiet, and the
-rules that read the source rather than the tree — parameter counts, nesting
-depth, function length, warning comments, test titles, duplicate imports,
-unused imports — answer the same either way.
+`dead-code`, `ctx-rebinding` — therefore stay silent for exactly the body that
+failed: the function the error landed in, its signature counted as part of it,
+and no other. The body beside it is read, and so is the body below the
+declaration that failed. Nothing wider goes quiet, and the rules that read the
+source rather than the tree — parameter counts, nesting depth, function length,
+warning comments, test titles, duplicate imports, unused imports — answer the
+same either way.
+
+`dead-code` asks a second question and so has a second reason to go quiet. It
+reads the package's imports and re-exports to decide which exported names
+anything reaches, so an error landing on one of those lines — or a run of
+declarations the parser could not read at all, which might have held the import
+that reaches the name — leaves it with a shorter list than the author wrote,
+and it declines to call anything unreached on that evidence. An error anywhere
+else is not a reason, however far from a body it sits: an alias that closes a
+cycle, a field whose type did not check, a signature that did not, each is one
+declaration a reader can see is wrong, and none of them says anything about
+what reaches what.
 
 The silence is one-directional: a finding may be missed inside a broken body,
 and none is invented there. Fix the type error and run the linter again to see
 what the gap was hiding.
+
+## When a file does not parse
+
+The same answer, through the same machinery. A syntax error is an error in the
+report like any other, and the linter reads on around it: the declarations the
+parser did recover are analysed, the file beside a broken one is still read,
+and a package whose *dependency* does not parse is still linted. So the report
+holds the syntax error and every finding the mistake did not take with it, and
+the exit code is the one any finding earns rather than a special one for a file
+that did not parse.
+
+What goes quiet is the scope named above and nothing wider: the body the
+mistake landed in. Where the mistake *sits* is not the test — a declaration the
+parser recovered whole hides nothing at all, and a missing `;` on an import is
+recovered whole, so the unused binding twenty lines below it is still reported.
+A run of declarations the parser could not read is the case that does cost
+something: it takes its own findings with it, and it stops `dead-code` counting
+for that package, on the grounds the section above gives.
+
+There is one file the linter does not read around, and it is a build file. A
+`BUILD.buri` or `REPO.buri` that does not parse is the shape of the repository
+rather than something in it: nothing downstream knows which files a package
+holds or what it may see. So the run stops there and says which file it was,
+rather than reporting a graph it had to guess at.
 
 ## Exit status
 
@@ -44,6 +79,11 @@ in the same report is an error, and both are `1`, because a warning is still the
 answer to the question you asked. Running the linter is itself the request to be
 told, and a report that exits zero is one no script can branch on, so `buri
 lint //...` is usable directly as a gate with no flag to make it one.
+
+A syntax error in a source file is `1` on the same grounds: it is part of the
+report, printed beside the findings. `2` is not a report at all — it is the run
+that could not start: a target pattern that names nothing, or a build file that
+does not read (above).
 
 Whether a finding also stops `buri build` or `buri test` is a different
 question, and the repository answers it rather than this command: the

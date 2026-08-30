@@ -11,7 +11,7 @@
 //! copies compiled into `buri`, so that editing a page and re-running the
 //! generator shows the edit — and so that `--watch` has something to watch.
 
-use buri::commands::add_skills::SKILLS;
+use buri::commands::add::skills::SKILLS;
 use buri::commands::COMMANDS;
 use buri::documentation::frontmatter;
 use buri::documentation::markdown;
@@ -71,7 +71,7 @@ pub const SECTIONS: &[Section] = &[
     Section {
         slug: "skills",
         title: "Agent skills",
-        blurb: "The skills `buri add-skills` writes, for a coding agent working in a \
+        blurb: "The skills `buri add skills` writes, for a coding agent working in a \
                 Buri repository.",
         directory: "cli/src/docs/skills",
     },

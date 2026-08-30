@@ -7,3 +7,11 @@ error: expected a declaration, found `?` [unexpected-token]
   = expected: a declaration
   = actual: `?`
   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+warning: `doubled` is bound and never used [unused-variable]
+ --> lib/recovery_insert_stray_module_cents_4da55b/lib.buri:6:7
+  |
+6 |   let doubled = n * 2;
+  |       ^^^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place

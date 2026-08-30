@@ -41,11 +41,11 @@ fn tag_policy() {
 
 /// CLI.md: the exit codes, and the commands whose contract is about what they
 /// leave on disk rather than what they compute — `gen`, `run`, `clean`,
-/// `version`, the `out/` symlink, and the no-argument forms that mean the whole
-/// repository from wherever they are run.
+/// `version`, `add skills`, the `out/` symlink, and the no-argument forms that
+/// mean the whole repository from wherever they are run.
 #[test]
 fn cli_contract() {
-    run_corpus(&tests_dir().join("repositories/cli"), "cli", 12);
+    run_corpus(&tests_dir().join("repositories/cli"), "cli", 13);
 }
 
 /// CLI.md's `query`: what the graph says, asked without building anything.
@@ -78,14 +78,32 @@ fn proto_schemas() {
 /// does to the same finding — when the catalogue runs, how hard a finding
 /// lands, and what a misspelled field in the block costs.
 ///
-/// Four of them are about a file that did not parse: what is still reported
-/// around it, what is rightly not reported inside it, that a package's
-/// neighbour going quiet does not quiet it, and that a *build* file which does
-/// not read is the one thing recovery does not read around. The generated half
-/// of that question is `cli/tests/linting.rs`, five hundred of them.
+/// Eleven of them are about a file the front end had something to say about,
+/// and together they draw the line the rules stay behind. Six are about the
+/// shape of the silence: what is still reported around a file that did not
+/// parse, what is rightly not reported inside the declaration that did not,
+/// that a package's neighbour going quiet does not quiet it, that a broken
+/// file *underneath* a package does not quiet the two packages above it, that
+/// a second broken file is not a second reason to stop, and that a *build*
+/// file which does not read is the one thing recovery does not read around.
+///
+/// The other five say what an error is *not* a reason to go quiet about, which
+/// is the harder half and the one that regressed. A declaration the parser
+/// recovered whole — an import missing its `;` — hides nothing below it. An
+/// error about one declaration the parser read whole — an alias that closes a
+/// cycle — hides nothing beside it. A body that did not check hides its own
+/// bindings and not its neighbour's. And the two things that genuinely do hide
+/// something hide exactly what they cost: a run of declarations the parser
+/// skipped hides what it swallowed and nothing that merely sits near it, and a
+/// re-export that did not resolve stops `dead-code` from calling the name it
+/// meant to reach unreached — one typo, one finding.
+///
+/// The generated half of that question is `cli/tests/linting.rs`, five hundred
+/// of them, with the rate of lost findings pinned as an invariant and the
+/// parity between this command and the language server stated alongside it.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 27);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 34);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the
@@ -102,7 +120,7 @@ fn test_suites() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 88);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 89);
 }
 
 /// Every method a 3.17 client can send is answered by the dispatch, and is

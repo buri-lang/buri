@@ -1,0 +1,36 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a used type alias that closes a cycle, and an unused binding in the function below it: both reported, because an error about one declaration the parser read whole says nothing about the rest of the module"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# Breaking the cycle is the fix the diagnostic asks for. The finding stands
+# alone afterwards, which is what says the report above was two things.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "export type Handle = Handle;"
+  with: "export type Handle = I64;"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "finding.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  let spare = 7;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

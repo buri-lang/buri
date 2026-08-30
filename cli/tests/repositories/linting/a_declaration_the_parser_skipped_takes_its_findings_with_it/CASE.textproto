@@ -1,0 +1,39 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a declaration whose body the parser skipped to the end of the file: the parse error is the whole report, and neither the binding it swallowed nor the export whose only importer it swallowed is invented as a finding"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# Closing the struct is the whole mistake. The declarations under it come back
+# into the tree, and with them the one finding that was really there — which
+# is what says the silence above was scoped rather than lucky, and that
+# `toDollars` was quiet because it is reached and not because the report gave
+# up.
+edit {
+  file: "lib/money/routes.buri"
+  replace: "struct Route {\n"
+  with: "struct Route {\n  id: I64,\n}\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "in_view.txt"
+}
+
+edit {
+  file: "lib/money/routes.buri"
+  replace: "  let spare = 7;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

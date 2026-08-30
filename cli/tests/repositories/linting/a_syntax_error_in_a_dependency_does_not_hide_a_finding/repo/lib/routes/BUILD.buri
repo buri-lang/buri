@@ -1,0 +1,4 @@
+library {
+    sources: ["routes.buri"]
+    visibility: ["//visibility:public"]
+}

@@ -1,0 +1,21 @@
+// Two bindings nothing reads, in two functions, one of which does not parse.
+// `hidden` is not reported: the checker stopped inside that body, so what the
+// rest of it reads is not something the report can claim to know. `showing`
+// is, because the function it is in is whole — the mistake is one declaration
+// wide, and so is the silence.
+
+from "core/effect" import { Alloc };
+from "core/str" import { fromInt };
+
+export fn describe<C: Alloc>(ctx: C, n: I64): Str {
+  let hidden = 7;
+  match (n) {
+    1 => fromInt(ctx, 1)
+    _ => fromInt(ctx, 2),
+  }
+}
+
+export fn amount<C: Alloc>(ctx: C, n: I64): Str {
+  let showing = 7;
+  fromInt(ctx, n)
+}

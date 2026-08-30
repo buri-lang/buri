@@ -55,6 +55,17 @@
 //! Both are held to rates rather than to counts, in the style `recovery.rs`
 //! states, so growing the corpus does not move the bar.
 //!
+//! # The third claim: one producer
+//!
+//! * **The editor and the terminal report the same set.** `buri lint` walks
+//!   every target through `findings_for` — the lint record cache in front of
+//!   it, the package rules asked once per package — and the language server
+//!   asks per target through `analysis_of` and `findings_for_target`. Both
+//!   routes are compared over every case here, and every case here has a
+//!   syntax error in it. That is the shape a rate cannot catch: two halves can
+//!   go quiet together and keep any rate they like, and only comparing them
+//!   says the terminal did not stop where the editor read on.
+//!
 //! ```text
 //! cargo test -p buri --test linting
 //! BURI_BLESS=1 cargo test -p buri --test linting     # re-record the corpus
@@ -112,45 +123,65 @@ const INVENTED_CEILING: usize = 2;
 
 /// What share of the cases may lose a finding whose evidence survived.
 ///
-/// Not zero, and the residue has one cause worth naming. `Unchecked::of` in
-/// `cli/src/commands/lint.rs` reads an error that is *not* inside any body as
-/// an error about the module, and marks every body in that module unread — so
-/// a missing `;` on an import silences `unused-variable` in a function twenty
-/// lines below it, which parsed and checked. That was a safe rule to write
-/// when a parse error meant the file was not read at all; with recovery it is
-/// wider than it needs to be, and this number is what narrowing it would buy.
+/// **Three points, down from nine, and the drop is a fix rather than a draw.**
+/// `Unchecked::of` in `cli/src/commands/lint.rs` used to read an error that
+/// was not inside any body as an error about the *module*, and mark every body
+/// in that module unread — so a missing `;` on an import silenced
+/// `unused-variable` in a function twenty lines below it, and a used alias
+/// that closed a cycle silenced every lint beside it, both from files the
+/// parser read whole. It now marks a module unread only where the parser
+/// actually skipped a declaration, and a body unread only where an error
+/// landed in it. The population rate fell from **145 of 2,000 (7.25%) to 47 of
+/// 2,000 (2.35%)**, measured over the same seeds either side of the change;
+/// the pinned corpus fell from 10 of 528 to **6 of 545 (1.1%)**.
 ///
-/// Nine points, and the number is read off the **whole population** — 151 of
-/// 2,000 candidates, 7.5% — rather than off the pinned corpus, which shows
-/// 1.9% because it is one case per shape and the shapes are not equally
-/// common. That is `recovery.rs`'s rule for a ceiling, and this is the same
-/// mistake it was written to stop: a bound fitted to a sample goes red on the
-/// next draw for a reason that has nothing to do with the toolchain.
+/// The number is read off the **whole population** rather than off the pinned
+/// corpus, which is one case per shape and whose shapes are not equally
+/// common. That is `recovery.rs`'s rule for a ceiling, and the reason for it
+/// is that a bound fitted to a sample goes red on the next draw for a reason
+/// that has nothing to do with the toolchain.
 ///
-/// Re-measured after the formatter style change and the `circular-type-alias`
-/// diagnostic landed: still 151 of 2,000, to the case. The seeds are the lint
-/// fixtures under `repositories/linting/`, which neither change touched, and
-/// no mutation in the population produces an alias cycle — a one-token edit
-/// makes a *syntax* error far more readily than it makes an alias refer back
-/// to itself. So the nine stands unchanged.
+/// # The residue, which is a different thing from the bug that was fixed
 ///
-/// It is worth naming what would move it, because `Unchecked::of` reads the
-/// **position** of an error and not its code, so the new diagnostic is on the
-/// same footing as a syntax error. A `circular-type-alias` sits on a type
-/// alias, which is at module level and inside no body, so it takes the same
-/// path a missing `;` on an import does: the module is marked unread and every
-/// lint in it goes quiet. Confirmed by hand rather than assumed — a module
-/// with a cyclic alias and an unused local reports the cycle and *not* the
-/// `unused-variable`, while the same module with the cycle removed reports the
-/// `unused-variable`. It takes a *used* alias to do it: an unused cyclic alias
-/// is never expanded, so nothing fires and nothing goes quiet, which is why no
-/// mutation in this population reaches it.
+/// Forty-seven cases, and **none of them is a lint going quiet about code that
+/// was read**. Two of the three lints in the residue — `duplicate-import` and
+/// `discarded-result` — never consulted `Unchecked` at all, and the third is
+/// stopped by the per-body rule, which is the rule doing its job:
 ///
-/// So the ceiling is unmoved but the surface under it is now wider: it is not
-/// only broken syntax that can silence a module's lints. That is the second
-/// case for narrowing `Unchecked::of`, and this number is still where the cost
-/// of not narrowing it is visible.
-const LOST_A_FINDING_CEILING: usize = 9;
+/// * **`unused-variable`, 30 cases.** The mutation broke the import the body
+///   depends on, so the body itself no longer checks — `not-an-effect`,
+///   `unsatisfied-bound`, `unresolved-name`, reported *inside* it. A body the
+///   checker stopped in has lost the reads under wherever it stopped, so what
+///   the binding is read by is not something the report can claim to know.
+/// * **`discarded-result`, 11 cases.** The rule looks for calls landing on
+///   `core/result.ignore` in the typed tree. The mutation broke the callee's
+///   declaration, so the call resolves to nothing and is not in the tree to
+///   find.
+/// * **`duplicate-import`, 6 cases.** The rule counts two statements naming
+///   one module. The mutation destroyed one of the two, so there is no longer
+///   a pair — the evidence is half gone, not overlooked.
+///
+/// Every one of the forty-seven has an error inside a body, checked rather
+/// than asserted. What makes them show up here at all is the invariant's proxy
+/// for "the evidence survived": a finding is counted as surviving when its
+/// byte offset lands outside every region the *parser* skipped. That is a
+/// coarser question than "the declaration this finding is about still checks",
+/// and the gap between the two is exactly this residue. Narrowing the proxy
+/// would need the harness to model what the checker stopped on, which is the
+/// toolchain's own answer restated in the test — so the residue is described
+/// here instead, and the ceiling sits above it.
+///
+/// `Option`-field elision, merged in from main after the measurement above,
+/// moves none of it. The lint fixtures under `cli/tests/repositories/linting`
+/// are this corpus's whole seed set, and not one of them — nor any page it
+/// records — mentions `Option` or `missing-field-value`, so neither the
+/// desugar nor its reworded fix has anything here to change. Re-measured
+/// after the merge: **47 of 2,000 and 6 of 545, to the case.**
+///
+/// Three points, against 2.35% measured: the ratchet is one point of headroom,
+/// which is what makes it a bound and not a description. It is not zero and
+/// cannot be while the proxy is a byte offset.
+const LOST_A_FINDING_CEILING: usize = 3;
 
 fn corpus_dir() -> PathBuf {
     tests_dir().join("linting")
@@ -247,12 +278,15 @@ fn is_a_rule(code: &str) -> bool {
     buri::documentation::lints::find(code).is_some()
 }
 
-/// Lints a whole set of sources in one repository, one package each.
+/// One scratch repository holding every source, one package each, opened and
+/// resolved.
 ///
-/// One session and one pass: opening a repository and analysing a package are
-/// tens of milliseconds each, and a thousand of them one at a time would be
-/// the whole test budget.
-fn lint_all(label: &str, sources: &[(String, String)]) -> BTreeMap<String, Findings> {
+/// The `Scratch` comes back with the session because it deletes the tree when
+/// it drops, and a session over a deleted tree answers nothing.
+fn fixture(
+    label: &str,
+    sources: &[(String, String)],
+) -> (Scratch, buri::build::session::Session, Vec<buri::build::workspace::TargetId>) {
     let scratch = Scratch::repo(label);
     for (name, text) in sources {
         let (build, file) = shape_of(text);
@@ -260,11 +294,22 @@ fn lint_all(label: &str, sources: &[(String, String)]) -> BTreeMap<String, Findi
         scratch.write(&format!("lib/{name}/{file}"), text);
     }
     let flags = Flags::default();
-    let mut session = buri::build::session::open_at(&scratch.path(""), &flags)
+    let session = buri::build::session::open_at(&scratch.path(""), &flags)
         .unwrap_or_else(|e| panic!("the fixture repository did not open: {e}"));
     let targets = session
         .resolve_targets(&[String::from("//...")])
         .unwrap_or_else(|e| panic!("the fixture repository has no targets: {e}"));
+    (scratch, session, targets)
+}
+
+/// Lints a whole set of sources in one repository, one package each.
+///
+/// One session and one pass: opening a repository and analysing a package are
+/// tens of milliseconds each, and a thousand of them one at a time would be
+/// the whole test budget.
+fn lint_all(label: &str, sources: &[(String, String)]) -> BTreeMap<String, Findings> {
+    let flags = Flags::default();
+    let (_scratch, mut session, targets) = fixture(label, sources);
     let diagnostics = buri::commands::lint::findings_for(&mut session, &targets, &flags);
 
     let mut out: BTreeMap<String, Findings> = BTreeMap::new();
@@ -655,4 +700,80 @@ fn a_case_is_two_files() {
             case.display()
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// One producer
+// ---------------------------------------------------------------------------
+
+/// Every diagnostic in a report, as the string that identifies it across two
+/// passes: where it sits, what severity it wears, and what it says.
+fn keyed(
+    session: &buri::build::session::Session,
+    diagnostics: &buri::diagnostics::Diagnostics,
+) -> BTreeSet<String> {
+    diagnostics
+        .items
+        .iter()
+        .map(|d| {
+            format!(
+                "{}:{}..{} {} [{}] {}",
+                session.map.name(d.span.file),
+                d.span.start,
+                d.span.end,
+                d.severity.label(),
+                d.code.clone().unwrap_or_default(),
+                d.message,
+            )
+        })
+        .collect()
+}
+
+/// **The editor and the terminal report the same set, over broken files.**
+///
+/// `buri lint` reaches the catalogue through `findings_for`, which walks every
+/// target, consults the lint record cache, and asks the package rules once per
+/// package. The language server reaches it through `analysis_of` and
+/// `findings_for_target`, per target, with no cache between — the two calls
+/// `language_server/state.rs` makes. One catalogue, two routes to it, and a
+/// syntax error may not separate them.
+///
+/// It is the recovery claim stated as a *parity*, which is the form that
+/// cannot pass by both halves going quiet together: every source here has a
+/// syntax error in it, so a terminal that bailed on the first parse error —
+/// stopped collecting, skipped the analysis, or answered before the rules ran
+/// — loses findings the editor still publishes, and this fails naming them.
+#[test]
+fn the_editor_and_the_terminal_report_the_same_findings() {
+    let cases: &[Case] = corpus();
+    let batch: Vec<(String, String)> =
+        cases.iter().map(|c| (c.name.clone(), c.source.clone())).collect();
+    let flags = Flags::default();
+    let (_scratch, mut session, targets) = fixture("linting-parity", &batch);
+
+    let printed = buri::commands::lint::findings_for(&mut session, &targets, &flags);
+    let terminal = keyed(&session, &printed);
+    let mut editor = BTreeSet::new();
+    for target in &targets {
+        let analysis = buri::commands::lint::analysis_of(&mut session, *target);
+        let found = buri::commands::lint::findings_for_target(&session, *target, &analysis);
+        editor.extend(keyed(&session, &found));
+    }
+
+    let only_editor: Vec<&String> = editor.difference(&terminal).collect();
+    let only_terminal: Vec<&String> = terminal.difference(&editor).collect();
+    let sample =
+        |v: &[&String]| v.iter().take(8).map(|s| format!("\n  {s}")).collect::<String>();
+    assert!(
+        only_editor.is_empty() && only_terminal.is_empty(),
+        "the two routes to the catalogue disagree over {} broken sources.\n\
+         published by the editor and not printed by `buri lint` ({}):{}\n\
+         printed by `buri lint` and not published by the editor ({}):{}",
+        cases.len(),
+        only_editor.len(),
+        sample(&only_editor),
+        only_terminal.len(),
+        sample(&only_terminal),
+    );
+    eprintln!("linting: {} findings agreed over {} broken sources", terminal.len(), cases.len());
 }

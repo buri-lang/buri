@@ -1,0 +1,58 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the file that does not parse is a *dependency*: one hop above it and two hops above it the rules still fire, and `lint` exits 1 with the parse error and every finding rather than stopping at the graph's bottom"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The package one hop up, asked on its own. Its own findings are still its
+# own with a broken dependency in the closure, and the exit code is the one
+# any finding earns rather than the one a run that gave up would.
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "money.txt"
+}
+
+# The comma, which is the whole of the syntax error. With it written the three
+# findings stand alone — which is what says the report above was four things
+# rather than one thing and its wake.
+edit {
+  file: "lib/routes/routes.buri"
+  replace: "Route { name: \"health\" }\n"
+  with: "Route { name: \"health\" },\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "findings.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "from \"core/str\" import * as str;\n"
+  with: ""
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  let spare = 3;\n"
+  with: ""
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "  let leftover = 1;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
