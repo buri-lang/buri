@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 6:3-6:4
+message: this `match` is missing its closing `}`
+fix: write `}` here
+related: 3:21-3:22 opened here
+

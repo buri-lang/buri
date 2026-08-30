@@ -1,0 +1,712 @@
+//! core/ordmap — a persistent B-tree keyed by `Ord`.
+//!
+//! The collection `core/map` is not: keyed *and* ordered. Lookup, insert and
+//! remove are O(log n); `entries`, `keys` and `values` come out in key order,
+//! and `range` and `prefix` are scans that visit only what they answer rather
+//! than filters over the whole map. That is the whole reason to reach for this
+//! instead of a hash map, and the reason to reach for a hash map instead of
+//! this is that expected-constant lookup is faster than logarithmic.
+//!
+//! **Why a B-tree, and why seven entries to a node.** Every write copies one
+//! root-to-leaf path and shares the rest of the tree, which is what makes an
+//! immutable collection affordable. A node holding at most `2t - 1` entries
+//! makes the tree about `log_t n` deep, so a write copies about `t / log t`
+//! times `log n` entries: that ratio is smallest at a tiny `t` and climbs very
+//! slowly, so what actually decides the arity is everything a node costs
+//! *besides* its entries. Here a node is a heap block the runtime
+//! reference-counts, and the allocation and the retain/release traffic along
+//! the copied path are the expensive part; the entries inside one node are
+//! moved by a single contiguous copy, which is the cheap part. Seven entries —
+//! minimum degree four, so three at the least outside the root — buys between
+//! a half and a third of a binary tree's depth, and so that fraction of its
+//! allocations, for roughly two to three times the entries moved. It is also
+//! short enough that the linear scan within a node beats a binary search's
+//! branches.
+//!
+//! **`range` is half-open**: `start` is in, `end` is out, so adjacent ranges
+//! tile without overlapping and `range(ctx, k, k)` is empty. The parameters are
+//! `start` and `end` rather than `from` and `to` because `from` is a keyword,
+//! and because `list.range` already names its bounds that way.
+//!
+//! **`prefix` is `Str` only, and means a prefix of the key's code units.** It
+//! is declared on `OrdMap<Str, V>` rather than on every key type, because
+//! "prefix" is a fact about strings and not about ordered values in general.
+//! `Str.compare` is lexicographic over UTF-16 code units and `startsWith` asks
+//! about the same units, and those two agreeing is what makes the matching keys
+//! one contiguous run: a key that is at least `p` and does not start with `p`
+//! must differ from `p` somewhere inside `p`, and is therefore greater than
+//! every key that does start with `p`. So `prefix` is a `range` whose upper end
+//! is a predicate rather than a key — it invents no successor string, and
+//! `prefix(ctx, "")` is every entry.
+//!
+//! **A compound key is a struct with `derive Ord`.** Tuples have no methods,
+//! so a tuple is not `Ord`. A derived `Ord` compares fields in declaration
+//! order, which is exactly what a multi-column index wants: the three orderings
+//! a triple store keeps are three structs, each declaring subject, predicate
+//! and object in the order that index scans them.
+//!
+//! `equals` rather than `derive Eq`, for the same reason `core/map` provides
+//! one: two maps holding the same entries need not have the same tree, because
+//! the shape follows the order the keys arrived in.
+//!
+//! ```buri run
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/ordmap" import * as ordmap;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+//!   let scores = ordmap.of(ctx, [("carol", 3), ("alice", 1), ("bob", 2)]);
+//!   // Key order, whatever order the entries arrived in.
+//!   let names = scores.keys(ctx).join(ctx, " ");
+//!   // Half-open: "alice" and "bob" are in the scan, "carol" is not.
+//!   let scanned = scores.range(ctx, "alice", "carol").len();
+//!   let _ = ctx.println("${names}: ${scanned} in [alice, carol)");
+//!   .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! alice bob carol: 2 in [alice, carol)
+//! ```
+
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+
+/// The most entries a node may hold: minimum degree four, so `2 * 4 - 1`.
+/// The module comment says why four.
+let MAX_ENTRIES: Int = 7;
+
+/// The fewest any node but the root may hold. Derived rather than written, so
+/// the two cannot drift: a split of `MAX_ENTRIES + 1` entries leaves this many
+/// on the short side, and a merge of two short nodes and a separator fits.
+let MIN_ENTRIES: Int = MAX_ENTRIES / 2;
+
+/// A node: its entries in key order, and either no children at all or exactly
+/// one more child than it has entries. The invariant is not expressible in the
+/// type, so it is maintained by `node` and by the four functions that split,
+/// borrow and merge.
+enum Node<K, V> {
+  Leaf([(K, V)]),
+  Branch([(K, V)], [Node<K, V>]),
+}
+
+/// An ordered map, as a value.
+///
+/// `size` is carried rather than walked: `len` is asked far more often than the
+/// tree changes.
+export struct OrdMap<K, V> {
+  root: Node<K, V>,
+  export size: Int,
+}
+
+/// The empty map. Pure, for the same reason `map.empty` is: a context type has
+/// no name, so a `<K, V, C>` here could not be written at a call site.
+export fn empty<K, V>(): OrdMap<K, V> {
+  OrdMap { root: .Leaf(list.empty<(K, V)>()), size: 0 }
+}
+
+/// A map holding the given entries, later ones winning.
+export fn of<K: Ord, V, C: Alloc>(ctx: C, entries: [(K, V)]): OrdMap<K, V> {
+  entries.foldCtx(ctx, fn(c, acc, e) => {
+    let (k, v) = e;
+    acc.insert(c, k, v)
+  }, empty<K, V>())
+}
+
+// -----------------------------------------------------------------------------
+// Splicing
+//
+// Free functions over an unbounded `T` rather than lambdas, because a lambda
+// may not capture a value whose type could be a context, and `[(K, V)]` with an
+// unbounded `V` is such a type (SPEC 10.6). Everything these need arrives as a
+// parameter.
+// -----------------------------------------------------------------------------
+
+fn insertAt<T, C: Alloc>(ctx: C, xs: [T], at: Int, x: T): [T] {
+  xs.take(ctx, at).push(ctx, x).concat(ctx, xs.drop(ctx, at))
+}
+
+fn replaceAt<T, C: Alloc>(ctx: C, xs: [T], at: Int, x: T): [T] {
+  xs.take(ctx, at).push(ctx, x).concat(ctx, xs.drop(ctx, at + 1))
+}
+
+fn removeAt<T, C: Alloc>(ctx: C, xs: [T], at: Int): [T] {
+  xs.take(ctx, at).concat(ctx, xs.drop(ctx, at + 1))
+}
+
+/// Replaces `xs[at]` with two, which is what a split hands its parent.
+fn splitAt<T, C: Alloc>(ctx: C, xs: [T], at: Int, a: T, b: T): [T] {
+  xs.take(ctx, at).push(ctx, a).push(ctx, b).concat(ctx, xs.drop(ctx, at + 1))
+}
+
+/// Replaces `xs[at]` and `xs[at + 1]` with one, which is what a merge leaves.
+fn joinAt<T, C: Alloc>(ctx: C, xs: [T], at: Int, x: T): [T] {
+  xs.take(ctx, at).push(ctx, x).concat(ctx, xs.drop(ctx, at + 2))
+}
+
+// -----------------------------------------------------------------------------
+// The shape of a node
+// -----------------------------------------------------------------------------
+
+fn entriesOf<K, V>(n: Node<K, V>): [(K, V)] {
+  match (n) {
+    .Leaf(e) => e,
+    .Branch(e, _c) => e,
+  }
+}
+
+fn childrenOf<K, V>(n: Node<K, V>): [Node<K, V>] {
+  match (n) {
+    .Leaf(_e) => list.empty<Node<K, V>>(),
+    .Branch(_e, c) => c,
+  }
+}
+
+/// A leaf when there are no children, a branch otherwise. Every node the tree
+/// builds goes through here, so "a branch with no children" is unrepresentable
+/// in practice as well as meaningless.
+fn node<K, V>(entries: [(K, V)], children: [Node<K, V>]): Node<K, V> {
+  if (children.isEmpty()) { .Leaf(entries) } else { .Branch(entries, children) }
+}
+
+/// Where `key` belongs among `entries`, and whether it is already there.
+///
+/// Linear from `at`, and recursive because a loop over an unbounded `V` would
+/// have to capture the list. A node holds at most `MAX_ENTRIES`, so this is a
+/// bounded scan, and the module comment says why a short one beats a binary
+/// search here.
+fn seek<K: Ord, V>(entries: [(K, V)], key: K, at: Int): (Int, Bool) {
+  match (entries.get(at)) {
+    .None => (at, false),
+    .Some(e) => {
+      let (k, _v) = e;
+      match (key.compare(k)) {
+        .Less => (at, false),
+        .Equal => (at, true),
+        .Greater => seek(entries, key, at + 1),
+      }
+    },
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Reading
+// -----------------------------------------------------------------------------
+
+fn lookup<K: Ord, V>(n: Node<K, V>, key: K): Option<V> {
+  let entries = entriesOf(n);
+  let (at, found) = seek(entries, key, 0);
+  if (found) {
+    entries.get(at).map(fn(e) => {
+      let (_k, v) = e;
+      v
+    })
+  } else {
+    match (childrenOf(n).get(at)) {
+      .None => .None,
+      .Some(child) => lookup(child, key),
+    }
+  }
+}
+
+fn leftmost<K, V>(n: Node<K, V>): Option<(K, V)> {
+  match (childrenOf(n).get(0)) {
+    .None => entriesOf(n).get(0),
+    .Some(child) => leftmost(child),
+  }
+}
+
+fn rightmost<K, V>(n: Node<K, V>): Option<(K, V)> {
+  let children = childrenOf(n);
+  match (children.get(children.len() - 1)) {
+    .None => {
+      let entries = entriesOf(n);
+      entries.get(entries.len() - 1)
+    },
+    .Some(child) => rightmost(child),
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Insert
+// -----------------------------------------------------------------------------
+
+/// What a subtree answers an insert with: itself, or the two halves it broke
+/// into and the entry that has to move up between them.
+enum Grown<K, V> {
+  Fit(Node<K, V>),
+  Split(Node<K, V>, (K, V), Node<K, V>),
+}
+
+/// A node that may be holding one entry too many, split if it is.
+///
+/// The median moves up and the two halves are the new siblings, so the tree
+/// grows at the root and every leaf stays the same distance from it.
+fn overfull<K, V, C: Alloc>(
+  ctx: C,
+  entries: [(K, V)],
+  children: [Node<K, V>],
+): Grown<K, V> {
+  if (entries.len() <= MAX_ENTRIES) {
+    .Fit(node(entries, children))
+  } else {
+    let half = entries.len() / 2;
+    match (entries.get(half)) {
+      .None => .Fit(node(entries, children)),
+      .Some(mid) => .Split(
+        node(entries.take(ctx, half), children.take(ctx, half + 1)),
+        mid,
+        node(entries.drop(ctx, half + 1), children.drop(ctx, half + 1)),
+      ),
+    }
+  }
+}
+
+/// Answers the subtree after the insert, and whether the key was a new one.
+///
+/// The `Bool` is what keeps `size` right without a second descent to ask
+/// whether the key was already there.
+fn insertInto<K: Ord, V, C: Alloc>(
+  ctx: C,
+  n: Node<K, V>,
+  key: K,
+  value: V,
+): (Grown<K, V>, Bool) {
+  let entries = entriesOf(n);
+  let children = childrenOf(n);
+  let (at, found) = seek(entries, key, 0);
+  if (found) {
+    (.Fit(node(replaceAt(ctx, entries, at, (key, value)), children)), false)
+  } else {
+    match (children.get(at)) {
+      // A leaf: the entry goes in where it belongs, and the node may now be
+      // one too long.
+      .None => (overfull(ctx, insertAt(ctx, entries, at, (key, value)), children), true),
+      .Some(child) => {
+        let (grown, added) = insertInto(ctx, child, key, value);
+        match (grown) {
+          .Fit(one) => (.Fit(node(entries, replaceAt(ctx, children, at, one))), added),
+          .Split(left, mid, right) => (
+            overfull(
+              ctx,
+              insertAt(ctx, entries, at, mid),
+              splitAt(ctx, children, at, left, right),
+            ),
+            added,
+          ),
+        }
+      },
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Remove
+// -----------------------------------------------------------------------------
+
+/// Puts `child` back at `at`, restoring the minimum occupancy if it fell short
+/// — by borrowing one entry from a sibling, or by merging with one.
+///
+/// The result may itself be short, which is what the caller's own `fixChild`
+/// handles; at the root, `shrinkRoot` handles it instead.
+fn fixChild<K: Ord, V, C: Alloc>(
+  ctx: C,
+  entries: [(K, V)],
+  children: [Node<K, V>],
+  at: Int,
+  child: Node<K, V>,
+): Node<K, V> {
+  if (entriesOf(child).len() >= MIN_ENTRIES) {
+    node(entries, replaceAt(ctx, children, at, child))
+  } else if (at > 0) {
+    match (children.get(at - 1)) {
+      .None => node(entries, replaceAt(ctx, children, at, child)),
+      .Some(left) => {
+        match (entries.get(at - 1)) {
+          .None => node(entries, replaceAt(ctx, children, at, child)),
+          .Some(separator) => fixWithLeft(ctx, entries, children, at, child, left, separator),
+        }
+      },
+    }
+  } else {
+    match (children.get(at + 1)) {
+      .None => node(entries, replaceAt(ctx, children, at, child)),
+      .Some(right) => {
+        match (entries.get(at)) {
+          .None => node(entries, replaceAt(ctx, children, at, child)),
+          .Some(separator) => fixWithRight(ctx, entries, children, at, child, right, separator),
+        }
+      },
+    }
+  }
+}
+
+/// The short child and the sibling before it: rotate one entry across, or fuse
+/// the two around the separator that sat between them.
+fn fixWithLeft<K: Ord, V, C: Alloc>(
+  ctx: C,
+  entries: [(K, V)],
+  children: [Node<K, V>],
+  at: Int,
+  child: Node<K, V>,
+  left: Node<K, V>,
+  separator: (K, V),
+): Node<K, V> {
+  let leftEntries = entriesOf(left);
+  let leftChildren = childrenOf(left);
+  let last = leftEntries.len() - 1;
+  if (leftEntries.len() > MIN_ENTRIES) {
+    match (leftEntries.get(last)) {
+      .None => node(entries, replaceAt(ctx, children, at, child)),
+      .Some(up) => {
+        // The separator comes down into the short child and the sibling's last
+        // entry goes up to replace it, along with the subtree between them.
+        let grownChild = node(
+          insertAt(ctx, entriesOf(child), 0, separator),
+          leftChildren.drop(ctx, last + 1).concat(ctx, childrenOf(child)),
+        );
+        let shrunkLeft = node(leftEntries.take(ctx, last), leftChildren.take(ctx, last + 1));
+        let placed =
+          replaceAt(ctx, replaceAt(ctx, children, at, grownChild), at - 1, shrunkLeft);
+        node(replaceAt(ctx, entries, at - 1, up), placed)
+      },
+    }
+  } else {
+    // At most `MIN_ENTRIES` on the left and one fewer than that on the right,
+    // plus the separator, which is at most `MAX_ENTRIES` — so the fused node
+    // is never overfull.
+    let merged = node(
+      leftEntries.push(ctx, separator).concat(ctx, entriesOf(child)),
+      leftChildren.concat(ctx, childrenOf(child)),
+    );
+    node(removeAt(ctx, entries, at - 1), joinAt(ctx, children, at - 1, merged))
+  }
+}
+
+/// The mirror of [`fixWithLeft`], for the child that has no sibling before it.
+fn fixWithRight<K: Ord, V, C: Alloc>(
+  ctx: C,
+  entries: [(K, V)],
+  children: [Node<K, V>],
+  at: Int,
+  child: Node<K, V>,
+  right: Node<K, V>,
+  separator: (K, V),
+): Node<K, V> {
+  let rightEntries = entriesOf(right);
+  let rightChildren = childrenOf(right);
+  if (rightEntries.len() > MIN_ENTRIES) {
+    match (rightEntries.get(0)) {
+      .None => node(entries, replaceAt(ctx, children, at, child)),
+      .Some(up) => {
+        let grownChild = node(
+          entriesOf(child).push(ctx, separator),
+          childrenOf(child).concat(ctx, rightChildren.take(ctx, 1)),
+        );
+        let shrunkRight = node(rightEntries.drop(ctx, 1), rightChildren.drop(ctx, 1));
+        let placed =
+          replaceAt(ctx, replaceAt(ctx, children, at, grownChild), at + 1, shrunkRight);
+        node(replaceAt(ctx, entries, at, up), placed)
+      },
+    }
+  } else {
+    let merged = node(
+      entriesOf(child).push(ctx, separator).concat(ctx, rightEntries),
+      childrenOf(child).concat(ctx, rightChildren),
+    );
+    node(removeAt(ctx, entries, at), joinAt(ctx, children, at, merged))
+  }
+}
+
+/// Answers the subtree after the removal, and whether a key actually went.
+///
+/// A key found in a branch is not removed where it sits — the entry before it
+/// in key order takes its place, and *that* one is removed from the subtree it
+/// came from, which is a leaf. So every removal is ultimately a removal from a
+/// leaf, and the rebalancing on the way back up is the only case to handle.
+fn removeFrom<K: Ord, V, C: Alloc>(ctx: C, n: Node<K, V>, key: K): (Node<K, V>, Bool) {
+  let entries = entriesOf(n);
+  let children = childrenOf(n);
+  let (at, found) = seek(entries, key, 0);
+  match (children.get(at)) {
+    .None => {
+      if (found) {
+        (.Leaf(removeAt(ctx, entries, at)), true)
+      } else {
+        (n, false)
+      }
+    },
+    .Some(child) => {
+      if (found) {
+        match (rightmost(child)) {
+          .None => (n, false),
+          .Some(predecessor) => {
+            let (predecessorKey, _predecessorValue) = predecessor;
+            let (shrunk, _gone) = removeFrom(ctx, child, predecessorKey);
+            let promoted = replaceAt(ctx, entries, at, predecessor);
+            (fixChild(ctx, promoted, children, at, shrunk), true)
+          },
+        }
+      } else {
+        let (shrunk, gone) = removeFrom(ctx, child, key);
+        if (gone) {
+          (fixChild(ctx, entries, children, at, shrunk), true)
+        } else {
+          (n, false)
+        }
+      }
+    },
+  }
+}
+
+/// A root branch left with no entries has exactly one child, and that child is
+/// the tree. This is the only place the tree gets shallower.
+fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
+  if (entriesOf(n).isEmpty()) {
+    match (childrenOf(n).get(0)) {
+      .None => n,
+      .Some(only) => only,
+    }
+  } else {
+    n
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Walking
+//
+// Each of these threads the answer through as an accumulator rather than
+// concatenating sublists, because a `push` onto a list nothing else holds
+// grows it in place (MEMORY.md §5.3) and so the whole walk is linear.
+// -----------------------------------------------------------------------------
+
+fn walk<K, V, C: Alloc>(ctx: C, n: Node<K, V>, acc: [(K, V)]): [(K, V)] {
+  match (n) {
+    .Leaf(e) => acc.concat(ctx, e),
+    .Branch(e, c) => walkFrom(ctx, e, c, 0, acc),
+  }
+}
+
+fn walkFrom<K, V, C: Alloc>(
+  ctx: C,
+  entries: [(K, V)],
+  children: [Node<K, V>],
+  at: Int,
+  acc: [(K, V)],
+): [(K, V)] {
+  match (children.get(at)) {
+    .None => acc,
+    .Some(child) => {
+      let below = walk(ctx, child, acc);
+      match (entries.get(at)) {
+        .None => below,
+        .Some(e) => walkFrom(ctx, entries, children, at + 1, below.push(ctx, e)),
+      }
+    },
+  }
+}
+
+/// The half-open scan. The seek at each node is what makes this visit only the
+/// subtrees that can hold an answer, rather than the whole tree.
+fn walkRange<K: Ord, V, C: Alloc>(
+  ctx: C,
+  n: Node<K, V>,
+  start: K,
+  end: K,
+  acc: [(K, V)],
+): [(K, V)] {
+  let entries = entriesOf(n);
+  let (at, _found) = seek(entries, start, 0);
+  rangeFrom(ctx, entries, childrenOf(n), start, end, at, acc)
+}
+
+fn rangeFrom<K: Ord, V, C: Alloc>(
+  ctx: C,
+  entries: [(K, V)],
+  children: [Node<K, V>],
+  start: K,
+  end: K,
+  at: Int,
+  acc: [(K, V)],
+): [(K, V)] {
+  // The child before entry `at` is visited before the entry is tested, because
+  // it can hold keys below `end` even when that entry does not.
+  let below = match (children.get(at)) {
+    .None => acc,
+    .Some(child) => walkRange(ctx, child, start, end, acc),
+  };
+  match (entries.get(at)) {
+    .None => below,
+    .Some(e) => {
+      let (k, _v) = e;
+      if (k.compare(end).isLess()) {
+        rangeFrom(ctx, entries, children, start, end, at + 1, below.push(ctx, e))
+      } else {
+        // Everything after this entry is at least as large, so the scan is
+        // over — for this node and for every subtree to its right.
+        below
+      }
+    },
+  }
+}
+
+// -----------------------------------------------------------------------------
+// The map
+// -----------------------------------------------------------------------------
+
+impl<K: Ord, V> OrdMap<K, V> {
+  export fn len(self): Int {
+    self.size
+  }
+
+  export fn isEmpty(self): Bool {
+    self.size == 0
+  }
+
+  /// The value stored under `key`, if there is one. O(log n), and pure.
+  export fn get(self, key: K): Option<V> {
+    lookup(self.root, key)
+  }
+
+  export fn has(self, key: K): Bool {
+    self.get(key).isSome()
+  }
+
+  /// Stores `value` under `key`, replacing whatever was there.
+  ///
+  /// The map this is called on is unchanged and keeps every node the new one
+  /// did not have to copy, which is one root-to-leaf path.
+  export fn insert<C: Alloc>(self, ctx: C, key: K, value: V): OrdMap<K, V> {
+    let (grown, added) = insertInto(ctx, self.root, key, value);
+    let root = match (grown) {
+      .Fit(one) => one,
+      // The tree gets taller only here, and by one level for the whole tree at
+      // once — which is why every leaf is always the same distance from the
+      // root.
+      .Split(left, mid, right) => .Branch([mid], [left, right]),
+    };
+    OrdMap { root: root, size: if (added) { self.size + 1 } else { self.size } }
+  }
+
+  /// Removes `key`, if it is there. Removing what is absent is not an error:
+  /// the question a map answers is about membership, and the answer after this
+  /// call is the same either way.
+  export fn remove<C: Alloc>(self, ctx: C, key: K): OrdMap<K, V> {
+    let (next, gone) = removeFrom(ctx, self.root, key);
+    if (gone) {
+      OrdMap { root: shrinkRoot(next), size: self.size - 1 }
+    } else {
+      self
+    }
+  }
+
+  /// The entry with the smallest key. Pure: it is a walk down the left spine.
+  export fn first(self): Option<(K, V)> {
+    leftmost(self.root)
+  }
+
+  /// The entry with the largest key.
+  export fn last(self): Option<(K, V)> {
+    rightmost(self.root)
+  }
+
+  /// Every entry, in key order — the reason this module exists.
+  export fn entries<C: Alloc>(self, ctx: C): [(K, V)] {
+    walk(ctx, self.root, list.empty<(K, V)>())
+  }
+
+  /// The entries whose keys are at least `start` and less than `end`, in key
+  /// order. Half-open, so `range(ctx, k, k)` is empty and two ranges that share
+  /// an endpoint share no entry.
+  ///
+  /// O(log n + m) in the m entries answered: the scan descends to `start` and
+  /// stops at the first key that is not below `end`, rather than visiting the
+  /// map.
+  export fn range<C: Alloc>(self, ctx: C, start: K, end: K): [(K, V)] {
+    walkRange(ctx, self.root, start, end, list.empty<(K, V)>())
+  }
+
+  export fn keys<C: Alloc>(self, ctx: C): [K] {
+    self.entries(ctx).map(ctx, fn(e) => {
+      let (k, _v) = e;
+      k
+    })
+  }
+
+  export fn values<C: Alloc>(self, ctx: C): [V] {
+    self.entries(ctx).map(ctx, fn(e) => {
+      let (_k, v) = e;
+      v
+    })
+  }
+}
+
+impl<K: Ord, V: Eq> OrdMap<K, V> {
+  /// Same entries, whatever order either was built in. `derive Eq` would
+  /// compare the trees, and two equal maps need not have the same one.
+  export fn equals<C: Alloc>(self, ctx: C, other: OrdMap<K, V>): Bool {
+    if (self.size != other.size) {
+      false
+    } else {
+      let theirs = other;
+      self.entries(ctx).all(fn(e) => {
+        let (k, v) = e;
+        theirs.get(k) == .Some(v)
+      })
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Prefix scans, which only string keys have
+// -----------------------------------------------------------------------------
+
+impl<V> OrdMap<Str, V> {
+  /// The entries whose keys begin with `prefix`, in key order. The empty
+  /// prefix answers every entry.
+  ///
+  /// O(log n + m), like `range`, and for the same reason: the module comment
+  /// records why the matching keys are one contiguous run, so the scan stops at
+  /// the first key that does not match instead of testing the rest.
+  export fn prefix<C: Alloc>(self, ctx: C, prefix: Str): [(Str, V)] {
+    prefixFrom(ctx, self.root, prefix, list.empty<(Str, V)>())
+  }
+}
+
+fn prefixFrom<V, C: Alloc>(
+  ctx: C,
+  n: Node<Str, V>,
+  prefix: Str,
+  acc: [(Str, V)],
+): [(Str, V)] {
+  let entries = entriesOf(n);
+  // The first key that is at least the prefix is the first that can match it.
+  let (at, _found) = seek(entries, prefix, 0);
+  prefixAt(ctx, entries, childrenOf(n), prefix, at, acc)
+}
+
+fn prefixAt<V, C: Alloc>(
+  ctx: C,
+  entries: [(Str, V)],
+  children: [Node<Str, V>],
+  prefix: Str,
+  at: Int,
+  acc: [(Str, V)],
+): [(Str, V)] {
+  let below = match (children.get(at)) {
+    .None => acc,
+    .Some(child) => prefixFrom(ctx, child, prefix, acc),
+  };
+  match (entries.get(at)) {
+    .None => below,
+    .Some(e) => {
+      let (k, _v) = e;
+      if (k.startsWith(prefix)) {
+        prefixAt(ctx, entries, children, prefix, at + 1, below.push(ctx, e))
+      } else {
+        below
+      }
+    },
+  }
+}

@@ -705,7 +705,7 @@ export fn main(): Result<(), Str> {
 /// The five shapes `glue.rs` added, each of which is a **pair** that has to
 /// balance.
 ///
-/// The conformance corpus is the coverage — twenty-six files and 1,187 blocks
+/// The conformance corpus is the coverage — twenty-seven files and 1,217 blocks
 /// — and this is the *leak* half of it, which no `test` block can make an
 /// assertion about from inside the language: `buri_rt_heap_stats` is not
 /// reachable from Buri and should not be. One program, so that a count of
@@ -813,6 +813,53 @@ export fn main(): Result<(), Str> {
          7 170141183460469231731687303715884105727 -170141183460469231731687303715884105728\n\
          340282366920938463463374607431768211455 7 5 -1\n\
          7 7\n",
+        "{}",
+        ran.stderr
+    );
+}
+
+/// A narrowing conversion answers `Result<T, RangeError>`, at 128 bits and
+/// below.
+///
+/// The gap buri-lang/buri#4 named: `num.I128.toI64` had no native body, so a
+/// suite touching it was rerouted onto JavaScript. The range tested is the
+/// **target's** — SPEC 6.2.1's `.Err` is "does not fit `T`" — and the `.Err`
+/// carries the value as the source renders it, which at 128 bits is the one
+/// rendering a double could never have produced.
+#[test]
+fn a_narrowing_conversion_answers_a_result() {
+    if !supported() {
+        return;
+    }
+    let ran = run(
+        "convert",
+        r#"
+from "core/host" import { stdout };
+from "core/num" import * as num;
+export fn main(): Result<(), Str> {
+  let a: I128 = 1700000000123456789;
+  let b: I128 = num.maxValue<I128>();
+  let c: I128 = num.minValue<I128>();
+  let d: U64 = 18446744073709551615;
+  let e: I64 = -1;
+  let f: I64 = 3000000000;
+  let _ = stdout.println("${a.toI64().withDefault(7)} ${b.toI64().withDefault(7)} ${c.toI64().withDefault(7)}");
+  let _ = stdout.println("${d.toI64().withDefault(7)} ${e.toU64().withDefault(7)} ${f.toI32().withDefault(7)}");
+  let shown = match (b.toI64()) { .Ok(_) => "ok", .Err(r) => r.value };
+  let named = match (b.toI64()) { .Ok(_) => "ok", .Err(r) => r.target };
+  let _ = stdout.println("${shown} ${named}");
+  .Ok(())
+}
+"#,
+    );
+    assert_eq!(ran.status, 0, "{}", ran.stderr);
+    assert_eq!(
+        ran.stdout,
+        concat!(
+            "1700000000123456789 7 7\n",
+            "7 7 7\n",
+            "170141183460469231731687303715884105727 I64\n",
+        ),
         "{}",
         ran.stderr
     );
@@ -1138,7 +1185,7 @@ fn corpus_refusal(path: &str) -> Result<String, String> {
 /// the refusal for every file that is not here.
 ///
 /// It is **`native/conformance.rs`'s `PACKAGES`**, entry for entry: the
-/// twenty-six files that file's native set holds. The six that are not here
+/// twenty-seven files that file's native set holds. The six that are not here
 /// are the six it excludes, for the three reasons it records — an inexact
 /// numeric conversion, `json.*`, and `core/math`'s transcendentals — plus the
 /// four `ui/*` files no native backend takes.
@@ -1151,6 +1198,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "codegen/tail_calls.buri",
     "collections/bitset.buri",
     "collections/map.buri",
+    "collections/ordmap.buri",
     "collections/queue.buri",
     "crypto/sha256.buri",
     "data/lists.buri",
@@ -1216,7 +1264,7 @@ fn the_corpus_census_is_a_ratchet() {
 /// got the answers wrong would pass the census next door. A failed assertion
 /// ends the process (SPEC 6.10), so the exit status is the result.
 ///
-/// `native/conformance.rs::the_native_set_passes` now runs the same twenty-six
+/// `native/conformance.rs::the_native_set_passes` now runs the same twenty-seven
 /// files through the same backend and reports the block count with them, so
 /// this is the narrower of two readings of one corpus. It stays because CI's
 /// Linux/arm64 job selects `stencil::` by name and this is the test in that

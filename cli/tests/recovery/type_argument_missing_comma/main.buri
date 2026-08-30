@@ -1,0 +1,2 @@
+// EXPECT: a type argument ends with `,`
+export type Table = Map<Str Int>;

@@ -1,0 +1,43 @@
+# TESTING.md's summary line, when a suite never compiled. It has no cases, so
+# it landed in no counter and the run's verdict read `0 passed, 0 failed, 0
+# skipped` — success-shaped, and silent about the suite that stopped the run.
+#
+# Two claims, and they need two captures. The summary itself is stdout, so the
+# first step records that stream alone. Whether the summary lands *after* the
+# diagnostic is a claim about one descriptor, which two pipes cannot answer —
+# `stream: MERGED` puts both on one file, the way a terminal or a CI log has
+# them. In JSON, so that the record is the two lines and their order rather
+# than the body of a diagnostic this case is not about.
+
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a suite that fails to compile is counted in the summary, and the diagnostic that says why is written before it"
+
+run {
+  args: ["test", "//...", "--force"]
+  exit: 1
+  golden: "summary.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//...", "--force", "--error-format=json"]
+  exit: 1
+  golden: "ordering.json"
+  stream: MERGED
+}
+
+# The negative twin: with the suite compiling, there is nothing to count and
+# the clause is gone — elided at zero, the way the cached note is.
+edit {
+  file: "lib/greeting/test/greeting.buri"
+  replace: "assert.eq(greeting(), 1);"
+  with: "assert.eq(greeting(), \"hello\");"
+}
+
+run {
+  args: ["test", "//...", "--force"]
+  exit: 0
+  golden: "clean.txt"
+  stream: OUT
+}

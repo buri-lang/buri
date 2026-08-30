@@ -218,14 +218,12 @@ fn inAlphabet(ch: Char, i: Int): Bool {
 // as bytes, it has exactly one definition, and `core/proto` and anything else
 // that speaks a length-prefixed wire format needs the same one.
 //
-// **Sixty-four bits, on a sixty-four bit type that is a double.** An `Int` is
-// exact to 2^53 (see `core/num`), and a varint carries 64. So the arithmetic
-// below is done on two 32-bit halves rather than on the value: `toVarint` of a
-// negative number writes the ten bytes of its two's complement, which is what a
-// protobuf `int64` field holds, and `readVarint` reads all ten back. Values
-// whose magnitude exceeds 2^53 survive the round trip only to the precision an
-// `Int` has, which is the same caveat every double-backed implementation
-// carries and is stated here rather than discovered.
+// **Sixty-four bits, in two halves.** A varint carries 64 bits and the
+// arithmetic below is done on two 32-bit halves rather than on the value, so
+// `toVarint` of a negative number writes the ten bytes of its two's complement
+// — what a protobuf `int64` field holds — and `readVarint` reads all ten back.
+// The halves were once also a way around a 2^53 ceiling; they are not any more
+// (`core/num`), and every digit round-trips on every backend.
 
 let TWO32: Int = 4294967296;
 
@@ -367,7 +365,10 @@ export fn unzigzag(n: Int): Int {
 export fn f64ToBytes<C: Alloc>(ctx: C, x: Float): [U8];
 
 /// The double encoded by the eight bytes at `at`, or `.None` if there are not
-/// eight.
+/// eight. A NaN comes back as the canonical quiet NaN on every backend: the
+/// payload bits are not part of a `Float`'s value (SPEC 6.2 — every NaN is `==`
+/// every other), and a backend where a `Float` is a JavaScript `number` cannot
+/// carry them. The sign of a zero is preserved.
 export fn f64FromBytes(b: [U8], at: Int): Option<Float>;
 
 /// The four bytes of an IEEE 754 single. A `Float` that is not representable at
@@ -375,4 +376,5 @@ export fn f64FromBytes(b: [U8], at: Int): Option<Float>;
 export fn f32ToBytes<C: Alloc>(ctx: C, x: Float): [U8];
 
 /// The double the four bytes at `at` encode, or `.None` if there are not four.
+/// A NaN is canonicalized, as it is at eight bytes.
 export fn f32FromBytes(b: [U8], at: Int): Option<Float>;

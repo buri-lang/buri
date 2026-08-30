@@ -520,6 +520,22 @@ fn eq_name(i: usize) -> String {
 /// literal, or a projection of one — the shapes a compiled comparison reads
 /// out of an aggregate. `$feq` is the same test for everything else, and is
 /// tree-shaken away in a program that never needs it.
+/// `BigInt.asIntN(bits, v)`: the low `bits` of a `BigInt`, read as signed.
+pub(crate) fn as_int_n(bits: u32, v: Expr) -> Expr {
+    Expr::call(
+        Expr::member(Expr::ident("BigInt"), "asIntN"),
+        vec![Expr::Num(f64::from(bits)), v],
+    )
+}
+
+/// The unsigned half of [`as_int_n`].
+pub(crate) fn as_uint_n(bits: u32, v: Expr) -> Expr {
+    Expr::call(
+        Expr::member(Expr::ident("BigInt"), "asUintN"),
+        vec![Expr::Num(f64::from(bits)), v],
+    )
+}
+
 pub(crate) fn float_eq(a: Expr, b: Expr) -> Expr {
     if !a.is_duplicable() || !b.is_duplicable() {
         return Expr::call(Expr::ident("$feq"), vec![a, b]);
@@ -730,7 +746,11 @@ const MAX_SPELLED_UPDATE: usize = 8;
 
 /// Whether a divisor is written down and is not zero.
 fn nonzero_literal(e: Option<&Expr>) -> bool {
-    matches!(e, Some(Expr::Num(n)) if *n != 0.0)
+    match e {
+        Some(Expr::Num(n)) => *n != 0.0,
+        Some(Expr::BigInt(s)) => s != "0",
+        _ => false,
+    }
 }
 
 /// Whether an element is a constant, so an aggregate holding it is one too.
@@ -861,18 +881,20 @@ fn survey_args(e: &Expr, under_cond: bool, out: &mut ArgUse) {
 fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
     let narrow = |v: i128| -> Option<Expr> {
         let bits = p.bits();
-        // A double holds every integer below 2^53 exactly, and no further, so
-        // anything wider stays as an operation rather than becoming a literal
-        // that cannot be written down.
+        // The folder computes in an `i128`, so a width it cannot hold every
+        // value of stays an operation rather than becoming a wrong literal.
         if bits == 0 || bits > 64 {
             return None;
         }
-        let masked = if bits == 128 { v } else { v & ((1i128 << bits) - 1) };
-        let signed = if p.is_signed() && bits < 128 && masked >= (1i128 << (bits - 1)) {
+        let masked = v & ((1i128 << bits) - 1);
+        let signed = if p.is_signed() && masked >= (1i128 << (bits - 1)) {
             masked - (1i128 << bits)
         } else {
             masked
         };
+        if p.is_bigint() {
+            return Some(Expr::BigInt(signed.to_string()));
+        }
         let f = signed as f64;
         if f as i128 != signed {
             return None;
@@ -880,11 +902,14 @@ fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
         Some(Expr::Num(f))
     };
     let lit = |e: &Expr| -> Option<i128> {
-        let Expr::Num(n) = e else { return None };
-        if n.fract() != 0.0 || !n.is_finite() {
-            return None;
+        match e {
+            Expr::Num(n) if n.fract() == 0.0 && n.is_finite() => Some(*n as i128),
+            Expr::BigInt(s) => s.parse::<i128>().ok(),
+            _ => None,
         }
-        Some(*n as i128)
+    };
+    let zero_of_p = || {
+        if p.is_bigint() { Expr::BigInt("0".into()) } else { Expr::Num(0.0) }
     };
 
     if op == PrimOp::BitNot {
@@ -909,7 +934,7 @@ fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
             continue;
         }
         return match op {
-            PrimOp::BitAnd if other.is_pure() => Some(Expr::Num(0.0)),
+            PrimOp::BitAnd if other.is_pure() => Some(zero_of_p()),
             PrimOp::BitOr | PrimOp::BitXor => Some(other.clone()),
             _ => None,
         };
@@ -918,7 +943,7 @@ fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
     if a.same_as(b) && a.is_pure() {
         return match op {
             PrimOp::BitAnd | PrimOp::BitOr => Some(a.clone()),
-            _ => Some(Expr::Num(0.0)),
+            _ => Some(zero_of_p()),
         };
     }
     None
@@ -2218,8 +2243,13 @@ impl<'a> Gen<'a> {
             .unwrap_or_else(|| format!("$missing{i}"))
     }
 
+    /// A literal is written in the representation its type has: `5` at `I32`
+    /// and `5n` at `I64`, which is the whole of why the wide widths are exact.
     fn int_literal(&self, v: u128, neg: bool, ty: &Ty) -> Expr {
-        let _ = ty;
+        if self.prim_of(ty).is_some_and(Prim::is_bigint) {
+            let digits = v.to_string();
+            return Expr::BigInt(if neg { format!("-{digits}") } else { digits });
+        }
         let n = v as f64;
         Expr::Num(if neg { -n } else { n })
     }
@@ -2265,26 +2295,25 @@ impl<'a> Gen<'a> {
             PrimOp::Le => two(BinOp::Le, &mut args),
             PrimOp::Gt => two(BinOp::Gt, &mut args),
             PrimOp::Ge => two(BinOp::Ge, &mut args),
-            // JavaScript's bitwise operators coerce to 32-bit signed, so on a
-            // 64-bit type they discard everything above bit 31 — `a & b` was
-            // silently wrong for half the range of `Int`. Above 32 bits the
-            // operation goes through a runtime helper; at 32 and below the
-            // native operator is exact and stays.
+            // A `BigInt` has the bitwise operators themselves, and two
+            // operands inside the type's range give a result inside it — the
+            // one exception being an unsigned complement, which is negative
+            // and needs narrowing back. JavaScript's own `&` coerces to 32-bit
+            // signed and would have discarded everything above bit 31.
             PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor | PrimOp::BitNot
-                if p.bits() > 32 =>
+                if big =>
             {
-                let unsigned = !p.is_signed();
-                let name = match (op, unsigned) {
-                    (PrimOp::BitAnd, false) => "$and64",
-                    (PrimOp::BitAnd, true) => "$andU64",
-                    (PrimOp::BitOr, false) => "$or64",
-                    (PrimOp::BitOr, true) => "$orU64",
-                    (PrimOp::BitXor, false) => "$xor64",
-                    (PrimOp::BitXor, true) => "$xorU64",
-                    (PrimOp::BitNot, false) => "$not64",
-                    _ => "$notU64",
+                let v = match op {
+                    PrimOp::BitAnd => two(BinOp::BitAnd, &mut args),
+                    PrimOp::BitOr => two(BinOp::BitOr, &mut args),
+                    PrimOp::BitXor => two(BinOp::BitXor, &mut args),
+                    _ => Expr::un(UnOp::BitNot, args.pop().or_ice(UNARY_ARITY)),
                 };
-                Expr::call(Expr::ident(name), args)
+                if p.is_signed() || op != PrimOp::BitNot {
+                    v
+                } else {
+                    as_uint_n(p.bits(), v)
+                }
             }
             // Unsigned and narrow. The native operators are exact here, but
             // their result is *signed* 32-bit — `0x80000000 | 0` came back
@@ -2333,9 +2362,15 @@ impl<'a> Gen<'a> {
                     self.rounded(v, p)
                 } else if nonzero_literal(args.get(1)) {
                     let v = two(BinOp::Div, &mut args);
-                    Expr::call(Expr::member(Expr::ident("Math"), "trunc"), vec![v])
+                    // A `BigInt` quotient already truncates toward zero.
+                    if big {
+                        v
+                    } else {
+                        Expr::call(Expr::member(Expr::ident("Math"), "trunc"), vec![v])
+                    }
+                } else if big {
+                    Expr::call(Expr::ident("$divb"), args)
                 } else {
-                    let _ = big;
                     Expr::call(Expr::ident("$divi"), args)
                 }
             }
@@ -2345,6 +2380,8 @@ impl<'a> Gen<'a> {
                     self.rounded(v, p)
                 } else if nonzero_literal(args.get(1)) {
                     two(BinOp::Rem, &mut args)
+                } else if big {
+                    Expr::call(Expr::ident("$remb"), args)
                 } else {
                     Expr::call(Expr::ident("$remi"), args)
                 }
@@ -2369,11 +2406,15 @@ impl<'a> Gen<'a> {
     fn descriptor(&self, d: &Desc) -> Expr {
         match d {
             Desc::Prim(p) => {
+                // "i" is an integer and "I" a `BigInt` one. The runtime walkers
+                // need the two apart only where JSON is involved: a document
+                // carries a double, so decoding into one builds a `BigInt`.
                 let tag = match p {
                     Prim::Str => "s",
                     Prim::Char => "c",
                     Prim::F32 | Prim::F64 => "f",
                     Prim::Bool => "b",
+                    p if p.is_bigint() => "I",
                     _ => "i",
                 };
                 Expr::Array(vec![Expr::Num(0.0), Expr::Str(tag.into())])

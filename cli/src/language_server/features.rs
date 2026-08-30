@@ -488,7 +488,10 @@ pub fn workspace_symbols(analyzed: &Analyzed, query: &str) -> Value {
                     }
                     continue;
                 }
-                Item::Import(_) | Item::ReExport(_) | Item::Derive(_) => continue,
+                Item::Import(_)
+                | Item::ReExport(_)
+                | Item::Derive(_)
+                | Item::Error(_) => continue,
             };
             if matches(&name, &wanted) {
                 let span = declared_name_span(item);

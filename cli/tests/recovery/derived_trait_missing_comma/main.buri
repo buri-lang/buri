@@ -1,0 +1,3 @@
+// EXPECT: a derived trait ends with `,`
+derive Eq Ord for Meters;
+export struct Meters(export Float);

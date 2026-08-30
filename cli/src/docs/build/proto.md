@@ -186,15 +186,13 @@ which a bare `Note` would not, and a `oneof` named `contact` inside
 | `string` | `Str` | UTF-8 on the wire; bytes that are not text are an error |
 | `bytes` | `[U8]` | |
 
-**The 64-bit caveat, on the JavaScript backend.** An `Int` is an `I64` on every
-backend, and on the JavaScript one an `I64` is a double
-([`core/num`](../guide/standard-library.md)), so it holds every integer up to 2^53
-exactly and nothing above it. A `uint64` or `int64` field carrying a larger
-value survives the round trip only to that precision. This is the same caveat
-every double-backed protobuf implementation carries; it is stated here rather
-than discovered, and it does not apply to a native build, where an `I64` is
-sixty-four bits. What *is* true on every backend is that a `uint64` above 2^63
-reads back negative, which is what a signed reading of those bits is.
+**64-bit fields round-trip on every backend.** An `Int` is an `I64` everywhere,
+and on the JavaScript backend an `I64` is a `BigInt`
+([`core/num`](../guide/standard-library.md)) — so a `uint64` or `int64` field
+carrying a value past 2^53 survives with every digit, which is the caveat most
+double-backed protobuf implementations still carry and this one no longer does.
+What *is* true on every backend is that a `uint64` above 2^63 reads back
+negative, which is what a signed reading of those bits is.
 
 Negative numbers cost bytes. A negative `int32` or `int64` is written as the
 ten-byte varint of its 64-bit two's complement, exactly as protoc writes one. A
@@ -390,6 +388,51 @@ A failure names the path it happened at, written the way
 member — so `$.home.city` is a place a reader can find in the text in front of
 them.
 
+## `google.protobuf.Any`, as its two fields
+
+An `Any` is a message like any other in this mapping. Vendor the schema
+[googleapis publishes](https://github.com/protocolbuffers/protobuf/blob/main/src/google/protobuf/any.proto),
+declare it in a rule, and a field of that type reads as the struct the schema
+says it is:
+
+```text
+export struct Any {
+  export typeUrl: Str,
+  export value: [U8],
+}
+```
+
+That is the whole of it. **There is no unpacking.** `value` is the encoded
+bytes of some other message, and which message the `type_url` names is a
+question only a runtime type registry could answer — a table mapping a URL to a
+decoder, populated by every schema linked into the program. This toolchain has
+no such registry and is not getting one, so a program that wants what is inside
+an `Any` decodes `value` itself with the codec for the type it expects:
+
+```text
+let inner = decodeErrorInfo(ctx, detail.value)?;
+```
+
+Two consequences, stated rather than discovered:
+
+- **The JSON is the two-field object**, `{"typeUrl": "…", "value": "…"}` with
+  the bytes base64 as any `bytes` field is. Canonical `Any` JSON inlines the
+  held message and adds an `@type` member, and producing that needs the same
+  registry the unpacking would. A document written here is read as an ordinary
+  message by any implementation, and *not* as an `Any` by one that expects the
+  canonical form.
+- **Nothing checks the `type_url`.** It is a `Str` this toolchain neither
+  validates nor resolves; whether the bytes match the URL is between the two
+  programs exchanging them.
+
+What the binary format does is exact: an `Any` written here is an `Any`
+everywhere, because the wire encoding of the message is its two fields and
+always was.
+
+This is why `Any` is not in the table below. The constructs that *are* there
+each ask for a semantics this mapping cannot express; `Any` only asks for a
+struct, and dynamic dispatch was never in the message.
+
 ## What is not supported
 
 Each of these is refused by name, with the reason and the edit, under
@@ -401,7 +444,6 @@ Each of these is refused by name, with the reason and the edit, under
 | `extend`, `extensions` | An extension adds fields to a message from outside it, so the generated type would not be the whole of the message. |
 | `group` | proto2's inline nesting, whose wire encoding was removed from proto3. Declare a nested `message`. |
 | `map<K, V>` | Sugar for a repeated entry message with its own wire layout, and Buri's `Map` is not ordered the way a decoded map would have to be. Declare the entry message. |
-| `google.protobuf.Any` | Holds a message whose type is known only at runtime, and a generated type has to know its fields at compile time. Declare a `oneof`. |
 | the `optional` and `required` labels | Editions removed both; presence is `features.field_presence` now. protoc refuses them in the same words. |
 | `import public` | Re-exports another file's declarations, which would make one module's surface depend on a second file's. |
 | `syntax = "proto2"`, `syntax = "proto3"`, editions before 2026 | See [Editions, and only one](#editions-and-only-one). |

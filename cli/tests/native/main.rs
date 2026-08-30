@@ -14,7 +14,7 @@
 //! | [`stencil`] | `backend-stencil` | The same for the copy-and-patch backend: the frame-threaded convention, the hand-written `main`, the constant pool as its own section, and that a refusal is a diagnostic. |
 //! | [`conformance`] | `backend-stencil` | The `conformance/` corpus again, compiled natively rather than to JavaScript — the other half of `language::conformance`. |
 //! | [`llvm`] | `backend-llvm` | The same for the LLVM backend, plus the attribute discipline read off the optimized IR. |
-//! | [`agreement`] | either native backend | VALUE-MODEL.md §12's fourteen rows, run under each native backend and compared against JavaScript. |
+//! | [`agreement`] | either native backend | VALUE-MODEL.md §12's rows, run under each native backend and compared against JavaScript. |
 //!
 //! ```text
 //! cargo test -p buri --test native                                  # default features
