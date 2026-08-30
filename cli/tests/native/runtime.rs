@@ -501,11 +501,13 @@ fn the_network_effect_fetches() {
         let (mut sock, _) = listener.accept().unwrap();
         let mut request = Vec::new();
         let mut buf = [0_u8; 1024];
-        // Read until the headers are complete; the driver sends no body.
+        // Read until the headers are complete *and* the four-octet body the
+        // driver sends after them has arrived.
         loop {
             let n = sock.read(&mut buf).unwrap();
             request.extend_from_slice(&buf[..n]);
-            if n == 0 || request.windows(4).any(|w| w == b"\r\n\r\n") {
+            let end = request.windows(4).position(|w| w == b"\r\n\r\n");
+            if n == 0 || end.is_some_and(|at| request.len() >= at + 4 + 4) {
                 break;
             }
         }
@@ -526,11 +528,21 @@ fn the_network_effect_fetches() {
 
     let out = run(&["net", &format!("http://127.0.0.1:{port}/probe")]);
     let request = server.join().unwrap();
+    // `.Get` is variant 0 and the driver sends the index; `GET` is written in
+    // `http.rs`'s `METHODS` and nowhere else, so this line is the assertion
+    // that the index reached the request line.
     assert!(request.starts_with("GET /probe HTTP/1.1\r\n"), "request was:\n{request}");
     assert!(request.contains(&format!("Host: 127.0.0.1:{port}\r\n")), "request was:\n{request}");
+    // The caller's own header, and the `Content-Length` its octet body earns.
+    assert!(request.contains("x-probe: buri\r\n"), "request was:\n{request}");
+    assert!(request.contains("Content-Length: 4\r\n"), "request was:\n{request}");
+    assert!(request.ends_with("\u{1f44b}"), "request was:\n{request}");
+    // Two header fields come back, lowercased, and the body is the two chunks
+    // joined — the response's three fields, all three read back.
     assert_eq!(
         stdout(&out).trim_end(),
-        "status=201 body=hello you",
+        "status=201 headers=2 body=hello you content-type=text/plain \
+         transfer-encoding=chunked",
         "stderr:\n{}",
         stderr(&out)
     );
