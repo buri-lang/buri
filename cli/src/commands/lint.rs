@@ -643,9 +643,10 @@ fn editable_modules_of(
 /// **The two questions are separate, and each is answered by the evidence that
 /// belongs to it.** A body is unreadable when an error lands *in* it: that is
 /// the thing that truncates the typed tree, and nothing else does. A module is
-/// unreadable when the *parser skipped a declaration* in it, because then the
-/// list of what the module imports, declares and re-exports is short by an
-/// unknown amount — and that list is what [`check_dead_code`] reads.
+/// unreadable when its account of *what reaches what* is short: the parser
+/// skipped a declaration, or an error landed on one of the imports and
+/// re-exports that account is made of. That account is what [`check_dead_code`]
+/// reads, and it is the only thing the module set is asked about.
 ///
 /// Neither question is answered by where an error happens to sit. That is what
 /// this used to do, and it was wrong twice over: a recovered missing `;` on an
@@ -656,17 +657,21 @@ fn editable_modules_of(
 /// A position is not a kind, and only a kind can say what was lost.
 #[derive(Default)]
 struct Unchecked {
-    /// Modules the parser did not read whole — an [`Item::Error`] among their
-    /// items is a run of declarations it skipped over. What such a module
-    /// imports and exports is not the whole account of it, so a rule that
-    /// reads one module's imports to justify another module's export cannot
-    /// run at all.
+    /// Modules whose imports and re-exports are not the whole account of what
+    /// they reach: an [`Item::Error`] among their items is a run of
+    /// declarations the parser skipped, and an error landing on an import or a
+    /// re-export is a line of that account that did not resolve. Either way a
+    /// rule that reads one module's imports to justify another module's export
+    /// cannot run at all.
     ///
-    /// An error that leaves the item list intact is not here, however far from
-    /// a body it sits: an alias that closes a cycle, an import missing its
-    /// `;`, a field whose type did not check. Each of those is one declaration
-    /// the reader can see is wrong, and the rest of the module is as legible
-    /// as it was before.
+    /// Nothing else is here, however far from a body it sits: an alias that
+    /// closes a cycle, a field whose type did not check, a signature that did
+    /// not. Each of those is one declaration the reader can see is wrong, and
+    /// none of them says anything about what reaches what.
+    ///
+    /// This set answers `dead-code`'s question and no other. It does **not**
+    /// reach the bodies: a module error is not a reason to stop reading a
+    /// function that checked.
     ///
     /// [`Item::Error`]: crate::parsing::tree::Item::Error
     modules: BTreeSet<ModuleId>,
@@ -719,21 +724,41 @@ impl Unchecked {
             }
         }
 
-        // A module the parser did not read whole. `Item::Error` is the only
-        // thing that says so: it is what the parser writes down where it gave
-        // up on a declaration and skipped to the next one, so it is exactly
-        // the run of source nothing in the tree accounts for. An error beside
-        // an item the parser read is about that item, and the item list around
-        // it is still the whole list.
+        // A module whose account of what reaches what is in doubt. The set is
+        // read by one rule, `check_dead_code`, and that rule reads exactly
+        // three things in a module: its imports, its re-exports, and whatever
+        // the parser could not turn into either. So those three are what is
+        // asked about, and nothing else in the file is:
+        //
+        // * an `Item::Error` — the run of source the parser skipped, which
+        //   could have held the import that reaches the export in question;
+        // * an error landing on an import or a re-export — the list is there
+        //   but one of its lines did not resolve, so what it reaches is a
+        //   shorter list than the author wrote. A half-typed
+        //   `import { Zz` in an editor is this, and without it the name it
+        //   used to reach lights up as dead while the line is being written.
+        //
+        // An error on a function, a struct or an alias is not here however far
+        // from a body it sits. None of those says anything about what reaches
+        // anything, which is the only question this answers.
         //
         // Only files something is already wrong with are looked at, which is
         // what keeps this a lookup per module rather than a walk of every item
         // in the standard library.
         for m in &analysis.loaded.modules {
-            if !errors.contains_key(&m.file) {
-                continue;
-            }
-            if m.ast.items.iter().any(|i| matches!(i, crate::parsing::tree::Item::Error(_))) {
+            let Some(in_file) = errors.get(&m.file) else { continue };
+            let doubtful = m.ast.items.iter().any(|i| {
+                use crate::parsing::tree::Item;
+                match i {
+                    Item::Error(_) => true,
+                    Item::Import(_) | Item::ReExport(_) => {
+                        let at = i.span();
+                        in_file.iter().any(|e| e.start <= at.end && e.end >= at.start)
+                    }
+                    _ => false,
+                }
+            });
+            if doubtful {
                 unchecked.modules.insert(m.id);
             }
         }
