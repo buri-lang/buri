@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:59:31
+   |
+59 |     (Token.Surface.color(), f(? .Surface)),
+   |                               ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here

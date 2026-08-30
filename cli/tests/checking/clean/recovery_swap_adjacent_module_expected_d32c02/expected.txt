@@ -1,0 +1,8 @@
+error: a namespace import must be named [unnamed-namespace-import]
+ --> main.buri:5:24
+  |
+5 | from "core/str" import * str as;
+  |                        ^
+  |
+  = write `import * as name`; bare `import *` is not derivable from the grammar, so that no identifier enters a module's scope without appearing in that module's own source
+  = fix: write `import * as list`, so every name it brings in is reached through one prefix

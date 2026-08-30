@@ -1,0 +1,9 @@
+error: expected a function body, found `a` [unexpected-token]
+ --> main.buri:5:8
+  |
+5 | ): Int a { + b }
+  |        ^
+  |
+  = expected: a function body
+  = actual: `a`
+  = fix: write `{ ... }` after the return type

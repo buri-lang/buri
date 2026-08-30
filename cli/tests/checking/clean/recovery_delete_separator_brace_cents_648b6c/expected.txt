@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:32:29
+   |
+32 |     let whole = self.0 / 100
+   |                             ^
+   |
+   = fix: write `;` here

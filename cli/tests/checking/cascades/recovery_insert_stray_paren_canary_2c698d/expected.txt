@@ -1,0 +1,17 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:16:55
+   |
+16 |   let doubled = [1, 2, 3].fold(fn(acc, x) => acc + x, ? 0);
+   |                                                       ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here
+error: there is nothing named `doubled` in scope [unresolved-name]
+  --> main.buri:17:13
+   |
+17 |   assert.eq(doubled, 6);
+   |             ^^^^^^^
+   |
+   = did you mean `Bounded`?
+   = fix: correct the spelling, or declare it

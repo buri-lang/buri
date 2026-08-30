@@ -1,0 +1,10 @@
+export fn f(): () {
+}
+
+export extra trait T {}
+
+export struct S {}
+
+export enum E {}
+
+impl S {}

@@ -1,0 +1,16 @@
+error: an enum variant ends with `,` [missing-separator]
+ --> main.buri:1:110
+  |
+1 | export enum Shape { Circle(Float), Rect { width: Float, height: Float }, Triangle(Float, Float, Float), Empty 
+  |                                                                                                              ^
+  |
+  = fix: write `,` here
+error: expected an identifier, found `struct` [unexpected-token]
+ --> main.buri:3:8
+  |
+3 | export struct Wide { export first: Int, export second: Str, export third: Float, export fourth: Bool }
+  |        ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `struct`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -1,0 +1,15 @@
+error: an import name ends with `,` [missing-separator]
+ --> main.buri:1:36
+  |
+1 | from "core/list" export { fold, map extra };
+  |                                    ^
+  |
+  = fix: write `,` here
+error: "core/list" does not export `extra` [no-such-export]
+ --> main.buri:1:37
+  |
+1 | from "core/list" export { fold, map extra };
+  |                                     ^^^^^
+  |
+  = a re-export may name only what its module path exports
+  = fix: add `export` to `extra`'s declaration in "core/list", or drop it from this list

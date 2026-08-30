@@ -1,0 +1,12 @@
+error: this array type is missing its closing `]` [unclosed-delimiter]
+ --> main.buri:1:21
+  |
+1 | export fn f(): [Int {
+  |                     ^
+  |
+ --> main.buri:1:16
+  |
+1 | export fn f(): [Int {
+  |                ^ opened here
+  |
+  = fix: write `]` here

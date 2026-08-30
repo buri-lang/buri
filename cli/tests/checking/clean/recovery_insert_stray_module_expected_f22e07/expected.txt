@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+ --> main.buri:1:20
+  |
+1 | export fn f(): () {? }
+  |                    ^
+  |
+  = expected: an expression
+  = actual: `?`
+  = fix: write a value here

@@ -1,0 +1,22 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> main.buri:16:1
+   |
+16 | extra a
+   | ^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:16:1
+   |
+16 | extra a
+   | ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:16:6
+   |
+16 | extra a
+   |      ^
+   |
+   = fix: write `;` here

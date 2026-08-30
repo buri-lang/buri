@@ -329,9 +329,14 @@ pub fn select(
 
 /// Which shapes the corpus covers, as the report prints it.
 pub fn coverage(picks: &[Pick]) -> BTreeMap<String, usize> {
+    coverage_rows(picks.iter().map(|p| p.cell.as_str()))
+}
+
+/// The same, over the cells alone.
+pub fn coverage_rows<'a>(cells: impl IntoIterator<Item = &'a str>) -> BTreeMap<String, usize> {
     let mut rows: BTreeMap<String, usize> = BTreeMap::new();
-    for p in picks {
-        let row = p.cell.split(" | ").next().unwrap_or_default().to_string();
+    for cell in cells {
+        let row = cell.split(" | ").next().unwrap_or_default().to_string();
         *rows.entry(row).or_default() += 1;
     }
     rows

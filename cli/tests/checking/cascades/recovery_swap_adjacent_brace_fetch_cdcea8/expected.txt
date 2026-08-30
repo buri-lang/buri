@@ -1,0 +1,30 @@
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:38:5
+   |
+38 |     ctx let = context {
+   |     ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:38:8
+   |
+38 |     ctx let = context {
+   |        ^
+   |
+   = fix: write `;` here
+error: expected a pattern, found `=` [unexpected-token]
+  --> main.buri:38:13
+   |
+38 |     ctx let = context {
+   |             ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:42:19
+   |
+42 |     let _ = fetch(ctx, get("https://example.invalid"), fn(c, result) => {
+   |                   ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

@@ -1,0 +1,18 @@
+error: expected an identifier, found `,` [unexpected-token]
+ --> main.buri:1:34
+  |
+1 | from "core/str" import { concat, , split };
+  |                                  ^
+  |
+  = expected: an identifier
+  = actual: `,`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: expected a declaration, found `;` [unexpected-token]
+ --> main.buri:1:43
+  |
+1 | from "core/str" import { concat, , split };
+  |                                           ^
+  |
+  = expected: a declaration
+  = actual: `;`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

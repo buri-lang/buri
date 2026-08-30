@@ -1,0 +1,14 @@
+error: an array element ends with `,` [missing-separator]
+  --> main.buri:17:15
+   |
+17 |     3248222580extra ,
+   |               ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:17:15
+   |
+17 |     3248222580extra ,
+   |               ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

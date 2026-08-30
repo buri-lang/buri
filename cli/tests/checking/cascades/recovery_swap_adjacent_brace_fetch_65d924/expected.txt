@@ -1,0 +1,23 @@
+error: expected a type, found `=` [unexpected-token]
+  --> main.buri:67:28
+   |
+67 |     let badUrlFetchError : = .BadUrl("nope");
+   |                            ^
+   |
+   = expected: a type
+   = actual: `=`
+   = fix: name a type here, as in `Int` or `[Str]`
+error: there is nothing named `badUrl` in scope [unresolved-name]
+  --> main.buri:69:15
+   |
+69 |     assert.eq(badUrl, .BadUrl("nope"));
+   |               ^^^^^^
+   |
+   = fix: declare `badUrl`, or import it — a name is in scope only from this module's own declarations and its imports
+error: `_2` is not an enum [not-an-enum]
+  --> main.buri:69:23
+   |
+69 |     assert.eq(badUrl, .BadUrl("nope"));
+   |                       ^^^^^^^
+   |
+   = fix: the dot form names an enum variant; write the value another way

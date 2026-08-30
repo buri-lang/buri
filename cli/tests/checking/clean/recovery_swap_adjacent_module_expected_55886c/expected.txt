@@ -1,0 +1,9 @@
+error: expected `:`, found `Int` [unexpected-token]
+ --> main.buri:1:14
+  |
+1 | export fn f()Int : {
+  |              ^^^
+  |
+  = expected: `:`
+  = actual: `Int`
+  = fix: write `:` here

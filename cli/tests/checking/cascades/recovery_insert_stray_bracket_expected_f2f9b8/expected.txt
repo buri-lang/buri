@@ -1,0 +1,19 @@
+error: there is no type `extra` [unresolved-type]
+ --> main.buri:1:17
+  |
+1 | export fn f(): [extra Int] {
+  |                 ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+error: this array type is missing its closing `]` [unclosed-delimiter]
+ --> main.buri:1:23
+  |
+1 | export fn f(): [extra Int] {
+  |                       ^^^
+  |
+ --> main.buri:1:16
+  |
+1 | export fn f(): [extra Int] {
+  |                ^ opened here
+  |
+  = fix: write `]` here

@@ -1,0 +1,16 @@
+error: expected `=`, found `,` [unexpected-token]
+ --> main.buri:2:17
+  |
+2 |     let message , =
+  |                 ^
+  |
+  = expected: `=`
+  = actual: `,`
+  = fix: write `=` here
+error: there is nothing named `message` in scope [unresolved-name]
+ --> main.buri:4:5
+  |
+4 |     message
+  |     ^^^^^^^
+  |
+  = fix: declare `message`, or import it — a name is in scope only from this module's own declarations and its imports

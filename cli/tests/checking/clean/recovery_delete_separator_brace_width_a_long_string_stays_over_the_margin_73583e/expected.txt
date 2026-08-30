@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+ --> main.buri:2:131
+  |
+2 |   let message = "a single string literal that is far too long to fit inside the margin and has no shape a formatter could give it"
+  |                                                                                                                                   ^
+  |
+  = fix: write `;` here

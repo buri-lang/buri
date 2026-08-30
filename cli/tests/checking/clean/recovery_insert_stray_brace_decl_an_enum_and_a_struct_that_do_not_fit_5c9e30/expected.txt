@@ -1,0 +1,21 @@
+error: this `struct` body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:3:80
+  |
+3 | export struct Wide { export first: Int, export second: Str, export third: Float? , export fourth: Bool }
+  |                                                                                ^
+  |
+ --> main.buri:3:20
+  |
+3 | export struct Wide { export first: Int, export second: Str, export third: Float? , export fourth: Bool }
+  |                    ^ opened here
+  |
+  = fix: write `}` here
+error: expected a declaration, found `fourth` [unexpected-token]
+ --> main.buri:3:91
+  |
+3 | export struct Wide { export first: Int, export second: Str, export third: Float? , export fourth: Bool }
+  |                                                                                           ^^^^^^
+  |
+  = expected: a declaration
+  = actual: `fourth`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

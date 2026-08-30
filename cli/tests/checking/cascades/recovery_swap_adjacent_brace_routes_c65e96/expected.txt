@@ -1,0 +1,26 @@
+error: `Route` is missing `path` [missing-field-value]
+  --> main.buri:10:19
+   |
+10 |     "/entries" => Route { name"entries" :, path },
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: give `path` a value, or start from an existing one with `Route { ..base, field: value }`
+error: there is nothing named `name` in scope [unresolved-name]
+  --> main.buri:10:27
+   |
+10 |     "/entries" => Route { name"entries" :, path },
+   |                           ^^^^
+   |
+   = fix: declare `name`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:10:31
+   |
+10 |     "/entries" => Route { name"entries" :, path },
+   |                               ^^^^^^^^^
+   |
+  --> main.buri:10:25
+   |
+10 |     "/entries" => Route { name"entries" :, path },
+   |                         ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,9 @@
+error: expected `;`, found `@` [unexpected-token]
+ --> main.buri:1:41
+  |
+1 | from "core/str" import { concat, split }@ ;
+  |                                         ^
+  |
+  = expected: `;`
+  = actual: `@`
+  = fix: write `;` here

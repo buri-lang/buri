@@ -1,0 +1,24 @@
+error: this `match` does not cover `.None` [match-not-exhaustive]
+ --> main.buri:2:5
+  |
+2 |     match (x) {
+  |     ^^^^^^^^^^^ not covered
+  |
+  = every `match` must cover its scrutinee's type
+  = fix: add an arm for `.None`, or a `_` arm for everything left
+error: expected an expression, found `,` [unexpected-token]
+ --> main.buri:4:18
+  |
+4 |         .None => , 0,
+  |                  ^
+  |
+  = expected: an expression
+  = actual: `,`
+  = fix: write a value here
+error: a match arm is `pattern => expression` [missing-arrow]
+ --> main.buri:4:21
+  |
+4 |         .None => , 0,
+  |                     ^
+  |
+  = fix: write `=>` here

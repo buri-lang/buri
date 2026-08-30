@@ -1,0 +1,9 @@
+error: expected an expression, found `&&` [unexpected-token]
+ --> main.buri:1:41
+  |
+1 | export fn f(a: Int, b: Int): Bool { a > && 0 b > 0 }
+  |                                         ^^
+  |
+  = expected: an expression
+  = actual: `&&`
+  = fix: write a value here

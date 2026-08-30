@@ -1,0 +1,12 @@
+error: this array type is missing its closing `]` [unclosed-delimiter]
+ --> main.buri:1:13
+  |
+1 | let K: [U32 = [
+  |             ^
+  |
+ --> main.buri:1:8
+  |
+1 | let K: [U32 = [
+  |        ^ opened here
+  |
+  = fix: write `]` here

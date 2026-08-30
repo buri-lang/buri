@@ -1,0 +1,20 @@
+error: `themed` is in an `impl` block but takes no `self` [impl-fn-without-self]
+  --> main.buri:57:11
+   |
+57 | export fn themed(f: fn(Token) => Color): Theme {
+   |           ^^^^^^
+   |
+   = an `impl` block declares methods; a function with no receiver is declared at the top level
+   = fix: give it a `self` parameter, or move it out of the `impl` block
+error: this `impl` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:65:1
+   |
+65 | 
+   | ^
+   |
+  --> main.buri:31:12
+   |
+31 | impl Token {
+   |            ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,40 @@
+error: an expression statement is legal only in a test source [expression-statement]
+ --> main.buri:3:3
+  |
+3 |   b let = [1, 2, 3];
+  |   ^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `b` in scope [unresolved-name]
+ --> main.buri:3:3
+  |
+3 |   b let = [1, 2, 3];
+  |   ^
+  |
+  = did you mean `a`?
+  = fix: correct the spelling, or declare it
+error: a statement ends with `;` [missing-terminator]
+ --> main.buri:3:4
+  |
+3 |   b let = [1, 2, 3];
+  |    ^
+  |
+  = fix: write `;` here
+error: expected a pattern, found `=` [unexpected-token]
+ --> main.buri:3:9
+  |
+3 |   b let = [1, 2, 3];
+  |         ^
+  |
+  = expected: a pattern
+  = actual: `=`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `b` in scope [unresolved-name]
+ --> main.buri:4:3
+  |
+4 |   b
+  |   ^
+  |
+  = did you mean `a`?
+  = fix: correct the spelling, or declare it

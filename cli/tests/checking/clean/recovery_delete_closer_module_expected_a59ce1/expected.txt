@@ -1,0 +1,21 @@
+error: expected `fn`, found `export` [unexpected-token]
+ --> main.buri:5:1
+  |
+5 | export struct S {}
+  | ^^^^^^
+  |
+  = expected: `fn`
+  = actual: `export`
+  = fix: write `fn` here
+error: this `trait` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:10:1
+   |
+10 | 
+   | ^
+   |
+ --> main.buri:3:16
+  |
+3 | export trait T {
+  |                ^ opened here
+  |
+  = fix: write `}` here

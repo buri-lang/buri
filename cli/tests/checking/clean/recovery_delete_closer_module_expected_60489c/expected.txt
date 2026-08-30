@@ -1,0 +1,12 @@
+error: this `trait` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:12:1
+   |
+12 | 
+   | ^
+   |
+ --> main.buri:9:16
+  |
+9 | export trait T {
+  |                ^ opened here
+  |
+  = fix: write `}` here

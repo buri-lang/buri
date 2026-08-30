@@ -1,0 +1,16 @@
+error: expected `;`, found `@` [unexpected-token]
+ --> main.buri:2:131
+  |
+2 |   let message = "a single string literal that is far too long to fit inside the margin and has no shape a formatter could give it"@ ;
+  |                                                                                                                                   ^
+  |
+  = expected: `;`
+  = actual: `@`
+  = fix: write `;` here
+error: there is nothing named `message` in scope [unresolved-name]
+ --> main.buri:3:3
+  |
+3 |   message
+  |   ^^^^^^^
+  |
+  = fix: declare `message`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -1,0 +1,7 @@
+error: a `struct` declaration ends with `;` [missing-terminator]
+  --> main.buri:15:25
+   |
+15 | export struct Cents(I64)
+   |                         ^
+   |
+   = fix: write `;` here

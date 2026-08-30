@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+ --> main.buri:2:107
+  |
+2 |   hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 || milli < 0 || milli > ? 999
+  |                                                                                                           ^
+  |
+  = expected: an expression
+  = actual: `?`
+  = fix: write a value here

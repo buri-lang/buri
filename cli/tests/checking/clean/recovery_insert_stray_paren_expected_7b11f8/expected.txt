@@ -1,0 +1,9 @@
+error: expected a type, found `,` [unexpected-token]
+ --> main.buri:4:14
+  |
+4 |     Triangle(, Float, Float, Float),
+  |              ^
+  |
+  = expected: a type
+  = actual: `,`
+  = fix: name a type here, as in `Int` or `[Str]`

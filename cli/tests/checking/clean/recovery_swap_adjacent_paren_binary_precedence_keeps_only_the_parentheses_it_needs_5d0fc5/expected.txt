@@ -1,0 +1,9 @@
+error: expected an expression, found `)` [unexpected-token]
+ --> main.buri:2:40
+  |
+2 |   ((a + b) * c) + (a * (b + c)) - ((a- ) (b))
+  |                                        ^
+  |
+  = expected: an expression
+  = actual: `)`
+  = fix: write a value here

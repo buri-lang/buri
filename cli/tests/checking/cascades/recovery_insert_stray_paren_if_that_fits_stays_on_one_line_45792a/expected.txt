@@ -1,0 +1,19 @@
+error: there is nothing named `extra` in scope [unresolved-name]
+ --> main.buri:1:36
+  |
+1 | export fn f(x: Int): Str { if (x > extra 0) { "yes" } else { "no" } }
+  |                                    ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:1:42
+  |
+1 | export fn f(x: Int): Str { if (x > extra 0) { "yes" } else { "no" } }
+  |                                          ^
+  |
+ --> main.buri:1:31
+  |
+1 | export fn f(x: Int): Str { if (x > extra 0) { "yes" } else { "no" } }
+  |                               ^ opened here
+  |
+  = fix: write `)` here

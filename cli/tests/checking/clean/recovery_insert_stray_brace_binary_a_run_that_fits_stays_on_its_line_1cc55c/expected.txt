@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:1:43
+  |
+1 | export fn f(a: Int, b: Int): Bool { a > 0 , && b > 0 }
+  |                                           ^
+  |
+ --> main.buri:1:35
+  |
+1 | export fn f(a: Int, b: Int): Bool { a > 0 , && b > 0 }
+  |                                   ^ opened here
+  |
+  = fix: write `}` here

@@ -1,0 +1,21 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:15:50
+   |
+15 |     Request { method: "GET", url: url, headers: [, body: "" }
+   |                                                  ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:72:1
+   |
+72 | 
+   | ^
+   |
+  --> main.buri:14:27
+   |
+14 | fn get(url: Str): Request {
+   |                           ^ opened here
+   |
+   = fix: write `}` here

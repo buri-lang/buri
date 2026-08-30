@@ -1,0 +1,9 @@
+error: expected a string literal, found `extra` [unexpected-token]
+  --> main.buri:15:6
+   |
+15 | test extra "the canary holds under a context" {
+   |      ^^^^^
+   |
+   = expected: a string literal
+   = actual: `extra`
+   = fix: quote it, as in `"core/list"`

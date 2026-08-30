@@ -1,0 +1,30 @@
+error: an expression statement is legal only in a test source [expression-statement]
+ --> main.buri:9:22
+  |
+9 | export fn b(): Int { 2 extra }
+  |                      ^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `Int`, not `()` [statement-not-unit]
+ --> main.buri:9:22
+  |
+9 | export fn b(): Int { 2 extra }
+  |                      ^
+  |
+  = only a call whose type is `()` may stand alone; bind anything else
+  = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+ --> main.buri:9:23
+  |
+9 | export fn b(): Int { 2 extra }
+  |                       ^
+  |
+  = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+ --> main.buri:9:24
+  |
+9 | export fn b(): Int { 2 extra }
+  |                        ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

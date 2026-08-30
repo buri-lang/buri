@@ -1,0 +1,9 @@
+error: expected an identifier, found `trait` [unexpected-token]
+ --> main.buri:9:8
+  |
+9 | export trait T {
+  |        ^^^^^
+  |
+  = expected: an identifier
+  = actual: `trait`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

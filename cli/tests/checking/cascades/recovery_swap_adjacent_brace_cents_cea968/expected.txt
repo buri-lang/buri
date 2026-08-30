@@ -1,0 +1,16 @@
+error: expected `=`, found `self` [unexpected-token]
+  --> main.buri:32:15
+   |
+32 |     let whole self =.0 / 100;
+   |               ^^^^
+   |
+   = expected: `=`
+   = actual: `self`
+   = fix: write `=` here
+error: there is nothing named `whole` in scope [unresolved-name]
+  --> main.buri:35:26
+   |
+35 |     str.format(ctx, "\$${whole}.${pad}${rest}")
+   |                          ^^^^^
+   |
+   = fix: declare `whole`, or import it — a name is in scope only from this module's own declarations and its imports
