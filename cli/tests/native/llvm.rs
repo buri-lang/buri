@@ -729,6 +729,16 @@ export fn main(): Result<(), Str> {
     assert!(ir.contains("declare void @buri_rt_flush"), "no flush declaration in:\n{ir}");
     assert!(ir.contains("buri_rt_argv_init"), "no argv_init in:\n{ir}");
 
+    // `cli/runtime/lib.rs` §6's optional call, which **this** backend makes and
+    // the frame-threaded one must not. It survives `default<O2>` because the
+    // callee is an opaque declaration; a pipeline that learned to drop it would
+    // be a `Tasks.parallel` that silently stopped overlapping its waits, which
+    // is why the assertion is here rather than on the unoptimized module.
+    assert!(
+        ir.contains("buri_rt_frames_are_per_carrier"),
+        "no frames_are_per_carrier in:\n{ir}"
+    );
+
     // The emitted `main` is `ccc`, because the platform starts it, while every
     // Buri function is `fastcc`. A mismatch between a function and its call
     // sites is a miscompile LLVM will not diagnose, so both halves are here.

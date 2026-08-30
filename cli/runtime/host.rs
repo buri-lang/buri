@@ -776,9 +776,11 @@ pub extern "C" fn buri_rt_host_clock_now_millis() -> i64 {
 /// feature there is no reactor and this is `thread::sleep`, which is what it
 /// has always been.
 ///
-/// The two are indistinguishable from a program today, because nothing creates
-/// a second carrier — the sleeping thread is the only one there is either way,
-/// and it sleeps for the same length and answers the same nothing.
+/// The two are now distinguishable, and `Tasks.parallel` is what distinguishes
+/// them: two steps that each sleep here finish in one sleep's time rather than
+/// two, because the first gives the baton to the second while it waits. Outside
+/// a fan-out the sleeping thread is still the only one there is, and the two
+/// answer the same nothing after the same wait.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_clock_sleep_millis(millis: i64) {
     if millis > 0 {
