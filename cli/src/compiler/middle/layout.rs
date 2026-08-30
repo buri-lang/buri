@@ -91,7 +91,36 @@ pub const HEADER_BYTES: u32 = 16;
 pub const HEADER_RC_OFFSET: i32 = -16;
 
 /// Byte offset of `cap` from a payload pointer.
+///
+/// The word holds the usable payload bytes in its low 63 bits and
+/// [`CAP_SHARED_FLAG`] in bit 63, so every reader masks with [`CAP_MASK`].
 pub const HEADER_CAP_OFFSET: i32 = -8;
+
+/// Bit 63 of `cap`: **reserved** for the multi-threaded mark, and never set.
+///
+/// Set will mean "this block may be reached from more than one thread", which
+/// is the question `incref`/`decref` will branch on to choose an atomic
+/// count. Nothing in the tree sets it yet; the reservation is here so that the
+/// readers already mask, and so the bit cannot be spent twice.
+///
+/// **Why `cap` and not `rc`.** A bit of the count would cost both of the two
+/// properties the count has. `IMMORTAL` is `u64::MAX` and `incref` is a
+/// *saturating* add precisely so the sentinel is a fixed point with no branch
+/// on the hot side ([`IMMORTAL`]); a tag bit in the same word makes the
+/// saturating add wrong. And MEMORY.md §5.3's whole licence for in-place reuse
+/// is the literal test `rc == 1` (`memory.rs::buri_rt_unique_cap`), which a
+/// tagged count fails for a block that is unique. `cap` has neither problem:
+/// it is a byte count nobody does arithmetic on without knowing it is one, it
+/// is read on cold paths (the free path, a growth decision, a drop glue's
+/// element count), and a capacity is bounded by the address space long before
+/// bit 63.
+///
+/// This follows [`STR_ASCII_FLAG`], which spends bit 63 of `Str::len` the same
+/// way (VALUE-MODEL.md §3.1). `design/native/VALUE-MODEL.md` §2 records both.
+pub const CAP_SHARED_FLAG: u64 = 1 << 63;
+
+/// The usable payload bytes of a block, once [`CAP_SHARED_FLAG`] is off.
+pub const CAP_MASK: u64 = !CAP_SHARED_FLAG;
 
 /// `rc == IMMORTAL` is a value that is never counted and never freed: every
 /// literal, every interned constant aggregate, every zero-sized value.
@@ -1328,6 +1357,26 @@ mod tests {
         // Strings are capped at 2^63 - 1 bytes, which is not a cap.
         assert_eq!(STR_LEN_MASK, (1u64 << 63) - 1);
         assert_eq!(STR_ASCII_FLAG & STR_LEN_MASK, 0);
+    }
+
+    /// The reserved multi-threaded bit is the top bit of `cap`, and masking is
+    /// the identity on every capacity a block can actually have.
+    #[test]
+    fn the_shared_flag_is_the_top_bit_of_the_capacity() {
+        assert_eq!(CAP_SHARED_FLAG, 1 << 63);
+        assert_eq!(CAP_MASK, u64::MAX >> 1);
+        assert_eq!(CAP_SHARED_FLAG & CAP_MASK, 0);
+        // The three boundaries a reader has to survive: an empty block, the
+        // largest capacity the low 63 bits can spell, and the same capacity
+        // with the flag on.
+        for cap in [0u64, 1, GROWTH_FLOOR, CAP_MASK] {
+            assert_eq!(cap & CAP_MASK, cap);
+            assert_eq!((cap | CAP_SHARED_FLAG) & CAP_MASK, cap);
+        }
+        // It is a different bit from the one `Str::len` already spends, but the
+        // same bit position — the precedent, not a collision: the two words are
+        // eight bytes apart.
+        assert_eq!(CAP_SHARED_FLAG, STR_ASCII_FLAG);
     }
 
     #[test]

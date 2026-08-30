@@ -1034,6 +1034,141 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Out,
     },
     Entry {
+        key: "host_testing.stdin",
+        symbol: "buri_rt_host_testing_stdin",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestStdin.lines",
+        symbol: "buri_rt_host_testing_test_stdin_lines",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestStdin.bytes",
+        symbol: "buri_rt_host_testing_test_stdin_bytes",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestStdin.readLine",
+        symbol: "buri_rt_host_testing_test_stdin_read_line",
+        args: &[Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "host_testing.TestStdin.readBytes",
+        symbol: "buri_rt_host_testing_test_stdin_read_bytes",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    // `TestFs`'s sixteen. `self` is `struct TestFs(I64)` and carries a handle,
+    // so it is `Arg::Scalar` here as `MemFs`'s is — including on the two
+    // builders and on `readOnly`, which read the receiver's view rather than
+    // ignoring it.
+    //
+    // `snapshot` answers a `[(Str, Str)]`, which is a list like any other at
+    // this boundary: `Ret::Out` writes the descriptor, and the element width is
+    // the tuple's layout rather than anything this table names.
+    Entry { key: "host_testing.fs", symbol: "buri_rt_host_testing_fs", args: &[], ret: Ret::Out },
+    Entry {
+        key: "host_testing.TestFs.files",
+        symbol: "buri_rt_host_testing_test_fs_files",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestFs.filesBytes",
+        symbol: "buri_rt_host_testing_test_fs_files_bytes",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestFs.readOnly",
+        symbol: "buri_rt_host_testing_test_fs_read_only",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestFs.read",
+        symbol: "buri_rt_host_testing_test_fs_read",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.snapshot",
+        symbol: "buri_rt_host_testing_test_fs_snapshot",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestFs.readFile",
+        symbol: "buri_rt_host_testing_test_fs_read_file",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.writeFile",
+        symbol: "buri_rt_host_testing_test_fs_write_file",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.fileExists",
+        symbol: "buri_rt_host_testing_test_fs_file_exists",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Int(8),
+    },
+    Entry {
+        key: "host_testing.TestFs.readDir",
+        symbol: "buri_rt_host_testing_test_fs_read_dir",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.readFileBytes",
+        symbol: "buri_rt_host_testing_test_fs_read_file_bytes",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.writeFileBytes",
+        symbol: "buri_rt_host_testing_test_fs_write_file_bytes",
+        args: &[Arg::Scalar, Arg::Str, Arg::List],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.appendFile",
+        symbol: "buri_rt_host_testing_test_fs_append_file",
+        args: &[Arg::Scalar, Arg::Str, Arg::List],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.renameFile",
+        symbol: "buri_rt_host_testing_test_fs_rename_file",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.removeFile",
+        symbol: "buri_rt_host_testing_test_fs_remove_file",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.makeDir",
+        symbol: "buri_rt_host_testing_test_fs_make_dir",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.syncFile",
+        symbol: "buri_rt_host_testing_test_fs_sync_file",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
         key: "host_testing.clock",
         symbol: "buri_rt_host_testing_clock",
         args: &[],

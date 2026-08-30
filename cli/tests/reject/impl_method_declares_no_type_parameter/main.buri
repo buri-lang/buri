@@ -1,0 +1,25 @@
+// EXPECT: `wrap` does not have the signature `Pack` declares
+//
+// `Pack.wrap` is generic in what it wraps; this `impl` pins it to `Int` and
+// declares no type parameter at all. Only the *method's* own parameters are
+// counted — the ones on an `impl` head belong to the block — so the count the
+// message names is one against none.
+//
+// A count that disagrees is the whole answer: there is no shared numbering
+// left to compare the parameter types under, so the type disagreement this one
+// also has is not reported a second time.
+struct Crate { export weight: Int }
+
+trait Pack {
+  fn wrap<T>(self, value: T): Int;
+}
+
+impl Pack for Crate {
+  fn wrap(self, value: Int): Int { self.weight + value }
+}
+
+export fn main(): Result<(), Str> {
+  let crate = Crate { weight: 2 };
+  let _ = crate.wrap(3);
+  .Ok(())
+}

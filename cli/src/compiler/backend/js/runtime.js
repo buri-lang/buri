@@ -3470,7 +3470,9 @@ function $testing_context_TestEnv_arguments(self) {
 //
 // Configuration answers a *new* handle rather than editing the one it was
 // called on, so `clock()` and `clock().at(1000)` are two clocks and a test
-// holding both holds two.
+// holding both holds two. `TestFs.readOnly` is the one that answers a new
+// handle over the *same* two objects, because attenuating a filesystem is not
+// copying it.
 
 function $host_testing_alloc() {
   return $handle({});
@@ -3525,6 +3527,192 @@ function $host_testing_TestStderr_eprintln(self, t) {
 
 function $host_testing_TestStderr_captured(self) {
   return $slot(self).text;
+}
+
+// End of input until a test says otherwise: no lines and no octets, so
+// `readLine` runs off the end and `readBytes` finds nothing.
+function $host_testing_stdin() {
+  return $handle({ lines: [], at: 0 });
+}
+
+// A line stream and an octet stream are two streams and a test picks one, so
+// these two builders replace each other rather than composing: the last one in
+// a chain is the stream.
+function $host_testing_TestStdin_lines(self, lines) {
+  return $handle({ lines: lines.slice(), at: 0 });
+}
+
+function $host_testing_TestStdin_bytes(self, b) {
+  return $handle({ lines: [], at: 0, bytes: b.slice() });
+}
+
+function $host_testing_TestStdin_readLine(self) {
+  const s = $slot(self);
+  if (s.bytes) return undefined;
+  return s.at < s.lines.length ? $some(s.lines[s.at++]) : undefined;
+}
+
+function $host_testing_TestStdin_readBytes(self, want) {
+  const s = $slot(self);
+  const n = Number(want);
+  const src = s.bytes || [];
+  if (s.at >= src.length || n <= 0) return undefined;
+  const out = src.slice(s.at, s.at + n);
+  s.at += out.length;
+  return out;
+}
+
+// A `TestFs` handle is a *view*: the files and directories it reads and writes,
+// and whether writes through this view are refused. `readOnly` answers a second
+// view over the *same* two objects, which is what folds `ReadOnly<C>` into a
+// method without turning it into a copy — the wrapper holds the inner value, so
+// a read through it sees whatever the filesystem holds now.
+//
+// The slot holds octets per path and the directories `makeDir` has been asked
+// for, exactly as `$testing_context_data`'s does: a flat map has no empty
+// directory otherwise.
+function $host_testing_fs() {
+  return $handle({ files: {}, dirs: [], ro: false });
+}
+
+// This view's files with these written over them, in a map of its own, under
+// this view's attenuation — so `files` and `filesBytes` compose in either order
+// and `fs().readOnly().files(..)` is still read-only.
+function $host_testing_TestFs_files(self, entries) {
+  const s = $slot(self);
+  const files = Object.assign({}, s.files);
+  for (const e of entries) files[e[0]] = $bytes_toUtf8(null, e[1]);
+  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro });
+}
+
+function $host_testing_TestFs_filesBytes(self, entries) {
+  const s = $slot(self);
+  const files = Object.assign({}, s.files);
+  for (const e of entries) files[e[0]] = e[1].slice();
+  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro });
+}
+
+// The same two objects, deliberately: a method that copied would be a snapshot
+// wearing an attenuator's name.
+function $host_testing_TestFs_readOnly(self) {
+  const s = $slot(self);
+  return $handle({ files: s.files, dirs: s.dirs, ro: true });
+}
+
+// The read-back, without the effect: the same answer `readFile` gives, and no
+// `Fs` bound needed to ask it.
+function $host_testing_TestFs_read(self, p) {
+  const f = $slot(self).files;
+  return p in f ? $ok($utf8Lossy(f[p])) : $err([0]);
+}
+
+// Sorted by path, which is `sort()`'s UTF-16 code-unit order and the one
+// `readDir` already uses. Files only: a directory holds no octets.
+function $host_testing_TestFs_snapshot(self) {
+  const f = $slot(self).files;
+  return Object.keys(f)
+    .sort()
+    .map(function (k) {
+      return [k, $utf8Lossy(f[k])];
+    });
+}
+
+function $host_testing_TestFs_readFile(self, p) {
+  return $host_testing_TestFs_read(self, p);
+}
+
+// `.ReadOnly` is `IoError`'s third variant, and the six that write are the six
+// `ReadOnly<C>` refuses.
+function $host_testing_TestFs_writeFile(self, p, b) {
+  const s = $slot(self);
+  if (s.ro) return $err([2]);
+  s.files[p] = $bytes_toUtf8(null, b);
+  return $ok(0);
+}
+
+function $host_testing_TestFs_fileExists(self, p) {
+  const s = $slot(self);
+  return p in s.files || s.dirs.includes(p);
+}
+
+function $host_testing_TestFs_readDir(self, p) {
+  // A directory that holds nothing is still not an error; only a path that
+  // names nothing at all is.
+  const prefix = p === "" || p === "." ? "" : p.replace(/\/$/, "") + "/";
+  const s = $slot(self);
+  const out = [];
+  for (const k of Object.keys(s.files).concat(s.dirs)) {
+    if (k.startsWith(prefix)) {
+      const rest = k.slice(prefix.length);
+      if (rest && !out.includes(rest.split("/")[0])) out.push(rest.split("/")[0]);
+    }
+  }
+  return $ok(out.sort());
+}
+
+function $host_testing_TestFs_readFileBytes(self, p) {
+  const f = $slot(self).files;
+  return p in f ? $ok(f[p].slice()) : $err([0]);
+}
+
+function $host_testing_TestFs_writeFileBytes(self, p, b) {
+  const s = $slot(self);
+  if (s.ro) return $err([2]);
+  s.files[p] = b.slice();
+  return $ok(0);
+}
+
+function $host_testing_TestFs_appendFile(self, p, b) {
+  const s = $slot(self);
+  if (s.ro) return $err([2]);
+  const f = s.files;
+  f[p] = (p in f ? f[p] : []).concat(b);
+  return $ok(0);
+}
+
+function $host_testing_TestFs_renameFile(self, from, to) {
+  const s = $slot(self);
+  if (s.ro) return $err([2]);
+  const f = s.files;
+  if (!(from in f)) return $err([0]);
+  f[to] = f[from];
+  delete f[from];
+  return $ok(0);
+}
+
+function $host_testing_TestFs_removeFile(self, p) {
+  const s = $slot(self);
+  if (s.ro) return $err([2]);
+  const f = s.files;
+  if (!(p in f)) return $err([0]);
+  delete f[p];
+  return $ok(0);
+}
+
+// Parents included, an existing directory is `.Ok`, and a path already naming
+// a file is `.AlreadyExists` — the three answers `mkdir -p` gives.
+function $host_testing_TestFs_makeDir(self, p) {
+  const s = $slot(self);
+  if (s.ro) return $err([2]);
+  const clean = p.replace(/\/+$/, "");
+  if (clean === "" || clean === ".") return $ok(0);
+  if (clean in s.files) return $err([3]);
+  const parts = clean.split("/");
+  for (let i = 0; i < parts.length; i++) {
+    const at = parts.slice(0, i + 1).join("/");
+    if (at !== "" && !s.dirs.includes(at)) s.dirs.push(at);
+  }
+  return $ok(0);
+}
+
+// Nothing to flush, so this answers whether there is anything to have flushed.
+// Not refused through an attenuated view: `sync` is not a write, and whatever
+// the filesystem already holds is what gets flushed.
+function $host_testing_TestFs_syncFile(self, p) {
+  const s = $slot(self);
+  const clean = p.replace(/\/+$/, "");
+  if (clean === "" || clean === ".") return $ok(0);
+  return p in s.files || s.dirs.includes(clean) ? $ok(0) : $err([0]);
 }
 
 // Millis in and millis out are both `I64`, so this one counts in `BigInt`.

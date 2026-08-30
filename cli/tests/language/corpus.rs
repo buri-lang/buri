@@ -54,6 +54,29 @@ fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// Every `Cargo.toml` under `dir`, sorted, including `dir`'s own.
+///
+/// `target/` is skipped: `cli/build.rs` assembles the runtime's package there
+/// under the name Cargo insists on, so a build directory is full of manifests
+/// that are outputs rather than sources. Nothing under `target/` is in the
+/// published crate either, which is what the caller is asking about.
+fn manifests_under(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
+    entries.sort_by_key(std::fs::DirEntry::path);
+    for e in entries {
+        let p = e.path();
+        if p.is_dir() {
+            if p.file_name().is_some_and(|n| n == "target") {
+                continue;
+            }
+            manifests_under(&p, out);
+        } else if p.file_name().is_some_and(|n| n == "Cargo.toml") {
+            out.push(p);
+        }
+    }
+}
+
 /// The files whose text is Buri source rather than textproto.
 fn corpus(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
@@ -286,16 +309,30 @@ fn formatting_the_corpus_preserves_what_it_means() {
 /// workspace, and adding it to `members` is a one-line change that would make
 /// `cargo test -p buri` resolve crates.io with nothing else noticing.
 ///
-/// **Two manifests, not one.** `cli/runtime` is a package of its own —
-/// `libburi_rt.a`, built by `cli/build.rs` and `include_bytes!`d into the
-/// binary — and it is outside the workspace for exactly the reason
-/// `editors/zed` is. That is what makes reading it here necessary rather than
-/// tidy: a dependency added there is resolved by no `cargo` command this suite
-/// runs, so without this the first crate in the runtime would arrive in
-/// complete silence. Its bar is the **stricter** one: the archive is linked
-/// into every native binary the compiler produces, so a crate admitted there is
-/// a crate shipped inside every program a user builds, and the admitted set is
-/// therefore empty rather than closed.
+/// **Two manifests and two admitted sets, and the second half of this test is
+/// the stricter one.** `cli/runtime/manifest.toml` is the native runtime's
+/// package — `libburi_rt.a`, assembled and built by `cli/build.rs` and
+/// `include_bytes!`d into the binary. No `cargo` command this suite runs
+/// resolves it, so without this the first crate in the runtime would arrive in
+/// complete silence; and the archive is linked into every native binary the
+/// compiler produces, so a crate admitted there is a crate shipped inside every
+/// program a *user* builds.
+///
+/// That set was empty until the `net` feature. It is now four crates, and the
+/// clause that replaces emptiness is **exactness**: the assertion below is an
+/// equality against a list written out here, not a prefix match and not a
+/// count. A fifth crate fails, a rename fails, and a removal fails — the last
+/// on purpose, because "tokio quietly left the runtime" is as much a change to
+/// what every user ships as "quinn quietly joined it".
+///
+/// The third assertion is the one that keeps the published crate whole. Cargo
+/// skips any subdirectory of a package that holds a `Cargo.toml`, before
+/// `include` is consulted and with no way to override it, so a manifest under
+/// `cli/` by that name silently deletes its whole directory from `cargo package
+/// -p buri` — which is how the runtime's sources stopped shipping once it
+/// became a package, and why its manifest is `manifest.toml` today. The
+/// invariant is cheap to state and exact: **`cli/Cargo.toml` is the only
+/// `Cargo.toml` under `cli/`.**
 #[test]
 fn dependencies_stay_behind_the_bar() {
     /// The whole admitted set, by prefix.
@@ -323,7 +360,20 @@ fn dependencies_stay_behind_the_bar() {
             if !in_deps || line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            let name = line.split(['=', ' ']).next().unwrap_or(line).trim();
+            // A declaration is `name = ...`, and a whole one is one line. Both
+            // halves of that are a guard: a line with no `=` and a "name" that
+            // is not a crate name are the continuation lines of a wrapped
+            // inline table — `"http1",`, `] }` — which this would otherwise
+            // report as dependencies called `"http1",` and `]`. Both manifests
+            // owe the scanner one entry per line and both say so where their
+            // tables are written.
+            let Some((lhs, _)) = line.split_once('=') else { continue };
+            let name = lhs.trim();
+            if name.is_empty()
+                || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            {
+                continue;
+            }
             found.push((name.to_string(), line.to_string()));
         }
         found
@@ -345,23 +395,77 @@ fn dependencies_stay_behind_the_bar() {
     }
     assert!(seen > 0, "the admitted dependencies vanished; this test is now asserting nothing");
 
-    // The runtime archive's manifest. Zero dependencies, and the reason is one
-    // step stronger than the toolchain's: `cli/build.rs` links what this
-    // package builds into every native binary `buri` produces, so a crate here
-    // is not a crate a contributor installs — it is a crate every *user* ships.
-    let runtime = std::fs::read_to_string(repo_root().join("cli/runtime/Cargo.toml"))
-        .expect("cli/runtime/Cargo.toml");
-    let runtime_deps: Vec<String> = declared(&runtime).into_iter().map(|(n, _)| n).collect();
+    // -- the runtime's set, which is closed by an exact list ------------------
+    //
+    // One step stronger than the toolchain's, and for a reason that is about
+    // who pays: `cli/build.rs` links what this package builds into every native
+    // binary `buri` produces, so a crate here is not a crate a contributor
+    // installs — it is a crate every *user* ships.
+    //
+    // Pinned in full and compared as a set. Sorted, because the order in the
+    // manifest is an argument's order and not a fact.
+    const RUNTIME_ADMITTED: &[&str] = &["hyper", "rustls", "tokio", "tungstenite"];
+    let runtime = std::fs::read_to_string(repo_root().join("cli/runtime/manifest.toml"))
+        .expect("cli/runtime/manifest.toml");
+    let mut runtime_deps: Vec<String> =
+        declared(&runtime).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+    runtime_deps.sort();
+    assert_eq!(
+        runtime_deps, RUNTIME_ADMITTED,
+        "cli/runtime/manifest.toml's dependency set is not the one this repository decided on. \
+         The runtime's archive is linked into every native binary this compiler produces, so its \
+         admitted set is closed by this exact list rather than by a prefix: a fifth crate, a \
+         rename and a removal are all changes to what every user ships.\n{BAR}"
+    );
+    // Every one of them optional, and every one behind the one feature. Two
+    // separate facts: `optional = true` is what lets the feature turn it off,
+    // and `net = [...]` is what says which feature does.
+    for (name, line) in declared(&runtime) {
+        assert!(
+            line.contains("optional = true"),
+            "the runtime dependency `{name}` is not optional, so `net` cannot turn it off and \
+             `cargo build --no-default-features` would still resolve it.\n{BAR}"
+        );
+        assert!(
+            runtime.contains(&format!("\"dep:{name}\"")),
+            "the runtime dependency `{name}` is optional but no feature enables it, so it is \
+             resolved by nothing and shipped by nothing"
+        );
+    }
     assert!(
-        runtime_deps.is_empty(),
-        "cli/runtime/Cargo.toml declares {runtime_deps:?}. The runtime's archive is linked into \
-         every native binary this compiler produces, so its admitted set is empty rather than \
-         closed.\n{BAR}"
+        runtime.contains("default = [\"net\"]"),
+        "the runtime's default feature set is no longer `net`. A toolchain whose runtime cannot \
+         speak the network by default makes `Net` a build-flag question for every user rather \
+         than a capability question for every program"
     );
     assert!(
         runtime.contains("[dependencies]"),
-        "cli/runtime/Cargo.toml no longer has a `[dependencies]` table, so the check above is \
+        "cli/runtime/manifest.toml no longer has a `[dependencies]` table, so the check above is \
          reading a manifest whose shape it does not recognise and asserting nothing"
+    );
+
+    // -- and the invariant that keeps the published crate whole ---------------
+    //
+    // `cargo package` skips a nested package unconditionally, so a second
+    // `Cargo.toml` under `cli/` deletes its own directory from the tarball. The
+    // walk is over the tree rather than over a list of known places, because
+    // the failure this catches is a *new* manifest somebody adds.
+    let mut manifests = Vec::new();
+    manifests_under(&repo_root().join("cli"), &mut manifests);
+    manifests.sort();
+    let manifests: Vec<String> = manifests
+        .iter()
+        .filter_map(|p| p.strip_prefix(repo_root()).ok())
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+    assert_eq!(
+        manifests,
+        vec!["cli/Cargo.toml".to_string()],
+        "there is a `Cargo.toml` under `cli/` other than the package's own. `cargo package -p \
+         buri` skips any subdirectory that holds one — before `include` is consulted, and with no \
+         way to override it — so every file beside it silently stops shipping in the published \
+         crate. The native runtime's manifest is `cli/runtime/manifest.toml` for exactly this \
+         reason; see `cli/build.rs`'s header."
     );
 
     // The default feature set is the one `cargo install buri` gets, and it must
@@ -389,9 +493,10 @@ fn dependencies_stay_behind_the_bar() {
 
     let root = std::fs::read_to_string(repo_root().join("Cargo.toml")).expect("Cargo.toml");
     assert!(
-        root.contains("exclude = [\"editors/zed\", \"cli/runtime\"]"),
-        "the root Cargo.toml no longer excludes both editors/zed and cli/runtime, so the Zed \
-         extension's dependencies, or the runtime's, are about to become the toolchain's"
+        root.contains("exclude = [\"editors/zed\"]"),
+        "the root Cargo.toml no longer excludes editors/zed, so the Zed extension's dependencies \
+         are about to become the toolchain's. (`cli/runtime` used to be a second entry and needs \
+         none: it is not a package in the tree, so there is nothing there to resolve.)"
     );
 }
 
