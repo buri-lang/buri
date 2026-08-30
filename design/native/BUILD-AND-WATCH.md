@@ -68,15 +68,33 @@ missing effect rather than a link error, which is why the toolchain learns the
 feature's state through `Backend::missing_intrinsics` instead of finding out at
 `cc` time.
 
-As of the slice that admitted them, **nothing references any of the four**.
+As of the slice that admitted them, **nothing referenced any of the four**.
 `cli/runtime/net.rs` names one type from each and exports two entries that
 answer "was this toolchain built with the networking stack"; no intrinsic key
-mangles to a symbol in that file. That is deliberate, and it is what makes the
-cost measurable before anything depends on the answer: on
+mangles to a symbol in that file. That was deliberate, and it is what made the
+cost measurable before anything depended on the answer: on
 `aarch64-apple-darwin` the archive is 5 987 472 bytes with `net` off and
 5 987 496 with it on. Twenty-four bytes, because `lto = "fat"` is whole-program
 across the dependency rlibs and Rust code nothing reaches does not reach the
 archive.
+
+**`tokio` has since been linked, once and deliberately.** `cli/runtime/rt.rs`
+is the carrier runtime — the reactor handle, the run baton, the carrier pool
+with its 512 KiB stacks and the task table — and `Clock::sleepMillis` and
+`Net::fetch` wait on it through `park_on`, so the reactor and its timer wheel
+are in the archive on purpose:
+
+| `aarch64-apple-darwin`, `libburi_rt.a` | bytes |
+|---|---|
+| before `rt.rs` | 6 035 480 |
+| after | 6 220 904 |
+| the reactor | +185 424 |
+
+`mio` and `socket2` arrive with it and are tokio's platform layer rather than a
+fifth and sixth dependency; the direct set is still four, and
+`dependencies_stay_behind_the_bar` is what holds it there. The other three
+crates are still reached by nothing, and the CI symbol check names them
+still.
 
 The one thing that would *not* be dropped is a dependency's **native** object
 code, which `rustc` bundles into a `staticlib` whether anything references it or
@@ -84,8 +102,8 @@ not — measured at 842 544 bytes and twenty-four `.o` members for `rustls`'s
 obvious crypto provider, `ring`. So `rustls` is admitted with no provider, and
 picking one is the decision of the slice that makes `https://` work, where the
 bytes are bought rather than spent. `.github/scripts/assert-runtime-archive.sh`
-holds both halves in CI: a size budget, and a symbol table with none of the four
-crates in it.
+holds both halves in CI: a size budget, and a symbol table with none of the
+crates nothing calls into in it.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 

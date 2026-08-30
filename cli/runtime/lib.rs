@@ -309,10 +309,21 @@
 //! `tungstenite`, which is the runtime's whole admitted dependency set and is
 //! closed by an exact list rather than by a habit (`manifest.toml` argues each
 //! entry, the root `Cargo.toml` states the bar, and
-//! `dependencies_stay_behind_the_bar` asserts the equality). As of this slice
-//! **nothing references any of them** — `net.rs` names one type from each and
-//! stops — so the archive is twenty-four bytes larger with the feature than
-//! without it, and neither backend has a symbol to emit a call to.
+//! `dependencies_stay_behind_the_bar` asserts the equality).
+//!
+//! **`tokio` is linked; the other three are not.** [`rt`] is the carrier
+//! runtime — the reactor, the run baton, the carrier pool and the task table —
+//! and `Clock::sleepMillis` and `Net::fetch` wait on it, so the archive now
+//! carries the reactor's code and `.github/scripts/assert-runtime-archive.sh`
+//! names only `hyper`, `rustls` and `tungstenite` as symbols it must not find.
+//! Those three are still referenced by nothing but `net.rs`'s `size_of`, and
+//! the slice that links one of *them* moves that list again.
+//!
+//! Nothing about the **feature's** shape changed with it: `net` off is still a
+//! runtime with no dependency at all, [`rt`] does not compile, and
+//! `Clock::sleepMillis` is `thread::sleep` as it always was. Every entry in
+//! this file answers the same value either way — the feature buys suspension,
+//! and suspension is not yet Buri-visible.
 //!
 //! The package's manifest is `manifest.toml` and its lockfile is
 //! `manifest.lock`, neither named the way Cargo would name it, because a
@@ -336,6 +347,11 @@ mod math;
 mod memory;
 mod net;
 mod rng;
+/// The carrier runtime — the tokio handle, the run baton, the carrier pool and
+/// the task table. Behind `net` in full: without the feature there is no
+/// reactor to hold and nothing here compiles.
+#[cfg(feature = "net")]
+pub mod rt;
 mod testing;
 mod text;
 mod value;

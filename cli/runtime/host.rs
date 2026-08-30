@@ -713,7 +713,21 @@ pub unsafe extern "C" fn buri_rt_host_net_fetch(
         // is one, so the payload is the bytes themselves.
         unsafe { std::slice::from_raw_parts(bptr, blen as usize) }
     };
-    match http::fetch(method, &url, &sent, body) {
+    // **A suspension point** (`rt.rs` §2). The transport underneath is still
+    // `http.rs`'s synchronous client, so the future completes on this thread
+    // and the answer is byte for byte the one it always was; what `park_on`
+    // adds is that the carrier is not holding the run baton while it waits.
+    // C7 replaces the body of that future with a real one and this line does
+    // not move.
+    //
+    // The Buri blocks below are built **after** the park returns, on the
+    // carrier and under the baton, because the allocator and the refcounts are
+    // single-threaded (`memory.rs`) and stay that way until track G.
+    #[cfg(feature = "net")]
+    let outcome = crate::rt::park_on(async { http::fetch(method, &url, &sent, body) });
+    #[cfg(not(feature = "net"))]
+    let outcome = http::fetch(method, &url, &sent, body);
+    match outcome {
         Ok(response) => {
             let fields = list_of_headers(&response.headers);
             let bytes = list_of_bytes(&response.body);
@@ -748,10 +762,28 @@ pub extern "C" fn buri_rt_host_clock_now_millis() -> i64 {
 }
 
 /// `Clock::sleepMillis`. A negative or zero duration returns immediately.
+///
+/// **A suspension point** (`rt.rs` §2): with the `net` feature the wait is the
+/// reactor's timer wheel and the carrier gives up the run baton for its
+/// duration, so another carrier may run Buri code meanwhile. Without the
+/// feature there is no reactor and this is `thread::sleep`, which is what it
+/// has always been.
+///
+/// The two are indistinguishable from a program today, because nothing creates
+/// a second carrier — the sleeping thread is the only one there is either way,
+/// and it sleeps for the same length and answers the same nothing.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_clock_sleep_millis(millis: i64) {
     if millis > 0 {
-        std::thread::sleep(std::time::Duration::from_millis(millis as u64));
+        let duration = std::time::Duration::from_millis(millis as u64);
+        // The sleep is built *inside* the future, not handed to `park_on`
+        // ready-made: `tokio::time::sleep` registers with the timer driver
+        // where it is constructed, and this thread is in no runtime context
+        // until `park_on` enters one.
+        #[cfg(feature = "net")]
+        crate::rt::park_on(async move { tokio::time::sleep(duration).await });
+        #[cfg(not(feature = "net"))]
+        std::thread::sleep(duration);
     }
 }
 
