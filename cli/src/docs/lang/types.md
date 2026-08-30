@@ -309,6 +309,10 @@ type Handler<T> = fn(T) => Result<(), Str>;
 Aliases are transparent: `type UserId = Str` makes `UserId` and `Str` the same
 type. For a distinct type, use a tuple struct: `struct UserId(Str);`.
 
+An alias may be exported, imported and re-exported like any other declaration
+(Section 4.2). It expands in the module that declared it, so `type Handle =
+LocalStruct` means the same thing wherever the name is read.
+
 ### 5.10 Generics
 
 Type parameters are declared in angle brackets. There are no row parameters:

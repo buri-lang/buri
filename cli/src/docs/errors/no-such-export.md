@@ -10,8 +10,10 @@ error: "core/list" does not export `notAThing` [no-such-export]
 
 ## What to do
 
-Add `export` to the declaration in the module the path names, or drop the name
-from this list.
+If the module declares the name and holds it back, add `export` to the
+declaration there. If it declares no such name, the spelling is the mistake —
+the diagnostic says which of the two it is, and offers the nearest exported
+name.
 
 ## Why
 

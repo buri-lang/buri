@@ -1609,6 +1609,22 @@ impl FnLower<'_> {
                 if let Some(first) = alts.first() {
                     first.binds(&mut binds);
                 }
+                // The merge takes the first alternative's locals, so one that
+                // bound locals of its own would jump carrying a value defined
+                // in a block that does not dominate the read. The checker
+                // gives every alternative the same locals, in whatever order
+                // each writes them; this says so, where a regression is an
+                // internal error rather than a miscompile the backends find.
+                let mut want = binds.clone();
+                want.sort_unstable();
+                for alt in alts {
+                    let mut theirs: Vec<LocalId> = Vec::new();
+                    alt.binds(&mut theirs);
+                    theirs.sort_unstable();
+                    if theirs != want {
+                        crate::ice!("an or-pattern's alternatives bind different locals");
+                    }
+                }
                 let types: Vec<Type> = binds.iter().map(|b| self.local_type(*b)).collect();
                 let merge = self.block(&types);
                 for (i, alt) in alts.iter().enumerate() {

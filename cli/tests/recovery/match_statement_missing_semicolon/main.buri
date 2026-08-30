@@ -1,0 +1,8 @@
+// EXPECT: a `match` used as a statement ends with `;`
+export fn describe(n: Int): Int {
+  match (n) {
+    0 => (),
+    _ => (),
+  }
+  n
+}

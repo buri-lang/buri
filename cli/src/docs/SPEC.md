@@ -311,6 +311,11 @@ An enum is the unit of its own visibility: its variants and their payload
 fields are exported exactly when it is, and a variant writes no `export` of its
 own (Section 5.7).
 
+A type alias is a name like any other: `export type TenantId = Str;` puts it on
+the module's surface, where it can be imported and re-exported. The alias stays
+transparent across the boundary — it expands in the module that declared it,
+so what an importer gets is the type the declaration names (Section 5.9).
+
 `impl` and `derive` declarations are never exported (Section 6.7.1).
 
 ### 4.2.1 Re-exports
@@ -649,6 +654,10 @@ type Handler<T> = fn(T) => Result<(), Str>;
 
 Aliases are transparent: `type UserId = Str` makes `UserId` and `Str` the same
 type. For a distinct type, use a tuple struct: `struct UserId(Str);`.
+
+An alias may be exported, imported and re-exported like any other declaration
+(Section 4.2). It expands in the module that declared it, so `type Handle =
+LocalStruct` means the same thing wherever the name is read.
 
 ### 5.10 Generics
 
@@ -2065,10 +2074,16 @@ its being a platform module rather than a library:
   ends a program. The runner reports the file, the line, and both values.
 
 A test source may also use **expression statements**, which no other module may:
-a call whose type is `()` may stand alone, terminated by `;`.
+*any* expression whose type is `()` may stand alone, terminated by `;`. A call
+is the common case, and a `match`, an `if` or a block whose every branch
+produces `()` is one too.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 assert.eq(total, 42);              // statement: type is ()
+match (parsed) {                   // statement: every arm is ()
+  .Some(n) => assert.eq(n, 42),
+  .None => assert.fail("no value"),
+};                                 // ← the `;` is what makes it a statement
 // assert.ok(loadConfig(ctx));     // ERROR if it returns Config — bind it or drop
                                    // it explicitly with `let _ =`
 ```
@@ -2076,6 +2091,12 @@ assert.eq(total, 42);              // statement: type is ()
 This is the narrowest relaxation that makes assertions read as assertions, and
 it does not weaken Section 5.7.1: `Result` is not `()`, so nothing must-use can
 be dropped by it.
+
+The `;` is not decoration, and a `{`-initial expression carries it like any
+other. A block is statements followed by a result expression, and the `;` is
+the only thing that says which one this is; without it a `match` in the middle
+of a test body reads as the block's result, and what follows has nowhere to go
+(Section 12.2).
 
 ### 11.3 Contexts
 
@@ -2189,11 +2210,17 @@ A block is `let`s followed by a result expression. Nothing can sit next to a
 `{`-initial expression and compete with it. *Cost:* a call performed only for its
 effect must be bound: `let _ = io.println(ctx, "hi");`.
 
-A **test source** may use one, restricted to calls whose type is `()`
-(Section 11.2). The grammar admits `Expr ";"` as a statement, which stays LR(1)
-— after an expression, a `;` means statement and a `}` means result — and the
-property this rule is protecting is unharmed, since `Result` is not `()`. Every
-other module still has `let` as its only statement.
+A **test source** may use one, restricted to expressions whose type is `()`
+(Section 11.2) — a call, and equally a `match`, an `if` or a block that produces
+`()`. The grammar admits `Expr ";"` as a statement, which stays LR(1) — after an
+expression, a `;` means statement and a `}` means result — and the property this
+rule is protecting is unharmed, since `Result` is not `()`. Every other module
+still has `let` as its only statement.
+
+The `;` is required of a `{`-initial expression too, and that is the whole of
+what keeps this rule from costing the section its title: a block-like statement
+that could omit it would compete with the result expression at the one place a
+block ends, and `{ match (c) { … } }` would have two readings.
 
 **12.3 There are no records, so `{` at the start of an expression is always a
 block.**
@@ -2485,7 +2512,8 @@ Modules and tests:
 37. `test`, and imports of test-only paths, may appear only in a test source. A
     test source may not `export`, and may not be imported (Section 11.2).
 38. An expression statement is legal only in a test source, and only when its
-    type is `()` (Section 11.2.1).
+    type is `()`. Any expression qualifies — a call, a `match`, an `if`, a
+    block — and every one of them is terminated by `;` (Section 11.2.1).
 
 ## 15. Non-goals and open questions
 

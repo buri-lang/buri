@@ -20,7 +20,8 @@ A block is `let`s followed by a result expression, and there is no third
 statement form. That is the hole that must-use closes: with no expression
 statements, `let _ =` is the only way to discard a value, so `Result` cannot be
 dropped by accident. A test source is the one exception, which is what lets
-`assert.eq(...)` stand alone.
+`assert.eq(...)` stand alone — and there, any expression of type `()` may, a
+`match` or an `if` whose branches all assert included, each terminated by `;`.
 
 ## A program that provokes it
 

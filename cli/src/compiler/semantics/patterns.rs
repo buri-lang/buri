@@ -29,21 +29,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     self.templated("duplicate-pattern-binding", name_span).bind("name", bound);
                 }
                 self.pattern_names.push(name.to_string());
-                let local = match self.or_alternative_local(name) {
-                    // Or-pattern alternatives must bind identical names at
-                    // identical types, so the second alternative reuses the
-                    // first's binding rather than shadowing it.
-                    Some(existing) => {
-                        let existing_ty = self.local_ty(existing);
-                        self.unify_at(name_span, &ty, &existing_ty, "the other alternative");
-                        existing
-                    }
-                    None => {
-                        let l = self.new_local(name, ty.clone(), name_span);
-                        self.record_or_binding(name, l);
-                        l
-                    }
-                };
+                let local = self.shared_local(name, &ty, name_span);
                 self.bind(name, local);
                 self.note_capture_risk(local, &ty);
                 let sub = sub.map(|s| Box::new(self.check_pattern(s, &ty)));
@@ -138,7 +124,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         }
                         self.pattern_names.push(dup.to_string());
                         let arr = Ty::Array(Box::new(elem_ty.clone()));
-                        let l = self.new_local(dup, arr, dup_span);
+                        let l = self.shared_local(dup, &arr, dup_span);
                         self.bind(dup, l);
                         typed::ArrayRest::Bound(l)
                     }
@@ -232,6 +218,30 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn record_or_binding(&mut self, name: &str, local: LocalId) {
         if let Some(scope) = self.or_scope.as_mut() {
             scope.current.insert(name.to_string(), local);
+        }
+    }
+
+    /// The local this name binds to, shared across an or-pattern's
+    /// alternatives.
+    ///
+    /// Or-alternatives bind the same names at the same types, so the later
+    /// ones reuse the first's local instead of minting one of their own: the
+    /// arm body reads a single slot, and lowering has one place to join them.
+    /// Every binding form goes through here — a sub-pattern, a field
+    /// shorthand, an array rest — because a form that mints its own local
+    /// silently miscompiles rather than failing to compile.
+    fn shared_local(&mut self, name: &str, ty: &Ty, span: Span) -> LocalId {
+        match self.or_alternative_local(name) {
+            Some(existing) => {
+                let existing_ty = self.local_ty(existing);
+                self.unify_at(span, ty, &existing_ty, "the other alternative");
+                existing
+            }
+            None => {
+                let local = self.new_local(name, ty.clone(), span);
+                self.record_or_binding(name, local);
+                local
+            }
         }
     }
 
@@ -456,9 +466,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                                     .bind("name", bound);
                             }
                             self.pattern_names.push(fname.to_string());
-                            let local = self.new_local(fname, ty.clone(), fspan);
+                            let local = self.shared_local(fname, &ty, fspan);
                             self.bind(fname, local);
-                            self.record_or_binding(fname, local);
                             typed::Pattern {
                                 kind: typed::PatKind::Bind { local, sub: None },
                                 ty,

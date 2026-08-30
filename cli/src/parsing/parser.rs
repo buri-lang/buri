@@ -284,6 +284,21 @@ fn starts_statement(t: TokenKind) -> bool {
     starts_expr(t) && !matches!(t, TokenKind::Dot | TokenKind::LParen | TokenKind::LBracket)
 }
 
+/// What to call a statement whose `;` is missing.
+///
+/// A brace-terminated expression looks finished at its `}`, so the message
+/// names the form that was written rather than "a statement" — that this
+/// `match` needs a `;` is the fact being missed, not that statements do.
+fn statement_kind(k: Kind) -> &'static str {
+    match k {
+        Kind::Match => "a `match` used as a statement",
+        Kind::If => "an `if` used as a statement",
+        Kind::Block => "a block used as a statement",
+        Kind::ContextExpr => "a `context` used as a statement",
+        _ => "a statement",
+    }
+}
+
 /// Whether a token can begin a declaration.
 ///
 /// The keywords a *statement* can never start with, so that a block missing
@@ -2153,7 +2168,9 @@ impl<'a> Parser<'a> {
                         } else {
                             // Something follows, so this was a statement and
                             // its `;` is missing rather than the block's `}`.
-                            let end = self.expect_terminator("a statement")?;
+                            let end = self.expect_terminator(statement_kind(
+                                self.tree.kind(e),
+                            ))?;
                             self.scratch.stmts.push(StmtData {
                                 kind: StmtKind::Expr,
                                 is_ctx: false,
