@@ -1,0 +1,14 @@
+// Vendored from googleapis' `google/rpc/status.proto`, with the same changes
+// any.proto carries and an import path written from the repository root.
+
+edition = "2026";
+
+package google.rpc;
+
+import "lib/rpc/any.proto";
+
+message Status {
+  int32 code = 1 [features.field_presence = IMPLICIT];
+  string message = 2 [features.field_presence = IMPLICIT];
+  repeated google.protobuf.Any details = 3;
+}
