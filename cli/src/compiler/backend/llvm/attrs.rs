@@ -116,6 +116,52 @@
 //! counted signature whose reference-counting plan is empty — the common leaf
 //! that reads a `Str` and returns part of it — still carries `readonly` and
 //! `memory(argmem: read)`.
+//!
+//! # `willreturn` is a promise about *returning*, and purity is not one
+//!
+//! The fourth gap, and the second one that was a miscompile. CODEGEN-LLVM.md
+//! §3.1's table has a row reading *"a function `middle` proved terminates |
+//! `willreturn`, and `mustprogress`"*, and this file used to read that row as
+//! `Purity::Pure` with no abort. **`middle` proves no such thing.** It has no
+//! termination analysis at all: `rc::infer_effects`'s three columns are
+//! purity, abortability and parkability, and none of them is about coming
+//! back. Purity is a statement about *effects* — SPEC 10.4's theorem is
+//! explicit that it holds of evaluations "that **terminate** without
+//! aborting", so termination is the theorem's hypothesis rather than its
+//! conclusion.
+//!
+//! What that cost: `fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }`
+//! is pure, cannot abort, and recurses. It got `memory(none)`, `willreturn`
+//! and therefore `speculatable`, which is exactly the licence to **hoist the
+//! recursive call above the branch that guards it** — and `default<O2>` took
+//! it. The emitted body became an unconditional call to itself with the base
+//! case folded in afterwards, so the program recursed until the machine stack
+//! ran out. `default<O0>` printed the right answer, which is what a false
+//! attribute looks like from outside.
+//!
+//! `mustprogress` is the same promise from the other side and is just as
+//! wrong: it lets LLVM delete a loop it cannot prove terminates, and SPEC
+//! 10.4 says the opposite — *"an implementation may drop a pure call only
+//! where it can also show the call returns"*. Divergence is observable, so
+//! neither attribute may be claimed without a proof.
+//!
+//! ## What is emitted instead, and how conservative it is
+//!
+//! [`Observed::may_diverge`] is that proof, in the only form this backend can
+//! check on the IR it is holding: **no cycle**. A function with no loop in its
+//! control-flow graph, which can reach no cycle in the call graph, executes a
+//! bounded number of instructions and returns. `emit::observe` computes it for
+//! the whole program at once, for the same reason the memory bits are computed
+//! there — a declaration and its definition must carry the same attributes.
+//!
+//! This is **weaker than the design's row** and deliberately so: a `for` loop
+//! over a list terminates, and a recursion down a `[T]` terminates, and
+//! neither is proven here. Proving them wants a decreasing-measure analysis in
+//! `middle`, which does not exist; the day it does, the bit it computes
+//! belongs in `ir::Facts` beside `can_abort`, and this file reads it instead
+//! of counting cycles. Until then a loop costs `willreturn`, and the trade is
+//! not close: the attribute buys hoisting and dead-call elimination, and a
+//! wrong one buys an infinite recursion.
 
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::context::Context;
@@ -352,6 +398,21 @@ pub struct Observed {
     /// returned. Such a store is neither `argmem` nor `inaccessiblemem`, so
     /// only the *default* location describes it.
     pub writes_far: bool,
+    /// This backend has **not proven that the function returns**: the emitted
+    /// body has a cycle in its control-flow graph, or the call graph has one
+    /// this function can reach — itself included.
+    ///
+    /// The bit `willreturn`, `mustprogress` and `speculatable` are gated on.
+    /// See the module header: purity says a function performs no observable
+    /// effect and says nothing whatever about whether it comes back, and a
+    /// `willreturn` claimed of a recursion is a licence to speculate the
+    /// recursive call.
+    ///
+    /// `emit::observe` is where it comes from, and it is the one bit there
+    /// whose seeds cannot be a local scan: a least fixpoint that starts every
+    /// function optimistic converges on "proven" for a function whose only
+    /// unproven callee is itself. `emit::reaches_a_cycle` seeds it.
+    pub may_diverge: bool,
 }
 
 impl Observed {
@@ -363,6 +424,7 @@ impl Observed {
             writes_args: false,
             reads_far: false,
             writes_far: false,
+            may_diverge: false,
         }
     }
 
@@ -382,6 +444,7 @@ impl Observed {
             writes_args: true,
             reads_far: true,
             writes_far: true,
+            may_diverge: true,
         }
     }
 
@@ -394,6 +457,7 @@ impl Observed {
         self.writes_args |= other.writes_args;
         self.reads_far |= other.reads_far;
         self.writes_far |= other.writes_far;
+        self.may_diverge |= other.may_diverge;
     }
 }
 
@@ -484,16 +548,18 @@ pub fn decorate(
     let effects = narrow_for_params(memory_effects(facts, observed), params);
     memory(ctx, f, effects);
 
-    // `willreturn` and `mustprogress` follow the same fact: a function the
-    // middle end proved terminates. `middle` has no termination analysis, so
-    // the fact available is the conservative one — a function with no loop and
-    // no call it cannot see. `Purity::Pure` with no abort is the strongest
-    // statement the landed IR supports, and it is exactly the set for which
-    // `speculatable` is also sound.
+    // `willreturn` and `mustprogress` follow one fact — that the function
+    // **returns** — and the module header is the argument for why purity is
+    // not that fact. Three of the four conjuncts answer a different way of not
+    // returning: an abort leaves through `_exit`, an opaque callee may do
+    // anything at all, and a cycle may run forever. `Purity::Pure` is the
+    // fourth and is on top of them because `speculatable` needs it and because
+    // an effectful function has nothing to gain from either attribute.
     let terminates = matches!(facts.purity, ir::Purity::Pure)
         && !facts.can_abort
         && !observed.aborts
-        && !observed.opaque;
+        && !observed.opaque
+        && !observed.may_diverge;
     if terminates {
         enum_attr(ctx, f, "willreturn", 0);
         enum_attr(ctx, f, "mustprogress", 0);
@@ -762,6 +828,56 @@ mod tests {
         let mut o = Observed::opaque();
         o.join(Observed::clean());
         assert_eq!(o, Observed::opaque());
+    }
+
+
+    /// **The gate the miscompile was behind.** Same facts, same purity, same
+    /// signature; the only difference is whether this backend proved the
+    /// function returns, and it decides all three attributes.
+    ///
+    /// Read off the `FunctionValue` rather than out of the printed module: an
+    /// attribute group is printed once at the end of a module and shared by
+    /// every function that has the same set, so a `contains` over the text
+    /// would answer about some other function.
+    #[test]
+    fn willreturn_wants_a_termination_proof_and_purity_is_not_one() {
+        let ctx = Context::create();
+        let module = ctx.create_module("attrs");
+        let i64t = ctx.i64_type();
+        let slot = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::I64) };
+        let decorated = |name: &str, observed: Observed| {
+            let f = module.add_function(name, i64t.fn_type(&[i64t.into()], false), None);
+            decorate(&ctx, f, &facts(ir::Purity::Pure, false), observed, &[slot], &[slot], 16);
+            f
+        };
+        let has = |f: FunctionValue<'_>, name: &str| {
+            f.get_enum_attribute(AttributeLoc::Function, Attribute::get_named_enum_kind_id(name))
+                .is_some()
+        };
+
+        let proven = decorated("proven", Observed::clean());
+        assert!(has(proven, "willreturn"));
+        assert!(has(proven, "mustprogress"));
+        assert!(has(proven, "speculatable"));
+
+        let cyclic = decorated("cyclic", Observed { may_diverge: true, ..Observed::clean() });
+        assert!(!has(cyclic, "willreturn"), "a function that may not return claims `willreturn`");
+        assert!(!has(cyclic, "mustprogress"), "`mustprogress` lets LLVM delete a diverging loop");
+        assert!(!has(cyclic, "speculatable"), "`speculatable` is what hoists the call");
+
+        // The rest of the discipline is untouched, which is what keeps this a
+        // correction rather than a retreat: `memory(none)` is a statement about
+        // effects, and calling yourself is not an effect.
+        for f in [proven, cyclic] {
+            let memory = f
+                .get_enum_attribute(
+                    AttributeLoc::Function,
+                    Attribute::get_named_enum_kind_id("memory"),
+                )
+                .expect("every function this file decorates carries `memory(...)`");
+            assert_eq!(memory.get_enum_value(), MemoryEffects::none().bits());
+            assert!(has(f, "nounwind"));
+        }
     }
 
     /// What the backend observed narrows the middle end's answer, never
