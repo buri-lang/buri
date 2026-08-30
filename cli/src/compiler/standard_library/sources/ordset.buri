@@ -11,7 +11,6 @@
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
-//! from "core/list" import * as list;
 //! from "core/ordset" import * as ordset;
 //! from "core/str" import * as str;
 //!
@@ -31,7 +30,6 @@
 //! ```
 
 from "core/effect" import { Alloc };
-from "core/list" import * as list;
 from "core/ordmap" import { OrdMap };
 from "core/ordmap" import * as ordmap;
 
