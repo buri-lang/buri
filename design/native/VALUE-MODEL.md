@@ -73,8 +73,8 @@ sequences.
 ### 2.1 Bit 63 of `cap` is reserved for the multi-threaded mark
 
 `cap` holds the usable payload bytes in its **low 63 bits**. **Bit 63 is
-reserved** and **nothing in the tree sets it**. Set will mean *this block may be
-reached from more than one thread*, and it is the bit `incref`/`decref` will
+reserved** and **nothing in the tree sets it**. Set means *this block may be
+reached from more than one thread*, and it is the bit `incref` and `decref`
 branch on to choose an atomic count.
 
 The reservation is recorded — and every reader already masks — before anything
@@ -82,6 +82,16 @@ sets it, so that turning it on later moves no code but the code that turns it
 on. `middle::layout::CAP_SHARED_FLAG` and `CAP_MASK` are the compiler's copy of
 the number; `cli/runtime/memory.rs`'s `BURI_RT_CAP_SHARED` and
 `BURI_RT_CAP_MASK` are the runtime's, spelled twice for the reason `BURI_OK` is.
+
+**The branch is here; the bit is still dark.** Both backends and the runtime
+now fork on it (MEMORY.md §5.1, "The shared fork"), and every arm behind the
+fork is unreachable until a value is marked. What the fork costs a program that
+never takes it is **two instructions** per reference operation — a load of the
+word beside the count, on a cache line the operation was going to touch, and a
+bit test. What it costs the *compiler* is a different number and a larger one:
+a median **+21 %** of native release lowering, which is an amended budget on
+that row rather than a met one. Both numbers, and the amendment, are in
+`design/PERFORMANCE.md` §6.6.
 
 **Why `cap` and not `rc`.** A bit of the count would cost both of the two
 properties §2 just gave the count. `IMMORTAL` is `u64::MAX` and `incref` is a
@@ -481,7 +491,7 @@ anything is laid out, a `CtxGet` has a statically known answer and the only
 question is whether the *implementation value* carries data.
 
 Every implementation `core/host` exports is a zero-sized struct — `struct HostFs {}`,
-`struct HostStdout {}`, fourteen of them (`host.buri`), of which any one platform
+`struct HostStdout {}`, sixteen of them (`host.buri`), of which any one platform
 grants at most ten. A context of zero-sized
 values is zero-sized. So in a program built on `core/host`, **`ctx` is not a
 parameter**: it is dropped from every signature in the program by the layout pass,

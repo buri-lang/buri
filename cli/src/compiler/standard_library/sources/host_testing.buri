@@ -30,8 +30,21 @@
 //! configuration is a **responder**, which is behaviour rather than state, and
 //! behaviour is precisely what a runner written in Rust and JavaScript cannot
 //! hold on a program's behalf. It carries the function itself, `fetch` is a
-//! Buri body, and neither runtime table gains a row. `TestNet`'s own
-//! documentation has the two reasons in full.
+//! Buri body, and no runtime table names `fetch` at all. `TestNet`'s own
+//! documentation has the two reasons in full. It carries a handle beside the
+//! responder, and that is the same rule rather than an exception to it: the
+//! handle names its **log**, and a log is state.
+//!
+//! ## The call log
+//!
+//! `TestFs`, `TestNet` and `TestStdin` each keep every call made through the
+//! handle, and `calls()` answers them **in the order they completed**. What a
+//! test asserts on is still the outcome — the return value, `snapshot()`,
+//! `captured()` — and the log is for the assertions those cannot make: that a
+//! cache was consulted once and not twice, that nothing was written at all,
+//! that a retry went to the same URL. One `Call` record per double, built by a
+//! constructor named after the method it records, compared by `Eq` and printed
+//! by `Show`.
 //!
 //! ## `args`, and the one name that could not be the spelling it wants
 //!
@@ -42,8 +55,8 @@
 //! — `at`, `seed`, `variables`, `captured` — is spelled exactly as written.
 
 from "core/effect/lib.buri" import {
-  Alloc, Clock, Env, Fs, IoError, Net, NetError, Proc, Rand, Region, Request,
-  Response, Stderr, Stdin, Stdout,
+  Alloc, Clock, Env, Fs, Header, IoError, Method, Net, NetError, Proc, Rand,
+  Region, Request, Response, Stderr, Stdin, Stdout,
 };
 
 // --- Alloc --------------------------------------------------------------------
@@ -121,6 +134,11 @@ impl TestStdin {
   /// and a stdin built from octets answers `.None` to `readLine`. The last
   /// builder in the chain is the stream.
   export fn bytes(self, b: [U8]): TestStdin;
+  /// Every read made through this handle, in the order they completed.
+  ///
+  /// A read that ran off the end of the stream is a call like any other: the
+  /// log records what the code under test asked for, not what it was given.
+  export fn calls(self): [StdinCall];
 }
 
 // --- Filesystem ---------------------------------------------------------------
@@ -193,6 +211,15 @@ impl TestFs {
   /// A directory `makeDir` created holds no octets and is not a file, so it is
   /// not here; `readDir` is the question it answers.
   export fn snapshot(self): [(Str, Str)];
+  /// Every call made through this handle, in the order they completed.
+  ///
+  /// Through *this* handle: a builder answers a new filesystem and with it a
+  /// new log, and so does `readOnly`, so the calls a test reads back are the
+  /// calls made through the value it put in the context. Reading the
+  /// environment back is not a call — `read`, `snapshot` and `calls` itself are
+  /// not in it — and a write that was refused is one, because a refusal is an
+  /// answer to something that was asked.
+  export fn calls(self): [FsCall];
 }
 
 // --- Network ------------------------------------------------------------------
@@ -226,7 +253,7 @@ impl TestFs {
 ///    listed as absent.
 ///
 /// So `fetch` is a Buri body that calls the responder directly, and neither
-/// table gains a row. What makes that safe rather than a hole is SPEC 10.6: a
+/// table names it. What makes that safe rather than a hole is SPEC 10.6: a
 /// lambda may not capture an effect-carrying value, so a
 /// `fn(Request) => Result<Response, NetError>` is a pure function of the
 /// request and of nothing else — which is exactly what a fake server is.
@@ -236,19 +263,63 @@ impl TestFs {
 /// literal, because a list literal needs no context; and it can **capture** a
 /// `Response` the test built before it, because a response is plain data. Both
 /// spellings are in `docs/build/testing.md`.
+///
+/// It carries a handle as well, and that is not a contradiction: the responder
+/// is the behaviour and the handle names the **log**, which is state like any
+/// other. `calls()` reads it.
 export struct TestNet {
+  handle: I64,
   responder: fn(Request) => Result<Response, NetError>,
 }
 
 impl Net for TestNet {
   fn fetch(self, request: Request): Result<Response, NetError> {
     let respond = self.responder;
-    respond(request)
+    let answer = respond(request);
+    let _ = recordFetch(
+      self.handle,
+      methodCode(request.method),
+      request.url,
+      request.headers,
+      request.body,
+    );
+    answer
   }
 }
 
 export fn net(): TestNet {
-  TestNet { responder: fn(_request) => .Err(.Refused) }
+  TestNet { handle: newNet(), responder: fn(_request) => .Err(.Refused) }
+}
+
+/// A fresh, empty log, and the handle that names it.
+fn newNet(): I64;
+
+/// One request, recorded after the responder has answered it.
+///
+/// The request arrives in pieces because that is what crossing costs: a
+/// `Method` is its variant index by the time the runner sees it (`methodCode`),
+/// and the runner puts the four of them back together on the way out. It is the
+/// same four values `core/host`'s real `fetch` hands over, in the same order.
+fn recordFetch(
+  handle: I64,
+  method: Int,
+  url: Str,
+  headers: [Header],
+  body: [U8],
+): ();
+
+/// A `Method`'s index in its own declaration order, which `core/effect` states
+/// is the ABI. This is the one place in this module that spells it out.
+fn methodCode(method: Method): Int {
+  match (method) {
+    .Get => 0,
+    .Head => 1,
+    .Post => 2,
+    .Put => 3,
+    .Patch => 4,
+    .Delete => 5,
+    .Options => 6,
+  }
 }
 
 impl TestNet {
@@ -265,9 +336,26 @@ impl TestNet {
     self,
     responder: fn(Request) => Result<Response, NetError>,
   ): TestNet {
-    TestNet { responder: responder }
+    TestNet { handle: newNet(), responder: responder }
+  }
+  /// Every request made through this handle, in the order they were answered.
+  ///
+  /// `respond` mints a fresh log along with the network it answers, for the
+  /// reason every builder in this module answers a new handle: a network that
+  /// shared its receiver's log would report calls made to a different network.
+  export fn calls(self): [NetCall] {
+    netCalls(self.handle)
   }
 }
+
+/// The log itself, read by the handle rather than by the value that names it.
+///
+/// `TestNet` is the one double whose value is not a bare handle — the responder
+/// is its second field — and an argument is flattened into its leaves, so a
+/// method taking `self` would hand the runner a closure it has no use for and
+/// could not name. Every other `calls()` is a row; this one is a Buri body over
+/// a row that takes the handle.
+fn netCalls(handle: I64): [NetCall];
 
 // --- Clock --------------------------------------------------------------------
 
@@ -341,4 +429,137 @@ impl TestProc {
   /// The first, not the last: a program that exits does not carry on, so a
   /// second call is one a real process could never have made.
   export fn exited(self): Option<Int>;
+}
+
+// --- The call log -------------------------------------------------------------
+//
+// One record per double, and one constructor per method. A `Call` is what was
+// asked and never what came back: the answer is the return value the test
+// already has, and a log that carried it would be a second, weaker way to
+// assert on it.
+
+/// One call to a `TestFs`, as `calls()` reports it and as a test writes it
+/// down.
+///
+/// A record with private fields, so the constructors below are the only way to
+/// build one and a call in a test reads as the call the code under test made.
+/// `derive Eq` is what an assertion compares — two calls differ as soon as an
+/// argument does — and `derive Show` is what a failing one prints, because
+/// `assert.eq` renders both sides through the generated `Show`.
+///
+/// One record rather than an enum of eleven variants: every method of `Fs`
+/// takes a path and at most one thing more, so `path` is the first argument and
+/// `body` the second — the text written, `renameFile`'s destination, or the
+/// empty string where the method takes only a path. Octets are recorded as
+/// **the text they spell**, which is `snapshot()`'s rule and is here for
+/// `snapshot()`'s reason.
+export struct FsCall {
+  name: Str,
+  path: Str,
+  body: Str,
+}
+
+derive Eq, Show for FsCall;
+
+/// A `readFile(path)`, as a call.
+export fn readFile(path: Str): FsCall {
+  FsCall { name: "readFile", path: path, body: "" }
+}
+
+/// A `writeFile(path, body)`, as a call.
+export fn writeFile(path: Str, body: Str): FsCall {
+  FsCall { name: "writeFile", path: path, body: body }
+}
+
+/// A `fileExists(path)`, as a call. It cannot fail, and it is still something
+/// the code under test asked the filesystem.
+export fn fileExists(path: Str): FsCall {
+  FsCall { name: "fileExists", path: path, body: "" }
+}
+
+/// A `readDir(path)`, as a call.
+export fn readDir(path: Str): FsCall {
+  FsCall { name: "readDir", path: path, body: "" }
+}
+
+/// A `readFileBytes(path)`, as a call. The same path `readFile` would name and
+/// a different call, because a program that asked for octets asked for octets.
+export fn readFileBytes(path: Str): FsCall {
+  FsCall { name: "readFileBytes", path: path, body: "" }
+}
+
+/// A `writeFileBytes(path, body)`, as a call.
+export fn writeFileBytes(path: Str, body: [U8]): FsCall {
+  FsCall { name: "writeFileBytes", path: path, body: spelled(body) }
+}
+
+/// An `appendFile(path, body)`, as a call.
+export fn appendFile(path: Str, body: [U8]): FsCall {
+  FsCall { name: "appendFile", path: path, body: spelled(body) }
+}
+
+/// A `renameFile(source, destination)`, as a call. The source is the path and
+/// the destination is the second argument, as it is in the call itself.
+export fn renameFile(source: Str, destination: Str): FsCall {
+  FsCall { name: "renameFile", path: source, body: destination }
+}
+
+/// A `removeFile(path)`, as a call.
+export fn removeFile(path: Str): FsCall {
+  FsCall { name: "removeFile", path: path, body: "" }
+}
+
+/// A `makeDir(path)`, as a call.
+export fn makeDir(path: Str): FsCall {
+  FsCall { name: "makeDir", path: path, body: "" }
+}
+
+/// A `syncFile(path)`, as a call.
+export fn syncFile(path: Str): FsCall {
+  FsCall { name: "syncFile", path: path, body: "" }
+}
+
+/// The text these octets spell, exactly as `readFile` reads back what
+/// `writeFileBytes` wrote.
+///
+/// Lossy, and lossy on purpose: a log records what a program asked to write,
+/// and a fixture that is not text is still a call that was made. It is the
+/// runner's decode rather than `core/bytes`' because a constructor takes no
+/// context — a test writing a call down is not performing an effect.
+fn spelled(body: [U8]): Str;
+
+/// One request made through a `TestNet`.
+///
+/// The whole request, because `Net` has one method and it takes one value:
+/// there is nothing to project away, and two requests that differ in a header
+/// are two calls. `Request` derives `Eq` and `Show` itself, so this one is
+/// those two derives wearing a name that says which double it came from.
+export struct NetCall(Request);
+
+derive Eq, Show for NetCall;
+
+/// A `fetch(request)`, as a call.
+export fn fetch(request: Request): NetCall {
+  NetCall(request)
+}
+
+/// One read made through a `TestStdin`.
+///
+/// `count` is the number of octets `readBytes` asked for, and zero for
+/// `readLine`, which asks for a line and names no number.
+export struct StdinCall {
+  name: Str,
+  count: Int,
+}
+
+derive Eq, Show for StdinCall;
+
+/// A `readLine()`, as a call.
+export fn readLine(): StdinCall {
+  StdinCall { name: "readLine", count: 0 }
+}
+
+/// A `readBytes(n)`, as a call.
+export fn readBytes(n: Int): StdinCall {
+  StdinCall { name: "readBytes", count: n }
 }
