@@ -444,6 +444,147 @@ uncontended cost of non-atomic — and it should be priced into any future
 concurrency proposal rather than discovered by it. Writing it here is how it gets
 priced.
 
+### 5.5 The same opportunity in JavaScript, without a count
+
+Everything above is the native branch. JavaScript is garbage collected, `rc`
+does not run for it (`middle/mod.rs`'s pipeline), and so `$list_push` was
+`xs.slice()` and a `push` — O(n) per call, and O(n²) for the loop that is the
+most ordinary thing a program does with a list. The same functional update that
+costs a bump pointer natively cost a full copy per iteration on the backend that
+defines the language.
+
+The opportunity is §5.3's, exactly: *when nothing else can see the list, write
+into it.* What is missing is the thing §5.3 asks — `rc == 1` — because a garbage
+collector is precisely the machinery that does not maintain a count. So the
+question is what to put in its place.
+
+#### A sticky bit, not a count
+
+Every Buri list allocated by `runtime.js` carries `$u`, and it takes exactly two
+values in its life: `true` when it is made, `false` the first time a second
+reference to it comes into existence. Nothing ever puts it back. The fast path
+is `xs.$u === true`.
+
+A count would be better information and is not available. The two halves of a
+count fail for different reasons, and it is worth separating them:
+
+- **The increments are cheap and static.** Where a second reference comes into
+  existence is a question about the *tree*, and `middle::rc` already answers it
+  for the native branch — the own/borrow fixpoint over the exact call graph,
+  plus last-use liveness, is what places every `incref`. Running that half for
+  JavaScript costs nothing new.
+- **The decrements are the problem.** A decrement has to fire at the *exact*
+  moment a reference goes away, and the whole point of a garbage collector is
+  that the program does not say when that is. A closure that captures a list
+  keeps it as long as the closure lives, and the closure's life is the engine's
+  business. A list handed to a host function is somewhere this compiler cannot
+  follow. To emit correct decrements we would have to reconstruct the liveness
+  the collector exists to hide — and a decrement we get wrong does not leak, it
+  frees, which here means *writes into a list somebody is still reading*.
+
+So the asymmetry decides it. **An over-set bit costs one copy.** A shared list
+that nobody actually shares any more is copied once; the copy is fresh, so it
+carries `$u === true`, and every operation after that writes through. A loop
+therefore pays at most one copy per *sharing event* rather than one per
+iteration, which is the same asymptotics as the count with a worse constant on
+a case that is rare. **An under-counted reference is a silent aliasing bug** —
+two names for a list, one of them written through, and a wrong answer with no
+crash to find it by. Between an optimisation that occasionally does not fire and
+one that is occasionally wrong, there is no trade to make.
+
+#### Absence means *not ours*
+
+The bit proves uniqueness positively. `xs.$u === true` is the whole test, and
+the property is written by `$own` in `runtime.js` and nowhere else. Everything
+this backend did not allocate — a host array, an array from an interop
+boundary, anything a future FFI hands in — carries no `$u`, so it reads as
+shared and is copied. That is the safe direction by construction rather than by
+audit: a new way for a foreign array to arrive is safe on the day it lands,
+because the only way to become writable is to have been allocated here.
+
+The mirror of that rule is that marking must not write on a foreign object
+either. A list this backend made is marked by clearing its own `$u`; anything
+else goes into a `WeakSet`, so `$share` hands a host array back exactly as it
+received it. The set is also what holds the mark for a **struct, tuple or
+enum**, none of which carry a bit: nothing writes into an aggregate — a
+functional update spells its fields out or copies the array — so the only thing
+an aggregate's sharing decides is what a field read out of it inherits.
+
+#### The projection rule
+
+Which is the last piece, and it is Perceus's drop specialisation with the answer
+deferred. `state = State { ..state, items: state.items.push(x) }` is the
+record-accumulator fold, and it has to stay in place or the whole exercise moves
+the quadratic from the list to the struct around it. The field `state.items` is
+a second reference to a list the struct still holds — *unless* this expression is
+the last use of `state`, in which case the struct is about to have no readers
+and its field is not shared by it.
+
+`middle::rc` knows which of those it is, because last use is what its liveness
+already computes; what it cannot know is whether `state` *itself* was shared
+further up. So the compiler emits the question rather than the answer:
+`$fromShared(state, state[1])` marks the field only if the parent is marked. A
+`state` the caller kept was marked at the call, so the field is marked, so the
+push copies — once, into a fresh unmarked struct, after which the loop runs in
+place.
+
+#### What the ownership half had to be told
+
+Three things change in `middle::rc` under `Options::sharing`, and each is a place
+where the native convention says something a garbage collector makes false:
+
+1. **A growing list operation consumes its receiver.** Natively `list.push`
+   borrows and `append_dest` tests the count; here there is no count, so the
+   receiver must be owned and a caller that keeps the list duplicates it. That
+   duplication is the mark.
+2. **A lambda's body is scanned.** `middle::closures` does not run on this
+   branch — an arrow function closing over its scope is what the engine wants —
+   so there is no lifted function carrying a plan of its own. Its parameters are
+   owned, and the runtime functions that call one mark every element they hand
+   over, which is the convention that makes that true.
+3. **The base of a functional update is not a duplication.** The projections the
+   update reads out of the base keep it live across its own siblings, which the
+   generic scan reads as a second reference. True of a count; false of a
+   reference that is being taken over.
+
+And one thing narrows: the classifier. The native question is "does this value
+hold a counted allocation", which a `Str` and a function value both answer yes
+to. The sharing question is "can this value reach a **list**", because a list is
+the only thing anything writes into — a `Str` is an immutable JavaScript string
+and a function value is a closure. `Syntactic::for_lists` is the same walk with
+different leaves, and the difference is visible in the output: a `Point { x: Int,
+y: Int }` and a `Result<Int, Str>` carry no marks at all.
+
+The two questions also have opposite safe directions, which is why they are not
+one function with a flag threaded through. A type the native walk cannot answer
+gets no operations and leaks; a type this walk cannot answer gets marked, because
+the failure on this side is an aliased list nobody copied. A recursive type is
+the same story from the other end: the native walk says `Yes` at its depth bound
+because a type that reaches itself is behind a pointer and therefore counted,
+while "reaches a list" is a least fixed point and an expression tree that reaches
+only itself and an `Int` reaches no list at all.
+
+#### What it costs
+
+The bit is a named property on a JavaScript array. That is the one thing worth
+measuring rather than reasoning about, so it was measured against the
+alternative — a wrapper object `{ a, u }` with the list inside it — on both
+engines the suite runs under. Element reads, which outnumber everything else,
+are identical across the marked array, the bare array and the wrapper (0.54 /
+0.55 / 0.54 ms per million on JavaScriptCore; 0.99 / 1.00 / 1.01 on V8), and
+mixing marked and unmarked lists through one call site costs nothing measurable
+either — an array's elements do not live in its property backing store, so the
+named property does not move them. Growing is a wash. The wrapper's only edge is
+in stamping itself, and against that it would put a dereference on every list
+access in the compiler and the runtime, and would need wrapping and unwrapping at
+every host boundary — which is the boundary whose whole property is that a
+foreign array is recognisable by carrying nothing. The named property wins.
+
+Two million pushes cost the same whether they are two hundred runs of ten
+thousand or twenty runs of a hundred thousand, which is what linear means and
+what `tests/language/sharing.rs` asserts. The artifacts grow by about one per
+cent, which is the two helpers and the branch in each of the six operations.
+
 ## 6. What this costs, honestly
 
 Reference counting is not free, and the places it is not free in this language
