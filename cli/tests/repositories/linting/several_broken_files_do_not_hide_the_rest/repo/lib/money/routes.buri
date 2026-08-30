@@ -1,0 +1,12 @@
+// The first mistake: a match arm with no `,`.
+
+export struct Route {
+  export name: Str,
+}
+
+export fn route(path: Str): Route {
+  match (path) {
+    "/health" => Route { name: "health" }
+    _ => Route { name: "fallback" },
+  }
+}

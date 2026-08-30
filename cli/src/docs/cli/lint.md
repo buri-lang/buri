@@ -36,6 +36,27 @@ The silence is one-directional: a finding may be missed inside a broken body,
 and none is invented there. Fix the type error and run the linter again to see
 what the gap was hiding.
 
+## When a file does not parse
+
+The same answer, through the same machinery. A syntax error is an error in the
+report like any other, and the linter reads on around it: the declarations the
+parser did recover are analysed, the file beside a broken one is still read,
+and a package whose *dependency* does not parse is still linted. So the report
+holds the syntax error and every finding the mistake did not take with it, and
+the exit code is the one any finding earns rather than a special one for a file
+that did not parse.
+
+What goes quiet is the scope named above and nothing wider: the declaration the
+parser could not read, and — when the mistake sits outside every body, as a
+missing `;` on an import does — that module's bodies, because what the module
+binds is no longer a whole account of what its code can see.
+
+There is one file the linter does not read around, and it is a build file. A
+`BUILD.buri` or `REPO.buri` that does not parse is the shape of the repository
+rather than something in it: nothing downstream knows which files a package
+holds or what it may see. So the run stops there and says which file it was,
+rather than reporting a graph it had to guess at.
+
 ## Exit status
 
 `0` if there was nothing to report, `1` if there was anything at all. Severity
@@ -44,6 +65,11 @@ in the same report is an error, and both are `1`, because a warning is still the
 answer to the question you asked. Running the linter is itself the request to be
 told, and a report that exits zero is one no script can branch on, so `buri
 lint //...` is usable directly as a gate with no flag to make it one.
+
+A syntax error in a source file is `1` on the same grounds: it is part of the
+report, printed beside the findings. `2` is not a report at all — it is the run
+that could not start: a target pattern that names nothing, or a build file that
+does not read (above).
 
 Whether a finding also stops `buri build` or `buri test` is a different
 question, and the repository answers it rather than this command: the

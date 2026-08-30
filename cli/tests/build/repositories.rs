@@ -78,14 +78,17 @@ fn proto_schemas() {
 /// does to the same finding — when the catalogue runs, how hard a finding
 /// lands, and what a misspelled field in the block costs.
 ///
-/// Four of them are about a file that did not parse: what is still reported
+/// Six of them are about a file that did not parse: what is still reported
 /// around it, what is rightly not reported inside it, that a package's
-/// neighbour going quiet does not quiet it, and that a *build* file which does
-/// not read is the one thing recovery does not read around. The generated half
-/// of that question is `cli/tests/linting.rs`, five hundred of them.
+/// neighbour going quiet does not quiet it, that a broken file *underneath* a
+/// package does not quiet the two packages above it, that a second broken file
+/// is not a second reason to stop, and that a *build* file which does not read
+/// is the one thing recovery does not read around. The generated half of that
+/// question is `cli/tests/linting.rs`, five hundred of them, and the parity
+/// between this command and the language server is stated there.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 27);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 29);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the
