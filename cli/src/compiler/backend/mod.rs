@@ -29,6 +29,13 @@ pub mod js;
 /// same way.
 pub mod intrinsic_keys;
 
+/// The one C signature by which something outside a Buri artifact enters Buri
+/// code, and the two runtime entries a stencil door takes its stack from.
+///
+/// Ungated for [`intrinsic_keys`]'s reason: both native backends read it, and
+/// a table two backends share cannot live inside either of them.
+pub mod carrier;
+
 /// The native runtime archive both native backends link against, built by
 /// `cli/build.rs`. Its ABI contract is `cli/runtime/lib.rs`'s module comment.
 pub mod runtime_native;

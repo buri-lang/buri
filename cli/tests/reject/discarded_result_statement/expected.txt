@@ -1,0 +1,36 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> cmd/discarded_result_statement/main.buri:13:3
+   |
+13 |   parse("hi");
+   |   ^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
+
+     What to do
+     ──────────
+
+     Bind it — let _ = ...; — or make it the block's result expression.
+
+     Why
+     ───
+
+     A block is lets followed by a result expression, and there is no third
+     statement form. A test source is the one exception, which is what lets
+     assert.eq(...) stand alone — and there, any expression of type () may, a
+     match or an if whose branches all assert included, each terminated by ;.
+
+     Between this rule and result-discarded there are exactly two places a value
+     can be thrown away — bound to a _, or left standing — and a Result is
+     refused in both, which is what makes must-use total rather than a
+     convention. So when the statement has type Result, the fix above says
+     .ignore() instead: let _ = ...; would only trade this error for that one.
+
+error: this statement has type `Result<I64, Str>`, not `()` [statement-not-unit]
+  --> cmd/discarded_result_statement/main.buri:13:3
+   |
+13 |   parse("hi");
+   |   ^^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
