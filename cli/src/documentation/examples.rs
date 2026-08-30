@@ -536,14 +536,14 @@ pub fn rendered(body: &str) -> String {
 /// smaller thing than what `core/effect` declares. The three UI effects are
 /// absent because a fence builds no output and so has no platform, and a fence
 /// naming one would fail at a line its author never wrote. `Listen` and
-/// `Sockets` are absent for a second reason: they are declared and granted by
-/// nobody, so `__host.listen` resolves on no platform. Refusing `ctx=listen` up
-/// front, against the list below, says so at the fence instead. Each row lands
-/// here when a platform grants that effect.
+/// `Sockets` are absent for a neighbouring reason: they are declared and granted
+/// by nobody, so `__host.listen` resolves on no platform at all. Refusing
+/// `ctx=listen` up front, with the list below, says so at the fence instead, and
+/// each row lands here when a platform grants that effect.
 ///
 /// `Tasks` is here, and was not: it was withheld while its row named no
-/// platform, and the row landed the day the grant did. A fence may write
-/// `ctx=tasks` and call `core/tasks`.
+/// platform, for the same reason those two are, and the row landed the day the
+/// grant did. A fence may write `ctx=tasks` and call `core/tasks`.
 fn effect_binding(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
         "alloc" => ("Alloc", "alloc"),

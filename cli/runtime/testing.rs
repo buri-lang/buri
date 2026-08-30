@@ -3306,7 +3306,7 @@ pub extern "C" fn buri_rt_host_testing_test_tasks_orders(_handle: i64) -> i64 {
     i64::try_from(replay().total).unwrap_or(i64::MAX)
 }
 
-/// `TestTasks.parallel(self, items, f) -> [B]` — `f` at every item, in the order
+/// `TestTasks.parallel(self, ctx, items, f) -> [B]` — `f` at every item, in the order
 /// this scheduler chose, and the results in the items' order.
 ///
 /// `buri_rt_host_tasks_parallel`'s walk with three things around it: the

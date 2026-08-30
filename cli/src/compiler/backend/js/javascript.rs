@@ -3752,14 +3752,18 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
         }
 
         if depth == 0 && current.is_none() {
-            // `async function $f` is tried at the `a`, which the scan reaches
-            // before the `f`, so a host body that waits keeps its `async`
-            // rather than losing it to a span that starts at `function`.
-            for kw in [
-                b"async function $".as_slice(),
-                b"function $".as_slice(),
-                b"const $".as_slice(),
-                b"let $".as_slice(),
+            // `async function $x` is scanned **before** `function $x`, so that
+            // the declaration this cuts out begins at the `async` rather than
+            // after it. A runtime function that awaits is one the emitter hands
+            // out verbatim, and a body printed without its own `async` keyword
+            // is a syntax error in the artifact rather than a wrong answer —
+            // which is how this was found. The order of the list is therefore
+            // load-bearing: the second pattern is a prefix of the first's tail.
+            for (kw, is_fn) in [
+                (b"async function $".as_slice(), true),
+                (b"function $".as_slice(), true),
+                (b"const $".as_slice(), false),
+                (b"let $".as_slice(), false),
             ] {
                 if b.get(i..).is_some_and(|rest| rest.starts_with(kw)) {
                     // The keyword ends with the `$` that begins the name.
@@ -3772,7 +3776,7 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
                         j += 1;
                     }
                     if let Some(Ok(name)) = b.get(ns..j).map(std::str::from_utf8) {
-                        current = Some((name.to_string(), kw.ends_with(b"function $")));
+                        current = Some((name.to_string(), is_fn));
                         start = i;
                     }
                     break;
@@ -3923,35 +3927,33 @@ mod tests {
         print(&[Stmt::Expr(e)], false)
     }
 
-    /// A runtime declaration keeps its `async`.
+    /// A runtime declaration is cut out **whole**, and for an `async function`
+    /// that includes the word `async`.
     ///
-    /// The span a declaration is cut at starts on its keyword, and `function`
-    /// is a keyword `async function` merely ends with — so recognising only
-    /// the shorter one silently drops the word that makes the body return a
-    /// promise. The host bodies that wait are all spelled this way, and a
-    /// caller that awaits one would have got the value rather than a promise:
-    /// the whole of `Fs`, `Net.fetch`, `Clock.sleepMillis` and `Stdin`.
+    /// The emitter hands these out verbatim, so a body cut after its keyword is
+    /// an artifact that does not parse — `await` outside an async function —
+    /// rather than an artifact that answers wrongly. That is the failure this
+    /// pins, and it was a real one: `$host_HostTasks_parallel` is the first
+    /// runtime function that awaits, and the first artifact built with it did
+    /// not run.
     #[test]
-    fn a_declaration_that_waits_keeps_its_async() {
+    fn an_async_runtime_declaration_keeps_its_keyword() {
         let src = "\
-function $plain(a) {
-  return a;
+function $plain(a) { return a; }
+async function $waits(xs) {
+  return await Promise.all(xs);
 }
-
-async function $waits(a) {
-  return await a;
-}
-
-const $tail = 1;
+const $c = 1;
 ";
-        let decls = split_declarations(src);
-        let names: Vec<&str> = decls.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, ["$plain", "$waits", "$tail"]);
-        assert!(decls[0].1.starts_with("function $plain"), "{:?}", decls[0].1);
-        assert!(decls[1].1.starts_with("async function $waits"), "{:?}", decls[1].1);
-        // And it still ends at the closing brace rather than running on to the
-        // next semicolon, which is what tells a function from a `const`.
-        assert!(decls[1].1.trim_end().ends_with('}'), "{:?}", decls[1].1);
+        let cut = split_declarations(src);
+        let names: Vec<&str> = cut.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["$plain", "$waits", "$c"]);
+        let body = &cut.get(1).expect("the async declaration").1;
+        assert!(body.trim_start().starts_with("async function $waits"), "{body:?}");
+        assert!(body.trim_end().ends_with('}'), "{body:?}");
+        // And the one before it did not swallow the `async`, which is the other
+        // way the scan could have gone wrong.
+        assert!(!cut.first().expect("the plain one").1.contains("async"));
     }
 
     #[test]

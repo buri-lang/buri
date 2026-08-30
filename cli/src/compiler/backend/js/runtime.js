@@ -1872,7 +1872,7 @@ function $host_HostEnv_args(self) {
   return [];
 }
 
-// `Tasks.parallel(self, items, f)` — every task started, then every task
+// `Tasks.parallel(self, ctx, items, f)` — every task started, then every task
 // awaited. This is the one place the JavaScript backend is *ahead* of the
 // natives rather than level with them: `Promise.all` over an array of started
 // calls is genuine concurrency the day the key lands, where the native runtime
@@ -1893,8 +1893,14 @@ function $host_HostEnv_args(self) {
 //
 // `$share` on the element, as every other combinator here does: the step owns
 // what it is handed.
-async function $host_HostTasks_parallel(self, xs, f) {
-  const out = await Promise.all(xs.map((x, i) => f(self, BigInt(i), $share(x))));
+//
+// **The step is handed `ctx`, not `self`.** `self` is the `HostTasks` that
+// scheduled the work and grants one effect; `ctx` is the caller's whole
+// context, which is what `Tasks` promises. They are the same shape here — both
+// are empty — and were not on the day a context bound a stateful double, which
+// is how passing the wrong one stayed invisible.
+async function $host_HostTasks_parallel(self, ctx, xs, f) {
+  const out = await Promise.all(xs.map((x, i) => f(ctx, BigInt(i), $share(x))));
   return $own(out);
 }
 
@@ -4105,8 +4111,8 @@ function $tplanned(self, index) {
   }
 }
 
-// `parallel(self, items, f)` — every task once, in the order this scheduler
-// chose, and the results in the items' order.
+// `parallel(self, ctx, items, f)` — every task once, in the order this
+// scheduler chose, and the results in the items' order.
 //
 // **Not** `Promise.all`, which is what the real `HostTasks.parallel` is: a
 // double that raced would be the thing it exists to remove, so a task runs to
@@ -4114,11 +4120,17 @@ function $tplanned(self, index) {
 // decides. The result is written at each item's own index rather than appended,
 // which is `Tasks.parallel`'s order promise and is why the scheduler is free to
 // hand the work out in any order at all.
-function $host_testing_TestTasks_parallel(self, xs, f) {
+//
+// `self` is the handle this reads the order and the fault plan off; `ctx` is
+// the caller's whole context and is what the step is handed. Two values, and
+// this double is where the difference bites hardest: `self` is a `TestTasks`
+// slot index, so a step handed it in place of a context read a scheduler
+// handle as whatever effect it asked for.
+function $host_testing_TestTasks_parallel(self, ctx, xs, f) {
   const out = new Array(xs.length);
   for (const index of $torder(self, xs.length)) {
     $tplanned(self, index);
-    out[index] = f(self, BigInt(index), $share(xs[index]));
+    out[index] = f(ctx, BigInt(index), $share(xs[index]));
     $slot(self).log.push(BigInt(index));
   }
   return $own(out);

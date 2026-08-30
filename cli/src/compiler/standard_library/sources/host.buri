@@ -99,7 +99,7 @@ impl Proc for HostProc {
 /// `core/tasks` is the module a program calls; this is what a context binds.
 export struct HostTasks {}
 impl Tasks for HostTasks {
-  fn parallel<A, B>(self, items: [A], f: fn(HostTasks, Int, A) => B): [B];
+  fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
 }
 
 /// Being a server rather than talking to one.

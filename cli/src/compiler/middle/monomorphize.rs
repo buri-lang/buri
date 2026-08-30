@@ -812,11 +812,20 @@ impl<'a> Monomorphizer<'a> {
     /// when `C` is the implementation, and wrong when `C` turns out to be a
     /// context, which satisfies an effect by *naming* an implementation rather
     /// than by being one. Here `C` is known, so here is where that is put
-    /// right: a method whose signature names `Self` — `Tasks`'
-    /// `f: fn(Self, Int, A) => B`, `Listen`'s
+    /// right: a method whose signature names `Self` — `Listen`'s
     /// `onRequest: fn(Self, Request) => Response` — otherwise hands the
     /// caller's handler the context's layout while the `impl` body hands it the
     /// implementation's, which typechecks and then reads the wrong bytes.
+    ///
+    /// **A callback meant to receive the caller's context is not spelled
+    /// `Self` and never reaches this correction.** `Tasks.parallel` takes
+    /// `ctx: C` beside `self` and its step is `fn(C, Int, A) => B`, so `C` is
+    /// an ordinary type argument, already the caller's context at every
+    /// instantiation, with nothing here to fix. That is the difference this
+    /// pass used to erase: it retyped `parallel`'s step down to the
+    /// implementation, and the step then read the scheduler where it expected a
+    /// clock. Only `Self` is corrected, because only `Self` means the
+    /// implementation (SPEC 10.6).
     ///
     /// **Only the arguments the declaration spells with `Self`.** A trait
     /// method's other parameters cannot be a context — an effect-carrying
@@ -1701,11 +1710,17 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "bytes.toUtf8",
     "char.show",
     "char.toJson",
-    // `Tasks.parallel<A, B>` — the closure trampoline's second key, and the one
-    // it was built for. It is on this list for the same reason `list.mapCtxStep`
-    // is, which is A4's rule and not an exception to it: an entry lands
-    // alongside the carriers that make it sound, and this one has both of the
-    // two a step needs.
+    // `Tasks.parallel<C, A, B>` — the closure trampoline's second key, and the
+    // one it was built for. It is on this list for the same reason
+    // `list.mapCtxStep` is, which is A4's rule and not an exception to it: an
+    // entry lands alongside the carriers that make it sound, and this one has
+    // both of the two a step needs.
+    //
+    // `C` — the caller's context, which every step is handed — needs no carrier
+    // at all: it is `Arg::Dropped` in both native tables and crosses nothing.
+    // What it reaches is the state record the entry thunk reads, which is
+    // generated here where `C` is known, so the erasure this list asserts is
+    // about `A` and `B` exactly as it was before the parameter existed.
     //
     //  * **Two strides**, `[A]`'s and `[B]`'s, which `middle::layout` computed
     //    and which are immediates at the call site. A `map` reads one element
@@ -2223,8 +2238,11 @@ mod tests {
     /// Everything else is out of scope, including the method's own generics.
     ///
     /// This is what keeps the correction from touching an argument that is
-    /// genuinely at the context's type: `Tasks.parallel<A, B>`'s `items: [A]`
-    /// is an ordinary use of `A`, whatever `A` was instantiated at.
+    /// genuinely at the context's type: `Tasks.parallel<C, A, B>`'s `ctx: C` is
+    /// an ordinary use of `C`, instantiated at the caller's context and meant to
+    /// stay there, and a correction that read the shape of a type rather than
+    /// the declaration would rewrite it to the implementation and hand every
+    /// step the scheduler.
     #[test]
     fn a_declaration_without_self_is_out_of_scope() {
         assert!(!mentions_self(&int()));
