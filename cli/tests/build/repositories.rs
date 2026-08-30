@@ -78,14 +78,28 @@ fn proto_schemas() {
 /// does to the same finding — when the catalogue runs, how hard a finding
 /// lands, and what a misspelled field in the block costs.
 ///
-/// Four of them are about a file that did not parse: what is still reported
-/// around it, what is rightly not reported inside it, that a package's
-/// neighbour going quiet does not quiet it, and that a *build* file which does
-/// not read is the one thing recovery does not read around. The generated half
-/// of that question is `cli/tests/linting.rs`, five hundred of them.
+/// Eight of them are about a file the front end had something to say about,
+/// and together they draw the line the rules stay behind. Four are about the
+/// shape of the silence: what is still reported around a file that did not
+/// parse, what is rightly not reported inside the declaration that did not,
+/// that a package's neighbour going quiet does not quiet it, and that a
+/// *build* file which does not read is the one thing recovery does not read
+/// around.
+///
+/// The other four say what an error is *not* a reason to go quiet about, which
+/// is the harder half and the one that regressed. A declaration the parser
+/// recovered whole — an import missing its `;` — hides nothing below it. An
+/// error about one declaration the parser read whole — an alias that closes a
+/// cycle — hides nothing beside it. A body that did not check hides its own
+/// bindings and not its neighbour's. And the one thing that genuinely does
+/// hide something, a run of declarations the parser skipped, hides exactly
+/// what it swallowed and nothing that merely sits near it.
+///
+/// The generated half of that question is `cli/tests/linting.rs`, five hundred
+/// of them, with the rate of lost findings pinned as an invariant.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 27);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 31);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the

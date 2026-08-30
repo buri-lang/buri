@@ -1,0 +1,37 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an import missing its `;` and an unused binding below it in the same file: both reported, because a declaration the parser recovered whole is not a reason to stop reading the module around it"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The `;` is the whole of the syntax error. With it written the finding is
+# still there and nothing else is, which is what says the report above was two
+# things rather than one thing and a cascade.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "import { Alloc }\n"
+  with: "import { Alloc };\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "finding.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  let spare = 7;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

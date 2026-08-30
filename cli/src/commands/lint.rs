@@ -639,14 +639,44 @@ fn editable_modules_of(
 /// only use sat in the part that went missing. So the rules that read it ask
 /// here first and stay silent for exactly the broken body, rather than the
 /// whole target — which is what the early return this replaced did.
+///
+/// **The two questions are separate, and each is answered by the evidence that
+/// belongs to it.** A body is unreadable when an error lands *in* it: that is
+/// the thing that truncates the typed tree, and nothing else does. A module is
+/// unreadable when the *parser skipped a declaration* in it, because then the
+/// list of what the module imports, declares and re-exports is short by an
+/// unknown amount — and that list is what [`check_dead_code`] reads.
+///
+/// Neither question is answered by where an error happens to sit. That is what
+/// this used to do, and it was wrong twice over: a recovered missing `;` on an
+/// import silenced `unused-variable` in a function twenty lines below it, and
+/// `circular-type-alias` — an error on a declaration the parser read whole —
+/// silenced every lint in its module. Both errors leave a complete AST and a
+/// complete scope behind them, so neither is a reason to stop reading anything.
+/// A position is not a kind, and only a kind can say what was lost.
 #[derive(Default)]
 struct Unchecked {
-    /// Modules with an error outside every body: an import that resolved to
-    /// nothing, a declaration that did not check. What such a module binds is
-    /// not the whole account of what its code can see.
+    /// Modules the parser did not read whole — an [`Item::Error`] among their
+    /// items is a run of declarations it skipped over. What such a module
+    /// imports and exports is not the whole account of it, so a rule that
+    /// reads one module's imports to justify another module's export cannot
+    /// run at all.
+    ///
+    /// An error that leaves the item list intact is not here, however far from
+    /// a body it sits: an alias that closes a cycle, an import missing its
+    /// `;`, a field whose type did not check. Each of those is one declaration
+    /// the reader can see is wrong, and the rest of the module is as legible
+    /// as it was before.
+    ///
+    /// [`Item::Error`]: crate::parsing::tree::Item::Error
     modules: BTreeSet<ModuleId>,
-    /// Functions whose body cannot be read — an error inside it, or an
-    /// unchecked module around it.
+    /// Functions whose body cannot be read, which is an error inside it — in
+    /// the body or in the signature above it.
+    ///
+    /// A name the parser skipped, or one an unresolved import never bound, is
+    /// reached here the same way: a body that uses it gets `unresolved-name`
+    /// at the use, which is an error inside that body. So the bodies that lost
+    /// something say so themselves, and the ones that did not are read.
     bodies: BTreeSet<FnId>,
     /// Where those bodies are, for the rules that hold a span rather than a
     /// function.
@@ -657,14 +687,14 @@ impl Unchecked {
     fn of(analysis: &crate::compiler::driver::Analysis) -> Unchecked {
         use crate::diagnostics::FileId;
         let mut unchecked = Unchecked::default();
-        // By file, and each error carrying whether some body claimed it. Most
-        // of a compilation is code the repository merely reads, so a body in a
-        // file nothing is wrong with has to cost a lookup rather than a scan.
-        let mut errors: std::collections::BTreeMap<FileId, Vec<(Span, bool)>> =
+        // By file. Most of a compilation is code the repository merely reads,
+        // so a body in a file nothing is wrong with has to cost a lookup
+        // rather than a scan.
+        let mut errors: std::collections::BTreeMap<FileId, Vec<Span>> =
             std::collections::BTreeMap::new();
         for d in &analysis.diagnostics.items {
             if d.is_error() && !d.span.is_none() {
-                errors.entry(d.span.file).or_default().push((d.span, false));
+                errors.entry(d.span.file).or_default().push(d.span);
             }
         }
         if errors.is_empty() {
@@ -674,46 +704,37 @@ impl Unchecked {
         // A function's whole declaration, from its name to the end of its
         // body: an error on a parameter's type is as much a reason not to read
         // the body as one inside it.
-        let mut extents: Vec<(Span, FnId, ModuleId)> = Vec::new();
         for (fid, body) in &analysis.checked.bodies {
             let info = analysis.checked.tables.fn_info(*fid);
-            let Some(in_file) = errors.get_mut(&info.span.file) else { continue };
+            let Some(in_file) = errors.get(&info.span.file) else { continue };
             if info.span.file != body.expr.span.file {
                 continue;
             }
             let start = info.span.start.min(body.expr.span.start) as usize;
             let end = info.span.end.max(body.expr.span.end) as usize;
             let extent = Span::new(info.span.file, start, end);
-            let mut broken = false;
-            for (error, inside_a_body) in in_file.iter_mut() {
-                if error.start <= extent.end && error.end >= extent.start {
-                    *inside_a_body = true;
-                    broken = true;
-                }
-            }
-            if broken {
+            if in_file.iter().any(|e| e.start <= extent.end && e.end >= extent.start) {
                 unchecked.bodies.insert(*fid);
-            }
-            extents.push((extent, *fid, info.module));
-        }
-
-        // An error nowhere near a body is about the module itself.
-        let modules: std::collections::BTreeMap<FileId, ModuleId> =
-            analysis.loaded.modules.iter().map(|m| (m.file, m.id)).collect();
-        for (file, in_file) in &errors {
-            if in_file.iter().any(|(_, inside_a_body)| !inside_a_body) {
-                if let Some(module) = modules.get(file) {
-                    unchecked.modules.insert(*module);
-                }
+                unchecked.ranges.push(extent);
             }
         }
 
-        for (extent, fid, module) in &extents {
-            if unchecked.modules.contains(module) {
-                unchecked.bodies.insert(*fid);
+        // A module the parser did not read whole. `Item::Error` is the only
+        // thing that says so: it is what the parser writes down where it gave
+        // up on a declaration and skipped to the next one, so it is exactly
+        // the run of source nothing in the tree accounts for. An error beside
+        // an item the parser read is about that item, and the item list around
+        // it is still the whole list.
+        //
+        // Only files something is already wrong with are looked at, which is
+        // what keeps this a lookup per module rather than a walk of every item
+        // in the standard library.
+        for m in &analysis.loaded.modules {
+            if !errors.contains_key(&m.file) {
+                continue;
             }
-            if unchecked.bodies.contains(fid) {
-                unchecked.ranges.push(*extent);
+            if m.ast.items.iter().any(|i| matches!(i, crate::parsing::tree::Item::Error(_))) {
+                unchecked.modules.insert(m.id);
             }
         }
         unchecked
@@ -1067,7 +1088,10 @@ fn check_dead_code(
     let own = target.package;
     // What reaches an export is written at the top of a module — `lib.buri`'s
     // re-exports, and what a sibling imports — so one module of the package
-    // that did not resolve is enough to make a live name look unreached.
+    // the parser did not read whole is enough to make a live name look
+    // unreached: the import that reaches it may be in the run of declarations
+    // the parser skipped, and a name nothing in the tree mentions is not a
+    // name nothing uses.
     if modules_of(analysis, own).iter().any(|m| unchecked.module(*m)) {
         return;
     }

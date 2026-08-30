@@ -1,0 +1,19 @@
+// `Handle` expands to itself, which the checker reports against this one
+// declaration. Nothing was lost saying so: the file parsed whole, every other
+// declaration in it means what it says, and the alias is only an error
+// because it is used — an alias nobody expands is never expanded.
+//
+// The error sits at module level and inside no body, which used to be the
+// whole test, and every finding in the file went quiet behind it.
+
+from "core/effect" import { Alloc };
+from "core/str" import { fromInt };
+
+export type Handle = Handle;
+
+export fn describe<C: Alloc>(ctx: C, n: I64): Str {
+  let spare = 7;
+  fromInt(ctx, n)
+}
+
+export fn open(h: Handle): Handle { h }
