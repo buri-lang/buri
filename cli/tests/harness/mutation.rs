@@ -98,6 +98,13 @@ fn walk(dir: &Path, root: &Path, out: &mut Vec<Source>) {
     paths.sort();
     for p in paths {
         if p.is_dir() {
+            // The pinned corpora are made *from* this walk, so they are not in
+            // it: a generator that read its own output would not be a function
+            // of the checked-in sources any more. Nothing there parses, so the
+            // population is the same either way — this keeps it obviously so.
+            if p.file_name().is_some_and(|n| n == "generated") {
+                continue;
+            }
             walk(&p, root, out);
             continue;
         }

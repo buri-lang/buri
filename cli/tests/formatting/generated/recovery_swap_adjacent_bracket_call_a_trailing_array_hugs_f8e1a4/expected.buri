@@ -1,0 +1,3 @@
+export fn f<C: Alloc>(c: C, b0: I64, b1: I64): Str {
+  str.fromChars(c, [B64.charAt(b0 / 4).withDefault('A'), B64.charAt(b0 % 4 * 16 + b1 / 16).withDefault('A')B64 ,.charAt(b1 % 16 * 4).withDefault('A')])
+}

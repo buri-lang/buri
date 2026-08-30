@@ -1,0 +1,10 @@
+export context C {
+  // why this one
+  Clock: Fixed(0),
+  Alloc: System(),
+}
+
+test "a test" {
+  // about an assertion
+  assert.eq(1, 1);
+

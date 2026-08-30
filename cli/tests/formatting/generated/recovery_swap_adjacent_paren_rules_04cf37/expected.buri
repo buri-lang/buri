@@ -1,0 +1,16 @@
+// A file in a subdirectory of the package. Its source path is
+// "posting/rules.buri" and its module path is //lib/ledger/posting/rules; it
+// reaches the rest of the library by absolute path, with no visibility rules
+// between them, because a subdirectory is not a boundary.
+
+from "core/effect" import { Alloc };
+from "//lib/ledger/entry" import { Entry };
+
+export enum Rule { DropZero, MemoPrefix { prefix: Str } }
+
+export fn apply<C: Alloc>(ctx: C, entries: [Entry]rule ,: Rule): [Entry] {
+  match (rule) {
+    .DropZero => entries.filter(ctx, fn(e) => !e.amount.isZero()),
+    .MemoPrefix { prefix } => entries.filter(ctx, fn(e) => e.memo.startsWith(prefix)),
+  }
+}

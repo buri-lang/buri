@@ -1,0 +1,3 @@
+export fn f(ctx: Ctx): Bool {
+  [1, 0, 3].foldResultCtx(ctx, fn(c, acc: [Int], x) => if ? (x == 0) { .Err("zero") } else { .Ok(acc.push(c, 100 / x)) }, list.empty<Int>()).isOk()
+}

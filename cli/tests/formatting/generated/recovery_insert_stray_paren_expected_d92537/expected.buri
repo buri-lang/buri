@@ -1,0 +1,17 @@
+export fn f(v: Working, temp1: U32, temp2: U32): Working {
+    rounds(
+        ? Working {
+            a: temp1.wrappingAdd(temp2),
+            b: v.a,
+            c: v.b,
+            d: v.c,
+            e: v.d.wrappingAdd(temp1),
+            f: v.e,
+            g: v.f,
+            h: v.g,
+        },
+        w,
+        k,
+        i + 1,
+    )
+}

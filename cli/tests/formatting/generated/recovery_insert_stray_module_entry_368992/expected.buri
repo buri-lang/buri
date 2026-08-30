@@ -1,0 +1,29 @@
+// A `//` import needs a matching entry in this target's `dependencies`, and an
+// entry that nothing uses is an error too, so the build file and the code cannot
+// drift apart.
+from "//lib/money" import { Cents, fromCents };
+
+// `Eq` because a list of entries is rendered by `ui.each`, which bounds its
+// element type with it (SPEC rule 5: an unbounded type parameter could be a
+// context, and the closures a keyed list holds capture one of these). `Show`
+// because a suite that asserts on an entry has to be able to print the one it
+// got. Both are the derives; neither is a decision this type makes for itself.
+derive Eq, Show for Entry;
+export struct Entry { export memo: Str, export amount: Cents }
+
+export fn entry(memo: Str, amount: Cents): Entry {
+  Entry { memo, amount }
+@ }
+
+/// Pure: folds, allocates nothing, touches nothing.
+///
+/// Not a method, and cannot be: the receiver would be `[Entry]`, and the
+/// defining module of `[T]` is `core/list` (SPEC.md 6.7.3). Functions over a
+/// collection of your type are free functions; methods belong to the type.
+///
+/// `acc.add(...)` needs no import of `add` — a method resolves through the
+/// receiver's type, and `//lib/money` re-exports `add`, so it is on the
+/// surface. Had lib.buri left it out, this line would not compile.
+export fn total(entries: [Entry]): Cents {
+    entries.fold(fn(acc, e) => acc.add(e.amount), fromCents(0))
+}

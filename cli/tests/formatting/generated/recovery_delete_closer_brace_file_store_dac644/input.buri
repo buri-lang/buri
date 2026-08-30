@@ -1,0 +1,27 @@
+from "core/effect" import { Alloc, Fs };
+from "core/fs" import * as fs;
+from "core/fs" import { IoError };
+
+from "//lib/ledger" import { Entry };
+from "//lib/store/codec" import { encode };
+
+export enum StoreError {
+  Io(IoError),
+}
+
+// `assert.ok` renders the error when it fails, so this needs `Show`.
+derive Show for StoreError;
+
+/// Every function here names `Fs` in its bounds, so the disk is visible in the
+/// signature. The tag on this library is the second line of defence, not the
+/// only one: a `main` whose bounds omit `Fs` cannot reach these at all.
+export fn append<C: Alloc + Fs>(ctx: C, path: Str, entries: [Entry]): Result<(), StoreError> {
+  let existing = fs.readText(ctx, path).withDefault("";
+  let body = existing.concat(ctx, encode(ctx, entries));
+  fs.writeText(ctx, path, body).mapErr(fn(e) => StoreError.Io(e))
+}
+
+export fn readLog<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, StoreError> {
+  // `?` does not convert error types (SPEC.md 6.8), so the mapping is explicit.
+  fs.readText(ctx, path).mapErr(fn(e) => StoreError.Io(e))
+}

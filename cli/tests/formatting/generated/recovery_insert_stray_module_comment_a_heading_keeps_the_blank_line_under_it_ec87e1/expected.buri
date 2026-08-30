@@ -1,0 +1,11 @@
+export fn a(): Int {
+    1
+}
+
+// ---- section ----
+
+,
+
+export fn b(): Int {
+    2
+}
