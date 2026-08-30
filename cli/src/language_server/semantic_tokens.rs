@@ -10,9 +10,10 @@
 //! cannot classify — `Cents` and `cents` are the same shape to it — so each
 //! one is handed to [`symbols::at`], and the `Symbol` it names decides the
 //! type: a trait is an `interface`, a variant is an `enumMember`, a field is a
-//! `property`, a method is not a function. This is the whole reason for a
-//! second answer beside the editor's grammar: a grammar cannot tell a type name
-//! from a value name, and this can.
+//! `property`, a generic parameter is a `typeParameter`, a method is not a
+//! function, and a module-level `let` is `readonly`. This is the whole reason
+//! for a second answer beside the editor's grammar: a grammar cannot tell a
+//! type name from a value name, and this can.
 //!
 //! Nothing here is a fallback for the other. Layer one runs always and layer
 //! two upgrades what it can, so the worst case is a file coloured like a
@@ -31,7 +32,11 @@ use std::path::Path;
 /// A client reads a token's type as an index into this array, so the order is
 /// protocol rather than presentation: reordering it re-colours every file in
 /// every editor that has already read the legend.
-pub const TYPES: [&str; 13] = [
+///
+/// A type added later goes on the end, where it costs no client its colours:
+/// `typeParameter` belongs beside `type` to read, and putting it there would
+/// have renumbered ten entries.
+pub const TYPES: [&str; 14] = [
     "namespace",
     "type",
     "interface",
@@ -45,14 +50,19 @@ pub const TYPES: [&str; 13] = [
     "string",
     "number",
     "operator",
+    "typeParameter",
 ];
 
 /// The modifiers, read as a bitset in the same way.
 ///
-/// Both are set together and never apart: Buri writes a declaration and its
-/// definition in one place, so a name that is one is the other. They are
-/// declared separately because a client's theme may style either.
-pub const MODIFIERS: [&str; 2] = ["declaration", "definition"];
+/// The first two are set together and never apart: Buri writes a declaration
+/// and its definition in one place, so a name that is one is the other. They
+/// are declared separately because a client's theme may style either.
+///
+/// `readonly` is the third, and is about the binding rather than the position:
+/// a module-level `let` is a constant, which is what an editor colours a
+/// constant for.
+pub const MODIFIERS: [&str; 3] = ["declaration", "definition", "readonly"];
 
 const NAMESPACE: u32 = 0;
 const TYPE: u32 = 1;
@@ -67,9 +77,12 @@ const COMMENT: u32 = 9;
 const STRING: u32 = 10;
 const NUMBER: u32 = 11;
 const OPERATOR: u32 = 12;
+const TYPE_PARAMETER: u32 = 13;
 
 /// `declaration` and `definition` together — see [`MODIFIERS`].
 const DECLARES: u32 = 0b11;
+/// `readonly`, the third bit.
+const READONLY: u32 = 0b100;
 
 /// One coloured run of text, before the protocol's relative encoding.
 struct Piece {
@@ -338,7 +351,7 @@ fn resolved(
         // A method is reached through a value and a function is not, which is
         // the distinction a grammar has no way to see.
         Symbol::Function(id) => {
-            if tables.fn_info(*id).self_ty.is_some() {
+            if symbols::is_method(tables, *id) {
                 METHOD
             } else {
                 FUNCTION
@@ -350,6 +363,7 @@ fn resolved(
         Symbol::Trait(_) => INTERFACE,
         Symbol::TraitMethod { .. } => METHOD,
         Symbol::Const(_) | Symbol::Local { .. } => VARIABLE,
+        Symbol::Generic { .. } => TYPE_PARAMETER,
         Symbol::Field { .. } => PROPERTY,
         Symbol::Variant { .. } => ENUM_MEMBER,
         Symbol::Module(_) => NAMESPACE,
@@ -363,7 +377,7 @@ fn resolved(
     // still comes from `Found`, because the lexer here numbers every buffer
     // `FileId(0)` and the tables number them per session.
     let declared = symbols::declaration_name(analyzed, &found.symbol);
-    let modifiers = if declared.file == found.span.file
+    let mut modifiers = if declared.file == found.span.file
         && declared.start == span.start
         && declared.end == span.end
     {
@@ -371,6 +385,11 @@ fn resolved(
     } else {
         0
     };
+    // A module-level `let` is the language's constant, at its declaration and
+    // at every use of it.
+    if matches!(found.symbol, Symbol::Const(_)) {
+        modifiers |= READONLY;
+    }
     Some((kind, modifiers))
 }
 
@@ -515,10 +534,12 @@ mod tests {
             (STRING, "string"),
             (NUMBER, "number"),
             (OPERATOR, "operator"),
+            (TYPE_PARAMETER, "typeParameter"),
         ] {
             assert_eq!(TYPES.get(index as usize), Some(&name));
         }
-        assert_eq!(MODIFIERS.len(), 2);
+        assert_eq!(MODIFIERS.len(), 3);
         assert_eq!(DECLARES, 0b11);
+        assert_eq!(READONLY, 1 << 2);
     }
 }
