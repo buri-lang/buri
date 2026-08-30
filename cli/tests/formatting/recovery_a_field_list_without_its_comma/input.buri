@@ -1,0 +1,6 @@
+export struct Point {
+    export x: Int
+    export y: Int,
+}
+
+export struct Size    { export w:Int, export h:Int }

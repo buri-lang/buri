@@ -544,7 +544,6 @@ fn a_syntax_error_does_not_become_a_type_error() {
 /// `formatting.rs` makes, because a region that reappeared in the wrong place
 /// would pass a set comparison.
 #[test]
-#[ignore = "R2 gives the formatter a verbatim region; R2 deletes this attribute"]
 fn a_broken_file_still_formats() {
     let all = cases();
     let sample = strided(&all, CI_FORMATTED);
@@ -574,21 +573,71 @@ fn a_broken_file_still_formats() {
                     indent(&format!("{after:?}"))
                 ),
             );
+            continue;
+        }
+        let (was, now) = (regions_kept(&m.source), regions_kept(&out));
+        if was != now {
+            tally.violation(
+                m,
+                format!(
+                    "a region the formatter did not read came back changed.\n  in:\n{}\n  out:\n{}",
+                    indent(&was.join("\n---\n")),
+                    indent(&now.join("\n---\n"))
+                ),
+            );
         }
     }
     tally.finish("a broken file still formats");
 }
 
-/// Every token, in source order, with the ones layout is allowed to add and
-/// drop taken out. `formatting.rs`'s `tokens`, unsorted.
+/// Every token with the ones layout is allowed to add and drop taken out, as
+/// a set: `formatting.rs`'s `tokens`.
+///
+/// The set and not the sequence, because two of the formatter's documented
+/// moves are reorderings — the leading import run is sorted, and a `derive` is
+/// carried onto the declaration it is about. What the sequence was reaching
+/// for is asserted directly instead, and more sharply, by comparing the
+/// regions themselves: see [`regions_kept`].
 fn kept(text: &str) -> Vec<String> {
     const LAYOUT: &[&str] = &["`,`", "`(`", "`)`", "`{`", "`}`"];
-    token_shape(text)
+    let mut out: Vec<String> = drop_empty_type_arguments(token_shape(text))
         .into_iter()
         .filter_map(|s| match s {
             Shape::Token(t) if !LAYOUT.contains(&t.as_str()) => Some(t),
             _ => None,
         })
+        .collect();
+    out.sort();
+    out
+}
+
+/// Every `<` immediately followed by `>` removed, in source order.
+///
+/// `t<>` prints as `t`, because they are the same type and only one of them is
+/// how a reader writes it. The pair goes as a pair rather than by filtering
+/// both tokens everywhere: a generic list the formatter really did lose would
+/// then be invisible.
+fn drop_empty_type_arguments(shapes: Vec<Shape>) -> Vec<Shape> {
+    let mut out: Vec<Shape> = Vec::with_capacity(shapes.len());
+    for s in shapes {
+        if matches!(&s, Shape::Token(t) if t == "`>`")
+            && matches!(out.last(), Some(Shape::Token(t)) if t == "`<`")
+        {
+            out.pop();
+            continue;
+        }
+        out.push(s);
+    }
+    out
+}
+
+/// What each region the formatter left alone says, line by line with trailing
+/// spaces off — the one whitespace the formatter never keeps.
+fn regions_kept(text: &str) -> Vec<String> {
+    buri::formatting::broken_regions(text)
+        .into_iter()
+        .filter_map(|(lo, hi)| text.get(lo..hi))
+        .map(|slice| slice.lines().map(str::trim_end).collect::<Vec<_>>().join("\n"))
         .collect()
 }
 
@@ -607,7 +656,6 @@ fn kept(text: &str) -> Vec<String> {
 /// test can fail in both directions; the broken file is named; and the exit
 /// code says something went wrong.
 #[test]
-#[ignore = "R2.0 makes the source path speak; R2 deletes this attribute"]
 fn format_check_refuses_an_unparseable_file() {
     let repo = Scratch::repo("recovery-format-check");
     repo.binary_package("cmd/clean", CLEAN);

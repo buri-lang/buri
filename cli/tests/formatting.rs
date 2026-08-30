@@ -14,13 +14,20 @@
 //! dialect it is in, which is also the first thing a reader of the directory
 //! listing wants to know.
 //!
+//! A case whose name begins with `recovery_` is source with a **syntax error**
+//! in it, and its `expected.buri` pins what the formatter does about that: the
+//! declaration that did not parse comes back byte for byte, everything around
+//! it is laid out. Every other case's input must parse, and the harness says so
+//! rather than quietly formatting a broken file.
+//!
 //! Four claims per case, each its own test so that a failure names which of
 //! them broke:
 //!
 //! 1. `format(input) == expected`, byte for byte.
 //! 2. `format(expected) == expected`. A shape that moves when it is formatted
 //!    again is a *formatter* bug and is reported as one, rather than as an
-//!    expectation somebody got wrong.
+//!    expectation somebody got wrong. A `recovery_` output does not parse, and
+//!    is still a fixed point: a region is re-emitted as it stands.
 //! 3. Every comment in the input is in the output, as a set — the leading
 //!    import run is sorted, and a comment travels with the import it was
 //!    written above, so the sequence may legally change and the set may not.
@@ -94,6 +101,16 @@ fn is_textproto(case: &str) -> bool {
     case.starts_with("textproto_")
 }
 
+/// Whether a case's input is deliberately broken.
+///
+/// The prefix is the whole of the permission, the way `textproto_` and `width_`
+/// are: a case that does not announce itself must parse, so a case that stops
+/// parsing by accident is still caught rather than silently becoming a recovery
+/// case.
+fn is_recovery(case: &str) -> bool {
+    case.starts_with("recovery_")
+}
+
 fn read(path: &Path) -> String {
     std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("{} could not be read: {e}", path.display()))
@@ -118,17 +135,26 @@ fn formatted(label: &str, path: &Path, text: &str) -> String {
         );
         return textproto::print(&parsed.document);
     }
+    let case = label.split('/').next().unwrap_or_default();
     let mut map = SourceMap::new();
     let id = map.add(label.to_string(), path.to_path_buf(), text.to_string());
     let parsed = buri::parsing::parser::parse(text, id);
-    if !parsed.errors.is_empty() {
+    if !parsed.errors.is_empty() && !is_recovery(case) {
         let mut out = String::new();
         for e in &parsed.errors {
             out.push_str(&map.render(e, false));
         }
         panic!(
             "{label} does not parse, so there is nothing to format.\n\
-             A case's input must be valid Buri — badly laid out, not broken:\n{out}"
+             A case's input must be valid Buri — badly laid out, not broken. \
+             Name it `recovery_…` if the mistake is the question it asks:\n{out}"
+        );
+    }
+    if parsed.errors.is_empty() && is_recovery(case) {
+        panic!(
+            "{label} parses, so it is not a recovery case. A `recovery_…` case's \
+             input has a syntax error in it, and its output is what the formatter \
+             does about that."
         );
     }
     source(text).unwrap_or_else(|| {
@@ -186,6 +212,19 @@ fn comments(text: &str) -> Vec<Shape> {
     let mut out = comment_shape(text);
     out.sort();
     out
+}
+
+/// What each declaration the parser could not read says, line by line with
+/// trailing spaces off — the one whitespace the formatter never keeps.
+///
+/// Empty for every case whose input parses, which is all but the `recovery_`
+/// ones, so the comparison is free where it has nothing to say.
+fn region_text(text: &str) -> Vec<String> {
+    buri::formatting::broken_regions(text)
+        .into_iter()
+        .filter_map(|(lo, hi)| text.get(lo..hi))
+        .map(|slice| slice.lines().map(str::trim_end).collect::<Vec<_>>().join("\n"))
+        .collect()
 }
 
 /// The output the case pins. When blessing, that is whatever the formatter
@@ -333,11 +372,41 @@ fn formatting_keeps_every_case_whole() {
 
         // The output parses. `source` already refuses output that does not,
         // so this is here to say what would have gone wrong if it had.
+        //
+        // A `recovery_` output does not, by construction: it carries a region
+        // the parser could not read, and re-reading it says so again. What is
+        // asked of it instead is that the mistake did not spread — the same
+        // number of errors, and every region byte for byte what was written.
+        // That is the honest form of "it parses outside its regions", and the
+        // stronger half of it: what the formatter did not understand, it did
+        // not touch.
         let mut map = SourceMap::new();
         let id = map.add(format!("{case}/expected.buri"), dir.join("expected.buri"), once.clone());
         let parsed = buri::parsing::parser::parse(&once, id);
-        for e in &parsed.errors {
-            failures.push(format!("{case}: the output does not parse:\n{}", map.render(e, false)));
+        if is_recovery(&case) {
+            let before = buri::parsing::parser::parse(&input, FileId(0)).errors.len();
+            if parsed.errors.len() != before {
+                failures.push(format!(
+                    "{case}: the input has {before} syntax error(s) and the output {}. \
+                     Formatting must not invent one or lose one.",
+                    parsed.errors.len()
+                ));
+            }
+            if region_text(&input) != region_text(&once) {
+                failures.push(format!(
+                    "{case}: a region the formatter did not read came back changed.\n  \
+                     before: {:?}\n  after:  {:?}",
+                    region_text(&input),
+                    region_text(&once)
+                ));
+            }
+        } else {
+            for e in &parsed.errors {
+                failures.push(format!(
+                    "{case}: the output does not parse:\n{}",
+                    map.render(e, false)
+                ));
+            }
         }
 
         if comments(&input) != comments(&once) {
@@ -374,6 +443,10 @@ fn formatting_keeps_every_case_whole() {
 /// `width_*` is the exception and says so in its name: a string literal and a
 /// comment are the author's text, and there is no shape a formatter can give a
 /// ninety-column atom. Everything else that leaves this formatter fits.
+///
+/// A `recovery_` case is the same argument in a second place, and it is made
+/// per line rather than per case: a line inside a region the formatter did not
+/// read is the author's, and every line it did lay out still has to fit.
 #[test]
 fn formatting_stays_inside_the_margin() {
     const WIDTH: usize = 88;
@@ -385,7 +458,14 @@ fn formatting_stays_inside_the_margin() {
         }
         let input = dir.join("input.buri");
         let once = expected(dir, &formatted(&format!("{case}/input.buri"), &input, &read(&input)));
+        let regions = buri::formatting::broken_regions(&once);
+        let mut at = 0usize;
         for line in once.lines() {
+            let start = at;
+            at = at.saturating_add(line.len()).saturating_add(1);
+            if regions.iter().any(|(lo, hi)| start < *hi && at > *lo) {
+                continue;
+            }
             if line.chars().count() > WIDTH {
                 failures.push(format!(
                     "{case}: a line is {} columns:\n{line}",
