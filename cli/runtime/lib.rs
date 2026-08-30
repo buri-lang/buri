@@ -314,6 +314,17 @@
 //! stops — so the archive is twenty-four bytes larger with the feature than
 //! without it, and neither backend has a symbol to emit a call to.
 //!
+//! **What a toolchain built without it owes the user.** `net` off is a
+//! *language capability* missing, not a code generator missing, so the
+//! compiler is told rather than left to find out: `cli/build.rs` writes the
+//! feature list to `libburi_rt.a.features` beside the archive,
+//! `runtime_native::net()` reads it, and `Backend::missing_intrinsics` refuses a
+//! program reaching `host.HostListen.*`, `host.HostSockets.*` or
+//! `host.HostTasks.*` with a diagnostic naming the operations
+//! (`networking-not-available`) before code generation starts. None of those
+//! keys exists yet; the refusal is in place first so that the day one lands it
+//! is not an unresolved `buri_rt_*` symbol from the system linker.
+//!
 //! The package's manifest is `manifest.toml` and its lockfile is
 //! `manifest.lock`, neither named the way Cargo would name it, because a
 //! `Cargo.toml` in this directory would delete the directory from the

@@ -365,6 +365,139 @@ export fn main(): Result<(), Str> {
     assert_eq!(release_out.stdout, debug_out.stdout, "release and debug disagree");
 }
 
+/// A sleeping program leaves the event loop free.
+///
+/// This is the whole of what the host bodies becoming asynchronous bought, and
+/// it is the one claim that a test of *output* cannot make: the old
+/// `sleepMillis` spun on `Date.now()` (or called `Bun.sleepSync`, which is the
+/// same stall with the core given back), and a program that slept for a third
+/// of a second printed exactly what one that waits for it prints.
+///
+/// So the measurement is of what else got to run *during* the sleep. The
+/// artifact is an ES module, so a probe beside it can start a timer, import
+/// it — which is when its top-level `await main()` runs — and count the
+/// callbacks that landed. A blocking sleep lets none of them land.
+///
+/// **This is not the `Tasks.parallel` overlap test**, which is D3's: nothing
+/// here runs two Buri tasks at once, and this asserts only that the runtime
+/// gives the loop back, which is D3's precondition rather than its subject.
+#[test]
+fn a_sleeping_program_leaves_the_event_loop_free() {
+    let program = "\
+from \"core/effect/lib.buri\" import { Alloc, Clock, Stdout };
+from \"core/host/lib.buri\" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let _ = ctx.sleepMillis(150);
+  let _ = ctx.sleepMillis(150);
+  let _ = ctx.println(\"slept\");
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("sleeping-frees-the-event-loop");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+
+    let artifact = std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap();
+    assert!(
+        artifact.contains("setTimeout"),
+        "`sleepMillis` waits on a timer\n\n{artifact}"
+    );
+    assert!(
+        !artifact.contains("sleepSync"),
+        "the blocking sleep is gone\n\n{artifact}"
+    );
+
+    // Ten milliseconds apart over 300 of them is thirty callbacks if the loop
+    // is free; the assertion asks for five, which no amount of scheduling
+    // noise takes away and no blocking sleep ever reaches.
+    scratch.write(
+        ".buri/out/js/cmd/x/probe.mjs",
+        "let ticks = 0;\n\
+         const beat = setInterval(() => { ticks += 1; }, 10);\n\
+         await import(\"./x.mjs\");\n\
+         clearInterval(beat);\n\
+         console.log(\"ticks \" + ticks);\n",
+    );
+    let probe = scratch.path(".buri/out/js/cmd/x/probe.mjs");
+    let out = std::process::Command::new(js_runtime())
+        .arg(&probe)
+        .output()
+        .expect("the javascript runtime runs");
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(text.contains("slept"), "the program ran:\n{text}");
+    let ticks: u32 = text
+        .lines()
+        .find_map(|l| l.strip_prefix("ticks "))
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or_else(|| {
+            panic!("no tick count in\n{text}\nstderr:\n{}", String::from_utf8_lossy(&out.stderr))
+        });
+    assert!(
+        ticks >= 5,
+        "only {ticks} timer callbacks ran during 300ms of sleeping, so the sleep is \
+         still blocking the event loop"
+    );
+}
+
+/// Writing octets reaches a node module, and the prologue that fetches one is
+/// guarded so that a page never resolves it.
+///
+/// Two facts in one program, because they are two halves of the same line.
+///
+/// `Stdout.writeBytes` is the one host operation left that must *not* wait —
+/// a protocol answers before it reads again, and `process.stdout` is
+/// asynchronous over a pipe on macOS — so it keeps `fs.writeSync`, and so it
+/// keeps needing `require`. Before the readers below it moved off the
+/// descriptor, `Stdin` asked for the same prologue and this program got one by
+/// accident; asking for it by name is what makes a program that only writes
+/// octets work at all.
+///
+/// And the prologue is a *dynamic* import behind `typeof process`, because
+/// `Stdout` is granted on every platform, `WEB` included. A static
+/// `import ... from "node:module"` is resolved before a line of the artifact
+/// runs, so it would take a page down at load; this one is never reached
+/// there, and `$writeRaw` refuses in the browser exactly as it did before.
+#[test]
+fn writing_octets_asks_for_the_prologue_and_a_page_never_resolves_it() {
+    let program = "\
+from \"core/effect/lib.buri\" import { Alloc, Stdout };
+from \"core/host/lib.buri\" import * as host;
+from \"core/io/lib.buri\" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = io.writeBytes(ctx, [104, 105, 10]);
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("octets-ask-for-the-prologue");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let artifact = std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap();
+
+    assert!(
+        artifact.contains("const $require="),
+        "a program that writes octets needs `require`\n\n{artifact}"
+    );
+    assert!(
+        !artifact.contains("import{createRequire"),
+        "the prologue is not a static import: a page resolves those at load\n\n{artifact}"
+    );
+    assert!(
+        artifact.contains("typeof process===\"undefined\"?undefined"),
+        "and it is guarded, because `Stdout` is granted on `WEB` too\n\n{artifact}"
+    );
+
+    // And it writes, which is the half that was broken: a program reaching
+    // neither `Fs` nor `Stdin` used to get no prologue and abort inside
+    // `$writeRaw` with "this platform grants no filesystem".
+    let out = scratch.exec_js("cmd/x");
+    out.ok();
+    assert_eq!(out.stdout, "hi\n", "{}", out.stderr);
+}
+
 /// Two generics instantiated over different contexts get different symbols.
 ///
 /// This is the invariant that decides how `monomorphize::name_of` may name things, and
