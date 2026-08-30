@@ -6,13 +6,14 @@
 // other cannot.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 from "core/json/lib.buri" import { Json, JsonError };
 from "core/json/lib.buri" import * as json;
 
 fn parsed(text: Str): Json {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.ok(json.parse(ctx, text))
 }
 
@@ -56,7 +57,7 @@ test "the escapes this module reads" {
 // --- containers ---------------------------------------------------------------
 
 test "the empty array and the empty object" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(parsed("[]"), Json.Array([]));
   assert.eq(json.stringify(ctx, parsed("[]")), "[]");
   assert.eq(json.stringify(ctx, parsed("{}")), "{}");
@@ -91,36 +92,36 @@ test "whitespace between every token is ignored" {
 // --- rendering ----------------------------------------------------------------
 
 test "stringify is compact" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(json.stringify(ctx, parsed("{\"a\": [1, 2]}")), "{\"a\":[1,2]}");
 }
 
 test "stringify escapes what parse unescapes" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(json.stringify(ctx, Json.Str("a\"b\\c\nd")), "\"a\\\"b\\\\c\\nd\"");
 }
 
 test "quote is the string rendering on its own" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(json.quote(ctx, "hi"), "\"hi\"");
 }
 
 // The property the whole module is for: text in, text out, unchanged.
 test "a document round trips through parse and stringify" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let doc = "{\"name\":\"buri\",\"tags\":[\"a\",\"b\"],\"n\":3,\"ok\":true,\"none\":null}";
   assert.eq(json.stringify(ctx, assert.ok(json.parse(ctx, doc))), doc);
 }
 
 test "object key order survives the round trip" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // A map would lose this. The association list is why it does not.
   let doc = "{\"z\":1,\"a\":2,\"m\":3}";
   assert.eq(json.stringify(ctx, assert.ok(json.parse(ctx, doc))), doc);
 }
 
 test "a value round trips through stringify and parse" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let v = Json.Object([("k", Json.Array([Json.Num(1.0), Json.Bool(false), Json.Null]))]);
   assert.eq(assert.ok(json.parse(ctx, json.stringify(ctx, v))), v);
 }
@@ -128,7 +129,7 @@ test "a value round trips through stringify and parse" {
 // --- what must be rejected ------------------------------------------------------
 
 fn failure(text: Str): JsonError {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.err(json.parse(ctx, text))
 }
 
@@ -193,7 +194,7 @@ test "a surrogate pair is one character, and half of one is an error" {
 // A raw control character is not legal inside a JSON string, so writing one has
 // to escape it — otherwise this module produces documents it cannot read.
 test "a control character is written as an escape" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(json.stringify(ctx, Json.Str("a\u{0001}b")), "\"a\\u0001b\"");
   assert.eq(json.stringify(ctx, parsed("\"\\u0000\"")), "\"\\u0000\"");
 }
@@ -201,7 +202,7 @@ test "a control character is written as an escape" {
 // Parsing recurses and the recursion is not in tail position, so the limit is
 // what stands between a deep document and a crash.
 test "nesting past the limit is an error rather than a crash" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let deep = "[".repeat(ctx, 600).concat(ctx, "]".repeat(ctx, 600));
   match (json.parse(ctx, deep)) {
     .Err(.TooDeep(_)) => assert.isTrue(true),
@@ -210,7 +211,7 @@ test "nesting past the limit is an error rather than a crash" {
 }
 
 test "nesting inside the limit is fine" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let ok = "[".repeat(ctx, 100).concat(ctx, "]".repeat(ctx, 100));
   assert.isTrue(json.parse(ctx, ok).isOk());
 }
