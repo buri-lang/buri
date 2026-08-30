@@ -1063,7 +1063,16 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Sum,
     },
-    // `TestFs`'s sixteen. `self` is `struct TestFs(I64)` and carries a handle,
+    // The stream's log, read back. `calls` answers a `[Call]` the way `snapshot`
+    // answers a `[(Str, Str)]`: `Ret::Out` writes the descriptor and the element
+    // width is the record's own layout, which this table does not name.
+    Entry {
+        key: "host_testing.TestStdin.calls",
+        symbol: "buri_rt_host_testing_test_stdin_calls",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    // `TestFs`'s seventeen. `self` is `struct TestFs(I64)` and carries a handle,
     // so it is `Arg::Scalar` here as `MemFs`'s is — including on the two
     // builders and on `readOnly`, which read the receiver's view rather than
     // ignoring it.
@@ -1099,6 +1108,12 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         key: "host_testing.TestFs.snapshot",
         symbol: "buri_rt_host_testing_test_fs_snapshot",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestFs.calls",
+        symbol: "buri_rt_host_testing_test_fs_calls",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
@@ -1167,6 +1182,44 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_testing_test_fs_sync_file",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
+    },
+    // The call log's remaining four. `spelled` is an `FsCall` constructor's
+    // decode and not a filesystem operation: a test writing a call down performs
+    // no effect and so has no context to reach `bytes.fromUtf8` with.
+    //
+    // The other three are `TestNet`'s. `net()` and `TestNet.fetch` are Buri
+    // bodies and have no row — the absent-key list below says why — but a log is
+    // state, so the handle naming it is minted here (`alloc.newCounter`'s
+    // shape), written by `recordFetch` once the responder has answered, and read
+    // back by `netCalls`. `recordFetch` is handed `Request` flattened by §2 rule
+    // 1: the method's variant index as an `Int`, the URL's three leaves, and two
+    // `(ptr, len)` pairs — `buri_rt_host_net_fetch`'s argument list without its
+    // answer. `netCalls` takes the handle rather than the `TestNet`, because
+    // that value carries the responder too and an argument crosses as its
+    // leaves.
+    Entry {
+        key: "host_testing.spelled",
+        symbol: "buri_rt_host_testing_spelled",
+        args: &[Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.newNet",
+        symbol: "buri_rt_host_testing_new_net",
+        args: &[],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.recordFetch",
+        symbol: "buri_rt_host_testing_record_fetch",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Str, Arg::List, Arg::List],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.netCalls",
+        symbol: "buri_rt_host_testing_net_calls",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
     },
     Entry {
         key: "host_testing.clock",
@@ -1488,7 +1541,9 @@ mod tests {
             // side — a responder is a `{ code, env }` pair the archive has no
             // way to invoke, and its answer is the `Result<Response, NetError>`
             // §2.1 cannot name — and it is why widening §2.1 later changes
-            // nothing about the double.
+            // nothing about the double. Its *log* is a different question and
+            // has three rows above: `newNet`, `recordFetch` and
+            // `netCalls` cross nothing §2.1 restricts.
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }
