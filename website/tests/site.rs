@@ -106,6 +106,10 @@ fn the_site_builds_from_the_documentation_in_the_tree() {
         "the README's Buri example was not highlighted at build time"
     );
     assert!(!front.contains("<script src="), "the site loads no external script");
+    assert!(
+        front.contains("preloadOnHover"),
+        "the front page does not preload the pages its links point at"
+    );
 
     let _ = std::fs::remove_dir_all(&out);
 }
