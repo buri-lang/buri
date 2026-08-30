@@ -86,9 +86,16 @@ use std::sync::Mutex;
 enum Slot {
     /// `CaptureOut` and `CaptureErr` — the transcript, as text.
     Text(String),
-    /// `TestStdin` — the lines, how many have been read, and the octets where
-    /// it was built by `stdinBytes` rather than by `stdin`.
-    Stdin { lines: Vec<String>, at: usize, bytes: Option<Vec<u8>> },
+    /// `TestStdin` — the lines, how many have been read, the octets where it
+    /// was built by `stdinBytes` rather than by `stdin`, and the reads made
+    /// through this handle.
+    ///
+    /// `calls` is `core/host/testing`'s and stays empty for a
+    /// `core/testing/context` stdin, which has no `calls()` to read it with.
+    /// One field costs a `Vec` that is never allocated until something is
+    /// pushed to it; a second variant would cost every `readLine` a second arm
+    /// that answered the same thing.
+    Stdin { lines: Vec<String>, at: usize, bytes: Option<Vec<u8>>, calls: Vec<StdinLog> },
     /// `MemFs` — the files, in insertion order, and the directories `makeDir`
     /// has been asked for.
     ///
@@ -123,7 +130,46 @@ enum Slot {
     /// `store` is always an index below the view's own, because the store is
     /// installed first — which is what makes reading a view one lookup rather
     /// than a walk.
-    Fs { store: i64, read_only: bool },
+    Fs { store: i64, read_only: bool, calls: Vec<FsLog> },
+    /// `core/host/testing`'s `TestNet` — its log, and nothing else.
+    ///
+    /// The one slot that holds no state the double *reads*: a `TestNet` carries
+    /// its responder as a value, because behaviour is what a runner cannot hold
+    /// (`host_testing.buri`'s own documentation), and a log is state, which is
+    /// what a runner is for. So the handle names the log and the responder
+    /// travels in the program.
+    Net { calls: Vec<NetLog> },
+}
+
+/// One call to a `TestFs`, as `core/host/testing`'s `FsCall` records it: the
+/// method's name, the path, and the second argument as text.
+///
+/// `name` is `&'static str` because the only names are the eleven this file
+/// writes down; a call a program invented is not reachable.
+struct FsLog {
+    name: &'static str,
+    path: String,
+    body: String,
+}
+
+/// One request through a `TestNet`, as `NetCall` records it — `Request`'s four
+/// fields, in the order `core/effect` declares them.
+///
+/// `method` is the variant's index, which is what crosses in either direction:
+/// `host_testing.buri`'s `methodCode` sends it and [`BuriNetCall`] writes it
+/// back.
+struct NetLog {
+    method: i8,
+    url: String,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+/// One read from a `TestStdin`. `count` is what `readBytes` asked for, and zero
+/// for `readLine`.
+struct StdinLog {
+    name: &'static str,
+    count: i64,
 }
 
 static TABLE: Mutex<Vec<Slot>> = Mutex::new(Vec::new());
@@ -393,7 +439,7 @@ pub unsafe extern "C" fn buri_rt_testing_context_stdin(
 ) {
     // SAFETY: forwarded to the caller.
     let lines = unsafe { strings(xs, count) };
-    let handle = install(Slot::Stdin { lines, at: 0, bytes: None });
+    let handle = install(Slot::Stdin { lines, at: 0, bytes: None, calls: Vec::new() });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) }
 }
@@ -419,7 +465,7 @@ pub unsafe extern "C" fn buri_rt_testing_context_stdin_bytes(
         // SAFETY: the caller promises `len` readable bytes.
         unsafe { std::slice::from_raw_parts(ptr, len as usize) }.to_vec()
     };
-    let handle = install(Slot::Stdin { lines: Vec::new(), at: 0, bytes: Some(bytes) });
+    let handle = install(Slot::Stdin { lines: Vec::new(), at: 0, bytes: Some(bytes), calls: Vec::new() });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) }
 }
@@ -434,7 +480,7 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_stdin_read_line(
     out: *mut BuriStr,
 ) -> i32 {
     let line = with(handle, None, |slot| match slot {
-        Slot::Stdin { lines, at, bytes } if bytes.is_none() => {
+        Slot::Stdin { lines, at, bytes, .. } if bytes.is_none() => {
             let line = lines.get(*at).cloned();
             if line.is_some() {
                 *at = at.saturating_add(1);
@@ -1237,7 +1283,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stderr_captured(
 /// `out` must be writable and aligned for an `i64`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_stdin(out: *mut i64) {
-    let handle = install(Slot::Stdin { lines: Vec::new(), at: 0, bytes: None });
+    let handle = install(Slot::Stdin { lines: Vec::new(), at: 0, bytes: None, calls: Vec::new() });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) }
 }
@@ -1260,7 +1306,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_lines(
 ) {
     // SAFETY: forwarded to the caller.
     let lines = unsafe { strings(xs, count) };
-    let handle = install(Slot::Stdin { lines, at: 0, bytes: None });
+    let handle = install(Slot::Stdin { lines, at: 0, bytes: None, calls: Vec::new() });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) }
 }
@@ -1283,7 +1329,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_bytes(
         // SAFETY: the caller promises `len` readable bytes.
         unsafe { std::slice::from_raw_parts(ptr, len as usize) }.to_vec()
     };
-    let handle = install(Slot::Stdin { lines: Vec::new(), at: 0, bytes: Some(bytes) });
+    let handle = install(Slot::Stdin { lines: Vec::new(), at: 0, bytes: Some(bytes), calls: Vec::new() });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) }
 }
@@ -1297,8 +1343,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_read_line(
     handle: i64,
     out: *mut BuriStr,
 ) -> i32 {
+    let _recorded = recording_stdin(handle, "readLine", 0);
     let line = with(handle, None, |slot| match slot {
-        Slot::Stdin { lines, at, bytes } if bytes.is_none() => {
+        Slot::Stdin { lines, at, bytes, .. } if bytes.is_none() => {
             let line = lines.get(*at).cloned();
             if line.is_some() {
                 *at = at.saturating_add(1);
@@ -1323,6 +1370,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_read_bytes(
     n: i64,
     out: *mut BuriList,
 ) -> i32 {
+    let _recorded = recording_stdin(handle, "readBytes", n);
     let taken = with(handle, None, |slot| match slot {
         Slot::Stdin { at, bytes: Some(bytes), .. } => {
             if *at >= bytes.len() || n <= 0 {
@@ -1372,7 +1420,7 @@ const IO_READ_ONLY: i32 = 2;
 fn fs_view(handle: i64) -> (i64, bool) {
     let table = lock();
     match usize::try_from(handle).ok().and_then(|i| table.get(i)) {
-        Some(Slot::Fs { store, read_only }) => (*store, *read_only),
+        Some(Slot::Fs { store, read_only, .. }) => (*store, *read_only),
         _ => (-1, false),
     }
 }
@@ -1384,7 +1432,7 @@ fn fs_view(handle: i64) -> (i64, bool) {
 /// rather than a walk.
 fn fs_install(entries: Vec<(String, Vec<u8>)>, dirs: Vec<String>, read_only: bool) -> i64 {
     let store = install(Slot::Files { entries, dirs });
-    install(Slot::Fs { store, read_only })
+    install(Slot::Fs { store, read_only, calls: Vec::new() })
 }
 
 /// This view's files and directories, copied.
@@ -1511,7 +1559,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_only(
     out: *mut i64,
 ) {
     let (store, _) = fs_view(handle);
-    let fresh = install(Slot::Fs { store, read_only: true });
+    let fresh = install(Slot::Fs { store, read_only: true, calls: Vec::new() });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(fresh) }
 }
@@ -1588,6 +1636,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_file(
     len: u64,
     out: *mut BuriStr,
 ) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    // The recording is here and not in `read`, which the two share: `read` is
+    // the read-back and a read-back is not a call.
+    let _recorded = recording_fs(handle, "readFile", &path, "");
     // SAFETY: forwarded to the caller.
     unsafe { buri_rt_host_testing_test_fs_read(handle, base, ptr, len, out) }
 }
@@ -1611,13 +1664,15 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_write_file(
     blen: u64,
 ) -> i32 {
     let (store, read_only) = fs_view(handle);
-    if read_only {
-        return IO_READ_ONLY;
-    }
     // SAFETY: the caller promises both ranges.
     let (path, body) = unsafe {
         (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
     };
+    let _recorded =
+        recording_fs(handle, "writeFile", &path, &String::from_utf8_lossy(&body));
+    if read_only {
+        return IO_READ_ONLY;
+    }
     fs_put(store, path, body);
     BURI_OK
 }
@@ -1636,6 +1691,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_file_exists(
 ) -> u8 {
     // SAFETY: the caller promises the range.
     let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let _recorded = recording_fs(handle, "fileExists", &path, "");
     let (store, _) = fs_view(handle);
     let found = with(store, false, |slot| match slot {
         Slot::Files { entries, dirs } => {
@@ -1665,6 +1721,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_dir(
 ) -> i32 {
     // SAFETY: the caller promises the range.
     let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let _recorded = recording_fs(handle, "readDir", &path, "");
     let prefix = if path.is_empty() || path == "." {
         String::new()
     } else {
@@ -1708,6 +1765,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_file_bytes(
 ) -> i32 {
     // SAFETY: the caller promises the range.
     let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let _recorded = recording_fs(handle, "readFileBytes", &path, "");
     let (store, _) = fs_view(handle);
     let Some(body) = fs_read(store, &path) else { return IO_NOT_FOUND };
     let value = list_of_bytes(&body);
@@ -1731,13 +1789,15 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_write_file_bytes(
     blen: u64,
 ) -> i32 {
     let (store, read_only) = fs_view(handle);
-    if read_only {
-        return IO_READ_ONLY;
-    }
     // SAFETY: the caller promises both ranges.
     let (path, body) = unsafe {
         (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
     };
+    let _recorded =
+        recording_fs(handle, "writeFileBytes", &path, &String::from_utf8_lossy(&body));
+    if read_only {
+        return IO_READ_ONLY;
+    }
     fs_put(store, path, body);
     BURI_OK
 }
@@ -1757,13 +1817,15 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_append_file(
     blen: u64,
 ) -> i32 {
     let (store, read_only) = fs_view(handle);
-    if read_only {
-        return IO_READ_ONLY;
-    }
     // SAFETY: the caller promises both ranges.
     let (path, body) = unsafe {
         (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
     };
+    let _recorded =
+        recording_fs(handle, "appendFile", &path, &String::from_utf8_lossy(&body));
+    if read_only {
+        return IO_READ_ONLY;
+    }
     with(store, (), |slot| {
         if let Slot::Files { entries, .. } = slot {
             match entries.iter_mut().find(|(k, _)| *k == path) {
@@ -1791,9 +1853,6 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_rename_file(
     tlen: u64,
 ) -> i32 {
     let (store, read_only) = fs_view(handle);
-    if read_only {
-        return IO_READ_ONLY;
-    }
     // SAFETY: the caller promises both ranges.
     let (from, to) = unsafe {
         (
@@ -1801,6 +1860,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_rename_file(
             String::from_utf8_lossy(view(tptr, tlen)).into_owned(),
         )
     };
+    let _recorded = recording_fs(handle, "renameFile", &from, &to);
+    if read_only {
+        return IO_READ_ONLY;
+    }
     with(store, IO_NOT_FOUND, |slot| {
         let Slot::Files { entries, .. } = slot else { return IO_NOT_FOUND };
         let Some(at) = entries.iter().position(|(k, _)| *k == from) else {
@@ -1828,11 +1891,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_remove_file(
     len: u64,
 ) -> i32 {
     let (store, read_only) = fs_view(handle);
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let _recorded = recording_fs(handle, "removeFile", &path, "");
     if read_only {
         return IO_READ_ONLY;
     }
-    // SAFETY: the caller promises the range.
-    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     with(store, IO_NOT_FOUND, |slot| {
         let Slot::Files { entries, .. } = slot else { return IO_NOT_FOUND };
         let Some(at) = entries.iter().position(|(k, _)| *k == path) else {
@@ -1857,11 +1921,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_make_dir(
     len: u64,
 ) -> i32 {
     let (store, read_only) = fs_view(handle);
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let _recorded = recording_fs(handle, "makeDir", &path, "");
     if read_only {
         return IO_READ_ONLY;
     }
-    // SAFETY: the caller promises the range.
-    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     let clean = fs_clean(&path).to_string();
     if clean.is_empty() {
         return BURI_OK;
@@ -1901,6 +1966,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_sync_file(
 ) -> i32 {
     // SAFETY: the caller promises the range.
     let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let _recorded = recording_fs(handle, "syncFile", &path, "");
     let clean = fs_clean(&path).to_string();
     if clean.is_empty() {
         return BURI_OK;
@@ -2103,6 +2169,297 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
 // `proc()` is `TestProc(0)` and `exitWith` is an empty body, both written in
 // `host_testing.buri` — the same shape `TestNet` has, reached for the plainer
 // reason.
+
+// -- `core/host/testing`'s call log -----------------------------------------
+//
+// One append-only log per handle: `Slot::Fs`'s, `Slot::Net`'s and
+// `Slot::Stdin`'s. What a double answers comes from its fixture and what it was
+// *asked* comes from here, and the two are separate because a test asserting on
+// a call is asking a different question from one asserting on an outcome.
+//
+// **In completion order**, which is what `calls()` promises. Nothing here
+// suspends yet, so completion order is program order — but the recording is
+// still done on the way *out* of a call rather than on the way in, by
+// [`Recording`]'s `Drop`, so that the day a call can be in flight the order
+// does not have to be revisited. That is also what makes one line per method
+// enough: a refusal returns early and is recorded exactly as an answer is.
+//
+// The three `Buri*Call` records below are the Buri types' layouts, and they are
+// `#[repr(C)]` for `value.rs`'s reason: VALUE-MODEL.md §5 lays a struct out in
+// declaration order at natural alignment under C rules, so a `#[repr(C)]`
+// record of the same fields *is* the layout rather than a description of it.
+
+/// `FsCall` — `struct { name: Str, path: Str, body: Str }`, three `Str`s end to
+/// end.
+#[repr(C)]
+struct BuriFsCall {
+    name: BuriStr,
+    path: BuriStr,
+    body: BuriStr,
+}
+
+/// `NetCall(Request)` — a newtype *is* its field, and `Request` is
+/// `{ method: Method, url: Str, headers: [Header], body: [U8] }`.
+///
+/// `Method` is seven payload-free variants, which VALUE-MODEL.md §6's first
+/// niche makes the tag itself — an `i8`, since `middle::layout` gives every
+/// enum of at most 256 variants one. It is the only discriminant this file
+/// writes, and `cli/tests/conformance/lib/semantics/test/host_testing.buri`
+/// asserts a round trip through all seven on every backend.
+#[repr(C)]
+struct BuriNetCall {
+    method: i8,
+    url: BuriStr,
+    headers: BuriList,
+    body: BuriList,
+}
+
+/// `StdinCall` — `struct { name: Str, count: Int }`.
+#[repr(C)]
+struct BuriStdinCall {
+    name: BuriStr,
+    count: i64,
+}
+
+/// A `[T]` of one of the three records above: one block of `size_of::<T>()`
+/// strides, each written in place.
+///
+/// [`list_of_pairs`] with the element type abstracted, and the same two
+/// promises: the stride is a multiple of 8 and the payload is 16-aligned, so
+/// every element is 8-aligned; and each element's strings are their own blocks.
+fn list_of<T, S>(items: &[S], element: impl Fn(&S) -> T) -> BuriList {
+    let stride = size_of::<T>();
+    if items.is_empty() {
+        return BuriList { ptr: std::ptr::null_mut(), len: 0 };
+    }
+    let bytes = items.len().saturating_mul(stride);
+    let ptr = crate::memory::buri_rt_alloc(bytes as u64);
+    for (i, item) in items.iter().enumerate() {
+        // SAFETY: `i * stride` is within the `items.len() * stride` block, and
+        // the destination is 8-aligned because the payload is 16-aligned and
+        // every one of the three strides is a multiple of 8.
+        unsafe { ptr.add(i.saturating_mul(stride)).cast::<T>().write(element(item)) };
+    }
+    BuriList { ptr, len: items.len() as u64 }
+}
+
+/// One call, appended to `handle`'s log when it goes out of scope.
+///
+/// Which is where the call *completes*, whichever arm returned it — an early
+/// refusal and a plain answer are one line at the top of the function rather
+/// than two call sites that could drift apart.
+struct Recording {
+    handle: i64,
+    call: Option<Call>,
+}
+
+/// What a [`Recording`] is holding until the call it names finishes.
+enum Call {
+    Fs(FsLog),
+    Stdin(StdinLog),
+}
+
+impl Drop for Recording {
+    fn drop(&mut self) {
+        let Some(call) = self.call.take() else { return };
+        with(self.handle, (), |slot| match (slot, call) {
+            (Slot::Fs { calls, .. }, Call::Fs(one)) => calls.push(one),
+            (Slot::Stdin { calls, .. }, Call::Stdin(one)) => calls.push(one),
+            _ => {}
+        });
+    }
+}
+
+/// A `TestFs` call, recorded on the **view** it was made through.
+///
+/// The view and not the store: `calls()` is per handle, so a builder's new
+/// filesystem and `readOnly`'s new view each start with an empty log, and the
+/// calls a test reads back are the ones made through the value it put in the
+/// context.
+fn recording_fs(handle: i64, name: &'static str, path: &str, body: &str) -> Recording {
+    Recording {
+        handle,
+        call: Some(Call::Fs(FsLog {
+            name,
+            path: path.to_string(),
+            body: body.to_string(),
+        })),
+    }
+}
+
+/// A `TestStdin` read, recorded on the stream it was made through.
+fn recording_stdin(handle: i64, name: &'static str, count: i64) -> Recording {
+    Recording { handle, call: Some(Call::Stdin(StdinLog { name, count })) }
+}
+
+/// `TestFs::calls` — every call through this view, in completion order.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_calls(handle: i64, out: *mut BuriList) {
+    let calls = with(handle, Vec::new(), |slot| match slot {
+        Slot::Fs { calls, .. } => {
+            calls.iter().map(|c| (c.name, c.path.clone(), c.body.clone())).collect()
+        }
+        _ => Vec::new(),
+    });
+    let value = list_of(&calls, |(name, path, body): &(&'static str, String, String)| BuriFsCall {
+        name: str_of(name),
+        path: str_of(path),
+        body: str_of(body),
+    });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `TestStdin::calls` — every read through this stream, in completion order.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_calls(handle: i64, out: *mut BuriList) {
+    let calls = with(handle, Vec::new(), |slot| match slot {
+        Slot::Stdin { calls, .. } => calls.iter().map(|c| (c.name, c.count)).collect(),
+        _ => Vec::new(),
+    });
+    let value = list_of(&calls, |(name, count): &(&'static str, i64)| BuriStdinCall {
+        name: str_of(name),
+        count: *count,
+    });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `newNet()` — a fresh, empty log, and the handle that names it.
+///
+/// A bare `I64` rather than a slot-shaped value, in
+/// `buri_rt_alloc_new_counter`'s shape and for its reason: `net()` is a Buri
+/// body that builds the `TestNet` itself, because the responder in the other
+/// field is a value the archive cannot make.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_new_net() -> i64 {
+    install(Slot::Net { calls: Vec::new() })
+}
+
+/// `recordFetch(handle, method, url, headers, body)` — one request, recorded
+/// after the responder has answered it.
+///
+/// The four pieces are `Request`'s four fields flattened by §2 rule 1, which is
+/// exactly what `crate::buri_rt_host_net_fetch` is handed: the method's variant
+/// index, the URL's three `Str` leaves, and two `(ptr, len)` pairs. They are
+/// put back together by [`buri_rt_host_testing_net_calls`].
+///
+/// # Safety
+/// The URL view, the `[Header]` and the `[U8]` must be live for the call.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn buri_rt_host_testing_record_fetch(
+    handle: i64,
+    method: i64,
+    _ubase: *mut u8,
+    uptr: *const u8,
+    ulen: u64,
+    hptr: *const u8,
+    hlen: u64,
+    bptr: *const u8,
+    blen: u64,
+) {
+    // SAFETY: the caller promises the range.
+    let url = String::from_utf8_lossy(unsafe { view(uptr, ulen) }).into_owned();
+    // SAFETY: the caller promises `hlen` live `Header`s at `hptr`.
+    let headers = unsafe { header_pairs(hptr, hlen) };
+    // SAFETY: the caller promises `blen` readable bytes; a `[U8]`'s stride is
+    // one, so the payload is the octets themselves.
+    let body = unsafe { view(bptr, blen) }.to_vec();
+    let call = NetLog { method: method as i8, url, headers, body };
+    with(handle, (), |slot| {
+        if let Slot::Net { calls } = slot {
+            calls.push(call);
+        }
+    });
+}
+
+/// The name/value pairs of a `[Header]` argument.
+///
+/// `Header` is two `Str`s end to end, which is [`BuriPair`]'s shape — the same
+/// element [`list_of_pairs`] writes, read the other way.
+///
+/// # Safety
+/// `ptr` is the payload of a live `[Header]` of `len` elements, or null with a
+/// zero length.
+unsafe fn header_pairs(ptr: *const u8, len: u64) -> Vec<(String, String)> {
+    let stride = size_of::<BuriPair>();
+    let mut out = Vec::new();
+    if ptr.is_null() {
+        return out;
+    }
+    for i in 0..len as usize {
+        // SAFETY: the caller promises `len` elements at `ptr`.
+        let element = unsafe { &*ptr.add(i.saturating_mul(stride)).cast::<BuriPair>() };
+        // SAFETY: an element of a live list holds live `Str` views.
+        out.push(unsafe {
+            (element.key.as_str().into_owned(), element.value.as_str().into_owned())
+        });
+    }
+    out
+}
+
+/// `netCalls(handle)` — every request through this network, in the order they
+/// were answered.
+///
+/// By the handle and not by the `TestNet`: that value carries a responder as
+/// well, and an argument crosses as its leaves, so `self` would arrive here as
+/// a handle *and* a `{ code, env }` pair this side has no name for.
+/// `TestNet.calls` is the Buri body that unwraps it.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_net_calls(handle: i64, out: *mut BuriList) {
+    let calls = with(handle, Vec::new(), |slot| match slot {
+        Slot::Net { calls } => calls
+            .iter()
+            .map(|c| (c.method, c.url.clone(), c.headers.clone(), c.body.clone()))
+            .collect(),
+        _ => Vec::new(),
+    });
+    let value = list_of(
+        &calls,
+        |(method, url, headers, body): &(i8, String, Vec<(String, String)>, Vec<u8>)| {
+            BuriNetCall {
+                method: *method,
+                url: str_of(url),
+                headers: crate::value::list_of_headers(headers),
+                body: list_of_bytes(body),
+            }
+        },
+    );
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `spelled(body)` — the text these octets spell, replacing what is not UTF-8.
+///
+/// The decode `readFile` already does on the way out of a byte fixture, reached
+/// by an `FsCall` constructor rather than by a filesystem: a test writing a call
+/// down performs no effect and so has no context to decode with.
+///
+/// # Safety
+/// `ptr` is readable for `len` bytes, or null with a zero length; `out` is
+/// writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_spelled(
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriStr,
+) {
+    // SAFETY: the caller promises the range.
+    let body = unsafe { view(ptr, len) };
+    let value = str_of(&String::from_utf8_lossy(body));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
 
 // ---------------------------------------------------------------------------
 // The runner's side of a native test binary
