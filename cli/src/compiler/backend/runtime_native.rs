@@ -103,6 +103,82 @@ pub const ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libburi_rt.
 /// Whether this toolchain has a runtime to link against.
 pub const AVAILABLE: bool = !ARCHIVE.is_empty();
 
+/// The Cargo features `cli/build.rs` built the archive with, one per line.
+///
+/// Written beside the archive and its digest by one run of the build script, so
+/// a stale `OUT_DIR` cannot pair one build's bytes with another's answer — the
+/// same argument [`ARCHIVE_SHA256`] is written for. Empty when there is no
+/// archive at all: a host the runtime is not built for, and a host whose
+/// dependency tree would not resolve, both write nothing here.
+const FEATURES: &str = include_str!(concat!(env!("OUT_DIR"), "/libburi_rt.a.features"));
+
+/// Whether the archive was built with a named Cargo feature.
+///
+/// A file read rather than a `--cfg`, for the reason the emptiness of
+/// [`ARCHIVE`] is the availability signal: conditional compilation would need a
+/// `check-cfg` list to know about, and this way the fact travels with the bytes
+/// it is a fact about.
+///
+/// Whole lines, because the next feature is `net-h3` and it contains `net`.
+pub fn declares(feature: &str) -> bool {
+    declares_in(FEATURES, feature)
+}
+
+/// [`declares`], over a feature list the caller supplies.
+///
+/// [`FEATURES`] is baked into this binary, so a test has no way to ask what a
+/// differently-built toolchain's file would answer. This is that seam.
+fn declares_in(features: &str, feature: &str) -> bool {
+    features.lines().any(|line| line == feature)
+}
+
+/// Whether this toolchain's runtime archive carries the networking crates.
+///
+/// The runtime's `net` feature is on by default, so this is true of every
+/// ordinary toolchain. It is false in three ways, and the language-visible
+/// consequence is the same in all three: `BURI_RUNTIME_NET=0` at build time, a
+/// dependency tree that would not resolve, and a host with no archive at all.
+///
+/// What reads it is [`super::networking_gap`], which turns it into a refusal
+/// naming the operations rather than a link error naming a symbol. That
+/// asymmetry is the workspace manifest's dependency bar: `backend-llvm` off
+/// costs a code generator a contributor can do without, and `net` off costs a
+/// *language capability*, which the user is owed a sentence about.
+///
+/// A function rather than a `const`, unlike [`AVAILABLE`] beside it: a `const`
+/// would have to scan the file with indexing and subtraction, which this
+/// repository's lints refuse, and nothing asks this question in a `const`
+/// context.
+pub fn net() -> bool {
+    declares("net")
+}
+
+/// Whether an intrinsic key is one only a `net` runtime answers.
+///
+/// The three host effects the networking archive carries — `Listen` accepts
+/// connections, `Sockets` reads and writes them, `Tasks` runs Buri code on the
+/// carrier pool the same reactor drives. Matched on the effect type rather than
+/// on the whole key, so an operation added to one of them by a later slice is
+/// covered the day it is added rather than the day somebody remembers this
+/// list.
+///
+/// **None of these keys exists yet.** They arrive with `core/tasks` and the
+/// server surface; what exists now is the refusal, so that the day a key lands
+/// it lands with the diagnostic already written. A key this returns true for
+/// and the archive answers anyway is not a problem — the gap is only ever
+/// consulted when [`net`] is false, and with `net` off the archive answers none
+/// of them.
+///
+/// `host.HostNet.fetch` is deliberately **not** here: `cli/runtime/http.rs`
+/// writes its own cleartext client and reaches none of the four crates. The day
+/// `https://` is routed through hyper and rustls, that key joins this list and
+/// this paragraph goes with it.
+pub fn net_intrinsic(key: &str) -> bool {
+    let Some(rest) = key.strip_prefix("host.") else { return false };
+    let Some((effect, _operation)) = rest.split_once('.') else { return false };
+    matches!(effect, "HostListen" | "HostSockets" | "HostTasks")
+}
+
 /// The archive's SHA-256, **taken by `cli/build.rs` when the bytes were
 /// written**.
 ///
@@ -165,6 +241,65 @@ mod tests {
         // assertion above is on the bytes: a host with no archive gets an empty
         // one rather than a build failure.
         assert_eq!(AVAILABLE, !ARCHIVE.is_empty());
+    }
+
+    /// The features file is a fact about the archive beside it, so the two
+    /// cannot disagree about whether there is one.
+    ///
+    /// One direction only, and deliberately: an archive with no `net` is an
+    /// ordinary `BURI_RUNTIME_NET=0` toolchain, while `net` with no archive
+    /// would mean the build script wrote a feature list for bytes it never
+    /// produced.
+    #[test]
+    fn networking_implies_an_archive() {
+        assert!(!net() || AVAILABLE, "the features file names `net` and there is no archive");
+    }
+
+    /// Whole lines, and nothing else: `net-h3` is the next feature this file
+    /// will hold and it contains `net`.
+    #[test]
+    fn a_feature_is_a_whole_line() {
+        assert!(declares_in("net", "net"));
+        assert!(declares_in("net\nnet-h3", "net"));
+        assert!(declares_in("net\nnet-h3", "net-h3"));
+        assert!(!declares_in("net-h3", "net"), "a prefix of a feature is not that feature");
+        assert!(!declares_in("supernet", "net"), "a suffix of a feature is not that feature");
+        assert!(!declares_in("", "net"), "an archive with no features declares none");
+        assert!(!declares_in("net", ""), "the empty string is not a feature");
+        // And the toolchain's own file is read by the same rule.
+        assert_eq!(net(), declares_in(FEATURES, "net"));
+        assert!(!declares("no-such-feature"));
+    }
+
+    /// The family `net` carries, and the near misses that are not it.
+    #[test]
+    fn the_networking_family_is_three_effects() {
+        for key in [
+            "host.HostListen.listen",
+            "host.HostSockets.read",
+            "host.HostTasks.parallel",
+        ] {
+            assert!(net_intrinsic(key), "{key} is not recognised as networking");
+        }
+        for key in [
+            "host.HostFs.readFile",
+            "host.HostClock.nowMillis",
+            "host.HostNet.fetch",
+            "list.map",
+            "host.HostListen",
+            "HostListen.listen",
+            "host.HostListener.listen",
+        ] {
+            assert!(!net_intrinsic(key), "{key} is not networking and was claimed");
+        }
+    }
+
+    /// The family obeys the symbol rule like every other key, so the refusal
+    /// and the link name the same thing.
+    #[test]
+    fn a_networking_key_mangles_like_any_other() {
+        assert_eq!(symbol_for("host.HostListen.listen"), "buri_rt_host_listen_listen");
+        assert_eq!(symbol_for("host.HostTasks.parallel"), "buri_rt_host_tasks_parallel");
     }
 
     /// The hash is what the `link` key is built from, so it has to be a hash of

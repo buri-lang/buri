@@ -8,14 +8,15 @@
 // bit changes the whole digest.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 from "core/bytes/lib.buri" import * as bytes;
 from "core/crypto/lib.buri" import * as crypto;
 from "core/list/lib.buri" import * as list;
 
 fn hex(text: Str): Str {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   crypto.sha256Text(ctx, text).toHex(ctx)
 }
 
@@ -41,7 +42,7 @@ test "the 56-byte vector, which forces a second block" {
 // --- block boundaries ---------------------------------------------------------------
 
 test "messages either side of a block boundary" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // 55 bytes fits with its padding; 56 does not; 64 is exactly a block.
   assert.eq(
     hex("a".repeat(ctx, 55)),
@@ -58,7 +59,7 @@ test "messages either side of a block boundary" {
 }
 
 test "a long message spanning many blocks" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     hex("a".repeat(ctx, 1000)),
     "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3",
@@ -68,13 +69,13 @@ test "a long message spanning many blocks" {
 // --- the digest itself ----------------------------------------------------------------
 
 test "a digest is thirty-two bytes" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(crypto.sha256Text(ctx, "abc").0.len(), 32);
   assert.eq(crypto.sha256Text(ctx, "abc").toHex(ctx).len(), 64);
 }
 
 test "hashing bytes and hashing their text agree" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(crypto.sha256(ctx, bytes.toUtf8(ctx, "hello")), crypto.sha256Text(ctx, "hello"));
 }
 
@@ -86,7 +87,7 @@ test "different messages have different digests" {
 // A digest depends on the bytes, so text that encodes to more bytes than it has
 // characters must not be treated as one byte per character.
 test "non-ASCII text hashes its UTF-8 bytes" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(crypto.sha256Text(ctx, "é"), crypto.sha256(ctx, [195, 169]));
   assert.notEq(hex("é"), hex("e"));
 }
@@ -95,7 +96,7 @@ test "non-ASCII text hashes its UTF-8 bytes" {
 
 // RFC 4231 test case 2, which uses a key shorter than the block.
 test "the RFC 4231 short-key vector" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let key = bytes.toUtf8(ctx, "Jefe");
   let message = bytes.toUtf8(ctx, "what do ya want for nothing?");
   assert.eq(
@@ -106,7 +107,7 @@ test "the RFC 4231 short-key vector" {
 
 // RFC 4231 test case 1: a 20-byte key of 0x0b.
 test "the RFC 4231 twenty-byte-key vector" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let key = list.repeat(ctx, 11, 20);
   let message = bytes.toUtf8(ctx, "Hi There");
   assert.eq(
@@ -118,7 +119,7 @@ test "the RFC 4231 twenty-byte-key vector" {
 // A key longer than the block is hashed first, which is the clause that keeps
 // two long keys from colliding by accident of length.
 test "the RFC 4231 long-key vector" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let key = list.repeat(ctx, 170, 131);
   let message = bytes.toUtf8(ctx, "Test Using Larger Than Block-Size Key - Hash Key First");
   assert.eq(
@@ -128,7 +129,7 @@ test "the RFC 4231 long-key vector" {
 }
 
 test "hmac depends on the key" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let m = bytes.toUtf8(ctx, "message");
   let a = crypto.hmacSha256(ctx, bytes.toUtf8(ctx, "k1"), m);
   let b = crypto.hmacSha256(ctx, bytes.toUtf8(ctx, "k2"), m);
@@ -138,7 +139,7 @@ test "hmac depends on the key" {
 // --- constant-time comparison --------------------------------------------------------
 
 test "equalsConstantTime agrees with equality" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let a = crypto.sha256Text(ctx, "x").0;
   let b = crypto.sha256Text(ctx, "x").0;
   let c = crypto.sha256Text(ctx, "y").0;

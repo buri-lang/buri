@@ -1,9 +1,15 @@
 //! The host capabilities: one native entry per `$host_*` in `backend/js/runtime.js`.
 //!
-//! `core/host` exports ten zero-sized implementations (`host.buri:18-87`) and
-//! `core/effect` declares what each of them grants. Every method of every one of
-//! them has a counterpart here, named by the rule in `lib.rs` §1:
-//! `host.HostFs.readFile` is `buri_rt_host_fs_read_file`.
+//! `core/host` exports one zero-sized implementation per effect a platform can
+//! grant, and `core/effect` declares what each of them grants. Every method of
+//! every one a *native* platform grants has a counterpart here, named by the
+//! rule in `lib.rs` §1: `host.HostFs.readFile` is `buri_rt_host_fs_read_file`.
+//!
+//! Four of the implementations have no counterpart, for two reasons and neither
+//! of them an omission. `HostUi`, `HostWatch` and `HostFetch` drive a document,
+//! and a native binary has none. `HostTasks` is granted by no platform at all —
+//! it is declared ahead of the scheduler that will answer `parallel`, so there
+//! is a signature to implement and, deliberately, nothing yet implementing it.
 //!
 //! ## Buffering, and why it matches JavaScript
 //!

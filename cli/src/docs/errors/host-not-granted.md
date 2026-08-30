@@ -2,7 +2,7 @@
 title: A platform grants the effects its host exports
 message: `{platform}` does not grant `{name}`
 note: a platform is the set of effects its host exports; {because}
-fix: drop `{effect}` from the context, or build this target for a platform that grants it: {platforms}
+fix: drop `{effect}` from the context{elsewhere}
 ---
 # A platform grants the effects its host exports
 
@@ -13,7 +13,9 @@ error: `JS` does not grant `ui` [host-not-granted]
 ## What to do
 
 Drop the effect from the context, or build this target for a platform that
-grants it.
+grants it. Where the fix names no platform to build for, there is none: some
+effects are declared ahead of the runtime that answers them, and `Tasks` is
+one today, so dropping it from the context is the whole of the fix.
 
 ## Why
 
@@ -21,6 +23,12 @@ A platform *is* the set of effects its host exports, so a platform that does
 not grant one does not export the name for it. Asking for it is then an
 ordinary unresolved name at the line that asked, and there is no second
 declaration anywhere that has to be kept in step.
+
+The same sentence covers an effect *nobody* grants. A declaration may land
+before its implementation — the signature is the expensive thing to change once
+programs are written against it — and the table simply gives that effect an
+empty list of platforms. No new mechanism, no "not implemented yet" flag: it is
+withheld everywhere, for a stated reason, and granting it later is one row.
 
 ## A program that provokes it
 

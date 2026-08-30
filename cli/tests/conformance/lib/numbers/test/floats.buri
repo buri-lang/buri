@@ -12,7 +12,8 @@ from "core/math/lib.buri" import * as math;
 from "core/num/lib.buri" import * as num;
 from "core/order/lib.buri" import { Order };
 from "core/str/lib.buri" import * as str;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 fn nan(): F64 {
   0.0 / 0.0
@@ -310,7 +311,7 @@ test "F32 rounds a decimal literal to binary32" {
 // --- Rendering and parsing -----------------------------------------------------------------
 
 test "a whole-number float renders with a point" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.fromFloat(ctx, 1.0), "1.0");
   assert.eq(str.fromFloat(ctx, 0.0), "0.0");
   assert.eq(str.fromFloat(ctx, -2.0), "-2.0");
@@ -318,14 +319,14 @@ test "a whole-number float renders with a point" {
 }
 
 test "a fractional float renders its digits" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.fromFloat(ctx, 0.5), "0.5");
   assert.eq(str.fromFloat(ctx, -0.25), "-0.25");
   assert.eq(str.fromFloat(ctx, 0.1 + 0.2), "0.30000000000000004");
 }
 
 test "the special values render as names rather than numbers" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.fromFloat(ctx, inf()), "inf");
   assert.eq(str.fromFloat(ctx, negInf()), "-inf");
   assert.eq(str.fromFloat(ctx, nan()), "NaN");
@@ -333,7 +334,7 @@ test "the special values render as names rather than numbers" {
 }
 
 test "show on a float agrees with str.fromFloat" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let a: F64 = 1.5;
   assert.eq(a.show(ctx), str.fromFloat(ctx, 1.5));
   let b: F64 = 2.0;
@@ -341,7 +342,7 @@ test "show on a float agrees with str.fromFloat" {
 }
 
 test "str.toFloat parses what str.fromFloat wrote" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(assert.some(str.fromFloat(ctx, 1.5).toFloat()), 1.5);
   assert.eq(assert.some(str.fromFloat(ctx, -0.25).toFloat()), -0.25);
   assert.eq(assert.some("2.5".toFloat()), 2.5);
