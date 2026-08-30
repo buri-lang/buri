@@ -179,6 +179,30 @@ imported only by the module that exports `main`. `core/io`, `core/fs`,
 are used through. `core/testing/assert`, `core/host/testing` and
 `core/testing/context` are importable only from a test source.
 
+`core/net/http` is where `Request` and `Response` are documented — the two types
+`Net.fetch` speaks in, re-exported from `core/effect` where the effect's own
+signature names them. A message is built by a free function and then by
+chaining:
+
+```buri
+from "core/effect/lib.buri" import { Alloc, Net };
+from "core/net/http/lib.buri" import * as http;
+
+fn ping<C: Alloc + Net>(ctx: C): Str {
+  match (http.send(ctx, http.request(.Get, "http://example.com/ping"))) {
+    .Ok(reply) => http.bodyText(ctx, reply.body).withDefault("not text"),
+    .Err(e) => http.errorText(e),
+  }
+}
+```
+
+The `with*` methods — `withHeader`, `withBody`, `withStatus`, `withMethod` —
+each answer a *new* message, so a request is assembled by chaining and never by
+mutation. There are no associated functions in the language (a function inside
+an `impl` block takes `self`), so the constructors are free functions:
+`http.request`, `http.textRequest`, `http.status`, `http.ok`, `http.text`,
+`http.json`.
+
 `core/host/testing` is `core/host`'s surface for a test: the same names —
 `alloc`, `stdout`, `stderr`, `clock`, `rand`, `env`, `proc` — **called** rather
 than referred to, so each one is a fresh double, and configured by a method that
