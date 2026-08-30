@@ -118,9 +118,19 @@ export effect Rand {
   fn nextFloat(self): Float;
 }
 
+/// The process's environment: its variables and the arguments it was started
+/// with.
+///
+/// `args` and not `arguments`, which is the name a program has always written
+/// — `core/env` exports `args(ctx)`, and it is the only caller of this method.
+/// The spelling is load-bearing rather than a preference: a type's methods are
+/// one map keyed by name, so an implementation of this effect cannot also
+/// carry a *builder* called `arguments`, and `core/host/testing`'s `TestEnv`
+/// is exactly that — `env().arguments([...])` is how a test says what the
+/// arguments are. The reader is the one that gave way.
 export effect Env {
   fn variable(self, name: Str): Option<Str>;
-  fn arguments(self): [Str];
+  fn args(self): [Str];
 }
 
 export effect Proc {
@@ -148,12 +158,18 @@ export effect Proc {
 /// `self` or `ctx` (SPEC 10.6), so a task receives the full context as a
 /// parameter and captures nothing effectful.
 ///
-/// **No platform grants this yet.** `core/host` declares `HostTasks` and
-/// `tasks`, and the grant table gives them no platform at all, so every
-/// `Tasks: host.tasks` is refused today with the reason. The declaration lands
-/// ahead of the scheduler on purpose: the signature is the part that is
-/// expensive to change once programs are written against it, and it can be
-/// reviewed, documented and pinned before there is a runtime to argue with.
+/// **Granted on LINUX, MACOS and JS**, and withheld from WEB, which is the same
+/// three as `Fs` and `Net` and for a reason of the same kind: `parallel` returns
+/// only when the last task has finished, and a page has an interface that
+/// freezing is visible in. A page's concurrency is its event loop.
+///
+/// How much of it runs at once is a property of the platform and not of this
+/// signature. JavaScript starts the tasks together and awaits them together; the
+/// native runtime fans them out onto its carrier pool, except where a program
+/// has a single Buri stack to hold their frames in — the development backend —
+/// and there it runs them in index order on the calling carrier. Every one of
+/// those answers the same list, because the order promise above is what the
+/// signature commits to and the overlap is not. `core/tasks` has the table.
 export effect Tasks {
   /// Runs `f` over every item and answers the results in the items' order.
   fn parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B];

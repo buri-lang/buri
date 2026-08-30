@@ -105,7 +105,7 @@ pub enum Extra {
     /// (`backend/intrinsic_keys.rs`'s `step_call`):
     ///
     /// ```text
-    ///   entry       the generated C-ABI thunk, `void(state, in, out)`
+    ///   entry       the generated C-ABI thunk, `void(state, index, in, out)`
     ///   state       the backend's own record, opaque to the runtime
     ///   in_stride   the source element's stride
     ///   out_stride  the result element's stride
@@ -288,15 +288,16 @@ pub const ENTRIES: &[Entry] = &[
     // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
     // C-ABI entry thunk of [`Extra::Step`] instead of through the loop
     // `stencil/lists.rs` open-codes. It is the *pilot* for that mechanism and
-    // nothing else uses it: `core/list`'s own combinators keep their loops,
-    // which are faster than a call per element can be, and the operations the
-    // trampoline exists for — a task pool, an accepting socket — are not
-    // written yet.
+    // nothing in `core/list` uses it: those combinators keep their loops, which
+    // are faster than a call per element can be.
     //
-    // So this row is here to be *called*, by a conformance fixture and by an
-    // agreement row, before there is anything else to call it with. The
+    // So this row landed to be *called*, by a conformance fixture and by an
+    // agreement row, before there was anything else to call it with. The
     // alternative was landing the boundary underneath `Tasks.parallel` and
-    // debugging two new things at once.
+    // debugging two new things at once. `host.HostTasks.parallel` is that
+    // second key and it is in the `core/host` block below, beside the rest of
+    // the host surface rather than up here — the trampoline is a mechanism, not
+    // a section of this table.
     es("list.mapCtxStep", "buri_rt_list_map_ctx_step", Ret::Out),
     // -- core/bytes ---------------------------------------------------------
     //
@@ -369,6 +370,18 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostRand.nextInt", "buri_rt_host_rand_next_int", Ret::Scalar),
     e("host.HostRand.nextFloat", "buri_rt_host_rand_next_float", Ret::Scalar),
     e("host.HostProc.exitWith", "buri_rt_host_proc_exit_with", Ret::NoReturn),
+    // -- Tasks --------------------------------------------------------------
+    //
+    // `parallel(self, items, f)`. `self` is `HostTasks`, an empty struct, so it
+    // flattens to nothing; `items` is the `[A]` the runtime walks, which is what
+    // the strides of [`Extra::Step`] describe; `f` crosses as the entry thunk
+    // and the state record rather than as `{ code, env }`.
+    //
+    // The body is in `cli/runtime/rt.rs` behind feature `net`, which is why
+    // `runtime_native::net_intrinsic` names the `host.HostTasks.*` family: a
+    // toolchain built without the reactor refuses this key with a sentence
+    // before code generation rather than with a missing symbol from `cc`.
+    es("host.HostTasks.parallel", "buri_rt_host_tasks_parallel", Ret::Out),
     // -- core/alloc's counters ----------------------------------------------
     //
     // Four scalars in, one scalar out, and no context anywhere in them: the
@@ -538,8 +551,8 @@ pub const ENTRIES: &[Entry] = &[
         Ret::Opt,
     ),
     e(
-        "testing_context.TestEnv.arguments",
-        "buri_rt_testing_context_test_env_arguments",
+        "testing_context.TestEnv.args",
+        "buri_rt_testing_context_test_env_args",
         Ret::Out,
     ),
     // -- core/host/testing --------------------------------------------------
@@ -552,6 +565,11 @@ pub const ENTRIES: &[Entry] = &[
     // `alloc` and `TestAlloc.allocate` are open-coded, as
     // `testing_context`'s are, and are named in
     // [`the_unimplemented_surface_is_not_claimed`] for the same reason.
+    //
+    // `proc` and `TestProc.exitWith` are absent and are not named there either,
+    // for `TestNet.fetch`'s reason rather than the allocator's: both are Buri
+    // bodies, so no key reaches this table to be missing from it. `TestProc`
+    // records nothing because nothing can read it back.
     e("host_testing.stdout", "buri_rt_host_testing_stdout", Ret::Out),
     e("host_testing.stderr", "buri_rt_host_testing_stderr", Ret::Out),
     e("host_testing.TestStdout.print", "buri_rt_host_testing_test_stdout_print", Ret::Void),
@@ -659,12 +677,9 @@ pub const ENTRIES: &[Entry] = &[
     ),
     e("host_testing.env", "buri_rt_host_testing_env", Ret::Out),
     e("host_testing.TestEnv.variables", "buri_rt_host_testing_test_env_variables", Ret::Out),
-    e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
-    e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
     e("host_testing.TestEnv.arguments", "buri_rt_host_testing_test_env_arguments", Ret::Out),
-    e("host_testing.proc", "buri_rt_host_testing_proc", Ret::Out),
-    e("host_testing.TestProc.exitWith", "buri_rt_host_testing_test_proc_exit_with", Ret::Void),
-    e("host_testing.TestProc.exited", "buri_rt_host_testing_test_proc_exited", Ret::Opt),
+    e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
+    e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.

@@ -1866,10 +1866,36 @@ function $host_HostEnv_variable(self, name) {
   return v === undefined ? undefined : $some(v);
 }
 
-function $host_HostEnv_arguments(self) {
+function $host_HostEnv_args(self) {
   if (typeof Bun !== "undefined") return Bun.argv.slice(2);
   if (typeof process !== "undefined") return process.argv.slice(2);
   return [];
+}
+
+// `Tasks.parallel(self, items, f)` — every task started, then every task
+// awaited. This is the one place the JavaScript backend is *ahead* of the
+// natives rather than level with them: `Promise.all` over an array of started
+// calls is genuine concurrency the day the key lands, where the native runtime
+// runs the same steps in index order and gains its fan-out a slice later.
+//
+// Three things are load-bearing and none of them is the promise machinery:
+//
+//  * **`items.map` starts them all before the first `await`.** Awaiting inside
+//    the loop would be the sequential answer spelled concurrently, which is the
+//    one mistake this shape exists to avoid.
+//  * **The answer is `Promise.all`'s array**, which is in *argument* order and
+//    not completion order — the promise `core/tasks` makes, met by the method
+//    that already meets it rather than by sorting afterwards.
+//  * **`f` need not be async.** A step that never waits returns a value, which
+//    `Promise.all` passes through unchanged, so a program that uses `parallel`
+//    for its indices and not for its concurrency pays one microtask and no
+//    more.
+//
+// `$share` on the element, as every other combinator here does: the step owns
+// what it is handed.
+async function $host_HostTasks_parallel(self, xs, f) {
+  const out = await Promise.all(xs.map((x, i) => f(self, BigInt(i), $share(x))));
+  return $own(out);
 }
 
 function $host_HostProc_exitWith(self, code) {
@@ -3593,7 +3619,7 @@ function $testing_context_TestEnv_variable(self, name) {
   return name in v ? $some(v[name]) : undefined;
 }
 
-function $testing_context_TestEnv_arguments(self) {
+function $testing_context_TestEnv_args(self) {
   return $slot(self).args.slice();
 }
 
@@ -4000,7 +4026,7 @@ function $host_testing_TestEnv_variables(self, vars) {
   return $handle({ vars: v, args: $slot(self).args.slice() });
 }
 
-function $host_testing_TestEnv_args(self, args) {
+function $host_testing_TestEnv_arguments(self, args) {
   return $handle({ vars: Object.assign({}, $slot(self).vars), args: args.slice() });
 }
 
@@ -4009,27 +4035,14 @@ function $host_testing_TestEnv_variable(self, name) {
   return name in v ? $some(v[name]) : undefined;
 }
 
-function $host_testing_TestEnv_arguments(self) {
+function $host_testing_TestEnv_args(self) {
   return $slot(self).args.slice();
 }
 
-// Records the exit rather than taking it: a test that ended the process would
-// take every block after it with it. The *first* code is kept, because a
-// program that exits does not carry on.
-function $host_testing_proc() {
-  return $handle({ code: undefined });
-}
-
-function $host_testing_TestProc_exitWith(self, code) {
-  const s = $slot(self);
-  if (s.code === undefined) s.code = code;
-  return 0;
-}
-
-function $host_testing_TestProc_exited(self) {
-  const c = $slot(self).code;
-  return c === undefined ? undefined : $some(c);
-}
+// `proc()` has no function here and no slot: `TestProc` records nothing,
+// because nothing can read it back. `proc()` is `TestProc(0)` and `exitWith`
+// is an empty body, both written in `host_testing.buri` — the same shape
+// `TestNet` has, reached for the plainer reason.
 
 // --- core/testing/assert ------------------------------------------------------------
 //

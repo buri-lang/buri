@@ -1224,6 +1224,153 @@ by.
 - **Erasing generics in the dev profile**, and **moving instantiation
   placement**: both refuted in §6.2.
 
+### 6.6 What the multi-threaded fork costs, 2026-08-30
+
+Reference counting became **two counts behind one branch** on bit 63 of the
+block's `cap` (MEMORY.md §5.1, "The shared fork"). Nothing sets the bit, so no
+program takes the atomic arm; what follows is the price of the *branch*, which
+is the only part any shipping program pays.
+
+**The stated budget was 3% on every row of `--set=native`, and it is 3% on four
+of them.** The fifth, `lower+macos-arm64-release`, carries a budget of its own —
+**amended 2026-08-30** to the range measured below, +16.6% … +26.3%. The
+amendment is argued at the end of this section rather than here, because a
+budget widened to fit a number is only defensible once the number, and what was
+bought with it, are both on the page.
+
+Protocol: `--only=mixed --set=native --targets=macos-arm64 --json`, the same
+machine and §2's rules, run **A/B/A/B** — the baseline toolchain, this one, the
+baseline again, this one again — so that drift shows up as a disagreement
+between a compiler's two readings rather than as the difference between the two
+compilers. Each cell is the better of that compiler's two run medians, which is
+§2's "fastest sample" argument applied across processes. Six corpora at 10k.
+
+| Phase | range over the six | median | budget |
+|---|---:|---:|---|
+| `lex` | −3.8% … +0.1% | −0.4% | **met** |
+| `lex+parse` | −2.8% … +1.3% | −0.3% | **met** |
+| `sema` | −4.9% … +8.2% | +2.2% | **met** |
+| `lower+macos-arm64` (dev) | −5.1% … +7.6% | −0.4% | **met** |
+| `lower+macos-arm64-release` (LLVM) | **+16.6% … +26.3%** | **+21.3%** | **met**, against an amended budget |
+
+The first four rows have no direction — the change touches native lowering and
+nothing else, and the front-end rows moving by ±4% in both directions is what
+this machine's drift looks like over a twenty-five-minute run. They are the
+control, and they are why the fifth row is believed.
+
+**Goal 3 is unmoved.** §6.1's goal-bearing lowering row is
+`lower+macos-arm64`, the development backend, and it is one of the four. The
+row that moved is the *release* build's lowering, which §6.2 measures and which
+no goal on this page is stated against.
+
+**Why the release row and not the dev one.** The stencil backend copies a
+stencil per IR operation, and the fork made three stencils longer rather than
+making more of them: the emitter's work is unchanged and the row says so. The
+LLVM backend hands `opt` its IR, and the fork adds two basic blocks and about
+six instructions to *every reference operation in the program* — which roughly
+doubles the IR of the single most common operation the emitter produces. The
+`default<O2>` pipeline's cost is superlinear in block count, and 21% is what
+that comes to.
+
+**Half of it was bought back by making the shared arm a call.** The atomic
+sequence can be open-coded in the IR beside the fork, or the fork can call
+`buri_rt_incref`/`buri_rt_decref`, which fork again on the same bit and take
+the same arm. Both were measured against the same baseline under the same
+protocol:
+
+| Shared arm | `lower+macos-arm64-release` | median |
+|---|---:|---:|
+| open-coded saturating `atomicrmw` | +28.8% … +85.7% | +46.3% |
+| **cold call into the runtime** (landed) | +16.6% … +26.3% | **+21.3%** |
+
+The machine code on the arm every program actually takes is identical either
+way, so this is a pure win and the call is what shipped. It also leaves one
+atomic sequence per backend rather than two, which is MEMORY.md §5.1's
+"open-code the fast path, call the cold one" applied to a path that is cold by
+construction.
+
+**What it costs the emitted program: two instructions per reference
+operation**, on both instruction sets and both backends. Read off the objects
+rather than inferred:
+
+```text
+aarch64 (stencil `st_incref`, and LLVM's inlined `decref`)
+    ldur  x9, [x8, #-0x8]        // cap, the word beside the count
+    tbnz  x9, #0x3f, <shared>    // never taken
+
+x86-64 (stencil `st_incref`)
+    cmpq  $0x0, -0x8(%rax)
+    js    <shared>
+```
+
+The load is of the word next to the count, in the same sixteen-byte header, so
+it is on a cache line the operation was going to touch; the branch is perfectly
+predicted because its answer never changes; and both emitters mark the unshared
+arm hot, so it is the fallthrough and the shared arm is laid out after the tail.
+
+**And what the emitted program does with it: it gets faster.** Two Buri programs
+were built by both toolchains and run five times each, alternating — `allocs`,
+whose loop is three inlined `decref`s and an allocation per iteration, and
+`rcloop`, whose counts `middle::rc` elides entirely, as the control. Best of
+five, seconds:
+
+| program | backend | before | after | Δ |
+|---|---|---:|---:|---:|
+| `allocs` (50 M iterations) | dev / stencil | 1.795 | 1.081 | **−39.8%** |
+| `allocs` (50 M iterations) | LLVM release | 1.711 | 0.605 | **−64.6%** |
+| `rcloop` (control, no counts) | dev / stencil | 0.423 | 0.431 | +1.9% |
+
+That is a **combined** figure and should be read as one: the fork's two
+instructions against the per-thread caches of MEMORY.md §5.4, which turn an
+allocation-and-free pair into a list pop and a list push. The caches pay for the
+fork many times over on any program that allocates, and the control — which has
+neither a count nor an allocation — does not move. What the table cannot
+separate is the fork's own runtime cost, because this language has no
+allocation-free reference traffic to isolate it in: `middle::rc` elides exactly
+that.
+
+**Two of these runs were taken and discarded first.** The machine's load average
+reached 136 while other work shared it, and the same binary timed 2.5 s and
+20.7 s inside one alternating sequence. §2's ±5% dispersion rule says a run like
+that is one to discard rather than to quote, and it was; the table above is from
+a later run whose five readings per cell agree to ±8%. The two-instruction count
+is the claim that does not depend on either, because it is a claim about the
+object rather than about the machine.
+
+#### 6.6.1 The amendment, and what it is answerable to
+
+The 3% rule stands, unchanged, on the other four rows and on every row a later
+change to `--set=native` is measured against. What is amended is one row's
+budget: `lower+macos-arm64-release` is held to **+16.6% … +26.3%**, median
++21.3% — the range this run measured — **accepted by Nick, 2026-08-30**. Three
+things are what it was accepted on, and all three are measured above rather than
+argued:
+
+- **What is spent is compile time, and only in one backend.** The release row is
+  `opt`'s cost on the IR the emitter hands it, and the shared-RC branch adds
+  **two basic blocks per reference operation** to that IR — roughly doubling the
+  most common operation the emitter produces — against a `default<O2>` pipeline
+  whose cost is superlinear in block count. The emitter's own work is unchanged
+  and the dev row, one stencil copy per operation, says so at −0.4%.
+- **What the shipping program pays is two instructions**, on both instruction
+  sets and both backends, read off the objects: a load of the word beside the
+  count and a bit test, on a cache line the operation was going to touch, on a
+  branch that is perfectly predicted because nothing sets the bit. That is the
+  unshared path, which is the only path any program compiled today takes.
+- **And it pays them into a profit.** Beside the per-thread caches of MEMORY.md
+  §5.4, an allocation-heavy program's run time falls **39.8%** on the dev backend
+  and **64.6%** on the release one, while the allocation-free control does not
+  move. A one-off compile-time cost buys a per-execution runtime win, which is
+  the trade this page exists to make visible.
+
+What the amendment is **not** is a widening of the rule. A row with a budget of
+its own is a row whose next regression is measured against *this range* rather
+than against 3%, so a second change of this size here is a second decision and
+not a rounding error. The alternative that lost was to hold 3% and leave the row
+permanently red: a budget nothing can meet is a budget nobody reads, and it
+would have gone on hiding a compile-time cost the runtime table in this section
+pays back.
+
 ---
 
 ## 7. Profiling, on this platform
