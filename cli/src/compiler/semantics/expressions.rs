@@ -1603,12 +1603,20 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn check_struct_lit(
         &mut self,
-        head: ExprId,
+        head: Option<ExprId>,
         spread: Option<ExprId>,
         fields: &[InitData],
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
+        // `{ hi: "hi" }` with no head at all. The type is whatever the literal
+        // is checked against, read top-down and never solved for (SPEC 12.3).
+        let Some(head) = head else {
+            let Some((con, targs)) = self.anonymous_struct_type(span, expected) else {
+                return self.error_expr(span);
+            };
+            return self.build_struct_lit(con, targs, spread, fields, span);
+        };
         let head_span = self.tree().span(head);
         // The head must be a type path, optionally with type arguments, or the
         // dot form (SPEC 14.1).
@@ -1662,6 +1670,23 @@ impl<'a, 'b> Infer<'a, 'b> {
                 _ => (0..arity).map(|_| self.fresh(span)).collect(),
             },
         };
+        self.build_struct_lit(con, targs, spread, fields, span)
+    }
+
+    /// The fields, once the struct and its type arguments are settled.
+    ///
+    /// Shared by the two ways a literal names its type — a head that is a type
+    /// path, and an anonymous `{ ... }` that reads it from its surroundings —
+    /// so elision, shorthand, visibility and the spread behave identically
+    /// under both.
+    fn build_struct_lit(
+        &mut self,
+        con: TyConId,
+        targs: Vec<Ty>,
+        spread: Option<ExprId>,
+        fields: &[InitData],
+        span: Span,
+    ) -> typed::Expr {
         let ty = Ty::Con(con, targs.clone());
         let decl_fields = self.c.tables.tycon(con).fields().to_vec();
 
@@ -1781,6 +1806,72 @@ impl<'a, 'b> Infer<'a, 'b> {
             want.clone(),
             span,
         ))
+    }
+
+    /// The struct an anonymous `{ ... }` builds, and its type arguments.
+    ///
+    /// Strictly top-down. The expected type is *read*, never solved for: the
+    /// claim the syntax makes is that the type is trivially inferable, and the
+    /// only thing that can make it trivial is that something above the literal
+    /// already said it. So a literal is refused rather than inferred wherever
+    /// the answer would have had to come from the fields — which is what keeps
+    /// this one lookup instead of a search, and keeps the type independent of
+    /// the order the checker visits an expression in.
+    ///
+    /// A generic struct is accepted only where every argument is already
+    /// settled. `Holder<Int>` is a type a reader can see; `Holder<?>` is one
+    /// the fields would have to decide, and deciding it here is the inference
+    /// this feature is not.
+    fn anonymous_struct_type(
+        &mut self,
+        span: Span,
+        expected: Option<&Ty>,
+    ) -> Option<(TyConId, Vec<Ty>)> {
+        let refuse = |me: &mut Self, fix: String| {
+            me.templated("struct-literal-type", span).fix(fix);
+            None
+        };
+        let name_it = "write the type before the `{`, as in `World { hi: \"hi\" }`".to_string();
+        let Some(want) = expected else {
+            return refuse(self, name_it);
+        };
+        let resolved = self.resolve(want);
+        // Poison. One type error should not produce two.
+        if matches!(resolved, Ty::Error) {
+            return None;
+        }
+        let Ty::Con(con, targs) = resolved else {
+            let fix = if matches!(self.resolve(want), Ty::Var(_)) {
+                "write the type before the `{` — nothing here has settled it yet".to_string()
+            } else {
+                name_it
+            };
+            return refuse(self, fix);
+        };
+        match self.c.tables.tycon(con).def {
+            TyDef::Struct { .. } => {}
+            // A type alone does not say which variant a literal builds, so the
+            // dot form is the answer here rather than the type name.
+            TyDef::Enum { .. } => {
+                let n = self.c.tables.tycon(con).name.clone();
+                return refuse(self, format!("write `{n}.Variant {{ ... }}`"));
+            }
+            // A primitive. Naming it in the fix would be advice that cannot be
+            // taken, and the spelling stored for it is the underlying one
+            // (`I64` for `Int`), so the fix stays about the literal.
+            TyDef::Prim(_) => return refuse(self, name_it),
+        }
+        if !targs.iter().all(|t| self.is_settled(t)) {
+            let shown = self.show_ty(&Ty::Con(con, targs));
+            return refuse(
+                self,
+                format!(
+                    "write the type before the `{{` — `{shown}` still has a type argument \
+                     nothing has settled"
+                ),
+            );
+        }
+        Some((con, targs))
     }
 
     fn struct_lit_head(&mut self, head: ExprId) -> Option<TyConId> {

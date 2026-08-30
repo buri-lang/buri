@@ -691,6 +691,24 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.subst.shallow_ref(t)
     }
 
+    /// Whether `t` holds no inference variable anywhere, once resolved.
+    ///
+    /// `resolve` answers for the head only, which is all almost every caller
+    /// needs. This is for the one that needs the whole type: an anonymous
+    /// struct literal reads its type from above rather than solving for it, so
+    /// `Holder<?>` is not a type it may be given even though its head is known.
+    pub(crate) fn is_settled(&self, t: &Ty) -> bool {
+        match self.resolve_ref(t) {
+            Ty::Var(_) => false,
+            Ty::Con(_, args) | Ty::Tuple(args) => args.iter().all(|a| self.is_settled(a)),
+            Ty::Array(e) => self.is_settled(e),
+            Ty::Fn(params, ret) => {
+                params.iter().all(|p| self.is_settled(p)) && self.is_settled(ret)
+            }
+            _ => true,
+        }
+    }
+
     pub(crate) fn prim(&self, p: Prim) -> Ty {
         self.c.tables.prim(p)
     }

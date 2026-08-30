@@ -558,6 +558,34 @@ Elision fills only what neither an initializer nor a spread provides, and a
 spread provides every field the literal does not write — so `World { ..base }`
 takes `hello` from `base` rather than resetting it to `.None`.
 
+The type name may itself be left out where the surroundings already give it.
+The braces then build whatever the expression is checked against:
+
+```buri
+struct World { export hi: Str, export hello: Option<Str> }
+
+fn takes(w: World): Str { w.hi }
+
+fn annotated(): World { let w: World = { hi: "hi", hello: .None }; w }
+fn argument(): Str { takes({ hi: "hi" }) }
+fn result(): World { { hi: "hi" } }
+```
+
+The type is **read** from above and never solved for. It reaches a literal in a
+`let` with an annotation, an argument of a call, the value of a field, a match
+arm and a function's result — the places a type is already written down. A
+literal with nothing above it to name its type is `struct-literal-type`, and so
+is one whose expected type is an enum, a primitive, or a generic struct with a
+type argument nothing has settled: `Holder<Int>` is a type a reader can see,
+`Holder<?>` is one the fields would have to decide, and deciding it here would
+be inference rather than a lookup.
+
+The braces are read as a literal when what follows the `{` is a `..` or a
+`name :`, and as a block otherwise (Section 12.3). So a literal whose *first*
+field is shorthand keeps its type name — `World { hi }`, `World { hi, hello }` —
+while shorthand after a first keyed field does not: `{ hi: hi, hello }` is a
+literal. `{}` keeps its type name too.
+
 Outside the declaring module, a private field cannot be read, written in a
 literal, or matched. A struct with any private field therefore cannot be
 constructed from scratch elsewhere — but functional update still works, because
@@ -2251,15 +2279,37 @@ what keeps this rule from costing the section its title: a block-like statement
 that could omit it would compete with the result expression at the one place a
 block ends, and `{ match (c) { … } }` would have two readings.
 
-**12.3 There are no records, so `{` at the start of an expression is always a
-block.**
+**12.3 There are no records, so a `{` that could open a block does.**
 Structural records made `{ x }` ambiguous — a record with a shorthand field, or a
 block whose result expression is `x` — and an earlier draft paid for that by
 banning field shorthand in literals. Removing records (Section 5.5) removed the
-ambiguity at its source: a bare `{` opens a block, and a `{` after a path opens a
-struct literal. Nothing competes, so `Point { x, y }` shorthand works and the
-grammar got smaller rather than more careful. *Cost:* every product type needs a
-name.
+ambiguity at its source, so `Point { x, y }` shorthand works and the grammar got
+smaller rather than more careful. *Cost:* every product type needs a name.
+
+A `{` after a path is always a struct literal. A bare `{` opens a block —
+`{ Stmt* Expr? }` — unless the two tokens after it are ones no statement and no
+expression can begin with, which is a `..` or a `name :`; then it is an
+*anonymous* struct literal, whose type comes from what the expression is checked
+against (Section 5.6). That is the whole rule, and it has no exceptions to
+enumerate: `{ }`, `{ name }` and `{ name, ... }` are all blocks because none of
+them opens with either.
+
+Shorthand *after* the first field is free, because by then the `{` is settled:
+`{ hi: hi, hello }` is a literal. It is the first field that is held to `name :`,
+and the reason is worth stating, because admitting a leading shorthand is
+tempting and the grammar would allow it. `{ name }` is a block whose result is
+`name` and cannot be anything else; `{ name, }` is unambiguous and could be a
+literal. Taking the second would make two strings a comma apart mean different
+things, and would put the formatter in the position of preserving a trailing
+comma to preserve a meaning. Declining it costs one spelling and buys a rule
+that fits in a sentence.
+
+So the decision is two tokens of lookahead with no backtracking, the grammar
+stays LR(1), and the generated tree-sitter grammar needs no second declared
+conflict. Nothing that parses today parses differently: every string the new
+production accepts was a syntax error before it. *Cost:* `World {}` and
+`World { hi }` keep their type name where `{ hi: "hi" }` does not, and a reader
+meets that seam before the rule explains itself.
 
 **12.4 Type arguments in expressions are written `f<T>(x)`, with no `::`.**
 `f<a>(b)` and `(f < a) > (b)` are the same tokens. What settles them is a rule
@@ -2441,7 +2491,10 @@ the index, not the explanation.
 
 1. The head of a struct literal (`Expr { ... }`) must be a type path — optionally
    with type arguments, or the inferred-type dot form `.Variant` — not an
-   arbitrary expression.
+   arbitrary expression. It may also be absent, where the grammar reads the
+   braces as an anonymous literal (Section 12.3); the expected type is then read
+   from above, and must be a struct with no unsettled type argument
+   (Section 5.6).
 2. `let` patterns must be irrefutable (Section 6.3).
 3. `match` must be exhaustive, and no arm may be unreachable (Section 7.3).
 4. Or-pattern alternatives must bind identical names at identical types

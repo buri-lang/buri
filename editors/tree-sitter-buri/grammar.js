@@ -312,7 +312,13 @@ module.exports = grammar({
       $.struct_literal
     ),
 
-    _block_like_expression: $ => choice($.block, $.if_expression, $.match_expression, $.context_expression),
+    _block_like_expression: $ => choice(
+      $.block,
+      $.anonymous_struct_literal,
+      $.if_expression,
+      $.match_expression,
+      $.context_expression
+    ),
 
     field_expression: $ => prec(11, seq(field('value', $._postfix_expression), '.', field('field', $.identifier))),
 
@@ -335,9 +341,20 @@ module.exports = grammar({
 
     spread: $ => seq('..', $._expression, optional(',')),
 
-    field_initializers: $ => seq($.field_initializer, repeat(seq(',', $.field_initializer)), optional(',')),
+    field_initializers: $ => seq($._any_field_initializer, repeat(seq(',', $._any_field_initializer)), optional(',')),
 
-    field_initializer: $ => seq(field('name', $.identifier), optional(seq(':', field('value', $._expression)))),
+    _any_field_initializer: $ => choice($.field_initializer, $.field_shorthand),
+
+    field_initializer: $ => seq(field('name', $.identifier), ':', field('value', $._expression)),
+
+    field_shorthand: $ => field('name', $.identifier),
+
+    anonymous_struct_literal: $ => seq('{', $._anonymous_fields, '}'),
+
+    _anonymous_fields: $ => choice(
+      seq($.spread, optional($.field_initializers)),
+      seq($.field_initializer, optional(seq(',', optional($.field_initializers))))
+    ),
 
     arguments: $ => seq($._expression, repeat(seq(',', $._expression)), optional(',')),
 
