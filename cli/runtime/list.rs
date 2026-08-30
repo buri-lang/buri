@@ -84,7 +84,7 @@ unsafe fn copy_retaining(
 /// A fresh block of `count` elements, or the null descriptor when there are
 /// none. An empty `[T]` allocates nothing, which is what makes `list.empty`
 /// free.
-fn block(count: usize, stride: usize) -> BuriList {
+pub(crate) fn block(count: usize, stride: usize) -> BuriList {
     if count == 0 || stride == 0 {
         return BuriList { ptr: std::ptr::null_mut(), len: count as u64 };
     }
@@ -437,16 +437,18 @@ pub unsafe extern "C" fn buri_rt_list_range(start: i64, end: i64, out: *mut Buri
 // That sentence is still true, and [`StepEntry`] is the way around it rather
 // than an exception to it. The runtime does not call the closure; it calls a
 // **function the backend generated at the call site**, where `T` is known, and
-// hands it three pointers — its own opaque state, one element in, one element
-// out. Nothing about the element type crosses but its stride, which is what
-// every other entry in this file already takes.
+// hands it three pointers and a number — its own opaque state, which item this
+// is, one element in, one element out. Nothing about the element type crosses
+// but its stride, which is what every other entry in this file already takes.
 //
-// One entry uses it, and it is a pilot: `list.mapCtxStep` is `list.mapCtx`
+// The entry in *this file* is a pilot: `list.mapCtxStep` is `list.mapCtx`
 // spelled through the trampoline, so that the boundary a task scheduler needs
-// is exercised — by a conformance fixture, and against JavaScript's answer —
-// before the scheduler exists. `map` itself is **not** routed here: both
-// backends open-code that loop, and an indirect call per element is slower than
-// the instructions it would replace.
+// was exercised — by a conformance fixture, and against JavaScript's answer —
+// before the scheduler existed. The scheduler is `buri_rt_host_tasks_parallel`
+// (`rt.rs`), which is the other user of [`StepEntry`] and the reason it is
+// shaped this way. `map` itself is **not** routed here: both backends open-code
+// that loop, and an indirect call per element is slower than the instructions
+// it would replace.
 
 /// The generated C-ABI entry thunk one step is reached through.
 ///
@@ -456,13 +458,27 @@ pub unsafe extern "C" fn buri_rt_list_range(start: i64, end: i64, out: *mut Buri
 /// answer goes, at `out_stride`. Both are the element's *memory* layout, which
 /// is what a stride describes.
 ///
+/// `index` is **which item this is**, and it is a parameter rather than
+/// something the thunk could work out. `effect Tasks` promises that the step
+/// receives its item's own index (`sources/effect.buri`), and the caller is the
+/// only side that knows one: the runtime drives the walk, so only the runtime
+/// can say where in it a given call is. Deriving it inside the thunk would mean
+/// dividing `arg - base` by the stride, which needs a base the record does not
+/// carry and which stops being true the moment a scheduler hands out elements
+/// out of order — which is exactly what `Tasks.parallel` becomes.
+///
+/// It is on **every** step and not only the ones that want it, so that there is
+/// one C signature at this boundary rather than one per key: `list.mapCtxStep`'s
+/// closure takes no index and its thunk ignores the register.
+///
 /// The step **owns** what it is handed and answers a fresh count: the thunk
 /// takes its own reference on `arg`'s element before entering Buri code, and
 /// what it writes through `out` belongs to the block being built. That is
 /// `middle/rc.rs`'s "a call through a function value owns its arguments",
 /// settled on the side of the boundary that knows the type — which is why there
 /// is no `retain` parameter here beside the strides.
-pub type StepEntry = unsafe extern "C" fn(state: *mut u8, arg: *const u8, out: *mut u8);
+pub type StepEntry =
+    unsafe extern "C" fn(state: *mut u8, index: u64, arg: *const u8, out: *mut u8);
 
 /// `list.mapCtxStep(self, ctx, f) -> [B]` — `list.mapCtx` with its step reached
 /// through [`StepEntry`].
@@ -495,7 +511,12 @@ pub unsafe extern "C" fn buri_rt_list_map_ctx_step(
         // promised, and `i * to` is inside the block just allocated. The thunk
         // is the one the backend generated for these two element types.
         unsafe {
-            entry(state, ptr.add(i.saturating_mul(from)), result.ptr.add(i.saturating_mul(to)));
+            entry(
+                state,
+                i as u64,
+                ptr.add(i.saturating_mul(from)),
+                result.ptr.add(i.saturating_mul(to)),
+            );
         }
     }
     // SAFETY: the caller promises a writable, aligned destination.
@@ -507,16 +528,17 @@ mod tests {
     use super::*;
 
     /// The trampoline, driven by a C thunk written here rather than generated:
-    /// what an entry does with the three pointers is a backend's business, and
-    /// what this file promises is the walk — every element, in index order, at
-    /// the two strides it was told.
+    /// what an entry does with the index and the three pointers is a backend's
+    /// business, and what this file promises is the walk — every element, in
+    /// index order, at the two strides it was told.
     #[test]
     fn the_step_entry_sees_every_element_in_order() {
-        unsafe extern "C" fn double_it(state: *mut u8, arg: *const u8, out: *mut u8) {
+        unsafe extern "C" fn double_it(state: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
             // SAFETY: the test hands a live counter, an `i64` source element
             // and an `i32` destination slot.
             unsafe {
                 let seen = state.cast::<i64>();
+                assert_eq!(seen.read(), index as i64, "the index counts the calls");
                 seen.write(seen.read() + 1);
                 out.cast::<i32>().write((arg.cast::<i64>().read() * 2) as i32);
             }
@@ -551,7 +573,7 @@ mod tests {
     /// dereference inside the loop.
     #[test]
     fn an_empty_list_never_enters_the_step() {
-        unsafe extern "C" fn never(_: *mut u8, _: *const u8, _: *mut u8) {
+        unsafe extern "C" fn never(_: *mut u8, _: u64, _: *const u8, _: *mut u8) {
             unreachable!("the step ran on an empty list");
         }
         let mut got = BuriList { ptr: std::ptr::null_mut(), len: 7 };

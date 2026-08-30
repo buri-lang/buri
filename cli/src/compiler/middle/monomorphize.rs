@@ -1436,6 +1436,28 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "bytes.toUtf8",
     "char.show",
     "char.toJson",
+    // `Tasks.parallel<A, B>` — the closure trampoline's second key, and the one
+    // it was built for. It is on this list for the same reason `list.mapCtxStep`
+    // is, which is A4's rule and not an exception to it: an entry lands
+    // alongside the carriers that make it sound, and this one has both of the
+    // two a step needs.
+    //
+    //  * **Two strides**, `[A]`'s and `[B]`'s, which `middle::layout` computed
+    //    and which are immediates at the call site. A `map` reads one element
+    //    type and writes another, so one stride would be the wrong carrier
+    //    rather than a narrow one.
+    //  * **A function the backend generated** — the entry thunk, emitted where
+    //    `A` and `B` are known, which is the only thing that can call a Buri
+    //    closure from C. It is `Extra::Element`'s retain glue answering a
+    //    harder question: not "what does one element hold" but "how is one
+    //    closure called".
+    //
+    // Nothing about `A` or `B` reaches `cli/runtime/rt.rs`. It walks bytes at a
+    // stride and calls a pointer, which is what every generic entry in the
+    // archive does. D1 refused this key and said why — it supplied none of the
+    // carriers, so an entry then would have asserted an erasure nobody had
+    // established. D2 built them; this commit is the one that uses them.
+    "host.HostTasks.parallel",
     // `core/host`'s two reactive impls, on WEB. `Ui.signal<T>`/`read<T>` name
     // a slot in the host's own table by `Int`, and the value never crosses in
     // a shape the runtime reads: `runtime.js` stores whatever it was handed.
@@ -1794,6 +1816,7 @@ mod tests {
         bool.show bool.toJson \
         bytes.f32ToBytes bytes.f64ToBytes bytes.fromUtf8 bytes.toUtf8 \
         char.show char.toJson \
+        host.HostTasks.parallel \
         host.HostUi.memo host.HostUi.read host.HostUi.signal host.HostUi.write \
         host.HostWatch.read \
         json.decode \
@@ -1836,22 +1859,19 @@ mod tests {
     /// the concurrency work wants — and each would be type-erased at the
     /// boundary with nothing carrying the element type across.
     ///
-    /// **`host.HostTasks.parallel` is refused on purpose, and it exists.**
-    /// `core/host` declares `impl Tasks for HostTasks` today, and the method is
-    /// generic in `A` and `B`. It stays off the list because none of the three
-    /// carriers has been chosen for it: there is no runtime body, no stride and
-    /// no descriptor, so an entry here would be this file asserting an erasure
-    /// is sound when nobody has yet made it sound. Nothing reaches the key —
-    /// no platform grants `Tasks`, so no program can construct a `HostTasks` —
-    /// and the day one does, the ice names the exact question to answer. The
-    /// entry lands in the same commit as the carrier, which is the discipline
-    /// the whole list exists for.
+    /// **`tasks.parallel` is refused, and `core/tasks` exists.** That module's
+    /// `parallel` is ordinary Buri — it forwards to the effect method — so it
+    /// is a `Body`, not an `Intrinsic`, and this key is never minted. It stays
+    /// here because it is the shape a later slice would reach for if it moved
+    /// the forwarding into the runtime, and the answer would still be no until
+    /// that slice brought a carrier with it. The key that *is* minted is
+    /// `host.HostTasks.parallel`, which is on the list — with two strides and a
+    /// generated entry thunk behind it, in the commit that put them there.
     #[test]
     fn a_generic_intrinsic_outside_the_list_is_refused() {
         for key in [
             "list.chunk",
             "tasks.parallel",
-            "host.HostTasks.parallel",
             "str.splitInto",
             "host.HostUi.observe",
             "json.encodeAs",
