@@ -1,0 +1,27 @@
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/bytes" import * as bytes;
+from "core/json" import * as json;
+from "//lib/rpc" import {
+  Any, ErrorInfo, Status,
+  encodeErrorInfo, decodeErrorInfo,
+  encodeStatus, decodeStatus, encodeStatusJson,
+};
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  // Packing is the program's own: the generated code reads neither field.
+  let info = ErrorInfo { reason: "OUT_OF_RANGE", domain: "buri.example" };
+  let detail = Any {
+    typeUrl: "type.googleapis.com/buri.example.ErrorInfo",
+    value: encodeErrorInfo(ctx, info),
+  };
+  let status = Status { code: 3, message: "bad argument", details: [detail] };
+  let _ = ctx.println("${decodeStatus(ctx, encodeStatus(ctx, status)) == .Ok(status)}");
+  let _ = ctx.println(detail.typeUrl);
+  let _ = ctx.println(bytes.toHex(ctx, detail.value));
+  // And so is unpacking, with the codec for the type the program expects.
+  let _ = ctx.println("${decodeErrorInfo(ctx, detail.value) == .Ok(info)}");
+  let _ = ctx.println(json.stringify(ctx, encodeStatusJson(ctx, status)));
+  .Ok(())
+}

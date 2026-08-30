@@ -291,6 +291,11 @@ pub struct FuncPlan {
     /// Types [`Counted`] could not answer for, which is why they carry no
     /// reference operations.
     pub unclassified: Vec<Ty>,
+    /// Projections whose duplicating use may be answered by asking the parent
+    /// rather than unconditionally: the node is a field or element read, and
+    /// the local is a parent this expression is the last use of. Empty unless
+    /// [`Options::sharing`] is on. See MEMORY.md §5.5.
+    pub inherits: Vec<(NodeId, LocalId)>,
 }
 
 impl Default for FuncPlan {
@@ -305,6 +310,7 @@ impl Default for FuncPlan {
             sites: Vec::new(),
             reuse: Vec::new(),
             unclassified: Vec::new(),
+            inherits: Vec::new(),
         }
     }
 }
@@ -347,11 +353,31 @@ pub struct Options {
     /// brought up can ignore the field or turn this off and see the same
     /// program without it.
     pub reuse: bool,
+    /// Whether to answer JavaScript's question instead of the native one:
+    /// *where does a second reference to a value come into existence*, with no
+    /// releases anywhere. Off by default, and [`sharing`] is the only caller
+    /// that turns it on. MEMORY.md §5.5 is what it is for.
+    ///
+    /// Three things change under it, and each is a place where the native
+    /// convention says something a garbage collector makes false:
+    ///
+    ///  * The list operations that grow a list **consume** their receiver, so
+    ///    a caller that goes on using one duplicates it. Native does not need
+    ///    this — `append_dest` tests the count at run time — and JavaScript
+    ///    has no count to test.
+    ///  * A **lambda's body is scanned**, because `middle::closures` does not
+    ///    run on this branch and there is no lifted function to carry a plan
+    ///    of its own. Its parameters are owned: every runtime function that
+    ///    calls one hands it values it has already marked.
+    ///  * A projection out of a **dying** parent records [`FuncPlan::inherits`]
+    ///    rather than only a duplicating use, which is Perceus's drop
+    ///    specialisation with the answer deferred to run time.
+    pub sharing: bool,
 }
 
 impl Default for Options {
     fn default() -> Options {
-        Options { reuse: true }
+        Options { reuse: true, sharing: false }
     }
 }
 
@@ -402,6 +428,30 @@ pub struct Syntactic {
     prim_of: HashMap<Ty, Prim>,
     fields_of: HashMap<Ty, Vec<Ty>>,
     memo: HashMap<Ty, Answer>,
+    /// Which leaves answer `Yes`. See [`Leaves`].
+    leaves: Leaves,
+    /// The types the walk is inside, under [`Leaves::Lists`]. See
+    /// [`Syntactic::answer`] for why only that question keeps one.
+    visiting: HashSet<Ty>,
+}
+
+/// What a walk of a type is looking for.
+///
+/// The walk is the same either way — a nominal type is its fields, a tuple is
+/// its components — and only the leaves differ. Two questions share it because
+/// getting the *walk* right is the whole difficulty: the shapes, the
+/// substitution and the recursion bound are what took the work, and a second
+/// copy of them is a second chance to answer a recursive type wrong.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Leaves {
+    /// Anything that holds a reference-counted allocation: a `Str`, a `[T]`, a
+    /// function value's environment. What the native branch asks.
+    Counted,
+    /// A `[T]` and nothing else — the only thing an in-place operation ever
+    /// writes to, so the only thing a sharing mark is about. A `Str` is an
+    /// immutable JavaScript string and a function value is a closure, and
+    /// neither can be written through.
+    Lists,
 }
 
 impl Syntactic {
@@ -501,21 +551,80 @@ impl Syntactic {
                 _ => {}
             });
         }
-        Syntactic { shapes: program.shapes.clone(), prim_of, fields_of, memo: HashMap::default() }
+        Syntactic {
+            shapes: program.shapes.clone(),
+            prim_of,
+            fields_of,
+            memo: HashMap::default(),
+            leaves: Leaves::Counted,
+            visiting: HashSet::default(),
+        }
     }
 
+    /// The same table, asked whether a value can reach a **list**.
+    pub fn for_lists(program: &Program) -> Syntactic {
+        Syntactic { leaves: Leaves::Lists, ..Syntactic::new(program) }
+    }
+
+    /// Whether a leaf that carries a count but is never written through
+    /// answers yes.
+    fn opaque_leaf(&self) -> Answer {
+        match self.leaves {
+            Leaves::Counted => Answer::Yes,
+            Leaves::Lists => Answer::No,
+        }
+    }
+
+    /// The answer for one type, with the recursion handled the way each
+    /// question needs it.
+    ///
+    /// **Counted** stops at a depth bound and says `Yes`: a type that reaches
+    /// itself is behind a pointer (VALUE-MODEL.md §4), so it carries a count
+    /// whatever else it holds, and the bound is what makes that terminate
+    /// without a visited set threaded through every arm.
+    ///
+    /// **Lists** cannot borrow that shortcut. "Reaches a list" is a least
+    /// fixed point, and an expression tree that reaches only itself and an
+    /// `Int` reaches no list at all — answering `Yes` there marks every node
+    /// of every interpreter in the language for nothing. So the cycle is cut
+    /// with a visited set and contributes nothing, which is the fixed point;
+    /// an answer computed inside one is not memoised, because it is only true
+    /// under the assumption the outer walk is still testing.
     fn answer(&mut self, ty: &Ty, depth: usize) -> Answer {
         if let Some(a) = self.memo.get(ty) {
             return *a;
         }
-        // A type that reaches itself is behind a pointer (VALUE-MODEL.md §4),
-        // so it is counted. The depth bound is what makes that terminate
-        // without a visited set threaded through every arm.
+        if self.leaves == Leaves::Lists {
+            if !self.visiting.insert(ty.clone()) {
+                return Answer::No;
+            }
+            let a = self.walk(ty, depth);
+            self.visiting.remove(ty);
+            if self.visiting.is_empty() {
+                self.memo.insert(ty.clone(), a);
+            }
+            return a;
+        }
         if depth == 0 {
             return Answer::Yes;
         }
-        let a = match ty {
-            Ty::Array(_) | Ty::Fn(..) => Answer::Yes,
+        let a = self.walk(ty, depth);
+        self.memo.insert(ty.clone(), a);
+        a
+    }
+
+    /// One level of the type, with the components asked through
+    /// [`Syntactic::answer`].
+    fn walk(&mut self, ty: &Ty, depth: usize) -> Answer {
+        if depth == 0 {
+            return match self.leaves {
+                Leaves::Counted => Answer::Yes,
+                Leaves::Lists => Answer::Unknown,
+            };
+        }
+        match ty {
+            Ty::Array(_) => Answer::Yes,
+            Ty::Fn(..) => self.opaque_leaf(),
             Ty::Unit => Answer::No,
             Ty::Tuple(ts) => {
                 let parts: Vec<Answer> = ts.iter().map(|t| self.answer(t, depth - 1)).collect();
@@ -533,7 +642,7 @@ impl Syntactic {
             Ty::Con(con, args) => match self.shapes.cons.get(con.index()) {
                 Some(monomorphize::ConShape::Prim(p)) => {
                     if matches!(p, Prim::Str | Prim::Template) {
-                        Answer::Yes
+                        self.opaque_leaf()
                     } else {
                         Answer::No
                     }
@@ -552,16 +661,14 @@ impl Syntactic {
                 None => self.scanned(ty, depth),
             },
             _ => Answer::Unknown,
-        };
-        self.memo.insert(ty.clone(), a);
-        a
+        }
     }
 
     /// The answer for a `Ty::Con` from the descriptor graph and the bodies.
     fn scanned(&mut self, ty: &Ty, depth: usize) -> Answer {
         if let Some(p) = self.prim_of.get(ty).copied() {
             if matches!(p, Prim::Str | Prim::Template) {
-                Answer::Yes
+                self.opaque_leaf()
             } else {
                 Answer::No
             }
@@ -594,7 +701,15 @@ impl Counted for Syntactic {
     fn counted(&mut self, ty: &Ty) -> Answer {
         // Eight is past the nesting any concrete type in the standard library
         // has, and a type deeper than that is one behind a pointer anyway.
-        self.answer(ty, 8)
+        let a = self.answer(ty, 8);
+        // The two questions have opposite safe directions. A release the
+        // native branch is unsure about is a leak; a mark this branch is
+        // unsure about is an aliased list nobody copied, so an unanswerable
+        // type is marked rather than skipped.
+        match (self.leaves, a) {
+            (Leaves::Lists, Answer::Unknown) => Answer::Yes,
+            _ => a,
+        }
     }
 }
 
@@ -612,10 +727,22 @@ pub fn run(program: &Program) -> Plan {
     analyze(program, &mut counted, &Options::default())
 }
 
+/// The same analysis, asked JavaScript's question: where does a second
+/// reference to a value come into existence?
+///
+/// The plan that comes back is read for its [`RcOp::IncRef`] sites and its
+/// [`FuncPlan::inherits`] and for nothing else — a garbage collector has no
+/// use for a release, and the JavaScript backend emits none. `reuse` is off
+/// because nothing on this branch reads it. MEMORY.md §5.5.
+pub fn sharing(program: &Program) -> Plan {
+    let mut counted = Syntactic::for_lists(program);
+    analyze(program, &mut counted, &Options { reuse: false, sharing: true })
+}
+
 /// The same, against a caller's own [`Counted`] and options — which is how wave
 /// 2 hands in a `middle::layout`-backed classifier.
 pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> Plan {
-    let ownership = infer_ownership(program, counted);
+    let ownership = infer_ownership(program, counted, opts);
     let (purity, can_abort) = infer_effects(program);
     let mut funcs: Vec<FuncPlan> = Vec::with_capacity(program.funcs.len());
     for (i, f) in program.funcs.iter().enumerate() {
@@ -627,6 +754,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             sites: Vec::new(),
             reuse: Vec::new(),
             unclassified: Vec::new(),
+            inherits: Vec::new(),
         };
         if let Some(body) = f.body() {
             let mut sizes: Vec<u32> = Vec::new();
@@ -650,6 +778,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
                 diverged: false,
                 named: vec![None; sizes.len()],
                 self_params: plan.params.clone(),
+                inherits: Vec::new(),
                 opts,
             };
             for (k, p) in f.params.iter().enumerate() {
@@ -673,6 +802,23 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             for b in bound {
                 if scan.is_counted(b) {
                     scan.owned.insert(b);
+                }
+            }
+            // A lambda's parameters arrive owned. `middle::closures` does not
+            // run on the branch this option serves, so the body is scanned
+            // here rather than as a lifted function — and every runtime
+            // function that calls a lambda marks what it hands over first.
+            if opts.sharing {
+                let mut params: Vec<LocalId> = Vec::new();
+                typed::walk(body, &mut |e| {
+                    if let ExprKind::Lambda { params: ps, .. } = &e.kind {
+                        params.extend(ps.iter().copied());
+                    }
+                });
+                for p in params {
+                    if scan.is_counted(p) {
+                        scan.owned.insert(p);
+                    }
                 }
             }
             scan.expr(body, NodeId(0), &Live::default(), Mode::Own);
@@ -699,6 +845,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             plan.sites = scan.sites;
             plan.reuse = scan.reuse;
             plan.unclassified = scan.unclassified;
+            plan.inherits = scan.inherits;
             plan.sites.sort_by_key(|s| (s.node.0, matches!(s.at, Position::After)));
         }
         funcs.push(plan);
@@ -720,7 +867,27 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
 /// The call graph is exact, so the answer is a fact rather than an
 /// approximation — the whole reason this is worth doing here rather than in a
 /// backend.
-fn infer_ownership(program: &Program, counted: &mut dyn Counted) -> Vec<Vec<ir::Ownership>> {
+/// The list operations that write into their receiver where they can.
+///
+/// Under [`Options::sharing`] each of these **consumes** its receiver, so a
+/// caller that keeps the list duplicates it and the duplication is a mark the
+/// backend can see. Native does not need the promotion: `cli/runtime/list.rs`'s
+/// `append_dest` asks the count at run time, and a count is the thing
+/// JavaScript does not have.
+const GROWS_ITS_RECEIVER: &[&str] = &[
+    "list.push",
+    "list.concat",
+    "list.reverse",
+    "list.take",
+    "list.drop",
+    "list.slice",
+];
+
+fn infer_ownership(
+    program: &Program,
+    counted: &mut dyn Counted,
+    opts: &Options,
+) -> Vec<Vec<ir::Ownership>> {
     let mut own: Vec<Vec<ir::Ownership>> = program
         .funcs
         .iter()
@@ -741,7 +908,20 @@ fn infer_ownership(program: &Program, counted: &mut dyn Counted) -> Vec<Vec<ir::
         })
         .collect();
     // An intrinsic borrows what it is given (see the module docs), so its row
-    // never moves. A function with no body cannot consume anything either.
+    // never moves — except for the growing list operations under `sharing`,
+    // whose receiver is seeded owned before the fixpoint so that callers are
+    // promoted against it.
+    if opts.sharing {
+        for (i, f) in program.funcs.iter().enumerate() {
+            let FuncKind::Intrinsic(key) = &f.kind else { continue };
+            if !GROWS_ITS_RECEIVER.contains(&key.as_str()) {
+                continue;
+            }
+            if let Some(slot) = own.get_mut(i).and_then(|r| r.first_mut()) {
+                *slot = ir::Ownership::Own;
+            }
+        }
+    }
     let mut changed = true;
     while changed {
         changed = false;
@@ -1178,6 +1358,8 @@ struct Scan<'a> {
     /// the loop it is inside: the loop's variables *are* the parameters
     /// (`typed::ExprKind::Loop`).
     self_params: Vec<ir::Ownership>,
+    /// [`FuncPlan::inherits`], as it is found.
+    inherits: Vec<(NodeId, LocalId)>,
     opts: &'a Options,
 }
 
@@ -1320,10 +1502,48 @@ impl Scan<'_> {
     /// [`ExprKind::Local`] or an alias of one — so no name is left pointing at
     /// what it frees, and the one field that outlives it was increfed on the
     /// line above.
-    fn projected(&mut self, e: &Expr, base: &Expr, id: NodeId, bid: NodeId, mode: Mode) {
+    /// Scans a scope that runs later and elsewhere — a lambda's body, under
+    /// [`Options::sharing`]. The marks it finds belong to this function's
+    /// plan; its liveness and its pending releases do not touch the outer
+    /// scan's, which is why all four cursors are swapped out around it.
+    ///
+    /// An empty liveness is the honest start: nothing in the enclosing
+    /// function runs after the lambda's body, because the body does not run
+    /// where it is written.
+    fn nested(&mut self, body: &Expr, id: NodeId) {
+        let pending = std::mem::take(&mut self.pending);
+        let jumps = std::mem::take(&mut self.jumps);
+        let floor = std::mem::replace(&mut self.floor, 0);
+        let diverged = std::mem::replace(&mut self.diverged, false);
+        self.expr(body, id, &Live::default(), Mode::Own);
+        self.pending = pending;
+        self.jumps = jumps;
+        self.floor = floor;
+        self.diverged = diverged;
+    }
+
+    fn projected(
+        &mut self,
+        e: &Expr,
+        base: &Expr,
+        id: NodeId,
+        bid: NodeId,
+        mode: Mode,
+        live: &Live,
+    ) {
         let takes = fresh(base);
         if (mode == Mode::Own || takes) && self.counted_ty(&e.ty.clone()) {
             self.push(id, Position::After, RcOp::IncRef, Target::Node(id));
+            // Perceus's drop specialisation, with the answer deferred: a field
+            // read out of a parent this expression is the last use of is a
+            // second reference only if the parent was one.
+            if self.opts.sharing {
+                if let Some(root) = borrowed_root(base) {
+                    if self.owned.contains(&root) && !live.contains(&root) {
+                        self.inherits.push((id, root));
+                    }
+                }
+            }
         }
         if takes && self.counted_ty(&base.ty.clone()) {
             self.push(id, Position::After, RcOp::DecRef, Target::Node(bid));
@@ -1409,7 +1629,7 @@ impl Scan<'_> {
                 before.insert(*l);
                 before
             }
-            ExprKind::Lambda { captures, .. } => {
+            ExprKind::Lambda { captures, body, .. } => {
                 // An environment is a construction over the captures, and the
                 // body does not run here.
                 let mut before = live.clone();
@@ -1422,6 +1642,14 @@ impl Scan<'_> {
                         }
                         before.insert(*c);
                     }
+                }
+                // Under `sharing` the body is scanned here, because nothing
+                // lifts it into a function with a plan of its own. It is a
+                // scope that runs later and elsewhere, so it starts from an
+                // empty liveness and leaves this scan's own bookkeeping alone.
+                if self.opts.sharing {
+                    let bid = self.child(id, 0);
+                    self.nested(body, bid);
                 }
                 before
             }
@@ -1582,7 +1810,7 @@ impl Scan<'_> {
             | ExprKind::CtxGet { base, .. } => {
                 let bid = self.child(id, 0);
                 let out = self.expr(base, bid, live, Mode::Borrow);
-                self.projected(e, base, id, bid, mode);
+                self.projected(e, base, id, bid, mode, live);
                 out
             }
             ExprKind::Index { base, index, .. } => {
@@ -1590,8 +1818,28 @@ impl Scan<'_> {
                 let after = self.expr(index, iid, live, Mode::Borrow);
                 let bid = self.child(id, 0);
                 let out = self.expr(base, bid, &after, Mode::Borrow);
-                self.projected(e, base, id, bid, mode);
+                self.projected(e, base, id, bid, mode, live);
                 out
+            }
+            // A functional update **consumes** its base: what comes out is a
+            // new value and the old one has no reader left. The projections
+            // the update reads out of the base keep it live across its own
+            // siblings, so the generic scan sees the base read as a
+            // duplication — true of a count, false of a reference. Under
+            // `sharing` the base is scanned last and borrowed, which is what
+            // makes `S { ..s, xs: s.xs.push(x) }` write through in a loop.
+            ExprKind::StructUpdate { base, updates, .. }
+                if self.opts.sharing && dies_here(base, &self.owned, live) =>
+            {
+                let mut after = live.clone();
+                for (k, (_, value)) in updates.iter().enumerate().rev() {
+                    let kid = self.child(id, k + 1);
+                    after = self.expr(value, kid, &after, Mode::Own);
+                }
+                let bid = self.child(id, 0);
+                let after = self.expr(base, bid, &after, Mode::Borrow);
+                self.flush(id);
+                after
             }
             _ => self.children(e, id, live),
         }
@@ -2032,6 +2280,16 @@ fn compound(e: &Expr) -> bool {
 /// [`Scan::project`] defers the base's drop to the parent; this is the other
 /// half of the same invariant, and it is what keeps the base alive across the
 /// siblings the parent evaluates after the projection.
+/// Whether an expression is a local this function owns and nothing after it
+/// reads: the base of a functional update that is taking it over rather than
+/// reading beside it.
+fn dies_here(e: &Expr, owned: &HashSet<LocalId>, live: &Live) -> bool {
+    match &e.kind {
+        ExprKind::Local(l) => owned.contains(l) && !live.contains(l),
+        _ => false,
+    }
+}
+
 fn borrowed_root(e: &Expr) -> Option<LocalId> {
     match &e.kind {
         ExprKind::Local(l) => Some(*l),
@@ -3424,7 +3682,7 @@ export fn main(): Result<(), Str> {
         assert!(swap.reuse.iter().any(|r| r.fields == 2), "{:?}", swap.reuse);
         // Turning the pairing off leaves everything else where it was.
         let mut counted = Syntactic::new(&program);
-        let without = analyze(&program, &mut counted, &Options { reuse: false });
+        let without = analyze(&program, &mut counted, &Options { reuse: false, sharing: false });
         let swap_off = without.func(find(&program, "swap")).expect("a plan");
         assert!(swap_off.reuse.is_empty());
         assert_eq!(swap_off.sites, swap.sites);
