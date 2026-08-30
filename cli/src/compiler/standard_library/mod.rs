@@ -366,6 +366,18 @@ const HOST_GRANTS: &[HostGrant] = &[
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no process to exit; a mounted interface stays live",
     },
+    // Declared, and granted by nobody. `Tasks` has no scheduler behind it on
+    // any platform yet, so the honest row is the empty one: the names exist,
+    // the signature is fixed, and asking for them is refused everywhere with
+    // the reason. Granting it later is an edit to this line and to nothing
+    // else, which is the whole point of landing the declaration first.
+    HostGrant {
+        effect: "Tasks",
+        exports: &["HostTasks", "tasks"],
+        platforms: &[],
+        because: "no platform runs tasks yet; `Tasks` is declared so that its signature is \
+                  fixed, and the scheduler that answers `parallel` lands with the servers",
+    },
     HostGrant {
         effect: "Ui",
         exports: &["HostUi", "ui"],
@@ -400,9 +412,28 @@ pub fn host_withholds(platform: Platform, export: &str) -> bool {
 
 impl HostGrant {
     /// `LINUX, MACOS, JS` — the platforms that do grant this, as a diagnostic
-    /// writes them.
+    /// writes them. Empty for a row no platform grants.
     pub fn platforms_phrase(&self) -> String {
         self.platforms.iter().map(|p| p.proto()).collect::<Vec<_>>().join(", ")
+    }
+
+    /// The half of the fix that offers a platform to build for, or nothing.
+    ///
+    /// **A row may name no platform**, and then there is no target to send a
+    /// reader to: "build this for a platform that grants it:" followed by an
+    /// empty list is advice nobody can take, and reads like a bug in the
+    /// compiler rather than a fact about the effect. The whole clause is
+    /// therefore bound rather than only the list, so an ungrantable effect's
+    /// fix stops after the one thing that *is* actionable — drop it from the
+    /// context — and the `note` carries the reason.
+    pub fn elsewhere_clause(&self) -> String {
+        if self.platforms.is_empty() {
+            return String::new();
+        }
+        format!(
+            ", or build this target for a platform that grants it: {}",
+            self.platforms_phrase()
+        )
     }
 }
 
@@ -469,16 +500,18 @@ mod tests {
 
     /// And the other direction: a row naming an export that is not there would
     /// withhold nothing.
+    ///
+    /// A row may name **no platform** — `Tasks` is one — and that is not the
+    /// error it looks like. An effect nothing grants is an effect nothing can
+    /// bind, which is exactly what a declaration landing ahead of its runtime
+    /// wants, and the row is what makes the refusal say why instead of "no
+    /// such name". An empty *exports* list is still an error, because a row
+    /// that names no export withholds nothing on every platform.
     #[test]
     fn every_grant_names_exports_that_exist() {
         let src = source(HOST_MODULE).expect("core/host is a module");
         for grant in HOST_GRANTS {
             assert!(!grant.exports.is_empty(), "`{}` withholds nothing", grant.effect);
-            assert!(
-                !grant.platforms.is_empty(),
-                "`{}` is granted by no platform, so nothing can ever bind it",
-                grant.effect
-            );
             for name in grant.exports {
                 assert!(
                     src.contains(&format!("export struct {name} "))
@@ -487,6 +520,43 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `Tasks` is granted by no platform, and every platform withholds both of
+    /// its names.
+    ///
+    /// The reject corpus can ask for `JS` and `WEB` and no more — a case's
+    /// platform comes from its `// PLATFORM:` line, and the two native ones
+    /// would want a linker — so *every* platform is proved here, over
+    /// `Platform::ALL`, and the reject fixtures pin what the refusal reads
+    /// like.
+    #[test]
+    fn tasks_is_granted_by_no_platform() {
+        let grant = host_grant_of("tasks").expect("`tasks` is in the grant table");
+        assert_eq!(grant.effect, "Tasks");
+        assert!(grant.platforms.is_empty(), "`Tasks` is granted by {}", grant.platforms_phrase());
+        for platform in Platform::ALL {
+            for name in ["HostTasks", "tasks"] {
+                assert!(
+                    host_withholds(platform, name),
+                    "`{}` grants `{name}`, which no platform implements",
+                    platform.proto()
+                );
+            }
+        }
+    }
+
+    /// A row with no platform offers no elsewhere, and a row with platforms
+    /// offers the sentence it always did.
+    #[test]
+    fn an_ungrantable_effect_is_not_told_to_build_elsewhere() {
+        let tasks = host_grant_of("tasks").expect("`tasks` is in the grant table");
+        assert_eq!(tasks.elsewhere_clause(), "");
+        let net = host_grant_of("net").expect("`net` is in the grant table");
+        assert_eq!(
+            net.elsewhere_clause(),
+            ", or build this target for a platform that grants it: LINUX, MACOS, JS"
+        );
     }
 
     /// Every type a primitive can be must have a module that exists.

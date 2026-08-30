@@ -2,11 +2,11 @@ FAIL //lib/money  test/money.buri.buri  "the report renders the value structural
   assert.eq failed
     actual:   Money { cents: 1 }
     expected: Money { cents: 2 }
-  --> lib/money/test/money.buri:13:1
+  --> lib/money/test/money.buri:15:1
 FAIL //lib/money  test/money.buri.buri  "the program's own Show says something else"
   assert.eq failed
     actual:   "Money(hand written)"
     expected: "not this"
-  --> lib/money/test/money.buri:17:1
+  --> lib/money/test/money.buri:19:1
 
 0 passed, 2 failed, 0 skipped (0.0s)

@@ -11,7 +11,7 @@
 //! that asked for it.
 
 from "core/effect/lib.buri" import {
-  Alloc, Clock, Env, Fs, Net, Proc, Rand, Stderr, Stdin, Stdout,
+  Alloc, Clock, Env, Fs, Net, Proc, Rand, Stderr, Stdin, Stdout, Tasks,
   IoError, NetError, NetResponse, Region, Request, Response,
 };
 // `ui/effect` declares a `Request` of its own — the callback-shaped client's,
@@ -90,6 +90,21 @@ impl Proc for HostProc {
   fn exitWith(self, code: Int): ();
 }
 
+/// Running the program's own work concurrently.
+///
+/// **Granted by no platform.** The effect and its implementation are declared
+/// here so that the signature is fixed and reviewable; the scheduler that
+/// would answer `parallel` does not exist yet, so the grant table gives this
+/// row no platform and every `Tasks: host.tasks` is refused with that reason.
+/// A declaration nothing can reach is the honest way to land an interface
+/// early: it cannot be called by accident, and the day a platform implements
+/// it the change is one row in the table rather than a new name a program has
+/// to be rewritten to use.
+export struct HostTasks {}
+impl Tasks for HostTasks {
+  fn parallel<A, B>(self, items: [A], f: fn(HostTasks, Int, A) => B): [B];
+}
+
 /// The reactive graph. Bound by a program with a user interface; a platform
 /// that renders nothing simply never has one asked of it.
 export struct HostUi {}
@@ -128,6 +143,7 @@ export let clock: HostClock = HostClock {};
 export let rand: HostRand = HostRand {};
 export let env: HostEnv = HostEnv {};
 export let proc: HostProc = HostProc {};
+export let tasks: HostTasks = HostTasks {};
 export let ui: HostUi = HostUi {};
 export let watch: HostWatch = HostWatch {};
 export let fetch: HostFetch = HostFetch {};
