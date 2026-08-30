@@ -37,8 +37,9 @@ use buri::compiler::driver;
 use buri::compiler::middle::{self, monomorphize};
 use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostics, SourceMap};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::OnceLock;
 
 /// Why this host cannot build and run a stencil artifact, or `None`.
@@ -1492,7 +1493,7 @@ export fn main(): Result<(), Str> {
         panic!("the product's link failed: {:?}", messages(&d));
     }
 
-    let ran = Command::new(&out).output().unwrap();
+    let ran = run_artifact(&out);
     assert_eq!(
         ran.status.code(),
         Some(0),
@@ -1701,7 +1702,7 @@ export fn main(): Result<(), Str> {
         }
         linked.push((name, size));
         // And it is a program, not an empty file the linker was talked into.
-        let ran = Command::new(&out).output().unwrap();
+        let ran = run_artifact(&out);
         assert_eq!(
             ran.status.code(),
             Some(0),
@@ -1741,13 +1742,74 @@ export fn main(): Result<(), Str> {
 /// the linked-size ceiling above is what still runs there — so this answers
 /// `None` and says so on the line the test prints.
 fn debug_stripped_size(artifact: &Path, to: &Path) -> Option<u64> {
-    std::fs::copy(artifact, to).ok()?;
+    // `artifact` is the file the caller is about to *execute*, so this function
+    // opens it for reading and never for writing: the measurement is taken on a
+    // copy and `strip` is pointed at the copy. `execve` refuses a file that any
+    // process on the machine holds open for writing (`ETXTBSY`), so a
+    // measurement that stripped the artifact in place would be handing the
+    // caller that refusal.
+    //
+    // The copy's handle is scoped rather than left to the end of the function:
+    // it is written, flushed, and *closed* where the block ends, before `strip`
+    // is spawned. A `fork` inherits every descriptor that is open at the instant
+    // it runs, so a write handle still open across a spawn outlives the scope
+    // that opened it — which is why the lifetime is spelled out here rather than
+    // left inside `fs::copy`.
+    let bytes = std::fs::read(artifact).ok()?;
+    {
+        let mut file = std::fs::File::create(to).ok()?;
+        file.write_all(&bytes).ok()?;
+        file.sync_all().ok()?;
+    }
+    // `output` runs the child to completion and reaps it, so `strip` has exited
+    // and let go of `to` before its size is read — let alone before the caller
+    // executes anything.
     let ran = Command::new("strip").arg("-S").arg(to).output().ok()?;
     if !ran.status.success() {
         eprintln!("`strip -S` refused {}: {}", to.display(), String::from_utf8_lossy(&ran.stderr));
         return None;
     }
     std::fs::metadata(to).ok().map(|m| m.len())
+}
+
+/// Runs a freshly linked artifact, waiting out an `ETXTBSY` that is not this
+/// thread's to close.
+///
+/// `execve` refuses a file while *any* process on the machine holds a
+/// descriptor on it open for writing, and "any process" reaches wider than this
+/// file's structure can. The artifact is written by `link::place` through a
+/// truncating `File`, and a child forked by another `#[test]` running
+/// concurrently in this same binary inherits every descriptor that is open at
+/// the instant it forks — that one included, until the child reaches its own
+/// `execve` and `O_CLOEXEC` takes it away. Nothing on this side of the fork
+/// closes that window. What this side can do is never widen it — which is what
+/// the scoped handle in [`debug_stripped_size`] above is for, and why nothing
+/// here strips an artifact in place — and then wait it out.
+///
+/// Bounded and short, because the condition is: the descriptor is gone the
+/// moment that child execs, so a tenth of a second is far past every instance
+/// of this race, and a refusal that outlives it is a different problem and is
+/// reported as one rather than waited on.
+fn run_artifact(path: &Path) -> Output {
+    const TRIES: u32 = 20;
+    const PAUSE: std::time::Duration = std::time::Duration::from_millis(5);
+
+    let mut last = String::new();
+    for _ in 0..TRIES {
+        match Command::new(path).output() {
+            Ok(out) => return out,
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                last = e.to_string();
+                std::thread::sleep(PAUSE);
+            }
+            Err(e) => panic!("cannot run {}: {e}", path.display()),
+        }
+    }
+    panic!(
+        "{} was still open for writing somewhere after {TRIES} attempts over {} ms: {last}",
+        path.display(),
+        u128::from(TRIES) * PAUSE.as_millis()
+    )
 }
 
 /// What an artifact for `target` may weigh, linked and debug-stripped, in
