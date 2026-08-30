@@ -38,6 +38,7 @@ use crate::compiler::backend::js::javascript;
 use crate::compiler::modules::Unit;
 use crate::compiler::middle::monomorphize;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -324,6 +325,7 @@ fn one_pass(
     let mut failed = 0usize;
     let mut skipped = 0usize;
     let mut cached = 0usize;
+    let mut uncompiled = 0usize;
     let mut suites = 0usize;
     let mut printed = false;
     let mut hard_error = false;
@@ -352,6 +354,9 @@ fn one_pass(
                 }
             }
             Err(diagnostics) => {
+                // A suite that never compiled produced no cases, so it lands in
+                // no other counter and the summary would say nothing about it.
+                uncompiled += 1;
                 hard_error |= session.print(&diagnostics);
             }
         }
@@ -379,11 +384,21 @@ fn one_pass(
         return watch::Pass { code, inputs, output: out.take(), quiet: false };
     }
     let note = if cached > 0 { format!(", {cached} cached") } else { String::new() };
+    // Elided at zero, the way the cached note is: a clean run says nothing
+    // about a suite that did not fail to compile.
+    let uncompiled_note = if uncompiled > 0 {
+        format!(", {uncompiled} failed to compile")
+    } else {
+        String::new()
+    };
     if printed {
         out.blank();
     }
+    // The diagnostics went to stderr and this line goes to stdout. Flushing
+    // here is what fixes their order when both descriptors are one terminal.
+    let _ = std::io::stderr().flush();
     out.line(&format!(
-        "{passed} passed, {failed} failed, {skipped} skipped ({elapsed:.1}s{note})"
+        "{passed} passed, {failed} failed, {skipped} skipped{uncompiled_note} ({elapsed:.1}s{note})"
     ));
     // Silent only when there was nothing to do: every case came out of the
     // cache, none failed, nothing was accepted, and nothing was asked for by

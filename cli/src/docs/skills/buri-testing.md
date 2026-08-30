@@ -259,6 +259,9 @@ FAIL //lib/money  test/cents.buri  "pads the cents place"
 12 passed, 1 failed, 0 skipped (0.4s, 11 cached)
 ```
 
+A suite that never compiled has no cases, so it is counted separately and only
+when there is one: `0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)`.
+
 Tests are ordinary build actions: a suite whose sources, target, dependencies
 and toolchain are unchanged is not re-run and reports as **cached**. Because
 there is no mutable global state and no observable ordering, the runner may
