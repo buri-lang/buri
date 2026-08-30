@@ -1,10 +1,19 @@
-# One second, because the point of the declaration is that the runner stops the
-# suite rather than that the number is large.
+# Small, because the point of the declaration is that the runner stops the
+# suite rather than that the number is large — and not one second, because the
+# clock starts when the suite's *process* does (`commands::test::execute`).
+# Building the suite is not on the budget; starting it is, and starting a
+# process is the machine's cost rather than the suite's: on a loaded machine
+# the window between spawning a freshly linked binary and its first line of
+# `main` has been measured at several hundred milliseconds. The twin below has
+# to *finish* inside this same number, so a budget that only just covers what
+# the machine charges is a budget a busy machine can miss, and the case then
+# fails for a reason it is not about. Both halves keep one declaration: one
+# variable changes between them, and it is the loop.
 library {
     sources: ["spin.buri"]
 
     test {
         sources: ["test/spin.buri"]
-        timeout_seconds: 1
+        timeout_seconds: 5
     }
 }
