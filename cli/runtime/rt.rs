@@ -81,6 +81,9 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::thread::{self, ThreadId};
 
+use crate::list::{block, StepEntry};
+use crate::value::BuriList;
+
 // ---------------------------------------------------------------------------
 // The tokio handle
 // ---------------------------------------------------------------------------
@@ -512,6 +515,83 @@ pub fn task_is_live(handle: i64) -> bool {
     )
 }
 
+// ---------------------------------------------------------------------------
+// `Tasks.parallel`
+// ---------------------------------------------------------------------------
+//
+// The first exported symbol this file has, and §2 said why there was none: an
+// exported symbol is a contract both backends emit calls into, so it lands the
+// day a backend has a call to emit. This is that day — `core/tasks` is written,
+// `host.HostTasks.parallel` has a row in both runtime tables, and the C
+// signature below is the one those two rows describe rather than a prediction
+// of one.
+//
+// **Sequential, on the calling carrier, in index order.** No carrier is
+// started, no baton changes hands, and nothing suspends: `parallel` runs every
+// step to completion in the order the items were given and answers a `[B]`.
+// That is a *complete* implementation of what `effect Tasks` promises — the
+// results are in input order and the index is the item's own — and it is a
+// deliberately partial implementation of what the name suggests. D4 replaces
+// the loop below with a fan-out onto the carrier pool; nothing above this
+// function moves when it does, because the promise it keeps is already the
+// stronger, order-fixed one.
+//
+// It lives in this file, behind `net`, rather than in `list.rs`, and that is
+// the reason `backend/runtime_native.rs::net_intrinsic` already names
+// `host.HostTasks.*`: a toolchain whose archive has no reactor refuses the key
+// with a sentence before code generation. Putting the sequential body somewhere
+// featureless would make that refusal a lie for exactly as long as it took D4
+// to make it true again.
+
+/// `Tasks.parallel(self, items, f) -> [B]` — `f` at every item, in index order.
+///
+/// The four words after `len` are [`crate::StepEntry`]'s ABI, which
+/// `buri_rt_list_map_ctx_step` established and which `cli/runtime/lib.rs` §2
+/// rule 5 states: the generated entry thunk, the backend's opaque record, and
+/// the two strides. The `[B]` block is allocated here and every element of it
+/// is written by a step, so the result is fully initialised before it is handed
+/// back — there is no arm of this loop that skips one.
+///
+/// The walk is `buri_rt_list_map_ctx_step`'s walk today, and the duplication is
+/// deliberate rather than an oversight: the two are the same *code* and
+/// different *contracts*. One is a pilot for the boundary and may be deleted
+/// the day a real key uses it (`list.rs`); this one is `Tasks.parallel`'s body
+/// and is where D4's scheduler goes. Sharing them would mean D4 either editing
+/// `core/list`'s pilot or unpicking the sharing first.
+///
+/// # Safety
+/// `ptr` covers `len * in_stride` bytes; `entry` is the thunk the backend
+/// generated for this call and `state` the record it was generated against;
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_tasks_parallel(
+    ptr: *const u8,
+    len: u64,
+    entry: StepEntry,
+    state: *mut u8,
+    in_stride: u64,
+    out_stride: u64,
+    out: *mut BuriList,
+) {
+    let (n, from, to) = (len as usize, in_stride as usize, out_stride as usize);
+    let result = block(n, to);
+    for i in 0..n {
+        // SAFETY: `i * from` is inside the `n`-element source the caller
+        // promised, and `i * to` is inside the block just allocated. The thunk
+        // is the one the backend generated for these two element types.
+        unsafe {
+            entry(
+                state,
+                i as u64,
+                ptr.add(i.saturating_mul(from)),
+                result.ptr.add(i.saturating_mul(to)),
+            );
+        }
+    }
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(result) }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -813,5 +893,170 @@ mod tests {
         crate::buri_rt_host_clock_sleep_millis(0);
         crate::buri_rt_host_clock_sleep_millis(-5);
         assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    /// `parallel` over four elements: every step run, once, in index order,
+    /// told where it is, at the two strides it was given.
+    ///
+    /// The thunk is written by hand rather than generated, for the reason
+    /// `list.rs`'s twin test gives: what an entry does with the index and the
+    /// three pointers is a backend's business, and what this file promises is
+    /// the walk.
+    #[test]
+    fn every_task_runs_once_in_index_order() {
+        /// `(calls, indices seen)`. Written through `state`, which the runtime
+        /// hands back untouched.
+        struct Seen {
+            calls: i64,
+            order: Vec<u64>,
+        }
+        unsafe extern "C" fn step(state: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
+            // SAFETY: the test hands a live `Seen`, an `i64` source element and
+            // an `i64` destination slot.
+            unsafe {
+                let seen = &mut *state.cast::<Seen>();
+                seen.calls += 1;
+                seen.order.push(index);
+                out.cast::<i64>().write(arg.cast::<i64>().read() * 10 + index as i64);
+            }
+        }
+        let src: [i64; 4] = [1, 2, 3, 4];
+        let mut seen = Seen { calls: 0, order: Vec::new() };
+        let mut got = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        // SAFETY: `src` covers four `i64`s and both out-pointers are live.
+        unsafe {
+            buri_rt_host_tasks_parallel(
+                src.as_ptr().cast(),
+                4,
+                step,
+                (&raw mut seen).cast(),
+                8,
+                8,
+                &raw mut got,
+            );
+        }
+        assert_eq!(seen.calls, 4, "one step per item, and no more");
+        assert_eq!(seen.order, vec![0, 1, 2, 3], "the index is the item's own");
+        assert_eq!(got.len, 4);
+        // SAFETY: four `i64`s were written there, at the stride asked for.
+        let answers: Vec<i64> =
+            (0..4).map(|i| unsafe { got.ptr.add(i * 8).cast::<i64>().read() }).collect();
+        // Results in the *items'* order, which is what the effect promises and
+        // what a fan-out has to keep.
+        assert_eq!(answers, vec![10, 21, 32, 43]);
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(got.ptr) };
+    }
+
+    /// The two strides are different, and both are honoured: an `i64` source
+    /// read at eight, an `i32` answer written at four.
+    #[test]
+    fn the_two_strides_are_the_two_element_types() {
+        unsafe extern "C" fn narrow(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
+            // SAFETY: an `i64` in, an `i32` out.
+            unsafe { out.cast::<i32>().write((arg.cast::<i64>().read() + index as i64) as i32) }
+        }
+        let src: [i64; 3] = [100, 200, 300];
+        let mut got = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        // SAFETY: `src` covers three `i64`s and `got` is a live local.
+        unsafe {
+            buri_rt_host_tasks_parallel(
+                src.as_ptr().cast(),
+                3,
+                narrow,
+                std::ptr::null_mut(),
+                8,
+                4,
+                &raw mut got,
+            );
+        }
+        assert_eq!(got.len, 3);
+        // SAFETY: three `i32`s were written there.
+        let answers: Vec<i32> =
+            (0..3).map(|i| unsafe { got.ptr.add(i * 4).cast::<i32>().read() }).collect();
+        assert_eq!(answers, vec![100, 201, 302]);
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(got.ptr) };
+    }
+
+    /// An empty list starts no task and allocates nothing — which is what
+    /// keeps `parallel(ctx, [], f)` free rather than a null dereference.
+    #[test]
+    fn no_items_is_no_tasks() {
+        unsafe extern "C" fn never(_: *mut u8, _: u64, _: *const u8, _: *mut u8) {
+            unreachable!("a task ran on an empty list");
+        }
+        let mut got = BuriList { ptr: std::ptr::null_mut(), len: 9 };
+        // SAFETY: the source is empty, so the pointer is never read.
+        unsafe {
+            buri_rt_host_tasks_parallel(
+                std::ptr::null(),
+                0,
+                never,
+                std::ptr::null_mut(),
+                8,
+                8,
+                &raw mut got,
+            );
+        }
+        assert_eq!(got.len, 0);
+        assert!(got.ptr.is_null(), "an empty list allocates nothing");
+    }
+
+    /// A step that is itself a call site. `parallel` inside `parallel` is the
+    /// shape a nested fan-out takes, and today it is a loop inside a loop —
+    /// the assertion is that the inner walk does not disturb the outer one's
+    /// index or its destination.
+    #[test]
+    fn a_task_may_itself_run_tasks() {
+        unsafe extern "C" fn inner(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
+            // SAFETY: an `i64` in and an `i64` out.
+            unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() + index as i64) }
+        }
+        unsafe extern "C" fn outer(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
+            let src: [i64; 3] = [10, 20, 30];
+            let mut nested = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            // SAFETY: `src` is live for the length of this call.
+            unsafe {
+                buri_rt_host_tasks_parallel(
+                    src.as_ptr().cast(),
+                    3,
+                    inner,
+                    std::ptr::null_mut(),
+                    8,
+                    8,
+                    &raw mut nested,
+                );
+            }
+            // SAFETY: three `i64`s were just written there, and the block is
+            // this call's to free.
+            let sum: i64 =
+                (0..3).map(|i| unsafe { nested.ptr.add(i * 8).cast::<i64>().read() }).sum();
+            // SAFETY: the only reference.
+            unsafe { crate::memory::buri_rt_free(nested.ptr) };
+            // SAFETY: an `i64` in and an `i64` out.
+            unsafe { out.cast::<i64>().write(sum + arg.cast::<i64>().read() + index as i64) }
+        }
+        let src: [i64; 2] = [1000, 2000];
+        let mut got = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        // SAFETY: `src` covers two `i64`s and `got` is a live local.
+        unsafe {
+            buri_rt_host_tasks_parallel(
+                src.as_ptr().cast(),
+                2,
+                outer,
+                std::ptr::null_mut(),
+                8,
+                8,
+                &raw mut got,
+            );
+        }
+        // The inner walk answers 10 + 21 + 32 = 63 every time.
+        // SAFETY: two `i64`s were written there.
+        let answers: Vec<i64> =
+            (0..2).map(|i| unsafe { got.ptr.add(i * 8).cast::<i64>().read() }).collect();
+        assert_eq!(answers, vec![1063, 2064]);
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(got.ptr) };
     }
 }

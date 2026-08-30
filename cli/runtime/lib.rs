@@ -141,17 +141,22 @@
 //!
 //! 5. **A closure parameter arrives as an entry thunk and an opaque state.**
 //!    Rule 4 answers "the runtime cannot name `T`" for a value; this answers it
-//!    for a *call*. Four words: a `void(state, in, out)` the backend generated
-//!    at the call site, where the element types are known; the backend's own
-//!    record, which the runtime passes back untouched and never looks inside;
-//!    and the two element strides, because an operation with a step reads one
-//!    element type and writes another.
+//!    for a *call*. Four words: a `void(state, index, in, out)` the backend
+//!    generated at the call site, where the element types are known; the
+//!    backend's own record, which the runtime passes back untouched and never
+//!    looks inside; and the two element strides, because an operation with a
+//!    step reads one element type and writes another. The `index` is which item
+//!    the call is for: the runtime drives the walk, so it is the only side that
+//!    knows, and `effect Tasks` promises the step is told. It is on every step
+//!    rather than on the keys that read it, so that this boundary has one C
+//!    signature (`list.rs`'s `StepEntry`).
 //!
 //!    §0 says a closure "cannot be called from C", and it still cannot: what
-//!    the runtime calls is the thunk, which is C. `list.mapCtxStep` is the one
-//!    entry that uses this today and it is a pilot — the mechanism a scheduler
-//!    will want, exercised against an answer that is already known
-//!    (`list.rs`'s `StepEntry`).
+//!    the runtime calls is the thunk, which is C. Two entries use this:
+//!    `list.mapCtxStep`, the pilot, which is `list.mapCtx` reached a second way
+//!    and exists to be compared against an answer that is already known; and
+//!    `host.HostTasks.parallel`, which is the scheduler the pilot was landed
+//!    for (`list.rs`'s `StepEntry`, `rt.rs`).
 //!
 //! ## 2.1 `Result<T, E>`, and the one thing rule 3 leaves open
 //!
