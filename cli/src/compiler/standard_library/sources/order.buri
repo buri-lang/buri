@@ -5,7 +5,7 @@
 //! these signatures does not make a type conform. An `impl` or a `derive` is
 //! what does (SPEC 5.12.1).
 
-from "core/effect" import { Alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 export enum Order {
   Less,

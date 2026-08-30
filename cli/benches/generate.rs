@@ -67,7 +67,8 @@
 /// | 2 | `core/cap` was renamed `core/effect`, so every module's import block is three bytes longer. No construct, count or shape moved — `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
 /// | 3 | `self` stopped writing its type, so every method signature is shorter by the receiver's name and a colon. Again no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. |
 /// | 4 | An enum variant stopped carrying `export`, so every variant line is shorter by the keyword and a space. Again no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. |
-pub const GENERATOR_REVISION: u32 = 4;
+/// | 5 | Every import names a file, so `core/list` is now `core/list/lib.buri` and `//bench/m0007` is `//bench/m0007.buri`. Every import line is longer by a suffix. As with revision 2, which this is the twin of, no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
+pub const GENERATOR_REVISION: u32 = 5;
 
 /// A generated program: its modules, in an order where every module's imports
 /// come before it.
@@ -746,7 +747,7 @@ fn mixed(p: &Params) -> Program {
     let mut index = 0usize;
 
     while emitted < p.lines {
-        let path = format!("//bench/m{index:04}");
+        let path = format!("//bench/m{index:04}.buri");
         // Import from the modules already emitted. The first module has
         // nothing to import, which is the leaf every other module's imports
         // bottom out in.
@@ -773,7 +774,7 @@ fn mixed(p: &Params) -> Program {
     // an empty program and a large pile of dead code.
     let last = modules.len();
     modules.push(Module {
-        path: "//bench/main".to_string(),
+        path: "//bench/main.buri".to_string(),
         text: surface(main_module(last, p), p),
     });
 
@@ -836,18 +837,18 @@ fn mixed_module(
          //! here is meant to be read; it is meant to be *compiled*, at a\n\
          //! controlled size and with the construct mix of real source.\n\n"
     ));
-    s.push_str("from \"core/str\" import * as str;\n");
-    s.push_str("from \"core/list\" import * as list;\n");
-    s.push_str("from \"core/effect\" import { Alloc };\n");
+    s.push_str("from \"core/str/lib.buri\" import * as str;\n");
+    s.push_str("from \"core/list/lib.buri\" import * as list;\n");
+    s.push_str("from \"core/effect/lib.buri\" import { Alloc };\n");
     // `Eq`, `Show`, `Ord` and `Hash` are in scope everywhere; the JSON pair is
     // not. The import appears only when `derives` reaches them, so the default
     // corpus is unchanged.
     if p.derives as usize > DERIVABLE_IN_SCOPE {
-        s.push_str("from \"core/json\" import { ToJson, FromJson };\n");
+        s.push_str("from \"core/json/lib.buri\" import { ToJson, FromJson };\n");
     }
     for d in deps {
         s.push_str(&format!(
-            "from \"//bench/m{d:04}\" import {{ Node{d}, seed{d}, blend{d}, reach{d} }};\n"
+            "from \"//bench/m{d:04}.buri\" import {{ Node{d}, seed{d}, blend{d}, reach{d} }};\n"
         ));
     }
     s.push('\n');
@@ -1334,10 +1335,10 @@ fn main_module(count: usize, p: &Params) -> String {
          //! monomorphization reaches the whole program from `main` and the\n\
          //! lowering benchmark is not measuring dead-code elimination.\n\n",
     );
-    s.push_str("from \"core/effect\" import { Alloc };\n");
-    s.push_str("from \"core/host\" import * as host;\n");
+    s.push_str("from \"core/effect/lib.buri\" import { Alloc };\n");
+    s.push_str("from \"core/host/lib.buri\" import * as host;\n");
     for i in 0..count {
-        s.push_str(&format!("from \"//bench/m{i:04}\" import {{ blend{i}, reach{i} }};\n"));
+        s.push_str(&format!("from \"//bench/m{i:04}.buri\" import {{ blend{i}, reach{i} }};\n"));
     }
     if count > MODULES_PER_PART {
         return main_module_parts(s, count, p);
@@ -1512,7 +1513,7 @@ fn deep_nesting(target_lines: usize) -> Program {
         s.push_str(&format!("    + deep{f}(1)\n"));
     }
     s.push_str("    ;\n  if (total == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
-    Program { modules: vec![Module { path: "//bench/main".to_string(), text: s }] }
+    Program { modules: vec![Module { path: "//bench/main.buri".to_string(), text: s }] }
 }
 
 /// One enum with thousands of variants and one match covering all of them.
@@ -1533,7 +1534,7 @@ fn wide_match(target_lines: usize) -> Program {
     }
     s.push_str("  }\n}\n\nexport fn main(): Result<(), Str> {\n");
     s.push_str("  if (classify(.V0(1)) == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
-    Program { modules: vec![Module { path: "//bench/main".to_string(), text: s }] }
+    Program { modules: vec![Module { path: "//bench/main.buri".to_string(), text: s }] }
 }
 
 /// Thousands of two-line functions, spread over modules the way real code
@@ -1562,18 +1563,18 @@ fn many_small(target_lines: usize) -> Program {
         }
         s.push_str("}\n");
         made += here;
-        modules.push(Module { path: format!("//bench/m{m:04}"), text: s });
+        modules.push(Module { path: format!("//bench/m{m:04}.buri"), text: s });
     }
     let mut main = String::from("//! Stress shape entry point.\n\n");
     for m in 0..module_count {
-        main.push_str(&format!("from \"//bench/m{m:04}\" import {{ all{m} }};\n"));
+        main.push_str(&format!("from \"//bench/m{m:04}.buri\" import {{ all{m} }};\n"));
     }
     main.push_str("\nexport fn main(): Result<(), Str> {\n  let total = 0\n");
     for m in 0..module_count {
         main.push_str(&format!("    + all{m}(1)\n"));
     }
     main.push_str("    ;\n  if (total == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
-    modules.push(Module { path: "//bench/main".to_string(), text: main });
+    modules.push(Module { path: "//bench/main.buri".to_string(), text: main });
     Program { modules }
 }
 
@@ -1595,5 +1596,5 @@ fn few_large(target_lines: usize) -> Program {
         s.push_str(&format!("    + large{f}(1)\n"));
     }
     s.push_str("    ;\n  if (total == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
-    Program { modules: vec![Module { path: "//bench/main".to_string(), text: s }] }
+    Program { modules: vec![Module { path: "//bench/main.buri".to_string(), text: s }] }
 }

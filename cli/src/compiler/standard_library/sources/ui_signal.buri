@@ -11,7 +11,7 @@
 //! afresh on every run, so a read behind an `if` is tracked exactly: the
 //! branch not taken creates no edge.
 
-from "ui/effect" import { Scope, Ui, Watch };
+from "ui/effect/lib.buri" import { Scope, Ui, Watch };
 
 /// An index into the runtime graph.
 ///

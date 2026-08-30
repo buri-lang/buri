@@ -2176,8 +2176,8 @@ mod tests {
     }
 
     const POINT: &str = r#"
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 struct P { x: Int, y: Str }
 derive Eq, Ord, Show, Hash for P;
@@ -2445,8 +2445,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn one_joiner_serves_every_shape_of_the_same_width() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 struct A { x: Int, y: Int }
 struct B { p: Int, q: Int }
@@ -2487,8 +2487,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn an_enum_is_a_match_on_the_tag() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 enum Shape { Dot, Line(Int, Int) }
 derive Eq, Show for Shape;
@@ -2526,8 +2526,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_list_is_the_element_function_and_a_helper() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 struct P { x: Int }
 derive Eq, Show for P;
@@ -2553,8 +2553,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn layout_identical_types_share_the_operations_that_read_no_names() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 struct Meters { v: Int }
 struct Seconds { v: Int }
@@ -2589,8 +2589,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_recursive_type_generates_a_recursive_function() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 enum Rose { Leaf(Int), Node([Rose]) }
 derive Eq for Rose;
@@ -2627,10 +2627,10 @@ export fn main(): Result<(), Str> {
     #[test]
     fn from_json_is_recorded_as_a_seam() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-from "core/json" import { DecodeError, ToJson, FromJson };
-from "core/json" import * as json;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/json/lib.buri" import { DecodeError, ToJson, FromJson };
+from "core/json/lib.buri" import * as json;
 
 struct P { x: Int }
 derive Eq, ToJson, FromJson for P;
@@ -2662,8 +2662,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_call_site_inside_a_loop_is_rewritten_too() {
         let src = r#"
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 struct P { x: Int }
 derive Eq, Show for P;

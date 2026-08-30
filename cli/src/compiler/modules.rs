@@ -51,8 +51,8 @@ impl Role {
 
 pub struct ModuleData {
     pub id: ModuleId,
-    /// The module path as written in an import: `//lib/money/cents`,
-    /// `core/list`.
+    /// The module path as written in an import, which names a file:
+    /// `//lib/money/cents.buri`, `core/list/lib.buri`.
     pub path: String,
     pub file: FileId,
     pub role: Role,
@@ -190,7 +190,7 @@ impl<'a> Loader<'a> {
             RuleKind::Library => {
                 let Some(lib) = &pkg.build.library else { return };
                 self.check_testing_surface_declared(target);
-                self.load_path(&pkg.label(), Role::Source, Span::NONE);
+                self.load_path(&format!("{}/lib.buri", pkg.label()), Role::Source, Span::NONE);
                 for src in &lib.proto_sources {
                     self.load_declared_proto(target, &src.value, src.span);
                 }
@@ -198,7 +198,11 @@ impl<'a> Loader<'a> {
                     self.load_package_source(target, &src.value, Role::Source, src.span);
                 }
                 if let Some(testing) = &lib.testing {
-                    self.load_path(&format!("{}/testing", pkg.label()), Role::TestOnly, Span::NONE);
+                    self.load_path(
+                        &format!("{}/testing/lib.buri", pkg.label()),
+                        Role::TestOnly,
+                        Span::NONE,
+                    );
                     for src in &testing.sources {
                         self.load_package_source(target, &src.value, Role::TestOnly, src.span);
                     }
@@ -226,7 +230,7 @@ impl<'a> Loader<'a> {
                 for src in &bin.proto_sources {
                     self.load_declared_proto(target, &src.value, src.span);
                 }
-                self.load_path(&format!("{}/main", pkg.label()), Role::Entry, Span::NONE);
+                self.load_path(&format!("{}/main.buri", pkg.label()), Role::Entry, Span::NONE);
                 for src in &bin.sources {
                     self.load_package_source(target, &src.value, Role::Source, src.span);
                 }
@@ -404,11 +408,12 @@ impl<'a> Loader<'a> {
             );
             return None;
         }
-        let stem = rel.strip_suffix(".buri").unwrap_or(rel);
+        // The path *is* the file, so nothing is stripped: what a rule listed
+        // in `sources` and what an import writes are one string.
         let path = if pkg.path.is_empty() {
-            format!("//{stem}")
+            format!("//{rel}")
         } else {
-            format!("//{}/{stem}", pkg.path)
+            format!("//{}/{rel}", pkg.path)
         };
         self.load_file(&path, disk, role, span)
     }
@@ -745,8 +750,36 @@ impl<'a> Loader<'a> {
             return false;
         }
 
+        // Every import names a file. Asked of the string, before anything is
+        // resolved, so a snippet in the documentation, a generated benchmark
+        // and a fixture standing outside any repository all get the same
+        // answer as a source file in a package — and so the reader is told
+        // that the *spelling* is wrong rather than that a module is missing.
+        if (path.starts_with("//") || standard_library::is_std_path(path))
+            && !crate::build::workspace::names_a_file(path)
+        {
+            let mut d = Diagnostic::templated("import-path-without-a-file", span)
+                .with_bind("path", path);
+            // The fix is derived, never guessed: `//lib/money/cents` is a
+            // module in one repository and a library's surface in another, and
+            // only the workspace this file sits in can say which. Where there
+            // is no workspace — or where it does not recognise the path — the
+            // message stands on its own and no edit is offered.
+            if let Some(suggestion) =
+                self.ws.and_then(|ws| ws.file_form_of(path)).or_else(|| {
+                    let candidate = format!("{path}/lib.buri");
+                    standard_library::find(&candidate).map(|_| candidate)
+                })
+            {
+                d = d.with_note(format!("write \"{suggestion}\""));
+                d = d.with_edit(span.inside_quotes(self.map.text(span.file)), &suggestion);
+            }
+            self.diags.push(d);
+            return false;
+        }
+
         // `core/host` is importable only from the module that exports `main`.
-        if path == "core/host" && role != Role::Entry {
+        if path == standard_library::HOST_MODULE && role != Role::Entry {
             self.diags.push(Diagnostic::templated("host-import", span));
             return false;
         }
@@ -887,20 +920,18 @@ fn is_entry_point(rel: &str) -> bool {
 }
 
 /// The file a `//...` module path names, relative to the repository root:
-/// `//lib/money/test/cents` -> `lib/money/test/cents.buri`.
+/// `//lib/money/test/cents.buri` -> `lib/money/test/cents.buri`.
 ///
-/// Used only in prose, so a path that is not a repository path comes back
-/// unchanged rather than being an error.
+/// Since an import names a file this is only the `//` coming off. It is kept
+/// as a function because the *reason* is worth a name: prose wants the file,
+/// and a path that is not a repository path comes back unchanged rather than
+/// being an error.
 fn source_file_of(path: &str) -> String {
-    match path.strip_prefix("//") {
-        Some(rest) if rest.ends_with(".proto") => rest.to_string(),
-        Some(rest) => format!("{rest}.buri"),
-        None => path.to_string(),
-    }
+    path.strip_prefix("//").unwrap_or(path).to_string()
 }
 
 /// The file a module path names inside its own package:
-/// `//lib/money/test/cents` -> `test/cents.buri`.
+/// `//lib/money/test/cents.buri` -> `test/cents.buri`.
 fn package_relative_source(
     ws: &Workspace,
     pkg: crate::build::workspace::PackageId,
@@ -913,10 +944,7 @@ fn package_relative_source(
     } else {
         rest.strip_prefix(&format!("{pkg_path}/"))?
     };
-    if rel.ends_with(".proto") {
-        return Some(rel.to_string());
-    }
-    Some(format!("{rel}.buri"))
+    Some(rel.to_string())
 }
 
 /// True when a rule lists this module in its `test.sources`.

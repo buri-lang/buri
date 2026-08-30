@@ -1611,7 +1611,7 @@ mod tests {
         assert!(!at(r#"test "counter increments" {| }"#));
         // An import path is a string too, which is why the import scan is asked
         // before this fence rather than after it.
-        assert!(at(r#"from "//lib/co|unter" import { counter };"#));
+        assert!(at(r#"from "//lib/co|unter.buri" import { counter };"#));
     }
 
     /// A template's segments are literals and the expression between them is

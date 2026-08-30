@@ -1,0 +1,5 @@
+# The same shape without a file beside it: //lib/money has no rounding.buri.
+library {
+    sources: ["mode.buri"]
+    visibility: ["//visibility:public"]
+}

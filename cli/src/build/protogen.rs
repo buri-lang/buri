@@ -491,12 +491,12 @@ pub fn generate(
          //!\n\
          //! What the mapping is, and why: `buri docs build/proto`.\n\n"
     ));
-    source.push_str("from \"core/effect\" import { Alloc };\n");
-    source.push_str("from \"core/bytes\" import * as bytes;\n");
-    source.push_str("from \"core/json\" import { Json };\n");
-    source.push_str("from \"core/list\" import * as list;\n");
-    source.push_str("from \"core/proto\" import { ProtoError };\n");
-    source.push_str("from \"core/proto\" import * as proto;\n");
+    source.push_str("from \"core/effect/lib.buri\" import { Alloc };\n");
+    source.push_str("from \"core/bytes/lib.buri\" import * as bytes;\n");
+    source.push_str("from \"core/json/lib.buri\" import { Json };\n");
+    source.push_str("from \"core/list/lib.buri\" import * as list;\n");
+    source.push_str("from \"core/proto/lib.buri\" import { ProtoError };\n");
+    source.push_str("from \"core/proto/lib.buri\" import * as proto;\n");
     // One import line per foreign module, naming the types used and the codecs
     // that come with them.
     let mut foreign: BTreeMap<String, Vec<String>> = BTreeMap::new();

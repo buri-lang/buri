@@ -588,8 +588,14 @@ impl<'a> Monomorphizer<'a> {
             .module_paths
             .get(info.module.index())
             .cloned()
-            .unwrap_or_else(|| "core/num".into());
-        let short = module.strip_prefix("core/").unwrap_or(&module).replace('/', "_");
+            .unwrap_or_else(|| "core/num/lib.buri".into());
+        // The key names the *module*, not the file: `core/str/lib.buri` is
+        // `str` and `ui/effect/lib.buri` is `ui_effect`, which is what every
+        // backend's runtime table is written against. A module path names a
+        // file, so the surface's name comes off here rather than at each of the
+        // three tables.
+        let stem = module.strip_suffix("/lib.buri").unwrap_or(&module);
+        let short = stem.strip_prefix("core/").unwrap_or(stem).replace('/', "_");
         match info.self_ty {
             // `core/str` exists for `Str`, so `str.Str.len` says it twice.
             // `core/num` is the defining module of a dozen types, so there the

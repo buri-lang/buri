@@ -47,8 +47,8 @@
 //! `writeBytes` the temporary, `sync` it, `rename` it over the old one, `sync`
 //! the directory holding both.
 
-from "core/effect" import { Alloc, Fs, IoError };
-from "core/effect" export { IoError };
+from "core/effect/lib.buri" import { Alloc, Fs, IoError };
+from "core/effect/lib.buri" export { IoError };
 
 export fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError> {
   ctx.readFile(path)

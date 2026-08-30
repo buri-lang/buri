@@ -236,7 +236,7 @@ fn style_constructor(loaded: &Loaded, scopes: &[ModuleScope]) -> Option<TyConId>
 
 /// One of `ui/style`'s own types, by name, when this compilation loaded it.
 fn ui_style_type(loaded: &Loaded, scopes: &[ModuleScope], name: &str) -> Option<TyConId> {
-    let index = loaded.modules.iter().position(|m| m.path == "ui/style")?;
+    let index = loaded.modules.iter().position(|m| m.path == "ui/style/lib.buri")?;
     match scopes.get(index)?.own.get(name)? {
         Sym::Ty(id) => Some(*id),
         _ => None,

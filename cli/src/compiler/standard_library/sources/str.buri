@@ -8,8 +8,8 @@
 //! same idea get different names: `splitOnce` returns two slices and is pure;
 //! `split` returns `[Str]` and allocates.
 
-from "core/effect" import { Alloc };
-from "core/order" import { Order };
+from "core/effect/lib.buri" import { Alloc };
+from "core/order/lib.buri" import { Order };
 
 // --- Pure ---------------------------------------------------------------------
 

@@ -4,25 +4,25 @@
 //! monomorphization reaches the whole program from `main` and the
 //! lowering benchmark is not measuring dead-code elimination.
 
-from "core/effect" import { Alloc };
-from "core/host" import * as host;
-from "//bench/m0000" import { blend0, reach0 };
-from "//bench/m0001" import { blend1, reach1 };
-from "//bench/m0002" import { blend2, reach2 };
-from "//bench/m0003" import { blend3, reach3 };
-from "//bench/m0004" import { blend4, reach4 };
-from "//bench/m0005" import { blend5, reach5 };
-from "//bench/m0006" import { blend6, reach6 };
-from "//bench/m0007" import { blend7, reach7 };
-from "//bench/m0008" import { blend8, reach8 };
-from "//bench/m0009" import { blend9, reach9 };
-from "//bench/m0010" import { blend10, reach10 };
-from "//bench/m0011" import { blend11, reach11 };
-from "//bench/m0012" import { blend12, reach12 };
-from "//bench/m0013" import { blend13, reach13 };
-from "//bench/m0014" import { blend14, reach14 };
-from "//bench/m0015" import { blend15, reach15 };
-from "//bench/m0016" import { blend16, reach16 };
+from "core/effect/lib.buri" import { Alloc };
+from "core/host/lib.buri" import * as host;
+from "//bench/m0000.buri" import { blend0, reach0 };
+from "//bench/m0001.buri" import { blend1, reach1 };
+from "//bench/m0002.buri" import { blend2, reach2 };
+from "//bench/m0003.buri" import { blend3, reach3 };
+from "//bench/m0004.buri" import { blend4, reach4 };
+from "//bench/m0005.buri" import { blend5, reach5 };
+from "//bench/m0006.buri" import { blend6, reach6 };
+from "//bench/m0007.buri" import { blend7, reach7 };
+from "//bench/m0008.buri" import { blend8, reach8 };
+from "//bench/m0009.buri" import { blend9, reach9 };
+from "//bench/m0010.buri" import { blend10, reach10 };
+from "//bench/m0011.buri" import { blend11, reach11 };
+from "//bench/m0012.buri" import { blend12, reach12 };
+from "//bench/m0013.buri" import { blend13, reach13 };
+from "//bench/m0014.buri" import { blend14, reach14 };
+from "//bench/m0015.buri" import { blend15, reach15 };
+from "//bench/m0016.buri" import { blend16, reach16 };
 
 /// The entry point. `main` is the only module that may import
 /// `core/host`, so it is the only place the context can be built.

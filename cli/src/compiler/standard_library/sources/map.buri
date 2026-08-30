@@ -18,9 +18,9 @@
 //! which is what `core/json` does for exactly this reason.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
-//! from "core/host" import * as host;
-//! from "core/map" import * as map;
+//! from "core/effect/lib.buri" import { Alloc, Stdout };
+//! from "core/host/lib.buri" import * as host;
+//! from "core/map/lib.buri" import * as map;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -36,9 +36,9 @@
 //! a=9, 2 entries
 //! ```
 
-from "core/bits" import * as bits;
-from "core/effect" import { Alloc };
-from "core/list" import * as list;
+from "core/bits/lib.buri" import * as bits;
+from "core/effect/lib.buri" import { Alloc };
+from "core/list/lib.buri" import * as list;
 
 /// The buckets, and how many entries are spread across them.
 ///

@@ -1,0 +1,35 @@
+# A file and a directory of the same name, which used to be a repository the
+# toolchain refused to read.
+#
+# `lib/money/cents.buri` is a module of //lib/money and `lib/money/cents/` is a
+# package of its own. While a module path was a name with the file left off,
+# both were spelled "//lib/money/cents" and one of the two had to be renamed:
+# `package-shadows-a-module`, rule 3 of LIBRARIES.md.
+#
+# Now an import names a file. "//lib/money/cents.buri" is the module and
+# "//lib/money/cents/lib.buri" is the package's surface, they are two strings,
+# and there is nothing left to refuse. This case is kept — under a new name —
+# so that the layout stays *tested* rather than merely untested: it is the
+# sharpest thing the change bought, and a resolver that quietly went back to
+# resolving both to one file would fail here.
+#
+# //lib/money/rounding is the same shape without the file beside it, so the
+# case says something about both halves of the old rule.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a module and a package of the same name are two module paths, because each names its own file"
+
+run {
+  args: ["build", "//..."]
+  exit: 0
+}
+
+# The module, not the package one directory down. If the two ever collapsed
+# back into one spelling, whichever won would take `fromCents` away from the
+# other and this would stop building.
+run {
+  args: ["lint", "//..."]
+  exit: 0
+}

@@ -563,7 +563,7 @@ mod tests {
     #[test]
     fn methods_name_their_receiver() {
         let modules = stdlib();
-        let list = modules.iter().find(|m| m.path == "core/list").unwrap();
+        let list = modules.iter().find(|m| m.path == "core/list/lib.buri").unwrap();
         let get = list.items.iter().find(|i| i.name == "get").unwrap();
         assert_eq!(get.api.owner(), Some("[T]"));
     }

@@ -77,7 +77,7 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     // belongs to, and the answer is which entry point reaches it. Computed
     // once, and only where the question can arise: a package with one rule has
     // one answer, and asking would be work with nothing to decide.
-    let main_module = format!("//{package_path}/main");
+    let main_module = format!("//{package_path}/main.buri");
     let (from_main, from_lib) = if has_library && has_binary {
         (reachable(&dir, &package_path, "main.buri"), reachable(&dir, &package_path, "lib.buri"))
     } else {
@@ -116,8 +116,8 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
             continue;
         }
         if f.starts_with("test/") {
-            // A suite names its target in an import: `//pkg/main` is the
-            // binary's and anything else is the library's. The same question
+            // A suite names its target in an import: `//pkg/main.buri` is
+            // the binary's and anything else is the library's. The same question
             // as for sources — which entry point is this about — asked from
             // the other end, because nothing imports a test source. Rule 1
             // holds here too: a suite a rule already lists stays where it is.
@@ -497,8 +497,8 @@ fn resolved_by_role(
 
 /// The files one entry point reaches by imports, transitively.
 ///
-/// Only modules inside this package count: `//pkg/x` names one, and every
-/// other path is another target's business. Read off the syntax rather than
+/// Only modules inside this package count: `//pkg/x.buri` names one, and
+/// every other path is another target's business. Read off the syntax rather than
 /// off a checked analysis, because the file being placed is a file no rule
 /// lists yet — the loader would not have it, so there is nothing to ask.
 fn reachable(dir: &Path, package_path: &str, entry: &str) -> BTreeSet<String> {
@@ -510,8 +510,9 @@ fn reachable(dir: &Path, package_path: &str, entry: &str) -> BTreeSet<String> {
             let Some(rel) = rest.strip_prefix(package_path).and_then(|r| r.strip_prefix('/')) else {
                 continue;
             };
-            let file =
-                if rel.ends_with(".proto") { rel.to_string() } else { format!("{rel}.buri") };
+            // The path is the file, so there is nothing to derive: what
+            // the import wrote is what to look for on disk.
+            let file = rel.to_string();
             if dir.join(&file).is_file() && seen.insert(file.clone()) {
                 queue.push(file);
             }

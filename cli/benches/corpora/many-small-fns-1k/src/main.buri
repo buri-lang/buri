@@ -1,7 +1,7 @@
 //! Stress shape entry point.
 
-from "//bench/m0000" import { all0 };
-from "//bench/m0001" import { all1 };
+from "//bench/m0000.buri" import { all0 };
+from "//bench/m0001.buri" import { all1 };
 
 export fn main(): Result<(), Str> {
   let total = 0

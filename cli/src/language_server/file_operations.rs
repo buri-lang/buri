@@ -241,21 +241,19 @@ fn placement(session: &Session, path: &Path) -> Option<Placement> {
 ///
 /// Written out rather than resolved, because the file this is asked about is
 /// either not there yet or about to go — and resolution insists the file exist.
+///
+/// Since an import names a file this is now only the repository-relative name
+/// with `//` in front of it. The four shapes it used to spell differently —
+/// surface, testing surface, entry point, inner module — are one shape, and a
+/// package at the repository root no longer has a surface with no way to write
+/// it down.
 fn module_path(package_path: &str, rel: &str) -> Option<String> {
-    let name = match rel {
-        "lib.buri" => String::new(),
-        "testing/lib.buri" => "testing".to_string(),
-        "main.buri" => "main".to_string(),
-        r if r.ends_with(".proto") => r.to_string(),
-        r => r.strip_suffix(".buri")?.to_string(),
-    };
-    match (package_path.is_empty(), name.is_empty()) {
-        // A package at the repository root has no path, so its surface has no
-        // module path to write either.
-        (true, true) => None,
-        (true, false) => Some(format!("//{name}")),
-        (false, true) => Some(format!("//{package_path}")),
-        (false, false) => Some(format!("//{package_path}/{name}")),
+    if !crate::build::workspace::names_a_file(rel) {
+        return None;
+    }
+    match package_path.is_empty() {
+        true => Some(format!("//{rel}")),
+        false => Some(format!("//{package_path}/{rel}")),
     }
 }
 
@@ -494,21 +492,26 @@ mod tests {
     use super::*;
 
     /// The inverse of module resolution, at each of the four shapes a package
-    /// module has — and at the one that has no path to write.
+    /// module has — all one shape now — and at a file that is not a module.
     #[test]
     fn a_file_is_named_by_the_path_an_import_writes() {
-        assert_eq!(module_path("lib/money", "lib.buri").as_deref(), Some("//lib/money"));
-        assert_eq!(module_path("lib/money", "cents.buri").as_deref(), Some("//lib/money/cents"));
-        assert_eq!(module_path("lib/money", "main.buri").as_deref(), Some("//lib/money/main"));
+        assert_eq!(module_path("lib/money", "lib.buri").as_deref(), Some("//lib/money/lib.buri"));
+        assert_eq!(
+            module_path("lib/money", "cents.buri").as_deref(),
+            Some("//lib/money/cents.buri")
+        );
+        assert_eq!(module_path("lib/money", "main.buri").as_deref(), Some("//lib/money/main.buri"));
         assert_eq!(
             module_path("lib/money", "testing/lib.buri").as_deref(),
-            Some("//lib/money/testing")
+            Some("//lib/money/testing/lib.buri")
         );
         assert_eq!(
             module_path("lib/money", "shop.proto").as_deref(),
             Some("//lib/money/shop.proto")
         );
-        assert_eq!(module_path("", "lib.buri"), None);
+        // A package at the repository root: its surface is `//lib.buri`, which
+        // under the old spelling was the one module with no path at all.
+        assert_eq!(module_path("", "lib.buri").as_deref(), Some("//lib.buri"));
         assert_eq!(module_path("lib/money", "notes.txt"), None);
     }
 

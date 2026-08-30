@@ -1,0 +1,6 @@
+# A package whose label is //lib/money/cents. Its parent has a cents.buri, and
+# the two no longer collide: this surface is "//lib/money/cents/lib.buri".
+library {
+    sources: ["round.buri"]
+    visibility: ["//visibility:public"]
+}

@@ -1476,11 +1476,11 @@ fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
         .sources
         .iter()
         .map(|src| {
-            let stem = src.value.strip_suffix(".buri").unwrap_or(&src.value);
+            let rel = &src.value;
             if path.is_empty() {
-                format!("//{stem}")
+                format!("//{rel}")
             } else {
-                format!("//{path}/{stem}")
+                format!("//{path}/{rel}")
             }
         })
         .collect()

@@ -57,8 +57,8 @@
 //! **The variant order is load-bearing for that reason and for one more:** the
 //! JavaScript runtime reads a `Style` by its tag.
 
-from "ui/effect" import { Scope };
-from "ui/prop" import { Prop };
+from "ui/effect/lib.buri" import { Scope };
+from "ui/prop/lib.buri" import { Prop };
 
 /// The pairs a static style was extracted into: a conflict slot, and the name
 /// of a class that is already in the stylesheet.

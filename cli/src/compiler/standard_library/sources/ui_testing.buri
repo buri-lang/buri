@@ -15,10 +15,10 @@
 //! named by an index nothing else can produce, so a test can only reach the
 //! cells it made.
 
-from "ui/effect" import { Fetch, FetchError, Request, Scope, Ui, Watch };
-from "ui/node" import { Node };
-from "ui/theme" import { Theme };
-from "core/effect" import { NetResponse };
+from "ui/effect/lib.buri" import { Fetch, FetchError, Request, Scope, Ui, Watch };
+from "ui/node/lib.buri" import { Node };
+from "ui/theme/lib.buri" import { Theme };
+from "core/effect/lib.buri" import { NetResponse };
 
 /// Creates and writes signals, and runs computations, with no rendering.
 export struct Headless(I64);

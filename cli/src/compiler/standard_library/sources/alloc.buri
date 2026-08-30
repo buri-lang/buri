@@ -62,9 +62,9 @@
 //! is on `Stats` rather than on the allocators.
 //!
 //! ```buri run
-//! from "core/alloc" import * as alloc;
-//! from "core/effect" import { Alloc, Stdout };
-//! from "core/host" import * as host;
+//! from "core/alloc/lib.buri" import * as alloc;
+//! from "core/effect/lib.buri" import { Alloc, Stdout };
+//! from "core/host/lib.buri" import * as host;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let gp = alloc.generalPurpose();
@@ -88,7 +88,7 @@
 //! 32 of 64 left
 //! ```
 
-from "core/effect" import { Alloc, Region };
+from "core/effect/lib.buri" import { Alloc, Region };
 
 // --- The cost model, as arithmetic --------------------------------------------
 //

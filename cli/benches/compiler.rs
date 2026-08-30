@@ -117,9 +117,9 @@ const SEED: u64 = generate::SEED;
 /// measurement — so it is measured on its own and subtracted, and both figures
 /// are reported. See `design/PERFORMANCE.md` §3, "The prelude floor".
 const FLOOR: &str = "\
-from \"core/str\" import * as str;
-from \"core/list\" import * as list;
-from \"core/effect\" import { Alloc };
+from \"core/str/lib.buri\" import * as str;
+from \"core/list/lib.buri\" import * as list;
+from \"core/effect/lib.buri\" import { Alloc };
 
 export fn main(): Result<(), Str> {
   let xs: [Int] = list.empty<Int>();
@@ -2175,7 +2175,7 @@ fn floor_costs() -> Floor {
     };
     let program = Program {
         modules: vec![generate::Module {
-            path: "//bench/main".to_string(),
+            path: "//bench/main.buri".to_string(),
             text: FLOOR.to_string(),
         }],
     };
