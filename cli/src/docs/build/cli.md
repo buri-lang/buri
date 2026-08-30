@@ -114,6 +114,7 @@ Style and hygiene rules:
 | `deep-nesting` | A branch with more than four branches wrapped around it. |
 | `ctx-rebinding` | A `let ctx = ...` where no context may be built, which binds the name a function's context arrives under to something else. |
 | `unused-context` | A `ctx` parameter the body never reads, so the signature claims an authority the code does not use and every caller holds a context for nothing. Carries the edit that deletes the parameter and the argument at every call site. |
+| `unused-context-bound` | An effect bound on a `ctx` parameter's type that the body never exercises, so callers are made to hold a capability for nothing. Carries the edit that trims the bound list; it touches no call site, because dropping a demand cannot break a caller. |
 
 Two findings belong to a `buri test` run rather than to the graph, and both are
 about the suite as a whole rather than about one test in it:

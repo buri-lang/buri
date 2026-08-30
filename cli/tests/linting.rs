@@ -117,8 +117,15 @@ const FLOOR: usize = 250;
 /// Not zero, and the cases behind the number are why: a stray token written
 /// into an import list really is an unused import, and a deleted closer that
 /// runs two functions together really does make one of them longer. Two
-/// points is one above the 0.9% the whole population shows, so the bound is a
+/// points is one above the 0.6% the whole population shows, so the bound is a
 /// ratchet and not a description.
+///
+/// The figure was 0.9% before `unused-context`'s seeds and 0.7% with them;
+/// `unused-context-bound`'s two move it to **12 of 2,000 (0.60%) and 2 of
+/// 600**, re-measured after the seed set grew. That rule invents nothing by
+/// construction — its evidence is a call the checker wrote into the typed
+/// tree, and a body that did not check is not asked at all — so what changed
+/// is which sources the sampler drew, not what any rule says about one.
 const INVENTED_CEILING: usize = 2;
 
 /// What share of the cases may lose a finding whose evidence survived.
@@ -188,7 +195,26 @@ const INVENTED_CEILING: usize = 2;
 /// seed set and the fallback off, the residue was **62 of 2,000**; with it on,
 /// **48 of 2,000 and 13 of 600, to the case.**
 ///
-/// Three points, against 2.4% measured: the ratchet is one point of headroom,
+/// `unused-context-bound` has **no** such fallback and says so: a context has
+/// one spelling and a bound has none — it is used through the method names it
+/// declares and through callees whose own bounds name it, neither of which is
+/// a token the lexer can recognise as *this* bound — so that rule is silent
+/// for a body that did not check, which is the same stance `unused-variable`
+/// takes and for the same reason. Silence is the shape that lands here, and
+/// **two of the cases below are it**: six findings across two cases, each one
+/// a bound list inside a function the mutation stopped the checker in.
+///
+/// Re-measured with its two fixtures in the seed set: **46 of 2,000 (2.30%)
+/// and 13 of 600.** The population count fell rather than rose, which is the
+/// sampler drawing different sources and not any rule changing its mind — two
+/// new seeds redraw all two thousand. The residue is 46 cases losing 69
+/// findings: `unused-field` 40, `discarded-result` 9, `unused-variant` 8,
+/// `unused-context-bound` 6, `unused-variable` 5, `unused-type` 1 — the
+/// dead-code family's share having grown with the fixtures those rules
+/// brought, and every entry still a rule that read a truncated tree or a
+/// broken declaration rather than one going quiet about code it could see.
+///
+/// Three points, against 2.3% measured: the ratchet is one point of headroom,
 /// which is what makes it a bound and not a description. It is not zero and
 /// cannot be while the proxy is a byte offset.
 const LOST_A_FINDING_CEILING: usize = 3;
