@@ -1231,8 +1231,12 @@ block's `cap` (MEMORY.md §5.1, "The shared fork"). Nothing sets the bit, so no
 program takes the atomic arm; what follows is the price of the *branch*, which
 is the only part any shipping program pays.
 
-**The stated budget was 3% on every row of `--set=native`.** Four of the five
-phases meet it. The fifth does not, and the number is here rather than absorbed.
+**The stated budget was 3% on every row of `--set=native`, and it is 3% on four
+of them.** The fifth, `lower+macos-arm64-release`, carries a budget of its own —
+**amended 2026-08-30** to the range measured below, +16.6% … +26.3%. The
+amendment is argued at the end of this section rather than here, because a
+budget widened to fit a number is only defensible once the number, and what was
+bought with it, are both on the page.
 
 Protocol: `--only=mixed --set=native --targets=macos-arm64 --json`, the same
 machine and §2's rules, run **A/B/A/B** — the baseline toolchain, this one, the
@@ -1247,7 +1251,7 @@ compilers. Each cell is the better of that compiler's two run medians, which is
 | `lex+parse` | −2.8% … +1.3% | −0.3% | **met** |
 | `sema` | −4.9% … +8.2% | +2.2% | **met** |
 | `lower+macos-arm64` (dev) | −5.1% … +7.6% | −0.4% | **met** |
-| `lower+macos-arm64-release` (LLVM) | **+16.6% … +26.3%** | **+21.3%** | **missed** |
+| `lower+macos-arm64-release` (LLVM) | **+16.6% … +26.3%** | **+21.3%** | **met**, against an amended budget |
 
 The first four rows have no direction — the change touches native lowering and
 nothing else, and the front-end rows moving by ±4% in both directions is what
@@ -1332,6 +1336,40 @@ that is one to discard rather than to quote, and it was; the table above is from
 a later run whose five readings per cell agree to ±8%. The two-instruction count
 is the claim that does not depend on either, because it is a claim about the
 object rather than about the machine.
+
+#### 6.6.1 The amendment, and what it is answerable to
+
+The 3% rule stands, unchanged, on the other four rows and on every row a later
+change to `--set=native` is measured against. What is amended is one row's
+budget: `lower+macos-arm64-release` is held to **+16.6% … +26.3%**, median
++21.3% — the range this run measured — **accepted by Nick, 2026-08-30**. Three
+things are what it was accepted on, and all three are measured above rather than
+argued:
+
+- **What is spent is compile time, and only in one backend.** The release row is
+  `opt`'s cost on the IR the emitter hands it, and the shared-RC branch adds
+  **two basic blocks per reference operation** to that IR — roughly doubling the
+  most common operation the emitter produces — against a `default<O2>` pipeline
+  whose cost is superlinear in block count. The emitter's own work is unchanged
+  and the dev row, one stencil copy per operation, says so at −0.4%.
+- **What the shipping program pays is two instructions**, on both instruction
+  sets and both backends, read off the objects: a load of the word beside the
+  count and a bit test, on a cache line the operation was going to touch, on a
+  branch that is perfectly predicted because nothing sets the bit. That is the
+  unshared path, which is the only path any program compiled today takes.
+- **And it pays them into a profit.** Beside the per-thread caches of MEMORY.md
+  §5.4, an allocation-heavy program's run time falls **39.8%** on the dev backend
+  and **64.6%** on the release one, while the allocation-free control does not
+  move. A one-off compile-time cost buys a per-execution runtime win, which is
+  the trade this page exists to make visible.
+
+What the amendment is **not** is a widening of the rule. A row with a budget of
+its own is a row whose next regression is measured against *this range* rather
+than against 3%, so a second change of this size here is a second decision and
+not a rounding error. The alternative that lost was to hold 3% and leave the row
+permanently red: a budget nothing can meet is a budget nobody reads, and it
+would have gone on hiding a compile-time cost the runtime table in this section
+pays back.
 
 ---
 

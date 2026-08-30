@@ -88,7 +88,9 @@ now fork on it (MEMORY.md §5.1, "The shared fork"), and every arm behind the
 fork is unreachable until a value is marked. What the fork costs a program that
 never takes it is **two instructions** per reference operation — a load of the
 word beside the count, on a cache line the operation was going to touch, and a
-bit test — plus under 3 % of native release lowering. Both numbers are in
+bit test. What it costs the *compiler* is a different number and a larger one:
+a median **+21 %** of native release lowering, which is an amended budget on
+that row rather than a met one. Both numbers, and the amendment, are in
 `design/PERFORMANCE.md` §6.6.
 
 **Why `cap` and not `rc`.** A bit of the count would cost both of the two
