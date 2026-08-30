@@ -1,0 +1,22 @@
+// EXPECT: `size` does not have the signature `Measurable` declares
+//
+// An `impl` used to be matched to its trait by method *name* and then
+// elaborated from scratch, so nothing else about the two declarations had to
+// agree. This one takes a parameter the trait does not declare — a caller
+// reaching `size` through a `Measurable` bound would pass one argument to a
+// function that takes two.
+struct Bag { export count: Int }
+
+trait Measurable {
+  fn size(self): Int;
+}
+
+impl Measurable for Bag {
+  fn size(self, scale: Int): Int { self.count * scale }
+}
+
+export fn main(): Result<(), Str> {
+  let bag = Bag { count: 2 };
+  let _ = bag.size(3);
+  .Ok(())
+}

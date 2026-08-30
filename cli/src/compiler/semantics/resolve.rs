@@ -1963,6 +1963,27 @@ impl<'a> Checker<'a> {
             g.extend(self.elaborate_generics(module, &method.generics));
             let params = self.elaborate_params(module, &g, &method.params);
             let ret = self.elaborate(module, &g, method.ret);
+            // The name is what found the slot; whether the signature is the
+            // one the slot declares is a second question, and one nothing
+            // asked before. A caller reaching this method through a bound is
+            // typechecked against the *trait's* declaration, so a disagreement
+            // here is a promise the body does not keep.
+            let declared =
+                trait_methods.get(slot).or_ice("`slot` is a position in `trait_methods`");
+            self.check_impl_signature(
+                trait_id,
+                declared,
+                &SuppliedSignature {
+                    name: mname,
+                    generics: &g,
+                    params: &params,
+                    ret: &ret,
+                    name_span: method.name.span,
+                    ret_span: self.tree(module).type_span(method.ret),
+                },
+                generics.len(),
+                &self_ty,
+            );
             let fid = self.tables.add_fn(FnInfo {
                 name: mname.to_string(),
                 module,
@@ -2014,6 +2035,82 @@ impl<'a> Checker<'a> {
             body: ImplBody::Written(supplied),
             span: d.span,
         });
+    }
+
+    /// Rule: an `impl`'s method has the signature its trait declares.
+    ///
+    /// `register_impl_body` matches a method to its slot by name and then
+    /// elaborates it from scratch, in the `impl`'s own generic scope — so
+    /// until this ran, the only thing the two signatures had to share was the
+    /// name. Everything downstream assumes more than that: a call through a
+    /// bound is checked against the trait's declaration and dispatched to the
+    /// `impl`'s function, and `monomorphize::instance_targs` reconstructs that
+    /// function's type arguments from the trait's. A disagreement was found
+    /// there, at the call, or nowhere.
+    ///
+    /// It is found here now, at the declaration that made it.
+    fn check_impl_signature(
+        &mut self,
+        trait_id: TraitId,
+        declared: &TraitMethod,
+        supplied: &SuppliedSignature<'_>,
+        impl_generics: usize,
+        self_ty: &Ty,
+    ) {
+        let trait_generics = self.tables.trait_(trait_id).generics.len();
+        let mismatches =
+            signature_mismatches(declared, trait_generics, supplied, impl_generics, self_ty);
+        if mismatches.is_empty() {
+            return;
+        }
+        let trait_name = self.tables.trait_(trait_id).name.clone();
+        for mismatch in mismatches {
+            // Both sides are rendered in the `impl`'s vocabulary: the expected
+            // type has already been rewritten into it, so `T` names the same
+            // parameter in the two halves of one message.
+            let shown = |ty: &Ty| quoted_ty(&self.tables, supplied.generics, ty);
+            let (at, expected, found) = match &mismatch {
+                SignatureMismatch::GenericCount { expected, found } => (
+                    supplied.name_span,
+                    counted(*expected, "type parameter"),
+                    counted(*found, "type parameter"),
+                ),
+                SignatureMismatch::Arity { expected, found } => (
+                    supplied.name_span,
+                    counted(*expected, "parameter"),
+                    counted(*found, "parameter"),
+                ),
+                SignatureMismatch::Bounds { index, expected, found } => {
+                    // Named by the `impl`'s spelling of the parameter, on both
+                    // sides: what the trait called it is its own business, and
+                    // a message that renamed it mid-sentence would read as two
+                    // different parameters.
+                    let generic = supplied.generics.get(impl_generics.saturating_add(*index));
+                    let name = generic.map_or("_", |g| g.name.as_str());
+                    (
+                        generic.map_or(supplied.name_span, |g| g.span),
+                        bound_phrase(&self.tables, name, expected),
+                        bound_phrase(&self.tables, name, found),
+                    )
+                }
+                SignatureMismatch::Parameter { index, expected, found } => (
+                    supplied.params.get(*index).map_or(supplied.name_span, |p| p.span),
+                    shown(expected),
+                    shown(found),
+                ),
+                SignatureMismatch::Return { expected, found } => {
+                    (supplied.ret_span, shown(expected), shown(found))
+                }
+            };
+            let name = supplied.name.to_string();
+            self.templated("signature-mismatch", at)
+                .bind("method", name)
+                .bind("trait", trait_name.clone())
+                .bind("expected", expected)
+                .bind("found", found)
+                .secondary_spans
+                .push(SecondarySpan { span: declared.span, label: "declared here".into() });
+        }
     }
 
     /// `impl Type { ... }` — the type's own methods. This is the only place a
@@ -2347,6 +2444,182 @@ impl<'a> Checker<'a> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// An `impl` method against the signature its trait declares
+// ---------------------------------------------------------------------------
+
+/// One `impl` method's elaborated signature, as the conformance check reads it.
+///
+/// It is the half of an [`FnInfo`] this comparison needs, borrowed before the
+/// `FnInfo` is built, plus the two spans a disagreement is reported at: the
+/// method's name for a whole-signature one, its written return type for a
+/// return one. A parameter carries its own span already.
+struct SuppliedSignature<'s> {
+    name: &'s str,
+    generics: &'s [GenericInfo],
+    params: &'s [ParamInfo],
+    ret: &'s Ty,
+    name_span: Span,
+    ret_span: Span,
+}
+
+/// One way an `impl`'s method can disagree with the signature its trait
+/// declares.
+///
+/// The first two are exclusive of everything after them, and deliberately: a
+/// method that takes the wrong number of type parameters has no shared
+/// numbering left to compare types under, and one that takes the wrong number
+/// of parameters would report every parameter after the first extra one. Both
+/// are the whole answer on their own.
+#[derive(Clone, PartialEq, Debug)]
+enum SignatureMismatch {
+    /// A different number of the method's *own* type parameters — the impl
+    /// head's are not the method's and are not counted.
+    GenericCount { expected: usize, found: usize },
+    /// A different number of parameters, `self` included.
+    Arity { expected: usize, found: usize },
+    /// The method's `index`th own type parameter carries different bounds.
+    /// Compared as a set, so `C: Alloc + Fs` and `C: Fs + Alloc` are the same
+    /// declaration and neither is reported against the other; carried in the
+    /// order each side wrote them, so the message echoes the source rather
+    /// than the comparison's own ordering.
+    Bounds { index: usize, expected: Vec<TraitId>, found: Vec<TraitId> },
+    /// Parameter `index` has a different type. `expected` is the trait's,
+    /// already rewritten into the `impl`'s vocabulary.
+    Parameter { index: usize, expected: Ty, found: Ty },
+    /// A different return type, likewise rewritten.
+    Return { expected: Ty, found: Ty },
+}
+
+/// The trait's declaration of a method against the `impl`'s.
+///
+/// The two are elaborated in different scopes, which is the whole reason this
+/// is not `==` on two lists of types:
+///
+/// * `Self` is abstract in the trait and is the head the `impl` was written
+///   for in the `impl` — `Ty::SelfTy` on one side, `[T]` or `HostFs` on the
+///   other.
+/// * A method's own type parameters are numbered from the end of the *trait's*
+///   generics on one side and from the end of the *impl head's* on the other,
+///   so `Show.show<C>`'s `C` is `Param(0)` in the trait and `Param(1)` in
+///   `impl<T> Show for [T]`.
+///
+/// Both are undone by substituting the trait's side into the `impl`'s
+/// numbering, after which the comparison is structural equality — the same
+/// thing `unify` does with two rigid types, minus the inference variables that
+/// cannot appear in an elaborated signature.
+///
+/// A trait with generics of its own has no such renumbering: its parameters
+/// would have to be bound by the `impl`'s head, and that shape is refused at
+/// the declaration (`generic-effect-unsupported`). Rather than invent a
+/// mapping for a program that is already rejected, the comparison stands
+/// aside.
+fn signature_mismatches(
+    declared: &TraitMethod,
+    trait_generics: usize,
+    supplied: &SuppliedSignature<'_>,
+    impl_generics: usize,
+    self_ty: &Ty,
+) -> Vec<SignatureMismatch> {
+    if trait_generics > 0 {
+        return Vec::new();
+    }
+    let declared_own = declared.generics.len();
+    let supplied_own = supplied.generics.len().saturating_sub(impl_generics);
+    if declared_own != supplied_own {
+        return vec![SignatureMismatch::GenericCount {
+            expected: declared_own,
+            found: supplied_own,
+        }];
+    }
+    if declared.params.len() != supplied.params.len() {
+        return vec![SignatureMismatch::Arity {
+            expected: declared.params.len(),
+            found: supplied.params.len(),
+        }];
+    }
+    // The trait's `Param(i)` is the method's own `i`th, which the `impl`
+    // numbers after its head's.
+    let args: Vec<Ty> =
+        (0..declared_own).map(|i| Ty::Param(impl_generics.saturating_add(i) as u32)).collect();
+    let mut out = Vec::new();
+    // A bound is half of what a type parameter is. An `impl` that asks for
+    // one the trait does not declare is asking for something its callers were
+    // never told to supply — the body may then call a method the caller's type
+    // has no `impl` for, and the disagreement surfaces at monomorphization,
+    // in a program the reader did not write.
+    for index in 0..declared_own {
+        let expected = bounds_of(declared.generics.get(index));
+        let found = bounds_of(supplied.generics.get(impl_generics.saturating_add(index)));
+        if as_a_set(&expected) != as_a_set(&found) {
+            out.push(SignatureMismatch::Bounds { index, expected, found });
+        }
+    }
+    for (index, (d, s)) in declared.params.iter().zip(supplied.params).enumerate() {
+        let expected = substitute(&d.ty, &args, Some(self_ty));
+        if !agrees(&expected, &s.ty) {
+            out.push(SignatureMismatch::Parameter {
+                index,
+                expected,
+                found: s.ty.clone(),
+            });
+        }
+    }
+    let expected = substitute(&declared.ret, &args, Some(self_ty));
+    if !agrees(&expected, supplied.ret) {
+        out.push(SignatureMismatch::Return { expected, found: supplied.ret.clone() });
+    }
+    out
+}
+
+/// Whether two elaborated types are the same type, with poison agreeing to
+/// everything.
+///
+/// A `Ty::Error` is a type that was already reported — an unresolved name, an
+/// alias that would not expand — and a second diagnostic saying it does not
+/// match is the cascade the poison exists to prevent.
+fn agrees(a: &Ty, b: &Ty) -> bool {
+    a.is_error() || b.is_error() || a == b
+}
+
+/// A type parameter's bounds as it wrote them, and empty for a parameter that
+/// is not there (which `GenericCount` has already reported).
+fn bounds_of(generic: Option<&GenericInfo>) -> Vec<TraitId> {
+    generic.map(|g| g.bounds.clone()).unwrap_or_default()
+}
+
+/// The same, as the set the comparison is about: order carries no meaning in a
+/// bound list, and a repeat is `duplicate-bound`'s business rather than this
+/// rule's.
+fn as_a_set(bounds: &[TraitId]) -> BTreeSet<TraitId> {
+    bounds.iter().copied().collect()
+}
+
+/// A type in backticks, the way every other diagnostic quotes one.
+fn quoted_ty(tables: &Tables, generics: &[GenericInfo], ty: &Ty) -> String {
+    format!("`{}`", show(tables, None, generics, ty))
+}
+
+/// A type parameter with its bounds, as a message names it: `` `C: Alloc + Fs` ``,
+/// or `` `C` with no bounds `` where there are none to name.
+fn bound_phrase(tables: &Tables, name: &str, bounds: &[TraitId]) -> String {
+    if bounds.is_empty() {
+        return format!("`{name}` with no bounds");
+    }
+    let named: Vec<&str> = bounds.iter().map(|t| tables.trait_(*t).name.as_str()).collect();
+    format!("`{name}: {}`", named.join(" + "))
+}
+
+/// "no parameters", "1 parameter", "3 parameters" — a count as the noun phrase
+/// a message wants, where zero reads better as a word than as a digit.
+fn counted(n: usize, noun: &str) -> String {
+    match n {
+        0 => format!("no {noun}s"),
+        1 => format!("1 {noun}"),
+        _ => format!("{n} {noun}s"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2660,6 +2933,296 @@ fn main(): () {}
         for code in ["effect-param-not-ctx", "ctx-not-first", "self-not-first"] {
             assert_eq!(reported(src, code), 0, "a well-formed method reported `{code}`");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // An `impl` method against the signature its trait declares
+    // -----------------------------------------------------------------------
+
+    /// The two type constructors these tests name. Nothing here reads the
+    /// tables — the comparison is over elaborated types — so any two distinct
+    /// ids stand for any two distinct types.
+    const BAG: TyConId = TyConId(7);
+    const CRATE: TyConId = TyConId(8);
+    const SHOWN: TraitId = TraitId(1);
+    const ALLOCS: TraitId = TraitId(2);
+
+    fn generic(name: &str, bounds: &[TraitId]) -> GenericInfo {
+        GenericInfo { name: name.to_string(), bounds: bounds.to_vec(), span: Span::NONE }
+    }
+
+    fn param(ty: Ty) -> ParamInfo {
+        ParamInfo { name: "x".to_string(), ty, role: ParamRole::Normal, span: Span::NONE }
+    }
+
+    fn receiver() -> ParamInfo {
+        ParamInfo {
+            name: "self".to_string(),
+            ty: Ty::SelfTy,
+            role: ParamRole::SelfParam,
+            span: Span::NONE,
+        }
+    }
+
+    fn trait_method(generics: Vec<GenericInfo>, params: Vec<ParamInfo>, ret: Ty) -> TraitMethod {
+        TraitMethod { name: "m".to_string(), generics, params, ret, span: Span::NONE }
+    }
+
+    fn supplied<'s>(
+        generics: &'s [GenericInfo],
+        params: &'s [ParamInfo],
+        ret: &'s Ty,
+    ) -> SuppliedSignature<'s> {
+        SuppliedSignature {
+            name: "m",
+            generics,
+            params,
+            ret,
+            name_span: Span::NONE,
+            ret_span: Span::NONE,
+        }
+    }
+
+    fn bag() -> Ty {
+        Ty::Con(BAG, Vec::new())
+    }
+
+    fn crate_ty() -> Ty {
+        Ty::Con(CRATE, Vec::new())
+    }
+
+    /// The everyday shape: no generics anywhere, `self` on both sides. The
+    /// trait's `Self` is abstract and the `impl`'s is the head it was written
+    /// for, and the substitution is what makes them the same type.
+    #[test]
+    fn a_signature_that_agrees_reports_nothing() {
+        let declared = trait_method(vec![], vec![receiver(), param(Ty::Unit)], bag());
+        let params = [param(bag()), param(Ty::Unit)];
+        let ret = bag();
+        let found = supplied(&[], &params, &ret);
+        assert_eq!(signature_mismatches(&declared, 0, &found, 0, &bag()), vec![]);
+    }
+
+    /// `impl<T> Show for [T]` supplying `show<C>`: the impl head's parameter is
+    /// not the method's, so the counts agree at one apiece, and the method's
+    /// own `C` is `Param(0)` in the trait and `Param(1)` in the `impl`.
+    ///
+    /// This is the renumbering the whole comparison exists for. Comparing the
+    /// two lists as written would report a disagreement on every generic
+    /// method of every generic `impl` in the tree.
+    #[test]
+    fn an_impl_heads_generics_are_not_the_methods_own() {
+        let head = Ty::Array(Box::new(Ty::Param(0)));
+        let declared =
+            trait_method(vec![generic("C", &[])], vec![receiver(), param(Ty::Param(0))], Ty::Unit);
+        let generics = [generic("T", &[]), generic("C", &[])];
+        let params = [param(head.clone()), param(Ty::Param(1))];
+        let ret = Ty::Unit;
+        let found = supplied(&generics, &params, &ret);
+        assert_eq!(signature_mismatches(&declared, 0, &found, 1, &head), vec![]);
+    }
+
+    /// A method that declares the wrong number of its own type parameters is
+    /// reported once, and the parameter types it also disagrees about are not
+    /// reported at all: with no shared numbering there is nothing to compare
+    /// them under.
+    #[test]
+    fn a_generic_count_is_the_whole_answer() {
+        let declared =
+            trait_method(vec![generic("T", &[])], vec![receiver(), param(Ty::Param(0))], Ty::Unit);
+        let params = [param(bag()), param(crate_ty())];
+        let ret = Ty::Unit;
+        let found = supplied(&[], &params, &ret);
+        assert_eq!(
+            signature_mismatches(&declared, 0, &found, 0, &bag()),
+            vec![SignatureMismatch::GenericCount { expected: 1, found: 0 }],
+        );
+    }
+
+    /// The same for an arity that disagrees, and for the same reason: every
+    /// parameter after the extra one would be compared against its neighbour.
+    #[test]
+    fn an_arity_is_the_whole_answer() {
+        let declared = trait_method(vec![], vec![receiver()], Ty::Unit);
+        let params = [param(bag()), param(crate_ty())];
+        let ret = crate_ty();
+        let found = supplied(&[], &params, &ret);
+        assert_eq!(
+            signature_mismatches(&declared, 0, &found, 0, &bag()),
+            vec![SignatureMismatch::Arity { expected: 1, found: 2 }],
+        );
+    }
+
+    /// A parameter and a return type disagreeing are two findings, not one:
+    /// they are written in two places and each is reported at its own.
+    #[test]
+    fn a_parameter_and_a_return_type_are_reported_separately() {
+        let declared = trait_method(vec![], vec![receiver(), param(Ty::Unit)], bag());
+        let params = [param(bag()), param(crate_ty())];
+        let ret = crate_ty();
+        let found = supplied(&[], &params, &ret);
+        assert_eq!(
+            signature_mismatches(&declared, 0, &found, 0, &bag()),
+            vec![
+                SignatureMismatch::Parameter { index: 1, expected: Ty::Unit, found: crate_ty() },
+                SignatureMismatch::Return { expected: bag(), found: crate_ty() },
+            ],
+        );
+    }
+
+    /// A receiver the `impl` wrote as the wrong type is caught by the same
+    /// arm, because `self` is a parameter like any other once `Self` has been
+    /// substituted.
+    #[test]
+    fn a_receiver_is_compared_after_self_is_substituted() {
+        let declared = trait_method(vec![], vec![receiver()], Ty::Unit);
+        let params = [param(crate_ty())];
+        let ret = Ty::Unit;
+        let found = supplied(&[], &params, &ret);
+        assert_eq!(
+            signature_mismatches(&declared, 0, &found, 0, &bag()),
+            vec![SignatureMismatch::Parameter {
+                index: 0,
+                expected: bag(),
+                found: crate_ty(),
+            }],
+        );
+    }
+
+    /// Poison agrees with everything. A type that would not elaborate has
+    /// already been reported, and a second diagnostic saying it does not match
+    /// is the cascade `Ty::Error` exists to prevent.
+    #[test]
+    fn an_error_type_reports_nothing_on_either_side() {
+        let declared = trait_method(vec![], vec![receiver(), param(Ty::Error)], Ty::Unit);
+        let params = [param(bag()), param(crate_ty())];
+        let ret = Ty::Error;
+        let found = supplied(&[], &params, &ret);
+        assert_eq!(signature_mismatches(&declared, 0, &found, 0, &bag()), vec![]);
+    }
+
+    /// Bounds are a set: the same ones in another order are the same
+    /// declaration.
+    #[test]
+    fn bounds_in_another_order_agree() {
+        let declared = trait_method(
+            vec![generic("C", &[SHOWN, ALLOCS])],
+            vec![receiver(), param(Ty::Param(0))],
+            Ty::Unit,
+        );
+        let generics = [generic("C", &[ALLOCS, SHOWN])];
+        let params = [param(bag()), param(Ty::Param(0))];
+        let ret = Ty::Unit;
+        let found = supplied(&generics, &params, &ret);
+        assert_eq!(signature_mismatches(&declared, 0, &found, 0, &bag()), vec![]);
+    }
+
+    /// A bound the trait does not declare is a requirement the `impl`'s
+    /// callers were never told to meet, and it is carried in the order each
+    /// side wrote it so the message can echo the source.
+    #[test]
+    fn a_bound_the_trait_does_not_declare_is_refused() {
+        let declared = trait_method(vec![generic("C", &[SHOWN])], vec![receiver()], Ty::Unit);
+        let generics = [generic("C", &[SHOWN, ALLOCS])];
+        let params = [param(bag())];
+        let ret = Ty::Unit;
+        let found = supplied(&generics, &params, &ret);
+        assert_eq!(
+            signature_mismatches(&declared, 0, &found, 0, &bag()),
+            vec![SignatureMismatch::Bounds {
+                index: 0,
+                expected: vec![SHOWN],
+                found: vec![SHOWN, ALLOCS],
+            }],
+        );
+    }
+
+    /// A trait with generics of its own is left to `generic-effect-unsupported`
+    /// rather than compared under a renumbering that does not exist. The
+    /// signature below disagrees in every way it can and is still silent here.
+    #[test]
+    fn a_generic_trait_is_left_to_its_own_refusal() {
+        let declared = trait_method(
+            vec![generic("T", &[]), generic("C", &[])],
+            vec![receiver(), param(Ty::Param(0))],
+            Ty::Param(1),
+        );
+        let params = [param(crate_ty())];
+        let ret = Ty::Unit;
+        let found = supplied(&[], &params, &ret);
+        assert_eq!(signature_mismatches(&declared, 1, &found, 0, &bag()), vec![]);
+    }
+
+    /// End to end, and the direction that matters most: an `impl` that agrees
+    /// with its trait says nothing. This is the shape the whole standard
+    /// library is written in.
+    #[test]
+    fn an_impl_that_agrees_with_its_trait_is_admitted() {
+        let src = r#"
+struct Knob { value: Int }
+
+trait Pick {
+  fn pick(self, other: Self): Self;
+  fn label<T>(self, tag: T): Int;
+}
+
+impl Pick for Knob {
+  fn pick(self, other: Knob): Knob {
+    if (self.value > other.value) { self } else { other }
+  }
+  fn label<T>(self, tag: T): Int { self.value }
+}
+
+fn main(): () {}
+"#;
+        assert_eq!(reported(src, "signature-mismatch"), 0);
+    }
+
+    /// And the same `impl` written with `Self` throughout, which A1 made
+    /// legal: `Self` and the head type are the same type inside the block, so
+    /// the comparison must accept either spelling.
+    #[test]
+    fn an_impl_that_writes_self_for_the_head_type_is_admitted() {
+        let src = r#"
+struct Knob { value: Int }
+
+trait Pick {
+  fn pick(self, other: Self): Self;
+}
+
+impl Pick for Knob {
+  fn pick(self, other: Self): Self {
+    if (self.value > other.value) { self } else { other }
+  }
+}
+
+fn main(): () {}
+"#;
+        assert_eq!(reported(src, "signature-mismatch"), 0);
+    }
+
+    /// End to end in the other direction: three methods, one disagreement
+    /// each, one report each.
+    #[test]
+    fn every_half_of_a_signature_is_compared() {
+        let src = r#"
+struct Knob { value: Int }
+
+trait Pick {
+  fn pick(self, other: Self): Self;
+  fn count(self): Int;
+  fn label<T>(self, tag: T): Int;
+}
+
+impl Pick for Knob {
+  fn pick(self, other: Int): Self { self }
+  fn count(self): Str { "one" }
+  fn label(self, tag: Int): Int { self.value }
+}
+
+fn main(): () {}
+"#;
+        assert_eq!(reported(src, "signature-mismatch"), 3);
     }
 
     /// And `Self` outside both is still the mistake it was: the scope is
