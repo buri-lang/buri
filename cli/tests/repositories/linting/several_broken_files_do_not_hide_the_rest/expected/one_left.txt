@@ -1,0 +1,56 @@
+warning: str is imported but not used [unused-import]
+ --> lib/money/cents.buri:7:29
+  |
+7 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+warning: `spare` is bound and never used [unused-variable]
+  --> lib/money/cents.buri:10:7
+   |
+10 |   let spare = 3;
+   |       ^^^^^
+   |
+   = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+   = fix: use it, delete the `let`, or write `_` in its place
+
+     An unused local variable is dead weight: the reader has to prove to
+     themselves it does not matter. It usually signals one of three things — a
+     computation whose result is never consumed (delete the computation, not
+     just the assignment), a leftover from a refactor that moved logic
+     elsewhere, or a value you meant to use and forgot to wire in (the real
+     bug).
+
+     Decide which it is before deleting. If the right-hand side has side effects
+     you still need, keep the call but drop the binding. If it was meant to be
+     returned or passed on, finish that thread rather than silencing the
+     warning. Suppressing it with a throwaway name hides the question instead of
+     answering it.
+
+error: a statement ends with `;` [missing-terminator]
+ --> lib/money/round.buri:4:16
+  |
+4 |   let half = 50
+  |                ^
+  |
+  = fix: write `;` here
+
+    What to do
+    ──────────
+
+    Write the ; where the caret is. The error carries the edit as bytes, so an
+    editor's quick fix and buri lint --fix both write it for you.
+
+    Why
+    ───
+
+    A declaration that binds a value or a name is terminated, and one that opens
+    a brace-delimited body is not: let, type, derive, an import and a
+    tuple-struct end with ;; a fn, a struct with fields, an enum, a trait and an
+    impl end with }. The rule is about what the declaration's last token already
+    is, so nothing has to be remembered per keyword.
+
+    Inside a block the same ; is what separates one statement from the next, and
+    what says an expression's value is discarded rather than returned.
+

@@ -1,0 +1,12 @@
+// One hop above the file that did not parse. `str` is imported and never
+// used; `spare` is bound and never read. Both are findings about code the
+// parser read whole, in a package whose dependency did not parse — which is
+// the thing a run that stopped at the first error would lose.
+
+from "//lib/routes" import { Route };
+from "core/str" import * as str;
+
+export fn describe(r: Route): Str {
+  let spare = 3;
+  r.name
+}

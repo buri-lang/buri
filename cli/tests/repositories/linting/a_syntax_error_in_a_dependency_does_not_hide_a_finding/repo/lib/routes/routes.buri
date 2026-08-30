@@ -1,0 +1,15 @@
+// The package at the bottom of the graph, and the one that does not parse:
+// the first match arm has no `,`. `Route` is declared above the mistake and
+// still resolves, which is what lets the two packages above this one be read
+// at all.
+
+export struct Route {
+  export name: Str,
+}
+
+export fn route(path: Str): Route {
+  match (path) {
+    "/health" => Route { name: "health" }
+    _ => Route { name: "fallback" },
+  }
+}

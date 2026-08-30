@@ -55,6 +55,17 @@
 //! Both are held to rates rather than to counts, in the style `recovery.rs`
 //! states, so growing the corpus does not move the bar.
 //!
+//! # The third claim: one producer
+//!
+//! * **The editor and the terminal report the same set.** `buri lint` walks
+//!   every target through `findings_for` — the lint record cache in front of
+//!   it, the package rules asked once per package — and the language server
+//!   asks per target through `analysis_of` and `findings_for_target`. Both
+//!   routes are compared over every case here, and every case here has a
+//!   syntax error in it. That is the shape a rate cannot catch: two halves can
+//!   go quiet together and keep any rate they like, and only comparing them
+//!   says the terminal did not stop where the editor read on.
+//!
 //! ```text
 //! cargo test -p buri --test linting
 //! BURI_BLESS=1 cargo test -p buri --test linting     # re-record the corpus
@@ -247,12 +258,15 @@ fn is_a_rule(code: &str) -> bool {
     buri::documentation::lints::find(code).is_some()
 }
 
-/// Lints a whole set of sources in one repository, one package each.
+/// One scratch repository holding every source, one package each, opened and
+/// resolved.
 ///
-/// One session and one pass: opening a repository and analysing a package are
-/// tens of milliseconds each, and a thousand of them one at a time would be
-/// the whole test budget.
-fn lint_all(label: &str, sources: &[(String, String)]) -> BTreeMap<String, Findings> {
+/// The `Scratch` comes back with the session because it deletes the tree when
+/// it drops, and a session over a deleted tree answers nothing.
+fn fixture(
+    label: &str,
+    sources: &[(String, String)],
+) -> (Scratch, buri::build::session::Session, Vec<buri::build::workspace::TargetId>) {
     let scratch = Scratch::repo(label);
     for (name, text) in sources {
         let (build, file) = shape_of(text);
@@ -260,11 +274,22 @@ fn lint_all(label: &str, sources: &[(String, String)]) -> BTreeMap<String, Findi
         scratch.write(&format!("lib/{name}/{file}"), text);
     }
     let flags = Flags::default();
-    let mut session = buri::build::session::open_at(&scratch.path(""), &flags)
+    let session = buri::build::session::open_at(&scratch.path(""), &flags)
         .unwrap_or_else(|e| panic!("the fixture repository did not open: {e}"));
     let targets = session
         .resolve_targets(&[String::from("//...")])
         .unwrap_or_else(|e| panic!("the fixture repository has no targets: {e}"));
+    (scratch, session, targets)
+}
+
+/// Lints a whole set of sources in one repository, one package each.
+///
+/// One session and one pass: opening a repository and analysing a package are
+/// tens of milliseconds each, and a thousand of them one at a time would be
+/// the whole test budget.
+fn lint_all(label: &str, sources: &[(String, String)]) -> BTreeMap<String, Findings> {
+    let flags = Flags::default();
+    let (_scratch, mut session, targets) = fixture(label, sources);
     let diagnostics = buri::commands::lint::findings_for(&mut session, &targets, &flags);
 
     let mut out: BTreeMap<String, Findings> = BTreeMap::new();
@@ -655,4 +680,80 @@ fn a_case_is_two_files() {
             case.display()
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// One producer
+// ---------------------------------------------------------------------------
+
+/// Every diagnostic in a report, as the string that identifies it across two
+/// passes: where it sits, what severity it wears, and what it says.
+fn keyed(
+    session: &buri::build::session::Session,
+    diagnostics: &buri::diagnostics::Diagnostics,
+) -> BTreeSet<String> {
+    diagnostics
+        .items
+        .iter()
+        .map(|d| {
+            format!(
+                "{}:{}..{} {} [{}] {}",
+                session.map.name(d.span.file),
+                d.span.start,
+                d.span.end,
+                d.severity.label(),
+                d.code.clone().unwrap_or_default(),
+                d.message,
+            )
+        })
+        .collect()
+}
+
+/// **The editor and the terminal report the same set, over broken files.**
+///
+/// `buri lint` reaches the catalogue through `findings_for`, which walks every
+/// target, consults the lint record cache, and asks the package rules once per
+/// package. The language server reaches it through `analysis_of` and
+/// `findings_for_target`, per target, with no cache between — the two calls
+/// `language_server/state.rs` makes. One catalogue, two routes to it, and a
+/// syntax error may not separate them.
+///
+/// It is the recovery claim stated as a *parity*, which is the form that
+/// cannot pass by both halves going quiet together: every source here has a
+/// syntax error in it, so a terminal that bailed on the first parse error —
+/// stopped collecting, skipped the analysis, or answered before the rules ran
+/// — loses findings the editor still publishes, and this fails naming them.
+#[test]
+fn the_editor_and_the_terminal_report_the_same_findings() {
+    let cases: &[Case] = corpus();
+    let batch: Vec<(String, String)> =
+        cases.iter().map(|c| (c.name.clone(), c.source.clone())).collect();
+    let flags = Flags::default();
+    let (_scratch, mut session, targets) = fixture("linting-parity", &batch);
+
+    let printed = buri::commands::lint::findings_for(&mut session, &targets, &flags);
+    let terminal = keyed(&session, &printed);
+    let mut editor = BTreeSet::new();
+    for target in &targets {
+        let analysis = buri::commands::lint::analysis_of(&mut session, *target);
+        let found = buri::commands::lint::findings_for_target(&session, *target, &analysis);
+        editor.extend(keyed(&session, &found));
+    }
+
+    let only_editor: Vec<&String> = editor.difference(&terminal).collect();
+    let only_terminal: Vec<&String> = terminal.difference(&editor).collect();
+    let sample =
+        |v: &[&String]| v.iter().take(8).map(|s| format!("\n  {s}")).collect::<String>();
+    assert!(
+        only_editor.is_empty() && only_terminal.is_empty(),
+        "the two routes to the catalogue disagree over {} broken sources.\n\
+         published by the editor and not printed by `buri lint` ({}):{}\n\
+         printed by `buri lint` and not published by the editor ({}):{}",
+        cases.len(),
+        only_editor.len(),
+        sample(&only_editor),
+        only_terminal.len(),
+        sample(&only_terminal),
+    );
+    eprintln!("linting: {} findings agreed over {} broken sources", terminal.len(), cases.len());
 }

@@ -1,0 +1,55 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "two files of one package do not parse, and each mistake is a different one: both are reported, the third file's findings are reported beside them, and fixing one of the two does not change what is said about the other"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# One of the two, fixed. What is left is the other mistake and the same two
+# findings — so the report above was three separate answers rather than one
+# answer and its wake.
+edit {
+  file: "lib/money/routes.buri"
+  replace: "Route { name: \"health\" }\n"
+  with: "Route { name: \"health\" },\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "one_left.txt"
+}
+
+edit {
+  file: "lib/money/round.buri"
+  replace: "  let half = 50\n"
+  with: "  let half = 50;\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "findings.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "from \"core/str\" import * as str;\n"
+  with: ""
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  let spare = 3;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
