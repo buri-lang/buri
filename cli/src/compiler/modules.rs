@@ -759,7 +759,12 @@ impl<'a> Loader<'a> {
                     standard_library::find(&candidate).map(|_| candidate)
                 })
             {
-                d = d.with_note(format!("write \"{suggestion}\""));
+                // The page's `fix` has to teach the rule, because most of the
+                // places this fires have no repository to ask. Where there is
+                // one, the concrete answer replaces it — in the terminal and
+                // as the title of the editor's quick fix, which is the same
+                // string.
+                d = d.with_fix(format!("write \"{suggestion}\""));
                 d = d.with_edit(span.inside_quotes(self.map.text(span.file)), &suggestion);
             }
             self.diags.push(d);
