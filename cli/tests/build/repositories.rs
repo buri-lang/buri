@@ -87,6 +87,15 @@ fn proto_schemas() {
 /// a second broken file is not a second reason to stop, and that a *build*
 /// file which does not read is the one thing recovery does not read around.
 ///
+/// Eight more are the dead-code family — a type, a field and a variant nothing
+/// uses — and half of them are negatives: a type named only by a signature or
+/// an alias, a field read only by the module beside it, and everything on the
+/// library's surface, none of which is reported. The other half is what is:
+/// the field elision leaves out of every literal, the variant a `_` arm meets
+/// and no shorthand builds, and the two shapes of doubt — an unresolved
+/// re-export, which reaches the exported names and no further, and a body that
+/// did not check, which reaches the names written inside it and no further.
+///
 /// The other five say what an error is *not* a reason to go quiet about, which
 /// is the harder half and the one that regressed. A declaration the parser
 /// recovered whole — an import missing its `;` — hides nothing below it. An
@@ -98,12 +107,12 @@ fn proto_schemas() {
 /// re-export that did not resolve stops `dead-code` from calling the name it
 /// meant to reach unreached — one typo, one finding.
 ///
-/// The generated half of that question is `cli/tests/linting.rs`, five hundred
+/// The generated half of that question is `cli/tests/linting.rs`, six hundred
 /// of them, with the rate of lost findings pinned as an invariant and the
 /// parity between this command and the language server stated alongside it.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 34);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 42);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the
@@ -120,7 +129,7 @@ fn test_suites() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 89);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 90);
 }
 
 /// Every method a 3.17 client can send is answered by the dispatch, and is

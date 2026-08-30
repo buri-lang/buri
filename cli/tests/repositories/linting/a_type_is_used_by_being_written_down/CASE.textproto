@@ -1,0 +1,62 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a type named only by a parameter and a type named only by an alias: both used, because writing a name down is using it, and each is reported the moment the last line that named it goes"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# `Ledger` loses its one mention and nothing else changes. It is reported at
+# once, and reported once: the field it declares is not a second finding.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "export fn describe(l: Ledger, m: Money): I64 {\n  match (m) {\n    .Open => l.entries,\n    .Closed => 0,\n  }\n}\n"
+  with: "export fn describe(m: Money): I64 {\n  match (m) {\n    .Open => 1,\n    .Closed => 0,\n  }\n}\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "ledger.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "struct Ledger {\n  entries: I64,\n}\n\n"
+  with: ""
+}
+
+# The alias was the only line naming `Tally`. With it gone the enum is reached
+# by nothing, which is what says the alias had been holding it up.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "type Money = Tally;\n\n"
+  with: ""
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "export fn describe(m: Money): I64 {\n  match (m) {\n    .Open => 1,\n    .Closed => 0,\n  }\n}\n"
+  with: "export fn describe(n: I64): I64 {\n  n\n}\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "tally.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "enum Tally {\n  Open,\n  Closed,\n}\n\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

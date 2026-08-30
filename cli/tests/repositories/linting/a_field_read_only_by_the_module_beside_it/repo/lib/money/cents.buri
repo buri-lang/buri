@@ -1,0 +1,9 @@
+// Nothing in this file reads either field. The module beside it reads both,
+// and that settles it: a name the library's surface does not carry can only be
+// reached from inside its own package, so the package is the whole of what has
+// to be looked at — and all of it is in front of the linter at once.
+
+export struct Slip {
+  export amount: I64,
+  export issued: Bool,
+}

@@ -1,0 +1,37 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a body the checker stopped inside: the field named in it is not reported and the field named nowhere in it is, because what a broken body costs is a set of names rather than a package"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# Dropping the `+ 1` makes the body check, and the read that was in doubt turns
+# out to have been there all along. The other finding does not move, which is
+# what says the silence was scoped to the name and not to the file.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  e.label + 1\n"
+  with: "  e.label\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "packer.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  packer: Str,\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

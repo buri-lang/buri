@@ -1,0 +1,31 @@
+//! Three shapes nothing needs, one of each kind the linter knows about.
+
+/// Nothing writes this name down anywhere else and nothing builds one.
+struct Ledger {
+  entries: I64,
+}
+
+/// `Increment` is named by the arm below; `Decrement` is named by nothing, and
+/// the `_` arm names no variant at all.
+enum Step {
+  Increment,
+  Decrement,
+}
+
+/// `cents` is read below. `packer` is written at the one literal there is and
+/// read nowhere, and it carries no `export`, so the surface does not cover it.
+export struct Entry {
+  export cents: I64,
+  packer: Str,
+}
+
+export fn entry(cents: I64): Entry {
+  Entry { cents, packer: "till" }
+}
+
+export fn apply(s: Step, n: I64): I64 {
+  match (s) {
+    .Increment => n + 1 + entry(n).cents,
+    _ => n,
+  }
+}

@@ -1,0 +1,38 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a field every literal fills and nothing reads, and an `Option` field elision leaves out of every literal: both reported, because writing a field is not reading one"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "findings.txt"
+}
+
+# Reading `packer` is one of the two fixes the page offers, and it takes that
+# finding away and leaves the other exactly as it was.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  e.cents + e.tax\n"
+  with: "  match (e.packer) {\n    \"till\" => e.cents + e.tax,\n    _ => e.cents,\n  }\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "note.txt"
+}
+
+# Deleting the other is the other fix, and it costs no edit at any literal —
+# which is the whole of what elision changed and none of what it changed here.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  note: Option<Str>,\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
