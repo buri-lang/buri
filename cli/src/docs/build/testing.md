@@ -345,8 +345,8 @@ context is called rather than referred to.
 
 `core/host/testing` is the platform a test source binds, and it is
 `core/host`'s surface written out for a test: the same names — `alloc`,
-`stdout`, `stderr`, `stdin`, `fs`, `clock`, `rand`, `env`, `proc` — **called**
-rather than referred to. `core/host`'s `clock` is one clock because a process
+`stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc` —
+**called** rather than referred to. `core/host`'s `clock` is one clock because a process
 has one; `clock()` is a fresh clock every call, so a test never inherits another
 test's.
 
@@ -356,6 +356,7 @@ test's.
 | `stdout()`, `stderr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` reads either one back. |
 | `stdin()` | `Stdin` | At end of input, so a suite never blocks on a pipe nobody is writing to. |
 | `fs()` | `Fs` | In-memory and empty. Writes are visible to that test and discarded after it. |
+| `net()` | `Net` | **Refuses** every request with `.Refused`, until `respond` says what to answer. |
 | `clock()` | `Clock` | At zero. `sleepMillis` advances it without sleeping. |
 | `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
 | `env()` | `Env` | No variables and no arguments. |
@@ -376,6 +377,7 @@ unchanged:
 | `fs().files([(Str, Str)])` | A filesystem holding this one's files and these as well |
 | `fs().filesBytes([(Str, [U8])])` | The byte twin, for a fixture that is not text |
 | `fs().readOnly()` | The **same** files, through a handle whose every write fails with `.ReadOnly` |
+| `net().respond(fn(Request) => Result<Response, NetError>)` | A network answering every request through that function |
 
 `args` and not `arguments`, and it is the one name here that is not
 `core/host`'s: `Env` already declares `arguments(self): [Str]` — the reader —
@@ -404,6 +406,7 @@ has two of its own:
 |---|---|
 | `read(path)` | `Result<Str, IoError>` — what the filesystem holds there, the same answer `readFile` gives |
 | `snapshot()` | `[(Str, Str)]` — every file, as text, **sorted by path** |
+| `calls()` | `[FsCall]` — every call made through this handle, **in the order they completed** |
 
 Neither needs the `Fs` effect bound: asserting on what a function wrote is
 reading an environment back rather than performing an effect. `snapshot()` is
@@ -465,6 +468,80 @@ The second block is the shape to copy: a test context binds what the function
 needs and nothing else, rather than a pre-assembled world. `core/testing/context`
 and its `Hermetic()` keep working unchanged while the corpus moves across.
 
+### A network that answers
+
+`net()` refuses everything, and that is the default worth having: a test that
+reaches the network by accident says so at its assertion rather than passing on
+an answer nobody wrote. `respond` hands it a function, and that function is the
+fake server — it is given every `Request` the code under test makes, and either
+answers it or fails it.
+
+```buri role=test
+# from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing/lib.buri" import { alloc, net };
+from "core/effect/lib.buri" import { Alloc, Net, NetError, Request };
+from "core/net/http/lib.buri" import * as http;
+# fn load<C: Net>(ctx: C, request: Request): Result<Int, NetError> {
+#   http.send(ctx, request).map(fn(r) => r.status)
+# }
+
+test "a request nobody arranged for is refused rather than answered" {
+  let ctx = context { Alloc: alloc(), Net: net() };
+  let asked = load(ctx, http.request(.Get, "https://example.test/a"));
+  assert.eq(assert.err(asked), NetError.Refused);
+}
+
+test "the responder decides on the method and on a header" {
+  let ctx = context { Alloc: alloc() };
+  let page = http.text(ctx, "Ledger");
+  let server = net().respond(fn(request) => {
+    let authorized = request.header("authorization") == .Some("Bearer t0ken");
+    match ((request.method, authorized)) {
+      (.Get, true) => .Ok(page),
+      (_method, true) => .Ok(http.status(405)),
+      (_any, false) => .Ok(http.status(401)),
+    }
+  });
+  let live = context { Alloc: alloc(), Net: server };
+  let signed = http
+    .request(.Get, "https://example.test/a")
+    .withHeader(live, "authorization", "Bearer t0ken");
+  assert.eq(assert.ok(load(live, signed)), 200);
+  assert.eq(assert.ok(load(live, signed.withMethod(.Post))), 405);
+  assert.eq(assert.ok(load(live, http.request(.Get, "https://example.test/a"))), 401);
+}
+```
+
+Three things about that responder are worth knowing before writing one.
+
+**It cannot take a context.** A lambda may not capture an effect-carrying value
+([`SPEC.md` §10.6](../SPEC.md)), so a responder cannot call `http.text(ctx, ...)`
+inside itself — which is precisely what makes a
+`fn(Request) => Result<Response, NetError>` a pure function of the request and
+safe to hold in a value. Build such a response *before* the responder and
+capture it, the way `page` is captured above: a `Response` is plain data.
+Anything that needs no allocation — `http.status(404)`, or a `Response` literal,
+since a list literal needs no context — can be built inside.
+
+**It answers a `Result`, so a test can fail the transport rather than the
+server.** `.Err(.Timeout)`, `.Err(.Transport("socket closed"))` and the rest
+reach the caller exactly as written, payload and all.
+
+**`respond` replaces rather than composing.** It is one responder and not a
+routing table: a responder that answers two URLs differently matches on
+`request.path()`, and two responders for one request would have no answer to
+which of them wins. Like every other builder here it answers a **new** network
+and leaves the one it was called on refusing.
+
+`net()` is also the one double whose configuration is the value itself rather
+than a handle into the runner's table. Every other one holds *state* — a
+transcript that grows, a clock that advances — and state is what a runner can
+keep on a program's behalf. A responder is *behaviour*, and behaviour is what it
+cannot keep: a function value is a code pointer and an environment, and for the
+runtime to invoke one it would have to call back into compiled Buri. So `fetch`
+is written in Buri and calls the responder directly, and `Net` has no row in
+either runtime table.
+
 Anything the runner does not provide is an ordinary struct with methods, since
 effects are ordinary interfaces ([`SPEC.md` §10.9](../SPEC.md)), and it is bound
 exactly the way the runner's own implementations are:
@@ -496,6 +573,10 @@ test "a timeout reaches the caller as an error" {
 }
 ```
 
+That is the general mechanism, and for `Net` in a test source `net().respond`
+is the same thing already written: `StubNet.fetch` and a responder are the same
+function of the same request.
+
 The fake answers from its fields rather than from a counter, because there is no
 mutation to hold one in. `clockAt`'s advancing clock and `captureOut`'s
 accumulating buffer do change between calls, and that is a privilege of the
@@ -504,6 +585,74 @@ those constructors is an intrinsic that installs a slot in a table the runtime
 owns, and nothing in `core/testing/context` hands one out. A fake you write is
 an immutable struct and stays one, so it answers the same way every time it is
 asked the same question.
+
+### What the code under test asked for
+
+`snapshot()` says what the world *is*; `calls()` says what it was **asked**.
+`TestFs`, `TestNet` and `TestStdin` each keep every call made through the handle
+and answer them in the order they completed:
+
+| Log | Answers |
+|---|---|
+| `fs().calls()` | `[FsCall]` — one per call to any of the eleven methods of `Fs` |
+| `net().calls()` | `[NetCall]` — one per request, whole: method, URL, headers and body |
+| `stdin().calls()` | `[StdinCall]` — one per `readLine` or `readBytes`, with what it asked for |
+
+A test writes the call it expects with the constructor of the same name, and
+these are ordinary functions of `core/host/testing`: `readFile(path)`,
+`writeFile(path, body)`, `renameFile(source, destination)`, `fetch(request)`,
+`readBytes(n)` — one per method, taking the call's own arguments. They derive
+`Eq`, which is what an assertion compares, and `Show`, which is what a failing
+one prints.
+
+```buri role=test
+# from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing/lib.buri" import { alloc, fs, net, readFile, fetch };
+from "core/effect/lib.buri" import { Alloc, Fs, IoError, Net, NetError, Response };
+from "core/net/http/lib.buri" import * as http;
+# fn cached<C: Alloc + Fs + Net>(ctx: C, url: Str): Result<Response, NetError> {
+#   match (ctx.readFile("cache")) {
+#     .Ok(_body) => .Ok(http.status(200)),
+#     .Err(_e) => http.get(ctx, url),
+#   }
+# }
+
+test "a miss consults the cache once and then goes upstream" {
+  let files = fs();
+  let upstream = net().respond(fn(_request) => .Ok(http.status(200)));
+  let ctx = context { Alloc: alloc(), Fs: files, Net: upstream };
+  let _ = assert.ok(cached(ctx, "https://example.test/thing"));
+  assert.eq(files.calls(), [readFile("cache")]);
+  assert.eq(upstream.calls(), [fetch(http.request(.Get, "https://example.test/thing"))]);
+}
+
+test "a hit never reaches the network at all" {
+  let files = fs().files([("cache", "hit")]);
+  let upstream = net();
+  let ctx = context { Alloc: alloc(), Fs: files, Net: upstream };
+  let _ = assert.ok(cached(ctx, "https://example.test/thing"));
+  assert.eq(upstream.calls(), []);
+}
+```
+
+Four things are worth knowing about the log.
+
+**A call that failed is a call.** A read that found nothing and a write refused
+through `readOnly()` are both in it: the log is what was asked, and the answer
+is the return value the test already has.
+
+**Reading the environment back is not a call.** `read`, `snapshot`, `captured`
+and `calls` itself ask the *fixture* a question rather than asking the double
+for anything, so none of them appears.
+
+**The log is per handle.** Every builder answers a new double with a log of its
+own, `readOnly()` and `respond` included — so the calls a test reads back are
+the ones made through the value it put in the context.
+
+**Octets are recorded as the text they spell**, which is `snapshot()`'s rule and
+is there for `snapshot()`'s reason: `writeFileBytes("b", [104, 105])` reads back
+as a call whose body is `"hi"`, and `writeFileBytes(path, body)` is the
+constructor that writes it down.
 
 ### Making the Nth call fail
 

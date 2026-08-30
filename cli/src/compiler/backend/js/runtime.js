@@ -698,6 +698,18 @@ function $list_mapCtx(xs, c, f) {
   return $own(out);
 }
 
+// `list.mapCtxStep` is `mapCtx` with a runtime-driven step on the native
+// backends, and here it is the same loop as `$list_mapCtx` — deliberately.
+// JavaScript is the reference implementation the two natives are compared
+// against (`cli/tests/native/agreement.rs`), and a reference that shared the
+// mechanism under test would prove nothing about it. This is the same argument
+// `middle/fuse.rs` makes for running the fusion pass on the native branch only.
+function $list_mapCtxStep(xs, c, f) {
+  const out = new Array(xs.length);
+  for (let i = 0; i < xs.length; i++) out[i] = f(c, $share(xs[i]));
+  return $own(out);
+}
+
 function $list_filter(xs, c, p) {
   const out = [];
   for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) out.push(xs[i]);
@@ -1470,45 +1482,143 @@ function $host_HostStderr_eprintln(self, t) {
   return 0;
 }
 
-let $stdinLines = null;
-let $stdinAt = 0;
+// --- Standard input ---------------------------------------------------------
+//
+// Both readers are `async`, and the event loop is what waits: a program
+// blocked on input is a program something else can run inside. What was here
+// before was `readSync` on the descriptor with a `continue` on `EAGAIN` — a
+// non-blocking pipe answers that until it has something to say — which burned
+// a core for the whole of a wait and let nothing else happen during one.
+//
+// `process.stdin` in paused mode is what replaces it: `read()` takes what has
+// already arrived, and `readable`/`end` say when to ask again. Node and Bun
+// both implement it; a browser has no standard input at all, and no platform
+// that grants `Stdin` is a browser (`standard_library`'s grant table), so the
+// failure there is a refusal rather than a wrong answer.
+//
+// The buffer is a queue of chunks rather than one growing `Buffer`, because
+// `readBytes` is a framed protocol's reader: a thousand four-byte headers off
+// the front of one megabyte must not each copy the megabyte.
+const $stdin = { chunks: [], at: 0, size: 0, ended: false };
 
-function $host_HostStdin_readLine(self) {
-  if ($stdinLines === null) {
-    let text = "";
-    try {
-      text = $fs().readFileSync(0, "utf8");
-    } catch {
-      text = "";
-    }
-    $stdinLines = text.length ? text.split("\n") : [];
-    if ($stdinLines.length && $stdinLines[$stdinLines.length - 1] === "") $stdinLines.pop();
+function $stdinStream() {
+  if (typeof process === "undefined" || !process.stdin) {
+    $abort("this platform grants no standard input");
   }
-  return $stdinAt < $stdinLines.length ? $some($stdinLines[$stdinAt++]) : undefined;
+  return process.stdin;
 }
 
-// Exactly `n` octets, blocking until they arrive. `read` on a pipe returns
-// what is available rather than what was asked for, so this loops — and a
-// short read at end of input yields what it got, or nothing at all.
-function $host_HostStdin_readBytes(self, want) {
+// The next chunk, or `null` at end of input.
+//
+// The listeners come off before the promise settles, and the stream is paused
+// with them: a reader that has stopped asking must not hold the event loop
+// open, or a program that read to the end would never exit.
+function $stdinChunk() {
+  const s = $stdinStream();
+  const first = s.read();
+  if (first !== null && first !== undefined) return Promise.resolve(first);
+  if (s.readableEnded) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const settle = (v) => {
+      s.off("readable", onReadable);
+      s.off("end", onDone);
+      s.off("error", onDone);
+      s.pause();
+      resolve(v);
+    };
+    // `readable` fires when there *may* be something; `read()` still answers
+    // null when there is not, and then the next one is waited for.
+    const onReadable = () => {
+      const c = s.read();
+      if (c !== null && c !== undefined) settle(c);
+    };
+    const onDone = () => settle(null);
+    s.on("readable", onReadable);
+    s.on("end", onDone);
+    s.on("error", onDone);
+  });
+}
+
+// One chunk into the queue, or the end of input recorded. Both readers ask
+// `$stdin.ended` afterwards rather than reading an answer from here, because
+// what they do about it differs.
+async function $stdinPull() {
+  const c = await $stdinChunk();
+  if (c === null) {
+    $stdin.ended = true;
+  } else if (c.length) {
+    $stdin.chunks.push(c);
+    $stdin.size += c.length;
+  }
+}
+
+// Exactly `n` octets off the front of the queue, which the caller has already
+// established are there.
+function $stdinTake(n) {
+  const parts = [];
+  let left = n;
+  while (left > 0) {
+    const head = $stdin.chunks[0];
+    const avail = head.length - $stdin.at;
+    if (avail > left) {
+      parts.push(head.subarray($stdin.at, $stdin.at + left));
+      $stdin.at += left;
+      left = 0;
+    } else {
+      parts.push(head.subarray($stdin.at));
+      $stdin.chunks.shift();
+      $stdin.at = 0;
+      left -= avail;
+    }
+  }
+  $stdin.size -= n;
+  return parts.length === 1 ? parts[0] : Buffer.concat(parts);
+}
+
+// The offset of the first newline in the queue, or -1. A line boundary is a
+// byte boundary — no octet of a multi-byte character is 0x0A — so cutting
+// here and decoding after is safe across a chunk that split one.
+function $stdinNewline() {
+  let seen = 0;
+  for (let i = 0; i < $stdin.chunks.length; i++) {
+    const c = $stdin.chunks[i];
+    const from = i === 0 ? $stdin.at : 0;
+    const at = c.indexOf(10, from);
+    if (at >= 0) return seen + (at - from);
+    seen += c.length - from;
+  }
+  return -1;
+}
+
+// A line at a time rather than the whole stream at once, which is the other
+// half of what the spin cost: a reader that has to see end of input before it
+// answers its first line cannot hold up one end of a conversation.
+async function $host_HostStdin_readLine(self) {
+  for (;;) {
+    const at = $stdinNewline();
+    if (at >= 0) {
+      const line = $stdinTake(at).toString("utf8");
+      $stdinTake(1);
+      return $some(line);
+    }
+    // What is left when the stream ends is a last line without one, and
+    // nothing left is end of input.
+    if ($stdin.ended) {
+      return $stdin.size === 0 ? undefined : $some($stdinTake($stdin.size).toString("utf8"));
+    }
+    await $stdinPull();
+  }
+}
+
+// Exactly `n` octets, waiting until they arrive. A short read at end of input
+// yields what it got, or nothing at all.
+async function $host_HostStdin_readBytes(self, want) {
   const n = Number(want);
   if (n <= 0) return [];
-  const buf = Buffer.alloc(n);
-  let got = 0;
-  while (got < n) {
-    let r;
-    try {
-      r = $fs().readSync(0, buf, got, n - got, null);
-    } catch (e) {
-      if (e && e.code === "EAGAIN") continue;
-      if (e && e.code === "EOF") break;
-      throw e;
-    }
-    if (r === 0) break;
-    got += r;
-  }
+  while ($stdin.size < n && !$stdin.ended) await $stdinPull();
+  const got = Math.min(n, $stdin.size);
   if (got === 0) return undefined;
-  return Array.from(buf.subarray(0, got));
+  return Array.from($stdinTake(got));
 }
 
 // `IoError` has a variant with a payload (`Other(Str)`), so every value of it
@@ -1533,57 +1643,76 @@ function $utf8Lossy(b) {
 
 // `require` does not exist in an ES module on node, so the backend emits a
 // `createRequire` prologue when — and only when — a program actually reaches
-// the filesystem. A program whose `main` never binds `Fs` never gets one.
+// one of the two modules below. A program whose `main` binds neither `Fs` nor
+// `Stdout.writeBytes` never gets one.
+//
+// The synchronous half survives for exactly one caller: `$writeRaw`, which
+// answers `Stdout.writeBytes` and does not wait, because a protocol that
+// answers a request has to have answered before it reads the next one.
 function $fs() {
   if (typeof $require === "function") return $require("fs");
   if (typeof require === "function") return require("fs");
   $abort("this platform grants no filesystem");
 }
 
-function $host_HostFs_readFile(self, p) {
+// The filesystem every `Fs` method reaches: `node:fs/promises`, so that a read
+// is a wait rather than a stall. **Node and Bun only.** A browser has no such
+// module and no browser platform grants `Fs` (`standard_library`'s grant
+// table), so the abort below is unreachable from a `WEB` artifact and is what
+// a mis-grant would say out loud rather than silently.
+function $fsp() {
+  if (typeof $require === "function") return $require("node:fs/promises");
+  if (typeof require === "function") return require("node:fs/promises");
+  $abort("this platform grants no filesystem");
+}
+
+async function $host_HostFs_readFile(self, p) {
   try {
-    return $ok($fs().readFileSync(p, "utf8"));
+    return $ok(await $fsp().readFile(p, "utf8"));
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_writeFile(self, p, b) {
+async function $host_HostFs_writeFile(self, p, b) {
   try {
-    $fs().writeFileSync(p, b);
+    await $fsp().writeFile(p, b);
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_fileExists(self, p) {
+// `access` rather than a `stat`: the question is whether the name resolves,
+// and the answer to every failure is the same `false`.
+async function $host_HostFs_fileExists(self, p) {
   try {
-    return $fs().existsSync(p);
+    await $fsp().access(p);
+    return true;
   } catch {
     return false;
   }
 }
 
-function $host_HostFs_readDir(self, p) {
+async function $host_HostFs_readDir(self, p) {
   try {
-    return $ok($fs().readdirSync(p));
+    return $ok(await $fsp().readdir(p));
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_readFileBytes(self, p) {
+async function $host_HostFs_readFileBytes(self, p) {
   try {
-    return $ok(Array.from($fs().readFileSync(p)));
+    return $ok(Array.from(await $fsp().readFile(p)));
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_writeFileBytes(self, p, b) {
+async function $host_HostFs_writeFileBytes(self, p, b) {
   try {
-    $fs().writeFileSync(p, Uint8Array.from(b));
+    await $fsp().writeFile(p, Uint8Array.from(b));
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
@@ -1592,27 +1721,27 @@ function $host_HostFs_writeFileBytes(self, p, b) {
 
 // `"a"` is `O_APPEND | O_CREAT`, so the position is taken and the octets
 // written as one operation and the file appears when it was absent.
-function $host_HostFs_appendFile(self, p, b) {
+async function $host_HostFs_appendFile(self, p, b) {
   try {
-    $fs().appendFileSync(p, Uint8Array.from(b));
+    await $fsp().appendFile(p, Uint8Array.from(b));
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_renameFile(self, from, to) {
+async function $host_HostFs_renameFile(self, from, to) {
   try {
-    $fs().renameSync(from, to);
+    await $fsp().rename(from, to);
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_removeFile(self, p) {
+async function $host_HostFs_removeFile(self, p) {
   try {
-    $fs().unlinkSync(p);
+    await $fsp().unlink(p);
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
@@ -1621,9 +1750,9 @@ function $host_HostFs_removeFile(self, p) {
 
 // `recursive` is what makes the parents and the already-there case both work;
 // a path naming a file is still `EEXIST`, which is `.AlreadyExists`.
-function $host_HostFs_makeDir(self, p) {
+async function $host_HostFs_makeDir(self, p) {
   try {
-    $fs().mkdirSync(p, { recursive: true });
+    await $fsp().mkdir(p, { recursive: true });
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
@@ -1633,18 +1762,18 @@ function $host_HostFs_makeDir(self, p) {
 // `fsync` on a directory flushes its entries, which is what makes a preceding
 // rename durable. Opened read-only: `fsync(2)` needs no write access, and a
 // directory cannot be opened for writing at all.
-function $host_HostFs_syncFile(self, p) {
-  let fd;
+async function $host_HostFs_syncFile(self, p) {
+  let fh;
   try {
-    fd = $fs().openSync(p, "r");
-    $fs().fsyncSync(fd);
+    fh = await $fsp().open(p, "r");
+    await fh.sync();
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
   } finally {
-    if (fd !== undefined) {
+    if (fh !== undefined) {
       try {
-        $fs().closeSync(fd);
+        await fh.close();
       } catch {}
     }
   }
@@ -1656,49 +1785,49 @@ function $host_HostFs_syncFile(self, p) {
 // three letters live here and nowhere in Buri.
 const $HTTP_METHOD = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 
-// `getAllResponseHeaders()` is one CRLF-separated block of `name: value` whose
-// names the engine has already lowercased — which is the casing `Header`
-// states, so nothing is normalized twice.
-function $httpResponseHeaders(req) {
-  const raw = req.getAllResponseHeaders ? req.getAllResponseHeaders() || "" : "";
+// A `Headers` iterates `[name, value]` pairs whose names the engine has already
+// lowercased — which is the casing `Header` states, so nothing is normalized
+// twice. The iterator is also where a repeated field is settled: `set-cookie`
+// arrives one entry per cookie and every other repeat arrives joined, which is
+// what the platform guarantees and not something to redo here.
+function $httpResponseHeaders(response) {
   const out = [];
-  for (const line of raw.split("\r\n")) {
-    const at = line.indexOf(":");
-    if (at < 0) continue;
-    out.push([line.slice(0, at).trim().toLowerCase(), line.slice(at + 1).trim()]);
-  }
+  for (const [name, value] of response.headers) out.push([name, value]);
   return out;
 }
 
-function $host_HostNet_fetch(self, request) {
-  // Synchronous by necessity: Buri has no `async` in v0.3, so a request
-  // blocks. Bun exposes a blocking XHR-shaped path; elsewhere this refuses
-  // rather than pretending.
-  //
-  // `Request` is `[method, url, headers, body]` and `Response` is
-  // `[status, headers, body]`: a struct is its fields in order, a `Header` is
-  // `[name, value]`, a payloadless enum is its variant index, and a `[U8]` is
-  // an ordinary array of numbers.
+// The platform's own `fetch`, awaited. What was here was a synchronous
+// `XMLHttpRequest` with an apology attached: Buri had no way to wait, so a
+// request stalled the one thread there was, and off Bun there was no blocking
+// path at all. `fetch` is the opposite of every part of that — it is in node,
+// in Bun and in every browser, and it is the one host call whose asynchrony the
+// language now has a word for. What crosses is unchanged: a `Request` in, a
+// `Response` out, octets both ways.
+//
+// `Request` is `[method, url, headers, body]` and `Response` is
+// `[status, headers, body]`: a struct is its fields in order, a `Header` is
+// `[name, value]`, a payloadless enum is its variant index, and a `[U8]` is an
+// ordinary array of numbers.
+async function $host_HostNet_fetch(self, request) {
   const method = $HTTP_METHOD[Number(request[0])] || "GET";
   const url = request[1];
   const headers = request[2];
   const body = request[3];
   try {
-    const req = new XMLHttpRequest();
-    req.open(method, url, false);
-    for (const h of headers) req.setRequestHeader(h[0], h[1]);
-    // Every byte back unchanged. Without this the engine decodes the body as
-    // UTF-8 and anything that is not text arrives as replacement characters —
-    // which is what a `[U8]` body exists to avoid.
-    try {
-      req.overrideMimeType("text/plain; charset=x-user-defined");
-    } catch {}
-    req.send(body.length === 0 ? null : new Uint8Array(body));
-    const text = req.responseText || "";
-    const out = new Array(text.length);
-    for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i) & 0xff;
-    return $ok([BigInt(req.status), $httpResponseHeaders(req), out]);
+    // A `GET` or a `HEAD` may carry no body at all, which `fetch` enforces
+    // rather than ignores, so an empty one is left off entirely.
+    const sends = body.length !== 0 && method !== "GET" && method !== "HEAD";
+    const init = { method, headers: Array.from(headers, (h) => [h[0], h[1]]) };
+    if (sends) init.body = new Uint8Array(body);
+    const r = await fetch(url, init);
+    // Every byte back unchanged, which is what the `overrideMimeType` trick was
+    // standing in for: a response that is not text used to arrive as
+    // replacement characters, and a `[U8]` body exists to avoid exactly that.
+    const octets = new Uint8Array(await r.arrayBuffer());
+    return $ok([BigInt(r.status), $httpResponseHeaders(r), Array.from(octets)]);
   } catch (e) {
+    // `.Transport(Str)`, the fourth variant of `NetError` — a request that did
+    // not reach an answer, whatever stopped it.
     return $err([3, String((e && e.message) || e)]);
   }
 }
@@ -1707,10 +1836,17 @@ function $host_HostClock_nowMillis(self) {
   return BigInt(Date.now());
 }
 
-function $host_HostClock_sleepMillis(self, ms) {
-  const end = Date.now() + Number(ms);
-  if (typeof Bun !== "undefined" && Bun.sleepSync) Bun.sleepSync(Number(ms));
-  else while (Date.now() < end);
+// A timer, waited on. What was here spun on `Date.now()` — or called
+// `Bun.sleepSync`, which is the same stall with the core given back — and
+// either way nothing else in the program could run for the duration. This is
+// the plainest statement of what the whole transform is for: a sleeping
+// program is now a program with a free event loop.
+//
+// `setTimeout` is universal — node, Bun and every browser — so there is
+// nothing to split on here.
+async function $host_HostClock_sleepMillis(self, ms) {
+  const n = Number(ms);
+  await new Promise((wake) => setTimeout(wake, n > 0 ? n : 0));
   return 0;
 }
 
@@ -3532,34 +3668,46 @@ function $host_testing_TestStderr_captured(self) {
 // End of input until a test says otherwise: no lines and no octets, so
 // `readLine` runs off the end and `readBytes` finds nothing.
 function $host_testing_stdin() {
-  return $handle({ lines: [], at: 0 });
+  return $handle({ lines: [], at: 0, calls: [] });
 }
 
 // A line stream and an octet stream are two streams and a test picks one, so
 // these two builders replace each other rather than composing: the last one in
 // a chain is the stream.
 function $host_testing_TestStdin_lines(self, lines) {
-  return $handle({ lines: lines.slice(), at: 0 });
+  return $handle({ lines: lines.slice(), at: 0, calls: [] });
 }
 
 function $host_testing_TestStdin_bytes(self, b) {
-  return $handle({ lines: [], at: 0, bytes: b.slice() });
+  return $handle({ lines: [], at: 0, bytes: b.slice(), calls: [] });
 }
 
 function $host_testing_TestStdin_readLine(self) {
   const s = $slot(self);
-  if (s.bytes) return undefined;
-  return s.at < s.lines.length ? $some(s.lines[s.at++]) : undefined;
+  if (s.bytes) return $host_testing_logged(s, ["readLine", 0n], undefined);
+  return $host_testing_logged(
+    s,
+    ["readLine", 0n],
+    s.at < s.lines.length ? $some(s.lines[s.at++]) : undefined,
+  );
 }
 
 function $host_testing_TestStdin_readBytes(self, want) {
   const s = $slot(self);
+  const call = ["readBytes", want];
   const n = Number(want);
   const src = s.bytes || [];
-  if (s.at >= src.length || n <= 0) return undefined;
+  if (s.at >= src.length || n <= 0) return $host_testing_logged(s, call, undefined);
   const out = src.slice(s.at, s.at + n);
   s.at += out.length;
-  return out;
+  return $host_testing_logged(s, call, out);
+}
+
+// Every read this stream was asked for, in the order they completed.
+function $host_testing_TestStdin_calls(self) {
+  return $slot(self).calls.map(function (c) {
+    return c.slice();
+  });
 }
 
 // A `TestFs` handle is a *view*: the files and directories it reads and writes,
@@ -3572,7 +3720,7 @@ function $host_testing_TestStdin_readBytes(self, want) {
 // for, exactly as `$testing_context_data`'s does: a flat map has no empty
 // directory otherwise.
 function $host_testing_fs() {
-  return $handle({ files: {}, dirs: [], ro: false });
+  return $handle({ files: {}, dirs: [], ro: false, calls: [] });
 }
 
 // This view's files with these written over them, in a map of its own, under
@@ -3582,21 +3730,85 @@ function $host_testing_TestFs_files(self, entries) {
   const s = $slot(self);
   const files = Object.assign({}, s.files);
   for (const e of entries) files[e[0]] = $bytes_toUtf8(null, e[1]);
-  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro });
+  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro, calls: [] });
 }
 
 function $host_testing_TestFs_filesBytes(self, entries) {
   const s = $slot(self);
   const files = Object.assign({}, s.files);
   for (const e of entries) files[e[0]] = e[1].slice();
-  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro });
+  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro, calls: [] });
 }
 
 // The same two objects, deliberately: a method that copied would be a snapshot
 // wearing an attenuator's name.
 function $host_testing_TestFs_readOnly(self) {
   const s = $slot(self);
-  return $handle({ files: s.files, dirs: s.dirs, ro: true });
+  return $handle({ files: s.files, dirs: s.dirs, ro: true, calls: [] });
+}
+
+// Records one call on a slot's log and answers what the method answered.
+//
+// The answer is an *argument*, so JavaScript has evaluated it by the time this
+// runs: the call is recorded on the way out, in the order calls complete, which
+// is what `calls()` promises and what `cli/runtime/testing.rs`'s `Recording`
+// does with a `Drop`. Nothing suspends yet, so completion order is program
+// order — recording it this way is what keeps that true when something does.
+function $host_testing_logged(s, call, answer) {
+  s.calls.push(call);
+  return answer;
+}
+
+// Every call this view was asked for, in the order they completed. Through
+// *this* handle: a builder and `readOnly` each answer a new one, with a log of
+// its own.
+function $host_testing_TestFs_calls(self) {
+  return $slot(self).calls.map(function (c) {
+    return c.slice();
+  });
+}
+
+// The text these octets spell, exactly as `readFile` reads back what
+// `writeFileBytes` wrote. An `FsCall` constructor's decode: a test writing a
+// call down performs no effect, so it has no context to reach `bytes` with.
+function $host_testing_spelled(b) {
+  return $utf8Lossy(b);
+}
+
+// A fresh, empty log, and the handle that names it. A bare `I64` rather than a
+// handle-carrying value, because `net()` is a Buri body that builds the
+// `TestNet` around it — the responder in the other field is a value this file
+// cannot make.
+function $host_testing_newNet() {
+  $t.h.push({ calls: [] });
+  return BigInt($t.h.length - 1);
+}
+
+// One request, recorded once the responder has answered it. `Request`'s four
+// fields arrive separately because a `Method` crosses as its variant index;
+// they go back together as the `NetCall` the constructor `fetch` builds.
+function $host_testing_recordFetch(h, method, url, headers, body) {
+  $t.h[Number(h)].calls.push([
+    Number(method),
+    url,
+    headers.map(function (e) {
+      return e.slice();
+    }),
+    body.slice(),
+  ]);
+  return 0;
+}
+
+// Every request this network answered, in that order. A `NetCall` is a newtype
+// over `Request`, so each one is its request in a one-element array.
+//
+// By the handle and not by the `TestNet`: that value carries a responder as
+// well, and `TestNet.calls` is the Buri body that unwraps it — the one `calls()`
+// in this module that is not a row of its own.
+function $host_testing_netCalls(h) {
+  return $t.h[Number(h)].calls.map(function (r) {
+    return [r.slice()];
+  });
 }
 
 // The read-back, without the effect: the same answer `readFile` gives, and no
@@ -3617,22 +3829,29 @@ function $host_testing_TestFs_snapshot(self) {
     });
 }
 
+// Recorded here and not in `read`, which the two share: `read` is the read-back
+// and a read-back is not a call.
 function $host_testing_TestFs_readFile(self, p) {
-  return $host_testing_TestFs_read(self, p);
+  return $host_testing_logged(
+    $slot(self),
+    ["readFile", p, ""],
+    $host_testing_TestFs_read(self, p),
+  );
 }
 
 // `.ReadOnly` is `IoError`'s third variant, and the six that write are the six
 // `ReadOnly<C>` refuses.
 function $host_testing_TestFs_writeFile(self, p, b) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["writeFile", p, b];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   s.files[p] = $bytes_toUtf8(null, b);
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 function $host_testing_TestFs_fileExists(self, p) {
   const s = $slot(self);
-  return p in s.files || s.dirs.includes(p);
+  return $host_testing_logged(s, ["fileExists", p, ""], p in s.files || s.dirs.includes(p));
 }
 
 function $host_testing_TestFs_readDir(self, p) {
@@ -3647,62 +3866,72 @@ function $host_testing_TestFs_readDir(self, p) {
       if (rest && !out.includes(rest.split("/")[0])) out.push(rest.split("/")[0]);
     }
   }
-  return $ok(out.sort());
+  return $host_testing_logged(s, ["readDir", p, ""], $ok(out.sort()));
 }
 
 function $host_testing_TestFs_readFileBytes(self, p) {
-  const f = $slot(self).files;
-  return p in f ? $ok(f[p].slice()) : $err([0]);
+  const s = $slot(self);
+  const f = s.files;
+  return $host_testing_logged(
+    s,
+    ["readFileBytes", p, ""],
+    p in f ? $ok(f[p].slice()) : $err([0]),
+  );
 }
 
 function $host_testing_TestFs_writeFileBytes(self, p, b) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["writeFileBytes", p, $utf8Lossy(b)];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   s.files[p] = b.slice();
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 function $host_testing_TestFs_appendFile(self, p, b) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["appendFile", p, $utf8Lossy(b)];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const f = s.files;
   f[p] = (p in f ? f[p] : []).concat(b);
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 function $host_testing_TestFs_renameFile(self, from, to) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["renameFile", from, to];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const f = s.files;
-  if (!(from in f)) return $err([0]);
+  if (!(from in f)) return $host_testing_logged(s, call, $err([0]));
   f[to] = f[from];
   delete f[from];
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 function $host_testing_TestFs_removeFile(self, p) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["removeFile", p, ""];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const f = s.files;
-  if (!(p in f)) return $err([0]);
+  if (!(p in f)) return $host_testing_logged(s, call, $err([0]));
   delete f[p];
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 // Parents included, an existing directory is `.Ok`, and a path already naming
 // a file is `.AlreadyExists` — the three answers `mkdir -p` gives.
 function $host_testing_TestFs_makeDir(self, p) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["makeDir", p, ""];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const clean = p.replace(/\/+$/, "");
-  if (clean === "" || clean === ".") return $ok(0);
-  if (clean in s.files) return $err([3]);
+  if (clean === "" || clean === ".") return $host_testing_logged(s, call, $ok(0));
+  if (clean in s.files) return $host_testing_logged(s, call, $err([3]));
   const parts = clean.split("/");
   for (let i = 0; i < parts.length; i++) {
     const at = parts.slice(0, i + 1).join("/");
     if (at !== "" && !s.dirs.includes(at)) s.dirs.push(at);
   }
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 // Nothing to flush, so this answers whether there is anything to have flushed.
@@ -3710,9 +3939,14 @@ function $host_testing_TestFs_makeDir(self, p) {
 // the filesystem already holds is what gets flushed.
 function $host_testing_TestFs_syncFile(self, p) {
   const s = $slot(self);
+  const call = ["syncFile", p, ""];
   const clean = p.replace(/\/+$/, "");
-  if (clean === "" || clean === ".") return $ok(0);
-  return p in s.files || s.dirs.includes(clean) ? $ok(0) : $err([0]);
+  if (clean === "" || clean === ".") return $host_testing_logged(s, call, $ok(0));
+  return $host_testing_logged(
+    s,
+    call,
+    p in s.files || s.dirs.includes(clean) ? $ok(0) : $err([0]),
+  );
 }
 
 // Millis in and millis out are both `I64`, so this one counts in `BigInt`.

@@ -73,12 +73,37 @@ pub enum Arg {
     /// counted pointers (`cli/runtime/list.rs`'s header). Consumes no Buri
     /// argument.
     Retain,
+    // -- the closure trampoline ---------------------------------------------
+    /// A **runtime-driven step**: four parameters, from one Buri closure
+    /// argument (`backend/intrinsic_keys.rs`'s `step_call`).
+    ///
+    /// ```text
+    ///   entry       the generated `ccc` thunk, `void(state, in, out)`
+    ///   state       this backend's own record, opaque to the runtime
+    ///   in_stride   the source element's stride
+    ///   out_stride  the result element's stride
+    /// ```
+    ///
+    /// It consumes the closure and emits none of its words: `{ code, env }` is
+    /// this backend's business and reaches the runtime inside `state`, which is
+    /// an entry-block `alloca` the call site fills in. What the runtime gets is
+    /// a C function it can call once per element with three pointers, at every
+    /// element type there is — which is [`Arg::Spilled`]'s answer to "the
+    /// runtime cannot name `T`" applied to a *call* rather than to a value.
+    ///
+    /// The strides ride along rather than arriving as [`Arg::Stride`] because a
+    /// step reads one element type and writes another, and `Arg::Stride` names
+    /// exactly one — the element `generic_element` found. Two of them in one
+    /// variant keeps "which stride is which" a property of this table instead
+    /// of an ordering convention between two independent rows.
+    Step,
 }
 
 impl Arg {
     /// How many C parameters this shape emits.
     pub fn leaves(self) -> usize {
         match self {
+            Arg::Step => 4,
             Arg::Str => 3,
             Arg::Bytes | Arg::List | Arg::Elems => 2,
             Arg::Scalar | Arg::Spilled | Arg::Stride | Arg::Retain => 1,
@@ -613,6 +638,26 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::List, Arg::Dropped, Arg::Str],
         ret: Ret::Out,
     },
+    // -- the closure trampoline, and its one pilot key ----------------------
+    //
+    // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
+    // generated `ccc` entry thunk of [`Arg::Step`] instead of through the loop
+    // [`super::emit::Unit::list_closure`] emits. It is the *pilot* for that
+    // mechanism and nothing else uses it: `core/list`'s own combinators keep
+    // their loops, which are faster than a call per element can be, and the
+    // operations the trampoline exists for — a task pool, an accepting
+    // socket — are not written yet.
+    //
+    // `Arg::Elems` and not `Arg::List`, because the source's element type is
+    // what `generic_element` answers and what the entry thunk is generated at.
+    // `Arg::Dropped` for the `Alloc` context, as every other `core/list` row
+    // has it: the runtime allocates through `buri_rt_alloc`.
+    Entry {
+        key: "list.mapCtxStep",
+        symbol: "buri_rt_list_map_ctx_step",
+        args: &[Arg::Elems, Arg::Dropped, Arg::Step],
+        ret: Ret::Out,
+    },
     // -- core/testing/context's stateful half ---------------------------------
     //
     // `cli/runtime/testing.rs`'s header is the argument for these being in the
@@ -1063,7 +1108,16 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Sum,
     },
-    // `TestFs`'s sixteen. `self` is `struct TestFs(I64)` and carries a handle,
+    // The stream's log, read back. `calls` answers a `[Call]` the way `snapshot`
+    // answers a `[(Str, Str)]`: `Ret::Out` writes the descriptor and the element
+    // width is the record's own layout, which this table does not name.
+    Entry {
+        key: "host_testing.TestStdin.calls",
+        symbol: "buri_rt_host_testing_test_stdin_calls",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    // `TestFs`'s seventeen. `self` is `struct TestFs(I64)` and carries a handle,
     // so it is `Arg::Scalar` here as `MemFs`'s is — including on the two
     // builders and on `readOnly`, which read the receiver's view rather than
     // ignoring it.
@@ -1099,6 +1153,12 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         key: "host_testing.TestFs.snapshot",
         symbol: "buri_rt_host_testing_test_fs_snapshot",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestFs.calls",
+        symbol: "buri_rt_host_testing_test_fs_calls",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
@@ -1167,6 +1227,44 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_testing_test_fs_sync_file",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
+    },
+    // The call log's remaining four. `spelled` is an `FsCall` constructor's
+    // decode and not a filesystem operation: a test writing a call down performs
+    // no effect and so has no context to reach `bytes.fromUtf8` with.
+    //
+    // The other three are `TestNet`'s. `net()` and `TestNet.fetch` are Buri
+    // bodies and have no row — the absent-key list below says why — but a log is
+    // state, so the handle naming it is minted here (`alloc.newCounter`'s
+    // shape), written by `recordFetch` once the responder has answered, and read
+    // back by `netCalls`. `recordFetch` is handed `Request` flattened by §2 rule
+    // 1: the method's variant index as an `Int`, the URL's three leaves, and two
+    // `(ptr, len)` pairs — `buri_rt_host_net_fetch`'s argument list without its
+    // answer. `netCalls` takes the handle rather than the `TestNet`, because
+    // that value carries the responder too and an argument crosses as its
+    // leaves.
+    Entry {
+        key: "host_testing.spelled",
+        symbol: "buri_rt_host_testing_spelled",
+        args: &[Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.newNet",
+        symbol: "buri_rt_host_testing_new_net",
+        args: &[],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.recordFetch",
+        symbol: "buri_rt_host_testing_record_fetch",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Str, Arg::List, Arg::List],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.netCalls",
+        symbol: "buri_rt_host_testing_net_calls",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
     },
     Entry {
         key: "host_testing.clock",
@@ -1481,6 +1579,16 @@ mod tests {
             // `Transport`. The row waits on §2.1, not on a table edit — the
             // same statement `runtime_table.rs`'s list makes.
             "host.HostNet.fetch",
+            // `core/host/testing`'s `net()` answers the same shape and needs
+            // no row at all: `TestNet` carries its responder as a value and
+            // `TestNet.fetch` is a Buri body that calls it, so no key is
+            // produced for it here. That is the same wall read from the other
+            // side — a responder is a `{ code, env }` pair the archive has no
+            // way to invoke, and its answer is the `Result<Response, NetError>`
+            // §2.1 cannot name — and it is why widening §2.1 later changes
+            // nothing about the double. Its *log* is a different question and
+            // has three rows above: `newNet`, `recordFetch` and
+            // `netCalls` cross nothing §2.1 restricts.
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }
@@ -1505,7 +1613,16 @@ mod tests {
     /// this invariant.
     #[test]
     fn only_the_generic_extras_consume_no_argument() {
-        for shape in [Arg::Str, Arg::Bytes, Arg::List, Arg::Scalar, Arg::Dropped, Arg::Elems, Arg::Spilled] {
+        for shape in [
+            Arg::Str,
+            Arg::Bytes,
+            Arg::List,
+            Arg::Scalar,
+            Arg::Dropped,
+            Arg::Elems,
+            Arg::Spilled,
+            Arg::Step,
+        ] {
             assert!(shape.consumes(), "{shape:?}");
         }
         for shape in [Arg::Stride, Arg::Retain] {
@@ -1526,7 +1643,33 @@ mod tests {
             assert_eq!(strides, retains, "{}", e.key);
             let generic =
                 e.args.iter().any(|a| matches!(a, Arg::Elems | Arg::Spilled));
-            assert_eq!(strides > 0, generic, "{}", e.key);
+            // [`Arg::Step`] carries **both** of its strides itself, because a
+            // step reads one element type and writes another and `Arg::Stride`
+            // names exactly one. So a row with a step is generic and has no
+            // separate stride, and the equivalence above holds of the rest.
+            let stepped = e.args.contains(&Arg::Step);
+            assert_eq!(strides > 0, generic && !stepped, "{}", e.key);
+        }
+    }
+
+    /// Every row with a step is one `backend/intrinsic_keys.rs` names, its
+    /// `Arg::Step` sits where that table says the closure is, and it is the
+    /// last argument — which is the invariant that lets `runtime_table.rs`,
+    /// which has no per-argument column, describe the same C signature.
+    #[test]
+    fn a_step_is_the_last_argument_of_a_key_the_shared_table_names() {
+        use crate::compiler::backend::intrinsic_keys::step_call;
+        for e in ENTRIES {
+            let at = e.args.iter().position(|a| *a == Arg::Step);
+            match (at, step_call(e.key)) {
+                (None, None) => {}
+                (Some(at), Some(call)) => {
+                    assert_eq!(at, call.func, "{}", e.key);
+                    assert_eq!(at + 1, e.args.len(), "{}", e.key);
+                }
+                (Some(_), None) => panic!("{} has a step and no `step_call` row", e.key),
+                (None, Some(_)) => panic!("{} is runtime-driven and has no `Arg::Step`", e.key),
+            }
         }
     }
 }

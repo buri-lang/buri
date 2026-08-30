@@ -3752,7 +3752,15 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
         }
 
         if depth == 0 && current.is_none() {
-            for kw in [b"function $".as_slice(), b"const $".as_slice(), b"let $".as_slice()] {
+            // `async function $f` is tried at the `a`, which the scan reaches
+            // before the `f`, so a host body that waits keeps its `async`
+            // rather than losing it to a span that starts at `function`.
+            for kw in [
+                b"async function $".as_slice(),
+                b"function $".as_slice(),
+                b"const $".as_slice(),
+                b"let $".as_slice(),
+            ] {
                 if b.get(i..).is_some_and(|rest| rest.starts_with(kw)) {
                     // The keyword ends with the `$` that begins the name.
                     let ns = i + kw.len() - 1;
@@ -3764,7 +3772,7 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
                         j += 1;
                     }
                     if let Some(Ok(name)) = b.get(ns..j).map(std::str::from_utf8) {
-                        current = Some((name.to_string(), kw.starts_with(b"function")));
+                        current = Some((name.to_string(), kw.ends_with(b"function $")));
                         start = i;
                     }
                     break;
@@ -3913,6 +3921,37 @@ mod tests {
 
     fn p(e: Expr) -> String {
         print(&[Stmt::Expr(e)], false)
+    }
+
+    /// A runtime declaration keeps its `async`.
+    ///
+    /// The span a declaration is cut at starts on its keyword, and `function`
+    /// is a keyword `async function` merely ends with — so recognising only
+    /// the shorter one silently drops the word that makes the body return a
+    /// promise. The host bodies that wait are all spelled this way, and a
+    /// caller that awaits one would have got the value rather than a promise:
+    /// the whole of `Fs`, `Net.fetch`, `Clock.sleepMillis` and `Stdin`.
+    #[test]
+    fn a_declaration_that_waits_keeps_its_async() {
+        let src = "\
+function $plain(a) {
+  return a;
+}
+
+async function $waits(a) {
+  return await a;
+}
+
+const $tail = 1;
+";
+        let decls = split_declarations(src);
+        let names: Vec<&str> = decls.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["$plain", "$waits", "$tail"]);
+        assert!(decls[0].1.starts_with("function $plain"), "{:?}", decls[0].1);
+        assert!(decls[1].1.starts_with("async function $waits"), "{:?}", decls[1].1);
+        // And it still ends at the closing brace rather than running on to the
+        // next semicolon, which is what tells a function from a `const`.
+        assert!(decls[1].1.trim_end().ends_with('}'), "{:?}", decls[1].1);
     }
 
     #[test]

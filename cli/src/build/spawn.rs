@@ -48,18 +48,33 @@ use std::process::Command;
 /// not reach: a suite that never asks the time carries no host clock, and
 /// assigning to a name that was dropped would be a `ReferenceError` in module
 /// code. A guard that finds nothing has nothing to freeze.
+///
+/// Nothing here **declares** a name at module scope, for the same reason read
+/// from the other side: this text is spliced after the generator has run, so
+/// the minifier cannot know about it, and a `var` beside a mangled `let` of the
+/// same name is a `SyntaxError` before a line of either runs. The random seed
+/// is therefore a closure's local.
 pub const FIXED_CLOCK_JS: &str = concat!(
     "// The action's clock: 1970-01-01T00:00:00Z, frozen.\n",
     "try{Date.now=function(){return 0;};}catch(e){}\n",
     "try{if(typeof $host_HostClock_nowMillis===\"function\")",
     "$host_HostClock_nowMillis=function(){return 0;};}catch(e){}\n",
-    // Replaced rather than left alone: the runtime's fallback spins until
-    // `Date.now()` passes a deadline, and a frozen clock never passes one.
-    // Where no time elapses, sleeping for it takes no time.
+    // Replaced rather than left alone: the runtime's own `sleepMillis` waits
+    // on a real timer, which a frozen `Date.now` does not shorten by a
+    // millisecond. Where no time elapses, sleeping for it takes no time.
+    //
+    // The replacement is not `async`, and does not need to be: its callers
+    // `await` it, and `await 0` is `0`.
     "try{if(typeof $host_HostClock_sleepMillis===\"function\")",
     "$host_HostClock_sleepMillis=function(){return 0;};}catch(e){}\n",
-    "try{var $r=1;Math.random=function(){",
-    "$r=($r*1103515245+12345)&0x7fffffff;return $r/0x80000000;};}catch(e){}\n",
+    // The seed lives inside the closure rather than in a module-scope `var`.
+    // This text is spliced *after* the generator has run, so the minifier never
+    // sees it and cannot keep its own names away from one declared here — and
+    // its mangled globals are short `$`-prefixed names, of which `$r` is one it
+    // reaches once a program is large enough. A name nothing declares is a name
+    // nothing can collide with.
+    "try{Math.random=(function(){var r=1;return function(){",
+    "r=(r*1103515245+12345)&0x7fffffff;return r/0x80000000;};})();}catch(e){}\n",
 );
 
 /// The fixed instant, as `SOURCE_DATE_EPOCH` spells it.

@@ -1194,6 +1194,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "canary/canary.buri",
     "codegen/bitwise.buri",
     "codegen/equality.buri",
+    "codegen/step_trampoline.buri",
     "codegen/strings.buri",
     "codegen/tail_calls.buri",
     "collections/bitset.buri",
