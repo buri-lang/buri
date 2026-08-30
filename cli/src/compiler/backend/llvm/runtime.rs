@@ -633,7 +633,7 @@ pub const ENTRIES: &[Entry] = &[
     //    `a_stateful_context_is_dropped_at_the_runtime_boundary` exists for.
     //
     // `alloc` and `TestAlloc.allocate` are open-coded (`emit.rs`), and
-    // `MemFs`'s four are a named gap for the reason `cli/runtime/testing.rs`'s
+    // `MemFs`'s are a named gap for the reason `cli/runtime/testing.rs`'s
     // header gives.
     Entry {
         key: "testing_context.captureOut",
@@ -827,7 +827,13 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::List],
         ret: Ret::Out,
     },
-    // `MemFs`'s four. `self` is `struct MemFs(I64)` and carries a handle, so it
+    Entry {
+        key: "testing_context.filesBytes",
+        symbol: "buri_rt_testing_context_files_bytes",
+        args: &[Arg::List],
+        ret: Ret::Out,
+    },
+    // `MemFs`'s eleven. `self` is `struct MemFs(I64)` and carries a handle, so it
     // is `Arg::Scalar` and not `Arg::Dropped` — the same distinction
     // `a_stateful_context_is_dropped_at_the_runtime_boundary` exists for.
     Entry {
@@ -851,6 +857,50 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         key: "testing_context.MemFs.readDir",
         symbol: "buri_rt_testing_context_mem_fs_read_dir",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    // The seven `core/fs` grew for issue #1. `Arg::List` at every `[U8]`, for
+    // the reason `core/bytes`' group above gives.
+    Entry {
+        key: "testing_context.MemFs.readFileBytes",
+        symbol: "buri_rt_testing_context_mem_fs_read_file_bytes",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "testing_context.MemFs.writeFileBytes",
+        symbol: "buri_rt_testing_context_mem_fs_write_file_bytes",
+        args: &[Arg::Scalar, Arg::Str, Arg::List],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "testing_context.MemFs.appendFile",
+        symbol: "buri_rt_testing_context_mem_fs_append_file",
+        args: &[Arg::Scalar, Arg::Str, Arg::List],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "testing_context.MemFs.renameFile",
+        symbol: "buri_rt_testing_context_mem_fs_rename_file",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "testing_context.MemFs.removeFile",
+        symbol: "buri_rt_testing_context_mem_fs_remove_file",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "testing_context.MemFs.makeDir",
+        symbol: "buri_rt_testing_context_mem_fs_make_dir",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "testing_context.MemFs.syncFile",
+        symbol: "buri_rt_testing_context_mem_fs_sync_file",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
@@ -1118,6 +1168,13 @@ mod tests {
             "host.HostFs.readFile",
             "host.HostFs.writeFile",
             "host.HostFs.readDir",
+            "host.HostFs.readFileBytes",
+            "host.HostFs.writeFileBytes",
+            "host.HostFs.appendFile",
+            "host.HostFs.renameFile",
+            "host.HostFs.removeFile",
+            "host.HostFs.makeDir",
+            "host.HostFs.syncFile",
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }
