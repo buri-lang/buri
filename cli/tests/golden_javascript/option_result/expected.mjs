@@ -2,12 +2,12 @@ const $k0=['port','8080'];
 const $k1=['host','local'];
 const $k2=[$k0,$k1];
 const $k3=[0,0];
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
-  const $t1=__cmd_x_main$lookup($k2,'missing');
+  const $t1=__cmd_x_main_buri$lookup($k2,'missing');
   $host_HostStdout_println(ctx_0[1],$t1!==void 0?$t1:'none');
   let $t2;
-  const $t3=__cmd_x_main$port($k2);
+  const $t3=__cmd_x_main_buri$port($k2);
   if($t3[0]===0){
     $t2='port '+String($t3[1]);
   }else if($t3[0]===1){
@@ -26,7 +26,7 @@ function __cmd_x_main$main(){
   }
   $host_HostStdout_println(ctx_0[1],$t2);
   let $t7;
-  const $t8=__cmd_x_main$port([]);
+  const $t8=__cmd_x_main_buri$port([]);
   if($t8[0]===0){
     $t7='port '+String($t8[1]);
   }else if($t8[0]===1){
@@ -46,7 +46,7 @@ function __cmd_x_main$main(){
   $host_HostStdout_println(ctx_0[1],$t7);
   return $k3;
 }
-function __cmd_x_main$lookup(pairs_0,key_1){
+function __cmd_x_main_buri$lookup(pairs_0,key_1){
   const $t1=$list_find(pairs_0,p_2=>p_2[0]===key_1);
   if($t1!==void 0){
     return $t1[1];
@@ -56,11 +56,11 @@ function __cmd_x_main$lookup(pairs_0,key_1){
     $abort('no arm matched');
   }
 }
-function __cmd_x_main$port(pairs_0){
+function __cmd_x_main_buri$port(pairs_0){
   const pairs_3=$share(pairs_0);
   const key_4='port';
   let $t3;
-  const $t2=__cmd_x_main$lookup(pairs_3,key_4);
+  const $t2=__cmd_x_main_buri$lookup(pairs_3,key_4);
   if($t2!==void 0){
     $t3=[0,$t2];
   }else if($t2===void 0){

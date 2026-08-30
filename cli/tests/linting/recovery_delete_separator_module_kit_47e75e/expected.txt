@@ -1,0 +1,15 @@
+warning: list is imported but not used [unused-import]
+ --> lib/recovery_delete_separator_module_kit_47e75e/lib.buri:4:39
+  |
+4 | from "core/list/lib.buri" import * as list
+  |                                       ^^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: an import declaration ends with `;` [missing-terminator]
+ --> lib/recovery_delete_separator_module_kit_47e75e/lib.buri:4:43
+  |
+4 | from "core/list/lib.buri" import * as list
+  |                                           ^
+  |
+  = fix: write `;` here

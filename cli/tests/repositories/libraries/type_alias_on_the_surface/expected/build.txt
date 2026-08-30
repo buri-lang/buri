@@ -1,12 +1,12 @@
-error: "//lib/units/units" does not export `Raw` [no-such-export]
- --> lib/units/lib.buri:4:49
+error: "//lib/units/units.buri" does not export `Raw` [no-such-export]
+ --> lib/units/lib.buri:4:54
   |
 4 | from "//lib/units/units.buri" export { Meters, Trip, Raw, Sample, widen, sample, depth };
-  |                                                 ^^^
+  |                                                      ^^^
   |
   = a re-export may name only what its module path exports
-  = `Raw` is declared in "//lib/units/units" but not exported
-  = fix: add `export` to `Raw`'s declaration in "//lib/units/units", or drop it from this list
+  = `Raw` is declared in "//lib/units/units.buri" but not exported
+  = fix: add `export` to `Raw`'s declaration in "//lib/units/units.buri", or drop it from this list
 
     What to do
     ──────────

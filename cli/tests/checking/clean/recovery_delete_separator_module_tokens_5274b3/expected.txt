@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-terminator]
+  --> main.buri:11:42
+   |
+11 | from "ui/theme/lib.buri" import { Theme }
+   |                                          ^
+   |
+   = fix: write `;` here

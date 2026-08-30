@@ -1,5 +1,5 @@
 const $k0=[0,0];
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
   const trimmed_2=$str_trim('  the quick brown fox  ');
   const words_3=$str_split(trimmed_2,ctx_0,' ');

@@ -1,0 +1,9 @@
+error: expected `;`, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_module_kit_a3b000/lib.buri:4:43
+  |
+4 | from "core/list/lib.buri" import * as list, ;
+  |                                           ^
+  |
+  = expected: `;`
+  = actual: `,`
+  = fix: write `;` here

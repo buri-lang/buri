@@ -1,4 +1,4 @@
-error: "//lib/plain/testing" names no file (lib/plain/testing/lib.buri) [module-not-found]
+error: "//lib/plain/testing/lib.buri" names no file (lib/plain/testing/lib.buri) [module-not-found]
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
     What to do
@@ -16,8 +16,8 @@ error: "//lib/plain/testing" names no file (lib/plain/testing/lib.buri) [module-
     ──────────────────────────
 
     A module path resolves against the repository, so this one is compiled
-    against the worked monorepo in cli/tests/example, where //lib/nope does not
-    exist.
+    against the worked monorepo in cli/tests/example, where lib/nope/lib.buri is
+    not a file.
 
 error: testing/helpers.buri does not exist [no-such-source]
  --> lib/plain/BUILD.buri:6:15

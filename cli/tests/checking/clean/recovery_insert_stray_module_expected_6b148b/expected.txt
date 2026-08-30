@@ -1,26 +1,26 @@
 error: expected a string literal, found `?` [unexpected-token]
  --> main.buri:1:6
   |
-1 | from ? "core/list" export { fold, map };
+1 | from ? "core/list/lib.buri" export { fold, map };
   |      ^
   |
   = expected: a string literal
   = actual: `?`
   = fix: quote it, as in `"core/list"`
 error: expected a declaration, found `{` [unexpected-token]
- --> main.buri:1:27
+ --> main.buri:1:36
   |
-1 | from ? "core/list" export { fold, map };
-  |                           ^
+1 | from ? "core/list/lib.buri" export { fold, map };
+  |                                    ^
   |
   = expected: a declaration
   = actual: `{`
   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
 error: expected a declaration, found `;` [unexpected-token]
- --> main.buri:1:40
+ --> main.buri:1:49
   |
-1 | from ? "core/list" export { fold, map };
-  |                                        ^
+1 | from ? "core/list/lib.buri" export { fold, map };
+  |                                                 ^
   |
   = expected: a declaration
   = actual: `;`

@@ -2,10 +2,10 @@ error: this is a test-only module [test-only-import]
  --> cmd/app/main.buri:5:6
   |
 5 | from "//lib/widget/testing/lib.buri" import { fakeWidget };
-  |      ^^^^^^^^^^^^^^^^^^^^^^ importable only from a test source
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ importable only from a test source
   |
   = a path containing a `testing` segment may be imported only from a test source
-  = //cmd/app/main is not one
+  = //cmd/app/main.buri is not one
   = fix: import it from a file listed in a target's `test.sources`, or drop the import
 
     What to do
@@ -18,6 +18,8 @@ error: this is a test-only module [test-only-import]
 
     The restriction is carried by the path rather than by a field, so it is
     visible where the import is written and there is nothing to remember to
-    declare. Any module path with a testing segment is covered —
-    core/testing/assert, //lib/ledger/testing, //lib/testing/fakes.
+    declare. Any module path with a testing *directory* segment is covered —
+    core/testing/assert/lib.buri, //lib/ledger/testing/lib.buri,
+    //lib/testing/fakes/lib.buri. A file called testing.buri is not one: the
+    segment that would have made it test-only is the file's own name.
 

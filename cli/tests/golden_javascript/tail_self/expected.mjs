@@ -1,11 +1,11 @@
 const $k0=[0,0];
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main$sumTo(100n,0n))+' '+String(__cmd_x_main$fib(30n,0n,1n))+' '+String(__cmd_x_main$countDigits(12345n,0n)));
-  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main$swapDown(1n,2n,3n))+' '+String(__cmd_x_main$swapDown(1n,2n,4n)));
+  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main_buri$sumTo(100n,0n))+' '+String(__cmd_x_main_buri$fib(30n,0n,1n))+' '+String(__cmd_x_main_buri$countDigits(12345n,0n)));
+  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main_buri$swapDown(1n,2n,3n))+' '+String(__cmd_x_main_buri$swapDown(1n,2n,4n)));
   return $k0;
 }
-function __cmd_x_main$sumTo(n_0,acc_1){
+function __cmd_x_main_buri$sumTo(n_0,acc_1){
   while(true){
     if(n_0===0n){
       return acc_1;
@@ -17,7 +17,7 @@ function __cmd_x_main$sumTo(n_0,acc_1){
     }
   }
 }
-function __cmd_x_main$fib(n_0,a_1,b_2){
+function __cmd_x_main_buri$fib(n_0,a_1,b_2){
   while(true){
     if(n_0===0n){
       return a_1;
@@ -30,7 +30,7 @@ function __cmd_x_main$fib(n_0,a_1,b_2){
     }
   }
 }
-function __cmd_x_main$countDigits(n_0,acc_1){
+function __cmd_x_main_buri$countDigits(n_0,acc_1){
   while(true){
     if(n_0<10n){
       return acc_1+1n;
@@ -41,7 +41,7 @@ function __cmd_x_main$countDigits(n_0,acc_1){
     }
   }
 }
-function __cmd_x_main$swapDown(a_0,b_1,fuel_2){
+function __cmd_x_main_buri$swapDown(a_0,b_1,fuel_2){
   while(true){
     if(fuel_2===0n){
       return a_0*10n+b_1;

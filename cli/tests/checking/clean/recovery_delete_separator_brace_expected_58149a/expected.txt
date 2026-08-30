@@ -1,0 +1,7 @@
+error: an import name ends with `,` [missing-separator]
+ --> main.buri:1:41
+  |
+1 | from "core/str/lib.buri" import { concat split };
+  |                                         ^
+  |
+  = fix: write `,` here

@@ -1,6 +1,6 @@
 const $k0=[9n,8n];
 const $k3=[0,0];
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
   $host_HostStdout_println(ctx_0[1],String(1n)+' '+'s'+' '+$str(true));
   let $t2;

@@ -1,16 +1,16 @@
-error: //tools/report/main is a binary's entry point [binary-entry-import]
+error: //tools/report/main.buri is a binary's entry point [binary-entry-import]
  --> tools/report/lib.buri:2:6
   |
 2 | from "//tools/report/main.buri" import { main };
-  |      ^^^^^^^^^^^^^^^^^^^^^
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = only that binary's own test sources may import it; a library may not reach the binary in its package at all
   = fix: move what you need into a library both can depend on
 warning: main is imported but not used [unused-import]
- --> tools/report/lib.buri:2:37
+ --> tools/report/lib.buri:2:42
   |
 2 | from "//tools/report/main.buri" import { main };
-  |                                     ^^^^
+  |                                          ^^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
   = fix: remove the import

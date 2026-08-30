@@ -16,7 +16,7 @@ function $eqD0(a,b){
   }
   return $eq(a[0],b[0]);
 }
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
   const ss_1=$some(7n);
   const sn_2=$some(void 0);

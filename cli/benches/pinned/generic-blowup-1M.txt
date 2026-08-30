@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = generic-blowup-1M
 profile = generic-blowup
-generator_revision = 4
-revision = 4
-recorded = 2026-08-27
-params = generic_args=8 lines=1000000 seed=0x0b001a575eed000a w_generic_fn=8
-lines = 1007232
-bytes = 37086580
-modules = 3584
-digest = 1a494ec350979a3cf11ee929e3d175d377a3e2e1c74e62a3f87b340099823052
+generator_revision = 5
+revision = 5
+recorded = 2026-08-30
+params = generic_args=8 lines=1000000 w_generic_fn=8
+lines = 1007227
+bytes = 37246635
+modules = 3581
+digest = b0b0ea273bc40cf44aea006b32112c74933b066cf2ccfbb91a4a87fa9915ba86

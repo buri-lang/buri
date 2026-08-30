@@ -1,0 +1,7 @@
+error: a type argument ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_module_app_1888e8/main.buri:10:28
+   |
+10 | export fn main(): Result<() Str> {
+   |                            ^
+   |
+   = fix: write `,` here

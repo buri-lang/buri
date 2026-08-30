@@ -1,59 +1,59 @@
-FAIL //lib/shapes  test/shapes.buri  "a tuple"
+FAIL //lib/shapes  test/shapes.buri.buri  "a tuple"
   assert.eq failed
     actual:   (1, "a", true)
     expected: (2, "b", false)
   --> lib/shapes/test/shapes.buri:9:1
-FAIL //lib/shapes  test/shapes.buri  "a list"
+FAIL //lib/shapes  test/shapes.buri.buri  "a list"
   assert.eq failed
     actual:   [1, 2, 3]
     expected: [1, 2]
   --> lib/shapes/test/shapes.buri:13:1
-FAIL //lib/shapes  test/shapes.buri  "an empty list"
+FAIL //lib/shapes  test/shapes.buri.buri  "an empty list"
   assert.eq failed
     actual:   [1]
     expected: []
   --> lib/shapes/test/shapes.buri:17:1
-FAIL //lib/shapes  test/shapes.buri  "a list of lists"
+FAIL //lib/shapes  test/shapes.buri.buri  "a list of lists"
   assert.eq failed
     actual:   [[1, 2], [3]]
     expected: [[9]]
   --> lib/shapes/test/shapes.buri:21:1
-FAIL //lib/shapes  test/shapes.buri  "a list of strings"
+FAIL //lib/shapes  test/shapes.buri.buri  "a list of strings"
   assert.eq failed
     actual:   ["a", "b"]
     expected: ["a"]
   --> lib/shapes/test/shapes.buri:25:1
-FAIL //lib/shapes  test/shapes.buri  "a struct with named fields"
+FAIL //lib/shapes  test/shapes.buri.buri  "a struct with named fields"
   assert.eq failed
     actual:   Point { x: 1, y: 2 }
     expected: Point { x: 3, y: 4 }
   --> lib/shapes/test/shapes.buri:29:1
-FAIL //lib/shapes  test/shapes.buri  "a struct with positional fields"
+FAIL //lib/shapes  test/shapes.buri.buri  "a struct with positional fields"
   assert.eq failed
     actual:   Pair(1, "a")
     expected: Pair(2, "b")
   --> lib/shapes/test/shapes.buri:33:1
-FAIL //lib/shapes  test/shapes.buri  "a struct with no fields"
+FAIL //lib/shapes  test/shapes.buri.buri  "a struct with no fields"
   assert.notEq failed
     actual:   Hollow {}
     expected: Hollow {}
   --> lib/shapes/test/shapes.buri:37:1
-FAIL //lib/shapes  test/shapes.buri  "an enum whose variants carry nothing"
+FAIL //lib/shapes  test/shapes.buri.buri  "an enum whose variants carry nothing"
   assert.eq failed
     actual:   .Red
     expected: .Blue
   --> lib/shapes/test/shapes.buri:41:1
-FAIL //lib/shapes  test/shapes.buri  "an enum variant with a positional payload"
+FAIL //lib/shapes  test/shapes.buri.buri  "an enum variant with a positional payload"
   assert.eq failed
     actual:   .Circle(1.5)
     expected: .Circle(2.5)
   --> lib/shapes/test/shapes.buri:45:1
-FAIL //lib/shapes  test/shapes.buri  "an enum variant with named fields"
+FAIL //lib/shapes  test/shapes.buri.buri  "an enum variant with named fields"
   assert.eq failed
     actual:   .Circle(1.5)
     expected: .Rect { w: 1, h: 2 }
   --> lib/shapes/test/shapes.buri:49:1
-FAIL //lib/shapes  test/shapes.buri  "a value nested four deep"
+FAIL //lib/shapes  test/shapes.buri.buri  "a value nested four deep"
   assert.eq failed
     actual:   Deep { inner: Point { x: 1, y: 2 }, tags: ["a", "b"], maybe: .Some(3), both: (1, 'x') }
     expected: Deep { inner: Point { x: 0, y: 0 }, tags: [], maybe: .None, both: (2, 'y') }

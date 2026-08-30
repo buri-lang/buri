@@ -1,0 +1,7 @@
+error: a context binding ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_app_a9649c/main.buri:11:40
+   |
+11 |   let ctx = context { Alloc: host.alloc Stdout: host.stdout };
+   |                                        ^
+   |
+   = fix: write `,` here

@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = derive-heavy-1M
 profile = derive-heavy
-generator_revision = 4
-revision = 4
-recorded = 2026-08-27
-params = derives=6 lines=1000000 seed=0x0b001a575eed000b w_enum=4 w_struct=4
-lines = 1007259
-bytes = 34578917
-modules = 3595
-digest = 3854b776ac4b237cc7608dd063fa0fe3ce61989c24ef7b747248de28810ae378
+generator_revision = 5
+revision = 5
+recorded = 2026-08-30
+params = derives=6 lines=1000000 w_enum=4 w_struct=4
+lines = 1007251
+bytes = 34767920
+modules = 3590
+digest = 548ecd64b892dc656fd68c84a068b439cc2287731c94b7a613094b7cf0d929bf

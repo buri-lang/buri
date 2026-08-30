@@ -1,9 +1,0 @@
-error: expected `import`, found `*` [unexpected-token]
- --> main.buri:4:17
-  |
-4 | from "core/str" * import as str;
-  |                 ^
-  |
-  = expected: `import`
-  = actual: `*`
-  = fix: write `import` here

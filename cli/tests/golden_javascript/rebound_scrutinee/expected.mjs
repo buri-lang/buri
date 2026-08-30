@@ -1,5 +1,5 @@
 const $k3=[0,0];
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
   $host_HostStdout_println(ctx_0[1],String(7n)+' '+String(9n));
   let $t8;

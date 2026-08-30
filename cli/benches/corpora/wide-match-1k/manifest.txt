@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = wide-match-1k
 profile = wide-match
-generator_revision = 4
-revision = 2
-recorded = 2026-08-27
+generator_revision = 5
+revision = 3
+recorded = 2026-08-30
 params = lines=1000
 lines = 1000
 bytes = 18722
 modules = 1
-digest = f26904bfa72a08222acd2e576b18699011afce315f0c3d1445957068f2fdd330
+digest = bb56bfc0068a69d838fce0dbac8bb6f7efb25a546b3451fad89a73257efbf88f

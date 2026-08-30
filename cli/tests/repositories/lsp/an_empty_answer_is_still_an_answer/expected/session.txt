@@ -2,7 +2,7 @@
 {"id":2,"jsonrpc":"2.0","result":null}
 {"id":3,"jsonrpc":"2.0","result":null}
 {"id":4,"jsonrpc":"2.0","result":[]}
-{"id":5,"jsonrpc":"2.0","result":[{"containerName":"//lib/money/cents","kind":12,"location":{"range":{"end":{"character":19,"line":8},"start":{"character":10,"line":8}},"uri":"file://<scratch>/lib/money/cents.buri"},"name":"fromCents"}]}
+{"id":5,"jsonrpc":"2.0","result":[{"containerName":"//lib/money/cents.buri","kind":12,"location":{"range":{"end":{"character":19,"line":8},"start":{"character":10,"line":8}},"uri":"file://<scratch>/lib/money/cents.buri"},"name":"fromCents"}]}
 {"error":{"code":-32601,"message":"`workspaceSymbol/resolve` is not implemented"},"id":6,"jsonrpc":"2.0"}
 {"error":{"code":-32601,"message":"`documentLink/resolve` is not implemented"},"id":7,"jsonrpc":"2.0"}
 {"id":8,"jsonrpc":"2.0","result":null}

@@ -1,9 +1,0 @@
-error: expected `{`, found `Alloc` [unexpected-token]
-  --> lib/recovery_swap_adjacent_brace_app_a6aa0c/main.buri:11:23
-   |
-11 |   let ctx = { context Alloc: host.alloc, Stdout: host.stdout };
-   |                       ^^^^^
-   |
-   = expected: `{`
-   = actual: `Alloc`
-   = fix: write `{` here

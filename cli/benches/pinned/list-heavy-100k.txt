@@ -2,12 +2,12 @@
 # and the README beside this file.
 name = list-heavy-100k
 profile = mixed
-generator_revision = 4
-revision = 4
-recorded = 2026-08-27
+generator_revision = 5
+revision = 5
+recorded = 2026-08-30
 params = lines=100000 seed=0x0b001a575eed0012 w_list_fn=8
 lines = 100746
-bytes = 3714536
+bytes = 3729601
 modules = 362
-digest = 12a58bbbec7349cc3d515225d9a62824d5dd084c7c490ea02638877acb1c75dd
+digest = 07648198689b724ce898b79f9f700db1b2f66095e81bdb132ab7a396c963a3ed
 native = false

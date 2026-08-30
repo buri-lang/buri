@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = enum-heavy-100k
 profile = enum-heavy
-generator_revision = 4
-revision = 3
-recorded = 2026-08-27
-params = lines=100000 seed=0x0b001a575eed0009 variants_per_enum=12..24 w_enum=8 w_generic_fn=0 w_list_fn=0 w_match_fn=0 w_string_fn=0 w_struct=0
-lines = 100756
-bytes = 2906802
-modules = 349
-digest = 31cdbf64431bbd3d480d35fd6c8fc5d70b34195142503493afab0b3db1fe3a20
+generator_revision = 5
+revision = 4
+recorded = 2026-08-30
+params = lines=100000 variants_per_enum=12..24 w_enum=8 w_generic_fn=0 w_list_fn=0 w_match_fn=0 w_string_fn=0 w_struct=0
+lines = 100732
+bytes = 2922796
+modules = 350
+digest = 8701d33dcc8c6d024e7ed19ee8c90c85eb0fe2a93def6f5a554e9c175a88bfde

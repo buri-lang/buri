@@ -1,13 +1,13 @@
 const $k0=[0];
 const $k2=[0,0];
 const $k3=[1,'zero'];
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main$tally(10n,0n)));
+  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main_buri$tally(10n,0n)));
   $host_HostStdout_println(ctx_0[1],String(0n)+' '+String(1n));
   return $k2;
 }
-function __cmd_x_main$tally(n_0,acc_1){
+function __cmd_x_main_buri$tally(n_0,acc_1){
   while(true){
     if(n_0===0n){
       return acc_1+0n;

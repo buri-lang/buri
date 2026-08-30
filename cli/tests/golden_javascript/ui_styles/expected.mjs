@@ -38,12 +38,12 @@ const $k36=[$k35];
 const $k37=[$k36];
 const $k38=[5,$k37];
 $ui_sheet='.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.grow-1{flex-grow:1}\n.gap-8{gap:8px}\n.p-r1{padding:1rem}\n.px-r0_5{padding-inline:0.5rem}\n.bg-f0f0f5{background-color:rgb(240,240,245)}\n.hover_bg-18181b:hover{background-color:rgb(24,24,27)}\n.fg-18181b{color:rgb(24,24,27)}\n.hover_fg-f0f0f5:hover{color:rgb(240,240,245)}\n.r-6{border-radius:6px}\n@media (min-width:40rem){\n.sm_hover_r-4:hover{border-radius:4px}\n}\n@media (min-width:48rem){\n.md_gap-16{gap:16px}\n.md_p-r2{padding:2rem}\n}\n@media (min-width:64rem){\n.lg_maxw-r64{max-width:64rem}\n}\n';
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[],[],[]];
   $host_HostStdout_println(ctx_0[1],'styled');
-  const children_6=[ui_node$row$u3rqgv($k19,[[[1,[0,'one']]]]),ui_node$row$u3rqgv($k24,[]),$k30];
+  const children_6=[ui_node_lib_buri$row$u3rqgv($k19,[[[1,[0,'one']]]]),ui_node_lib_buri$row$u3rqgv($k24,[]),$k30];
   return $ui_node_mount(ctx_0,[[3,[$k34,[0,$k9]],children_6]],[]);
 }
-function ui_node$row$u3rqgv(styles_0,children_1){
+function ui_node_lib_buri$row$u3rqgv(styles_0,children_1){
   return [[3,[$k38,[0,styles_0]],children_1]];
 }

@@ -1,5 +1,5 @@
-error [missing-separator] 2:32-2:32
+error [missing-separator] 2:41-2:41
 message: an import name ends with `,`
 fix: write `,` here
-edit: 2:32-2:32 ","
+edit: 2:41-2:41 ","
 

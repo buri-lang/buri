@@ -1,9 +1,9 @@
-FAIL //lib/noisy  test/noisy.buri  "what a failing test printed is not in its report"
+FAIL //lib/noisy  test/noisy.buri.buri  "what a failing test printed is not in its report"
   assert.eq failed
     actual:   5
     expected: 99
   --> lib/noisy/test/noisy.buri:11:1
-FAIL //lib/noisy  test/noisy.buri  "the captured text is only visible to an assertion"
+FAIL //lib/noisy  test/noisy.buri.buri  "the captured text is only visible to an assertion"
   assert.eq failed
     actual:   "announcing beta\n"
     expected: "nothing was written"

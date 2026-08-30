@@ -1,0 +1,36 @@
+warning: `core/effect/lib.buri` is imported twice [duplicate-import]
+ --> lib/recovery_insert_stray_brace_app_820f6b/main.buri:9:6
+  |
+9 | from "core/effect/lib.buri" import { Stdout };
+  |      ^^^^^^^^^^^^^^^^^^^^^^
+  |
+ --> lib/recovery_insert_stray_brace_app_820f6b/main.buri:8:6
+  |
+8 | from "core/effect/lib.buri" import { Alloc };
+  |      ^^^^^^^^^^^^^^^^^^^^^^ first imported here
+  |
+  = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
+  = fix: merge the two into one import
+error: expected `{`, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_820f6b/main.buri:15:21
+   |
+15 |   let ctx = context ? { Alloc: host.alloc, Stdout: host.stdout };
+   |                     ^
+   |
+   = expected: `{`
+   = actual: `?`
+   = fix: write `{` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_820f6b/main.buri:16:17
+   |
+16 |   let _ = print(ctx, "half a line");
+   |                 ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_820f6b/main.buri:17:22
+   |
+17 |   let _ = io.println(ctx, " and the rest");
+   |                      ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

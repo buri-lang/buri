@@ -1,4 +1,4 @@
-error: circular type alias: `Depth` in "//lib/units/soundings" -> `Sounding` in "//lib/units/soundings" -> `Fathoms` in "//lib/units/fathoms" -> `Depth` in "//lib/units/soundings" [circular-type-alias]
+error: circular type alias: `Depth` in "//lib/units/soundings.buri" -> `Sounding` in "//lib/units/soundings.buri" -> `Fathoms` in "//lib/units/fathoms.buri" -> `Depth` in "//lib/units/soundings.buri" [circular-type-alias]
  --> lib/units/soundings.buri:9:13
   |
 9 | export type Depth = Sounding;

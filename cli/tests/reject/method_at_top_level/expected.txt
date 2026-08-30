@@ -26,7 +26,7 @@ error: `Square` has no method `area` [no-such-method]
 16 |   let _ = ctx.println("${Square { side: 3 }.area()}");
    |                                             ^^^^
    |
-   = fix: check the spelling, or declare it in `impl Square { ... }` in `//cmd/method_at_top_level/main`, where the type is declared — a method may not be added from anywhere else
+   = fix: check the spelling, or declare it in `impl Square { ... }` in `//cmd/method_at_top_level/main.buri`, where the type is declared — a method may not be added from anywhere else
 
      What to do
      ──────────

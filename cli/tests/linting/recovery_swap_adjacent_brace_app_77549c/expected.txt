@@ -1,0 +1,46 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_swap_adjacent_brace_app_77549c/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_swap_adjacent_brace_app_77549c/main.buri:13:3
+   |
+13 |   ctx let = context { Alloc: host.alloc, Stdout: host.stdout };
+   |   ^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_77549c/main.buri:13:3
+   |
+13 |   ctx let = context { Alloc: host.alloc, Stdout: host.stdout };
+   |   ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_swap_adjacent_brace_app_77549c/main.buri:13:6
+   |
+13 |   ctx let = context { Alloc: host.alloc, Stdout: host.stdout };
+   |      ^
+   |
+   = fix: write `;` here
+error: expected a pattern, found `=` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_77549c/main.buri:13:11
+   |
+13 |   ctx let = context { Alloc: host.alloc, Stdout: host.stdout };
+   |           ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_77549c/main.buri:14:22
+   |
+14 |   let _ = io.println(ctx, banner());
+   |                      ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

@@ -1,5 +1,0 @@
-// the standard library
-from "core/str/lib.buri" import * as str
-
-// the repository
-from "//lib/z/lib.buri" import { Zed };

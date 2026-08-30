@@ -1,0 +1,9 @@
+error: expected `{`, found `extra` [unexpected-token]
+ --> main.buri:5:33
+  |
+5 | from "core/str/lib.buri" import extra * as str;
+  |                                 ^^^^^
+  |
+  = expected: `{`
+  = actual: `extra`
+  = fix: write `{` here

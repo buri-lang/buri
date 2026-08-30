@@ -4,7 +4,7 @@ error: `Str` has no method `nonexistentMethod` [no-such-method]
 6 |   s.nonexistentMethod()
   |     ^^^^^^^^^^^^^^^^^
   |
-  = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+  = fix: check the spelling — `buri docs core/str/lib.buri` lists every method `Str` has, and one may not be added to it from outside `core/str/lib.buri`
 
     What to do
     ──────────

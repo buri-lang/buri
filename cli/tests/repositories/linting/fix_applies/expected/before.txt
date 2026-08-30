@@ -1,8 +1,8 @@
 warning: Stdout is imported but not used [unused-import]
- --> cmd/app/main.buri:4:36
+ --> cmd/app/main.buri:4:45
   |
 4 | from "core/effect/lib.buri" import { Alloc, Stdout };
-  |                                    ^^^^^^
+  |                                             ^^^^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
   = fix: remove the import
@@ -10,6 +10,6 @@ warning: cmd/app/main.buri imports //lib/money, which is not in dependencies [mi
  --> cmd/app/main.buri:7:6
   |
 7 | from "//lib/money/lib.buri" import { fromCents };
-  |      ^^^^^^^^^^^^^
+  |      ^^^^^^^^^^^^^^^^^^^^^^
   |
   = fix: add "//lib/money" to dependencies in cmd/app/BUILD.buri — `buri gen //cmd/app` does this automatically

@@ -1,0 +1,31 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_swap_adjacent_brace_app_227ee5/main.buri:12:3
+   |
+12 |   total let = 3 * 4;
+   |   ^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `total` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_227ee5/main.buri:12:3
+   |
+12 |   total let = 3 * 4;
+   |   ^^^^^
+   |
+   = fix: declare `total`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_swap_adjacent_brace_app_227ee5/main.buri:12:8
+   |
+12 |   total let = 3 * 4;
+   |        ^
+   |
+   = fix: write `;` here
+error: expected a pattern, found `=` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_227ee5/main.buri:12:13
+   |
+12 |   total let = 3 * 4;
+   |             ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

@@ -1,0 +1,3 @@
+from export "core/list/lib.buri" { fold, map };
+// and the one that maps
+/// the one that folds

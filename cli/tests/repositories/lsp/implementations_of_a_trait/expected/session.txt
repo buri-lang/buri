@@ -2,7 +2,7 @@
 {"id":2,"jsonrpc":"2.0","result":[{"range":{"end":{"character":1,"line":11},"start":{"character":0,"line":7}},"uri":"file://<scratch>/lib/promo/coupon.buri"},{"range":{"end":{"character":1,"line":35},"start":{"character":0,"line":31}},"uri":"file://<scratch>/lib/shop/catalog.buri"}]}
 {"id":3,"jsonrpc":"2.0","result":[{"range":{"end":{"character":1,"line":35},"start":{"character":0,"line":31}},"uri":"file://<scratch>/lib/shop/catalog.buri"},{"range":{"end":{"character":1,"line":41},"start":{"character":0,"line":37}},"uri":"file://<scratch>/lib/shop/catalog.buri"}]}
 {"id":4,"jsonrpc":"2.0","result":[{"range":{"end":{"character":12,"line":8},"start":{"character":7,"line":8}},"uri":"file://<scratch>/lib/promo/coupon.buri"},{"range":{"end":{"character":12,"line":32},"start":{"character":7,"line":32}},"uri":"file://<scratch>/lib/shop/catalog.buri"}]}
-{"id":5,"jsonrpc":"2.0","result":[{"range":{"end":{"character":1,"line":11},"start":{"character":0,"line":7}},"uri":"file://<scratch>/lib/promo/coupon.buri"},{"range":{"end":{"character":1,"line":35},"start":{"character":0,"line":31}},"uri":"file://<scratch>/lib/shop/catalog.buri"}]}
+{"id":5,"jsonrpc":"2.0","result":null}
 {"id":6,"jsonrpc":"2.0","result":null}
 {"id":7,"jsonrpc":"2.0","result":null}
 {"id":8,"jsonrpc":"2.0","result":null}

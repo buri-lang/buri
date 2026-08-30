@@ -1,17 +1,17 @@
 error: expected a string literal, found `?` [unexpected-token]
  --> main.buri:1:6
   |
-1 | from ? "core/str" import { concat, split };
+1 | from ? "core/str/lib.buri" import { concat, split };
   |      ^
   |
   = expected: a string literal
   = actual: `?`
   = fix: quote it, as in `"core/list"`
 error: expected a declaration, found `;` [unexpected-token]
- --> main.buri:1:43
+ --> main.buri:1:52
   |
-1 | from ? "core/str" import { concat, split };
-  |                                           ^
+1 | from ? "core/str/lib.buri" import { concat, split };
+  |                                                    ^
   |
   = expected: a declaration
   = actual: `;`

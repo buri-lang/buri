@@ -1,5 +1,5 @@
 const $k0=[0,0];
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[],[],[]];
   const count_1=[$host_HostUi_signal(ctx_0[2],0n)];
   const id_12=$host_HostUi_memo(ctx_0[2],s_2=>$ui_effect_Scope_read(s_2,count_1[0])*2n);

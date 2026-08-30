@@ -1,0 +1,24 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_swap_adjacent_module_app_b2ef5b/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected a function body, found a string literal [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_b2ef5b/main.buri:10:18
+   |
+10 | fn banner(): Str "TODO is a marker in a comment and not in a string" { }
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: a function body
+   = actual: a string literal
+   = fix: write `{ ... }` after the return type
+error: there is nothing named `banner` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_module_app_b2ef5b/main.buri:14:27
+   |
+14 |   let _ = io.println(ctx, banner());
+   |                           ^^^^^^
+   |
+   = fix: declare `banner`, or import it — a name is in scope only from this module's own declarations and its imports
