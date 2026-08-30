@@ -84,12 +84,16 @@ function core_json$stringify$u3rqgv(ctx_0,v_1){
       }
     case 4:
       {
-        const parts_8=$list_mapCtx(v_1[1],ctx_0,(c_6,item_7)=>core_json$stringify$u3rqgv(c_6,item_7));
+        const items_5=v_1[1];
+        $share(items_5);
+        const parts_8=$list_mapCtx(items_5,ctx_0,(c_6,item_7)=>core_json$stringify$u3rqgv(c_6,item_7));
         return $str_format(ctx_0,'['+$list_join(parts_8,ctx_0,',')+']');
       }
     case 5:
       {
-        const parts_14=$list_mapCtx(v_1[1],ctx_0,(c_10,e_11)=>$str_format(c_10,core_json$quote$u3rqgv(c_10,e_11[0])+':'+core_json$stringify$u3rqgv(c_10,e_11[1])));
+        const entries_9=v_1[1];
+        $share(entries_9);
+        const parts_14=$list_mapCtx(entries_9,ctx_0,(c_10,e_11)=>$str_format(c_10,core_json$quote$u3rqgv(c_10,e_11[0])+':'+core_json$stringify$u3rqgv(c_10,e_11[1])));
         return $str_format(ctx_0,'{'+$list_join(parts_14,ctx_0,',')+'}');
       }
     default:
