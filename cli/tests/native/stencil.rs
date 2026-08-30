@@ -216,11 +216,19 @@ fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     // here passed while `buri test` failed 977 of 997 conformance tests on the
     // same emitter. A harness that links more permissively than the product is
     // a harness that cannot see the product's bugs.
+    //
+    // `--gc-sections` is that same flag's Linux counterpart, and it was missing
+    // here until the carrier-door test asked what the link had stripped and got
+    // an answer from a link that had stripped nothing
+    // (`the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows`).
+    // The other two Linux flags are not optional either — the runtime archive's
+    // `tokio` worker reaches libm's `pow`, and libm is its own library there
+    // where macOS folds it into libSystem.
     if cfg!(target_os = "macos") {
         cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
     }
     if cfg!(target_os = "linux") {
-        cc.args(["-lpthread", "-ldl", "-lm"]);
+        cc.args(["-Wl,--gc-sections", "-lpthread", "-ldl", "-lm"]);
     }
     let out = cc.output().unwrap();
     assert!(
@@ -1355,7 +1363,7 @@ fn run_corpus(path: &str, source: &str) -> Ran {
         cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
     }
     if cfg!(target_os = "linux") {
-        cc.args(["-lpthread", "-ldl", "-lm"]);
+        cc.args(["-Wl,--gc-sections", "-lpthread", "-ldl", "-lm"]);
     }
     let out = cc.output().unwrap();
     assert!(out.status.success(), "`{path}`: the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
@@ -1985,40 +1993,163 @@ export fn main(): Result<(), Str> {
     );
 }
 
-/// **The door is in every unit that has a root, and costs nothing when nobody
-/// opens it.**
+/// **The door is in every unit that has a root, and each container strips it
+/// as far as it can.**
 ///
-/// Two halves, and the second is the one that keeps this cheap: the symbol is
-/// *defined* in the object next to `main`, and the product's own link flags
-/// (`-dead_strip` with `MH_SUBSECTIONS_VIA_SYMBOLS`, `--gc-sections` on ELF)
-/// delete it from a program that never references it. So a single-threaded
-/// artifact carries no door, no `mmap`, and no bytes.
+/// Two halves. The first is the same on every target: the symbol is *defined*
+/// in the object next to `main`, so a carrier outside the artifact can find it.
+/// The second is what the link then does with a door nobody references, and it
+/// is **not the same on every target** — which is what this test used to get
+/// wrong.
+///
+/// # What each container can strip, and why they differ
+///
+/// * **Mach-O.** `build/link.rs` passes `-dead_strip` and `object.rs` sets
+///   `MH_SUBSECTIONS_VIA_SYMBOLS`, so `ld64` divides one `__text` into atoms at
+///   symbol boundaries and deletes the atoms nothing relocates to. The
+///   unreferenced door is one of those atoms, and it goes. A single-threaded
+///   artifact carries no door, no `mmap` and no bytes.
+/// * **ELF.** `--gc-sections` collects whole *sections*, and a stencil unit
+///   emits exactly one `.text` (`elf.rs`'s header, and `jit.rs::resolve` bakes
+///   intra-unit branches on the strength of it). The door is appended to that
+///   `.text` beside `main`, `main` is the program's root, so the section is
+///   live and the door rides with it. **No link flag moves this**: it would
+///   take a section per shim in the emitter, which is a change to what the
+///   backend writes and not to how it is linked.
+///
+/// The first version of this test asserted absence on both, from the machine
+/// that wrote it — `aarch64-apple-darwin`, where it is true. All five Linux
+/// jobs of CI run 33339023888 answered with the door still in the image, and
+/// the numbers below are theirs (`nm`, on a harness that did not yet pass
+/// `--gc-sections`) beside this host's:
+///
+/// ```text
+///                                the door in the linked image        span
+/// aarch64-apple-darwin           absent — dead-stripped                 —
+/// aarch64-unknown-linux-gnu      000000000000c768 T buri$carrier$main   84
+/// x86_64-unknown-linux-gnu       000000000000d68c T buri$carrier$main  132
+/// ```
+///
+/// The span is the distance to whatever the linker placed next, which is an
+/// upper bound on the door's own bytes: 84 and 132, against a `main` shim of
+/// 144 and 80 in the same two images. That is the honest statement of the
+/// cost — an ELF artifact that never opens a carrier pays a couple of dozen
+/// instructions for the door, not a runtime.
+///
+/// The harness was also missing `--gc-sections`, which `build/link.rs` passes
+/// on every Linux link; it passes it now. That the missing flag was not the
+/// cause is measured rather than argued: the cross-link tests below link the
+/// same emitter's ELF objects with `ld.lld --gc-sections` *from this Mach-O
+/// host*, and the door survives there too — 84 bytes on aarch64 and 128 on
+/// x86-64, the same door with a different neighbour after it.
+///
+/// # What is asserted now
+///
+/// Per target, and neither half is weaker than the old one:
+///
+/// * on Mach-O, the door is **gone** — the claim the old test made, kept where
+///   it is true, and the one that catches a lost `MH_SUBSECTIONS_VIA_SYMBOLS`
+///   or a dropped `-dead_strip`;
+/// * on ELF, the door is **there and small** — under [`DOOR_SPAN_CEILING`],
+///   which catches the door growing from a shim into a subsystem, and catches
+///   the symbol being renamed or lost in the link exactly as the absence
+///   assertion would have.
+///
+/// `linux_*_objects_link_and_every_relocation_resolves` makes the ELF half of
+/// this claim from *any* host, under a real `ld.lld --gc-sections`, which is
+/// how this file stopped having to write ELF behaviour from a Mach-O machine.
+///
+/// **When the ELF half fails because the door vanished**, that is good news
+/// rather than a regression: the emitter will have gained a section per shim,
+/// and this test should then assert absence on both containers.
 #[test]
-fn the_carrier_door_is_emitted_and_dead_strips_when_unused() {
+fn the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows() {
     if !supported() {
         return;
     }
     let source = "export fn main(): Result<(), Str> { .Ok(()) }";
     let units = emitted("carrier-door", source);
     let (_, bytes) = units.first().expect("no unit was emitted");
-    let needle = buri::compiler::backend::carrier::MAIN_ENTRY.as_bytes();
-    assert!(
-        bytes.windows(needle.len()).any(|w| w == needle),
-        "no unit names {}",
-        buri::compiler::backend::carrier::MAIN_ENTRY
-    );
+    let door = buri::compiler::backend::carrier::MAIN_ENTRY;
+    let needle = door.as_bytes();
+    assert!(bytes.windows(needle.len()).any(|w| w == needle), "no unit names {door}");
 
-    // And it is gone from the linked artifact, which is where a symbol nobody
-    // calls would otherwise be paid for.
+    // And what the link does with it, which is the half that is per-target.
     let binary = build_with("carrier-door-link", source, None);
     let nm = Command::new("nm").arg(&binary).output().unwrap();
+    if !nm.status.success() {
+        eprintln!("no `nm` on this host: the linked half was not checked");
+        return;
+    }
     let listed = String::from_utf8_lossy(&nm.stdout);
-    if nm.status.success() {
+    if cfg!(target_os = "macos") {
         assert!(
-            !listed.contains(buri::compiler::backend::carrier::MAIN_ENTRY),
-            "an unreferenced carrier door survived the link:\n{listed}"
+            !listed.contains(door),
+            "an unreferenced carrier door survived a `-dead_strip` link:\n{}",
+            rows_naming(&listed, door)
+        );
+    } else {
+        let span = symbol_span(&listed, door).unwrap_or_else(|| {
+            panic!(
+                "the linked image defines no {door}, though the object names it: the link \
+                 dropped it or the emitter renamed it"
+            )
+        });
+        eprintln!("the carrier door rides with `main` in one .text: {span} bytes of it");
+        assert!(
+            span <= DOOR_SPAN_CEILING,
+            "the carrier door spans {span} bytes, over the {DOOR_SPAN_CEILING} a shim is \
+             allowed: it has stopped being a wrapper over the root"
         );
     }
+}
+
+/// The most an unreferenced carrier door is allowed to span in a linked image.
+///
+/// Measured, in the images the doc comment above tabulates: 84 bytes on
+/// aarch64 and 132 on x86-64, and 84 and 128 for the same two under
+/// `ld.lld --gc-sections`. The ceiling is four times the largest, because what
+/// it bounds is a distance to the next symbol and therefore carries whatever
+/// alignment padding the linker left — a bound a padded shim trips is a bound
+/// that reports the linker rather than the emitter.
+const DOOR_SPAN_CEILING: u64 = 512;
+
+/// The distance from `symbol` to whatever the linker placed after it, or `None`
+/// where the listing defines no such symbol.
+///
+/// `nm` sorts by name and this sorts by address, which is what turns the
+/// difference between two consecutive entries into a length. It is an *upper*
+/// bound on the symbol's own bytes: alignment padding to the next thing is
+/// counted with it, and `elf.rs` writes `st_size` as zero rather than a guess,
+/// so there is no exact size in the file to read instead.
+fn symbol_span(listing: &str, symbol: &str) -> Option<u64> {
+    let mut rows: Vec<(u64, bool)> = Vec::new();
+    for line in listing.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(addr), Some(_kind), Some(name)) = (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        // An undefined symbol has no address column, so its first field is the
+        // kind letter, and parsing it as hex is what rejects the row.
+        let Ok(at) = u64::from_str_radix(addr, 16) else {
+            continue;
+        };
+        rows.push((at, name == symbol));
+    }
+    rows.sort_unstable();
+    let at = rows.iter().find(|(_, is_it)| *is_it).map(|(at, _)| *at)?;
+    rows.iter().find(|(a, _)| *a > at).map(|(next, _)| next.saturating_sub(at))
+}
+
+/// The rows of an `nm` listing that name `symbol`, for a failure message.
+///
+/// A linked artifact's listing is fifteen hundred lines of runtime and `std`,
+/// and printing all of it is what made the old failure of the test above three
+/// screens of `GCC_except_table` in front of the one line that mattered.
+fn rows_naming(listing: &str, symbol: &str) -> String {
+    let rows: Vec<&str> = listing.lines().filter(|l| l.contains(symbol)).collect();
+    if rows.is_empty() { String::from("(no row names it)") } else { rows.join("\n") }
 }
 
 /// A `.buri` snippet with `test` blocks, compiled as a test binary and linked.
@@ -2063,7 +2194,7 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
         cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
     }
     if cfg!(target_os = "linux") {
-        cc.args(["-lpthread", "-ldl", "-lm"]);
+        cc.args(["-Wl,--gc-sections", "-lpthread", "-ldl", "-lm"]);
     }
     let out = cc.output().unwrap();
     assert!(out.status.success(), "the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
@@ -2229,6 +2360,26 @@ fn objects_link_and_every_relocation_resolves(
     let dis = tool("llvm-objdump", &["-d", &exe.display().to_string()]);
     assert!(!dis.contains("<unknown>"), "the linked image does not disassemble cleanly");
     assert!(dis.contains("<main>"), "the linked image has no main:\n{}", &dis[..dis.len().min(400)]);
+
+    // (4) The carrier door nothing references is *still there*, and small. This
+    // is the ELF half of
+    // `the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows`,
+    // made here because `--gc-sections` is on the command line above and this
+    // test runs on the Mach-O host too: the section granularity ELF collects at
+    // is a fact about the container, and a suite that could only observe it on
+    // a Linux runner is how the assertion came to be written from `ld64`'s
+    // behaviour in the first place.
+    let door = buri::compiler::backend::carrier::MAIN_ENTRY;
+    let listed = tool("llvm-nm", &["--defined-only", &exe.display().to_string()]);
+    let span = symbol_span(&listed, door).unwrap_or_else(|| {
+        panic!("{triple}: --gc-sections collected {door}, which one .text per unit cannot do")
+    });
+    eprintln!("{triple}: the unreferenced door survives --gc-sections, {span} bytes of it");
+    assert!(
+        span <= DOOR_SPAN_CEILING,
+        "{triple}: the carrier door spans {span} bytes, over the {DOOR_SPAN_CEILING} a shim is \
+         allowed"
+    );
 }
 
 /// **Two emissions of one program are the same bytes, for every target.**
