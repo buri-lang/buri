@@ -1,0 +1,17 @@
+// Two findings' worth of evidence sits inside the declaration that did not
+// parse: `fromInt` is imported and used only in these arms, and `spare` is
+// bound here and read nowhere. Neither is reported, because neither is known
+// — the parser stopped at the missing `,` and what it skipped is not evidence
+// of anything. The edit in the manifest puts the comma back and both come
+// into view, which is what says the silence was scoped rather than lucky.
+
+from "core/effect" import { Alloc };
+from "core/str" import { fromInt };
+
+export fn describe<C: Alloc>(ctx: C, n: I64): Str {
+  let spare = 7;
+  match (n) {
+    1 => fromInt(ctx, 1)
+    _ => fromInt(ctx, 2),
+  }
+}

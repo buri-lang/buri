@@ -1,0 +1,37 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an import and a local whose only evidence sits inside the declaration that did not parse: the parse error is the whole report, because a rule reading a region the parser skipped would be reporting the gap"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The comma is the whole mistake. With it written the declaration is read, and
+# `spare` is reported for being bound and never used — the finding the report
+# above was right to be silent about.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "1 => fromInt(ctx, 1)\n"
+  with: "1 => fromInt(ctx, 1),\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "in_view.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  let spare = 7;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
