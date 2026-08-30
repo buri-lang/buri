@@ -23,7 +23,7 @@ findings `buri lint` can raise.
 | `buri gen [targets]` | Regenerates the fields of a `BUILD.buri` that restate the sources. | `buri docs cli gen` |
 | `buri query <expr>` | Asks about the build graph. | `buri docs cli query` |
 | `buri docs [topic]` | Serves the language, the build system, and this CLI. | `buri docs cli docs` |
-| `buri add-skills [directory]` | Writes the agent skills this toolchain ships into `.claude/skills`. | `buri docs cli add-skills` |
+| `buri add skills [directory]` | Writes the agent skills this toolchain ships into `.claude/skills`. | `buri docs cli add` |
 | `buri lsp` | The language server, over standard input and output. | `buri docs cli lsp` |
 | `buri clean` | Drops the local cache. | `buri docs cli clean` |
 | `buri version` | The toolchain version, and with `--verbose` its executable's hash. | `buri docs cli version` |
