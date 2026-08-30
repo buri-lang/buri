@@ -1,0 +1,5 @@
+wrote .claude/skills/buri-language/SKILL.md
+wrote .claude/skills/buri-types/SKILL.md
+wrote .claude/skills/buri-build/SKILL.md
+wrote .claude/skills/buri-testing/SKILL.md
+wrote .claude/skills/buri-cli/SKILL.md

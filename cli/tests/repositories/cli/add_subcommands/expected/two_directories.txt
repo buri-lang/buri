@@ -1,0 +1,1 @@
+error: `buri add skills` takes at most one directory

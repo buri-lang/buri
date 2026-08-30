@@ -1,10 +1,10 @@
-//! `buri add-skills`.
+//! `buri add skills`.
 //!
 //! The toolchain ships the skills a coding agent needs in order to work in a
 //! Buri repository, for the same reason it ships its own documentation
 //! (`documentation::topics`): a skill kept anywhere else is a second copy to
 //! hold in step with the compiler, and it goes stale without anybody noticing.
-//! These are compiled into the binary, so `buri add-skills` works in a
+//! These are compiled into the binary, so `buri add skills` works in a
 //! directory that is not a repository and on a machine with no checkout.
 //!
 //! Re-running is the upgrade path, which is what decides the one rule here:
@@ -41,11 +41,11 @@ const OFFICIAL: &str = "buri-";
 const SKILLS_DIRECTORY: &str = ".claude/skills";
 
 pub const SKILLS: &[Skill] = &[
-    Skill { name: "buri-language", text: include_str!("../docs/skills/buri-language.md") },
-    Skill { name: "buri-types", text: include_str!("../docs/skills/buri-types.md") },
-    Skill { name: "buri-build", text: include_str!("../docs/skills/buri-build.md") },
-    Skill { name: "buri-testing", text: include_str!("../docs/skills/buri-testing.md") },
-    Skill { name: "buri-cli", text: include_str!("../docs/skills/buri-cli.md") },
+    Skill { name: "buri-language", text: include_str!("../../docs/skills/buri-language.md") },
+    Skill { name: "buri-types", text: include_str!("../../docs/skills/buri-types.md") },
+    Skill { name: "buri-build", text: include_str!("../../docs/skills/buri-build.md") },
+    Skill { name: "buri-testing", text: include_str!("../../docs/skills/buri-testing.md") },
+    Skill { name: "buri-cli", text: include_str!("../../docs/skills/buri-cli.md") },
 ];
 
 /// What happened to one path, in the word the command prints for it.
@@ -72,7 +72,7 @@ pub fn command_add_skills(args: &Args) -> i32 {
         [] => PathBuf::from("."),
         [directory] => PathBuf::from(directory),
         _ => {
-            report("`buri add-skills` takes at most one directory");
+            report("`buri add skills` takes at most one directory");
             return 2;
         }
     };
