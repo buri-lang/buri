@@ -18,9 +18,11 @@
 //!     existence.
 //!
 //! Adding a command is one entry here. Dispatch, `--help`, the reference page,
-//! the manifest, and search all follow.
+//! the manifest, and search all follow. A command that is a namespace —
+//! `buri add` — carries a second table of the same shape (`Subcommand`), read
+//! by the same three readers, so `buri add skills` is one entry too.
 
-pub mod add_skills;
+pub mod add;
 pub mod arguments;
 pub mod build;
 pub mod clean;
@@ -63,6 +65,20 @@ pub struct Flag {
     pub set: fn(&mut Flags, Option<&str>) -> Result<(), String>,
 }
 
+/// One `buri <command> <subcommand>`, for a command that is a namespace.
+///
+/// It has no `flags` of its own: a namespace's flags belong to the command
+/// that owns it, so `accepts` still answers from one place, and a subcommand
+/// that needs a flag the parent does not take is the sign the family is really
+/// two commands.
+pub struct Subcommand {
+    pub name: &'static str,
+    /// How the synopsis line shows the argument.
+    pub args: &'static str,
+    pub blurb: &'static str,
+    pub run: fn(&Args) -> i32,
+}
+
 pub struct Command {
     pub name: &'static str,
     /// How the synopsis line shows the argument.
@@ -75,6 +91,10 @@ pub struct Command {
     /// Which entries in `FLAGS` this command accepts, beyond the global ones.
     pub flags: &'static [&'static str],
     pub run: fn(&Args) -> i32,
+    /// The commands under this one, when it is a namespace. Empty for every
+    /// command that does its own work; `run` then dispatches through this
+    /// table (`dispatch`) and does nothing else.
+    pub subcommands: &'static [Subcommand],
     /// Listed in the reference but not in the short help.
     pub hidden: bool,
 }
@@ -323,6 +343,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/init.md"),
         flags: &[],
         run: init::command_init,
+        subcommands: &[],
         hidden: false,
     },
     Command {
@@ -332,6 +353,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/build.md"),
         flags: &["release", "debug", "output", "force", "explain", "check-reproducible", "dense"],
         run: build::command_build,
+        subcommands: &[],
         hidden: false,
     },
     Command {
@@ -341,6 +363,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/test.md"),
         flags: &["release", "debug", "output", "filter", "force", "accept", "explain", "watch", "dense"],
         run: test::command_test,
+        subcommands: &[],
         hidden: false,
     },
     Command {
@@ -350,6 +373,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/run.md"),
         flags: &["release", "debug", "output", "force", "explain", "dense"],
         run: run::command_run,
+        subcommands: &[],
         hidden: false,
     },
     Command {
@@ -359,6 +383,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/format.md"),
         flags: &["check"],
         run: format::command_format,
+        subcommands: &[],
         hidden: false,
     },
     Command {
@@ -368,6 +393,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/lint.md"),
         flags: &["fix", "explain", "dense"],
         run: lint::command_lint,
+        subcommands: &[],
         hidden: false,
     },
     Command {
@@ -377,6 +403,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/gen.md"),
         flags: &["check"],
         run: generate::command_generate,
+        subcommands: &[],
         hidden: false,
     },
     Command {
@@ -386,6 +413,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/query.md"),
         flags: &[],
         run: query::command_query,
+        subcommands: &[],
         hidden: false,
     },
     Command {
@@ -395,15 +423,17 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/docs.md"),
         flags: &["format", "dense", "check"],
         run: crate::documentation::command_docs,
+        subcommands: &[],
         hidden: false,
     },
     Command {
-        name: "add-skills",
-        args: "[directory]",
-        blurb: "write the agent skills for this toolchain into .claude/skills",
-        doc: include_str!("../docs/cli/add-skills.md"),
+        name: "add",
+        args: "<subcommand>",
+        blurb: "write what this toolchain ships into an existing repository",
+        doc: include_str!("../docs/cli/add.md"),
         flags: &[],
-        run: add_skills::command_add_skills,
+        run: add::command_add,
+        subcommands: add::SUBCOMMANDS,
         hidden: false,
     },
     Command {
@@ -413,6 +443,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/lsp.md"),
         flags: &[],
         run: crate::language_server::command_language_server,
+        subcommands: &[],
         hidden: false,
     },
     Command {
@@ -422,6 +453,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/clean.md"),
         flags: &["outputs"],
         run: clean::command_clean,
+        subcommands: &[],
         hidden: false,
     },
     Command {
@@ -431,6 +463,7 @@ pub const COMMANDS: &[Command] = &[
         doc: include_str!("../docs/cli/version.md"),
         flags: &["self-check"],
         run: version::command_version,
+        subcommands: &[],
         hidden: false,
     },
 ];
@@ -439,6 +472,59 @@ pub fn find(name: &str) -> Option<&'static Command> {
     // `doc` is the obvious mistype of the command an agent reaches for most.
     let name = if name == "doc" { "docs" } else { name };
     COMMANDS.iter().find(|c| c.name == name)
+}
+
+/// The commands that used to be spelled differently, and what they are now.
+///
+/// A rename is not a typo, so `nearest` cannot answer it: `add-skills` is
+/// seven edits from `add`, which is exactly the distance that stops a
+/// suggestion from being noise. The old spelling still fails — an alias would
+/// keep two names alive and nothing would ever retire the first — but it fails
+/// naming its replacement, which is the whole of what somebody with the old
+/// command in a script needs.
+pub const RENAMED: &[(&str, &str)] = &[("add-skills", "add skills")];
+
+/// What to type instead of `name`, when `name` is a command this toolchain
+/// used to have.
+pub fn renamed(name: &str) -> Option<&'static str> {
+    RENAMED.iter().find(|(was, _)| *was == name).map(|(_, now)| *now)
+}
+
+/// `buri <command> <subcommand>`, dispatched through the command's own table.
+///
+/// The two refusals are the ones `main` makes for a command that is not there,
+/// one level down and in the same order: what was wrong, the nearest real
+/// spelling when there is one, then the list to choose from.
+#[expect(
+    clippy::print_stderr,
+    reason = "a malformed invocation is reported by the CLI itself, before there is a session"
+)]
+pub fn dispatch(command: &'static str, subcommands: &'static [Subcommand], args: &Args) -> i32 {
+    let Some((asked, rest)) = args.targets.split_first() else {
+        eprintln!("error: `buri {command}` needs a subcommand");
+        eprintln!();
+        eprint!("{}", subcommand_usage(command));
+        return 2;
+    };
+    let Some(sub) = subcommands.iter().find(|s| s.name == asked) else {
+        eprintln!("error: there is no `buri {command}` subcommand `{asked}`");
+        let names: Vec<&str> = subcommands.iter().map(|s| s.name).collect();
+        if let Some(near) = crate::build::buildfile::nearest(asked, &names) {
+            eprintln!("  = did you mean `buri {command} {near}`?");
+        }
+        eprintln!();
+        eprint!("{}", subcommand_usage(command));
+        return 2;
+    };
+    // The subcommand is handed the arguments *after* its own name, so a
+    // subcommand's `run` reads `targets` exactly as a command's does and can
+    // be moved between the two tables without being rewritten.
+    (sub.run)(&Args {
+        command: format!("{command} {}", sub.name),
+        targets: rest.to_vec(),
+        flags: args.flags.clone(),
+        passthrough: args.passthrough.clone(),
+    })
 }
 
 /// True when `command` accepts `flag`.
@@ -453,16 +539,53 @@ pub fn accepts(command: &str, flag_name: &str) -> bool {
 // Rendering
 // ---------------------------------------------------------------------------
 
+/// Every line of the command table: each command a user can type, and each
+/// subcommand under it.
+fn rows() -> Vec<(String, &'static str, &'static str)> {
+    let mut rows = Vec::new();
+    for c in COMMANDS.iter().filter(|c| !c.hidden) {
+        rows.push((c.name.to_string(), c.args, c.blurb));
+        for s in c.subcommands {
+            rows.push((format!("{} {}", c.name, s.name), s.args, s.blurb));
+        }
+    }
+    rows
+}
+
+/// The help for one namespace: what `buri add` alone prints, and what its two
+/// refusals print under them. Generated from the same table that dispatches.
+pub fn subcommand_usage(name: &str) -> String {
+    let Some(c) = find(name) else { return String::new() };
+    let mut out = format!("buri {} — {}\n\n", c.name, c.blurb);
+    let name_width = c.subcommands.iter().map(|s| s.name.len()).max().unwrap_or(0);
+    let width = c.subcommands.iter().map(|s| s.args.len()).max().unwrap_or(0);
+    for s in c.subcommands {
+        let _ = writeln!(
+            out,
+            "  buri {} {:<name_width$} {:<width$}  {}",
+            c.name, s.name, s.args, s.blurb
+        );
+    }
+    let _ = write!(out, "\n`buri docs cli {}` documents it in full.\n", c.name);
+    out
+}
+
 /// `buri --help`, generated.
 pub fn usage() -> String {
     let mut out = String::from("buri — the toolchain for the Buri language\n\n");
     // Both columns are measured rather than pinned: a name longer than the
     // widest one at the time the constant was chosen pushed every blurb on its
     // line out of the column and left the rest of the table where it was.
-    let name_width = COMMANDS.iter().filter(|c| !c.hidden).map(|c| c.name.len()).max().unwrap_or(0);
-    let width = COMMANDS.iter().filter(|c| !c.hidden).map(|c| c.args.len()).max().unwrap_or(0);
-    for c in COMMANDS.iter().filter(|c| !c.hidden) {
-        let _ = writeln!(out, "  buri {:<name_width$} {:<width$}  {}", c.name, c.args, c.blurb);
+    //
+    // A subcommand is a row like any other, under its own command and spelled
+    // the way it is typed. Nesting it in a second, indented table would put
+    // `buri add skills` nowhere a reader scanning the left column could find
+    // it, and there is one line either way.
+    let rows = rows();
+    let name_width = rows.iter().map(|(n, _, _)| n.len()).max().unwrap_or(0);
+    let width = rows.iter().map(|(_, a, _)| a.len()).max().unwrap_or(0);
+    for (name, args, blurb) in &rows {
+        let _ = writeln!(out, "  buri {name:<name_width$} {args:<width$}  {blurb}");
     }
     out.push_str(
         "\nTarget arguments accept labels and patterns: //lib/money, //lib/..., //...\n\
@@ -497,6 +620,14 @@ pub fn reference(c: &Command) -> String {
     let _ = writeln!(out, "# buri {}\n", c.name);
     let _ = writeln!(out, "{}\n", c.blurb);
     let _ = writeln!(out, "```text\nburi {} {}\n```\n", c.name, c.args);
+
+    if !c.subcommands.is_empty() {
+        out.push_str("## Subcommands\n\n| Subcommand | What it does |\n|---|---|\n");
+        for s in c.subcommands {
+            let _ = writeln!(out, "| `buri {} {} {}` | {} |", c.name, s.name, s.args, s.blurb);
+        }
+        out.push('\n');
+    }
 
     let mut rows: Vec<&Flag> = c.flags.iter().filter_map(|n| flag(n)).collect();
     rows.extend(FLAGS.iter().filter(|f| f.global));
@@ -590,12 +721,99 @@ mod tests {
         }
     }
 
+    /// The same two rules the commands are held to, one level down: a name is
+    /// registered once, and it says what it does.
+    #[test]
+    fn every_subcommand_is_unique_and_described() {
+        for c in COMMANDS {
+            let mut seen = HashSet::new();
+            for s in c.subcommands {
+                assert!(seen.insert(s.name), "`buri {} {}` is registered twice", c.name, s.name);
+                assert!(!s.blurb.trim().is_empty(), "`buri {} {}` has no blurb", c.name, s.name);
+                assert!(
+                    !s.name.contains(' '),
+                    "`{}` is two words; a subcommand of a subcommand is another table",
+                    s.name
+                );
+            }
+        }
+    }
+
+    /// The generated help names every subcommand, spelled the way it is typed.
+    #[test]
+    fn usage_lists_every_subcommand() {
+        let text = usage();
+        for c in COMMANDS.iter().filter(|c| !c.hidden) {
+            for s in c.subcommands {
+                assert!(
+                    text.contains(&format!("buri {} {}", c.name, s.name)),
+                    "usage omits `buri {} {}`",
+                    c.name,
+                    s.name
+                );
+            }
+        }
+    }
+
+    /// `buri add` alone, and both of its refusals, print this list.
+    #[test]
+    fn a_namespace_prints_what_it_can_be_asked_for() {
+        let text = subcommand_usage("add");
+        assert!(text.contains("buri add skills"), "the list omits the one subcommand there is");
+        assert!(text.contains("buri docs cli add"), "the list does not say where the page is");
+        assert!(subcommand_usage("nonesuch").is_empty(), "a command that is not there has no list");
+    }
+
+    /// A renamed command is *gone* — no alias, no hidden entry — and the
+    /// spelling the hint offers is one the table can actually dispatch.
+    #[test]
+    fn a_renamed_command_is_gone_and_its_replacement_works() {
+        for (was, now) in RENAMED {
+            assert!(find(was).is_none(), "`{was}` was renamed but is still a command");
+            assert_eq!(renamed(was), Some(*now));
+            let mut words = now.split(' ');
+            let c = find(words.next().unwrap_or_default())
+                .unwrap_or_else(|| panic!("`{now}` names no command"));
+            if let Some(sub) = words.next() {
+                assert!(
+                    c.subcommands.iter().any(|s| s.name == sub),
+                    "`{now}` names no subcommand of `buri {}`",
+                    c.name
+                );
+            }
+            assert!(words.next().is_none(), "`{now}` is more words than a command and a subcommand");
+        }
+    }
+
+    /// Both ways of asking for a subcommand that is not there: none named, and
+    /// one named that does not exist. Each is the invocation being wrong, so
+    /// each is exit 2.
+    #[test]
+    fn a_namespace_refuses_what_it_cannot_dispatch() {
+        let args = |targets: &[&str]| Args {
+            command: "add".to_string(),
+            targets: targets.iter().map(|t| (*t).to_string()).collect(),
+            flags: Flags::default(),
+            passthrough: Vec::new(),
+        };
+        assert_eq!(dispatch("add", add::SUBCOMMANDS, &args(&[])), 2);
+        assert_eq!(dispatch("add", add::SUBCOMMANDS, &args(&["nonesuch"])), 2);
+    }
+
     #[test]
     fn the_reference_renders_for_every_command() {
         for c in COMMANDS {
             let text = reference(c);
             assert!(text.contains(&format!("buri {}", c.name)));
             assert!(text.contains("Exit codes"));
+            for s in c.subcommands {
+                assert!(
+                    text.contains(&format!("buri {} {}", c.name, s.name)),
+                    "`buri docs cli {}` omits its `{}` subcommand",
+                    c.name,
+                    s.name
+                );
+            }
         }
     }
 }

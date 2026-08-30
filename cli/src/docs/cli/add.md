@@ -1,5 +1,16 @@
 ## What it does
 
+`buri add` is what the toolchain writes into a repository that already exists.
+`buri init` creates one, once, and refuses to touch it again; everything a
+release adds to a checkout that is already there arrives under this name
+instead, one subcommand each. There is one today.
+
+Named with no subcommand it prints what it can be asked for and exits 2, the
+way `buri` alone prints the command table: an incomplete invocation is the
+thing you asked *with* being wrong.
+
+## `buri add skills`
+
 Writes the agent skills this toolchain ships into `.claude/skills/`, one
 directory per skill, each holding a `SKILL.md`. With no argument it writes into
 the working directory; with one it writes into the directory you name. It needs
@@ -7,8 +18,8 @@ no repository, because the skills are compiled into the binary the way the rest
 of `buri docs` is.
 
 ```text
-buri add-skills
-buri add-skills ~/src/some-other-repository
+buri add skills
+buri add skills ~/src/some-other-repository
 ```
 
 Five skills are installed today: the language, the type system, the build
@@ -16,7 +27,7 @@ system, testing, and this CLI. Each is the same prose `buri docs` serves,
 compressed to what an agent meeting Buri for the first time needs in front of
 it.
 
-## Re-running is the upgrade
+### Re-running is the upgrade
 
 ```text
 wrote .claude/skills/buri-language/SKILL.md

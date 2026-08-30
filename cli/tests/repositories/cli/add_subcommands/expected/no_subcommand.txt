@@ -1,0 +1,7 @@
+error: `buri add` needs a subcommand
+
+buri add — write what this toolchain ships into an existing repository
+
+  buri add skills [directory]  write the agent skills for this toolchain into .claude/skills
+
+`buri docs cli add` documents it in full.
