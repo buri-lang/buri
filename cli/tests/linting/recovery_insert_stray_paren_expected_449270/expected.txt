@@ -1,0 +1,9 @@
+error: expected the rest of the string, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_expected_449270/main.buri:16:30
+   |
+16 |   io.println(ctx, "-- ${label@ }")
+   |                              ^
+   |
+   = expected: the rest of the string
+   = actual: `@`
+   = fix: close the template: every `${` needs a `}` and the string needs a closing quote

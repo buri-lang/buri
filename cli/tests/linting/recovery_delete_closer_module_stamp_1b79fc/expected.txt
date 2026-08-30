@@ -1,0 +1,9 @@
+error: expected a type, found `{` [unexpected-token]
+  --> lib/recovery_delete_closer_module_stamp_1b79fc/lib.buri:25:36
+   |
+25 |   + Stdout>(ctx: C, label: Str): ( {
+   |                                    ^
+   |
+   = expected: a type
+   = actual: `{`
+   = fix: name a type here, as in `Int` or `[Str]`

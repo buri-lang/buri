@@ -6,6 +6,11 @@
 # with no exit — which is what `spin` is, and what the edit at the bottom takes
 # away.
 #
+# The two halves ask opposite things of one number: the first must not finish
+# inside it and the second must. So the number is the second half's to set —
+# `repo/lib/spin/BUILD.buri` says how much room it leaves and what the room is
+# for — and the first half costs exactly that number of seconds to kill.
+#
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
