@@ -406,6 +406,7 @@ has two of its own:
 |---|---|
 | `read(path)` | `Result<Str, IoError>` — what the filesystem holds there, the same answer `readFile` gives |
 | `snapshot()` | `[(Str, Str)]` — every file, as text, **sorted by path** |
+| `calls()` | `[FsCall]` — every call made through this handle, **in the order they completed** |
 
 Neither needs the `Fs` effect bound: asserting on what a function wrote is
 reading an environment back rather than performing an effect. `snapshot()` is
@@ -584,6 +585,74 @@ those constructors is an intrinsic that installs a slot in a table the runtime
 owns, and nothing in `core/testing/context` hands one out. A fake you write is
 an immutable struct and stays one, so it answers the same way every time it is
 asked the same question.
+
+### What the code under test asked for
+
+`snapshot()` says what the world *is*; `calls()` says what it was **asked**.
+`TestFs`, `TestNet` and `TestStdin` each keep every call made through the handle
+and answer them in the order they completed:
+
+| Log | Answers |
+|---|---|
+| `fs().calls()` | `[FsCall]` — one per call to any of the eleven methods of `Fs` |
+| `net().calls()` | `[NetCall]` — one per request, whole: method, URL, headers and body |
+| `stdin().calls()` | `[StdinCall]` — one per `readLine` or `readBytes`, with what it asked for |
+
+A test writes the call it expects with the constructor of the same name, and
+these are ordinary functions of `core/host/testing`: `readFile(path)`,
+`writeFile(path, body)`, `renameFile(source, destination)`, `fetch(request)`,
+`readBytes(n)` — one per method, taking the call's own arguments. They derive
+`Eq`, which is what an assertion compares, and `Show`, which is what a failing
+one prints.
+
+```buri role=test
+# from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing/lib.buri" import { alloc, fs, net, readFile, fetch };
+from "core/effect/lib.buri" import { Alloc, Fs, IoError, Net, NetError, Response };
+from "core/net/http/lib.buri" import * as http;
+# fn cached<C: Alloc + Fs + Net>(ctx: C, url: Str): Result<Response, NetError> {
+#   match (ctx.readFile("cache")) {
+#     .Ok(_body) => .Ok(http.status(200)),
+#     .Err(_e) => http.get(ctx, url),
+#   }
+# }
+
+test "a miss consults the cache once and then goes upstream" {
+  let files = fs();
+  let upstream = net().respond(fn(_request) => .Ok(http.status(200)));
+  let ctx = context { Alloc: alloc(), Fs: files, Net: upstream };
+  let _ = assert.ok(cached(ctx, "https://example.test/thing"));
+  assert.eq(files.calls(), [readFile("cache")]);
+  assert.eq(upstream.calls(), [fetch(http.request(.Get, "https://example.test/thing"))]);
+}
+
+test "a hit never reaches the network at all" {
+  let files = fs().files([("cache", "hit")]);
+  let upstream = net();
+  let ctx = context { Alloc: alloc(), Fs: files, Net: upstream };
+  let _ = assert.ok(cached(ctx, "https://example.test/thing"));
+  assert.eq(upstream.calls(), []);
+}
+```
+
+Four things are worth knowing about the log.
+
+**A call that failed is a call.** A read that found nothing and a write refused
+through `readOnly()` are both in it: the log is what was asked, and the answer
+is the return value the test already has.
+
+**Reading the environment back is not a call.** `read`, `snapshot`, `captured`
+and `calls` itself ask the *fixture* a question rather than asking the double
+for anything, so none of them appears.
+
+**The log is per handle.** Every builder answers a new double with a log of its
+own, `readOnly()` and `respond` included — so the calls a test reads back are
+the ones made through the value it put in the context.
+
+**Octets are recorded as the text they spell**, which is `snapshot()`'s rule and
+is there for `snapshot()`'s reason: `writeFileBytes("b", [104, 105])` reads back
+as a call whose body is `"hi"`, and `writeFileBytes(path, body)` is the
+constructor that writes it down.
 
 ### Making the Nth call fail
 

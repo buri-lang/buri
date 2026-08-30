@@ -1680,10 +1680,10 @@ export effect Net {
 ```
 
 `core/effect` declares `Alloc`, `Fs`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`,
-`Stdout`, `Stderr`, `Proc`, and `Tasks`. **Only platform modules may declare
-effects**;
-`effect` in ordinary code is a compile error, so the set of things a Buri program
-can do to the world is fixed by its platform rather than open-ended.
+`Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`, and `Sockets`. **Only platform
+modules may declare effects**; `effect` in ordinary code is a compile error, so
+the set of things a Buri program can do to the world is fixed by its platform
+rather than open-ended.
 
 `Net.fetch` takes one value and answers one value, and those two types are the
 whole of what an HTTP message is in this language — the same `Request` a server
@@ -1814,16 +1814,24 @@ unresolved-name error at the one line that asked for it. Both halves of a grant
 are withheld together — the implementation struct as well as the value — so
 there is nothing left to construct by name.
 
-**One effect is granted by nobody.** `Tasks` — "run this over every item at
-once" — is declared in `core/effect`, and `core/host` declares `HostTasks` and
-`host.tasks` for it, and *no* platform grants either name. `Tasks: host.tasks`
-is therefore refused on every target, with the reason rather than with "no such
-name". That is deliberate: a signature is the expensive thing to change once
+**Three effects are granted by nobody.** `Tasks` — "run this over every item at
+once" — and `Listen` and `Sockets` — "I accept connections" and "I can write to
+open sockets" — are declared in `core/effect`, and `core/host` declares a
+`HostTasks`, a `HostListen` and a `HostSockets` with a value apiece, and *no*
+platform grants any of those names. `Tasks: host.tasks` is therefore refused on
+every target, with the reason rather than with "no such name", and so are the
+other two. That is deliberate: a signature is the expensive thing to change once
 programs are written against it, so it lands, is reviewed and is documented
-ahead of the scheduler that will answer it — and because a platform *is* the
-set of effects its host exports, "declared but unreachable" needs no second
-mechanism to say so. Granting it later is an edit to one row of the grant
-table.
+ahead of the scheduler and the server that will answer it — and because a
+platform *is* the set of effects its host exports, "declared but unreachable"
+needs no second mechanism to say so. Granting one later is an edit to one row of
+the grant table.
+
+`Listen` and `Sockets` are also the pair that shows what an empty row is *not*
+saying. They will be granted together, because being a server is one authority
+in two halves, and they will never be granted on `JS` or `WEB` — a page does not
+hold a port open. So an empty row means "nobody grants this today" and never
+"everybody will".
 
 Note what is *not* claimed: an effect is an ordinary interface, so anyone may
 write a type that satisfies it (Section 10.9 does). That is not a forgery hole —

@@ -1,0 +1,21 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# No `resolveSupport` in the capabilities, so the action carries its edit in
+# the list — which is what puts the whole `WorkspaceEdit` in this golden.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# `unused-context`, on the `ctx` of a function that never reads it. The fix is
+# two edits in two files — the parameter, and the argument in the module that
+# calls it — which is the first quick fix this server offers that reaches past
+# the file the cursor is in.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/width.buri"}, "range": {"start": {"line": 5, "character": 26}, "end": {"line": 5, "character": 32}}, "context": {"diagnostics": [{"code": "unused-context", "message": "`ctx` is not used; the function is pure", "range": {"start": {"line": 5, "character": 26}, "end": {"line": 5, "character": 32}}}]}}}
+# The client accepts it and writes both files.
+!apply 2
+# And asks again. The finding is gone from the module the cursor is in, which
+# is only half the assertion — the other half is that the caller still checks,
+# and it does, because nothing new is published below.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/width.buri"}, "range": {"start": {"line": 5, "character": 26}, "end": {"line": 5, "character": 32}}, "context": {"diagnostics": [{"code": "unused-context", "message": "`ctx` is not used; the function is pure", "range": {"start": {"line": 5, "character": 26}, "end": {"line": 5, "character": 32}}}]}}}
+# The whole library, as the editor now sees it: two files, no findings, and the
+# `unused-context` squiggle nowhere.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/report.buri"}}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -1,9 +1,0 @@
-error: expected `:`, found `I64` [unexpected-token]
- --> lib/recovery_swap_adjacent_module_cents_f3a4fb/lib.buri:1:34
-  |
-1 | export fn markupCents(cents: I64)I64 : { cents + 5 }
-  |                                  ^^^
-  |
-  = expected: `:`
-  = actual: `I64`
-  = fix: write `:` here

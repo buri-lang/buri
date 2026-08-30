@@ -1,0 +1,16 @@
+error: expected a type, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_expected_36aac2/main.buri:31:53
+   |
+31 | fn rendered<C: Alloc>(ctx: C, render: fn(C, Str) => @ Str, label: Str): Str {
+   |                                                     ^
+   |
+   = expected: a type
+   = actual: `@`
+   = fix: name a type here, as in `Int` or `[Str]`
+error: there is nothing named `rendered` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_expected_36aac2/main.buri:40:23
+   |
+40 |   let _ = ctx.println(rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label));
+   |                       ^^^^^^^^
+   |
+   = fix: declare `rendered`, or import it — a name is in scope only from this module's own declarations and its imports
