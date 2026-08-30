@@ -1,11 +1,11 @@
-error: `WEB` does not grant `net` [host-not-granted]
-  --> cmd/counter/main.buri:28:15
+error: `WEB` does not grant `HostListen` [host-not-granted]
+  --> cmd/server_effects_granted_by_no_platform_on_web/main.buri:21:13
    |
-28 |     Net: host.net,
-   |               ^^^
+21 |     Listen: host.HostListen {},
+   |             ^^^^^^^^^^^^^^^
    |
-   = a platform is the set of effects its host exports; `Net.fetch` blocks until the response arrives, which freezes a page; WEB grants `Fetch` instead, which is the same request with a callback
-   = fix: drop `Net` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS
+   = a platform is the set of effects its host exports; no platform accepts connections yet; `Listen` is declared so that the authority is split from `Net` before there is a server, and the acceptor that answers it lands with `core/net/server`
+   = fix: drop `Listen` from the context
 
      What to do
      ──────────
@@ -50,3 +50,11 @@ error: `WEB` does not grant `net` [host-not-granted]
      without one a snippet is checked with the whole host granted, because it
      builds no output.
 
+error: `WEB` does not grant `HostSockets` [host-not-granted]
+  --> cmd/server_effects_granted_by_no_platform_on_web/main.buri:22:14
+   |
+22 |     Sockets: host.HostSockets {},
+   |              ^^^^^^^^^^^^^^^^
+   |
+   = a platform is the set of effects its host exports; writing to an open socket is granted with `Listen`, which no platform grants yet; a page neither accepts connections nor holds one to push on
+   = fix: drop `Sockets` from the context

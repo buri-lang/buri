@@ -1680,10 +1680,10 @@ export effect Net {
 ```
 
 `core/effect` declares `Alloc`, `Fs`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`,
-`Stdout`, `Stderr`, `Proc`, and `Tasks`. **Only platform modules may declare
-effects**;
-`effect` in ordinary code is a compile error, so the set of things a Buri program
-can do to the world is fixed by its platform rather than open-ended.
+`Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`, and `Sockets`. **Only platform
+modules may declare effects**; `effect` in ordinary code is a compile error, so
+the set of things a Buri program can do to the world is fixed by its platform
+rather than open-ended.
 
 `Net.fetch` takes one value and answers one value, and those two types are the
 whole of what an HTTP message is in this language — the same `Request` a server
@@ -1830,6 +1830,18 @@ against the signature changed, and no second mechanism — no "not implemented"
 flag, no feature gate — was ever involved, because a platform *is* the set of
 effects its host exports and an empty set of platforms is an ordinary value of
 that field.
+
+**Two effects are still granted by nobody.** `Listen` and `Sockets` — "I accept
+connections" and "I can write to open sockets" — are declared in `core/effect`,
+and `core/host` declares a `HostListen` and a `HostSockets` with a value apiece,
+and *no* platform grants either name, so `Listen: host.listen` is refused on
+every target with that reason rather than with "no such name". They are `Tasks`
+one stage earlier, for the same purpose.
+
+They are also the pair that shows what an empty row is *not* saying. They will
+be granted together, because being a server is one authority in two halves, and
+they will never be granted on `JS` or `WEB` — a page does not hold a port open.
+So an empty row means "nobody grants this today" and never "everybody will".
 
 Note what is *not* claimed: an effect is an ordinary interface, so anyone may
 write a type that satisfies it (Section 10.9 does). That is not a forgery hole —

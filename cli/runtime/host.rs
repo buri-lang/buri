@@ -5,12 +5,16 @@
 //! every one a *native* platform grants has a counterpart here, named by the
 //! rule in `lib.rs` §1: `host.HostFs.readFile` is `buri_rt_host_fs_read_file`.
 //!
-//! Four of the implementations have no counterpart *here*, for two reasons and
-//! neither of them an omission. `HostUi`, `HostWatch` and `HostFetch` drive a
+//! Six of the implementations have no counterpart *here*, for three reasons and
+//! none of them an omission. `HostUi`, `HostWatch` and `HostFetch` drive a
 //! document, and a native binary has none. `HostTasks` has one, and it is in
 //! `rt.rs` rather than in this file: `parallel` is the scheduler's, so it lives
 //! with the carrier pool and behind feature `net`, where a toolchain without a
 //! reactor refuses the key with a sentence instead of a missing symbol.
+//! `HostListen` and `HostSockets` are granted by no platform at all — they are
+//! declared ahead of the acceptor that will answer `listen`, so there is a
+//! signature to implement and, deliberately, nothing yet implementing it. When
+//! they arrive they join `HostTasks` behind `net`, for its reason.
 //!
 //! ## Buffering, and why it matches JavaScript
 //!
