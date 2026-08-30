@@ -60,7 +60,10 @@ Methods and traits:
     trait (Section 5.12.3).
 24. A generic parameter's bounds must name declared traits, and inside the
     function only those traits' methods are callable on that parameter
-    (Section 5.10).
+    (Section 5.10). A `trait` or an `effect` declares no type parameters of its
+    own — an `impl` names it without arguments, so there would be nowhere to
+    bind them — while a method of one may declare as many as it needs
+    (Section 5.12).
 
 Effects and contexts:
 

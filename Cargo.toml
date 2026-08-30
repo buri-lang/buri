@@ -2,10 +2,19 @@
 # `website` is the documentation site generator. It is not part of the CLI and
 # ships with nothing: it reads `cli/src/docs/**` and the README and writes HTML.
 members = ["cli", "website"]
+# Two packages that are deliberately outside the workspace, for the same
+# reason: `cargo test -p buri` must not resolve either of them.
+#
 # `editors/zed` is a Zed extension, and a Zed extension must depend on
-# `zed_extension_api` and compile to WASM. It is excluded rather than made a
-# member so that `cargo test -p buri` does not resolve it.
-exclude = ["editors/zed"]
+# `zed_extension_api` and compile to WASM.
+#
+# `cli/runtime` is `libburi_rt.a`, built by `cli/build.rs` with an explicit
+# `--manifest-path` once per toolchain build and `include_bytes!`d into the
+# binary. Excluding it keeps its `[profile.release]` — the archive's LTO,
+# `panic = "abort"` and single codegen unit — its own rather than the
+# workspace's, and keeps the nested `cargo build` off the workspace's
+# target directory and its lock.
+exclude = ["editors/zed", "cli/runtime"]
 resolver = "2"
 
 # The dependency policy. It used to be "none at all", and native code

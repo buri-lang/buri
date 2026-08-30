@@ -52,7 +52,7 @@ impl Fetch for NoFetch {
   fn fetch(
     self,
     request: Request,
-    done: fn(NoFetch, Result<NetResponse, FetchError>) => (),
+    done: fn(Self, Result<NetResponse, FetchError>) => (),
   ): () {
     done(self, .Err(.Refused))
   }

@@ -256,6 +256,70 @@ impl Label for Feather {
   }
 }
 
+/// A trait whose method hands the receiver back to a callback, written with
+/// `Self` rather than with the implementing type's name.
+///
+/// `Self` in a *written* parameter type of an `impl` method is the shape this
+/// pins (SPEC 5.12). Both `impl`s below spell `fn(Self, Int) => Int`, so what
+/// the callback's first parameter is depends on `Self` having been resolved to
+/// the head's type while the signature was elaborated: left unresolved it has
+/// no fields to read and no size to pass, which on a native backend is a
+/// zero-sized argument and a wrong answer rather than a refusal.
+export trait Relay {
+  fn relay(self, amount: Int, done: fn(Self, Int) => Int): Int;
+  fn base(self): Int;
+}
+
+export struct Scale {
+  export factor: Int,
+}
+
+derive Eq, Show for Scale;
+
+impl Relay for Scale {
+  fn relay(self, amount: Int, done: fn(Self, Int) => Int): Int {
+    done(self, amount * self.factor)
+  }
+
+  fn base(self): Int {
+    self.factor
+  }
+}
+
+export struct Offset {
+  export by: Int,
+}
+
+derive Eq, Show for Offset;
+
+impl Relay for Offset {
+  fn relay(self, amount: Int, done: fn(Self, Int) => Int): Int {
+    done(self, amount + self.by)
+  }
+
+  fn base(self): Int {
+    self.by
+  }
+}
+
+/// The callback reads a field of the receiver it was handed, which is what a
+/// zero-sized `Self` would get wrong rather than refuse.
+export fn relayScaled(s: Scale, amount: Int): Int {
+  s.relay(amount, fn(back, value) => value + back.factor)
+}
+
+/// The same call through a bound, where `Self` is the bound's type parameter
+/// and the callback reaches the trait again through the receiver it is given.
+export fn relayTwice<T: Relay>(x: T, amount: Int): Int {
+  x.relay(amount, fn(back, value) => back.relay(value, fn(last, v) => v + last.base()))
+}
+
+/// The callback applied once per element, so the closure crosses a list before
+/// it is called.
+export fn relayAll<C: Alloc>(ctx: C, xs: [Scale], amount: Int): [Int] {
+  xs.map(ctx, fn(s) => relayScaled(s, amount))
+}
+
 /// A trait method called through a bound, from inside a lambda.
 export fn totalGrams<T: Weigh>(xs: [T]): Int {
   xs.fold(fn(acc, x) => acc + x.grams(), 0)

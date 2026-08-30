@@ -469,9 +469,11 @@ impl<'a> Checker<'a> {
         for (slot, fid) in slots.iter_mut().zip(methods) {
             *slot = Some(fid);
         }
+        let head = self.tables.generic_head(con);
         self.tables.add_impl(ImplInfo {
             trait_id,
             self_con: con,
+            head,
             body: ImplBody::Written(slots),
             span: Span::NONE,
         });
@@ -482,9 +484,11 @@ impl<'a> Checker<'a> {
     /// `satisfies` recurses into the payload before answering.
     fn add_derived_impl(&mut self, trait_name: &str, con: TyConId) {
         let Some(&trait_id) = self.known_traits.get(trait_name) else { return };
+        let head = self.tables.generic_head(con);
         self.tables.add_impl(ImplInfo {
             trait_id,
             self_con: con,
+            head,
             body: ImplBody::Derived,
             span: Span::NONE,
         });
