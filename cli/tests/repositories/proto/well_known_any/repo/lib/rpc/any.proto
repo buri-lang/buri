@@ -1,0 +1,12 @@
+// Vendored from protobuf's `src/google/protobuf/any.proto`, with the two
+// changes this toolchain requires: the edition declaration, and the presence
+// feature that keeps proto3's singular fields. The message is upstream's.
+
+edition = "2026";
+
+package google.protobuf;
+
+message Any {
+  string type_url = 1 [features.field_presence = IMPLICIT];
+  bytes value = 2 [features.field_presence = IMPLICIT];
+}
