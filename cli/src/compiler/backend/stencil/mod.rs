@@ -883,6 +883,39 @@ mod tests {
         }
     }
 
+    /// The extractor's name guard, asserted against the libraries this
+    /// toolchain actually baked rather than against a synthetic name.
+    ///
+    /// `library::refuse_hole_name` is what makes a compiler that outlines half
+    /// a stencil a build failure; this is the standing check that it did. Before
+    /// it existed the `macos-arm64` blob shipped a `Branch` hole named
+    /// `st_decref_drop.cold.1` — a jump into a function no library carries — and
+    /// nothing in the tree said so, because the only reader that noticed was
+    /// ELF's and it noticed the *section*, not the name.
+    ///
+    /// Stencil names are not checked here: a library key is `bin/add/i64/ff/f`
+    /// and its variants, which is not a C identifier and is not meant to be.
+    /// The extractor checks the C function name, which is, and does it before
+    /// the key is assigned.
+    #[test]
+    fn no_shipped_hole_names_a_function_the_compiler_invented() {
+        for t in abi::StencilTarget::ALL {
+            let Ok(lib) = load(t) else { continue };
+            for s in &lib.stencils {
+                for h in &s.holes {
+                    assert_eq!(
+                        library::outlining_artifact(&h.name),
+                        None,
+                        "{}: {} reaches {}",
+                        t.slug(),
+                        s.name,
+                        h.name
+                    );
+                }
+            }
+        }
+    }
+
     /// A host with a library must have one that decodes; a host without must
     /// say so rather than fail to build.
     #[test]
