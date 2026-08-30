@@ -344,6 +344,15 @@ fn simplify_un(op: UnOp, operand: Expr) -> Expr {
     match (op, &operand) {
         (UnOp::Not, Expr::Bool(b)) => return Expr::Bool(!b),
         (UnOp::Neg, Expr::Num(n)) => return Expr::Num(-n),
+        // Folded rather than printed: `-` in front of `-5n` is `--5n`, which
+        // JavaScript reads as a decrement.
+        (UnOp::Neg, Expr::BigInt(d)) => {
+            return Expr::BigInt(match d.strip_prefix('-') {
+                Some(rest) => rest.to_string(),
+                None if d == "0" => d.clone(),
+                None => format!("-{d}"),
+            });
+        }
         (UnOp::Not, Expr::Unary { op: UnOp::Not, operand: inner })
             // `!!e` is `e` only when `e` is already a boolean.
             if inner.is_boolean() =>
@@ -384,6 +393,32 @@ fn simplify_bin(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
             BinOp::Div if b != 0.0 => return Expr::Num(a / b),
             BinOp::Rem if b != 0.0 => return Expr::Num(a % b),
             _ => {}
+        }
+    }
+    // The same folds at a `BigInt`, where the arithmetic is exact rather than
+    // rounded — so a fold that overflows the `i128` doing it is declined
+    // instead of being wrong. `U128`'s upper half never parses, which is the
+    // same refusal by another route.
+    if let (Expr::BigInt(a), Expr::BigInt(b)) = (&lhs, &rhs) {
+        if let (Ok(a), Ok(b)) = (a.parse::<i128>(), b.parse::<i128>()) {
+            let folded = match op {
+                BinOp::Add => a.checked_add(b),
+                BinOp::Sub => a.checked_sub(b),
+                BinOp::Mul => a.checked_mul(b),
+                _ => None,
+            };
+            if let Some(v) = folded {
+                return Expr::BigInt(v.to_string());
+            }
+            match op {
+                BinOp::Lt => return Expr::Bool(a < b),
+                BinOp::Le => return Expr::Bool(a <= b),
+                BinOp::Gt => return Expr::Bool(a > b),
+                BinOp::Ge => return Expr::Bool(a >= b),
+                BinOp::StrictEq => return Expr::Bool(a == b),
+                BinOp::StrictNe => return Expr::Bool(a != b),
+                _ => {}
+            }
         }
     }
     if let (Expr::Str(a), Expr::Str(b)) = (&lhs, &rhs) {
@@ -900,6 +935,7 @@ impl Printer {
 fn starts_with_sign(e: &Expr) -> bool {
     match e {
         Expr::Num(n) => *n < 0.0,
+        Expr::BigInt(s) => s.starts_with('-'),
         Expr::Unary { op: UnOp::Neg, .. } => true,
         _ => false,
     }
