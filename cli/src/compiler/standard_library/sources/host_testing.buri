@@ -7,8 +7,8 @@
 //! authority can enter.
 //!
 //! Every name here is `core/host`'s name — `alloc`, `stdout`, `stderr`,
-//! `stdin`, `fs`, `clock`, `rand`, `env`, `proc` — but **called** rather than
-//! referred to.
+//! `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc` — but **called** rather
+//! than referred to.
 //! `core/host`'s `clock` is one clock because a process has one; `clock()` is a
 //! fresh one every call, so what one test does to it is invisible to the next.
 //! That is the whole reason these are functions and `core/host`'s are `let`s.
@@ -26,6 +26,13 @@
 //! `cli/runtime/testing.rs`'s `TABLE` on the other, which is one design written
 //! twice because the *program* is what has to behave identically.
 //!
+//! `TestNet` is the exception and the exception is the rule read carefully: its
+//! configuration is a **responder**, which is behaviour rather than state, and
+//! behaviour is precisely what a runner written in Rust and JavaScript cannot
+//! hold on a program's behalf. It carries the function itself, `fetch` is a
+//! Buri body, and neither runtime table gains a row. `TestNet`'s own
+//! documentation has the two reasons in full.
+//!
 //! ## `args`, and the one name that could not be the spelling it wants
 //!
 //! `Env` declares `arguments(self): [Str]` — the reader — and a type has one
@@ -35,7 +42,8 @@
 //! — `at`, `seed`, `variables`, `captured` — is spelled exactly as written.
 
 from "core/effect/lib.buri" import {
-  Alloc, Clock, Env, Fs, IoError, Proc, Rand, Stderr, Stdin, Stdout, Region,
+  Alloc, Clock, Env, Fs, IoError, Net, NetError, Proc, Rand, Region, Request,
+  Response, Stderr, Stdin, Stdout,
 };
 
 // --- Alloc --------------------------------------------------------------------
@@ -185,6 +193,80 @@ impl TestFs {
   /// A directory `makeDir` created holds no octets and is not a file, so it is
   /// not here; `readDir` is the question it answers.
   export fn snapshot(self): [(Str, Str)];
+}
+
+// --- Network ------------------------------------------------------------------
+
+/// Refuses every request, until a test says what to answer.
+///
+/// The default is `.Err(.Refused)` and not a stub `200`: a test that reaches
+/// the network by accident should say so at its assertion rather than pass on
+/// an answer nobody wrote. `core/testing/context`'s `noNet()` is this double
+/// with the refusal made permanent; `net()` is the same starting point with a
+/// way forward.
+///
+/// ## The one double whose configuration is not a handle
+///
+/// Every other type in this module is a newtype over an `I64` naming
+/// runner-side state, because its state is *state* — a transcript that grows,
+/// a clock that advances, a filesystem that is written to. A responder is not
+/// state, it is **behaviour**, and behaviour is the one thing the runner
+/// cannot hold:
+///
+///  * A function value is `{ code, env }` (`design/native/VALUE-MODEL.md` §7).
+///    For the archive to invoke one it would have to call back into
+///    monomorphized Buri with a `Request` it had rebuilt itself — a calling
+///    convention neither `cli/runtime` nor `backend/js/runtime.js` has, and one
+///    no other entry needs.
+///  * The answer would have to cross as a `Result<Response, NetError>`, and
+///    that is the wall `host.HostNet.fetch` already stands at: `Ret::Res` names
+///    the error variant by index and `cli/runtime/lib.rs` §2.1 restricts that
+///    variant to carrying no fields, while `NetError` carries a `Str` on
+///    `BadUrl` and on `Transport`. Both runtime tables say so where that key is
+///    listed as absent.
+///
+/// So `fetch` is a Buri body that calls the responder directly, and neither
+/// table gains a row. What makes that safe rather than a hole is SPEC 10.6: a
+/// lambda may not capture an effect-carrying value, so a
+/// `fn(Request) => Result<Response, NetError>` is a pure function of the
+/// request and of nothing else — which is exactly what a fake server is.
+///
+/// The consequence for whoever writes one: a responder cannot take `ctx`, so it
+/// cannot call `http.text(ctx, ...)` inside itself. It can build a `Response`
+/// literal, because a list literal needs no context; and it can **capture** a
+/// `Response` the test built before it, because a response is plain data. Both
+/// spellings are in `docs/build/testing.md`.
+export struct TestNet {
+  responder: fn(Request) => Result<Response, NetError>,
+}
+
+impl Net for TestNet {
+  fn fetch(self, request: Request): Result<Response, NetError> {
+    let respond = self.responder;
+    respond(request)
+  }
+}
+
+export fn net(): TestNet {
+  TestNet { responder: fn(_request) => .Err(.Refused) }
+}
+
+impl TestNet {
+  /// A **new** network answering through this function, which is handed every
+  /// request the code under test makes and either answers it or fails it.
+  ///
+  /// One responder, not a routing table: a responder that answers two URLs
+  /// differently matches on `request.path()` — or on `request.method`, or on
+  /// `request.header(...)` — and a test that wanted a table would have to learn
+  /// a second vocabulary to say what `match` already says. `respond` therefore
+  /// **replaces** rather than composing: two responders for one request have no
+  /// answer to which of them wins.
+  export fn respond(
+    self,
+    responder: fn(Request) => Result<Response, NetError>,
+  ): TestNet {
+    TestNet { responder: responder }
+  }
 }
 
 // --- Clock --------------------------------------------------------------------
