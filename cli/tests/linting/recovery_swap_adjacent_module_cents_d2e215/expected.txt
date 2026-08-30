@@ -1,0 +1,9 @@
+error: expected a string literal, found `import` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_cents_d2e215/lib.buri:5:6
+  |
+5 | from import "core/str" * as str;
+  |      ^^^^^^
+  |
+  = expected: a string literal
+  = actual: `import`
+  = fix: quote it, as in `"core/list"`

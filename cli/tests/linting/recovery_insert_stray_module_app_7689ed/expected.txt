@@ -1,0 +1,47 @@
+error: expected `import`, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_module_app_7689ed/main.buri:5:20
+  |
+5 | from "core/effect" , import { Alloc, Stdout };
+  |                    ^
+  |
+  = expected: `import`
+  = actual: `,`
+  = fix: write `import` here
+error: expected a declaration, found `;` [unexpected-token]
+ --> lib/recovery_insert_stray_module_app_7689ed/main.buri:5:46
+  |
+5 | from "core/effect" , import { Alloc, Stdout };
+  |                                              ^
+  |
+  = expected: a declaration
+  = actual: `;`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_insert_stray_module_app_7689ed/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: `Alloc` is not a declared effect [not-an-effect]
+  --> lib/recovery_insert_stray_module_app_7689ed/main.buri:13:23
+   |
+13 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+   |                       ^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Alloc` is not one
+error: `Stdout` is not a declared effect [not-an-effect]
+  --> lib/recovery_insert_stray_module_app_7689ed/main.buri:13:42
+   |
+13 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+   |                                          ^^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Stdout` is not one
+error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
+  --> lib/recovery_insert_stray_module_app_7689ed/main.buri:14:11
+   |
+14 |   let _ = io.println(ctx, banner());
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Stdout`, or use a type that has one

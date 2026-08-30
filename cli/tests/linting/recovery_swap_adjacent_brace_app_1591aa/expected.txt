@@ -1,0 +1,16 @@
+error: expected an identifier, found `}` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_1591aa/main.buri:11:55
+   |
+11 |   let ctx = context { Alloc: host.alloc, Stdout: host.} stdout;
+   |                                                       ^
+   |
+   = expected: an identifier
+   = actual: `}`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_1591aa/main.buri:13:22
+   |
+13 |   let _ = io.println(ctx, "done");
+   |                      ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

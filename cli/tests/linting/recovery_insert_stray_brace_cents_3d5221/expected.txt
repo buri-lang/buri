@@ -1,0 +1,22 @@
+error: an expression statement is legal only in a test source [expression-statement]
+ --> lib/recovery_insert_stray_brace_cents_3d5221/lib.buri:3:47
+  |
+3 | export fn format(n: I64): Str { if (n == 0) { extra "zero" } else { "some" } }
+  |                                               ^^^^^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `extra` in scope [unresolved-name]
+ --> lib/recovery_insert_stray_brace_cents_3d5221/lib.buri:3:47
+  |
+3 | export fn format(n: I64): Str { if (n == 0) { extra "zero" } else { "some" } }
+  |                                               ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-terminator]
+ --> lib/recovery_insert_stray_brace_cents_3d5221/lib.buri:3:52
+  |
+3 | export fn format(n: I64): Str { if (n == 0) { extra "zero" } else { "some" } }
+  |                                                    ^
+  |
+  = fix: write `;` here

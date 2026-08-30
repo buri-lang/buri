@@ -1,0 +1,9 @@
+error: expected a pattern, found `=` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_cents_080fc0/lib.buri:6:7
+  |
+6 |   let = doubled n * 2;
+  |       ^
+  |
+  = expected: a pattern
+  = actual: `=`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

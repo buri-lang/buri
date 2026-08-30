@@ -1,0 +1,30 @@
+error: an expression statement is legal only in a test source [expression-statement]
+ --> lib/recovery_insert_stray_brace_cents_4aba69/lib.buri:7:17
+  |
+7 |   if (n == 0) { "zero" extra } else { "some" }
+  |                 ^^^^^^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `Str`, not `()` [statement-not-unit]
+ --> lib/recovery_insert_stray_brace_cents_4aba69/lib.buri:7:17
+  |
+7 |   if (n == 0) { "zero" extra } else { "some" }
+  |                 ^^^^^^
+  |
+  = only a call whose type is `()` may stand alone; bind anything else
+  = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+ --> lib/recovery_insert_stray_brace_cents_4aba69/lib.buri:7:23
+  |
+7 |   if (n == 0) { "zero" extra } else { "some" }
+  |                       ^
+  |
+  = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+ --> lib/recovery_insert_stray_brace_cents_4aba69/lib.buri:7:24
+  |
+7 |   if (n == 0) { "zero" extra } else { "some" }
+  |                        ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -1,0 +1,37 @@
+warning: str is imported but not used [unused-import]
+ --> lib/recovery_insert_stray_brace_cents_d9a466/lib.buri:9:29
+  |
+9 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_brace_cents_d9a466/lib.buri:18:3
+   |
+18 |   "some".extra concat(ctx, " cents")
+   |   ^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: `Str` has no field `extra` [no-such-field]
+  --> lib/recovery_insert_stray_brace_cents_d9a466/lib.buri:18:10
+   |
+18 |   "some".extra concat(ctx, " cents")
+   |          ^^^^^
+   |
+   = fix: check the spelling, or name a field the type declares
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_brace_cents_d9a466/lib.buri:18:15
+   |
+18 |   "some".extra concat(ctx, " cents")
+   |               ^
+   |
+   = fix: write `;` here
+error: there is nothing named `concat` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_cents_d9a466/lib.buri:18:16
+   |
+18 |   "some".extra concat(ctx, " cents")
+   |                ^^^^^^
+   |
+   = fix: declare `concat`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -1,0 +1,39 @@
+error: expected `{`, found `Alloc` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_app_d6be35/main.buri:6:27
+  |
+6 | from "core/effect" import Alloc {, Stdout };
+  |                           ^^^^^
+  |
+  = expected: `{`
+  = actual: `Alloc`
+  = fix: write `{` here
+error: expected a declaration, found `;` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_app_d6be35/main.buri:6:44
+  |
+6 | from "core/effect" import Alloc {, Stdout };
+  |                                            ^
+  |
+  = expected: a declaration
+  = actual: `;`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: `Alloc` is not a declared effect [not-an-effect]
+  --> lib/recovery_swap_adjacent_module_app_d6be35/main.buri:11:23
+   |
+11 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+   |                       ^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Alloc` is not one
+error: `Stdout` is not a declared effect [not-an-effect]
+  --> lib/recovery_swap_adjacent_module_app_d6be35/main.buri:11:42
+   |
+11 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+   |                                          ^^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Stdout` is not one
+error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
+  --> lib/recovery_swap_adjacent_module_app_d6be35/main.buri:13:11
+   |
+13 |   let _ = io.println(ctx, "done");
+   |           ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Stdout`, or use a type that has one

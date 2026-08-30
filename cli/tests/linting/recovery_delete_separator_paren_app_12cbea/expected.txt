@@ -1,0 +1,15 @@
+warning: this discards a `Result` [discarded-result]
+  --> lib/recovery_delete_separator_paren_app_12cbea/main.buri:14:11
+   |
+14 |   let _ = record().ignore();
+   |           ^^^^^^^^^^^^^^^^^
+   |
+   = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
+   = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_paren_app_12cbea/main.buri:15:25
+   |
+15 |   let _ = io.println(ctx "done");
+   |                         ^
+   |
+   = fix: write `,` here

@@ -1,0 +1,25 @@
+error: expected a declaration, found `record` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_266189/main.buri:10:1
+   |
+10 | record fn(): Result<(), Str> { .Ok(()) }
+   | ^^^^^^
+   |
+   = expected: a declaration
+   = actual: `record`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected an identifier, found `(` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_266189/main.buri:10:10
+   |
+10 | record fn(): Result<(), Str> { .Ok(()) }
+   |          ^
+   |
+   = expected: an identifier
+   = actual: `(`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `record` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_module_app_266189/main.buri:14:11
+   |
+14 |   let _ = record().ignore();
+   |           ^^^^^^
+   |
+   = fix: declare `record`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -1,0 +1,16 @@
+error: a statement ends with `;` [missing-terminator]
+ --> lib/recovery_swap_adjacent_brace_cents_6f3207/lib.buri:6:18
+  |
+6 |   let doubled = n 2 *;
+  |                  ^
+  |
+  = fix: write `;` here
+error: expected an expression, found `;` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_cents_6f3207/lib.buri:6:22
+  |
+6 |   let doubled = n 2 *;
+  |                      ^
+  |
+  = expected: an expression
+  = actual: `;`
+  = fix: write a value here

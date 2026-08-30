@@ -1,0 +1,12 @@
+error: this context is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_a820ac/main.buri:11:62
+   |
+11 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout ;
+   |                                                              ^
+   |
+  --> lib/recovery_delete_closer_brace_app_a820ac/main.buri:11:21
+   |
+11 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout ;
+   |                     ^ opened here
+   |
+   = fix: write `}` here

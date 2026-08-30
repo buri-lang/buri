@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_module_cents_22402c/lib.buri:8:1
+  |
+8 | @ }
+  | ^
+  |
+ --> lib/recovery_insert_stray_module_cents_22402c/lib.buri:5:31
+  |
+5 | export fn format(n: I64): Str {
+  |                               ^ opened here
+  |
+  = fix: write `}` here

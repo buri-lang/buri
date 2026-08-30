@@ -1,0 +1,47 @@
+error: expected `{`, found `extra` [unexpected-token]
+ --> lib/recovery_insert_stray_module_app_6273e4/main.buri:5:27
+  |
+5 | from "core/effect" import extra { Alloc, Stdout };
+  |                           ^^^^^
+  |
+  = expected: `{`
+  = actual: `extra`
+  = fix: write `{` here
+error: expected a declaration, found `;` [unexpected-token]
+ --> lib/recovery_insert_stray_module_app_6273e4/main.buri:5:50
+  |
+5 | from "core/effect" import extra { Alloc, Stdout };
+  |                                                  ^
+  |
+  = expected: a declaration
+  = actual: `;`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_insert_stray_module_app_6273e4/main.buri:14:11
+   |
+14 |           if (n > 10000) { "huge" } else { "large" }
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`
+error: `Alloc` is not a declared effect [not-an-effect]
+  --> lib/recovery_insert_stray_module_app_6273e4/main.buri:26:23
+   |
+26 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+   |                       ^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Alloc` is not one
+error: `Stdout` is not a declared effect [not-an-effect]
+  --> lib/recovery_insert_stray_module_app_6273e4/main.buri:26:42
+   |
+26 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+   |                                          ^^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Stdout` is not one
+error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
+  --> lib/recovery_insert_stray_module_app_6273e4/main.buri:27:11
+   |
+27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1)}");
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Stdout`, or use a type that has one

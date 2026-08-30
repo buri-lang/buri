@@ -1,0 +1,20 @@
+warning: list is imported but not used [unused-import]
+ --> lib/recovery_insert_stray_module_kit_33842c/lib.buri:4:30
+  |
+4 | from "core/list" import * as list;
+  |                              ^^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_module_kit_33842c/lib.buri:6:26
+  |
+6 | export fn one(): I64 { 1 @ }
+  |                          ^
+  |
+ --> lib/recovery_insert_stray_module_kit_33842c/lib.buri:6:22
+  |
+6 | export fn one(): I64 { 1 @ }
+  |                      ^ opened here
+  |
+  = fix: write `}` here

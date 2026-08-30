@@ -1,0 +1,12 @@
+error: this import list is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_module_app_1b8f62/main.buri:6:43
+  |
+6 | from "core/effect" import { Alloc, Stdout ;
+  |                                           ^
+  |
+ --> lib/recovery_delete_closer_module_app_1b8f62/main.buri:6:27
+  |
+6 | from "core/effect" import { Alloc, Stdout ;
+  |                           ^ opened here
+  |
+  = fix: write `}` here

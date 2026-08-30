@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+ --> lib/recovery_delete_separator_brace_cents_81ee8f/lib.buri:6:22
+  |
+6 |   let doubled = n * 2
+  |                      ^
+  |
+  = fix: write `;` here

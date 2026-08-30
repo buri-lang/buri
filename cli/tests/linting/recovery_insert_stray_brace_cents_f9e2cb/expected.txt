@@ -1,0 +1,20 @@
+warning: str is imported but not used [unused-import]
+ --> lib/recovery_insert_stray_brace_cents_f9e2cb/lib.buri:9:29
+  |
+9 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_cents_f9e2cb/lib.buri:18:16
+   |
+18 |   "some".concat@ (ctx, " cents")
+   |                ^
+   |
+  --> lib/recovery_insert_stray_brace_cents_f9e2cb/lib.buri:17:53
+   |
+17 | export fn describe<C: Alloc>(ctx: C, c: Cents): Str {
+   |                                                     ^ opened here
+   |
+   = fix: write `}` here

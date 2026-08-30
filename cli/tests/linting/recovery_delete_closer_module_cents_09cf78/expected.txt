@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_module_cents_09cf78/lib.buri:6:1
+  |
+6 | 
+  | ^
+  |
+ --> lib/recovery_delete_closer_module_cents_09cf78/lib.buri:5:36
+  |
+5 | export fn fromCents(c: I64): Cents { Cents(c) 
+  |                                    ^ opened here
+  |
+  = fix: write `}` here
