@@ -37,6 +37,35 @@
 //! frame-threaded, so a leaf is a byte offset copied into a scratch area
 //! (`stencil/rtcall.rs`).
 //!
+//! # A key carries no type arguments
+//!
+//! `middle::monomorphize` builds an intrinsic key out of the module, the type
+//! and the name, and out of nothing else. One key is one row here and one
+//! `buri_rt_*` symbol, so **every instantiation of a generic intrinsic reaches
+//! the same body**: `list.map` at `[Int]` and at `[Point]` are one call, and
+//! the element type does not cross. It cannot — this archive is compiled once,
+//! against no Buri type at all.
+//!
+//! That is what steps 2 and 3 above are for. Everything the runtime has to
+//! know about an erased type arrives as a value:
+//!
+//! * the element **stride and retain glue** of [`Extra::Element`] — the shape
+//!   of a `[T]`, which is why `core/list`'s rows carry it and `core/bytes`'s
+//!   do not (their element type is fixed at `U8`);
+//! * an **address**, through [`Entry::by_ref`], for an argument whose type is
+//!   a bare `T` and so has no leaf list a C signature could name;
+//! * a **runtime descriptor**, for an operation whose subject is the *whole*
+//!   shape of a type rather than its size — `json.decode` and the test
+//!   runner's two, which are `middle::monomorphize`'s `Func::desc` and reach
+//!   no row here.
+//!
+//! An intrinsic that is generic and has none of the three is a miscompile with
+//! no diagnostic, so the set of keys allowed to be generic is a written list —
+//! `GENERIC_INTRINSICS` in `middle/monomorphize.rs` — and a generic intrinsic
+//! outside it is an internal error at monomorphization. **A new row here for a
+//! generic key needs a row there too**, and the question that list is asking is
+//! which of the three above carries the type.
+//!
 //! # Why a table and not a mangling
 //!
 //! The rule in `lib.rs` §1 would happily produce `buri_rt_list_map` for
