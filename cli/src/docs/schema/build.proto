@@ -198,10 +198,13 @@ message TestSuite {
   // `dependencies`. Fakes, fixtures, golden-file helpers.
   repeated string dependencies = 2;
 
-  // Files the test may read through the runner's in-memory `Fs`, rooted at the
-  // package directory. Nothing else on disk is visible. `buri test --accept`
-  // rewrites these in the source tree; see `buri docs build/hermeticity`.
-  repeated string data = 3;
+  // Field 3 was `data` — files the runner read from disk and handed the suite
+  // as its in-memory `Fs`. Retired: only a runner could hand a suite those
+  // entries, so `data()` was empty in a linked test binary and the two backends
+  // answered differently. A suite writes its own filesystem now, with
+  // `fs().files([...])` from `core/host/testing`. The number is not reused.
+  reserved 3;
+  reserved "data";
 
   // Wall-clock ceiling per test declaration. Unset means the runner's built-in
   // default. There is no repository-wide setting: a suite that needs longer

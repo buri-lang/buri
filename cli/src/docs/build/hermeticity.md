@@ -15,7 +15,7 @@ set of inputs to a declared set of outputs. There are four kinds:
 | `interface` | A library's `lib.buri`, and the `interface` outputs of its dependencies | `<lib>.bi` — every exported name with its full type |
 | `compile` | One target's sources, the `interface` outputs of its dependencies, the platform | `<target>.bo` — the compiled module set |
 | `link` | A binary's `compile` output and those of its transitive dependencies | The artifact: an executable, or a `.mjs` |
-| `test` | A suite's `compile` output, the target's `compile` output, the `compile` output of every library the suite's own `dependencies` name, `test.data` | A pass/fail record and captured output |
+| `test` | A suite's `compile` output, the target's `compile` output, the `compile` output of every library the suite's own `dependencies` name | A pass/fail record and captured output |
 
 Splitting `interface` out from `compile` is the one structural decision here,
 and it is the language that makes it cheap. Top-level signatures are mandatory
@@ -46,7 +46,7 @@ leaving as an absence:
   `host-import`, pinned by the reject corpus. So no code that participates in an
   action has a *name* for ambient state.
 - **A test's capabilities are fakes.** A suite is handed a context the runner
-  builds: an in-memory `Fs` holding exactly `test { data: [...] }`, a clock the
+  builds: an in-memory `Fs` holding exactly what the suite gave it, a clock the
   test sets, a seeded `Rand`, an `Env` of the test's own pairs
   ([`testing.md`](./testing.md)). There is no real capability
   to withhold.

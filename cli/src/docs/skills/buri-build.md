@@ -111,7 +111,6 @@ library {
     test {
         sources: ["test/cents.buri"]
         dependencies: ["//lib/testing/fakes"]
-        data: ["test/golden/statement.txt"]
     }
 }
 ```
@@ -276,5 +275,5 @@ buri lint //...           the graph rules: missing-dep, visibility, tags
 `gen` rewrites exactly seven fields — `sources`, `proto_sources`,
 `dependencies`, `test.sources`, `test.dependencies`, `testing.sources`,
 `testing.dependencies` — sorted, and touches nothing else: rules, `tags`,
-`platforms`, `visibility`, `outputs`, `test.data`, `timeout_seconds` and every
+`platforms`, `visibility`, `outputs`, `timeout_seconds` and every
 comment survive. It never creates a build file.

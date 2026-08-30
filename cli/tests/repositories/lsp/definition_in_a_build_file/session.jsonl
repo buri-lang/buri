@@ -7,8 +7,6 @@
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 9, "character": 30}}}
 # A source entry is a path beside the build file, here in a subdirectory.
 {"jsonrpc": "2.0", "id": 4, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 8, "character": 22}}}
-# A data entry is a file the same way a source is, and need not be Buri.
-{"jsonrpc": "2.0", "id": 5, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}, "position": {"line": 10, "character": 20}}}
 # A source of the library rule.
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/BUILD.buri"}, "position": {"line": 1, "character": 16}}}
 # A source of the testing block, two levels into the file.

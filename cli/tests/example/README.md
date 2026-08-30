@@ -38,8 +38,6 @@ lib/
     file_store.buri
     test/
       store.buri
-      golden/
-        log.txt
   kit/                        //lib/kit          tagged `client`, owns design tokens
     BUILD.buri
     lib.buri
@@ -128,7 +126,7 @@ links into all four binaries, which is what an untagged library is *for*.
 | [`lib/ledger/entry.buri`](./lib/ledger/entry.buri) | Why `total` is a free function and `add` is a method |
 | [`lib/store/BUILD.buri`](./lib/store/BUILD.buri) | Visibility and tags side by side, doing two different jobs |
 | [`lib/store/codec.buri`](./lib/store/codec.buri) | A dependency created by method resolution rather than by an import |
-| [`lib/store/test/store.buri`](./lib/store/test/store.buri) | `Hermetic`'s in-memory `Fs`, and `test { data: ... }` |
+| [`lib/store/test/store.buri`](./lib/store/test/store.buri) | `fs()` — a suite that writes its own filesystem, golden included |
 | [`lib/kit/tokens.buri`](./lib/kit/tokens.buri) | A package's own design-token vocabulary, and the one function only that package can write |
 | [`lib/kit/card.buri`](./lib/kit/card.buri) | Components as plain functions of no context at all, the static style tier, and the one place the computed tier earns its keep |
 | [`cmd/server/main.buri`](./cmd/server/main.buri) | The effect budget as the context `main` builds, and re-exporting for the test suite |

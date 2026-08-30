@@ -37,7 +37,7 @@ mod harness;
 mod migrate;
 
 use harness::{indent, repo_root, Scratch};
-use migrate::{effects_the_build_file_blocks, nothing_blocked, plan, sources_under, Style};
+use migrate::{nothing_blocked, plan, sources_under, Style};
 
 /// A repository the migration runs over, the directories inside it whose
 /// sources are planned, and the targets `buri test` is asked for while the
@@ -115,7 +115,7 @@ const CORPORA: &[Corpus] = &[
         targets: &["//tools/report"],
     },
     Corpus {
-        root: "cli/tests/repositories/testing/accept_golden/repo",
+        root: "cli/tests/repositories/testing/filesystem_in_the_suite/repo",
         packages: &["lib"],
         targets: &["//lib/report"],
     },
@@ -174,19 +174,6 @@ const PARTIAL: &[(&str, &str)] = &[
         "cli/tests/example/cmd/basket/test/view.buri",
         "`noNet()`, which E3's `net()` replaces; `alloc` has moved and every context \
          in the file is written out already",
-    ),
-    // The two suites that declare `test { data }`. Their `Fs` is the runner's
-    // seeded `data()` and `fs()` is empty, so the row does not hold for them —
-    // `effects_the_build_file_blocks` is what works that out, and E13 is what
-    // unblocks it. Both files are otherwise migrated: their `Hermetic()`s stay
-    // because a site binds one context, not one effect.
-    (
-        "cli/tests/example/lib/store/test/store.buri",
-        "`test { data }`, which E13 retires; its three sites need the seeded `data()`",
-    ),
-    (
-        "cli/tests/repositories/testing/accept_golden/repo/lib/report/test/render.buri",
-        "`test { data }`, which E13 retires; its one site needs the seeded `data()`",
     ),
 ];
 
@@ -466,73 +453,6 @@ fn a_context_declaration_is_answered_by_the_diagnostic_its_caller_drew() {
     assert!(out.contains("..context { Clock: clock() },"), "{}", indent(&out));
 }
 
-/// A package that declares `test { data }` keeps its `Hermetic()`.
-///
-/// `Hermetic`'s `Fs` is `data()`, which the runner seeds from that declaration;
-/// `core/host/testing`'s `fs()` is empty. The table's `data() -> fs()` row is
-/// behaviour-preserving only where the declaration is, so a suite that names a
-/// file in it is a suite the rewrite would break in a way the compiler cannot
-/// see — an empty filesystem type-checks, and the run goes red instead. The
-/// site stays spelled `Hermetic()` and the report names it, exactly like one
-/// waiting on a constructor that does not exist yet.
-///
-/// Both halves are here: the same source, in a package that declares `data`
-/// and in one that does not.
-#[test]
-fn a_suite_that_declares_test_data_keeps_the_filesystem_it_was_seeded_with() {
-    const BUILD_WITH_DATA: &str = "library {\n  sources: [\"lib.buri\"]\n  test {\n    \
-                                   sources: [\"test/case.buri\"]\n    \
-                                   data: [\"test/golden/one.txt\"]\n  }\n}\n";
-    const BUILD_WITHOUT: &str =
-        "library {\n  sources: [\"lib.buri\"]\n  test {\n    sources: [\"test/case.buri\"]\n  }\n}\n";
-    let source = "from \"core/testing/context/lib.buri\" import { Hermetic };\n\
-                  test \"t\" {\n  let ctx = Hermetic();\n  let _ = read(ctx);\n}\n";
-
-    for (build, blocked) in [(BUILD_WITH_DATA, true), (BUILD_WITHOUT, false)] {
-        let scratch = Scratch::repo("migrate-data");
-        scratch.write("lib/one/BUILD.buri", build);
-        scratch.write("lib/one/test/case.buri", source);
-        let root = scratch.path("");
-
-        let files = vec![("lib/one/test/case.buri".to_string(), source.to_string())];
-        let held = |rel: &str| migrate::effects_the_build_file_blocks(&root, rel);
-        assert_eq!(
-            held("lib/one/test/case.buri").contains_key("Fs"),
-            blocked,
-            "the build file is what says whether `Fs` can move"
-        );
-
-        let mut round = 0;
-        let report = migrate::migrate(&files, &held, |rendered| {
-            round += 1;
-            if round > 1 {
-                return String::new();
-            }
-            let line = rendered[0].1.lines().position(|l| l.contains("read(ctx)")).unwrap() + 1;
-            format!(
-                "{{\"code\": \"unsatisfied-bound\", \"severity\": \"error\", \
-                 \"message\": \"`a context` does not satisfy `Fs`\", \
-                 \"location\": {{\"file\": \"lib/one/test/case.buri\", \"line\": {line}}}}}"
-            )
-        });
-
-        let out = report.plans[0].render(Style::Final).0;
-        if blocked {
-            assert_eq!(report.unmigrated.len(), 1, "{}", indent(&out));
-            assert!(report.unmigrated[0].1.contains("test { data }"), "{:?}", report.unmigrated);
-            assert!(out.contains("let ctx = Hermetic();"), "{}", indent(&out));
-            assert!(out.contains(OLD_IMPORT), "the file still needs it:\n{}", indent(&out));
-        } else {
-            assert_eq!(report.unmigrated.len(), 0, "{}", indent(&out));
-            assert!(out.contains("let ctx = context { Fs: fs() };"), "{}", indent(&out));
-            assert!(!out.contains(OLD_IMPORT), "{}", indent(&out));
-        }
-    }
-}
-
-/// The import line a migrated file is supposed to lose.
-const OLD_IMPORT: &str = "core/testing/context";
-
 // ---------------------------------------------------------------------------
 // The proof the script is done
 // ---------------------------------------------------------------------------
@@ -562,13 +482,7 @@ fn the_migrated_packages_have_nothing_left_to_rewrite() {
                 let p = plan(&rel, &text);
                 assert!(p.refused.is_none(), "{}", p.refused.unwrap());
                 checked += 1;
-                // A package whose build file blocks an effect is one this half
-                // cannot finish the check for: whether a site *needs* the
-                // blocked effect is a question for the compiler, and there is
-                // none here. What it must still do is say so, which is the
-                // `PARTIAL` row below. E13 is what takes this branch away.
-                let held = effects_the_build_file_blocks(&corpus_root, &rel);
-                if p.work_left() && held.is_empty() {
+                if p.work_left() {
                     left.push(format!("{whole}: {} site(s) and an import to move", p.sites.len()));
                 }
                 // A file that still names the old module has to say why, in a
@@ -708,8 +622,7 @@ fn migrate_the_corpus() {
         assert!(!files.is_empty(), "no sources under {}", corpus.root);
 
         let scratch = Scratch::copy_of("migrate", &corpus_root);
-        let blocked = |rel: &str| effects_the_build_file_blocks(&corpus_root, rel);
-        let report = migrate::migrate(&files, &blocked, |rendered| {
+        let report = migrate::migrate(&files, &nothing_blocked, |rendered| {
             for (rel, text) in rendered {
                 scratch.write(rel, text);
             }

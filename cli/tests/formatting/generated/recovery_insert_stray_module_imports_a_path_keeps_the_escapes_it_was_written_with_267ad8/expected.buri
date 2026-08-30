@@ -1,0 +1,11 @@
+from "a\u{41}b" import * as one;
+
+extra
+
+from "c\\d" import * as two;
+
+from "e\tf" import { name };
+
+export fn f(): Int {
+    1
+}

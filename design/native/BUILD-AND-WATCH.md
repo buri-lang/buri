@@ -158,8 +158,9 @@ for:
 - **The build cannot re-trigger itself.** Only declared *sources* are polled, and
   the build writes to `.buri/`. Trunk needs a one-second post-build cooldown and
   bacon a grace period specifically to stop their own writes retriggering; here
-  there is nothing to cool down. (`--accept` is the exception — it writes golden
-  files into the source tree — and §4.3 refuses to combine it with `--watch`.)
+  there is nothing to cool down. (`--accept` was the exception — it wrote golden
+  files into the source tree, and §4.3 refused to combine it with `--watch`. It
+  is retired, so no mode of `buri test` writes to the source tree at all.)
 - **`.git/`, `target/` and `node_modules/` are not watched**, without an ignore
   file, because they are not declared. That is the single most common source of
   watcher pathology, absent by construction.
@@ -535,16 +536,19 @@ where this pays per sweep, so the number is a sweep interval rather than a
 debounce and is correspondingly larger. It is not configurable in v1. A flag
 here is a flag nobody can choose a value for.
 
-Three combinations are refused, at argument parsing, with exit 2:
+Two combinations are refused, at argument parsing, with exit 2:
 
 - **`--watch --force`.** `--force` turns every cache hit into a run
   (`test.rs`), so every keystroke would re-run every suite in the selection.
   That is the opposite of the mode.
-- **`--watch --accept`.** `--accept` is "the one mode that writes to the source
-  tree" (`test.rs`). A mode that rewrites golden files on a timer is a
-  mode that silently accepts a regression while you are reading the failure.
 - **`--watch` without a TTY.** A watch loop in CI is a hung job. The check is on
   stdout being a terminal, and the diagnostic says so and names `buri test`.
+
+There was a third. **`--watch --accept`** was refused because `--accept` was
+"the one mode that writes to the source tree", and rewriting golden files on a
+timer silently accepts a regression while you are reading the failure. The flag
+rewrote what a suite declared in `test { data }`; that field is retired, and the
+flag went with it.
 
 ### 4.4 The terminal
 

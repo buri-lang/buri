@@ -2163,7 +2163,7 @@ pre-assembled world:
 | `alloc()` | `Alloc` | Real, from a per-test arena the runner reclaims. |
 | `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` is how a test reads it back. |
 | `stdin([Str])` | `Stdin` | Reads the given lines, then end-of-input. |
-| `data()` | `Fs` | In-memory, rooted at the package directory, containing exactly `test { data: [...] }`. |
+| `data()` | `Fs` | In-memory, rooted at the package directory, and empty. |
 | `files([(Str, Str)])` | `Fs` | In-memory, containing exactly these entries. |
 | `readOnly(F)` | `Fs` | Wraps an `Fs` so every write fails. |
 | `noNet()` | `Net` | Refuses every connection. |

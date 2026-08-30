@@ -11,8 +11,6 @@ library {
     visibility: ["//visibility:public"]
 
     test {
-        # The golden this suite reads. `data` is not managed.
-        data: ["test/golden/statement.txt"]
         timeout_seconds: 30
         platforms: [JS]
     }
