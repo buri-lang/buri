@@ -34,6 +34,7 @@
 //! ```text
 //! doc:  "one line saying what the case is about"
 //! run  { args: [...]  exit: 1  golden: "lint.txt"  stream: ALL  stdin: "session.jsonl" }
+//! run  { args: [...]  exit: 1  golden: "order.txt"  stream: MERGED }
 //! run  { args: ["build"]  exit: 0  cwd: "lib/money" }
 //! edit { file: "cmd/app/BUILD.buri"  replace: "..."  with: "..." }
 //! file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
@@ -93,7 +94,7 @@
 //! holds `{{CROSS_PLATFORM}}` for the same reason and by the same mechanism.
 use std::path::{Path, PathBuf};
 
-use super::{indent, run_in, Golden, Scratch};
+use super::{indent, run_in, run_in_merged, Golden, Scratch};
 
 use buri::build::textproto::{self, Message, Value};
 use buri::diagnostics::FileId;
@@ -103,6 +104,9 @@ pub enum Stream {
     All,
     Out,
     Err,
+    /// Both descriptors on one file, recorded in the order they were written.
+    /// `All` concatenates two captures, which is an order neither stream had.
+    Merged,
 }
 
 pub enum Step {
@@ -495,9 +499,10 @@ pub fn load_case(dir: &Path) -> Case {
                         None | Some("ALL") => Stream::All,
                         Some("OUT") => Stream::Out,
                         Some("ERR") => Stream::Err,
-                        Some(other) => {
-                            panic!("{name}: run.stream is {other}, not one of ALL, OUT, ERR")
-                        }
+                        Some("MERGED") => Stream::Merged,
+                        Some(other) => panic!(
+                            "{name}: run.stream is {other}, not one of ALL, OUT, ERR, MERGED"
+                        ),
                     },
                 });
             }
@@ -664,6 +669,7 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                     }
                 };
                 let mut run = match stdin {
+                    None if *stream == Stream::Merged => run_in_merged(&from, &argv),
                     None => run_in(&from, &argv),
                     Some(file) => {
                         let path = case.dir.join(file);
@@ -707,7 +713,7 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                 }
                 if let Some(golden) = golden {
                     let raw = match stream {
-                        Stream::All => run.all(),
+                        Stream::All | Stream::Merged => run.all(),
                         Stream::Out => run.stdout.clone(),
                         Stream::Err => run.stderr.clone(),
                     };

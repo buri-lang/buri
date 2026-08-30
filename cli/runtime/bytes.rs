@@ -160,6 +160,22 @@ pub unsafe extern "C" fn buri_rt_bytes_from_utf8(
     BURI_OK
 }
 
+/// The one NaN. A payload is not part of a `Float`'s value — SPEC 6.2 rules
+/// every NaN `==` every other, regardless of sign or payload — and the only way
+/// to construct one is to decode it out of bytes, which is where this stands.
+///
+/// Without it the two backends disagree on a pure byte-level round trip: a
+/// `Float` on JavaScript is a `number`, and moving a NaN through one is what
+/// canonicalizes it, so the payload cannot survive there whatever the decoder
+/// does. Native is the side that moves. VALUE-MODEL.md §12 row 16.
+fn canonical(x: f64) -> f64 {
+    if x.is_nan() {
+        f64::NAN
+    } else {
+        x
+    }
+}
+
 /// `bytes.f64ToBytes(ctx, x) -> [U8]` — eight octets, **little-endian**, which
 /// is `setFloat64(0, x, true)`.
 ///
@@ -193,6 +209,9 @@ pub unsafe extern "C" fn buri_rt_bytes_f32_to_bytes(x: f64, out: *mut BuriList) 
 /// from there, which is `$bytes_f64FromBytes`'s one guard. It is **not** an
 /// abort: a short input is a value this function has an answer for.
 ///
+/// A NaN comes back **canonical**, payload and sign discarded, which is what
+/// [`canonical`] is for. VALUE-MODEL.md §12 row 16.
+///
 /// # Safety
 /// `ptr`/`len` describe a readable range; `out` is writable and aligned for an
 /// `f64`.
@@ -210,13 +229,15 @@ pub unsafe extern "C" fn buri_rt_bytes_f64_from_bytes(
     let mut raw = [0u8; 8];
     raw.copy_from_slice(window);
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(f64::from_bits(u64::from_le_bytes(raw))) };
+    unsafe { out.write(canonical(f64::from_bits(u64::from_le_bytes(raw)))) };
     BURI_OK
 }
 
 /// `bytes.f32FromBytes(b, at) -> Option<Float>` — four octets, widened.
 ///
-/// The answer is a `Float`, so the `f32` is promoted, which is exact.
+/// The answer is a `Float`, so the `f32` is promoted, which is exact. A NaN is
+/// canonicalized as it is at eight octets: promotion carries a payload across
+/// and there is nothing on the far side that could read it.
 ///
 /// # Safety
 /// As [`buri_rt_bytes_f64_from_bytes`].
@@ -233,8 +254,9 @@ pub unsafe extern "C" fn buri_rt_bytes_f32_from_bytes(
     let Some(window) = b.get(start..start.saturating_add(4)) else { return 0 };
     let mut raw = [0u8; 4];
     raw.copy_from_slice(window);
+    let widened = f64::from(f32::from_bits(u32::from_le_bytes(raw)));
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(f64::from(f32::from_bits(u32::from_le_bytes(raw)))) };
+    unsafe { out.write(canonical(widened)) };
     BURI_OK
 }
 
@@ -326,5 +348,50 @@ mod tests {
         };
         assert_eq!(disc, BURI_OK);
         assert!((back + 2.5).abs() < f64::EPSILON);
+    }
+
+    /// The payload and the sign are dropped on the way in, so the round trip
+    /// answers `[0, 0, 0, 0, 0, 0, 248, 127]` here as it does on JavaScript.
+    #[test]
+    fn a_nan_payload_does_not_survive_the_round_trip() {
+        let payloads: [[u8; 8]; 3] = [
+            [1, 0, 0, 0, 0, 0, 0xF8, 0x7F],
+            [2, 0, 0, 0, 0, 0, 0xF8, 0x7F],
+            // Signalling, and negative.
+            [1, 0, 0, 0, 0, 0, 0xF0, 0xFF],
+        ];
+        for raw in payloads {
+            let mut back = 0f64;
+            // SAFETY: the slice and the destination are live.
+            let disc = unsafe { buri_rt_bytes_f64_from_bytes(raw.as_ptr(), 8, 0, &raw mut back) };
+            assert_eq!(disc, BURI_OK);
+            assert_eq!(back.to_bits(), f64::NAN.to_bits());
+
+            let mut list = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            // SAFETY: `list` is a live local.
+            unsafe { buri_rt_bytes_f64_to_bytes(back, &raw mut list) };
+            // SAFETY: the entry wrote a live block of eight octets.
+            let bytes = unsafe { std::slice::from_raw_parts(list.ptr, list.len as usize) };
+            assert_eq!(bytes, &[0, 0, 0, 0, 0, 0, 0xF8, 0x7F]);
+        }
+    }
+
+    /// Four octets go the same way: promotion carries a payload across, so the
+    /// canonicalization has to happen before it.
+    #[test]
+    fn a_thirty_two_bit_nan_payload_does_not_survive_either() {
+        let raw: [u8; 4] = [1, 0, 0xC0, 0x7F];
+        let mut back = 0f64;
+        // SAFETY: the slice and the destination are live.
+        let disc = unsafe { buri_rt_bytes_f32_from_bytes(raw.as_ptr(), 4, 0, &raw mut back) };
+        assert_eq!(disc, BURI_OK);
+        assert_eq!(back.to_bits(), f64::NAN.to_bits());
+
+        let mut list = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        // SAFETY: `list` is a live local.
+        unsafe { buri_rt_bytes_f32_to_bytes(back, &raw mut list) };
+        // SAFETY: the entry wrote a live block of four octets.
+        let bytes = unsafe { std::slice::from_raw_parts(list.ptr, list.len as usize) };
+        assert_eq!(bytes, &[0, 0, 0xC0, 0x7F]);
     }
 }

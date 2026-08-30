@@ -11,7 +11,10 @@ error: `Square` has no method `area` [no-such-method]
 
 ## What to do
 
-Check the spelling, or declare it in an `impl` block in that type's own module.
+Check the spelling. If the type is one of yours, declare the method in an `impl`
+block in that type's own module. If the type ships with the toolchain — a
+`Result`, an `I64` — or belongs to another package, it cannot gain one from
+here, and `buri docs <module>` lists the methods it has.
 
 ## Why
 

@@ -118,3 +118,42 @@ test "base64 refuses a bad length or a character outside the alphabet" {
   // Padding in the middle is not padding.
   assert.eq(assert.err(bytes.fromBase64(ctx, "Z=g=")), DecodeError(1));
 }
+
+// --- IEEE 754 byte patterns -----------------------------------------------------
+
+test "a float round-trips through its eight bytes" {
+  let ctx = Hermetic();
+  let values = [1.0, 0.0 - 2.5, 0.1 + 0.2, 1e21];
+  let back = values.mapCtx(ctx, fn(c, x) => bytes.f64FromBytes(bytes.f64ToBytes(c, x), 0));
+  assert.eq(back, values.mapCtx(ctx, fn(c, x) => Option.Some(x)));
+}
+
+test "a NaN payload does not survive the round trip" {
+  let ctx = Hermetic();
+  // Two quiet NaNs differing only in the payload, and a negative signalling
+  // one. All three decode to the canonical quiet NaN on every backend.
+  let first = assert.some(bytes.f64FromBytes([1, 0, 0, 0, 0, 0, 248, 127], 0));
+  let second = assert.some(bytes.f64FromBytes([2, 0, 0, 0, 0, 0, 248, 127], 0));
+  let signalling = assert.some(bytes.f64FromBytes([1, 0, 0, 0, 0, 0, 240, 255], 0));
+  let canonical: [U8] = [0, 0, 0, 0, 0, 0, 248, 127];
+  assert.eq(bytes.f64ToBytes(ctx, first), canonical);
+  assert.eq(bytes.f64ToBytes(ctx, second), canonical);
+  assert.eq(bytes.f64ToBytes(ctx, signalling), canonical);
+}
+
+test "four octets canonicalize a NaN as eight do" {
+  let ctx = Hermetic();
+  let payload = assert.some(bytes.f32FromBytes([1, 0, 192, 127], 0));
+  assert.eq(bytes.f32ToBytes(ctx, payload), [0, 0, 192, 127]);
+  assert.eq(bytes.f64ToBytes(ctx, payload), [0, 0, 0, 0, 0, 0, 248, 127]);
+}
+
+test "the sign of a zero is preserved, which the NaN rule does not touch" {
+  let ctx = Hermetic();
+  let positive = assert.some(bytes.f64FromBytes([0, 0, 0, 0, 0, 0, 0, 0], 0));
+  let negative = assert.some(bytes.f64FromBytes([0, 0, 0, 0, 0, 0, 0, 128], 0));
+  assert.eq(bytes.f64ToBytes(ctx, positive), [0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.eq(bytes.f64ToBytes(ctx, negative), [0, 0, 0, 0, 0, 0, 0, 128]);
+  // Numerically equal all the same, which is why the bytes are the question.
+  assert.eq(positive, negative);
+}

@@ -6,49 +6,41 @@ error: `map<>` is not supported [proto-unsupported]
   |
   = a map field is sugar for a repeated entry message with its own wire layout, and Buri's `Map` is not ordered the way a decoded map would have to be
   = fix: declare `repeated Entry entries = N;` with an explicit `message Entry { ... }`
-error: `google.protobuf.Any` is not supported [proto-unsupported]
+error: the `required` label is not supported [proto-unsupported]
  --> lib/bad/service.proto:8:3
   |
-8 |   google.protobuf.Any payload = 3;
-  |   ^^^^^^^^^^^^^^^^^^^
-  |
-  = an `Any` holds a message whose type is known only at runtime, and a generated Buri type has to know its fields at compile time
-  = fix: declare a `oneof` over the message types the field can actually hold
-error: the `required` label is not supported [proto-unsupported]
- --> lib/bad/service.proto:9:3
-  |
-9 |   required int32 must = 4;
+8 |   required int32 must = 4;
   |   ^^^^^^^^
   |
   = editions replaced the labels with `features.field_presence`, and the value that corresponds to `required` is LEGACY_REQUIRED — which this reader refuses in its own right
   = fix: drop the label; a singular field already has presence
 error: a oneof case takes no label [proto-schema]
-  --> lib/bad/service.proto:10:16
-   |
-10 |   oneof pick { repeated string many = 7; }
-   |                ^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = fix: remove `repeated`; a oneof is already a choice of exactly one case, so a repeated one has no meaning to give it
+ --> lib/bad/service.proto:9:16
+  |
+9 |   oneof pick { repeated string many = 7; }
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: remove `repeated`; a oneof is already a choice of exactly one case, so a repeated one has no meaning to give it
 error: `group` is not supported [proto-unsupported]
-  --> lib/bad/service.proto:11:3
+  --> lib/bad/service.proto:10:3
    |
-11 |   group Inline = 5 { int32 x = 6; }
+10 |   group Inline = 5 { int32 x = 6; }
    |   ^^^^^
    |
    = groups are proto2's inline nesting, and their wire encoding was removed from proto3
    = fix: declare a nested `message` and a field of that type
 error: `extend` is not supported [proto-unsupported]
-  --> lib/bad/service.proto:14:1
+  --> lib/bad/service.proto:13:1
    |
-14 | extend Request {
+13 | extend Request {
    | ^^^^^^
    |
    = an extension adds fields to a message from outside it, so the generated type would not be the whole of the message
    = fix: put the fields in the message itself
 error: `service` is not supported [proto-unsupported]
-  --> lib/bad/service.proto:18:1
+  --> lib/bad/service.proto:17:1
    |
-18 | service Greeter {
+17 | service Greeter {
    | ^^^^^^^
    |
    = this reader turns a schema into data types; it has no RPC transport to generate a stub against

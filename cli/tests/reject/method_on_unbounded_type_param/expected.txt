@@ -5,13 +5,15 @@ error: `T` has no method `len` [no-such-method]
   |     ^^^
   |
   = `T` carries no bounds, and a bare type parameter has no methods; add a bound that declares `len`
-  = fix: check the spelling, or declare it in `impl T { ... }` in that type's own module — a method may not be added from anywhere else
+  = fix: add a bound to `T` that declares `len`, or call one the bounds it already carries declare
 
     What to do
     ──────────
 
-    Check the spelling, or declare it in an impl block in that type's own
-    module.
+    Check the spelling. If the type is one of yours, declare the method in an
+    impl block in that type's own module. If the type ships with the toolchain —
+    a Result, an I64 — or belongs to another package, it cannot gain one from
+    here, and buri docs <module> lists the methods it has.
 
     Why
     ───

@@ -57,9 +57,10 @@ function __cmd_x_main$lookup(pairs_0,key_1){
   }
 }
 function __cmd_x_main$port(pairs_0){
+  const pairs_3=$share(pairs_0);
   const key_4='port';
   let $t3;
-  const $t2=__cmd_x_main$lookup(pairs_0,key_4);
+  const $t2=__cmd_x_main$lookup(pairs_3,key_4);
   if($t2!==void 0){
     $t3=[0,$t2];
   }else if($t2===void 0){
