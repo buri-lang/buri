@@ -274,6 +274,29 @@ fn starts_param(t: TokenKind) -> bool {
     matches!(t, TokenKind::Ident | TokenKind::KeywordSelfValue | TokenKind::KeywordCtx)
 }
 
+/// Whether a token can begin a declaration.
+///
+/// The keywords a *statement* can never start with, so that a block missing
+/// its `}` is read as a block missing its `}` rather than as a block with a
+/// declaration in it. `fn`, `let`, `if`, `match` and `context` are absent
+/// deliberately: each of them begins an expression too.
+fn starts_declaration(t: TokenKind) -> bool {
+    matches!(
+        t,
+        TokenKind::KeywordFrom
+            | TokenKind::KeywordExport
+            | TokenKind::KeywordStruct
+            | TokenKind::KeywordEnum
+            | TokenKind::KeywordType
+            | TokenKind::KeywordTrait
+            | TokenKind::KeywordEffect
+            | TokenKind::KeywordImpl
+            | TokenKind::KeywordDerive
+            | TokenKind::KeywordTest
+            | TokenKind::KeywordConst
+    )
+}
+
 /// Whether a token can begin a tuple-struct field: a type, or its `export`.
 fn starts_tuple_field(t: TokenKind) -> bool {
     starts_type(t) || matches!(t, TokenKind::KeywordExport)
@@ -475,6 +498,11 @@ const MAX_CHAIN: u32 = 2048;
 /// than this is not one anybody wrote — [`MAX_DEPTH`] already refuses the
 /// nesting long before the length becomes reachable.
 const MAX_TYPE_ARG_LOOKAHEAD: usize = 256;
+
+/// How far recovery looks for a closing delimiter that is late rather than
+/// absent. Bounded for the same reason the type-argument scan is: a file of
+/// unclosed delimiters must still be read in time proportional to its size.
+const MAX_CLOSE_LOOKAHEAD: usize = 256;
 
 impl<'a> Parser<'a> {
     // -- token access -------------------------------------------------------
@@ -809,7 +837,56 @@ impl<'a> Parser<'a> {
             d.bind("token", token);
             d.secondary_span(opened, "opened here");
         }
-        Ok(self.prev_span())
+        // The closer is late rather than absent when it is still there at this
+        // construct's own depth. Skipping to it is what stops the cursor from
+        // stalling on a token nothing consumes, and stalling is what turns one
+        // stray token into an error on every line after it.
+        match self.find_close(close) {
+            Some(steps) => {
+                for _ in 0..steps {
+                    self.bump();
+                }
+                Ok(self.bump())
+            }
+            None => Ok(self.prev_span()),
+        }
+    }
+
+    /// How many tokens away this construct's closer is, if it is still ahead.
+    ///
+    /// `None` where the list really is truncated: a delimiter that closes
+    /// something outside this construct, a `;` that ends the statement it is
+    /// in, or end of file. Each of those means the closer was never written,
+    /// and skipping past one would swallow a declaration that parses.
+    fn find_close(&self, close: Punctuation) -> Option<usize> {
+        let want = TokenKind::of_punctuation(close);
+        let mut depth = 0i32;
+        for steps in 0..MAX_CLOSE_LOOKAHEAD {
+            let t = self.kind_at(self.pos.saturating_add(steps));
+            if depth == 0 && t == want {
+                return Some(steps);
+            }
+            if starts_declaration(t) && depth == 0 {
+                return None;
+            }
+            match t {
+                TokenKind::Eof => return None,
+                TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
+                    depth = depth.saturating_add(1);
+                }
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket
+                | TokenKind::Semi
+                    if depth == 0 =>
+                {
+                    return None;
+                }
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
+                    depth = depth.saturating_sub(1);
+                }
+                _ => {}
+            }
+        }
+        None
     }
 
     /// A `;` that ends a declaration or a statement, named for what it ends.
@@ -1948,6 +2025,11 @@ impl<'a> Parser<'a> {
         let mut broken = NONE;
 
         while !self.is(Punctuation::RBrace) && !self.at_eof() {
+            // A declaration cannot be a statement, so one here means the block
+            // ended and its `}` is what is missing.
+            if starts_declaration(self.peek()) {
+                break;
+            }
             let before = self.pos;
             let save = self.save();
             if self.is_keyword(Keyword::Let) {
@@ -1978,9 +2060,24 @@ impl<'a> Parser<'a> {
                                 value: e.0,
                                 span: Location::of(estart.to(end)),
                             });
-                        } else {
+                        } else if !self.is_keyword(Keyword::Let) && !starts_expr(self.peek()) {
+                            // Nothing else can be a statement here, so this
+                            // expression is the block's value and what is
+                            // missing is the block's own `}`.
                             tail = e.0;
                             break;
+                        } else {
+                            // Something follows, so this was a statement and
+                            // its `;` is missing rather than the block's `}`.
+                            let end = self.expect_terminator("a statement")?;
+                            self.scratch.stmts.push(StmtData {
+                                kind: StmtKind::Expr,
+                                is_ctx: false,
+                                pattern: NONE,
+                                ty: NONE,
+                                value: e.0,
+                                span: Location::of(estart.to(end)),
+                            });
                         }
                     }
                     Err(Bail) => {
