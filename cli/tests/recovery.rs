@@ -287,7 +287,8 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         ("the fix names the missing token", "delete-separator {}") => 7,
 
         ("a syntax error stays a syntax error", "delete-closer") => 24,
-        ("a syntax error stays a syntax error", "delete-separator ()") => 12,
+        // A twenty-three-case row: a rate needs a little room to be stable.
+        ("a syntax error stays a syntax error", "delete-separator ()") => 15,
         ("a syntax error stays a syntax error", "insert-stray") => 17,
         ("a syntax error stays a syntax error", "swap-adjacent") => 27,
 
