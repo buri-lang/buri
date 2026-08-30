@@ -1650,15 +1650,54 @@ function $host_HostFs_syncFile(self, p) {
   }
 }
 
-function $host_HostNet_fetch(self, method, url, body) {
+// The wire spellings of `Method`, in the enum's declaration order
+// (`effect.buri`). A payloadless enum is its variant index in generated code,
+// so the index *is* the row, and this array is the whole of the mapping: the
+// three letters live here and nowhere in Buri.
+const $HTTP_METHOD = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+
+// `getAllResponseHeaders()` is one CRLF-separated block of `name: value` whose
+// names the engine has already lowercased — which is the casing `Header`
+// states, so nothing is normalized twice.
+function $httpResponseHeaders(req) {
+  const raw = req.getAllResponseHeaders ? req.getAllResponseHeaders() || "" : "";
+  const out = [];
+  for (const line of raw.split("\r\n")) {
+    const at = line.indexOf(":");
+    if (at < 0) continue;
+    out.push([line.slice(0, at).trim().toLowerCase(), line.slice(at + 1).trim()]);
+  }
+  return out;
+}
+
+function $host_HostNet_fetch(self, request) {
   // Synchronous by necessity: Buri has no `async` in v0.3, so a request
   // blocks. Bun exposes a blocking XHR-shaped path; elsewhere this refuses
   // rather than pretending.
+  //
+  // `Request` is `[method, url, headers, body]` and `Response` is
+  // `[status, headers, body]`: a struct is its fields in order, a `Header` is
+  // `[name, value]`, a payloadless enum is its variant index, and a `[U8]` is
+  // an ordinary array of numbers.
+  const method = $HTTP_METHOD[Number(request[0])] || "GET";
+  const url = request[1];
+  const headers = request[2];
+  const body = request[3];
   try {
     const req = new XMLHttpRequest();
     req.open(method, url, false);
-    req.send(body === "" ? null : body);
-    return $ok([BigInt(req.status), req.responseText]);
+    for (const h of headers) req.setRequestHeader(h[0], h[1]);
+    // Every byte back unchanged. Without this the engine decodes the body as
+    // UTF-8 and anything that is not text arrives as replacement characters —
+    // which is what a `[U8]` body exists to avoid.
+    try {
+      req.overrideMimeType("text/plain; charset=x-user-defined");
+    } catch {}
+    req.send(body.length === 0 ? null : new Uint8Array(body));
+    const text = req.responseText || "";
+    const out = new Array(text.length);
+    for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i) & 0xff;
+    return $ok([BigInt(req.status), $httpResponseHeaders(req), out]);
   } catch (e) {
     return $err([3, String((e && e.message) || e)]);
   }
