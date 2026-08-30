@@ -1,6 +1,6 @@
 const $k0=[0,2];
-const $k1=[1,0,1];
-const $k2=[1,3,0];
+const $k1=[1,0,1n];
+const $k2=[1,3,0n];
 const $k3=[2];
 const $k4=[0,0];
 function __cmd_x_main$main(){
@@ -19,7 +19,7 @@ function __cmd_x_main$render(o_0){
   }else if(o_0[0]===0&&o_0[1]===3){
     return '1D';
   }else if(o_0[0]===1&&o_0[1]===0){
-    return o_0[2]>0?'2A+':'2A-';
+    return o_0[2]>0n?'2A+':'2A-';
   }else if(o_0[0]===1){
     return '2*';
   }else if(o_0[0]===2){

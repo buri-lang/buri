@@ -1167,25 +1167,30 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) {
         let ir::Type::Agg(id) = code.ty_of(agg) else { return };
         // The niche spends one variant's *absence* of fields: `.None` is the
-        // pointer set to null and `.Some` is everything else. Both indices are
-        // read off the layout's per-variant field lists rather than assumed to
-        // be 1 and 0, so a declaration order of `{ None, Some(T) }` would work
-        // as well as `{ Some(T), None }`.
-        let (slots, enum_repr, none_variant, some_variant) = {
+        // pointer set to null and `.Some` is everything else.
+        let (some_variant, none_variant) = self.option_variants(id);
+        let (slots, enum_repr) = {
             let r = self.reprs.of(self.program, id);
-            let (none_at, some_at) = match &r.layout.repr {
-                LayoutRepr::Enum { variants, .. } => (
-                    variants.iter().position(Vec::is_empty).unwrap_or(1),
-                    variants.iter().position(|v| !v.is_empty()).unwrap_or(0),
-                ),
-                _ => (1, 0),
-            };
-            (r.slots.clone(), r.enum_repr().cloned(), none_at, some_at)
+            (r.slots.clone(), r.enum_repr().cloned())
         };
         let Some(enum_repr) = enum_repr else { return };
         let whole = self.get(state, agg);
         let tag = self.tag_of(&slots, &enum_repr, none_variant, some_variant, whole);
         self.set(state, dest, tag);
+    }
+
+    /// Where `.Some` and `.None` sit, read off the layout's per-variant field
+    /// lists rather than assumed to be 0 and 1: a declaration order of
+    /// `{ None, Some(T) }` has to work as well as the other.
+    fn option_variants(&mut self, id: ir::TypeId) -> (usize, usize) {
+        let r = self.reprs.of(self.program, id);
+        match &r.layout.repr {
+            LayoutRepr::Enum { variants, .. } => (
+                variants.iter().position(|v| !v.is_empty()).unwrap_or(0),
+                variants.iter().position(Vec::is_empty).unwrap_or(1),
+            ),
+            _ => (0, 1),
+        }
     }
 
     /// An enum's discriminant, from the value rather than from a `ValueId`.
@@ -1535,31 +1540,59 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         array: ir::ValueId,
         index: ir::ValueId,
     ) {
-        let ir::Type::Agg(id) = code.ty_of(array) else { return };
-        let list_ty = self.reprs.of(self.program, id).ty.clone();
-        let list_slots = self.reprs.of(self.program, id).slots.clone();
-        let Some(element) = self.reprs.element(&list_ty) else { return };
-        let (stride, element_slots, element_align) = {
-            let r = self.reprs.of_ty(&element);
-            (r.layout.stride, r.slots.clone(), r.layout.align)
+        let Some(read) = self.element_at(state, code, array, index) else { return };
+        let (element_slots, taken) = self.load_element(read.base, read.index, &read.element);
+        let value = repr::assemble(self.ctx, &self.builder, &element_slots, &taken);
+        self.set(state, dest, value);
+    }
+
+    /// The block, its length, the index and the element type of one `[T]` read.
+    ///
+    /// Split out of [`Unit::array_get`] so that [`Unit::list_get`] can settle
+    /// all of them *before* it opens the blocks its `Option` needs.
+    fn element_at(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        array: ir::ValueId,
+        index: ir::ValueId,
+    ) -> Option<ElementRead<'ctx>> {
+        let ir::Type::Agg(id) = code.ty_of(array) else { return None };
+        let (list_ty, list_slots) = {
+            let r = self.reprs.of(self.program, id);
+            (r.ty.clone(), r.slots.clone())
         };
+        let element = self.reprs.element(&list_ty)?;
         let list = self.get(state, array);
         let pieces = repr::disassemble(&self.builder, &list_slots, list);
-        let Some(BasicValueEnum::PointerValue(base)) = pieces.first().copied() else { return };
-        let BasicValueEnum::IntValue(i) = self.get(state, index) else { return };
-        let word = self.ctx.i64_type();
-        let scaled = self
-            .builder
-            .build_int_mul(i, word.const_int(u64::from(stride), false), "off")
-            .unwrap_or(i);
-        // SAFETY: inkwell marks `build_in_bounds_gep` unsafe because it cannot
-        // check the index; `inbounds` is set unconditionally per §3.4, and the
-        // index is one a bounds check has already turned into an `Option`.
-        let at = unsafe {
-            self.builder
-                .build_in_bounds_gep(self.ctx.i8_type(), base, &[scaled], "elem")
-                .unwrap_or(base)
+        let (
+            Some(BasicValueEnum::PointerValue(base)),
+            Some(BasicValueEnum::IntValue(len)),
+        ) = (
+            pieces.get(layout::LIST_PTR).copied(),
+            pieces.get(layout::LIST_LEN).copied(),
+        )
+        else {
+            return None;
         };
+        let BasicValueEnum::IntValue(i) = self.get(state, index) else { return None };
+        Some(ElementRead { base, len, index: i, element })
+    }
+
+    /// The element at `i`: the slots it is made of, and the pieces loaded out
+    /// of the block. The load half of [`Unit::array_get`], shared with
+    /// [`Unit::list_get`], and total — every precondition is its caller's.
+    fn load_element(
+        &mut self,
+        base: PointerValue<'ctx>,
+        i: IntValue<'ctx>,
+        element: &Ty,
+    ) -> (Vec<Slot>, Vec<BasicValueEnum<'ctx>>) {
+        let (stride, element_slots, element_align) = {
+            let r = self.reprs.of_ty(element);
+            (r.layout.stride, r.slots.clone(), r.layout.align)
+        };
+        let at = self.elem_at(base, i, stride, "elem");
         let mut taken = Vec::with_capacity(element_slots.len());
         for slot in &element_slots {
             let p = repr::byte_offset(self.ctx, &self.builder, at, i64::from(slot.offset), "sl");
@@ -1574,8 +1607,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 Err(_) => taken.push(ty.const_zero()),
             }
         }
-        let value = repr::assemble(self.ctx, &self.builder, &element_slots, &taken);
-        self.set(state, dest, value);
+        (element_slots, taken)
     }
 
     /// `{ code, env }` (VALUE-MODEL.md §7), with the two additions the
@@ -3237,27 +3269,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             );
             return;
         };
-        let (slots, enum_repr, size, align, some_at, none_at, payload_at) = {
+        let (some_at, none_at) = self.option_variants(id);
+        let (slots, enum_repr, size, align, payload_at) = {
             let r = self.reprs.of(self.program, id);
-            // Read off the layout's per-variant field lists rather than
-            // assumed to be 0 and 1, for `get_tag`'s reason: a declaration
-            // order of `{ None, Some(T) }` has to work as well as the other.
-            let (none_at, some_at) = match &r.layout.repr {
-                LayoutRepr::Enum { variants, .. } => (
-                    variants.iter().position(Vec::is_empty).unwrap_or(1),
-                    variants.iter().position(|v| !v.is_empty()).unwrap_or(0),
-                ),
-                _ => (1, 0),
-            };
-            let payload_at = r.layout.variant(some_at).first().copied().unwrap_or(0);
             (
                 r.slots.clone(),
                 r.enum_repr().cloned(),
                 r.layout.size,
                 r.layout.align,
-                some_at,
-                none_at,
-                payload_at,
+                r.layout.variant(some_at).first().copied().unwrap_or(0),
             )
         };
         let Some(enum_repr) = enum_repr else {
@@ -4128,6 +4148,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 true
             }
             "str.concat" => self.concat(state, code, dest, args),
+            "list.get" => self.list_get(state, code, dest, args),
             "list.zip" => self.list_zip(state, code, dests, key, args),
             "list.flatten" => self.list_flatten(state, code, dests, key, args),
             _ if key.starts_with("bits.") => {
@@ -4790,6 +4811,15 @@ struct Runs<'ctx> {
     span: IntValue<'ctx>,
     read_from: PointerValue<'ctx>,
     write_to: PointerValue<'ctx>,
+}
+
+/// One `[T]` read, settled: the block, its length, the index and the element
+/// type. What [`Unit::element_at`] answers and [`Unit::load_element`] consumes.
+struct ElementRead<'ctx> {
+    base: PointerValue<'ctx>,
+    len: IntValue<'ctx>,
+    index: IntValue<'ctx>,
+    element: Ty,
 }
 
 /// One counted loop under construction: the blocks, the index, and the value
@@ -5457,6 +5487,88 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Err(_) => ok,
         };
         self.set(state, dest, value);
+    }
+
+    /// `list.get(self, index) -> Option<T>`, open-coded: the unsigned bounds
+    /// compare and the load `xs[i]` already lowers to, in place of a call whose
+    /// stride is a parameter and whose copy is therefore a `memcpy`.
+    ///
+    /// `middle::lower::index` open-codes the `xs[i]` sugar "so that the
+    /// optimizer can see it: a bound it can prove is a bound it can delete",
+    /// and `list.buri` says the two spellings are one operation — but only the
+    /// sugar reached [`Unit::array_get`]. This is the other spelling reaching
+    /// the same three lines.
+    ///
+    /// **A counted element declines**, exactly as the stencil backend's
+    /// `list_get` does: `buri_rt_list_get` is handed a retain glue and performs
+    /// it, this sequence does not, and `middle::rc` plans over the tree that
+    /// distinguishes them. The fallback is the table entry, which is where the
+    /// key went before.
+    fn list_get(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        args: &[ir::ValueId],
+    ) -> bool {
+        let (Some(xs), Some(index)) = (args.first().copied(), args.get(1).copied()) else {
+            return false;
+        };
+        let (ir::Type::Agg(list_id), ir::Type::Agg(opt_id)) = (code.ty_of(xs), code.ty_of(dest))
+        else {
+            return false;
+        };
+        let list_ty = self.reprs.of(self.program, list_id).ty.clone();
+        let Some(element) = self.reprs.element(&list_ty) else { return false };
+        if self.reprs.counted_type(&element) {
+            return false;
+        }
+        let (opt_slots, has_repr) = {
+            let r = self.reprs.of(self.program, opt_id);
+            (r.slots.clone(), r.enum_repr().is_some())
+        };
+        if !has_repr {
+            return false;
+        }
+        let (some_at, none_at) = self.option_variants(opt_id);
+        // The read is settled before the first block is opened, so that nothing
+        // below can decline half-emitted.
+        let Some(read) = self.element_at(state, code, xs, index) else { return false };
+        // One unsigned compare covers both bounds: an `Int` is a whole 64-bit
+        // word, so a negative index reads as a very large unsigned one and
+        // fails `index < len` exactly as `buri_rt_list_get`'s `index < 0` does.
+        // A null block has length zero, so the same compare answers for that
+        // entry's `ptr.is_null()` too.
+        let in_bounds = self
+            .builder
+            .build_int_compare(IntPredicate::ULT, read.index, read.len, "get.in")
+            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let some_bb = self.ctx.append_basic_block(state.value, "get.some");
+        let none_bb = self.ctx.append_basic_block(state.value, "get.none");
+        let join = self.ctx.append_basic_block(state.value, "get.done");
+        let _ = self.builder.build_conditional_branch(in_bounds, some_bb, none_bb);
+
+        let ty = repr::register_type(self.ctx, &opt_slots);
+        self.builder.position_at_end(some_bb);
+        let loaded = self.load_element(read.base, read.index, &read.element);
+        let some_value =
+            self.build_variant(opt_id, some_at, &[loaded]).unwrap_or_else(|| ty.const_zero());
+        let _ = self.builder.build_unconditional_branch(join);
+
+        self.builder.position_at_end(none_bb);
+        let none_value =
+            self.build_variant(opt_id, none_at, &[]).unwrap_or_else(|| ty.const_zero());
+        let _ = self.builder.build_unconditional_branch(join);
+
+        self.builder.position_at_end(join);
+        if let Ok(phi) = self.builder.build_phi(ty, "get") {
+            phi.add_incoming(&[
+                (&some_value as &dyn BasicValue<'ctx>, some_bb),
+                (&none_value as &dyn BasicValue<'ctx>, none_bb),
+            ]);
+            self.set(state, dest, phi.as_basic_value());
+        }
+        true
     }
 
     /// `zip`: one block of pairs, as long as the shorter of the two.
@@ -7028,6 +7140,9 @@ fn open_coded_key(key: &str) -> bool {
             | "testing_context.TestAlloc.allocate"
             | "list.zip"
             | "list.flatten"
+            // Claimed for the shape, not for every call site: a counted
+            // element declines and falls through to the table entry.
+            | "list.get"
             | "testing_assert.report"
             | "testing_assert.failWith"
             | "testing_assert.failExpected"

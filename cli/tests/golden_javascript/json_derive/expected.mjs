@@ -1,5 +1,5 @@
-const $k0=[1,2];
-const $k1=[1,3,4];
+const $k0=[1n,2n];
+const $k1=[1,3n,4n];
 const $k2=[0];
 const $k3=[0,0];
 const $D0=[];
@@ -10,7 +10,7 @@ const $D4=[];
 const $D5=[];
 $D0.push(3,'Result',[['Ok',false,['0'],[$D1]],['Err',false,['0'],[$D3]]],false);
 $D1.push(2,'Point',true,['x','y'],[$D2,$D2]);
-$D2.push(0,'i');
+$D2.push(0,'I');
 $D3.push(3,'DecodeError',[['Missing',true,['path'],[$D4]],['WrongType',true,['path','wanted','found'],[$D4,$D4,$D4]],['UnknownVariant',true,['path','tag'],[$D4,$D4]]],false);
 $D4.push(0,'s');
 $D5.push(3,'Shape',[['Empty',false,[],[]],['Rect',true,['width','height'],[$D2,$D2]]],false);
@@ -76,7 +76,7 @@ function core_json$stringify$u3rqgv(ctx_0,v_1){
     case 2:
       {
         const s_17=$str_fromFloat(ctx_0,v_1[1]);
-        return $str_endsWith(s_17,'.0')?$str_slice(s_17,0,$str_len(s_17)-2):s_17;
+        return $str_endsWith(s_17,'.0')?$str_slice(s_17,0n,$str_len(s_17)-2n):s_17;
       }
     case 3:
       {
@@ -115,9 +115,9 @@ function core_json$quote$u3rqgv(ctx_0,s_1){
       return '\\r';
     }else if(ch_3==='\t'){
       return '\\t';
-    }else if($char_toU32(ch_3)<32){
-      const n_7=$char_toU32(ch_3);
-      const self_8=$str_charAt('0123456789abcdef',Math.trunc(n_7/16));
+    }else if(BigInt($char_toU32(ch_3))<32n){
+      const n_7=BigInt($char_toU32(ch_3));
+      const self_8=$str_charAt('0123456789abcdef',n_7/16n);
       let $t1;
       if(self_8!==void 0){
         $t1=self_8;
@@ -126,7 +126,7 @@ function core_json$quote$u3rqgv(ctx_0,s_1){
       }else{
         $abort('no arm matched');
       }
-      const self_11=$str_charAt('0123456789abcdef',n_7%16);
+      const self_11=$str_charAt('0123456789abcdef',n_7%16n);
       let $t3;
       if(self_11!==void 0){
         $t3=self_11;
