@@ -180,8 +180,8 @@ trait method as a function: `Ord.compare(x, y)`.
 
 An **effect** is an interface declared with `effect` instead of `trait`. Only
 platform modules may declare one. `core/effect` declares `Alloc`, `Fs`, `Net`,
-`Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`,
-`Sockets` — the last three granted by no platform, so binding one is refused.
+`Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks` (everywhere
+but `WEB`, via `core/tasks`), `Listen` and `Sockets` (granted by no platform).
 
 An effect is a trait in every other respect. Two rules separate them:
 

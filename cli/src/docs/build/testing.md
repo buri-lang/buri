@@ -361,6 +361,7 @@ test's.
 | `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
 | `env()` | `Env` | No variables and no arguments. |
 | `proc()` | `Proc` | Records the exit instead of taking it; `exited()` answers the code. |
+| `tasks()` | `Tasks` | Runs the tasks one at a time, in **program order**, until a builder says otherwise. |
 
 Configuration is a **method on the value that answers a new handle**, so a
 chain reads in the order it is applied and the value it was called on is
@@ -378,6 +379,7 @@ unchanged:
 | `fs().filesBytes([(Str, [U8])])` | The byte twin, for a fixture that is not text |
 | `fs().readOnly()` | The **same** files, through a handle whose every write fails with `.ReadOnly` |
 | `net().respond(fn(Request) => Result<Response, NetError>)` | A network answering every request through that function |
+| `tasks().anyOrder()`, `.everyOrder()`, `.seed(n)` | A scheduler running its tasks in one order, in every order, or in the one that seed names |
 
 `args` and not `arguments`, and it is the one name here that is not
 `core/host`'s: `Env` already declares `arguments(self): [Str]` — the reader —
@@ -407,6 +409,10 @@ has two of its own:
 | `read(path)` | `Result<Str, IoError>` — what the filesystem holds there, the same answer `readFile` gives |
 | `snapshot()` | `[(Str, Str)]` — every file, as text, **sorted by path** |
 | `calls()` | `[FsCall]` — every call made through this handle, **in the order they completed** |
+
+`faults([...])` is the other half of a fixture and has its own section below:
+what a call finds comes from `files`, and what a call fails with comes from
+there.
 
 Neither needs the `Fs` effect bound: asserting on what a function wrote is
 reading an environment back rather than performing an effect. `snapshot()` is
@@ -654,29 +660,91 @@ is there for `snapshot()`'s reason: `writeFileBytes("b", [104, 105])` reads back
 as a call whose body is `"hi"`, and `writeFileBytes(path, body)` is the
 constructor that writes it down.
 
-### Making the Nth call fail
+### What breaks: the fault plan
 
-That boundary is where deterministic simulation meets it. "The third write
-fails" wants a counter, and a counter is the state a fake cannot hold — so the
-fault is expressed as a value the test chooses rather than a moment the fake has
-to recognise.
+`files` and `respond` say what a call *finds*. `faults` says what a call
+**fails with** — and those are the only two sources: success comes from the
+environment and failure comes from the plan, so a reader of a test knows which
+half of it to look in.
+
+A fault is one of the `Call` constructors above and an error. `fails(e)` fails
+every matching call; `failsOnCall(n, e)` fails the `n`th of them, counted from
+one over the *matching* calls, so a read between two writes does not move the
+number. Matching is the `Eq` those records derive, which is what makes a fault
+readable: it is spelled exactly as `calls()` reports the call it names.
+
+```buri role=test
+# from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing/lib.buri" import { alloc, appendFile, fs, readFile };
+from "core/effect/lib.buri" import { Alloc, Fs, IoError };
+# fn commit<C: Alloc + Fs>(ctx: C, entries: [[U8]], i: Int): Result<(), IoError> {
+#   match (entries.get(i)) {
+#     .None => .Ok(()),
+#     .Some(entry) => match (ctx.appendFile("wal", entry)) {
+#       .Err(e) => .Err(e),
+#       .Ok(_written) => commit(ctx, entries, i + 1),
+#     },
+#   }
+# }
+
+test "the third append fails and nothing after it is written" {
+  let wal = fs().faults([appendFile("wal", [99]).failsOnCall(1, .Other("disk full"))]);
+  let ctx = context { Alloc: alloc(), Fs: wal };
+  assert.eq(assert.err(commit(ctx, [[97], [98], [99]], 0)), .Other("disk full"));
+  assert.eq(assert.ok(wal.read("wal")), "ab");
+}
+
+test "a file that cannot be read is reported rather than skipped" {
+  let files = fs()
+    .files([("config.toml", "name = \"demo\"")])
+    .faults([readFile("config.toml").fails(.PermissionDenied)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(assert.err(ctx.readFile("config.toml")), .PermissionDenied);
+}
+```
+
+Three things follow from a fault being a value rather than a moment.
+
+**A call the plan fails is not performed, and is still a call.** Nothing is
+written and nothing is removed, and `calls()` has it — because the code under
+test asked the filesystem for something and was answered.
+
+**The error is the value the test wrote.** `.Other("disk full")` arrives with its
+text, and so do `NetError`'s `.BadUrl` and `.Transport`. The plan travels in the
+program rather than in the runner for exactly that reason.
+
+**A fault whose call never happens fails the test.** A plan is a claim about what
+the code under test does, and a claim nothing exercised is one the next change to
+that code will quietly stop being true. The runner checks it at the end of every
+block, so an unused fault is a failure naming itself:
+
+```text
+FAIL //lib/journal  test/journal.buri  "a fault whose call never happens fails the test"
+  a fault was planned and never happened: readFile("log") fails .NotFound
+```
+
+`faults` is a builder like every other one here: it answers a **new** double,
+with a log of its own, over the same files. It **replaces** rather than
+composing, as `respond` does — two plans for one call have no answer to which of
+them wins — and the plan it replaced is retired, promise and all.
+
+### The step boundary, which the plan does not replace
+
+A fault fails a *call*. It says nothing about the state a program is left in
+between two of them, and that is the other half of testing durable code.
 
 Split each durable operation into three: a pure `prepare` that decides what to
 write, one effectful `persist` that writes it, and a pure `publish` that folds
 the outcome back into the state. `prepare` and `publish` take no context, so a
 test calls them directly and reads what they answer; `persist` is the only step
-that reaches the `Fs`, and it is called once per step, so a test that wants the
-third one to fail runs the first two and hands the third an `.Err` of its own.
-The recovery path — the state after a write that did not happen — is then
-reached with ordinary values through the real code, and the crash between a
-log append and the sequence advance that follows it is a step boundary rather
-than something to interrupt mid-call.
+that reaches the `Fs`. The recovery path — the state after a write that did not
+happen — is then reached with ordinary values through the real code, and the
+crash between a log append and the sequence advance that follows it is a step
+boundary rather than something to interrupt mid-call.
 
-What this does not cover is a failure *inside* one effectful step: if `persist`
-makes three `fs.writeText` calls, a test can fail all three or none of them.
-Keeping `persist` to a single call is what makes that distinction go away, and
-it is worth the split on its own — a step that writes once is a step whose
-failure has one meaning.
+Keeping `persist` to a single call is what makes a fault plan say exactly what it
+looks like it says: a step that writes once is a step whose failure has one
+meaning, and one fault names it.
 
 This is defence in depth rather than the primary mechanism. The primary
 mechanism is that a test whose call never passed a `Net`-bounded context cannot
@@ -685,6 +753,71 @@ open a socket in anything it transitively calls — that is
 the toolchain applies no operating-system confinement, because a suite has no
 name for a real capability to begin with
 ([`hermeticity.md`](./hermeticity.md)).
+
+### The order the work happens in
+
+`Tasks.parallel` promises its **results** in the items' order and promises
+nothing about the order the work runs in. That second order is the one thing
+about a concurrent program a test cannot otherwise pin down, so `tasks()` makes
+it a value the test writes:
+
+| Builder | Answers |
+|---|---|
+| `tasks()` | A scheduler running its tasks in **program order** — the items' own |
+| `tasks().anyOrder()` | One seeded order per run: the **reverse** of program order unless a seed says otherwise |
+| `tasks().seed(n)` | The order numbered `n`, counted from zero, wrapping past the last |
+| `tasks().everyOrder()` | Every order — the whole `test` body runs once per completion order |
+| `tasks().faults([TaskFault])` | The tasks the plan names end the block, with the reason the test gave |
+
+Nothing here is concurrent. A double that raced would be the thing it exists to
+remove, so a task runs to completion before the next one starts and `calls()`
+reports them in the order they finished:
+
+```buri repo=cli/tests/example role=test
+# from "core/effect/lib.buri" import { Tasks };
+# from "core/host/testing/lib.buri" import { task, tasks };
+# from "core/testing/assert/lib.buri" import * as assert;
+# fn doubled<C: Tasks>(ctx: C, items: [Int]): [Int] {
+#   ctx.parallel(items, fn(_c, _i, item) => item * 2)
+# }
+test "the answer does not depend on the order the work finished in" {
+  let scheduler = tasks().anyOrder();
+  let ctx = context { Tasks: scheduler };
+  // The items' order, whatever order the work ran in.
+  assert.eq(doubled(ctx, [1, 2, 3]), [2, 4, 6]);
+  // And the order it ran in, which is the thing this double chose.
+  assert.eq(scheduler.calls(), [task(2), task(1), task(0)]);
+}
+```
+
+**A seed is the order's own number.** There are `n!` orders of `n` tasks and a
+seed is which of them, counted from zero in the order the orders themselves
+sort in — so `seed(0)` is program order, the last seed is the reverse, and a
+seed *replays* rather than merely re-randomising. `everyOrder`'s fourth run and
+`seed(3)` are the same order, which is what lets a failure name one line to
+paste back. `anyOrder()` with no seed is deliberately not random: a suite whose
+result changed between two runs of the same program could not be cached, and a
+failure nobody can reproduce is a failure nobody fixes.
+
+**`everyOrder()` re-runs the body, not the fan-out.** A task's effects are the
+point, and re-running only the loop would re-run them against a filesystem the
+last order had already written to — so every run builds its own doubles from the
+same lines, and the assertion at the end of the body is an assertion about
+*every* order. `runs()` says which run this is, counted from one, and `orders()`
+how many there will be. Six tasks are 720 runs of the block; above six it
+refuses and says so, because a fan-out that wide is `anyOrder`'s question.
+
+The first failing order ends the block — a failed assertion is an abort and
+there is nothing to catch — so the orders after it do not run.
+
+**A fault ends the block.** A task has no error channel: `parallel` answers
+`[B]` and every `B` comes from the closure, so a task the plan fails is a task
+that ends the program, which is what a task that died would do to the run for
+real. The tasks scheduled before it have run and had their effects; the ones
+after it have not started. `task(k).fails(why)` fails that task every time it is
+reached and `task(k).failsOnCall(n, why)` the `n`th, counted over the fan-outs
+that reach it — and, as everywhere else here, **a fault whose task is never
+reached fails the test**.
 
 ## Test data and golden files
 
