@@ -1,0 +1,72 @@
+// One write-ahead log commit, against the real filesystem.
+//
+// `buri run` is the one command that hands a program authority, so this is
+// where `core/fs`'s appending, renaming and syncing half meets a real disk
+// rather than `MemFs`. The same sequence runs against the fake in
+// `conformance/lib/semantics/test/effects.buri`, and against the native
+// runtime in `cli/tests/native/runtime.rs`'s `wal` mode.
+
+from "core/effect" import { Alloc, Fs, IoError, Stdout };
+from "core/bytes" import * as bytes;
+from "core/fs" import * as fs;
+from "core/host" import * as host;
+
+/// What a step answered, as one word, so that the whole sequence is three
+/// lines of output rather than a cascade of `?`.
+fn word(r: Result<(), IoError>): Str {
+  match (r) {
+    .Ok(_v) => "ok",
+    .Err(.NotFound) => "NotFound",
+    .Err(.PermissionDenied) => "PermissionDenied",
+    .Err(.ReadOnly) => "ReadOnly",
+    .Err(.AlreadyExists) => "AlreadyExists",
+    .Err(.NotADirectory) => "NotADirectory",
+    .Err(.CrossDevice) => "CrossDevice",
+    .Err(.Other(_m)) => "Other",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+    Fs:     host.fs,
+  };
+
+  // The directory a WAL lives in, created on every start: an existing one is
+  // `.Ok`, so this is one call rather than a check and a race.
+  let made = word(fs.makeDir(ctx, "wal"));
+  let madeAgain = word(fs.makeDir(ctx, "wal"));
+
+  // Two records, each one append — the first creates the file — with the
+  // commit point stated after each.
+  let one = word(fs.append(ctx, "wal/log", [1, 10]));
+  let syncedOne = word(fs.sync(ctx, "wal/log"));
+  let two = word(fs.append(ctx, "wal/log", [2, 20]));
+  let syncedTwo = word(fs.sync(ctx, "wal/log"));
+  let replayed = fs.readBytes(ctx, "wal/log").withDefault([]);
+
+  // The checkpoint: write the temporary, make it durable, swap it in, then
+  // make the directory entry durable so the swap survives too.
+  let wrote = word(fs.writeBytes(ctx, "wal/checkpoint.tmp", [30]));
+  let syncedTemporary = word(fs.sync(ctx, "wal/checkpoint.tmp"));
+  let renamed = word(fs.rename(ctx, "wal/checkpoint.tmp", "wal/checkpoint"));
+  let syncedDirectory = word(fs.sync(ctx, "wal"));
+  let temporaryGone = if (fs.exists(ctx, "wal/checkpoint.tmp")) { "no" } else { "yes" };
+  let kept = fs.readBytes(ctx, "wal/checkpoint").withDefault([]);
+
+  // Truncation after the checkpoint, and the same call again — the one edge
+  // `remove` reports rather than swallowing.
+  let removed = word(fs.remove(ctx, "wal/log"));
+  let removedAgain = word(fs.remove(ctx, "wal/log"));
+
+  let _ = ctx.println("mkdir ${made} ${madeAgain}");
+  let _ = ctx.println("append ${one} ${two} sync ${syncedOne} ${syncedTwo}");
+  let _ = ctx.println("log ${bytes.toHex(ctx, replayed)}");
+  let _ = ctx.println(
+    "checkpoint ${wrote} ${syncedTemporary} ${renamed} ${syncedDirectory}"
+  );
+  let _ = ctx.println("temporary-gone ${temporaryGone} kept ${bytes.toHex(ctx, kept)}");
+  let _ = ctx.println("remove ${removed} again ${removedAgain}");
+  .Ok(())
+}

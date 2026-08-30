@@ -2,6 +2,50 @@
 //!
 //! Every function here names `Fs` in its bounds, so the disk is visible in the
 //! signature.
+//!
+//! ## Text and octets
+//!
+//! `readText` and `writeText` are the text pair; `readBytes` and `writeBytes`
+//! are the same two operations without an encoding step. Reading text
+//! substitutes U+FFFD for what is not valid UTF-8, so a file that is not text
+//! has to be read as octets to come back unchanged.
+//!
+//! ## What is atomic, and what is durable
+//!
+//! Two different promises, and a program that keeps a write-ahead log needs
+//! both stated rather than assumed.
+//!
+//! **Atomic** is `rename`, and only `rename`: after it returns, the
+//! destination names either the file it named before or the file the source
+//! named, never a mixture and never nothing. Within one filesystem this is the
+//! operating system's own guarantee — POSIX `rename(2)`, which the JavaScript
+//! runner reaches through `fs.renameSync`. Across two filesystems there is no
+//! such operation, so the answer is `.Err(.CrossDevice)` rather than a copy
+//! that pretends.
+//!
+//! **Durable** is `sync`, and only `sync`. `writeBytes` and `append` return
+//! when the platform accepted the octets, which is not the same as the storage
+//! device holding them. What each backend can promise:
+//!
+//! | Backend | `sync` is | Survives |
+//! |---|---|---|
+//! | native, Linux | `fsync(2)` | the process, and the operating system |
+//! | native, macOS | `fcntl(F_FULLFSYNC)` | those two, and the drive's own cache |
+//! | JavaScript runner | `fs.fsyncSync` | the process, and the operating system |
+//! | `core/testing/context`'s `MemFs` | nothing to flush | the test that wrote it |
+//!
+//! The row that is easy to read past is macOS on the JavaScript runner: node's
+//! `fsync` is the plain `fsync(2)`, which on macOS asks the drive to write its
+//! cache and does not wait for it. The native backend asks for `F_FULLFSYNC`
+//! there, which does. Neither is wrong; they are different promises, and a
+//! program whose commit point must survive a power cut is entitled to know
+//! which one it has.
+//!
+//! `sync` on a **directory** flushes the directory entry rather than a file's
+//! contents, which is what makes a preceding `rename` durable rather than
+//! merely visible. The checkpoint sequence is therefore four calls:
+//! `writeBytes` the temporary, `sync` it, `rename` it over the old one, `sync`
+//! the directory holding both.
 
 from "core/effect" import { Alloc, Fs, IoError };
 from "core/effect" export { IoError };
@@ -20,4 +64,92 @@ export fn exists<C: Fs>(ctx: C, path: Str): Bool {
 
 export fn listDir<C: Alloc + Fs>(ctx: C, path: Str): Result<[Str], IoError> {
   ctx.readDir(path)
+}
+
+/// The file's octets, unchanged.
+///
+/// `.Err(.NotFound)` where the path names nothing, exactly as `readText` does.
+/// The difference from `readText` is only the encoding step: this is what a
+/// file holding a protobuf message or a log record wants, and `readText` would
+/// substitute U+FFFD into it.
+export fn readBytes<C: Alloc + Fs>(ctx: C, path: Str): Result<[U8], IoError> {
+  ctx.readFileBytes(path)
+}
+
+/// Replaces the file's contents with these octets, creating it when it is
+/// absent.
+///
+/// Durable only after `sync`; see the module header.
+export fn writeBytes<C: Alloc + Fs>(ctx: C, path: Str, body: [U8]): Result<(), IoError> {
+  ctx.writeFileBytes(path, body)
+}
+
+/// Adds these octets to the end of the file, creating it when it is absent.
+///
+/// Whole-body, so one call is one record and there is no partial-append window
+/// to reason about. The position is taken and the octets written as one
+/// operation, so two writers appending to one log interleave records rather
+/// than overwriting each other's.
+///
+/// Durable only after `sync`, which is the whole reason a log has a commit
+/// point rather than a write.
+export fn append<C: Alloc + Fs>(ctx: C, path: Str, body: [U8]): Result<(), IoError> {
+  ctx.appendFile(path, body)
+}
+
+/// Moves `source` onto `destination`, replacing it if it is there.
+///
+/// Atomic within one filesystem: a reader of the destination sees the old file
+/// or the new one and never a partial write, which is what makes "write a
+/// temporary, then rename it over the real one" a crash-safe checkpoint.
+/// `.Err(.CrossDevice)` where the two paths are not on one filesystem, so the
+/// case where atomicity is unavailable is a value to match on rather than a
+/// footnote to remember.
+///
+/// The rename is *visible* when this returns and *durable* after `sync` of the
+/// directory holding it.
+export fn rename<C: Fs>(ctx: C, source: Str, destination: Str): Result<(), IoError> {
+  ctx.renameFile(source, destination)
+}
+
+/// Deletes the file.
+///
+/// `.Err(.NotFound)` where the path names nothing: the most common way for a
+/// deletion to be wrong is a path that was never right, and a `remove` that
+/// answered `.Ok` to it would hide that. "Delete it if it is there" is
+/// `result.ignore(fs.remove(ctx, p))`, written where it is meant.
+///
+/// Files only. Directory removal is deliberately absent: the useful version is
+/// recursive, and a recursive delete behind a one-word name is a mistake that
+/// only happens once.
+export fn remove<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
+  ctx.removeFile(path)
+}
+
+/// Creates the directory, and every parent of it that is missing.
+///
+/// An existing directory is `.Ok`, so a tenant's directory is one call rather
+/// than a check and a race — the two callers who both find it missing both
+/// succeed. A path that already names a *file* is `.Err(.AlreadyExists)`,
+/// because that request cannot be satisfied by anybody.
+///
+/// The asymmetry with `remove` is deliberate. `makeDir` states a postcondition
+/// — this directory exists — that somebody else reaching it first does not
+/// violate. `remove` names a file the caller believes is there, and a path
+/// naming nothing means that belief was wrong.
+export fn makeDir<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
+  ctx.makeDir(path)
+}
+
+/// Waits until what was written to `path` is durable.
+///
+/// This is a program's commit point, stated as one. `writeBytes`, `append` and
+/// `rename` return when the platform accepted the operation; they survive a
+/// power cut only after this returns. On a directory path it flushes the
+/// directory entry, which is what a preceding `rename` needs.
+///
+/// The module header has the table of what each backend can promise — they are
+/// not all the same promise, and the macOS rows differ between the two.
+export fn sync<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
+  ctx.syncFile(path)
 }

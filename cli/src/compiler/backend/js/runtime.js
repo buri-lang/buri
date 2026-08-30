@@ -1521,7 +1521,14 @@ function $ioErr(e) {
   if (c === "EROFS") return [2];
   if (c === "EEXIST") return [3];
   if (c === "ENOTDIR") return [4];
-  return [5, String((e && e.message) || e)];
+  if (c === "EXDEV") return [5];
+  return [6, String((e && e.message) || e)];
+}
+
+// UTF-8 with U+FFFD for what is not, which is what `readFileSync(p, "utf8")`
+// does and what the native runtime's `String::from_utf8_lossy` does.
+function $utf8Lossy(b) {
+  return new TextDecoder().decode(Uint8Array.from(b));
 }
 
 // `require` does not exist in an ES module on node, so the backend emits a
@@ -1563,6 +1570,83 @@ function $host_HostFs_readDir(self, p) {
     return $ok($fs().readdirSync(p));
   } catch (e) {
     return $err($ioErr(e));
+  }
+}
+
+function $host_HostFs_readFileBytes(self, p) {
+  try {
+    return $ok(Array.from($fs().readFileSync(p)));
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+}
+
+function $host_HostFs_writeFileBytes(self, p, b) {
+  try {
+    $fs().writeFileSync(p, Uint8Array.from(b));
+    return $ok(0);
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+}
+
+// `"a"` is `O_APPEND | O_CREAT`, so the position is taken and the octets
+// written as one operation and the file appears when it was absent.
+function $host_HostFs_appendFile(self, p, b) {
+  try {
+    $fs().appendFileSync(p, Uint8Array.from(b));
+    return $ok(0);
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+}
+
+function $host_HostFs_renameFile(self, from, to) {
+  try {
+    $fs().renameSync(from, to);
+    return $ok(0);
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+}
+
+function $host_HostFs_removeFile(self, p) {
+  try {
+    $fs().unlinkSync(p);
+    return $ok(0);
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+}
+
+// `recursive` is what makes the parents and the already-there case both work;
+// a path naming a file is still `EEXIST`, which is `.AlreadyExists`.
+function $host_HostFs_makeDir(self, p) {
+  try {
+    $fs().mkdirSync(p, { recursive: true });
+    return $ok(0);
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+}
+
+// `fsync` on a directory flushes its entries, which is what makes a preceding
+// rename durable. Opened read-only: `fsync(2)` needs no write access, and a
+// directory cannot be opened for writing at all.
+function $host_HostFs_syncFile(self, p) {
+  let fd;
+  try {
+    fd = $fs().openSync(p, "r");
+    $fs().fsyncSync(fd);
+    return $ok(0);
+  } catch (e) {
+    return $err($ioErr(e));
+  } finally {
+    if (fd !== undefined) {
+      try {
+        $fs().closeSync(fd);
+      } catch {}
+    }
   }
 }
 
@@ -3173,42 +3257,110 @@ function $testing_context_CaptureOut_writeBytes(self, b) {
 }
 
 // In-memory, rooted at the package directory, containing exactly test.data.
+//
+// A slot holds octets per path and the directories `makeDir` has been asked
+// for: a flat map has no empty directory otherwise, and `readDir` after
+// `makeDir` has to see one.
 function $testing_context_data() {
-  return $handle({ files: Object.assign({}, $t.data) });
+  const files = {};
+  for (const k of Object.keys($t.data)) files[k] = $bytes_toUtf8(null, $t.data[k]);
+  return $handle({ files, dirs: [] });
 }
 
 function $testing_context_files(entries) {
   const files = {};
-  for (const e of entries) files[e[0]] = e[1];
-  return $handle({ files });
+  for (const e of entries) files[e[0]] = $bytes_toUtf8(null, e[1]);
+  return $handle({ files, dirs: [] });
+}
+
+function $testing_context_filesBytes(entries) {
+  const files = {};
+  for (const e of entries) files[e[0]] = e[1].slice();
+  return $handle({ files, dirs: [] });
 }
 
 function $testing_context_MemFs_readFile(self, p) {
   const f = $slot(self).files;
-  return p in f ? $ok(f[p]) : $err([0]);
+  return p in f ? $ok($utf8Lossy(f[p])) : $err([0]);
 }
 
 function $testing_context_MemFs_writeFile(self, p, b) {
-  $slot(self).files[p] = b;
+  $slot(self).files[p] = $bytes_toUtf8(null, b);
   return $ok(0);
 }
 
 function $testing_context_MemFs_fileExists(self, p) {
-  return p in $slot(self).files;
+  const s = $slot(self);
+  return p in s.files || s.dirs.includes(p);
 }
 
 function $testing_context_MemFs_readDir(self, p) {
   // A directory that holds nothing is still not an error; only a path that
   // names nothing at all is.
   const prefix = p === "" || p === "." ? "" : p.replace(/\/$/, "") + "/";
+  const s = $slot(self);
   const out = [];
-  for (const k of Object.keys($slot(self).files)) {
+  for (const k of Object.keys(s.files).concat(s.dirs)) {
     if (k.startsWith(prefix)) {
       const rest = k.slice(prefix.length);
       if (rest && !out.includes(rest.split("/")[0])) out.push(rest.split("/")[0]);
     }
   }
   return $ok(out.sort());
+}
+
+function $testing_context_MemFs_readFileBytes(self, p) {
+  const f = $slot(self).files;
+  return p in f ? $ok(f[p].slice()) : $err([0]);
+}
+
+function $testing_context_MemFs_writeFileBytes(self, p, b) {
+  $slot(self).files[p] = b.slice();
+  return $ok(0);
+}
+
+function $testing_context_MemFs_appendFile(self, p, b) {
+  const f = $slot(self).files;
+  f[p] = (p in f ? f[p] : []).concat(b);
+  return $ok(0);
+}
+
+function $testing_context_MemFs_renameFile(self, from, to) {
+  const f = $slot(self).files;
+  if (!(from in f)) return $err([0]);
+  f[to] = f[from];
+  delete f[from];
+  return $ok(0);
+}
+
+function $testing_context_MemFs_removeFile(self, p) {
+  const f = $slot(self).files;
+  if (!(p in f)) return $err([0]);
+  delete f[p];
+  return $ok(0);
+}
+
+// Parents included, an existing directory is `.Ok`, and a path already naming
+// a file is `.AlreadyExists` — the three answers `mkdir -p` gives.
+function $testing_context_MemFs_makeDir(self, p) {
+  const s = $slot(self);
+  const clean = p.replace(/\/+$/, "");
+  if (clean === "" || clean === ".") return $ok(0);
+  if (clean in s.files) return $err([3]);
+  const parts = clean.split("/");
+  for (let i = 0; i < parts.length; i++) {
+    const at = parts.slice(0, i + 1).join("/");
+    if (at !== "" && !s.dirs.includes(at)) s.dirs.push(at);
+  }
+  return $ok(0);
+}
+
+// Nothing to flush, so this answers whether there is anything to have flushed.
+function $testing_context_MemFs_syncFile(self, p) {
+  const s = $slot(self);
+  const clean = p.replace(/\/+$/, "");
+  if (clean === "" || clean === ".") return $ok(0);
+  return p in s.files || s.dirs.includes(clean) ? $ok(0) : $err([0]);
 }
 
 function $testing_context_clockAt(ms) {

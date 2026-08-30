@@ -93,6 +93,22 @@ extern int32_t buri_rt_host_fs_write_file(uint8_t *pbase, const uint8_t *pptr, u
 extern uint8_t buri_rt_host_fs_file_exists(uint8_t *base, const uint8_t *ptr, uint64_t len);
 extern int32_t buri_rt_host_fs_read_dir(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                         BuriList *out_ok, BuriStr *out_err);
+extern int32_t buri_rt_host_fs_read_file_bytes(uint8_t *base, const uint8_t *ptr, uint64_t len,
+                                               BuriList *out_ok, BuriStr *out_err);
+extern int32_t buri_rt_host_fs_write_file_bytes(uint8_t *pbase, const uint8_t *pptr, uint64_t plen,
+                                                const uint8_t *bptr, uint64_t blen,
+                                                BuriStr *out_err);
+extern int32_t buri_rt_host_fs_append_file(uint8_t *pbase, const uint8_t *pptr, uint64_t plen,
+                                           const uint8_t *bptr, uint64_t blen, BuriStr *out_err);
+extern int32_t buri_rt_host_fs_rename_file(uint8_t *fbase, const uint8_t *fptr, uint64_t flen,
+                                           uint8_t *tbase, const uint8_t *tptr, uint64_t tlen,
+                                           BuriStr *out_err);
+extern int32_t buri_rt_host_fs_remove_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
+                                           BuriStr *out_err);
+extern int32_t buri_rt_host_fs_make_dir(uint8_t *base, const uint8_t *ptr, uint64_t len,
+                                        BuriStr *out_err);
+extern int32_t buri_rt_host_fs_sync_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
+                                         BuriStr *out_err);
 extern int32_t buri_rt_host_net_fetch(uint8_t *mbase, const uint8_t *mptr, uint64_t mlen,
                                       uint8_t *ubase, const uint8_t *uptr, uint64_t ulen,
                                       uint8_t *bbase, const uint8_t *bptr, uint64_t blen,
@@ -365,6 +381,77 @@ static int mode_fs(const char *dir) {
          "exists-missing=%d\n",
          wrote == BURI_OK ? "ok" : "err", exists, bytes_of(ok), chars_of(ok), bytes_of(utf8),
          chars_of(utf8), (unsigned long long)entries.len, not_found, not_a_dir, exists_missing);
+  return 0;
+}
+
+/* The sequence issue #1 exists for, against a real filesystem: a log that is
+ * appended to, a commit point that is a call, and a checkpoint that swaps in
+ * atomically. `conformance/lib/semantics/test/effects.buri` runs the same
+ * sequence against `MemFs`, and the two have to agree. */
+static int mode_wal(const char *dir) {
+  char root[4096], log[4096], tmp[4096], checkpoint[4096];
+  snprintf(root, sizeof root, "%s/wal", dir);
+  snprintf(log, sizeof log, "%s/wal/log", dir);
+  snprintf(tmp, sizeof tmp, "%s/wal/checkpoint.tmp", dir);
+  snprintf(checkpoint, sizeof checkpoint, "%s/wal/checkpoint", dir);
+
+  BuriStr err;
+  int32_t made = buri_rt_host_fs_make_dir(S(root), &err);
+  /* Twice, because an existing directory is `.Ok` and a WAL opens its own
+   * directory on every start. */
+  int32_t made_again = buri_rt_host_fs_make_dir(S(root), &err);
+
+  /* Two records, each one append, with the commit point stated after each.
+   * The first append creates the file. */
+  static const uint8_t first[2] = {1, 10};
+  static const uint8_t second[2] = {2, 20};
+  int32_t one = buri_rt_host_fs_append_file(S(log), first, 2, &err);
+  int32_t synced_one = buri_rt_host_fs_sync_file(S(log), &err);
+  int32_t two = buri_rt_host_fs_append_file(S(log), second, 2, &err);
+  int32_t synced_two = buri_rt_host_fs_sync_file(S(log), &err);
+
+  BuriList replayed;
+  int32_t read = buri_rt_host_fs_read_file_bytes(S(log), &replayed, &err);
+  if (read != BURI_OK) {
+    fprintf(stderr, "replaying the log failed with %d\n", read);
+    return 1;
+  }
+
+  /* Checkpoint: the temporary, made durable, swapped in, and the directory
+   * entry made durable so the swap survives too. */
+  static const uint8_t body[1] = {30};
+  int32_t wrote = buri_rt_host_fs_write_file_bytes(S(tmp), body, 1, &err);
+  int32_t synced_tmp = buri_rt_host_fs_sync_file(S(tmp), &err);
+  int32_t renamed = buri_rt_host_fs_rename_file(S(tmp), S(checkpoint), &err);
+  int32_t synced_dir = buri_rt_host_fs_sync_file(S(root), &err);
+  uint8_t tmp_gone = buri_rt_host_fs_file_exists(S(tmp));
+
+  BuriList kept;
+  int32_t read_checkpoint = buri_rt_host_fs_read_file_bytes(S(checkpoint), &kept, &err);
+
+  /* Truncation after the checkpoint, and the same call a second time, which is
+   * the one edge `remove` reports rather than swallowing. */
+  int32_t removed = buri_rt_host_fs_remove_file(S(log), &err);
+  int32_t removed_again = buri_rt_host_fs_remove_file(S(log), &err);
+  int32_t sync_missing = buri_rt_host_fs_sync_file(S(log), &err);
+
+  printf("mkdir=%s,%s append=%s,%s sync=%s,%s log=", made == BURI_OK ? "ok" : "err",
+         made_again == BURI_OK ? "ok" : "err", one == BURI_OK ? "ok" : "err",
+         two == BURI_OK ? "ok" : "err", synced_one == BURI_OK ? "ok" : "err",
+         synced_two == BURI_OK ? "ok" : "err");
+  for (uint64_t i = 0; i < replayed.len; i++) {
+    printf("%s%d", i == 0 ? "" : ".", (int)replayed.ptr[i]);
+  }
+  printf(" write=%s synctmp=%s rename=%s syncdir=%s tmp-gone=%d checkpoint=",
+         wrote == BURI_OK ? "ok" : "err", synced_tmp == BURI_OK ? "ok" : "err",
+         renamed == BURI_OK ? "ok" : "err", synced_dir == BURI_OK ? "ok" : "err", !tmp_gone);
+  if (read_checkpoint == BURI_OK) {
+    for (uint64_t i = 0; i < kept.len; i++) {
+      printf("%s%d", i == 0 ? "" : ".", (int)kept.ptr[i]);
+    }
+  }
+  printf(" remove=%s remove-again=%d sync-missing=%d\n", removed == BURI_OK ? "ok" : "err",
+         removed_again, sync_missing);
   return 0;
 }
 
@@ -670,6 +757,9 @@ int main(int argc, char **argv) {
   }
   if (strcmp(mode, "fs") == 0 && argc > 2) {
     return mode_fs(argv[2]);
+  }
+  if (strcmp(mode, "wal") == 0 && argc > 2) {
+    return mode_wal(argv[2]);
   }
   if (strcmp(mode, "env") == 0) {
     return mode_env();
