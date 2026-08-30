@@ -1,0 +1,4 @@
+error [unexpected-token] 3:7-3:8
+message: expected an expression, found `@`
+fix: write a value here
+

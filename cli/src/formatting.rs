@@ -1441,7 +1441,17 @@ impl<'t> Build<'t> {
                 let body = self.block_lines(d.body);
                 braced(&format!("test {} {{", quote(&d.name)), body)
             }
+            // A region that did not parse is printed as it was written. The
+            // formatter refuses a file with a parse error today, so only
+            // `source_unchecked` reaches this.
+            Item::Error(at) => text(self.verbatim(**at)),
         }
+    }
+
+    /// The source under a span, as one `Text` per line, so that a region the
+    /// parser could not read keeps its own layout.
+    fn verbatim(&self, span: Span) -> String {
+        self.src.get(span.start as usize..span.end as usize).unwrap_or("").to_string()
     }
 
     /// A module path, as the quoted literal it was written as.
@@ -1735,6 +1745,7 @@ impl<'t> Build<'t> {
             ExprView::Char { value, .. } => text(quote_char(value)),
             ExprView::Bool { value, .. } => text(value.to_string()),
             ExprView::Unit { .. } => text("()"),
+            ExprView::Error { span } => text(self.verbatim(span)),
             ExprView::Ident { name, .. } => text(name),
             ExprView::SelfValue { .. } => text("self"),
             ExprView::Ctx { .. } => text("ctx"),

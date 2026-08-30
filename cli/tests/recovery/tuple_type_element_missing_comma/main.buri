@@ -1,0 +1,2 @@
+// EXPECT: a tuple type element ends with `,`
+export type Pair = (Int Str);

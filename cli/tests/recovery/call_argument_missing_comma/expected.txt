@@ -1,0 +1,5 @@
+error [missing-separator] 7:8-7:8
+message: a call argument ends with `,`
+fix: write `,` here
+edit: 7:8-7:8 ","
+

@@ -65,7 +65,8 @@ fn exported_name(item: &Item) -> Option<Span> {
         | Item::ReExport(_)
         | Item::Impl(_)
         | Item::Derive(_)
-        | Item::Test(_) => None,
+        | Item::Test(_)
+        | Item::Error(_) => None,
     }
 }
 
