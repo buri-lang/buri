@@ -1,0 +1,74 @@
+---
+title: A context asks for the effects it uses
+severity: warning
+message: 'bound `{bound}` on `{param}` is not used by this function'
+note: "a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing"
+fix: remove the bound
+---
+A `ctx` parameter says a function touches the world; its **bounds** say which
+parts of it. `fn save<C: Alloc + Fs>(ctx: C, …)` reads as "this allocates and
+this writes files", and every caller has to be holding a context that can do
+both. A bound the body never exercises makes that sentence false in the
+direction that costs the most: it is a demand on the caller for a capability
+the code does not use, and it spreads, because the caller's own signature has
+to carry the bound to satisfy it.
+
+There are exactly three ways a body uses a bound, and each of them is a call:
+
+**A method the bound declares, called on the context.** `ctx.println(…)`
+resolves through `C`'s bound list — that is the only place a method on a type
+parameter can come from — so the bound that declares the method is used.
+
+**A callee that asks for one of its own.** `str.format(ctx, …)` instantiates
+`format`'s own type parameter at `C`, and `format`'s bounds become demands on
+`C`. Every bound the callee names is used; the ones it does not name are not.
+
+**A function-typed parameter.** `render(ctx, label)`, where `render: fn(C, Str)
+=> Str`, hands the whole context to code this function cannot see. So it uses
+**every** bound: the callback was written against `C` as declared, and nothing
+here can say which parts of it the callback reaches.
+
+Nothing else is a use. A bound is a demand, and the checker consults a type
+parameter's bound list in exactly two places — when it resolves a method on a
+receiver of that type, and when it discharges the obligation an instantiation
+raised. Both are calls, and both are written down in the checked tree.
+
+## What is not asked
+
+**A method supplied by an `impl` is not asked.** Its generics must match the
+trait's declaration bound for bound, so an implementation cannot drop one; if a
+bound is dead there, it is dead on the trait, and that is the trait's question.
+
+**A function with no body is not asked.** A trait method's signature, an
+effect's operation and the standard library's intrinsic declarations describe
+what an implementation will be handed, and there is no body to read.
+
+**A parameter that is not a context is not asked.** The rule looks at the type
+parameter the `ctx` parameter is declared at, and only where at least one of
+its bounds is an `effect`. A `T: Eq` on ordinary data is a different question
+with a different answer.
+
+**A body that did not check is not asked.** Unlike `unused-context`, which can
+fall back to the text because a context has exactly one spelling, a bound has
+none: it is used through method names it declares and through callees whose own
+bounds name it, and neither is a token the lexer can recognise as this bound.
+Where the typed tree is truncated, the evidence is gone and the rule says
+nothing.
+
+## The fix
+
+Delete the bound. Unlike a `ctx` parameter, a bound needs no call site to be
+touched, and that is not an accident: a bound is something the function demands
+of its callers, and dropping a demand cannot break one. So the edit stays
+inside the declaration, and it is offered whether or not the name is on the
+library's surface.
+
+**The bytes are per parameter, not per bound.** A bound list is one piece of
+text with shared separators — the ranges that delete `Fs` and `Io` from
+`<C: Alloc + Fs + Io>` both claim the `+` between them — so removing several is
+one rewrite rather than several. Every finding about one parameter carries that
+same rewrite, `buri lint --fix` applies it once, and the run after it is clean.
+
+The bytes are withheld where the text between the bounds is anything but the
+separators: a comment written inside a bound list is a reader's sentence about
+the code, and this deletes text rather than reformatting it.
