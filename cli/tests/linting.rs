@@ -178,7 +178,17 @@ const INVENTED_CEILING: usize = 2;
 /// desugar nor its reworded fix has anything here to change. Re-measured
 /// after the merge: **47 of 2,000 and 6 of 545, to the case.**
 ///
-/// Three points, against 2.35% measured: the ratchet is one point of headroom,
+/// `unused-context`, added after the shape rules, keeps the residue where it
+/// is rather than adding to it, and the reason is the one thing that rule has
+/// which the three above do not: **a context has exactly one spelling.** A body
+/// that did not check has lost its reads from the typed tree, so the rule falls
+/// back to asking whether the declaration's *text* writes `ctx` anywhere but at
+/// the parameter — which the lexer answers whether or not the checker could
+/// read the expression around it. Measured with the two new fixtures in the
+/// seed set and the fallback off, the residue was **62 of 2,000**; with it on,
+/// **48 of 2,000 and 13 of 600, to the case.**
+///
+/// Three points, against 2.4% measured: the ratchet is one point of headroom,
 /// which is what makes it a bound and not a description. It is not zero and
 /// cannot be while the proxy is a byte offset.
 const LOST_A_FINDING_CEILING: usize = 3;

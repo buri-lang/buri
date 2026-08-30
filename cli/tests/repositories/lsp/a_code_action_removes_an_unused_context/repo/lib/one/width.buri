@@ -1,0 +1,8 @@
+from "core/effect/lib.buri" import { Alloc };
+
+/// The width of a label is its length, and nothing here reads the context it
+/// asks for. `lib.buri` does not publish this name, so every call to it is in
+/// this library and the quick fix can see all of them.
+export fn width<C: Alloc>(ctx: C, label: Str): Int {
+  label.len()
+}
