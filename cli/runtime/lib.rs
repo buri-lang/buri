@@ -329,14 +329,21 @@
 //!
 //! ## 8. Features, and the manifest that is not called `Cargo.toml`
 //!
-//! One feature, `net`, on by default: `tokio`, `hyper`, `rustls` and
+//! One feature, `net`, on by default: `tokio`, `hyper`, `rustls`, `ring` and
 //! `tungstenite`, which is the runtime's whole admitted dependency set and is
 //! closed by an exact list rather than by a habit (`manifest.toml` argues each
 //! entry, the root `Cargo.toml` states the bar, and
-//! `dependencies_stay_behind_the_bar` asserts the equality). As of this slice
-//! **nothing references any of them** — `net.rs` names one type from each and
-//! stops — so the archive is twenty-four bytes larger with the feature than
-//! without it, and neither backend has a symbol to emit a call to.
+//! `dependencies_stay_behind_the_bar` asserts the equality).
+//!
+//! **Two of the five are linked and three are not.** `rustls` over `ring` is
+//! what `tls.rs` uses for `https://`, and it is why the archive grew by about
+//! 1.72 MiB — most of it `ring`'s native object code, which a `staticlib`
+//! carries whether the linker wants it or not. `tokio`, `hyper` and
+//! `tungstenite` are still referenced only by `net.rs`, which names one type
+//! from each and stops, so `lto = "fat"` leaves them out of the archive
+//! entirely; `.github/scripts/assert-runtime-archive.sh` holds that in CI by
+//! grepping the symbol table, and the two that moved out of that list moved in
+//! the commit that linked them.
 //!
 //! **What a toolchain built without it owes the user.** `net` off is a
 //! *language capability* missing, not a code generator missing, so the
@@ -348,6 +355,20 @@
 //! (`networking-not-available`) before code generation starts. None of those
 //! keys exists yet; the refusal is in place first so that the day one lands it
 //! is not an unresolved `buri_rt_*` symbol from the system linker.
+//!
+//! `host.HostNet.fetch` is deliberately **not** one of those keys, and that is
+//! a decision rather than an omission: with `net` off this runtime still speaks
+//! cleartext HTTP, because `http.rs` writes that client itself. What it loses is
+//! `https://`, which refuses at run time with a message naming this feature. A
+//! compile-time refusal would have refused every program that mentions
+//! `Net.fetch`, including the ones that were only ever going to ask for
+//! `http://`.
+//!
+//! A host with no C compiler gets the same `net`-off runtime, and gets it
+//! automatically: `ring` builds C and assembly, so `cli/build.rs` probes for
+//! `cc` and falls back with a `cargo:warning` rather than failing the
+//! toolchain's build. That is the bar's third clause — degrade, do not break —
+//! reaching a tool rather than a crate.
 //!
 //! The package's manifest is `manifest.toml` and its lockfile is
 //! `manifest.lock`, neither named the way Cargo would name it, because a
@@ -373,6 +394,11 @@ mod net;
 mod rng;
 mod testing;
 mod text;
+/// TLS for `http`'s `https://` half. Behind the `net` feature because it *is*
+/// the feature's only linked user; a runtime without it refuses `https://` by
+/// name (see §8).
+#[cfg(feature = "net")]
+mod tls;
 mod value;
 
 pub use abort::*;

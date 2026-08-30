@@ -404,7 +404,15 @@ fn dependencies_stay_behind_the_bar() {
     //
     // Pinned in full and compared as a set. Sorted, because the order in the
     // manifest is an argument's order and not a fact.
-    const RUNTIME_ADMITTED: &[&str] = &["hyper", "rustls", "tokio", "tungstenite"];
+    //
+    // `ring` is on this list although no line of the runtime names it: it is
+    // `rustls`'s crypto provider and the code reaches it through
+    // `rustls::crypto::ring`. It is declared as a direct dependency anyway, and
+    // this is the reason — the crate ships inside every native binary this
+    // compiler produces, and a crate that ships must be visible to the test
+    // that guards what ships. A provider pulled in only by another crate's
+    // feature flag would be 845 KB of object code no assertion here could see.
+    const RUNTIME_ADMITTED: &[&str] = &["hyper", "ring", "rustls", "tokio", "tungstenite"];
     let runtime = std::fs::read_to_string(repo_root().join("cli/runtime/manifest.toml"))
         .expect("cli/runtime/manifest.toml");
     let mut runtime_deps: Vec<String> =
@@ -414,7 +422,7 @@ fn dependencies_stay_behind_the_bar() {
         runtime_deps, RUNTIME_ADMITTED,
         "cli/runtime/manifest.toml's dependency set is not the one this repository decided on. \
          The runtime's archive is linked into every native binary this compiler produces, so its \
-         admitted set is closed by this exact list rather than by a prefix: a fifth crate, a \
+         admitted set is closed by this exact list rather than by a prefix: a sixth crate, a \
          rename and a removal are all changes to what every user ships.\n{BAR}"
     );
     // Every one of them optional, and every one behind the one feature. Two
