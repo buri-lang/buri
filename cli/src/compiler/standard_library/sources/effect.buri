@@ -82,6 +82,22 @@ export effect Fs {
   fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
   fn fileExists(self, path: Str): Bool;
   fn readDir(self, path: Str): Result<[Str], IoError>;
+
+  /// The octets, unchanged. `readFile` decodes UTF-8 and substitutes U+FFFD
+  /// for what is not; this is the operation for a file that is not text.
+  fn readFileBytes(self, path: Str): Result<[U8], IoError>;
+  /// Truncates an existing file, and creates one that is absent.
+  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
+  /// Appends the whole body, creating the file when it is absent.
+  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
+  /// Replaces `to`, atomically within one filesystem.
+  fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
+  fn removeFile(self, path: Str): Result<(), IoError>;
+  /// Parents included; an existing directory is `.Ok`.
+  fn makeDir(self, path: Str): Result<(), IoError>;
+  /// The commit point: what was written to `path` is durable when this
+  /// returns. `core/fs`'s `sync` states what each platform can promise.
+  fn syncFile(self, path: Str): Result<(), IoError>;
 }
 
 export effect Net {
@@ -115,6 +131,11 @@ export enum IoError {
   ReadOnly,
   AlreadyExists,
   NotADirectory,
+  /// A rename whose two paths are on different filesystems — the one case
+  /// where the operation is a copy and therefore not atomic. Named rather than
+  /// folded into `Other` because a caller that wanted atomicity has to be able
+  /// to tell this apart from a failure it can retry.
+  CrossDevice,
   Other(Str),
 }
 

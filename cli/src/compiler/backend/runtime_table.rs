@@ -312,12 +312,12 @@ pub const ENTRIES: &[Entry] = &[
     // `alloc` and `TestAlloc.allocate` are **not** here: they read no state and
     // both backends open-code them (`emit.rs`).
     //
-    // `MemFs`'s four **are** here now. Three answer a `Result<T, IoError>`,
-    // which was the shape this table had no `Ret` for and the reason all four
-    // were held back; §2.1 is that shape and [`Ret::Res`] is the row for it.
-    // `host.HostFs.readFile` is still absent, and for a different reason: the
-    // archive has no body for it (`cli/runtime/host.rs`), so it is a gap rather
-    // than a shape.
+    // `MemFs`'s eleven **are** here now. Most answer a `Result<T, IoError>`,
+    // which was the shape this table had no `Ret` for and the reason the
+    // original four were held back; §2.1 is that shape and [`Ret::Res`] is the
+    // row for it. `host.HostFs.readFile` is still absent, and for a different
+    // reason: the archive has a body for it and this table has no row, which is
+    // a gap rather than a shape.
     e("testing_context.captureOut", "buri_rt_testing_context_capture_out", Ret::Out),
     e("testing_context.captureErr", "buri_rt_testing_context_capture_err", Ret::Out),
     e("testing_context.CaptureOut.print", "buri_rt_testing_context_capture_out_print", Ret::Void),
@@ -361,6 +361,7 @@ pub const ENTRIES: &[Entry] = &[
     ),
     e("testing_context.data", "buri_rt_testing_context_data", Ret::Out),
     e("testing_context.files", "buri_rt_testing_context_files", Ret::Out),
+    e("testing_context.filesBytes", "buri_rt_testing_context_files_bytes", Ret::Out),
     e(
         "testing_context.MemFs.readFile",
         "buri_rt_testing_context_mem_fs_read_file",
@@ -381,6 +382,44 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "testing_context.MemFs.readDir",
         "buri_rt_testing_context_mem_fs_read_dir",
+        Ret::Res,
+    ),
+    // The seven `core/fs` grew for issue #1. `Extra::None` at the three taking
+    // a `[U8]`, for `core/bytes`' reason: the element type is fixed at `U8`, so
+    // there is no `T` for rule 4's stride-and-glue pair to describe.
+    e(
+        "testing_context.MemFs.readFileBytes",
+        "buri_rt_testing_context_mem_fs_read_file_bytes",
+        Ret::Res,
+    ),
+    e(
+        "testing_context.MemFs.writeFileBytes",
+        "buri_rt_testing_context_mem_fs_write_file_bytes",
+        Ret::Res,
+    ),
+    e(
+        "testing_context.MemFs.appendFile",
+        "buri_rt_testing_context_mem_fs_append_file",
+        Ret::Res,
+    ),
+    e(
+        "testing_context.MemFs.renameFile",
+        "buri_rt_testing_context_mem_fs_rename_file",
+        Ret::Res,
+    ),
+    e(
+        "testing_context.MemFs.removeFile",
+        "buri_rt_testing_context_mem_fs_remove_file",
+        Ret::Res,
+    ),
+    e(
+        "testing_context.MemFs.makeDir",
+        "buri_rt_testing_context_mem_fs_make_dir",
+        Ret::Res,
+    ),
+    e(
+        "testing_context.MemFs.syncFile",
+        "buri_rt_testing_context_mem_fs_sync_file",
         Ret::Res,
     ),
     e("testing_context.clockAt", "buri_rt_testing_context_clock_at", Ret::Out),
@@ -454,14 +493,21 @@ mod tests {
             "list.zip",
             "list.flatten",
             "json.decode",
-            // The archive has no body for these: `core/fs`'s real filesystem
-            // is `cli/runtime/host.rs`'s business and it stops at
-            // `fileExists`. Not a *shape* — `MemFs`'s three are the same
+            // `cli/runtime/host.rs` has a body for every one of these, and
+            // this backend still has no row: the gap is the row, not the
+            // body. Not a *shape* either — `MemFs`'s are the same
             // `Result<T, IoError>` and are in the table above — which is the
             // distinction this list exists to keep.
             "host.HostFs.readFile",
             "host.HostFs.writeFile",
             "host.HostFs.readDir",
+            "host.HostFs.readFileBytes",
+            "host.HostFs.writeFileBytes",
+            "host.HostFs.appendFile",
+            "host.HostFs.renameFile",
+            "host.HostFs.removeFile",
+            "host.HostFs.makeDir",
+            "host.HostFs.syncFile",
             // Open-coded, and named here so that "it has no symbol" and "the
             // backend cannot compile it" stay two different statements.
             "testing_context.alloc",
