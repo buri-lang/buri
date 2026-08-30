@@ -651,7 +651,8 @@ mod tests {
     use super::*;
 
     fn facts(purity: ir::Purity, can_abort: bool) -> ir::Facts {
-        ir::Facts { params: Vec::new(), purity, can_abort }
+        // `can_park` is not an attribute question: no backend reads it yet.
+        ir::Facts { params: Vec::new(), purity, can_abort, can_park: false }
     }
 
     /// The bits, against `llvm/Support/ModRef.h` of the pinned LLVM. These are
