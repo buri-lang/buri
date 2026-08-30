@@ -30,7 +30,7 @@ fn library(answer: &str) -> String {
 
 fn suite(label: &str) -> String {
     format!(
-        "from \"{label}\" import {{ answer }};\n\
+        "from \"{label}/lib.buri\" import {{ answer }};\n\
          from \"core/testing/assert/lib.buri\" import * as assert;\n\
          \n\
          test \"answers\" {{\n  assert.eq(answer(), 21);\n}}\n"

@@ -1,0 +1,68 @@
+error: "//lib/money/notes/lib.buri" names no file (lib/money/notes/lib.buri) [module-not-found]
+ --> cmd/app/routes.buri:1:6
+  |
+1 | from "//lib/money/notes/lib.buri" import { Cents, fromCents };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    A module path resolves against the repository, so this one is compiled
+    against the worked monorepo in cli/tests/example, where lib/nope/lib.buri is
+    not a file.
+
+error: there is no type `Cents` [unresolved-type]
+ --> cmd/app/routes.buri:6:10
+  |
+6 |   let c: Cents = fromCents(1905);
+  |          ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+
+    What to do
+    ──────────
+
+    Declare it, import it, or correct the spelling.
+
+    Why
+    ───
+
+    Types are nominal throughout. There is no structural fallback and no
+    inference from shape, so a misspelling cannot quietly become a different
+    type that happens to fit.
+
+error: there is nothing named `fromCents` in scope [unresolved-name]
+ --> cmd/app/routes.buri:6:18
+  |
+6 |   let c: Cents = fromCents(1905);
+  |                  ^^^^^^^^^
+  |
+  = fix: declare `fromCents`, or import it — a name is in scope only from this module's own declarations and its imports
+
+    What to do
+    ──────────
+
+    Correct the spelling, or declare it. The diagnostic offers the nearest name
+    in scope.
+
+    Why
+    ───
+
+    There is no prelude and no ambient scope: the names available in a module
+    are the ones it declares plus the ones its own imports name. That is what
+    makes the suggestion trustworthy — the set it is drawn from is exactly the
+    set the file put there.
+

@@ -1,0 +1,15 @@
+# A library with three kinds of file a path can name: the surface, a module
+# inside it, and a testing surface. `test/cents.buri` is a fourth kind, and is
+# the one an import may never name.
+library {
+    sources: ["cents.buri"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/cents.buri"]
+    }
+
+    testing {
+        sources: []
+    }
+}

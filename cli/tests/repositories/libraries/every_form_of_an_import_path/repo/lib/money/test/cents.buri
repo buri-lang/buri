@@ -1,0 +1,7 @@
+from "//lib/money/lib.buri" import { Cents };
+from "//lib/money/testing/lib.buri" import { sample };
+from "core/testing/assert/lib.buri" import * as assert;
+
+test "the testing surface builds a Cents" {
+  assert.eq(sample().0, 1905);
+}

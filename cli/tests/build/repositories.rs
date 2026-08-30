@@ -28,7 +28,7 @@ fn build_file_rules() {
 /// boundary it draws applies to methods as much as to names.
 #[test]
 fn library_boundaries() {
-    run_corpus(&tests_dir().join("repositories/libraries"), "libraries", 10);
+    run_corpus(&tests_dir().join("repositories/libraries"), "libraries", 11);
 }
 
 /// TAGS.md: a tag is a property of a whole dependency closure, and the two
@@ -138,7 +138,7 @@ fn test_suites() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 90);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 91);
 }
 
 /// Every method a 3.17 client can send is answered by the dispatch, and is

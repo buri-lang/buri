@@ -1,10 +1,11 @@
-// One module, one spelling. The library is //lib/money; //lib/money/lib names
-// the same file by the path that happens to hold it, and is not a path.
+// The old spelling of a library's surface: a path with the file left off.
+// The compiler knows which file it meant, because it can still resolve it the
+// old way, and the diagnostic says so.
 
 from "core/effect/lib.buri" import { Alloc, Stdout };
 from "core/host/lib.buri" import * as host;
 
-from "//lib/money/lib.buri" import { fromCents };
+from "//lib/money" import { fromCents };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

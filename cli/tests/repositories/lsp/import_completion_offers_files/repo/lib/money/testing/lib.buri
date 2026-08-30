@@ -1,0 +1,4 @@
+from "//lib/money/lib.buri" import { Cents, fromCents };
+
+/// A round figure, for a suite that needs one and does not care which.
+export fn sample(): Cents { fromCents(1905) }

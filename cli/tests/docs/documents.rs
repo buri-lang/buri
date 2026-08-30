@@ -475,11 +475,11 @@ fn documented_items_carry_their_documentation() {
 #[test]
 fn a_workspace_library_renders_its_public_surface() {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-        .args(["docs", "//lib/money", "--format=markdown"])
+        .args(["docs", "//lib/money/lib.buri", "--format=markdown"])
         .current_dir(repo_root().join("cli/tests/example"))
         .output()
         .expect("the buri binary runs");
-    assert!(out.status.success(), "`buri docs //lib/money` failed");
+    assert!(out.status.success(), "`buri docs //lib/money/lib.buri` failed");
     let page = String::from_utf8_lossy(&out.stdout);
 
     // Everything `lib.buri` re-exports, and nothing it deliberately withholds.

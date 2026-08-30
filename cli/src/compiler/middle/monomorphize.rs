@@ -456,6 +456,13 @@ impl<'a> Monomorphizer<'a> {
                     .map(|c| format!("{}.", self.tables().tycon(c).name))
                     .unwrap_or_default();
                 let debug = format!("{module}:{owner}{}", info.name);
+                // The whole path, file name and all. Taking `lib.buri` off the
+                // way `intrinsic_key` does would be shorter and would collide:
+                // `//lib/a.buri` and `//lib/a/lib.buri` are two modules that
+                // may both exist — see the `a_module_beside_a_package_of_its_name`
+                // case — and two functions on one symbol is a miscompile.
+                // `intrinsic_key` may strip it because it only ever names a
+                // standard library module, and none of those has a sibling.
                 let mut symbol = format!(
                     "{}${owner}{}",
                     module.replace(['/', '.'], "_").replace("//", ""),

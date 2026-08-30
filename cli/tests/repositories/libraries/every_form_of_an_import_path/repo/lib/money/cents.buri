@@ -1,0 +1,5 @@
+from "//lib/money/notes/scratch.buri" import { round };
+
+export struct Cents(export I64);
+
+export fn fromCents(c: I64): Cents { Cents(round(c)) }

@@ -2174,7 +2174,7 @@ impl<'a> Checker<'a> {
             let Some(pkg) = module.pkg else { continue };
             let is_surface = self
                 .ws
-                .map(|ws| ws.package(pkg).label() == module.path)
+                .map(|ws| ws.package(pkg).module_path("lib.buri") == module.path)
                 .unwrap_or(false);
             if !is_surface {
                 continue;

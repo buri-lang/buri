@@ -1,0 +1,10 @@
+# A binary with a second source of its own, so that "this package's files" has
+# something in it besides the entry point.
+binary {
+    sources: ["banner.buri"]
+    dependencies: ["//lib/money"]
+
+    outputs: [
+        { platform: JS },
+    ]
+}

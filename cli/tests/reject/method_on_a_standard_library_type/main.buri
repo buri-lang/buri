@@ -1,4 +1,4 @@
-// EXPECT: `buri docs core/result`
+// EXPECT: `buri docs core/result/lib.buri`
 // A user can never write `impl Result<I64, Str>`, so the fix may not ask for
 // one: a type the toolchain ships is pointed at its own documentation instead.
 from "core/effect/lib.buri" import { Alloc, Stdout };

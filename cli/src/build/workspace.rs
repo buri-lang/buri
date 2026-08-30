@@ -50,6 +50,20 @@ impl Package {
         format!("//{}", self.path)
     }
 
+    /// The module path of one of this package's files: `//lib/money/lib.buri`.
+    ///
+    /// Not `label()` with a suffix glued on, because a package at the
+    /// repository root has the empty path and `label()` is then `//` — one
+    /// slash too many. That package's surface is `//lib.buri`, and it is a
+    /// module path like any other now, where under the old spelling it was the
+    /// one module with no path at all.
+    pub fn module_path(&self, rel: &str) -> String {
+        match self.path.is_empty() {
+            true => format!("//{rel}"),
+            false => format!("//{}/{rel}", self.path),
+        }
+    }
+
     pub fn has_library(&self) -> bool {
         self.build.library.is_some()
     }
