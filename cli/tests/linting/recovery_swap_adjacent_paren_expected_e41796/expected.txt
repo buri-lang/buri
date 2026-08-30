@@ -1,0 +1,46 @@
+error: `renderfn` carries an effect, so it must be named `ctx` [effect-param-not-ctx]
+  --> lib/recovery_swap_adjacent_paren_expected_e41796/main.buri:31:31
+   |
+31 | fn rendered<C: Alloc>(ctx: C, renderfn :(C, Str) => Str, label: Str): Str {
+   |                               ^^^^^^^^^^^^^^^^^^
+   |
+   = a function is effectful if and only if it has a `ctx` parameter or an effect-carrying `self`, which is what lets a reader stop after the first two parameters
+   = fix: rename `renderfn` to `ctx` and make it the first parameter, or drop the effect bound if this parameter is ordinary data
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_paren_expected_e41796/main.buri:31:50
+   |
+31 | fn rendered<C: Alloc>(ctx: C, renderfn :(C, Str) => Str, label: Str): Str {
+   |                                                  ^^
+   |
+  --> lib/recovery_swap_adjacent_paren_expected_e41796/main.buri:31:22
+   |
+31 | fn rendered<C: Alloc>(ctx: C, renderfn :(C, Str) => Str, label: Str): Str {
+   |                      ^ opened here
+   |
+   = fix: write `)` here
+error: there is nothing named `render` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_expected_e41796/main.buri:32:3
+   |
+32 |   render(ctx, label)
+   |   ^^^^^^
+   |
+   = did you mean `rendered`?
+   = fix: correct the spelling, or declare it
+error: `rendered` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> lib/recovery_swap_adjacent_paren_expected_e41796/main.buri:40:23
+   |
+40 |   let _ = ctx.println(rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label));
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
+error: expected `(a context, Str)`, found `fn(_7, _5) => Str` [type-mismatch]
+  --> lib/recovery_swap_adjacent_paren_expected_e41796/main.buri:40:37
+   |
+40 |   let _ = ctx.println(rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label));
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `(a context, Str)`
+   |
+   = expected: `(a context, Str)`
+   = actual: `fn(_7, _5) => Str`
+   = fix: produce a `(a context, Str)` here, or change what surrounds it to accept a `fn(_7, _5) => Str`
