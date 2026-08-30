@@ -14,6 +14,11 @@ error: expected an identifier, found `test` [unexpected-token]
     Write what the message names. This is the parser's catch-all, so the useful
     half of it is always the "expected" part.
 
+    A mistake the parser can name — a separator, a terminator, an arrow, a
+    delimiter that never closed — carries its own code and says which construct
+    wanted it. This one is what is left: a token that begins nothing the grammar
+    admits in a position where several things would have been admissible.
+
 error: expected a string literal, found `(` [unexpected-token]
  --> cmd/reserved_word_test_as_function/main.buri:5:8
   |

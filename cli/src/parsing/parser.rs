@@ -274,6 +274,16 @@ fn starts_param(t: TokenKind) -> bool {
     matches!(t, TokenKind::Ident | TokenKind::KeywordSelfValue | TokenKind::KeywordCtx)
 }
 
+/// Whether a token can begin a *statement*.
+///
+/// [`starts_expr`] less the three tokens that continue the expression before
+/// them. A `.`, a `(` or a `[` after a block-like expression is the postfix
+/// chain the grammar refuses (SPEC 12.13), and reading it as the next
+/// statement would report the chain rather than the refusal.
+fn starts_statement(t: TokenKind) -> bool {
+    starts_expr(t) && !matches!(t, TokenKind::Dot | TokenKind::LParen | TokenKind::LBracket)
+}
+
 /// Whether a token can begin a declaration.
 ///
 /// The keywords a *statement* can never start with, so that a block missing
@@ -809,6 +819,45 @@ impl<'a> Parser<'a> {
         self.tree.push(Kind::Error, [0; 4], span, at)
     }
 
+    /// The chain SPEC 12.13 refuses, named where a reader would otherwise be
+    /// told the enclosing block is missing its `}`.
+    ///
+    /// Only in statement position: a block-like *arm body* followed by `.` is
+    /// the next arm's pattern with its comma missing, and that is a different
+    /// mistake with a different message.
+    fn refuse_postfix(&mut self, construct: TokenKind) {
+        let token = match self.peek() {
+            TokenKind::Dot => ".",
+            TokenKind::LParen => "(",
+            TokenKind::LBracket => "[",
+            TokenKind::Question => "?",
+            _ => return,
+        };
+        let what = match construct {
+            TokenKind::LBrace => "a block",
+            TokenKind::KeywordIf => "an `if`",
+            TokenKind::KeywordMatch => "a `match`",
+            TokenKind::KeywordContext => "a `context`",
+            _ => return,
+        };
+        let span = self.span();
+        if let Some(d) = self.templated("postfix-on-a-block", span) {
+            d.bind("construct", what);
+            d.bind("token", token);
+        }
+    }
+
+    /// Whether what the parser is standing on could begin the next declaration,
+    /// the next statement, or the end of the block it is in.
+    fn starts_something(&self) -> bool {
+        self.is(Punctuation::RBrace)
+            || self.at_eof()
+            || self.is_keyword(Keyword::Let)
+            || self.is_keyword(Keyword::Context)
+            || starts_declaration(self.peek())
+            || starts_statement(self.peek())
+    }
+
     /// A construct's closing delimiter, or the diagnostic that names what it
     /// was that never closed.
     ///
@@ -890,11 +939,22 @@ impl<'a> Parser<'a> {
     }
 
     /// A `;` that ends a declaration or a statement, named for what it ends.
+    ///
+    /// Only where something that could follow a `;` is actually there. A token
+    /// that could not start anything is a mistake about the token rather than
+    /// about the terminator, and the catch-all names it better — `5 as U8` is
+    /// a cast that does not exist, not a `let` missing its `;`.
     fn expect_terminator(&mut self, construct: &str) -> PResult<Span> {
         if self.is(Punctuation::Semi) {
             return Ok(self.bump());
         }
         if self.trial > 0 {
+            return Err(Bail);
+        }
+        if !self.starts_something() {
+            let found = self.found();
+            let span = self.span();
+            self.expected(span, "`;`", &found, "write `;` here");
             return Err(Bail);
         }
         let prev = self.prev_span();
@@ -2045,6 +2105,7 @@ impl<'a> Parser<'a> {
                 }
             } else {
                 let estart = self.span();
+                let opened_with = self.peek();
                 match self.expr() {
                     Ok(e) => {
                         if self.is(Punctuation::Semi) {
@@ -2060,11 +2121,34 @@ impl<'a> Parser<'a> {
                                 value: e.0,
                                 span: Location::of(estart.to(end)),
                             });
-                        } else if !self.is_keyword(Keyword::Let) && !starts_expr(self.peek()) {
-                            // Nothing else can be a statement here, so this
-                            // expression is the block's value and what is
-                            // missing is the block's own `}`.
-                            tail = e.0;
+                        } else if self.is(Punctuation::Eq) {
+                            // Every binding is final, so `=` after a name is
+                            // not a statement the grammar is missing. The
+                            // right-hand side is read and thrown away, so one
+                            // error names the whole mistake and the rest of
+                            // the block is read for what it says.
+                            let eq = self.span();
+                            self.templated("no-assignment", eq);
+                            self.bump();
+                            let _ = self.expr();
+                            self.eat(Punctuation::Semi);
+                            let span = estart.to(self.prev_span());
+                            self.restore(save);
+                            broken = self.error_expr(span).0;
+                        } else if !self.is_keyword(Keyword::Let) && !starts_statement(self.peek())
+                        {
+                            if self.is(Punctuation::RBrace) || self.at_eof() {
+                                // The block ends here, so this expression is
+                                // its value.
+                                tail = e.0;
+                            } else {
+                                // Nothing may follow. Either the chain SPEC
+                                // 12.13 refuses, or the block's `}` is missing
+                                // — and either way the value is poisoned,
+                                // because what parsed is not what was written.
+                                self.refuse_postfix(opened_with);
+                                broken = self.error_expr(estart.to(self.prev_span())).0;
+                            }
                             break;
                         } else {
                             // Something follows, so this was a statement and
