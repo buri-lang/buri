@@ -64,8 +64,8 @@ use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, IntType};
 use inkwell::values::{
-    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue,
-    PointerValue,
+    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, InstructionValue,
+    IntValue, PointerValue,
 };
 use inkwell::{FloatPredicate, IntPredicate};
 
@@ -77,8 +77,8 @@ use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::middle::layout::{
-    self, EnumRepr, Repr as LayoutRepr, Scalar, CAP_MASK, HEADER_CAP_OFFSET, HEADER_RC_OFFSET,
-    IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
+    self, EnumRepr, Repr as LayoutRepr, Scalar, CAP_MASK, CAP_SHARED_FLAG, HEADER_CAP_OFFSET,
+    HEADER_RC_OFFSET, IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
 };
 use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty};
@@ -151,7 +151,7 @@ pub struct Unit<'ctx, 'a> {
     release_elems: Map<Ty, FunctionValue<'ctx>>,
     retains: Map<Ty, FunctionValue<'ctx>>,
     /// The C-ABI entry thunks of [`Job::Entry`], one per step signature.
-    entries: Map<(Vec<Ty>, Ty), FunctionValue<'ctx>>,
+    entries: Map<(Vec<Ty>, Ty, Option<usize>), FunctionValue<'ctx>>,
     env_glue: Option<FunctionValue<'ctx>>,
     /// Helper bodies still to be built. Drained by [`Unit::finish`] rather than
     /// built where they are asked for, because a helper is asked for in the
@@ -417,6 +417,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let p = self.ptr_ty().into();
         self.declare_rt(runtime::FREE, &[p], None)
     }
+
+    // === G2 begin: the two shared arms =====================================
+
+    fn rt_incref(&mut self) -> FunctionValue<'ctx> {
+        let p = self.ptr_ty().into();
+        self.declare_rt(runtime::INCREF, &[p], None)
+    }
+
+    fn rt_decref(&mut self) -> FunctionValue<'ctx> {
+        let p = self.ptr_ty();
+        self.declare_rt(runtime::DECREF, &[p.into(), p.into()], None)
+    }
+
+    // === G2 end ============================================================
 
     // -----------------------------------------------------------------------
     // Constants
@@ -2061,6 +2075,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         return None;
                     };
+                    let step_index = step_call(key).and_then(|c| c.index);
                     // A context that owns a reference count would need a
                     // retain per element rather than a copy, and none does:
                     // `core/host`'s allocators are empty structs and
@@ -2068,8 +2083,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // where there is a span to hang it on.
                     if ps
                         .iter()
+                        .enumerate()
                         .take(ps.len().saturating_sub(1))
-                        .any(|t| self.rc_counted(t))
+                        .any(|(i, t)| step_index != Some(i) && self.rc_counted(t))
                     {
                         self.error(
                             span,
@@ -2078,14 +2094,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         return None;
                     }
-                    let bytes = self.step_state_bytes(&ps);
+                    let bytes = self.step_state_bytes(&ps, step_index);
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
                     // The contexts, beside the closure. They are Buri arguments
                     // this row `Arg::Dropped`s out of the C signature, and this
                     // is where they go instead — read back by the entry thunk,
                     // which is the only thing that wants them.
-                    let ctx_at = self.step_ctx_offsets(&ps);
+                    let ctx_at = self.step_ctx_offsets(&ps, step_index);
                     let from: Vec<ir::ValueId> = step_call(key)
                         .and_then(|c| c.ctx)
                         .into_iter()
@@ -2124,7 +2140,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         self.store_slots(into, &cslots, align, &cpieces);
                     }
-                    let thunk = self.entry_thunk(&ps, &r);
+                    let thunk = self.entry_thunk(&ps, &r, step_index);
                     let (Some(inn), Some(outn)) = (element.clone(), elements.answer.clone())
                     else {
                         self.error(
@@ -2663,7 +2679,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let word = self.ctx.i64_type();
         let header =
             repr::byte_offset(self.ctx, &self.builder, p, i64::from(HEADER_RC_OFFSET), "rc.p");
+
+        // === G2 begin: the shared fork (MEMORY.md §5.1, VALUE-MODEL.md §2.1) =
+        // `cap`'s bit 63 says the block may be reached from more than one
+        // thread, and it chooses which of the two counts below runs. It is
+        // never set today, so the whole of what the fork costs a shipping
+        // program is itself: one load, from the same 16-byte header line the
+        // count is already in, and one bit test whose answer never changes.
+        let shared = self.fork_on_shared(state, p, "inc");
+        let meet = self.ctx.append_basic_block(state.value, "inc.meet");
+        // === G2 end =========================================================
+
         let Ok(BasicValueEnum::IntValue(rc)) = self.builder.build_load(word, header, "rc") else {
+            let _ = self.builder.build_unconditional_branch(meet);
+            self.builder.position_at_end(meet);
             return;
         };
         if let Some(instr) = rc.as_instruction() {
@@ -2685,11 +2714,120 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Ok(store) = self.builder.build_store(header, next) {
             let _ = store.set_alignment(8);
         }
+        let _ = self.builder.build_unconditional_branch(meet);
+
+        // === G2 begin: the atomic increment =================================
+        // A **call**, where the unshared arm is open-coded, and the asymmetry
+        // is the point. `buri_rt_incref` forks on the same bit and takes the
+        // same atomic arm, so there is one atomic sequence in the tree per
+        // backend rather than two — and the sequence is cold by construction,
+        // because nothing sets the bit.
+        //
+        // It is also **half the price**. Open-coding the saturating
+        // `atomicrmw` here instead puts it in front of `opt` at every
+        // reference operation in the program, and that was measured: the
+        // open-coded form cost a median **+46 %** of native release lowering
+        // where this one costs **+21 %** (design/PERFORMANCE.md §6.6). The
+        // machine code on the arm every program actually takes is the same two
+        // instructions either way.
+        self.builder.position_at_end(shared);
+        let incref = self.rt_incref();
+        if let Ok(call) = self.builder.build_call(incref, &[p.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+            attrs::cold_call(self.ctx, call);
+        }
+        let _ = self.builder.build_unconditional_branch(meet);
+        // === G2 end =========================================================
+
+        self.builder.position_at_end(meet);
         if let (Some(_), Some(join)) = (body, join) {
             let _ = self.builder.build_unconditional_branch(join);
             self.builder.position_at_end(join);
         }
     }
+
+    // === G2 begin: the three pieces both counts share =======================
+
+    /// The fork on `cap`'s bit 63: emit the test, and leave the builder in the
+    /// **unshared** arm.
+    ///
+    /// Returns the block the caller fills with the atomic form; where the two
+    /// arms rejoin is the caller's business, because the increment's arms meet
+    /// and the decrement's do not (its two both run into `dec.free`).
+    ///
+    /// The load is of `cap` at `p - 8`, which shares a cache line with the
+    /// count at `p - 16` by construction (the header is 16 bytes and the
+    /// payload is 16-byte aligned, VALUE-MODEL.md §2), so on a block whose
+    /// count is about to be touched anyway the fork's memory cost is nothing.
+    /// The test is a sign test on a 64-bit word: `tbz`/`tbnz` on aarch64, a
+    /// `js`/`jns` on x86-64.
+    ///
+    /// The unshared arm is the *false* arm, so it is the fallthrough, and the
+    /// branch carries a weight saying so. Today that is exactly right — G1
+    /// reserved the bit and nothing sets it — and after G3 it is still right:
+    /// a value that crosses a task boundary is the exception.
+    fn fork_on_shared(
+        &mut self,
+        state: &mut Function<'ctx>,
+        p: PointerValue<'ctx>,
+        tag: &str,
+    ) -> BasicBlock<'ctx> {
+        let word = self.ctx.i64_type();
+        let plain = self.ctx.append_basic_block(state.value, &format!("{tag}.plain"));
+        let shared = self.ctx.append_basic_block(state.value, &format!("{tag}.shared"));
+        let capp = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            p,
+            i64::from(HEADER_CAP_OFFSET),
+            &format!("{tag}.capp"),
+        );
+        let is_shared = match self.builder.build_load(word, capp, &format!("{tag}.cap")) {
+            Ok(BasicValueEnum::IntValue(cap)) => {
+                if let Some(instr) = cap.as_instruction() {
+                    let _ = instr.set_alignment(8);
+                }
+                let bit = self
+                    .builder
+                    .build_and(cap, word.const_int(CAP_SHARED_FLAG, false), &format!("{tag}.mt"))
+                    .unwrap_or_else(|_| word.const_zero());
+                self.builder
+                    .build_int_compare(
+                        IntPredicate::NE,
+                        bit,
+                        word.const_zero(),
+                        &format!("{tag}.isshared"),
+                    )
+                    .unwrap_or_else(|_| self.ctx.bool_type().const_zero())
+            }
+            // A load that cannot be built leaves the fork unanswerable, and
+            // the unshared arm is the answer that matches every block the
+            // program can produce today.
+            _ => self.ctx.bool_type().const_zero(),
+        };
+        if let Ok(br) = self.builder.build_conditional_branch(is_shared, shared, plain) {
+            self.unlikely(br);
+        }
+        self.builder.position_at_end(plain);
+        shared
+    }
+
+    /// Say that a two-way branch takes its *false* arm.
+    ///
+    /// `!prof` branch weights, which is how to tell LLVM which arm is hot
+    /// without an `llvm.expect` call it then has to fold away. The numbers are
+    /// the ones clang emits for `__builtin_expect`.
+    fn unlikely(&self, br: InstructionValue<'ctx>) {
+        let word = self.ctx.i32_type();
+        let node = self.ctx.metadata_node(&[
+            self.ctx.metadata_string("branch_weights").into(),
+            word.const_int(1, false).into(),
+            word.const_int(2000, false).into(),
+        ]);
+        let _ = br.set_metadata(node, self.ctx.get_kind_id("prof"));
+    }
+
+    // === G2 end ============================================================
 
     /// `decref`: the decrement, with the free on the cold path.
     ///
@@ -2729,6 +2867,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let word = self.ctx.i64_type();
         let header =
             repr::byte_offset(self.ctx, &self.builder, p, i64::from(HEADER_RC_OFFSET), "rc.p");
+
+        // === G2 begin: the shared fork ======================================
+        // The same fork the increment takes, and for the same reason. The two
+        // arms rejoin at `dec.free`, not at `dec.meet`: whichever count found
+        // the block dead, it dies exactly once and through one copy of the
+        // glue call and one copy of `buri_rt_free`.
+        let shared = self.fork_on_shared(state, p, "dec");
+        // === G2 end =========================================================
+
         let Ok(BasicValueEnum::IntValue(rc)) = self.builder.build_load(word, header, "rc") else {
             let _ = self.builder.build_unconditional_branch(join);
             self.builder.position_at_end(join);
@@ -2754,6 +2901,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let free_block = self.ctx.append_basic_block(state.value, "dec.free");
         let live_block = self.ctx.append_basic_block(state.value, "dec.live");
         let _ = self.builder.build_conditional_branch(last, free_block, live_block);
+
+        // === G2 begin: the atomic decrement =================================
+        // A cold call to `buri_rt_decref`, for `incref`'s reasons, and it
+        // carries the glue pointer because the runtime owns the whole of the
+        // dying arm on that side: the `atomicrmw sub` whose *returned* value
+        // decides who frees, the glue call, and the free. Two threads that
+        // each read `1` from a separate load would each free the block, which
+        // is why that decision cannot be split across a call boundary and the
+        // free path here is not reused.
+        //
+        // `glue` is null for a type holding no counted references, which is
+        // the same null `buri_rt_decref` already documents.
+        self.builder.position_at_end(shared);
+        let decref = self.rt_decref();
+        let glue_arg = glue.unwrap_or_else(|| self.ptr_ty().const_null());
+        if let Ok(call) = self.builder.build_call(decref, &[p.into(), glue_arg.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+            attrs::cold_call(self.ctx, call);
+        }
+        let _ = self.builder.build_unconditional_branch(join);
+        // === G2 end =========================================================
 
         self.builder.position_at_end(free_block);
         if let Some(glue) = glue {
@@ -2825,9 +2993,10 @@ enum Job<'ctx> {
     /// rest: the glue every closure environment shares.
     EnvGlue { value: FunctionValue<'ctx> },
     /// The C-ABI entry thunk a **runtime-driven step** is reached through:
-    /// `void(state, arg, out)`, which runs one closure once on one element.
-    /// `params` and `ret` are that closure's own signature.
-    Entry { value: FunctionValue<'ctx>, params: Vec<Ty>, ret: Ty },
+    /// `void(state, index, arg, out)`, which runs one closure once on one
+    /// element. `params` and `ret` are that closure's own signature, and
+    /// `index` is which of `params` the runtime's loop counter goes into.
+    Entry { value: FunctionValue<'ctx>, params: Vec<Ty>, ret: Ty, index: Option<usize> },
 }
 
 /// The element types one runtime entry's generic parameters are read at.
@@ -2943,18 +3112,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// The C-ABI entry thunk for one step signature.
     ///
-    /// `void(ptr state, ptr arg, ptr out)` at `ccc` — the shape
-    /// `cli/runtime/list.rs`'s `StepEntry` declares, and the same three
-    /// pointers the frame-threaded backend's `Helper::Entry` takes. One per
-    /// `(params, ret)`, because that is what the body depends on and a second
-    /// call site at the same element types wants the same function.
-    fn entry_thunk(&mut self, params: &[Ty], ret: &Ty) -> FunctionValue<'ctx> {
-        let key = (params.to_vec(), ret.clone());
+    /// `void(ptr state, i64 index, ptr arg, ptr out)` at `ccc` — the shape
+    /// `cli/runtime/list.rs`'s `StepEntry` declares, and the same four
+    /// arguments the frame-threaded backend's `Helper::Entry` takes. One per
+    /// `(params, ret, index)`, because that is what the body depends on and a
+    /// second call site at the same element types wants the same function. The
+    /// index *position* is in the key rather than derived from the types: two
+    /// steps can take the same types and mean different things by the second
+    /// parameter.
+    fn entry_thunk(
+        &mut self,
+        params: &[Ty],
+        ret: &Ty,
+        index: Option<usize>,
+    ) -> FunctionValue<'ctx> {
+        let key = (params.to_vec(), ret.clone(), index);
         if let Some(f) = self.entries.get(&key) {
             return *f;
         }
         let p = self.ptr_ty();
-        let ty = self.ctx.void_type().fn_type(&[p.into(), p.into(), p.into()], false);
+        let word = self.ctx.i64_type();
+        let ty = self.ctx.void_type().fn_type(&[p.into(), word.into(), p.into(), p.into()], false);
         let name = format!("buri.entry.{}", self.helpers);
         self.helpers = self.helpers.saturating_add(1);
         let f = self.module.add_function(&name, ty, Some(Linkage::Private));
@@ -2963,11 +3141,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // one convention for the same reason the glue above is.
         attrs::set_convention(f, attrs::C);
         self.entries.insert(key, f);
-        self.pending.push(Job::Entry { value: f, params: params.to_vec(), ret: ret.clone() });
+        self.pending.push(Job::Entry {
+            value: f,
+            params: params.to_vec(),
+            ret: ret.clone(),
+            index,
+        });
         f
     }
 
-    /// [`Unit::entry_thunk`]'s body: three pointers in, one Buri call.
+    /// [`Unit::entry_thunk`]'s body: three pointers and a counter in, one Buri
+    /// call.
     ///
     /// This is [`Unit::build_thunk`]'s problem from the other side. A thunk
     /// converts a closure's environment for a Buri caller; this converts *C
@@ -2984,16 +3168,29 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// are the same value at every element, and a C signature has no parameter
     /// for one. A zero-sized context is no leaves at all; `TestAlloc`'s handle
     /// is one, and [`STEP_CTX`] is where it was put.
-    fn build_entry(&mut self, state: &mut Function<'ctx>, params: &[Ty], ret: &Ty) {
+    ///
+    /// The **index** comes out of neither. It is the runtime's loop counter,
+    /// which changes per element and which nothing on this side of the boundary
+    /// can derive, so it is its own C argument and is copied straight into the
+    /// parameter `index` names. A step whose closure does not take one — the
+    /// `list.mapCtxStep` pilot — leaves the register unread.
+    fn build_entry(
+        &mut self,
+        state: &mut Function<'ctx>,
+        params: &[Ty],
+        ret: &Ty,
+        index: Option<usize>,
+    ) {
         let ptr = self.ptr_ty();
         let (Some(record), Some(arg), Some(out)) = (
             state.value.get_nth_param(0).and_then(|p| p.try_into().ok()),
-            state.value.get_nth_param(1).and_then(|p| p.try_into().ok()),
             state.value.get_nth_param(2).and_then(|p| p.try_into().ok()),
+            state.value.get_nth_param(3).and_then(|p| p.try_into().ok()),
         ) else {
             let _ = self.builder.build_unreachable();
             return;
         };
+        let counter = state.value.get_nth_param(1);
         let record: PointerValue<'ctx> = record;
         let arg: PointerValue<'ctx> = arg;
         let out: PointerValue<'ctx> = out;
@@ -3017,8 +3214,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let fty = self.closure_fn_type(&param_slots, &ret_slots);
 
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![env.into()];
-        let ctx_at = self.step_ctx_offsets(params);
-        for (t, off) in params.iter().zip(ctx_at) {
+        let ctx_at = self.step_ctx_offsets(params, index);
+        // `ctx_at` is parallel to the parameters that are in the record, which
+        // is every one but the element and the index; the walk pairs them up
+        // rather than assuming the two lists line up position for position.
+        let record_params: Vec<usize> = (0..params.len().saturating_sub(1))
+            .filter(|i| index != Some(*i))
+            .collect();
+        let mut from_record = record_params.into_iter().zip(ctx_at);
+        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+            if index == Some(i) {
+                // The counter, at its declared width. `Int` is `i64` and the
+                // C argument already is one, so this is a move.
+                if let Some(v) = counter {
+                    argv.push(v.into());
+                }
+                continue;
+            }
+            let Some((_, off)) = from_record.next() else { continue };
             let r = self.reprs.of_ty(t);
             let (slots, align) = (r.slots.clone(), r.layout.align);
             if slots.is_empty() {
@@ -3061,11 +3274,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// them being wrong, and nothing would diagnose it — the record is opaque
     /// to everything between the two.
     ///
-    /// The last parameter is the element, which travels through `arg`.
-    fn step_ctx_offsets(&mut self, params: &[Ty]) -> Vec<u32> {
+    /// The last parameter is the element, which travels through `arg`;
+    /// `index`, where there is one, travels in its own C argument. Neither is
+    /// in the record, so neither takes room in the answer.
+    fn step_ctx_offsets(&mut self, params: &[Ty], index: Option<usize>) -> Vec<u32> {
         let mut at = STEP_CTX;
         let mut out = Vec::new();
-        for t in params.iter().take(params.len().saturating_sub(1)) {
+        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+            if index == Some(i) {
+                continue;
+            }
             out.push(at);
             let size = self.reprs.of_ty(t).layout.size;
             at = at.saturating_add(size.next_multiple_of(8));
@@ -3074,9 +3292,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// The size of a step's state record: `{ code, env, ctx... }`.
-    fn step_state_bytes(&mut self, params: &[Ty]) -> u32 {
+    fn step_state_bytes(&mut self, params: &[Ty], index: Option<usize>) -> u32 {
         let mut at = STEP_CTX;
-        for t in params.iter().take(params.len().saturating_sub(1)) {
+        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+            if index == Some(i) {
+                continue;
+            }
             let size = self.reprs.of_ty(t).layout.size;
             at = at.saturating_add(size.next_multiple_of(8));
         }
@@ -3184,8 +3405,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.build_thunk(&mut state, func, env, first);
                 return;
             }
-            Job::Entry { params, ret, .. } => {
-                self.build_entry(&mut state, &params, &ret);
+            Job::Entry { params, ret, index, .. } => {
+                self.build_entry(&mut state, &params, &ret, index);
                 return;
             }
             Job::Release { ty, .. } => {
@@ -7623,12 +7844,33 @@ pub fn carrier_signature() -> Vec<u8> {
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
-    /// `int main(int, char**)`, the two calls `cli/runtime/lib.rs` §6 requires,
-    /// and SPEC's `Result<(), Str>` contract.
+    /// `buri_rt_frames_are_per_carrier()`, in both emitted entry points.
+    ///
+    /// A Buri frame here is a machine frame — `middle::layout`'s locals area
+    /// becomes `alloca`s in an ordinary LLVM function — so a carrier that
+    /// enters Buri code brings its own, and `Tasks.parallel` may run two steps
+    /// at once. The frame-threaded backend emits no such call and must not
+    /// until each carrier owns a Buri stack: `runtime::FRAMES_PER_CARRIER` is
+    /// where the difference is argued, and `cli/runtime/lib.rs` §6 is the
+    /// contract.
+    ///
+    /// It is the one call in §6's list that is *optional*, so an entry point
+    /// that lost it would be a program whose tasks stopped overlapping — slow,
+    /// never wrong.
+    fn declare_frames_are_per_carrier(&mut self) {
+        let f = self.declare_rt(runtime::FRAMES_PER_CARRIER, &[], None);
+        if let Ok(call) = self.builder.build_call(f, &[], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
+    }
+
+    /// `int main(int, char**)`, the calls `cli/runtime/lib.rs` §6 names, and
+    /// SPEC's `Result<(), Str>` contract.
     ///
     /// ```c
     /// int main(int argc, char** argv) {
     ///     buri_rt_argv_init(argc, argv);
+    ///     buri_rt_frames_are_per_carrier();
     ///     r = buri_main();
     ///     buri_rt_flush();
     ///     if (tag(r) != Ok) { eprintln(payload(r)); buri_rt_flush(); return 1; }
@@ -7729,6 +7971,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 attrs::set_call_convention(call, attrs::C);
             }
         }
+        self.declare_frames_are_per_carrier();
 
         let Ok(call) = self.builder.build_call(callee, &[], "r") else { return };
         attrs::set_call_convention(call, attrs::FAST);
@@ -7848,6 +8091,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 attrs::set_call_convention(call, attrs::C);
             }
         }
+        self.declare_frames_are_per_carrier();
         let word = self.ctx.i64_type();
         for (i, test) in tests.iter().enumerate() {
             let Some(callee) = self.declare(*test) else { continue };
@@ -7920,6 +8164,11 @@ pub fn observe(program: &ir::Program, profile: Profile) -> Vec<Observed> {
         })
         .collect();
 
+    // The one bit whose seed is a property of the graph rather than of a body.
+    for (o, cycles) in out.iter_mut().zip(reaches_a_cycle(program)) {
+        o.may_diverge |= cycles;
+    }
+
     let mut changed = true;
     while changed {
         changed = false;
@@ -7951,10 +8200,118 @@ pub fn observe(program: &ir::Program, profile: Profile) -> Vec<Observed> {
     out
 }
 
-/// The six bits, as a tuple, so the fixpoint's "did anything change" is one
+/// The seven bits, as a tuple, so the fixpoint's "did anything change" is one
 /// comparison that a new bit cannot be left out of by accident.
-fn key(o: Observed) -> (bool, bool, bool, bool, bool, bool) {
-    (o.allocates, o.aborts, o.opaque, o.writes_args, o.reads_far, o.writes_far)
+fn key(o: Observed) -> (bool, bool, bool, bool, bool, bool, bool) {
+    (
+        o.allocates,
+        o.aborts,
+        o.opaque,
+        o.writes_args,
+        o.reads_far,
+        o.writes_far,
+        o.may_diverge,
+    )
+}
+
+/// The nodes of a directed graph that can reach a **cycle** — every member of
+/// one, and everything with a path into one.
+///
+/// A peel, which is Kahn's algorithm read from the far end: a node every one of
+/// whose successors has already been peeled off cannot reach a cycle, so peel it
+/// and repeat. What is left when nothing more will peel is exactly the set that
+/// can reach one — a self-edge keeps a node in its own count so it never peels,
+/// the two members of a two-cycle keep each other in, and every predecessor of
+/// either keeps a count above zero. Each edge is walked once.
+///
+/// Repeated edges are one edge: the peel counts *distinct* successors, because
+/// the same edge twice would need two peels and the second never comes. A
+/// successor this graph has no node for is dropped, and both callers say why
+/// that is their conservative direction.
+fn reaches_a_cycle_in(successors: &[Vec<usize>]) -> Vec<bool> {
+    let n = successors.len();
+    let mut out_edges: Vec<Vec<usize>> = Vec::with_capacity(n);
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, succ) in successors.iter().enumerate() {
+        let mut mine: Vec<usize> = succ.iter().copied().filter(|s| *s < n).collect();
+        mine.sort_unstable();
+        mine.dedup();
+        for s in &mine {
+            if let Some(row) = preds.get_mut(*s) {
+                row.push(i);
+            }
+        }
+        out_edges.push(mine);
+    }
+
+    let mut remaining: Vec<usize> = out_edges.iter().map(Vec::len).collect();
+    let mut peeled = vec![false; n];
+    let mut work: Vec<usize> = Vec::new();
+    for (i, left) in remaining.iter().enumerate() {
+        if *left == 0 {
+            if let Some(slot) = peeled.get_mut(i) {
+                *slot = true;
+            }
+            work.push(i);
+        }
+    }
+    while let Some(i) = work.pop() {
+        let Some(predecessors) = preds.get(i) else { continue };
+        for &p in predecessors {
+            if peeled.get(p).copied() == Some(true) {
+                continue;
+            }
+            let Some(left) = remaining.get_mut(p) else { continue };
+            *left = left.saturating_sub(1);
+            if *left == 0 {
+                if let Some(slot) = peeled.get_mut(p) {
+                    *slot = true;
+                }
+                work.push(p);
+            }
+        }
+    }
+    peeled.iter().map(|p| !*p).collect()
+}
+
+/// Which functions can reach a cycle in the **call graph** — the seed of
+/// [`Observed::may_diverge`].
+///
+/// [`observe`]'s fixpoint cannot answer this and must not be asked to. It starts
+/// each function at what a local scan found and joins its callees' answers
+/// upwards, which is a *least* fixpoint: a self-recursive function whose local
+/// scan found nothing would have nothing joined into it and would converge on
+/// "proven to return", which is the miscompile [`Observed::may_diverge`] exists
+/// to stop. So the seeds have to be right before that loop runs, and this is
+/// what makes them right.
+///
+/// The edges are `Inst::Call` — the fixpoint's own edges — plus `DecRef`'s
+/// `drop`, which is a call this backend emits and the fixpoint does not follow.
+/// It does not have to: a `DecRef` sets `opaque`, which already disqualifies the
+/// function. The edge is here so that what the peel walks is the call graph
+/// rather than most of it. An index this program has no function for is dropped,
+/// which costs nothing: `observe` answers `Observed::opaque` for one, and that
+/// carries `may_diverge` anyway.
+fn reaches_a_cycle(program: &ir::Program) -> Vec<bool> {
+    let callees: Vec<Vec<usize>> = program
+        .funcs
+        .iter()
+        .map(|f| {
+            let mut mine: Vec<usize> = Vec::new();
+            let Some(code) = f.code() else { return mine };
+            for block in &code.blocks {
+                for inst in &block.insts {
+                    match inst {
+                        ir::Inst::Call { func, .. } => mine.push(func.index()),
+                        ir::Inst::DecRef { drop: Some(func), .. } => mine.push(func.index()),
+                        _ => {}
+                    }
+                }
+            }
+            mine
+        })
+        .collect();
+    reaches_a_cycle_in(&callees)
 }
 
 /// Which values are *based on* one of this function's parameters, in the sense
@@ -8133,6 +8490,20 @@ fn local(code: &ir::Code, profile: Profile) -> Observed {
             }
         }
     }
+    // A cycle in the control-flow graph is a loop, and nothing in the IR bounds
+    // a loop's trip count — see [`Observed::may_diverge`]. Asked as a *cycle*
+    // and not as a back edge: `lower` emits blocks in whatever order it built
+    // them, and "an edge that points earlier in the list" calls a nested `if`'s
+    // join block a loop — which costs the attribute on every branchy function
+    // in the program.
+    let successors: Vec<Vec<usize>> = code
+        .blocks
+        .iter()
+        .map(|b| b.term.targets().iter().map(|t| t.block.index()).collect())
+        .collect();
+    if reaches_a_cycle_in(&successors).iter().any(|c| *c) {
+        o.may_diverge = true;
+    }
     o
 }
 
@@ -8294,5 +8665,92 @@ mod tests {
     #[test]
     fn the_door_type_is_built_from_the_shared_table() {
         assert_eq!(carrier_signature(), carrier::ENTRY.render());
+    }
+}
+
+#[cfg(test)]
+mod cycles {
+    use super::*;
+    use crate::compiler::semantics::types::FuncIdx;
+    use crate::diagnostics::Span;
+
+    /// A program of `edges.len()` functions in which function `i` calls every
+    /// index in `edges[i]` from its one block and does nothing else.
+    /// [`reaches_a_cycle`] reads calls and nothing else, so this is the whole
+    /// of what it needs.
+    fn call_graph(edges: &[&[usize]]) -> ir::Program {
+        let funcs = edges
+            .iter()
+            .enumerate()
+            .map(|(i, callees)| {
+                let mut code = ir::Code::new();
+                code.blocks.push(ir::Block {
+                    params: Vec::new(),
+                    insts: callees
+                        .iter()
+                        .map(|c| ir::Inst::Call {
+                            dests: Vec::new(),
+                            func: FuncIdx(*c as u32),
+                            args: Vec::new(),
+                        })
+                        .collect(),
+                    term: ir::Term::Return(Vec::new()),
+                });
+                ir::Func {
+                    symbol: format!("f{i}"),
+                    debug_name: format!("f{i}"),
+                    sig: ir::Signature { params: Vec::new(), rets: Vec::new() },
+                    facts: ir::Facts {
+                        params: Vec::new(),
+                        purity: ir::Purity::Pure,
+                        can_abort: false,
+                        can_park: false,
+                    },
+                    unit: 0,
+                    body: ir::Body::Code(code),
+                    span: Span::default(),
+                }
+            })
+            .collect();
+        ir::Program { funcs, units: vec![String::from("main")], types: Vec::new() }
+    }
+
+    /// A chain ends. A function that calls itself does not, and neither does
+    /// anything that can reach one that does.
+    #[test]
+    fn a_chain_peels_and_a_cycle_does_not() {
+        assert_eq!(reaches_a_cycle(&call_graph(&[&[1], &[2], &[]])), vec![false, false, false]);
+        assert_eq!(reaches_a_cycle(&call_graph(&[&[0]])), vec![true]);
+        // `0` and `1` are the cycle, `2` calls into it, `3` is off to the side.
+        assert_eq!(
+            reaches_a_cycle(&call_graph(&[&[1], &[0], &[1], &[]])),
+            vec![true, true, true, false]
+        );
+    }
+
+    /// The same edge twice is one edge. Without the dedup, `0` would need two
+    /// peels of `1` and only ever get one, so a straight-line program would
+    /// report a cycle and lose `willreturn` everywhere.
+    #[test]
+    fn a_repeated_call_is_one_edge() {
+        assert_eq!(reaches_a_cycle(&call_graph(&[&[1, 1, 1], &[]])), vec![false, false]);
+    }
+
+    /// The two shapes a **back-edge** rule gets wrong, which is why this is a
+    /// peel and not a comparison of indices. Both are what a control-flow
+    /// graph looks like: [`local`] asks the same question of one, and `lower`
+    /// numbers blocks in the order it built them rather than in any order a
+    /// reader could rely on.
+    #[test]
+    fn an_edge_that_points_backwards_is_not_a_cycle() {
+        // `0 -> 2 -> 1`, and nothing returns. A rule that called every edge
+        // into a lower index a loop would call `0 -> 2`'s sibling one.
+        assert_eq!(reaches_a_cycle_in(&[vec![2], vec![], vec![1]]), vec![false, false, false]);
+        // A diamond — a nested `if` and its join — with the join *before* one
+        // of its predecessors.
+        assert_eq!(
+            reaches_a_cycle_in(&[vec![2, 3], vec![], vec![1], vec![1]]),
+            vec![false, false, false, false]
+        );
     }
 }

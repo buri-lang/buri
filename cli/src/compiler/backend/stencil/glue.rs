@@ -9,7 +9,7 @@
 //! | [`Helper::Walk`] | The per-type reference-count walk, as a C function `fn(*mut u8)`: the drop glue [`buri_rt_decref`](cli/runtime/memory.rs) calls, and the per-element retain `cli/runtime/list.rs` is handed. |
 //! | [`Helper::Elems`] | The same for a whole `[T]` block, whose element count is `cap / stride`. |
 //! | [`Helper::EnvGlue`] | The one indirection that lets a closure environment carry its own drop glue: `Ty::Fn` does not record what was captured, so the block holds the release function in its first word. |
-//! | [`Helper::Entry`] | The other direction through the C boundary: a `void(state, in, out)` the **runtime** calls to run one Buri step. A closure's `code` has a parameter list that depends on the element type, so the runtime cannot call it; this is generated where that type is known and is the only thing that does. |
+//! | [`Helper::Entry`] | The other direction through the C boundary: a `void(state, index, in, out)` the **runtime** calls to run one Buri step. A closure's `code` has a parameter list that depends on the element type, so the runtime cannot call it; this is generated where that type is known and is the only thing that does. |
 //!
 //! Every one is a **local** symbol of the unit that needed it, so two units
 //! that both drop a `[Str]` get a copy each and neither collides.
@@ -54,7 +54,7 @@
               before anything is emitted"
 )]
 
-use super::asm::{Asm, RAX, RDI, RDX, RSI, RSP, SP, X86};
+use super::asm::{Asm, RAX, RCX, RDI, RDX, RSI, RSP, SP, X86};
 use super::jit::{Fn2, FrameSig, Jit, V};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{CAP_MASK, CLOSURE_ENV};
@@ -79,15 +79,21 @@ pub enum Helper {
     /// rest.
     EnvGlue,
     /// The C-ABI **entry thunk** a runtime-driven step is reached through:
-    /// `extern "C" fn(state, arg, out)`, which runs the closure in `state` once
-    /// on the element at `arg` and writes its answer through `out`
+    /// `extern "C" fn(state, index, arg, out)`, which runs the closure in
+    /// `state` once on the element at `arg` and writes its answer through `out`
     /// (`cli/runtime/list.rs`'s `StepEntry`).
     ///
     /// `params` and `ret` are the closure's own signature, which is what makes
     /// one of these per step shape rather than per key: everything the runtime
     /// cannot say about the element types is said here, at the call site, where
     /// they are known.
-    Entry { params: Vec<Ty>, ret: Ty },
+    ///
+    /// `index` is which of `params` receives the runtime's loop counter, and it
+    /// is part of the *key* rather than derived from the signature: two steps
+    /// can take the same types and mean different things by the second one.
+    /// `None` is a step that is not told where it is; the register still
+    /// arrives and the body ignores it.
+    Entry { params: Vec<Ty>, ret: Ty, index: Option<usize> },
 }
 
 /// The symbol a helper is emitted under.
@@ -141,16 +147,17 @@ const G_COUNT: u32 = 16;
 const G_SPARE: u32 = 24;
 const G_VALUE: u32 = 32;
 
-/// The fixed slots an **entry thunk**'s frame opens with: its three C
+/// The fixed slots an **entry thunk**'s frame opens with: its four C
 /// arguments, a zero to index them by, a pointer into the state record, the
 /// closure copied out of that record, and the element copied out of `arg`.
 const E_STATE: u32 = 0;
-const E_ARG: u32 = 8;
-const E_OUT: u32 = 16;
-const E_ZERO: u32 = 24;
-const E_CTXP: u32 = 32;
-const E_CLOS: u32 = 40;
-const E_ELEM: u32 = 56;
+const E_INDEX: u32 = 8;
+const E_ARG: u32 = 16;
+const E_OUT: u32 = 24;
+const E_ZERO: u32 = 32;
+const E_CTXP: u32 = 40;
+const E_CLOS: u32 = 48;
+const E_ELEM: u32 = 64;
 
 /// The **state record** a runtime-driven step crosses the C boundary inside.
 ///
@@ -182,12 +189,22 @@ const E_CTX: u32 = 24;
 /// Where each context argument sits inside the record, and how big the record
 /// is — which is what the call site puts the entry thunk's frame past.
 ///
-/// `widths` is every step parameter's width in signature order; the last is the
-/// element, which travels through `arg` rather than through the record.
-pub fn state_shape(widths: &[u32]) -> (Vec<u32>, u32) {
+/// `widths` is every step parameter's width in signature order. **Two of them
+/// are not in the record**: the last, which is the element and travels through
+/// `arg`; and `index`, which travels in its own register because the runtime is
+/// the side that knows it. What is left is the contexts, which are the same
+/// value at every element and so are written once, here.
+///
+/// The answer is a vector of offsets *parallel to the contexts*, not to
+/// `widths` — a caller zips it against the arguments it supplies, and the two
+/// backends check the lengths agree.
+pub fn state_shape(widths: &[u32], index: Option<usize>) -> (Vec<u32>, u32) {
     let mut at = E_CTX;
     let mut out = Vec::new();
-    for w in widths.iter().take(widths.len().saturating_sub(1)) {
+    for (i, w) in widths.iter().enumerate().take(widths.len().saturating_sub(1)) {
+        if index == Some(i) {
+            continue;
+        }
         out.push(at);
         at += round8(*w);
     }
@@ -204,7 +221,9 @@ impl Jit<'_> {
             Helper::Walk { ty, retain } => self.walk_glue(ty.clone(), *retain),
             Helper::Elems { ty } => self.elems_glue(ty.clone()),
             Helper::EnvGlue => self.env_glue(),
-            Helper::Entry { params, ret } => self.entry_thunk(params.clone(), ret.clone()),
+            Helper::Entry { params, ret, index } => {
+                self.entry_thunk(params.clone(), ret.clone(), *index)
+            }
         }
         at
     }
@@ -487,17 +506,19 @@ impl Jit<'_> {
         }
     }
 
-    /// `extern "C" fn(state, arg, out)` — one step of a runtime-driven call.
+    /// `extern "C" fn(state, index, arg, out)` — one step of a runtime-driven
+    /// call.
     ///
     /// This is [`Jit::thunk`]'s problem from the other side. A thunk converts a
     /// closure's environment for a Buri caller; an entry thunk converts *three
-    /// C pointers* for one, and it is the only thing that ever calls a Buri
-    /// closure from outside the frame-threaded world.
+    /// C pointers and a counter* for one, and it is the only thing that ever
+    /// calls a Buri closure from outside the frame-threaded world.
     ///
     /// The sequence is six moves and a call:
     ///
     /// ```text
     ///   the closure `{ code, env }`, out of the state record
+    ///   the index, out of its own C argument, where the key names one
     ///   the element, out of `arg` and into the step's parameter slot
     ///   a retain on it — the step owns what it is handed (`middle/rc.rs`)
     ///   `calli` through `code`, into the ordinary thunk
@@ -506,11 +527,13 @@ impl Jit<'_> {
     ///
     /// The step's **context** arguments come out of the record rather than out
     /// of `arg`: they are the same value at every element, and a C signature
-    /// has no parameter for one. A zero-sized context costs nothing here and a
+    /// has no parameter for one. The *index* is the opposite case and so is
+    /// neither — it changes at every element and nothing here can derive it —
+    /// so it has a C argument of its own. A zero-sized context costs nothing here and a
     /// context carrying a handle costs a copy, which is the whole of the
     /// difference between `core/host`'s allocators and
     /// `core/testing/context`'s.
-    fn entry_thunk(&mut self, params: Vec<Ty>, ret: Ty) {
+    fn entry_thunk(&mut self, params: Vec<Ty>, ret: Ty, index: Option<usize>) {
         let Some(elem) = params.last().cloned() else {
             self.unsupported(String::from("a runtime-driven step taking no argument"));
             self.emit("ret", &[]);
@@ -518,7 +541,7 @@ impl Jit<'_> {
         };
         let widths: Vec<u32> =
             params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
-        let (ctx_at, _) = state_shape(&widths);
+        let (ctx_at, _) = state_shape(&widths, index);
         let elem_l = self.layouts_of(elem.clone());
         let (elem_size, elem_slot) = (elem_l.size, round8(elem_l.size).max(8));
         let ret_l = self.layouts_of(ret.clone());
@@ -542,7 +565,20 @@ impl Jit<'_> {
 
         self.imm_to(E_ZERO, 0);
         self.elem_load(E_CLOS, E_STATE, E_ZERO, 8, 16);
-        for (i, off) in ctx_at.iter().copied().enumerate() {
+        // The step's index, straight from the C argument into the parameter the
+        // key names. It is the one parameter that is neither in the record nor
+        // in `arg`, because it is the one thing about this call that only the
+        // runtime knows.
+        if let Some(to) = index.and_then(|i| param_at.get(i).copied()) {
+            self.mv(to, E_INDEX, 8);
+        }
+        // `ctx_at` is parallel to the *contexts*, and `param_at` to the
+        // parameters, so the two are walked together rather than by one index:
+        // an index parameter sits between them and is in neither.
+        let ctx_params: Vec<usize> = (0..params.len().saturating_sub(1))
+            .filter(|i| index != Some(*i))
+            .collect();
+        for (off, i) in ctx_at.iter().copied().zip(ctx_params) {
             let w = widths.get(i).copied().unwrap_or(0);
             let Some(to) = param_at.get(i).copied().filter(|_| w > 0) else { continue };
             self.emit(
@@ -588,7 +624,7 @@ impl Jit<'_> {
         self.resolve_helper_blocks(base, &st);
     }
 
-    /// The instructions in front of an entry thunk's body: the three C
+    /// The instructions in front of an entry thunk's body: the four C
     /// arguments into the frame the state record names, and a call into the
     /// frame-threaded code that follows.
     ///
@@ -605,8 +641,9 @@ impl Jit<'_> {
             a.push_rbp();
             a.ldr(RAX, RDI, E_FRAME);
             a.str_off(RDI, RAX, E_STATE);
-            a.str_off(RSI, RAX, E_ARG);
-            a.str_off(RDX, RAX, E_OUT);
+            a.str_off(RSI, RAX, E_INDEX);
+            a.str_off(RDX, RAX, E_ARG);
+            a.str_off(RCX, RAX, E_OUT);
             a.mov_reg(RDI, RAX);
             // `pop` and `ret` are one byte each: two bytes stand between the
             // end of this call and the body.
@@ -619,11 +656,14 @@ impl Jit<'_> {
         }
         let mut a = Asm::new();
         a.str_pre16(30, SP);
-        a.ldr(3, 0, E_FRAME);
-        a.str_off(0, 3, E_STATE);
-        a.str_off(1, 3, E_ARG);
-        a.str_off(2, 3, E_OUT);
-        a.add_imm(0, 3, 0);
+        // `x4` rather than `x3` for the frame pointer: `x3` is the fourth C
+        // argument now, and reading the record into it would lose `out`.
+        a.ldr(4, 0, E_FRAME);
+        a.str_off(0, 4, E_STATE);
+        a.str_off(1, 4, E_INDEX);
+        a.str_off(2, 4, E_ARG);
+        a.str_off(3, 4, E_OUT);
+        a.add_imm(0, 4, 0);
         // Two instructions stand between this one and the body.
         a.bl_words(3);
         a.ldr_post16(30, SP);
