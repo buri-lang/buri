@@ -33,7 +33,7 @@
 
 use crate::http;
 use crate::rng;
-use crate::value::{list_of_bytes, list_of_strs, str_of, BuriList, BuriStr};
+use crate::value::{list_of_bytes, list_of_headers, list_of_strs, str_of, BuriList, BuriStr};
 use crate::BURI_OK;
 use std::io::{Read, Write};
 use std::sync::Mutex;
@@ -626,50 +626,109 @@ pub unsafe extern "C" fn buri_rt_host_fs_sync_file(
 // Network
 // ---------------------------------------------------------------------------
 
-/// `Net::fetch` — `Result<NetResponse, NetError>`.
+/// One `[Header]` element, as it is laid out in the spine.
 ///
-/// `NetResponse` is `{ status: Int, body: Str }` (`effect.buri:98-101`) and its two
-/// fields leave through two out-pointers, per `lib.rs` §2 rule 2. On the error
-/// arm the tag is `NetError`'s variant index and `out_body` carries the payload
-/// of the two variants that have one — `BadUrl(Str)` and `Transport(Str)` —
-/// and the empty string for the two that do not.
+/// `Header` is `struct { name: Str, value: Str }`, and VALUE-MODEL.md §5 lays a
+/// struct out as its fields back to back — so an element of a `[Header]` is two
+/// `BuriStr`s and the stride is 48. Declared here rather than inferred at the
+/// cast site so the shape has a name a reader can check against the Buri
+/// declaration.
+#[repr(C)]
+struct BuriHeader {
+    name: BuriStr,
+    value: BuriStr,
+}
+
+/// The name/value pairs of a `[Header]` argument.
+///
+/// # Safety
+/// `ptr` must be the payload of a live `[Header]` of `len` elements, or null
+/// with `len == 0`.
+unsafe fn headers(ptr: *const u8, len: u64) -> Vec<(String, String)> {
+    if ptr.is_null() || len == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(len as usize);
+    for i in 0..len as usize {
+        // SAFETY: the caller promises `len` elements at `ptr`, and the stride
+        // is the one the layout gives `Header`.
+        let element = unsafe { &*ptr.cast::<BuriHeader>().add(i) };
+        // SAFETY: an element of a live list holds live `Str` views.
+        out.push(unsafe {
+            (element.name.as_str().into_owned(), element.value.as_str().into_owned())
+        });
+    }
+    out
+}
+
+/// `Net::fetch` — `Result<Response, NetError>`.
+///
+/// The Buri signature is `fetch(self, request: Request)`, and `Request` is
+/// `{ method: Method, url: Str, headers: [Header], body: [U8] }` — so per
+/// `lib.rs` §2 rule 1 the argument arrives flattened: the method's variant
+/// index (widened to a C `int`, for [`crate::Ret::Tag`]'s reason), then the
+/// URL's three `Str` leaves, then two `(ptr, len)` pairs. `Response`'s three
+/// fields leave through three out-pointers, per §2 rule 2.
+///
+/// On the error arm the returned tag is `NetError`'s variant index and
+/// `out_err` carries the payload of the two variants that have one —
+/// `BadUrl(Str)` and `Transport(Str)` — and the empty string for the three
+/// that do not.
+///
+/// **No backend calls this yet.** `NetError` carries a payload on two of its
+/// variants, and `lib.rs` §2.1's `Result` shape requires the error variant an
+/// entry names to carry none — so neither runtime table has a row for
+/// `host.HostNet.fetch`, and both name it in their absent-key list. This body
+/// is what a row will call, and what `cli/tests/native/driver.c` calls today.
 ///
 /// `http://` only; see `http.rs` for why, and for what would change it.
 ///
 /// # Safety
-/// The three `Str` views must be live; both out-pointers writable and aligned.
+/// The URL view, the `[Header]` and the `[U8]` must be live; all four
+/// out-pointers writable and aligned.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn buri_rt_host_net_fetch(
-    _mbase: *mut u8,
-    mptr: *const u8,
-    mlen: u64,
+    method: i32,
     _ubase: *mut u8,
     uptr: *const u8,
     ulen: u64,
-    _bbase: *mut u8,
+    hptr: *const u8,
+    hlen: u64,
     bptr: *const u8,
     blen: u64,
     out_status: *mut i64,
-    out_body: *mut BuriStr,
+    out_headers: *mut BuriList,
+    out_body: *mut BuriList,
+    out_err: *mut BuriStr,
 ) -> i32 {
     // SAFETY: forwarded.
-    let (method, url, body) =
-        unsafe { (text(mptr, mlen), text(uptr, ulen), text(bptr, blen)) };
-    match http::fetch(&method, &url, &body) {
-        Ok((status, text)) => {
-            let value = str_of(&text);
+    let url = unsafe { text(uptr, ulen) };
+    // SAFETY: forwarded.
+    let sent = unsafe { headers(hptr, hlen) };
+    let body: &[u8] = if bptr.is_null() || blen == 0 {
+        &[]
+    } else {
+        // SAFETY: the caller promises `blen` readable bytes; a `[U8]`'s stride
+        // is one, so the payload is the bytes themselves.
+        unsafe { std::slice::from_raw_parts(bptr, blen as usize) }
+    };
+    match http::fetch(method, &url, &sent, body) {
+        Ok(response) => {
+            let fields = list_of_headers(&response.headers);
+            let bytes = list_of_bytes(&response.body);
             // SAFETY: the caller promises writable destinations.
             unsafe {
-                out_status.write(status);
-                out_body.write(value);
+                out_status.write(response.status);
+                out_headers.write(fields);
+                out_body.write(bytes);
             }
             BURI_OK
         }
         Err(e) => {
             let message = str_of(e.message());
             // SAFETY: as above.
-            unsafe { out_body.write(message) };
+            unsafe { out_err.write(message) };
             e.tag()
         }
     }
