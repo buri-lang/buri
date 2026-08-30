@@ -91,7 +91,7 @@ const FLOOR: usize = 250;
 /// What share of the corpus may be a cascade, as a percentage.
 ///
 /// `recovery.rs` measures the honest residue of `a syntax error stays a syntax
-/// error` at 12.2%, 1.9%, 5.2%, 17.7% and 22.4% per mutation shape over the
+/// error` at 12.4%, 1.9%, 4.9%, 17.5% and 22.1% per mutation shape over the
 /// whole population, and caps its widest row at 24. This corpus is drawn flat
 /// across those shapes, so its rate is a blend of them and cannot exceed the
 /// widest. Twenty-eight is that row's own ceiling with margin over the blend:
@@ -105,6 +105,18 @@ const FLOOR: usize = 250;
 /// not move: it is derived from `recovery.rs`'s population rates above, not
 /// fitted to this corpus's draw, which is the whole point of stating it as a
 /// rate.
+///
+/// `Option`-field elision left it at 21%, to the case, and the five residues
+/// above moved by under half a point for two separate reasons. The conformance
+/// file that exercises elision is a new seed, so `recovery.rs`'s population
+/// grew from 5,246 mutations to 5,270 — but it is 5,561 bytes and
+/// [`pinned::SEED_BYTES`] is 4,000, so the samplers here never draw from it and
+/// no pinned case declares an `Option`-typed struct field at all. On top of
+/// that growth, elision itself moved exactly one mutation out of the residue
+/// (783 of 5,270 under the old rule, 782 under the new): a `missing-field-value`
+/// on an optional field is no longer an error, so that case's mistake stays a
+/// syntax error. The direction is the only one elision can move a rate in — it
+/// removes an error and never adds one.
 const CASCADE_CEILING: usize = 28;
 
 fn corpus_dir() -> PathBuf {
