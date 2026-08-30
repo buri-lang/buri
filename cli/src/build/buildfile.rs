@@ -50,9 +50,8 @@ pub enum Platform {
     /// A page in a browser. The artifact is JavaScript, so it is built by the
     /// same backend `Js` is, but it is a different *platform* because a
     /// platform is the set of effects its host exports: `Web` grants the
-    /// reactive graph and the non-blocking request shape, and grants no
-    /// filesystem, no socket, no standard input, no environment and no
-    /// process to exit.
+    /// reactive graph, and grants no filesystem, no standard input, no
+    /// environment and no process to exit.
     Web,
 }
 

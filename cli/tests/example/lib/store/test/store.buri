@@ -5,6 +5,12 @@
 // `Hermetic`'s `Fs` is `data()`: an in-memory filesystem rooted at the package
 // directory and containing exactly the files in `test { data: [...] }`. Writes
 // are visible to this test and discarded when it ends.
+//
+// Which is why this file still names `core/testing/context` when the rest of
+// the repository has moved to `core/host/testing`: that module's `fs()` is
+// empty, and nothing there reads a `data` declaration. The suite moves when
+// `test { data }` is retired, and `cli/tests/migrate.rs` names it in `PARTIAL`
+// until then.
 
 from "//lib/store/lib.buri" import { append, readLog };
 from "//lib/ledger/lib.buri" import { entry };

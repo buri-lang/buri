@@ -333,6 +333,18 @@ const HOST_GRANTS: &[HostGrant] = &[
         platforms: EVERY_PLATFORM,
         because: "every platform has a source of randomness",
     },
+    // `Net` was three platforms until a request stopped blocking. The reason
+    // it was withheld from WEB was never authority — a page is the one place
+    // that can already reach any origin it is allowed to — it was that
+    // `Net.fetch` did not return until the answer arrived, and a page whose
+    // one thread is waiting is a frozen page. WEB grants it now, and the
+    // callback-shaped `Fetch` that stood in for it is gone.
+    HostGrant {
+        effect: "Net",
+        exports: &["HostNet", "net"],
+        platforms: EVERY_PLATFORM,
+        because: "every platform can make a request",
+    },
     // The two halves that vary. A page has no operating system under it, and
     // nothing but a page has a document over it.
     HostGrant {
@@ -340,13 +352,6 @@ const HOST_GRANTS: &[HostGrant] = &[
         exports: &["HostFs", "fs"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no filesystem to read",
-    },
-    HostGrant {
-        effect: "Net",
-        exports: &["HostNet", "net"],
-        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "`Net.fetch` blocks until the response arrives, which freezes a page; WEB \
-                  grants `Fetch` instead, which is the same request with a callback",
     },
     HostGrant {
         effect: "Stdin",
@@ -389,13 +394,6 @@ const HOST_GRANTS: &[HostGrant] = &[
         exports: &["HostWatch", "watch"],
         platforms: &[Platform::Web],
         because: "reading the reactive graph is meaningless where nothing writes it",
-    },
-    HostGrant {
-        effect: "Fetch",
-        exports: &["HostFetch", "fetch"],
-        platforms: &[Platform::Web],
-        because: "a callback that lands later needs an event loop that outlives `main`, which \
-                  is what a page has and a script does not",
     },
 ];
 
@@ -552,9 +550,12 @@ mod tests {
     fn an_ungrantable_effect_is_not_told_to_build_elsewhere() {
         let tasks = host_grant_of("tasks").expect("`tasks` is in the grant table");
         assert_eq!(tasks.elsewhere_clause(), "");
-        let net = host_grant_of("net").expect("`net` is in the grant table");
+        // `fs` and not `net`: B5 moved `Net` into the every-platform group, and
+        // a clause naming all four platforms would not show that the sentence
+        // is the *subset* a target could be built for instead.
+        let fs = host_grant_of("fs").expect("`fs` is in the grant table");
         assert_eq!(
-            net.elsewhere_clause(),
+            fs.elsewhere_clause(),
             ", or build this target for a platform that grants it: LINUX, MACOS, JS"
         );
     }

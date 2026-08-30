@@ -39,7 +39,7 @@ function __cmd_x_main_buri$main(){
     if(count_24[0]===0){
       $t1=count_24[1];
     }else if(count_24[0]===1){
-      $t1=ui_signal_lib_buri$Signal_get$ffq1hq(count_24[1],c_25);
+      $t1=ui_signal_lib_buri$Signal_get$h7egbi(count_24[1],c_25);
     }else if(count_24[0]===2){
       $t1=count_24[1](c_25);
     }else{
@@ -132,6 +132,6 @@ function __cmd_x_main_buri$Card_color(self_0){
 function ui_node_lib_buri$column$u3rqgv(styles_0,children_1){
   return [[3,[$k26,[0,styles_0]],children_1]];
 }
-function ui_signal_lib_buri$Signal_get$ffq1hq(self_0,ctx_1){
+function ui_signal_lib_buri$Signal_get$h7egbi(self_0,ctx_1){
   return $ui_effect_Scope_read(ctx_1,self_0[0]);
 }

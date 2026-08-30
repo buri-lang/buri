@@ -1,6 +1,11 @@
 // `Hermetic`'s `Fs` is `data()`, so the declared golden files are there and
 // nothing else on disk is. `test/golden/absent.txt` is declared and missing,
 // which the in-memory filesystem reports as empty.
+//
+// That seeding is the whole subject here, and `core/host/testing`'s `fs()` is
+// empty, so this is one of the two files the `Hermetic` migration leaves alone
+// — `cli/tests/migrate.rs` names it in `PARTIAL`, and it moves when
+// `test { data }` is retired.
 
 from "//lib/report/lib.buri" import { footer, render, trailer };
 from "core/fs/lib.buri" import * as fs;

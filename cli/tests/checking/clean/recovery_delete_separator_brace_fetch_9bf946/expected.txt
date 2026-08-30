@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-terminator]
-  --> main.buri:58:7
-   |
-58 |     })
-   |       ^
-   |
-   = fix: write `;` here

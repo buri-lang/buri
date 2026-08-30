@@ -2086,16 +2086,38 @@ function $ui_write(cell, v) {
   return 0;
 }
 
-// One update transaction. Event handlers and fetch callbacks land inside one,
-// so N writes cause one pass over the watchers.
+// One update transaction: N writes cause one pass over the watchers rather
+// than N.
+//
+// The transaction is the handler's *synchronous* run, and that is the whole of
+// the decision now that a handler can wait. A page grants `Net`, so a press
+// may write "asking the server", suspend on the answer, and write again when
+// it arrives — and those are two transactions, not one held open across the
+// wait. Holding it open would mean the first notice did not reach the document
+// until the request it announced had already finished, which is the opposite
+// of what it is for.
+//
+// What the promise still owes is its failure. A synchronous handler that
+// aborts throws out of the listener; an awaiting one would settle a rejected
+// promise nobody is holding, and the abort would be a line in a console rather
+// than an error. Rethrowing it from a fresh task is what makes the two behave
+// alike.
 function $ui_flush(f) {
   $ui.depth++;
+  let pending;
   try {
-    f();
+    pending = f();
   } finally {
     $ui.depth--;
   }
   if ($ui.depth === 0) $ui_drain();
+  if (pending !== null && typeof pending === "object" && typeof pending.then === "function") {
+    pending.then(undefined, (e) => {
+      setTimeout(() => {
+        throw e;
+      }, 0);
+    });
+  }
   return 0;
 }
 
@@ -2129,26 +2151,6 @@ function $host_HostWatch_read(self, id) {
 
 function $ui_effect_Scope_read(self, id) {
   return $ui_read(id);
-}
-
-// A `Request` is `[method, url, headers, body]` and a `FetchError` is
-// `[tag, ...payload]` with the tag order `ui/effect` declares:
-// Timeout, Refused, BadUrl, Transport, Aborted.
-function $host_HostFetch_fetch(self, request, done) {
-  const settle = (r) => $ui_flush(() => done(self, r));
-  try {
-    const req = new XMLHttpRequest();
-    req.open(request[0], request[1], true);
-    for (const h of request[2]) req.setRequestHeader(h[0], h[1]);
-    req.onload = () => settle($ok([req.status, req.responseText]));
-    req.onerror = () => settle($err([3, "transport"]));
-    req.ontimeout = () => settle($err([0]));
-    req.onabort = () => settle($err([4]));
-    req.send(request[3] === "" ? null : request[3]);
-  } catch (e) {
-    settle($err([3, String((e && e.message) || e)]));
-  }
-  return 0;
 }
 
 // --- The document -----------------------------------------------------------

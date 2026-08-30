@@ -16,9 +16,10 @@ Delete one of the two bindings.
 
 ## Why
 
-A spread's binding is replaced by an explicit one — `context { ..Hermetic(),
-Fs: files([]) }` is how a test overrides a default — but two explicit bindings
-of one effect have no such reading, so the later one is not a silent winner.
+A spread's binding is replaced by an explicit one — `context { ..Fixture(),
+Fs: fs().files([]) }` is how a test overrides a default — but two explicit
+bindings of one effect have no such reading, so the later one is not a silent
+winner.
 
 ## A program that provokes it
 

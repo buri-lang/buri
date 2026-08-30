@@ -15,8 +15,14 @@
 //! A signal identifier is an `Int` here rather than a `Signal<T>` because this
 //! module is the boundary with the runtime, which holds one graph of untyped
 //! cells. The typed handle is built on top, in ordinary Buri.
-
-from "core/effect/lib.buri" import { NetResponse };
+//!
+//! **Requests are not here.** There used to be a third effect, `Fetch`, whose
+//! whole reason was that `Net.fetch` blocked and a blocked page is a frozen
+//! one — so it took a callback and answered later. A suspending call no longer
+//! blocks anything, so a page asks for `Net` like every other platform and
+//! writes the answer on the line after the question. The callback shape, the
+//! second `Request`, the second error enum and the `Aborted` that only it had
+//! are all gone; `NetError.Aborted` is where that last one lives now.
 
 /// Reading signals, alone.
 ///
@@ -58,21 +64,6 @@ export effect Ui {
   fn watch(self, run: fn(Scope) => ()): ();
 }
 
-/// Starting requests. Separate from `Net` because the shape is different, not
-/// because the authority is: `Net.fetch` blocks until the response arrives,
-/// which on a platform with an interface means freezing it, so this one takes a
-/// callback and returns immediately. A platform grants one or the other.
-export effect Fetch {
-  /// Starts `request` and returns immediately. `done` runs later, with the
-  /// same context this call was made with — which is what lets it write
-  /// signals without capturing anything.
-  fn fetch(
-    self,
-    request: Request,
-    done: fn(Self, Result<NetResponse, FetchError>) => (),
-  ): ();
-}
-
 /// The one concrete implementor of `Watch`, minted only by the runtime when it
 /// evaluates a reactive closure.
 ///
@@ -104,42 +95,3 @@ impl Watch for Scope {
 /// Holds no authority, so a lambda may capture one. Its field is private, so
 /// only the runtime can mint one.
 export struct Event(Int);
-
-/// What a `Fetch` is asked to do.
-export struct Request {
-  export method: Str,
-  export url: Str,
-  export headers: [(Str, Str)],
-  /// Empty for a request with no body.
-  export body: Str,
-}
-
-/// Why a request produced no response.
-///
-/// The same four reasons as `NetError`, plus `Aborted`: a callback-shaped
-/// request can be cancelled, and the variant exists now so that adding the
-/// handle later does not change this type.
-export enum FetchError {
-  Timeout,
-  Refused,
-  BadUrl(Str),
-  Transport(Str),
-  Aborted,
-}
-
-/// Starts a request and returns immediately.
-///
-/// The free-function form of `Fetch.fetch`, so a call site reads
-/// `ui.fetch(ctx, request, done)` rather than `ctx.fetch(request, done)`. The
-/// callback takes its context as a parameter — a lambda may not capture one —
-/// and receives the very context the call was made with.
-export fn fetch<C: Fetch>(
-  ctx: C,
-  request: Request,
-  done: fn(C, Result<NetResponse, FetchError>) => (),
-): () {
-  ctx.fetch(request, done)
-}
-
-derive Eq, Show for FetchError;
-derive Eq, Show for Request;

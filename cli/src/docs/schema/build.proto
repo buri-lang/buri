@@ -165,9 +165,8 @@ enum Platform {
   MACOS = 2;
   JS = 3;
   // A page in a browser: an `.mjs`, a `.css`, and an `.html` entry shell that
-  // loads them. Grants the reactive graph (`Ui`, `Watch`) and the
-  // non-blocking request shape (`Fetch`); grants no filesystem, socket,
-  // standard input, environment or process to exit.
+  // loads them. Grants the reactive graph (`Ui`, `Watch`); grants no
+  // filesystem, standard input, environment or process to exit.
   WEB = 4;
 }
 
