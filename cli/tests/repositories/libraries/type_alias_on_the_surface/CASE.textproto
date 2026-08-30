@@ -1,0 +1,35 @@
+# A type alias reaches a library's surface the way every other declaration
+# does: `export` on the declaration, a name in `lib.buri`'s re-export list, and
+# a named import from outside. Issue #6 — before it, an alias was never a
+# symbol at all, so none of the three worked and the diagnostic told the reader
+# to add an `export` that was already there.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "type aliases exported, re-exported through lib.buri, and imported by name"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}
+
+# The negative twin: take the `export` off one alias and the re-export naming
+# it must say so, and say which of the two mistakes it is.
+edit {
+  file: "lib/units/units.buri"
+  replace: "export type Raw = F64;"
+  with: "type Raw = F64;"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "build.txt"
+}
+
+run {
+  args: ["build", "//cmd/app", "--error-format=json", "--force"]
+  exit: 1
+  golden: "build.json"
+}

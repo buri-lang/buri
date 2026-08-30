@@ -1,0 +1,26 @@
+// Type aliases on a library's surface. `Meters` is published, `Raw` is
+// published for the case's second half to take away, and `Trip` and `Sample`
+// are aliases written in terms of other names in this module.
+
+export type Meters = F64;
+export type Trip = [Meters];
+export type Raw = F64;
+
+/// A struct this module keeps to itself, published only through an alias.
+/// The alias expands where it was declared, so `Sample` names this type from
+/// outside even though `Reading` is not a name out there.
+struct Reading(F64);
+
+export type Sample = Reading;
+
+export fn widen(r: Raw): Meters {
+  r
+}
+
+export fn sample(m: Meters): Sample {
+  Reading(m)
+}
+
+export fn depth(s: Sample): Meters {
+  s.0
+}

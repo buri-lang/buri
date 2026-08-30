@@ -1,0 +1,24 @@
+error: "//lib/units/units" does not export `Raw` [no-such-export]
+ --> lib/units/lib.buri:4:49
+  |
+4 | from "//lib/units/units" export { Meters, Trip, Raw, Sample, widen, sample, depth };
+  |                                                 ^^^
+  |
+  = a re-export may name only what its module path exports
+  = `Raw` is declared in "//lib/units/units" but not exported
+  = fix: add `export` to `Raw`'s declaration in "//lib/units/units", or drop it from this list
+
+    What to do
+    ──────────
+
+    If the module declares the name and holds it back, add export to the
+    declaration there. If it declares no such name, the spelling is the mistake
+    — the diagnostic says which of the two it is, and offers the nearest
+    exported name.
+
+    Why
+    ───
+
+    A re-export may name only what its module path exports, so a library's
+    surface can never be wider than the modules it is built from.
+

@@ -1,0 +1,13 @@
+// EXPECT: circular type alias: `Handle` -> `Handle`
+// The shortest cycle there is. An alias is transparent, so expanding this one
+// asks for itself: before it was caught, the compiler overflowed its stack and
+// printed nothing a reader could act on.
+type Handle = Handle;
+
+fn hold(h: Handle): Handle {
+  h
+}
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

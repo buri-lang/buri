@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//lib/units"]
+    outputs: [
+        { platform: JS },
+    ]
+}
