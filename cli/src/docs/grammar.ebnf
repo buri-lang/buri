@@ -287,7 +287,13 @@ LetDecl         ::= "let" name=IDENT ":" type=Type "=" value=Expr ";"
    An effect is the same declaration with one extra consequence: its
    implementors are effect-carrying, so they may only be passed as `self` or
    `ctx`. Effects may be declared only by platform modules, and no type may
-   implement both an effect and a trait. *)
+   implement both an effect and a trait.
+
+   The GenericParams the grammar admits here are refused statically
+   [generic-effect-unsupported]: an `impl` names a trait without arguments, so
+   there is nowhere to bind them. The parse is kept so that the diagnostic can
+   point at them and say so. A *method's* own GenericParams, below, are
+   supported and in use. *)
 
 TraitDecl       ::= "trait" name=IDENT GenericParams? "{" MethodSig* "}"
 EffectDecl      ::= "effect" name=IDENT GenericParams? "{" MethodSig* "}"

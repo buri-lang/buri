@@ -1,0 +1,28 @@
+// EXPECT: `Describe` could not be resolved to a concrete type
+//
+// `impl<T> Describe for Point` declares a type parameter the head never
+// mentions, so no receiver says what `T` is. Monomorphization used to pad the
+// missing argument with `()` and compile the call; the padding is gone, and
+// the disagreement is reported at the call it would have miscompiled.
+//
+// The call goes through the bound rather than through `Point` directly,
+// because a method call on a concrete type resolves to the `impl`'s function
+// without going near trait dispatch.
+struct Point(export Int);
+
+trait Describe {
+  fn describe(self): Int;
+}
+
+impl<T> Describe for Point {
+  fn describe(self): Int { self.0 }
+}
+
+fn go<D: Describe>(d: D): Int {
+  d.describe()
+}
+
+export fn main(): Result<(), Str> {
+  let _ = go(Point(1));
+  .Ok(())
+}

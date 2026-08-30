@@ -1,0 +1,38 @@
+error: expected `I64`, found `Str` [type-mismatch]
+  --> cmd/explicit_type_arguments_on_an_effect_method/main.buri:17:46
+   |
+17 | fn readWrong<C: Watch>(ctx: C, id: Int): Int {
+   |                                              ^ the declared return type is `I64`
+   |
+   = expected: `I64`
+   = actual: `Str`
+   = fix: produce a `I64` here, or change what surrounds it to accept a `Str`
+
+     What to do
+     ──────────
+
+     Convert explicitly. The diagnostic names the conversion: .toI64() is exact
+     for every I32, while a narrowing one returns a Result because not every
+     value fits.
+
+     A bare numeric literal is reported as Int or Float, the type it takes when
+     nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
+     let x: U8 = 1 — and it becomes any type of the same kind.
+
+     Why
+     ───
+
+     No promotion of any kind, in either direction. A language that widened
+     silently would make the width of an arithmetic result a property of the
+     expression's shape rather than of what was written, and the one place it
+     matters is the one place nobody looks.
+
+error: expected 1 type arguments, found 2 [type-argument-mismatch]
+  --> cmd/explicit_type_arguments_on_an_effect_method/main.buri:23:11
+   |
+23 |   let _ = ctx.memo<Int, Str>(fn(s) => 1);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: supply exactly 1
