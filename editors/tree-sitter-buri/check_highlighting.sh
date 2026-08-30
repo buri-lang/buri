@@ -107,6 +107,17 @@ GRAMMAR="
 64 label function
 64 self variable.builtin
 67 _ variable
+74 anonymous function
+74 hash variable.parameter
+74 User type
+75 seed variable
+75 User type
+75 UserId constructor
+75 id property
+75 name property
+75 passwordHash property
+76 seed variable
+76 name property
 "
 
 # --- What the grammar is not asked for ---------------------------------------
@@ -131,6 +142,7 @@ UNCOLOURED="
 57 shelf
 58 other
 58 pair
+75 hash
 "
 
 # --- What the server is asked for --------------------------------------------
@@ -193,6 +205,17 @@ SERVER="
 58 fromFloat function
 62 Source type
 64 label method
+74 anonymous function
+74 hash variable
+74 User type
+75 seed variable
+75 User type
+75 id property
+75 name property
+75 passwordHash property
+75 hash variable
+76 seed variable
+76 name property
 "
 
 # ---------------------------------------------------------------------------

@@ -1026,3 +1026,47 @@ export fn hidden(shown: Int): Hidden {
 export fn hiddenPrivate(h: Hidden): Option<Int> {
   h.private
 }
+
+// =============================================================================
+// 15. Literals that leave the type name out too (SPEC 5.6, 12.3)
+// =============================================================================
+
+/// A struct whose field is a struct, so a literal can be anonymous inside
+/// another literal — the field's declared type is what names it.
+export struct Wrap {
+  export inner: World,
+}
+
+derive Eq, Show for Wrap;
+
+/// A parameter is one of the places an expected type comes from, and this is
+/// the one that reaches a literal through a call rather than an annotation.
+export fn takesWorld(w: World): Str {
+  w.hi
+}
+
+/// Written inside the declaring module, so the anonymous form is exercised on
+/// both sides of the module boundary like the headed one.
+export fn anonHere(): World {
+  { hi: "hi" }
+}
+
+/// A match arm's value is checked against the arm type, so the anonymous form
+/// reaches it the same way a `let` annotation does.
+export fn anonMatch(b: Bool): World {
+  match (b) {
+    true => { hi: "yes" },
+    false => { hi: "no" },
+  }
+}
+
+/// A type with a private field can still be built anonymously — by the module
+/// that declares it, and only by that module. Visibility is untouched by where
+/// the type name is written.
+///
+/// The first field is keyed rather than shorthand because that is what tells
+/// the grammar these braces are a literal and not a block whose result is the
+/// parameter (SPEC 12.3).
+export fn anonHidden(shown: Int): Hidden {
+  { shown: shown }
+}

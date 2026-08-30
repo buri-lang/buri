@@ -1,0 +1,22 @@
+// EXPECT: expected `World`, found `Str`
+//
+// The seam the grammar's scope leaves behind, pinned so that it shows as a
+// diff if it ever moves. `{ hi }` is one of the two strings both readings
+// accept, and the block wins it (SPEC 12.3) — so this is a block whose result
+// is the parameter, and the diagnostic is an ordinary mismatch rather than
+// anything about literals. `{ hi, }`, `{ hi: hi }` and `World { hi }` all
+// build the struct.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct World { export hi: Str, export hello: Option<Str> }
+
+fn build(hi: Str): World {
+  { hi }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(build("hi").hi);
+  .Ok(())
+}

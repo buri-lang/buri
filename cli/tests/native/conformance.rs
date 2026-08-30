@@ -27,11 +27,12 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Twenty-eight of the thirty-eight files are in it** — the number the
+//! **Twenty-nine of the thirty-nine files are in it** — the number the
 //! harness prints, and one the prose had off by one before
-//! `semantics/generics.buri` joined them. `semantics/elision.buri` is the
-//! twenty-eighth, and `collections/ordmap.buri` the twenty-seventh; neither
-//! needed anything the backend did not already have.
+//! `semantics/generics.buri` joined them. `semantics/anonymous.buri` is the
+//! twenty-ninth and `semantics/elision.buri` the twenty-eighth, with
+//! `collections/ordmap.buri` the twenty-seventh; none of them needed anything
+//! the backend did not already have.
 //! `proto/binary.buri` was the twenty-sixth: it compiled and passed all along and
 //! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
 //! `Scan::short_circuit`, which is linear now. What is actually
@@ -265,6 +266,11 @@ const PACKAGES: &[Case] = &[
     // time either backend sees it, which is the claim this file is here to put
     // to the native one as well as to the reference one (SPEC 5.6).
     included("semantics/elision.buri"),
+    // The seventh: a literal that leaves its type name out is the same
+    // `StructLit` node by the time either backend sees it — the head is read
+    // by the checker and never reaches a backend — so this file is here to say
+    // that out loud on the native one too (SPEC 12.3).
+    included("semantics/anonymous.buri"),
     // -- out: the backend has no body for what they reach ---------------
     //
     // Every one of these is reported by `Backend::missing_intrinsics`

@@ -69,3 +69,10 @@ impl Source {
         }
     }
 }
+
+/// The anonymous literal of 5.6: the type is the annotation's, and the
+/// braces hold the same fields a headed literal would.
+export fn anonymous(hash: Str): User {
+    let seed: User = { id: UserId("u2"), name: "Grace", passwordHash: hash };
+    { ..seed, name: "Grace H." }
+}

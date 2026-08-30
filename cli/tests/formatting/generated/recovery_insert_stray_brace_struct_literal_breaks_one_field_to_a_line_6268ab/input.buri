@@ -1,3 +1,0 @@
-export fn f(state: [U32]): Working {
-  Working { a: state.get(0).withDefault(0extra ), b: state.get(1).withDefault(0), c: state.get(2).withDefault(0), d: state.get(3).withDefault(0) }
-}

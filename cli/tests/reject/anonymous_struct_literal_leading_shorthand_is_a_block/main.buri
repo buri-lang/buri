@@ -1,0 +1,27 @@
+// EXPECT: this block is missing its closing `}`
+//
+// The other half of the grammar's seam, pinned beside
+// `anonymous_struct_literal_single_shorthand_is_a_block`. A `{` opens a literal
+// only when a `..` or a `name :` follows it (SPEC 12.3), so a literal whose
+// first field is shorthand is read as a block, and a block cannot hold a comma.
+//
+// The message is the block's, and pinning it is the point: it is what a reader
+// who reached for the shorter spelling actually sees, and the word "block" in
+// it is the only thing telling them which reading they got. It is a candidate
+// for a better sentence, and this case is where that change would show.
+//
+// `World { hi, hello }` and `{ hi: hi, hello }` both build the struct.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct World { export hi: Str, export hello: Option<Str> }
+
+fn build(hi: Str, hello: Option<Str>): World {
+  { hi, hello }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(build("hi", .None).hi);
+  .Ok(())
+}

@@ -1,0 +1,3 @@
+export fn f(ctxC :, state: [U32]): Str {
+  render(ctx, { title: "a heading that is long enough to need its own line", body: state })
+}
