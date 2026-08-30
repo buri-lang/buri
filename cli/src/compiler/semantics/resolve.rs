@@ -438,7 +438,25 @@ impl<'a> Checker<'a> {
                 if d.is_effect && self.module(module).role != Role::Platform {
                     self.templated("effect-outside-platform", d.span);
                 }
+                // A trait's *own* parameters have nowhere to be bound. An
+                // `impl` is written `impl Trait for Type`, with no arguments
+                // after the trait's name, so `Trait<Str>` and `Trait<Int>`
+                // would be one conformance; and monomorphization rebuilds an
+                // implementation's type arguments by matching the `impl` head
+                // against the receiver, which mentions the trait's parameters
+                // nowhere (`middle/monomorphize.rs`, `instance_targs`). The
+                // refusal is here rather than there because a declaration is
+                // something to fix and a miscompiled call is not.
+                //
+                // A *method's* own generics are supported and shipping —
+                // `Show.show<C: Alloc>`, `Ui.memo<T>` — and are what a trait
+                // parameter would have been used for.
                 let generics = self.generic_shells(module, &d.generics);
+                if let Some(first) = generics.first() {
+                    let at = generics.iter().fold(first.span, |acc, g| acc.to(g.span));
+                    let name = t.name(d.name).to_string();
+                    self.templated("generic-effect-unsupported", at).bind("name", name);
+                }
                 let id = self.tables.add_trait(TraitInfo {
                     name: t.name(d.name).to_string(),
                     module,
@@ -1898,6 +1916,7 @@ impl<'a> Checker<'a> {
         self.tables.add_impl(ImplInfo {
             trait_id,
             self_con,
+            head: self_ty,
             body: ImplBody::Written(supplied),
             span: d.span,
         });
@@ -2046,6 +2065,7 @@ impl<'a> Checker<'a> {
             self.tables.add_impl(ImplInfo {
                 trait_id,
                 self_con,
+                head: self.tables.generic_head(self_con),
                 body: ImplBody::Derived,
                 span: d.span,
             });

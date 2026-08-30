@@ -122,6 +122,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("field-not-callable", "A field holding a value is not a method"),
     e!("field-wrong-kind", "A build-file field holds one kind of value", &["build/build-files"]),
     e!("float-as-a-tuple-index", "Two tuple indices in a row lex as a float"),
+    e!("generic-effect-unsupported", "A trait or an effect takes no type parameters of its own"),
     e!("host-import", "`core/host` is imported by the module that exports `main`", &["build/hermeticity"]),
     e!("host-not-granted", "A platform grants the effects its host exports", &["build/build-files"]),
     e!("if-without-else", "`if` is an expression, so it needs an `else`"),
