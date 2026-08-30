@@ -1,2 +1,2 @@
-from "//lib/money/routes" export { Route, route };
-from "//lib/money/cents" export { describe };
+from "//lib/money/routes.buri" export { Route, route };
+from "//lib/money/cents.buri" export { describe };

@@ -9,9 +9,9 @@
 // Shifting by a count at or beyond the width of the type aborts, so every
 // count below is in range.
 
-from "core/testing/assert" import * as assert;
-from "core/bits" import * as bits;
-from "core/num" import * as num;
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/bits/lib.buri" import * as bits;
+from "core/num/lib.buri" import * as num;
 
 // --- shl ---------------------------------------------------------------------------
 

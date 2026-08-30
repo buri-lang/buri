@@ -1,1 +1,1 @@
-from "//lib/shop/cart" export { total };
+from "//lib/shop/cart.buri" export { total };

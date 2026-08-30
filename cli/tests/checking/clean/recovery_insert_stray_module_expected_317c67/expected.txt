@@ -1,7 +1,7 @@
 error: expected `{`, found `extra` [unexpected-token]
  --> main.buri:1:25
   |
-1 | from "core/list" export extra { fold, map };
+1 | from "core/list/lib.buri" export extra { fold, map };
   |                         ^^^^^
   |
   = expected: `{`
@@ -10,7 +10,7 @@ error: expected `{`, found `extra` [unexpected-token]
 error: expected a declaration, found `;` [unexpected-token]
  --> main.buri:1:44
   |
-1 | from "core/list" export extra { fold, map };
+1 | from "core/list/lib.buri" export extra { fold, map };
   |                                            ^
   |
   = expected: a declaration

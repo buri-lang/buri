@@ -4,8 +4,8 @@
 // open. That is still refused: `Holder<Int>` is a type a reader can see and
 // `Holder<?>` is one the fields would have to decide, and this feature reads a
 // type rather than deciding one (SPEC 12.3).
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 struct Holder<T> { export only: T, export slot: Option<T> }
 

@@ -8,12 +8,12 @@
 //    JavaScript stack. Every depth here is past what an engine gives a
 //    recursive function, so the failure is a crash, not a slow test.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { alloc };
-from "core/effect" import { Alloc };
-from "core/list" import * as list;
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
+from "core/list/lib.buri" import * as list;
 
-from "//lib/codegen" import {
+from "//lib/codegen/lib.buri" import {
   adders, addersEven, scalers, pairs,
   allBelow, countDownAnd, countDownOr, firstOr, countDownCoalesce,
   evenAnd,

@@ -4,7 +4,7 @@
 // would still produce a plausible-looking report from a file laid out the
 // other way.
 
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "one passes" {
     assert.eq(1, 1);

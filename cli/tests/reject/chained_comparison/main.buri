@@ -1,6 +1,6 @@
 // EXPECT: comparison operators are non-associative
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn between(a: Int, b: Int, c: Int): Bool {
   a < b < c

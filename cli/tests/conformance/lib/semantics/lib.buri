@@ -1,6 +1,6 @@
 // The public surface of //lib/semantics.
 
-from "//lib/semantics/shapes" export {
+from "//lib/semantics/shapes.buri" export {
   // derived traits
   Version, version, Level, Shape, area,
   // newtypes with derived operator traits

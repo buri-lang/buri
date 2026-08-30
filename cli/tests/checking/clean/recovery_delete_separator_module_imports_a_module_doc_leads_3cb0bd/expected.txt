@@ -1,7 +1,7 @@
 error: an import declaration ends with `;` [missing-terminator]
  --> main.buri:4:32
   |
-4 | from "core/str" import * as str
+4 | from "core/str/lib.buri" import * as str
   |                                ^
   |
   = fix: write `;` here

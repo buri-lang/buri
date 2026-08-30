@@ -2,9 +2,9 @@
 // unfinished work is listed rather than found by whichever grep somebody
 // remembers to run.
 
-from "core/effect" import { Alloc? , Stdout };
-from "core/host" import * as host;
-from "core/io" import * as io;
+from "core/effect/lib.buri" import { Alloc? , Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/io/lib.buri" import * as io;
 
 // TODO: decide what this program is for.
 fn banner(): Str { "TODO is a marker in a comment and not in a string" }

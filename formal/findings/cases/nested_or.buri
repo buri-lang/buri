@@ -2,8 +2,8 @@
 // column. A nested one survives, is exposed by `specialize`, and is then
 // dropped -- `specializeRow` and `defaultRow` both ignore an or-headed row.
 // Prediction: this exhaustive match is rejected.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn describe(x: Option<Bool>): Int {
   match (x) {

@@ -1,7 +1,7 @@
 error: expected `{`, found `concat` [unexpected-token]
  --> main.buri:1:24
   |
-1 | from "core/str" import concat {, split };
+1 | from "core/str/lib.buri" import concat {, split };
   |                        ^^^^^^
   |
   = expected: `{`
@@ -10,7 +10,7 @@ error: expected `{`, found `concat` [unexpected-token]
 error: expected a declaration, found `;` [unexpected-token]
  --> main.buri:1:41
   |
-1 | from "core/str" import concat {, split };
+1 | from "core/str/lib.buri" import concat {, split };
   |                                         ^
   |
   = expected: a declaration

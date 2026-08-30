@@ -1,5 +1,5 @@
 // EXPECT: an import declaration ends with `;`
-from "core/str" import { format }
+from "core/str/lib.buri" import { format }
 
 export fn greet(): Str {
   "hello"

@@ -49,8 +49,8 @@ fn status(run: &Run, action_and_label: &str) -> String {
 fn program(answer: i32) -> String {
     format!(
         r#"
-from "core/effect" import {{ Alloc, Stdout }};
-from "core/host" import * as host;
+from "core/effect/lib.buri" import {{ Alloc, Stdout }};
+from "core/host/lib.buri" import * as host;
 
 fn answer(): Int {{ {answer} }}
 
@@ -350,19 +350,19 @@ fn editing_a_test_only_dependency_re_runs_the_suite() {
         "lib/helper/BUILD.buri",
         "library {\n    sources: [\"h.buri\"]\n    visibility: [\"//...\"]\n}\n",
     );
-    scratch.write("lib/helper/lib.buri", "from \"//lib/helper/h\" export { double };\n");
+    scratch.write("lib/helper/lib.buri", "from \"//lib/helper/h.buri\" export { double };\n");
     scratch.write("lib/helper/h.buri", "export fn double(n: I64): I64 { n * 2 }\n");
     scratch.write(
         "lib/subject/BUILD.buri",
         "library {\n    sources: [\"x.buri\"]\n\n    test {\n        sources: \
          [\"test/x.buri\"]\n        dependencies: [\"//lib/helper\"]\n    }\n}\n",
     );
-    scratch.write("lib/subject/lib.buri", "from \"//lib/subject/x\" export { triple };\n");
+    scratch.write("lib/subject/lib.buri", "from \"//lib/subject/x.buri\" export { triple };\n");
     scratch.write("lib/subject/x.buri", "export fn triple(n: I64): I64 { n * 3 }\n");
     scratch.write(
         "lib/subject/test/x.buri",
-        "from \"//lib/subject\" import { triple };\nfrom \"//lib/helper\" import { double };\n\
-         from \"core/testing/assert\" import * as assert;\n\ntest \"triple against double\" {\n  \
+        "from \"//lib/subject/lib.buri\" import { triple };\nfrom \"//lib/helper/lib.buri\" import { double };\n\
+         from \"core/testing/assert/lib.buri\" import * as assert;\n\ntest \"triple against double\" {\n  \
          assert.eq(triple(2), double(3));\n}\n",
     );
 
@@ -547,8 +547,8 @@ fn a_suite_naming_the_host_platform_runs_natively() {
     scratch.write("lib/n/lib.buri", "export fn answer(): Int { 21 }\n");
     scratch.write(
         "lib/n/test/n.buri",
-        "from \"//lib/n\" import { answer };\n\
-         from \"core/testing/assert\" import * as assert;\n\
+        "from \"//lib/n/lib.buri\" import { answer };\n\
+         from \"core/testing/assert/lib.buri\" import * as assert;\n\
          \ntest \"answers\" {\n  assert.eq(answer(), 21);\n}\n",
     );
 
@@ -624,8 +624,8 @@ fn a_suite_naming_no_platform_runs_natively_or_says_why_not() {
     scratch.write("lib/n/lib.buri", "export fn answer(): Int { 21 }\n");
     scratch.write(
         "lib/n/test/n.buri",
-        "from \"//lib/n\" import { answer };\n\
-         from \"core/testing/assert\" import * as assert;\n\
+        "from \"//lib/n/lib.buri\" import { answer };\n\
+         from \"core/testing/assert/lib.buri\" import * as assert;\n\
          \ntest \"answers\" {\n  assert.eq(answer(), 21);\n}\n",
     );
 
@@ -693,9 +693,9 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     scratch.write("lib/g/lib.buri", "export fn nothing(): Int { 0 }\n");
     scratch.write(
         "lib/g/test/g.buri",
-        "from \"core/testing/assert\" import * as assert;\n\
-         from \"core/testing/context\" import { Hermetic };\n\
-         from \"core/json\" import * as json;\n\
+        "from \"core/testing/assert/lib.buri\" import * as assert;\n\
+         from \"core/testing/context/lib.buri\" import { Hermetic };\n\
+         from \"core/json/lib.buri\" import * as json;\n\
          \ntest \"decodes\" {\n\
          \x20 let ctx = Hermetic();\n\
          \x20 let parsed = assert.ok(json.parse(ctx, \"1\"));\n\
@@ -839,7 +839,7 @@ fn a_dependency_reaches_its_dependent_as_a_key_and_not_as_contents() {
 fn a_suite_is_keyed_on_the_key_of_what_it_tests() {
     let scratch = Scratch::repo("explain-suite-keys");
     let library = |answer: i32| {
-        format!("from \"//lib/n/inner\" export {{ answer }};\nfrom \"//lib/n/inner\" import {{ answer }};\n\nexport fn twice(): Int {{ answer() * {answer} }}\n")
+        format!("from \"//lib/n/inner.buri\" export {{ answer }};\nfrom \"//lib/n/inner.buri\" import {{ answer }};\n\nexport fn twice(): Int {{ answer() * {answer} }}\n")
     };
     scratch.write(
         "lib/n/BUILD.buri",
@@ -849,14 +849,14 @@ fn a_suite_is_keyed_on_the_key_of_what_it_tests() {
     scratch.write("lib/n/inner.buri", "export fn answer(): Int { 21 }\n");
     scratch.write(
         "lib/n/test/n.buri",
-        "from \"//lib/n\" import { twice };\nfrom \"core/testing/assert\" import * as assert;\n\ntest \"twice\" {\n  assert.eq(twice(), 42);\n}\n",
+        "from \"//lib/n/lib.buri\" import { twice };\nfrom \"core/testing/assert/lib.buri\" import * as assert;\n\ntest \"twice\" {\n  assert.eq(twice(), 42);\n}\n",
     );
     // An unrelated package: nothing depends on it and it depends on nothing.
     scratch.write("lib/m/BUILD.buri", "library {\n  test { sources: [\"test/m.buri\"] }\n}\n");
     scratch.write("lib/m/lib.buri", "export fn one(): Int { 1 }\n");
     scratch.write(
         "lib/m/test/m.buri",
-        "from \"//lib/m\" import { one };\nfrom \"core/testing/assert\" import * as assert;\n\ntest \"one\" {\n  assert.eq(one(), 1);\n}\n",
+        "from \"//lib/m/lib.buri\" import { one };\nfrom \"core/testing/assert/lib.buri\" import * as assert;\n\ntest \"one\" {\n  assert.eq(one(), 1);\n}\n",
     );
 
     let n_before = keys(scratch.run(&["test", "//lib/n", "--explain"]).ok());
@@ -902,8 +902,8 @@ fn suite_package(scratch: &Scratch, name: &str, tags: &str) {
     scratch.write(
         &format!("lib/{name}/test/{name}.buri"),
         &format!(
-            "from \"//lib/{name}\" import {{ one }};\n\
-             from \"core/testing/assert\" import * as assert;\n\
+            "from \"//lib/{name}/lib.buri\" import {{ one }};\n\
+             from \"core/testing/assert/lib.buri\" import * as assert;\n\
              \ntest \"one\" {{\n  assert.eq(one(), 1);\n}}\n"
         ),
     );
@@ -1090,7 +1090,7 @@ fn library_package(scratch: &Scratch, path: &str, exports: &str, deps: &str, sou
     );
     scratch.write(
         &format!("{path}/lib.buri"),
-        &format!("from \"//{path}/unit\" export {{ {exports} }};\n"),
+        &format!("from \"//{path}/unit.buri\" export {{ {exports} }};\n"),
     );
     scratch.write(&format!("{path}/unit.buri"), source);
 }
@@ -1104,7 +1104,7 @@ fn three_libraries(name: &str) -> Scratch {
         "lib/ledger",
         "total",
         "    dependencies: [\"//lib/money\"]\n",
-        "from \"//lib/money\" import { cents };\n\nexport fn total(): I64 { cents() }\n",
+        "from \"//lib/money/lib.buri\" import { cents };\n\nexport fn total(): I64 { cents() }\n",
     );
     library_package(&scratch, "lib/kit", "one", "", "export fn one(): I64 { 1 }\n");
     scratch
@@ -1181,7 +1181,7 @@ fn a_lint_record_this_toolchain_cannot_read_is_a_miss() {
     let scratch = three_libraries("lint-garbled");
     scratch.write(
         "lib/kit/unit.buri",
-        "from \"core/list\" import * as list;\n\nexport fn one(): I64 { 1 }\n",
+        "from \"core/list/lib.buri\" import * as list;\n\nexport fn one(): I64 { 1 }\n",
     );
     let cold = scratch.run(&["lint", "//..."]);
     cold.exits(1).says("unused-import");
@@ -1225,7 +1225,7 @@ fn fail_on_finding_reaches_a_cached_finding() {
     scratch.write("REPO.buri", "lint {\n    fail_on_finding: true\n}\n");
     scratch.write(
         "lib/kit/unit.buri",
-        "from \"core/list\" import * as list;\n\nexport fn one(): I64 { 1 }\n",
+        "from \"core/list/lib.buri\" import * as list;\n\nexport fn one(): I64 { 1 }\n",
     );
 
     let cold = scratch.run(&["lint", "//..."]);

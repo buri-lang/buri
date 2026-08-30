@@ -1,7 +1,7 @@
 error: expected `{`, found `extra` [unexpected-token]
  --> main.buri:1:25
   |
-1 | from "core/list" export extra {
+1 | from "core/list/lib.buri" export extra {
   |                         ^^^^^
   |
   = expected: `{`

@@ -2,7 +2,7 @@
 // cache: the second run does not analyse this target again, and has to report
 // it in the same words all the same.
 
-from "core/str" import * as str;
+from "core/str/lib.buri" import * as str;
 
 export struct Cents(export I64);
 

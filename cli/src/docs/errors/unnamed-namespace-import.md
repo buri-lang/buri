@@ -25,5 +25,5 @@ you open the brace, and can complete the specifier list.
 ## A program that provokes it
 
 ```buri fail code=unnamed-namespace-import
-from "core/list" import *;
+from "core/list/lib.buri" import *;
 ```

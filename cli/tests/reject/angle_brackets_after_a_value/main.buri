@@ -1,6 +1,6 @@
 // EXPECT: explicit type arguments qualify a function or a call
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 // `x < T > (y)` is the one shape both readings of `<` parse, and it is read as
 // type arguments applied to `x`. That is not a coin toss: comparison does not

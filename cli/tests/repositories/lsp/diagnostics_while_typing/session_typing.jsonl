@@ -2,15 +2,15 @@
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # The type error, published because the file was opened.
-{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "languageId": "buri", "version": 1, "text": "from \"core/str\" import * as str;\n\nlet myStr: Str = 1;\n\n/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "languageId": "buri", "version": 1, "text": "from \"core/str/lib.buri\" import * as str;\n\nlet myStr: Str = 1;\n\n/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}}}
 # A change that leaves the text as it was: the buffer parses, so there is
 # nothing to add and — this is the whole case — nothing to take away.
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "version": 2}, "contentChanges": [{"text": "from \"core/str\" import * as str;\n\nlet myStr: Str = 1;\n\n/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "version": 2}, "contentChanges": [{"text": "from \"core/str/lib.buri\" import * as str;\n\nlet myStr: Str = 1;\n\n/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}]}}
 # A buffer mid-edit that does not parse. Now the parse errors are what there
 # is to say about the file.
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "version": 3}, "contentChanges": [{"text": "from \"core/str\" import * as str;\n\nlet myStr: Str = 1;\n\n/// How many times the thing has happened.\nexport fn counter(): I64 { 1\n"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "version": 3}, "contentChanges": [{"text": "from \"core/str/lib.buri\" import * as str;\n\nlet myStr: Str = 1;\n\n/// How many times the thing has happened.\nexport fn counter(): I64 { 1\n"}]}}
 # It parses again, so what the analysis last said goes back.
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "version": 4}, "contentChanges": [{"text": "from \"core/str\" import * as str;\n\nlet myStr: Str = 1;\n\n/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri", "version": 4}, "contentChanges": [{"text": "from \"core/str/lib.buri\" import * as str;\n\nlet myStr: Str = 1;\n\n/// How many times the thing has happened.\nexport fn counter(): I64 { 1 }\n"}]}}
 # A save re-runs the whole front end and publishes it afresh.
 {"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/counter.buri"}}}
 # Closing a file publishes nothing: the editor drops what it holds.

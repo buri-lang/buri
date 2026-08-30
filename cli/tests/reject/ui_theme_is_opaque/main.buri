@@ -4,12 +4,12 @@
 // Its one field is private to `ui/theme`, so the two constructors are the only
 // way one comes into being and no program can take one apart: what a theme is
 // stays a matter between that module and the runtime that installs it.
-from "core/effect" import { Alloc };
+from "core/effect/lib.buri" import { Alloc };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
-from "ui/effect" import { Ui, Watch };
-from "ui/node" import * as ui;
-from "ui/theme" import { Theme, themed };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Ui, Watch };
+from "ui/node/lib.buri" import * as ui;
+from "ui/theme/lib.buri" import { Theme, themed };
 
 fn rewrap(t: Theme): Theme {
   match (t) {

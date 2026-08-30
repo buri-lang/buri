@@ -1,5 +1,5 @@
-from "//lib/spin" import { spin };
-from "core/testing/assert" import * as assert;
+from "//lib/spin/lib.buri" import { spin };
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "returns eventually" {
   assert.eq(spin(0), 0);

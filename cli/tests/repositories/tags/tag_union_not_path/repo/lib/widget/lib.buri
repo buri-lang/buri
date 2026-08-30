@@ -1,1 +1,1 @@
-from "//lib/widget/m" export { fromWidget };
+from "//lib/widget/m.buri" export { fromWidget };

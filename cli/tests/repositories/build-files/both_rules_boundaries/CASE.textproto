@@ -37,8 +37,8 @@ run {
 # why the package question was never the right one.
 edit {
   file: "tools/report/main.buri"
-  replace: "from \"//tools/report\" import { render };\n"
-  with: "from \"//tools/report\" import { render };\nfrom \"//tools/report/detail\" import { verbose };\n"
+  replace: "from \"//tools/report/lib.buri\" import { render };\n"
+  with: "from \"//tools/report/lib.buri\" import { render };\nfrom \"//tools/report/detail.buri\" import { verbose };\n"
 }
 
 run {
@@ -55,15 +55,15 @@ run {
 
 edit {
   file: "tools/report/main.buri"
-  replace: "\nfrom \"//tools/report/detail\" import { verbose };"
+  replace: "\nfrom \"//tools/report/detail.buri\" import { verbose };"
   with: ""
 }
 
 # The other direction, at the binary's entry point.
 edit {
   file: "tools/report/lib.buri"
-  replace: "from \"//tools/report/render\" export { render };\n"
-  with: "from \"//tools/report/render\" export { render };\nfrom \"//tools/report/main\" import { main };\n"
+  replace: "from \"//tools/report/render.buri\" export { render };\n"
+  with: "from \"//tools/report/render.buri\" export { render };\nfrom \"//tools/report/main.buri\" import { main };\n"
 }
 
 run {
@@ -80,7 +80,7 @@ run {
 
 edit {
   file: "tools/report/lib.buri"
-  replace: "\nfrom \"//tools/report/main\" import { main };"
+  replace: "\nfrom \"//tools/report/main.buri\" import { main };"
   with: ""
 }
 
@@ -90,7 +90,7 @@ edit {
 edit {
   file: "tools/report/detail.buri"
   replace: "export fn verbose"
-  with: "from \"//tools/report/flags\" import { label };\n\nexport fn verbose"
+  with: "from \"//tools/report/flags.buri\" import { label };\n\nexport fn verbose"
 }
 
 run {
@@ -104,7 +104,7 @@ run {
 # rules want belongs.
 edit {
   file: "tools/report/detail.buri"
-  replace: "from \"//tools/report/flags\" import { label };\n\nexport fn verbose"
+  replace: "from \"//tools/report/flags.buri\" import { label };\n\nexport fn verbose"
   with: "export fn verbose"
 }
 

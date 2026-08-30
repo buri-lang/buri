@@ -1,7 +1,7 @@
 error: //lib/money/test/parse is a test source [test-source-import]
  --> lib/money/cents.buri:1:6
   |
-1 | from "//lib/money/test/parse" import { digits };
+1 | from "//lib/money/test/parse.buri" import { digits };
   |      ^^^^^^^^^^^^^^^^^^^^^^^^ test sources are not importable
   |
   = test sources are compiled independently and are not modules anybody can name
@@ -9,7 +9,7 @@ error: //lib/money/test/parse is a test source [test-source-import]
 error: "//lib/money/test/parse" does not export `digits` [no-such-export]
  --> lib/money/cents.buri:1:40
   |
-1 | from "//lib/money/test/parse" import { digits };
+1 | from "//lib/money/test/parse.buri" import { digits };
   |                                        ^^^^^^
   |
   = `digits` is declared in "//lib/money/test/parse" but not exported

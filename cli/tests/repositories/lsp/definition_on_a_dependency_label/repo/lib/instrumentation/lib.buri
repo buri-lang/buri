@@ -1,1 +1,1 @@
-from "//lib/instrumentation/instrumentation" export { instrumentation };
+from "//lib/instrumentation/instrumentation.buri" export { instrumentation };

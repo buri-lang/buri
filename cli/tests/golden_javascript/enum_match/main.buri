@@ -1,8 +1,8 @@
 // A mixed enum: nullary, tuple-like and record-like variants in one type.
 // The nullary variant is what pays for the others — it carries no payload but
 // is represented like the ones that do.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 enum Shape { Empty, Circle(F64), Rect { width: F64, height: F64 }, Square(F64) }
 

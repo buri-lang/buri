@@ -1,1 +1,1 @@
-from "//lib/beta/clock" export { minutes };
+from "//lib/beta/clock.buri" export { minutes };

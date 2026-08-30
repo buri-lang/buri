@@ -1,4 +1,4 @@
-from "//lib/money/cents" import { Cents, fromCents };
+from "//lib/money/cents.buri" import { Cents, fromCents };
 
 export fn zero(): Cents {
     fromCents(0)

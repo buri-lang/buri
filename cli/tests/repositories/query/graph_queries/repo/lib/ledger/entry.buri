@@ -1,5 +1,5 @@
-from "//lib/money" import { Cents, fromCents };
-from "//lib/store" import { encode };
+from "//lib/money/lib.buri" import { Cents, fromCents };
+from "//lib/store/lib.buri" import { encode };
 
 export struct Entry { export memo: Str, export amount: Cents }
 

@@ -2,4 +2,4 @@
 // through this file too — a library boundary is a property of the library, not
 // of the directory, so it holds even for a file sitting beside it.
 
-from "//tools/report/render" export { render };
+from "//tools/report/render.buri" export { render };

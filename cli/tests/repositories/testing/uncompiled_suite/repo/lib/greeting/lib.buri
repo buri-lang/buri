@@ -1,1 +1,1 @@
-from "//lib/greeting/greeting" export { greeting };
+from "//lib/greeting/greeting.buri" export { greeting };

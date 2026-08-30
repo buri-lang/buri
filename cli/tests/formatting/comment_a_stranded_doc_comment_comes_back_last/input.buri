@@ -1,4 +1,4 @@
-from "core/list" export {
+from "core/list/lib.buri" export {
     fold,
     /// what is left of the clause
 };

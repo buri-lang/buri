@@ -1,6 +1,6 @@
 // EXPECT: expected an expression, found `fn`
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn doubled(): Int {
   let f = 2 * fn(x: Int) => x;

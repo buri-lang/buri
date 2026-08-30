@@ -1,4 +1,4 @@
-from "core/list" export { fold };
+from "core/list/lib.buri" export { fold };
 
 // about g
 fn export g(): Int {

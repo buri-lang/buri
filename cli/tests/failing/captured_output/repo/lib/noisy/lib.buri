@@ -1,1 +1,1 @@
-from "//lib/noisy/noisy" export { announce };
+from "//lib/noisy/noisy.buri" export { announce };

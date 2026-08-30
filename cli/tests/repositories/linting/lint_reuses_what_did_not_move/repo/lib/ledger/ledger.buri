@@ -1,6 +1,6 @@
 // Downstream of //lib/money, so an edit to that library's source reaches this
 // target's closure and its record too.
 
-from "//lib/money" import { Cents, fromCents };
+from "//lib/money/lib.buri" import { Cents, fromCents };
 
 export fn zero(): Cents { fromCents(0) }

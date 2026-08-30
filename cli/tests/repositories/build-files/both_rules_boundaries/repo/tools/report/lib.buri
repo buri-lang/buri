@@ -1,1 +1,1 @@
-from "//tools/report/render" export { render };
+from "//tools/report/render.buri" export { render };

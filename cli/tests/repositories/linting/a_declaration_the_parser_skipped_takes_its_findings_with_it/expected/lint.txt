@@ -1,7 +1,7 @@
 error: expected an identifier, found `from` [unexpected-token]
   --> lib/money/routes.buri:10:1
    |
-10 | from "//lib/money/cents" import { Cents, toDollars };
+10 | from "//lib/money/cents.buri" import { Cents, toDollars };
    | ^^^^
    |
    = expected: an identifier

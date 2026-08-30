@@ -1,1 +1,1 @@
-from "//lib/store/codec" export { encode };
+from "//lib/store/codec.buri" export { encode };

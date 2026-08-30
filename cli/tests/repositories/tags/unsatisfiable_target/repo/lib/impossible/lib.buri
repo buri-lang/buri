@@ -1,1 +1,1 @@
-from "//lib/impossible/m" export { thing };
+from "//lib/impossible/m.buri" export { thing };

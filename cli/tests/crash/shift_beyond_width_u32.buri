@@ -1,10 +1,10 @@
 // CRASH: shift out of range
 // The `U32` shifts are a distinct runtime path from the `Int` ones, so the
 // guard is asserted on each width separately.
-from "core/effect" import { Alloc, Stdout, Env };
-from "core/bits" import * as bits;
-from "core/host" import * as host;
-from "core/env" import * as env;
+from "core/effect/lib.buri" import { Alloc, Stdout, Env };
+from "core/bits/lib.buri" import * as bits;
+from "core/host/lib.buri" import * as host;
+from "core/env/lib.buri" import * as env;
 
 fn push(x: U32, n: Int): U32 { bits.shlU32(x, n) }
 

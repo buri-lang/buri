@@ -1,1 +1,1 @@
-from "//lib/arith/arith" export { leftover, push, ratio };
+from "//lib/arith/arith.buri" export { leftover, push, ratio };

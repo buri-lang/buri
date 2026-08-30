@@ -1,9 +1,9 @@
-from "core/effect" import { Alloc, Fs };
-from "core/fs" import * as fs;
-from "core/fs" import { IoError };
+from "core/effect/lib.buri" import { Alloc, Fs };
+from "core/fs/lib.buri" import * as fs;
+from "core/fs/lib.buri" import { IoError };
 
-from "//lib/ledger" import { Entry };
-from "//lib/store/codec" import { encode };
+from "//lib/ledger/lib.buri" import { Entry };
+from "//lib/store/codec.buri" import { encode };
 
 export enum StoreError {
   Io(IoError),

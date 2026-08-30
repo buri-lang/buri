@@ -3,7 +3,7 @@
 // statements after the first are never reached, which is the thing to know
 // when a report says less than the file suggests it should.
 
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "three failing assertions, one report" {
     assert.eq(1, 2);

@@ -7,7 +7,7 @@
 // if both halves changed together, and the whole point of writing the mapping
 // down in `core/json` is that it does not change under anybody.
 
-from "//lib/json/shapes" export {
+from "//lib/json/shapes.buri" export {
   Point, Segment, Meters, Pair, Hollow, Everything, Wrapper,
   Colour, Shape, Rose, Chain,
   point, rose, chain, everything,

@@ -6,14 +6,14 @@
 // `captured` read back. Specified evaluation order is what makes effect
 // sequencing meaningful (SPEC 8.2), so the transcript is the observation.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic, alloc, captureOut, captured, files };
-from "core/effect" import { Alloc, Fs, Stdout };
-from "core/fs" import * as fs;
-from "core/time" import * as time;
-from "core/list" import * as list;
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic, alloc, captureOut, captured, files };
+from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+from "core/fs/lib.buri" import * as fs;
+from "core/time/lib.buri" import * as time;
+from "core/list/lib.buri" import * as list;
 
-from "//lib/semantics" import {
+from "//lib/semantics/lib.buri" import {
   note, noteInt, noteBool, noteStr, noteOpt, noteRes,
   noteIf, noteMatch, noteLets, threeInts, fourStrs,
   Level, Meters,

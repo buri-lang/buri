@@ -1,6 +1,6 @@
 // EXPECT: `T` has no method `len`
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn measure<T>(x: T): Int {
   x.len()

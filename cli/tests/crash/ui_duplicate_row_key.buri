@@ -6,13 +6,13 @@
 // lookup, the other one is wrong, and the list goes on rebuilding both. There
 // is no answer to choose between them, so the runtime refuses at the point it
 // happens and names the key (SPEC 6.10).
-from "core/effect" import { Alloc, Stdout };
+from "core/effect/lib.buri" import { Alloc, Stdout };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
-from "ui/effect" import { Ui, Watch };
-from "ui/node" import * as ui;
-from "ui/node" import { Node };
-from "ui/prop" import { Prop };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Ui, Watch };
+from "ui/node/lib.buri" import * as ui;
+from "ui/node/lib.buri" import { Node };
+from "ui/prop/lib.buri" import { Prop };
 
 fn itself(item: Str): Str {
   item

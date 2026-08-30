@@ -1,7 +1,7 @@
 error: expected an identifier, found `?` [unexpected-token]
  --> lib/recovery_insert_stray_module_kit_854536/lib.buri:4:30
   |
-4 | from "core/list" import * as ? list;
+4 | from "core/list/lib.buri" import * as ? list;
   |                              ^
   |
   = expected: an identifier

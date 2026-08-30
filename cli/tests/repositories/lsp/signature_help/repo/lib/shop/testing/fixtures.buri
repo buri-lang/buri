@@ -1,6 +1,6 @@
 //! Items for somebody else's test to shop with.
 
-from "//lib/shop/catalog" import { Item, listing, defaultPrice };
+from "//lib/shop/catalog.buri" import { Item, listing, defaultPrice };
 
 /// One item, priced like anything else nobody has priced.
 export fn sampleItem(): Item {

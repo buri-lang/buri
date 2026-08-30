@@ -1,10 +1,10 @@
 // One module, one spelling. The library is //lib/money; //lib/money/lib names
 // the same file by the path that happens to hold it, and is not a path.
 
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
-from "//lib/money/lib" import { fromCents };
+from "//lib/money/lib.buri" import { fromCents };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

@@ -1,7 +1,7 @@
 // CRASH: division by zero
-from "core/effect" import { Alloc, Stdout, Env };
-from "core/host" import * as host;
-from "core/env" import * as env;
+from "core/effect/lib.buri" import { Alloc, Stdout, Env };
+from "core/host/lib.buri" import * as host;
+from "core/env/lib.buri" import * as env;
 
 fn ratio(a: Int, b: Int): Int { a / b }
 

@@ -1,1 +1,1 @@
-from "//lib/kit/tokens" export { Token, widen };
+from "//lib/kit/tokens.buri" export { Token, widen };

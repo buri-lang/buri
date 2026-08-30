@@ -1,6 +1,6 @@
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 
-from "//tools/report/main" import { parseFlags };
+from "//tools/report/main.buri" import { parseFlags };
 
 test "verbose is off by default" {
   assert.isFalse(parseFlags([]).verbose);

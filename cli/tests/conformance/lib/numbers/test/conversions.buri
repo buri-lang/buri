@@ -10,9 +10,9 @@
 // handed back a `Result`, or a narrowing that handed back a bare value, would
 // be as wrong as a wrong number.
 
-from "core/testing/assert" import * as assert;
-from "core/num" import { RangeError };
-from "core/num" import * as num;
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/num/lib.buri" import { RangeError };
+from "core/num/lib.buri" import * as num;
 
 fn ratio(hits: Int, total: Int): F64 {
   hits.toF64() / total.toF64()

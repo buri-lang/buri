@@ -1,7 +1,7 @@
 error: expected an identifier, found `@` [unexpected-token]
  --> lib/recovery_insert_stray_brace_app_bd007b/main.buri:5:29
   |
-5 | from "core/effect" import { @ Alloc, Stdout };
+5 | from "core/effect/lib.buri" import { @ Alloc, Stdout };
   |                             ^
   |
   = expected: an identifier
@@ -10,7 +10,7 @@ error: expected an identifier, found `@` [unexpected-token]
 error: expected a declaration, found `;` [unexpected-token]
  --> lib/recovery_insert_stray_brace_app_bd007b/main.buri:5:46
   |
-5 | from "core/effect" import { @ Alloc, Stdout };
+5 | from "core/effect/lib.buri" import { @ Alloc, Stdout };
   |                                              ^
   |
   = expected: a declaration

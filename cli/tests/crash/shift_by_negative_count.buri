@@ -1,10 +1,10 @@
 // CRASH: shift out of range
 // A negative shift has no answer either, and is rejected by the same guard as
 // a shift at or beyond the width.
-from "core/effect" import { Alloc, Stdout, Env };
-from "core/bits" import * as bits;
-from "core/host" import * as host;
-from "core/env" import * as env;
+from "core/effect/lib.buri" import { Alloc, Stdout, Env };
+from "core/bits/lib.buri" import * as bits;
+from "core/host/lib.buri" import * as host;
+from "core/env/lib.buri" import * as env;
 
 fn push(x: Int, n: Int): Int { bits.shl(x, n) }
 

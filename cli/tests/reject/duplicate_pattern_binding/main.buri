@@ -1,6 +1,6 @@
 // EXPECT: `a` is bound twice
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn sumPair(p: (Int, Int)): Int {
   match (p) {

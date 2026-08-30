@@ -38,10 +38,10 @@ cut; Section 15 records why.
 ### 1.1 A taste
 
 ```buri run
-# from "core/effect" import { Alloc, Fs, Stdout };
-from "core/io" import * as io;
-from "core/list" import * as list;
-from "core/host" import * as host;
+# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+from "core/io/lib.buri" import * as io;
+from "core/list/lib.buri" import * as list;
+from "core/host/lib.buri" import * as host;
 
 struct Point {
   x: Float,
@@ -220,10 +220,10 @@ the syntax is here.
 The module path comes **first**, before the specifier list:
 
 ```buri
-from "core/list" import { map, filter };
-from "core/list" import { map as listMap };
-from "core/list" import * as list;
-from "core/effect" import { Alloc, Fs, Stdout };
+from "core/list/lib.buri" import { map, filter };
+from "core/list/lib.buri" import { map as listMap };
+from "core/list/lib.buri" import * as list;
+from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
 ```
 
 The ordering is chosen for tooling rather than for prose: by the time you open
@@ -231,7 +231,7 @@ the brace, the compiler already knows which module you mean, so an editor can
 offer the module's exports as completions. With the path last, the specifier
 list has to be typed blind and then retro-checked.
 
-A namespace import **must** be named. `from "core/list" import *;` is not
+A namespace import **must** be named. `from "core/list/lib.buri" import *;` is not
 derivable from the grammar — the only wildcard form is `* as <name>`. There is
 consequently no way for an identifier to enter a module's scope without that
 identifier, or the namespace holding it, being written in the importing file.
@@ -324,8 +324,8 @@ A module may export a name it imported, in one declaration that mirrors
 `import`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-from "//lib/money/cents" export { Cents, fromCents };
-from "//lib/money/cents" export { add as addMoney };
+from "//lib/money/cents.buri" export { Cents, fromCents };
+from "//lib/money/cents.buri" export { add as addMoney };
 ```
 
 There is no `export *`, for the same reason there is no bare `import *`: every
@@ -456,7 +456,7 @@ The unit type and its only value are both written `()`. Functions that exist
 only for their effect return `()`.
 
 ```buri
-# from "core/effect" import { Stdout };
+# from "core/effect/lib.buri" import { Stdout };
 fn log<C: Stdout>(ctx: C, msg: Str): () { ctx.println(msg) }
 ```
 
@@ -722,7 +722,7 @@ Type parameters are declared in angle brackets. There are no row parameters:
 row polymorphism went away with the structural records of Section 5.5.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Stdout };
+# from "core/effect/lib.buri" import { Alloc, Stdout };
 fn identity<T>(x: T): T { x }
 fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B] { ... }
 fn tee<T, C: Stdout>(ctx: C, x: T): T { ... }
@@ -732,7 +732,7 @@ A parameter may carry one or more **bounds**, naming traits the argument type
 must satisfy. Multiple bounds are joined with `+`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc };
+# from "core/effect/lib.buri" import { Alloc };
 fn largest<T: Ord>(xs: [T]): Option<T> { ... }
 fn report<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str { ... }
 ```
@@ -811,7 +811,7 @@ A trait is an **interface**: a named set of method signatures that a type may
 satisfy.
 
 ```buri
-# from "core/effect" import { Alloc };
+# from "core/effect/lib.buri" import { Alloc };
 trait Ord {
   fn compare(self, other: Self): Order;
 }
@@ -1292,7 +1292,7 @@ x.f()          //  self = x
 comes second:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc };
+# from "core/effect/lib.buri" import { Alloc };
 impl<A> [A] {
   export fn map<B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B];
 }
@@ -1371,7 +1371,7 @@ Postfix `?` unwraps a `Result` or `Option`, returning early from the enclosing
 function on the failure case.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Fs };
+# from "core/effect/lib.buri" import { Alloc, Fs };
 fn loadPort<C: Alloc + Fs>(ctx: C, path: Str): Result<Int, ConfigError> {
   let text = fs.readText(ctx, path)?;        // Err(e) => return Err(e)
   let cfg = parseConfig(text)?;
@@ -1565,7 +1565,7 @@ with one exception, the capture rule of Section 10.6.
 ## 9. Functions
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Clock };
+# from "core/effect/lib.buri" import { Clock };
 export fn slugify(s: Str): Str { ... }
 
 fn quadratic(a: F64, b: F64, c: F64): Option<(F64, F64)> { ... }
@@ -1637,7 +1637,7 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
 A function names the effects it needs as **bounds** on its context parameter:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Fs };
+# from "core/effect/lib.buri" import { Alloc, Fs };
 fn loadConfig<C: Alloc + Fs>(ctx: C, path: Str): Result<Config, ConfigError> {
   let text = fs.readText(ctx, path)?;
   parse(ctx, text)
@@ -1654,7 +1654,7 @@ must satisfy.
 name, never any other position, and at most one of each:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Fs, IoError, Net, Region };
+# from "core/effect/lib.buri" import { Alloc, Fs, IoError, Net, Region };
 fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>       // ok
 fn render<C: Alloc>(self, ctx: C): Str                                    // ok
 fn allocate(self, bytes: Int): Region                                     // ok
@@ -1713,8 +1713,8 @@ the module that exports `main`. `main` assembles them into the one context
 the program has:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Fs, Stdout };
-from "core/host" import * as host;
+# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+from "core/host/lib.buri" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
@@ -1808,7 +1808,7 @@ Tracking allocation is why `[T]`-returning combinators take a context at all, an
 it is what makes "does no I/O" and "does not allocate" separately expressible:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Fs, IoError };
+# from "core/effect/lib.buri" import { Alloc, Fs, IoError };
 fn sum(self): Int                                                     // pure
 fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B]              // deterministic
 fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>   // effectful
@@ -1876,7 +1876,7 @@ rather than merely conventional (Section 10.2). A free function that has no
 receiver therefore takes the context first:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Fs, IoError };
+# from "core/effect/lib.buri" import { Alloc, Fs, IoError };
 export fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B]
 export fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>
 ```
@@ -1894,7 +1894,7 @@ Two forms, giving different guarantees.
 same value and cannot use, or pass on, anything its bounds do not name:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Fs, Stdout };
+# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
   let _ = io.println(ctx, msg);
   // fs.readText(ctx, "/etc/passwd")     // ERROR: C is not bounded by Fs
@@ -1916,7 +1916,7 @@ downstream.
 the callee holds a value that genuinely lacks the rest:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Fs, IoError, Region };
+# from "core/effect/lib.buri" import { Alloc, Fs, IoError, Region };
 // module: safe/readonly
 export struct ReadOnly<C>(C);
 
@@ -1952,7 +1952,7 @@ interfaces, writing one is writing a struct with methods. The call site does not
 change, because there was never a global to stub.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Fs, IoError };
+# from "core/effect/lib.buri" import { Alloc, Fs, IoError };
 struct FakeFs { export files: [(Str, Str)] }
 
 impl Fs for FakeFs {
@@ -1979,8 +1979,8 @@ build a context — is Sections 11.2 and 11.3.
 A program is a module that exports `main`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Env, Stdout };
-from "core/host" import * as host;
+# from "core/effect/lib.buri" import { Alloc, Env, Stdout };
+from "core/host/lib.buri" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
@@ -2042,9 +2042,9 @@ build file ([`cli/src/docs/build/testing.md`](./cli/src/docs/build/testing.md)).
 helpers are ordinary library code.
 
 ```buri repo=cli/tests/example role=test
-from "//lib/money" import { fromCents };
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
+from "//lib/money/lib.buri" import { fromCents };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
 
 test "pads the cents place" {
   let ctx = Hermetic();
@@ -2096,7 +2096,7 @@ keyword: the name comes from `import * as assert`, and a file is free to call it
 something else.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 ```
 
 | Function | Meaning |
@@ -2163,7 +2163,7 @@ implements it. There is one form, and `main` and a test use the same one.
 **As an expression**, anonymous:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Fs, Stdout };
+# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
 let ctx = context {
   Alloc:  host.alloc,
   Stdout: host.stdout,
@@ -2175,7 +2175,7 @@ let ctx = context {
 or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
+# from "core/effect/lib.buri" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
 context Hermetic {
   Alloc:  alloc(),
   Stdout: captureOut(),
@@ -2198,7 +2198,7 @@ varies between call sites is expressed by overriding, not by arguments.
 context and lets the ones that follow replace them:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Fs };
+# from "core/effect/lib.buri" import { Fs };
 context Fixture {
   ..Hermetic(),
   Fs: files([("config.toml", "port=8080")]),

@@ -3,8 +3,8 @@
 // `commands/test.rs` from one reported under a `library {}` target — and the
 // report has to look the same.
 
-from "core/testing/assert" import * as assert;
-from "//cmd/app/main" import { greeting };
+from "core/testing/assert/lib.buri" import * as assert;
+from "//cmd/app/main.buri" import { greeting };
 
 test "a binary's suite fails the same way a library's does" {
     assert.eq(greeting(), "goodbye");

@@ -1,7 +1,7 @@
 // Boolean-valued conditionals. A branch that yields `true` or `false` is the
 // condition itself, and an `if` in value position is a ternary.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn inRange(n: Int, lo: Int, hi: Int): Bool {
   if (n < lo) { false } else if (n > hi) { false } else { true }

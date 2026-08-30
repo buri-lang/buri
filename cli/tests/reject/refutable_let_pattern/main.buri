@@ -1,6 +1,6 @@
 // EXPECT: this pattern does not match every value of its type
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn unwrap(o: Option<Int>): Int {
   let .Some(n) = o;

@@ -1,5 +1,5 @@
-from "//lib/counter" import { Tally, counter };
-from "core/testing/assert" import * as assert;
+from "//lib/counter/lib.buri" import { Tally, counter };
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "counter reads the total" {
   let tally = Tally { total: 1 };

@@ -1,14 +1,14 @@
 error: a re-export declaration ends with `;` [missing-terminator]
  --> main.buri:1:28
   |
-1 | from "core/list" export { } fold;
+1 | from "core/list/lib.buri" export { } fold;
   |                            ^
   |
   = fix: write `;` here
 error: expected a declaration, found `fold` [unexpected-token]
  --> main.buri:1:29
   |
-1 | from "core/list" export { } fold;
+1 | from "core/list/lib.buri" export { } fold;
   |                             ^^^^
   |
   = expected: a declaration

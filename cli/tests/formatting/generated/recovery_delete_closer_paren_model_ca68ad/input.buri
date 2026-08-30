@@ -6,13 +6,13 @@
 // check one of them is a suite that will be slow and vague about which thing
 // broke. What needs a document is in test/view.buri, and it is the smaller file.
 
-from "//cmd/basket/main" import {
+from "//cmd/basket/main.buri" import {
   draft, Draft, entriesFrom, flip, isTicked, pad, settledFraction,
 };
-from "//lib/ledger" import { entry, total };
-from "//lib/money" import { fromCents };
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
+from "//lib/ledger/lib.buri" import { entry, total };
+from "//lib/money/lib.buri" import { fromCents };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
 
 /// What //cmd/server's `/entries` route answers, recorded. The same text
 /// test/view.buri feeds through a stub `Fetch`.

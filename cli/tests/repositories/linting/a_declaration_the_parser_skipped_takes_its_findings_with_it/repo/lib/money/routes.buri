@@ -7,7 +7,7 @@
 
 struct Route {
 
-from "//lib/money/cents" import { Cents, toDollars };
+from "//lib/money/cents.buri" import { Cents, toDollars };
 
 fn route(n: I64): I64 {
   let spare = 7;

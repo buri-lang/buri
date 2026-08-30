@@ -1,7 +1,7 @@
 // Derived structural operations. Each one is a runtime walk over a type
 // descriptor rather than code specialised to the type it compares.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 struct Pair { a: Int, b: Str }
 

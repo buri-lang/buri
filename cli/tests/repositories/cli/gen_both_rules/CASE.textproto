@@ -32,7 +32,7 @@ run {
 # because an import and its use are two places.
 edit {
   file: "tools/report/flags.buri"
-  replace: "from \"//tools/report/shared\" import { heading };\n"
+  replace: "from \"//tools/report/shared.buri\" import { heading };\n"
   with: ""
 }
 
@@ -52,8 +52,8 @@ run {
 
 edit {
   file: "tools/report/render.buri"
-  replace: "from \"//tools/report/shared\" import { heading };"
-  with: "from \"//tools/report/shared\" import { heading };\nfrom \"//tools/report/stray\" import { footer };"
+  replace: "from \"//tools/report/shared.buri\" import { heading };"
+  with: "from \"//tools/report/shared.buri\" import { heading };\nfrom \"//tools/report/stray.buri\" import { footer };"
 }
 
 edit {

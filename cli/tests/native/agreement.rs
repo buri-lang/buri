@@ -686,8 +686,8 @@ fn row_01_int_overflow() {
     diverge(
         "row 1",
         r#"
-from "core/host" import { stdout };
-from "core/num" import * as num;
+from "core/host/lib.buri" import { stdout };
+from "core/num/lib.buri" import * as num;
 
 export fn main(): Result<(), Str> {
   let m = num.maxValue<Int>();
@@ -710,8 +710,8 @@ fn row_01_integer_show_at_the_64_bit_extremes() {
     agree(
         "row 1 show",
         r#"
-from "core/host" import { stdout };
-from "core/num" import * as num;
+from "core/host/lib.buri" import { stdout };
+from "core/num/lib.buri" import * as num;
 
 export fn main(): Result<(), Str> {
   let a = num.minValue<I64>();
@@ -751,9 +751,9 @@ fn row_02_checked_above_the_exact_range() {
     agree(
         "row 2",
         r#"
-from "core/host" import { stdout, alloc };
-from "core/bits" import * as bits;
-from "core/str" import * as str;
+from "core/host/lib.buri" import { stdout, alloc };
+from "core/bits/lib.buri" import * as bits;
+from "core/str/lib.buri" import * as str;
 
 fn tell(x: Option<Int>): Str {
   match (x) { .Some(v) => str.format(alloc, "Some ${v}"), .None => "None" }
@@ -795,7 +795,7 @@ fn row_02_saturating_is_bounded_by_the_type_on_both_backends() {
     agree(
         "row 2 saturating",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export fn main(): Result<(), Str> {
   let a: I32 = 2147483000;
@@ -840,8 +840,8 @@ fn row_03_wrapping_arithmetic_agrees() {
     agree(
         "row 3",
         r#"
-from "core/host" import { stdout };
-from "core/num" import * as num;
+from "core/host/lib.buri" import { stdout };
+from "core/num/lib.buri" import * as num;
 
 export fn main(): Result<(), Str> {
   // 2^32 * 2^32 = 2^64, which wraps to zero at 64 bits.
@@ -878,8 +878,8 @@ fn row_03_wrapping_at_the_type_boundaries_agrees() {
     agree(
         "row 3 boundaries",
         r#"
-from "core/host" import { stdout };
-from "core/num" import * as num;
+from "core/host/lib.buri" import { stdout };
+from "core/num/lib.buri" import * as num;
 
 export fn main(): Result<(), Str> {
   let a: U64 = 18446744073709551615;
@@ -912,8 +912,8 @@ fn row_03_wrapping_at_narrow_widths_agrees() {
     agree(
         "row 3 narrow",
         r#"
-from "core/host" import { stdout };
-from "core/num" import * as num;
+from "core/host/lib.buri" import { stdout };
+from "core/num/lib.buri" import * as num;
 
 export fn main(): Result<(), Str> {
   let a: U32 = 4294967295;
@@ -949,7 +949,7 @@ fn row_04_wide_integer_arithmetic() {
     agree(
         "row 4",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export fn main(): Result<(), Str> {
   let a: I128 = 1000000007;
@@ -970,8 +970,8 @@ fn row_04_integer_show_at_the_128_bit_extremes() {
     agree(
         "row 4 show",
         r#"
-from "core/host" import { stdout };
-from "core/num" import * as num;
+from "core/host/lib.buri" import { stdout };
+from "core/num/lib.buri" import * as num;
 
 export fn main(): Result<(), Str> {
   let a = num.minValue<I128>();
@@ -1005,8 +1005,8 @@ fn row_05_nested_option_is_distinct() {
     agree(
         "row 5",
         r#"
-from "core/host" import { stdout, alloc };
-from "core/str" import * as str;
+from "core/host/lib.buri" import { stdout, alloc };
+from "core/str/lib.buri" import * as str;
 
 export struct Box3 { v: Option<Option<Option<Int>>> }
 derive Show, Eq for Box3;
@@ -1053,7 +1053,7 @@ fn row_06_str_len_counts_scalars() {
     agree(
         "row 6",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export fn main(): Result<(), Str> {
   let a = "abc".len();
@@ -1087,7 +1087,7 @@ fn row_15_char_case_of_a_multi_scalar_mapping() {
     diverge(
         "row 15",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export fn main(): Result<(), Str> {
   let sharp = '\u{00df}'.toUpper();
@@ -1111,7 +1111,7 @@ fn row_07_str_slice_clamps() {
     agree(
         "row 7",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export fn main(): Result<(), Str> {
   let s = "abcdef";
@@ -1145,7 +1145,7 @@ fn row_08_float_rendering() {
     agree(
         "row 8",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export fn main(): Result<(), Str> {
   let a = 0.1 + 0.2;
@@ -1186,7 +1186,7 @@ fn row_09_derived_show() {
     agree(
         "row 9",
         r#"
-from "core/host" import { stdout, alloc };
+from "core/host/lib.buri" import { stdout, alloc };
 
 export struct Inner { n: I8, flag: Bool }
 export enum Shape { Dot, Line(Int, Int), Named { label: Str, at: Inner } }
@@ -1244,8 +1244,8 @@ fn row_09_integer_show_at_every_width() {
     agree(
         "row 9 integers",
         r#"
-from "core/host" import { stdout };
-from "core/num" import * as num;
+from "core/host/lib.buri" import { stdout };
+from "core/num/lib.buri" import * as num;
 
 export fn main(): Result<(), Str> {
   let a = num.minValue<I8>();
@@ -1289,7 +1289,7 @@ fn row_09_bool_char_and_str_show() {
     agree(
         "row 9 text",
         r#"
-from "core/host" import { stdout, alloc };
+from "core/host/lib.buri" import { stdout, alloc };
 
 export struct T { s: Str, c: Char, b: Bool }
 derive Show for T;
@@ -1332,7 +1332,7 @@ fn row_09_a_match_over_a_literal_and_an_interpolation() {
     agree(
         "row 9 template join",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export fn main(): Result<(), Str> {
   let o: Option<Int> = .Some(5);
@@ -1356,8 +1356,8 @@ fn row_09_derived_eq_and_ord_verdicts() {
     agree(
         "row 9 eq ord",
         r#"
-from "core/host" import { stdout };
-from "core/order" import { Order };
+from "core/host/lib.buri" import { stdout };
+from "core/order/lib.buri" import { Order };
 
 export struct P { a: Int, b: Str }
 export enum E { A, B(Int), C { x: Int } }
@@ -1408,7 +1408,7 @@ fn row_09_derived_eq_on_a_float_field() {
     agree(
         "row 9 float eq",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export struct F { x: Float }
 derive Eq for F;
@@ -1450,7 +1450,7 @@ fn row_09_derived_hash_values() {
     agree(
         "row 9 hash",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export struct P { a: Int, b: Str }
 export enum E { A, B(Int) }
@@ -1515,7 +1515,7 @@ fn a_derived_hash_over_a_list_is_a_named_gap() {
 }
 
 const HASH_A_LIST: &str = r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export struct Bag { xs: [Int] }
 derive Eq, Hash, Show for Bag;
@@ -1529,7 +1529,7 @@ export fn main(): Result<(), Str> {
 "#;
 
 const SHOW_A_LIST: &str = r#"
-from "core/host" import { stdout, alloc };
+from "core/host/lib.buri" import { stdout, alloc };
 
 export struct Bag { xs: [Int], ss: [Str], empty: [Int] }
 derive Show for Bag;
@@ -1587,9 +1587,9 @@ fn row_10_derived_tojson() {
 
 /// A `Json` rendered without `json.stringify`, because that is closures.
 const TOJSON: &str = r#"
-from "core/host" import { stdout, alloc };
-from "core/str" import * as str;
-from "core/json" import { Json, ToJson };
+from "core/host/lib.buri" import { stdout, alloc };
+from "core/str/lib.buri" import * as str;
+from "core/json/lib.buri" import { Json, ToJson };
 
 export struct Inner { flag: Bool, note: Str }
 export struct P { a: Int, b: Str, c: Bool, d: Float, e: Inner }
@@ -1652,7 +1652,7 @@ fn row_11_division_by_zero() {
     abort_agrees(
         "row 11",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 fn ratio(a: Int, b: Int): Int { a / b }
 
@@ -1669,7 +1669,7 @@ export fn main(): Result<(), Str> {
     abort_agrees(
         "row 11 remainder",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 fn rest(a: Int, b: Int): Int { a % b }
 
@@ -1692,8 +1692,8 @@ fn row_14_shift_out_of_range() {
     abort_agrees(
         "row 14 shift",
         r#"
-from "core/host" import { stdout };
-from "core/bits" import * as bits;
+from "core/host/lib.buri" import { stdout };
+from "core/bits/lib.buri" import * as bits;
 
 fn push(x: U8, n: Int): U8 { bits.shlU8(x, n) }
 
@@ -1718,7 +1718,7 @@ fn row_14_an_error_return() {
     let (js, natives) = both(
         "row 14 err",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export fn main(): Result<(), Str> {
   let _ = stdout.println("before");
@@ -1767,8 +1767,8 @@ fn row_12_alloc_accounting() {
 }
 
 const ALLOCATE: &str = r#"
-from "core/effect" import { Alloc, Region };
-from "core/host" import { stdout, alloc };
+from "core/effect/lib.buri" import { Alloc, Region };
+from "core/host/lib.buri" import { stdout, alloc };
 
 export fn main(): Result<(), Str> {
   let r = alloc.allocate(64);
@@ -1801,7 +1801,7 @@ fn row_13_tail_calls_run_in_constant_stack() {
     agree(
         "row 13",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 fn count(n: Int, acc: Int): Int { if (n == 0) { acc } else { count(n - 1, acc + n) } }
 fn even(n: Int): Bool { if (n == 0) { true } else { odd(n - 1) } }
@@ -1848,8 +1848,8 @@ fn an_aggregate_of_two_counted_values_agrees_through_its_projections() {
     agree(
         "aggregate projections",
         r#"
-from "core/host" import { stdout, alloc };
-from "core/str" import * as str;
+from "core/host/lib.buri" import { stdout, alloc };
+from "core/str/lib.buri" import * as str;
 
 struct Pair { a: Str, b: Str }
 
@@ -1913,7 +1913,7 @@ fn a_struct_holding_nan_compared_with_itself_agrees() {
     agree(
         "nan self-identity",
         r#"
-from "core/host" import { stdout };
+from "core/host/lib.buri" import { stdout };
 
 export struct F { x: Float }
 derive Eq for F;
@@ -1955,9 +1955,9 @@ fn row_16_nan_payloads_canonicalize_on_every_backend() {
     agree(
         "row 16",
         r#"
-from "core/host" import { stdout, alloc };
-from "core/bytes" import * as bytes;
-from "core/str" import * as str;
+from "core/host/lib.buri" import { stdout, alloc };
+from "core/bytes/lib.buri" import * as bytes;
+from "core/str/lib.buri" import * as str;
 
 fn ends(b: [U8]): Str {
   str.format(alloc, "${b[0].withDefault(0)} ${b[6].withDefault(0)} ${b[7].withDefault(0)}")

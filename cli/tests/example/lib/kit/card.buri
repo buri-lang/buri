@@ -7,12 +7,12 @@
 // a handler. A component that took `C: Ui` would be asking every caller for an
 // effect it has no use for.
 
-from "ui/node" import * as ui;
-from "ui/node" import { Node };
-from "ui/prop" import { Prop };
-from "ui/style" import { Style };
+from "ui/node/lib.buri" import * as ui;
+from "ui/node/lib.buri" import { Node };
+from "ui/prop/lib.buri" import { Prop };
+from "ui/style/lib.buri" import { Style };
 
-from "//lib/kit/tokens" import { Token };
+from "//lib/kit/tokens.buri" import { Token };
 
 // --- the static tier ---------------------------------------------------------
 //

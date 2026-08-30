@@ -5,11 +5,11 @@
 // effect-carrying by conformance rather than by a bound, and a parameter of it
 // must be `ctx`. `Signal<Int>` beside it stays ordinary data — the handle
 // holds no authority, which is the other half of the same design.
-from "core/effect" import { Alloc };
+from "core/effect/lib.buri" import { Alloc };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
-from "ui/effect" import { Scope, Ui, Watch };
-from "ui/signal" import { Signal, signal };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Scope, Ui, Watch };
+from "ui/signal/lib.buri" import { Signal, signal };
 
 fn peek(s: Scope, n: Signal<Int>): Int {
   n.get(s)

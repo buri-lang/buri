@@ -1,12 +1,12 @@
 error: this import list is missing its closing `}` [unclosed-delimiter]
  --> lib/recovery_insert_stray_brace_app_e1ade5/main.buri:5:34
   |
-5 | from "core/effect" import { Alloc? , Stdout };
+5 | from "core/effect/lib.buri" import { Alloc? , Stdout };
   |                                  ^
   |
  --> lib/recovery_insert_stray_brace_app_e1ade5/main.buri:5:27
   |
-5 | from "core/effect" import { Alloc? , Stdout };
+5 | from "core/effect/lib.buri" import { Alloc? , Stdout };
   |                           ^ opened here
   |
   = fix: write `}` here

@@ -1,1 +1,1 @@
-from "//lib/promo/coupon" export { Coupon, discount };
+from "//lib/promo/coupon.buri" export { Coupon, discount };

@@ -25,8 +25,8 @@ hold for every function except the ones written as lambdas.
 ## A program that provokes it
 
 ```buri fail code=lambda-captures-effect
-# from "core/effect" import { Alloc, Fs };
-# from "core/fs" import * as fs;
+# from "core/effect/lib.buri" import { Alloc, Fs };
+# from "core/fs/lib.buri" import * as fs;
 fn checkAll<C: Alloc + Fs>(ctx: C, paths: [Str]): [Bool] {
   paths.map(ctx, fn(p) => fs.exists(ctx, p))
 }

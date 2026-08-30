@@ -1,7 +1,7 @@
 error: //tools/report/flags belongs to the binary in //tools/report [binary-source-import]
  --> tools/report/detail.buri:6:6
   |
-6 | from "//tools/report/flags" import { label };
+6 | from "//tools/report/flags.buri" import { label };
   |      ^^^^^^^^^^^^^^^^^^^^^^ a library may not reach the binary beside it
   |
   = tools/report/detail.buri belongs to the library rule, and the binary depends on the library rather than the other way round
@@ -9,7 +9,7 @@ error: //tools/report/flags belongs to the binary in //tools/report [binary-sour
 warning: label is imported but not used [unused-import]
  --> tools/report/detail.buri:6:38
   |
-6 | from "//tools/report/flags" import { label };
+6 | from "//tools/report/flags.buri" import { label };
   |                                      ^^^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up

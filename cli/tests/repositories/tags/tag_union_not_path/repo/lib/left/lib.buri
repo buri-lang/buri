@@ -1,1 +1,1 @@
-from "//lib/left/m" export { vialeft };
+from "//lib/left/m.buri" export { vialeft };

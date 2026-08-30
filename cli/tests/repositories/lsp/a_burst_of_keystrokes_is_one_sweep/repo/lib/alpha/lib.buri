@@ -1,1 +1,1 @@
-from "//lib/alpha/rate" export { markup };
+from "//lib/alpha/rate.buri" export { markup };

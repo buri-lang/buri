@@ -10,24 +10,24 @@
 // `host.fs` does not compile for this one. The error lands on the line that
 // asked, at build time.
 
-from "core/effect" import { Alloc };
-from "core/host" import * as host;
-from "ui/effect" import { Fetch, Ui, Watch };
-from "ui/node" import * as ui;
-from "ui/theme" import * as theme;
+from "core/effect/lib.buri" import { Alloc };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Fetch, Ui, Watch };
+from "ui/node/lib.buri" import * as ui;
+from "ui/theme/lib.buri" import * as theme;
 
-from "//lib/kit" import * as kit;
-from "//cmd/basket/state" import { newState };
-from "//cmd/basket/theme" import { appThemed, day, kitTheme, night };
-from "//cmd/basket/view" import { page };
+from "//lib/kit/lib.buri" import * as kit;
+from "//cmd/basket/state.buri" import { newState };
+from "//cmd/basket/theme.buri" import { appThemed, day, kitTheme, night };
+from "//cmd/basket/view.buri" import { page };
 
 // Re-exported so the suites can reach them. Everything else in this package
 // stays inside the binary — the components in view.buri are private to it,
 // which is why the suite tests them through the page they build.
-from "//cmd/basket/model" export { draft, Draft, entriesFrom, flip, isTicked, pad, settledFraction };
-from "//cmd/basket/state" export { newState };
-from "//cmd/basket/theme" export { appThemed, day, kitTheme, night };
-from "//cmd/basket/view" export { page };
+from "//cmd/basket/model.buri" export { draft, Draft, entriesFrom, flip, isTicked, pad, settledFraction };
+from "//cmd/basket/state.buri" export { newState };
+from "//cmd/basket/theme.buri" export { appThemed, day, kitTheme, night };
+from "//cmd/basket/view.buri" export { page };
 
 /// The page's complete effect budget.
 ///

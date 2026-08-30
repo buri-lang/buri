@@ -44,9 +44,9 @@ into the library.
 ```buri repo=cli/tests/example role=test
 // lib/money/test/cents.buri
 
-from "//lib/money" import { fromCents, fromDollars };
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
+from "//lib/money/lib.buri" import { fromCents, fromDollars };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
 
 test "pads the cents place" {
   let ctx = Hermetic();
@@ -86,8 +86,8 @@ same as a call. `assert.ok`, `assert.err`, and `assert.some` return the
 unwrapped value, which is how a `Result` is consumed in a test:
 
 ```buri repo=cli/tests/example role=test
-# from "//lib/money" import { parse, ParseError };
-# from "core/testing/assert" import * as assert;
+# from "//lib/money/lib.buri" import { parse, ParseError };
+# from "core/testing/assert/lib.buri" import * as assert;
 test "rejects text that is not a number" {
   let e = assert.err(parse("nineteen"));
   assert.eq(e, ParseError.NotANumber { text: "nineteen" });
@@ -100,8 +100,8 @@ same way, and the `;` after its `}` is what says so — leave it off and the
 returned had anything followed it:
 
 ```buri repo=cli/tests/example role=test
-# from "//lib/money" import { parse, ParseError };
-# from "core/testing/assert" import * as assert;
+# from "//lib/money/lib.buri" import { parse, ParseError };
+# from "core/testing/assert/lib.buri" import * as assert;
 test "either outcome is asserted where it lands" {
   match (parse("19.99")) {
     .Ok(_) => assert.isTrue(true),
@@ -129,7 +129,7 @@ A test source may import:
 
 and may not:
 
-- import a library-internal module — `from "//lib/money/cents" import
+- import a library-internal module — `from "//lib/money/cents.buri" import
   { toCents };` is an error, and this is the rule that confines a test to the
   public surface;
 - import another test source — test sources are compiled independently and are
@@ -143,7 +143,7 @@ and may not:
 error: lib/money/test/cents.buri imports a library-internal module
   --> lib/money/test/cents.buri:3:6
    |
- 3 | from "//lib/money/cents" import { toCents };
+ 3 | from "//lib/money/cents.buri" import { toCents };
    |      ^^^^^^^^^^^^^^^^^^^
    |
    = tests reach their library the same way dependents do
@@ -163,13 +163,13 @@ library code that happens to be test-only, and it lives behind a path with a
 `testing` segment ([`libraries.md`](./libraries.md#the-testing-surface)):
 
 ```buri repo=cli/tests/example package=//lib/ledger role=testing
-# from "core/testing/context" import { Hermetic, files };
-# from "core/effect" import { Fs };
+# from "core/testing/context/lib.buri" import { Hermetic, files };
+# from "core/effect/lib.buri" import { Fs };
 // lib/ledger/testing/fixtures.buri — inside //lib/ledger, so it can use the
 // library's internals to build a fixture.
 
-from "//lib/ledger/entry" import { Entry, entry };
-from "//lib/money" import { fromCents, fromDollars };
+from "//lib/ledger/entry.buri" import { Entry, entry };
+from "//lib/money/lib.buri" import { fromCents, fromDollars };
 
 /// A three-entry ledger, one of them zero, for anyone testing against ledgers.
 export fn sample(): [Entry] {
@@ -197,7 +197,7 @@ any library — declared, and by label:
 // tools/report/test/render.buri — a different package's suite, using it. A
 // name reaches this suite only if `testing/lib.buri` re-exports it, exactly as
 // `lib.buri` decides the library's own surface one level up.
-from "//lib/ledger/testing" import { sample, oneOff };
+from "//lib/ledger/testing/lib.buri" import { sample, oneOff };
 ```
 
 with `test { dependencies: ["//lib/ledger/testing"] }` in that package's rule.
@@ -214,11 +214,11 @@ its test sources import it by its module path:
 ```buri repo=cli/tests/example package=//cmd/server
 // cmd/server/main.buri
 
-from "//cmd/server/routes" export { Route, route };
+from "//cmd/server/routes.buri" export { Route, route };
 
-from "//cmd/server/routes" import { route };
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "//cmd/server/routes.buri" import { route };
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
@@ -231,10 +231,10 @@ export fn main(): Result<(), Str> {
 ```
 
 ```buri repo=cli/tests/example package=//cmd/server role=test
-# from "core/testing/assert" import * as assert;
+# from "core/testing/assert/lib.buri" import * as assert;
 // cmd/server/test/routes.buri
 
-from "//cmd/server/main" import { route };
+from "//cmd/server/main.buri" import { route };
 
 test "unknown paths route to the fallback" {
   assert.eq(route("/nope").name, "fallback");
@@ -253,10 +253,10 @@ hand it ([`SPEC.md` §11](../SPEC.md)). A binary whose failure modes you want to
 assert on puts them in a function that takes an ordinary bounded `ctx`:
 
 ```buri
-# from "core/effect" import { Alloc, Env, Fs, Stdout };
-# from "core/host" import * as host;
-# from "core/env" import * as env;
-# from "core/fs" import * as fs;
+# from "core/effect/lib.buri" import { Alloc, Env, Fs, Stdout };
+# from "core/host/lib.buri" import * as host;
+# from "core/env/lib.buri" import * as env;
+# from "core/fs/lib.buri" import * as fs;
 // cmd/server/main.buri
 export fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> {
   fs.writeText(ctx, path, "started\n").mapErr(fn(e) => "could not write the ledger log")
@@ -278,10 +278,10 @@ export fn main(): Result<(), Str> {
 supply, and it is the same list in both directions.
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-# from "core/testing/context" import { Hermetic, data, readOnly };
-# from "core/effect" import { Alloc, Fs, Stdout };
-# from "core/fs" import * as fs;
+# from "core/testing/assert/lib.buri" import * as assert;
+# from "core/testing/context/lib.buri" import { Hermetic, data, readOnly };
+# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+# from "core/fs/lib.buri" import * as fs;
 # fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> {
 #   fs.writeText(ctx, path, "started\n").mapErr(fn(e) => "could not write the ledger log")
 # }
@@ -316,10 +316,10 @@ pre-assembled world. Each is real where it can be and hermetic everywhere else:
 may use it directly, declare its own on top of it, or build one per test:
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-# from "core/testing/context" import { Hermetic, envOf };
-# from "core/effect" import { Env };
-# from "core/env" import * as env;
+# from "core/testing/assert/lib.buri" import * as assert;
+# from "core/testing/context/lib.buri" import { Hermetic, envOf };
+# from "core/effect/lib.buri" import { Env };
+# from "core/env/lib.buri" import * as env;
 # fn logPath<C: Env>(ctx: C): Str { env.get(ctx, "LEDGER_LOG") ?? "ledger.log" }
 context Fixture {
   ..Hermetic(),
@@ -346,9 +346,9 @@ effects are ordinary interfaces ([`SPEC.md` §10.9](../SPEC.md)), and it is boun
 exactly the way the runner's own implementations are:
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-# from "core/testing/context" import { Hermetic };
-# from "core/effect" import { Net, NetError, NetResponse };
+# from "core/testing/assert/lib.buri" import * as assert;
+# from "core/testing/context/lib.buri" import { Hermetic };
+# from "core/effect/lib.buri" import { Net, NetError, NetResponse };
 # fn body<C: Net>(ctx: C, url: Str): Result<Str, NetError> {
 #   ctx.fetch("GET", url, "").map(fn(r) => r.body)
 # }
@@ -425,10 +425,10 @@ test {
 ```
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-# from "core/testing/context" import { Hermetic };
-# from "core/effect" import { Alloc, Fs };
-# from "core/fs" import * as fs;
+# from "core/testing/assert/lib.buri" import * as assert;
+# from "core/testing/context/lib.buri" import { Hermetic };
+# from "core/effect/lib.buri" import { Alloc, Fs };
+# from "core/fs/lib.buri" import * as fs;
 # struct Entry { export memo: Str }
 # fn sample(): [Entry] { [Entry { memo: "coffee" }] }
 # fn render<C: Alloc>(ctx: C, entries: [Entry]): Str {

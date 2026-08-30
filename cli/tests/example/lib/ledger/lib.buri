@@ -2,5 +2,5 @@
 // including from a subdirectory — the file layout inside a library is nobody
 // else's business.
 
-from "//lib/ledger/entry" export { Entry, entry, total };
-from "//lib/ledger/posting/rules" export { Rule, apply };
+from "//lib/ledger/entry.buri" export { Entry, entry, total };
+from "//lib/ledger/posting/rules.buri" export { Rule, apply };

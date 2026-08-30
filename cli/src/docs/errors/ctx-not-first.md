@@ -24,8 +24,8 @@ signature.
 ## A program that provokes it
 
 ```buri fail code=ctx-not-first
-# from "core/effect" import { Stdout };
-# from "core/io" import * as io;
+# from "core/effect/lib.buri" import { Stdout };
+# from "core/io/lib.buri" import * as io;
 fn shout<C: Stdout>(times: Int, ctx: C): () {
   io.println(ctx, "loud")
 }

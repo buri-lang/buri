@@ -5,5 +5,5 @@ fix: import from `"core/..."` or from a `//...` path in this repository
 ---
 
 ```buri fail code=module-outside-repository
-from "//lib/ledger" import { Entry };
+from "//lib/ledger/lib.buri" import { Entry };
 ```

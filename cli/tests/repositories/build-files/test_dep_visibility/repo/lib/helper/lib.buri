@@ -1,1 +1,1 @@
-from "//lib/helper/h" export { double };
+from "//lib/helper/h.buri" export { double };

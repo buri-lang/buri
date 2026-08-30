@@ -1,5 +1,5 @@
-from "core/testing/assert" import * as assert;
-from "//lib/subject" import { answer };
+from "core/testing/assert/lib.buri" import * as assert;
+from "//lib/subject/lib.buri" import { answer };
 
 test "the answer" {
     assert.eq(answer(), 42);

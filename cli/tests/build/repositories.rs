@@ -283,8 +283,8 @@ const NOTIFICATIONS: &[&str] = &[
 
 /// The program the surface is driven against: one file, one import and one
 /// call, so that a position request has something under it.
-const SURFACE_PROGRAM: &str = r#"from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+const SURFACE_PROGRAM: &str = r#"from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn answer(): Int { 41 }
 
@@ -669,7 +669,7 @@ fn generated_repository(
             let names: Vec<String> =
                 (0..functions).map(|f| format!("p{package}m{module}f{f}")).collect();
             exports.push_str(&format!(
-                "from \"//lib/p{package}/m{module}\" export {{ {} }};\n",
+                "from \"//lib/p{package}/m{module}.buri\" export {{ {} }};\n",
                 names.join(", ")
             ));
         }

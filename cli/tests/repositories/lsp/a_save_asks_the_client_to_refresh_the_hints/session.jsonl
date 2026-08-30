@@ -8,11 +8,11 @@
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # Opening records the state the hints are about. Nothing has gone stale yet,
 # so nothing is asked for.
-{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/money/cents\" import { Money, line };\n\n/// What a basket of one thing costs.\nexport fn total(count: I64): Money {\n    let single = line(1, 250);\n    single\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/money/cents.buri\" import { Money, line };\n\n/// What a basket of one thing costs.\nexport fn total(count: I64): Money {\n    let single = line(1, 250);\n    single\n}\n"}}}
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 10, "character": 0}}}}
 # A keystroke. Hints are not recomputed here — the client asks for those when
 # it wants them — and nothing is published, because the buffer parses.
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri", "version": 2}, "contentChanges": [{"text": "from \"//lib/money/cents\" import { Money, line };\n\n/// What a basket of one thing costs.\nexport fn total(count: I64): Money {\n    let single = line(count, 250);\n    single\n}\n"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri", "version": 2}, "contentChanges": [{"text": "from \"//lib/money/cents.buri\" import { Money, line };\n\n/// What a basket of one thing costs.\nexport fn total(count: I64): Money {\n    let single = line(count, 250);\n    single\n}\n"}]}}
 # The save. The fingerprint has moved since the open, so both refreshes go out
 # after the diagnostics — colours first, hints second.
 {"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/basket.buri"}}}

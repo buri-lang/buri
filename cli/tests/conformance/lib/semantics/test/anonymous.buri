@@ -11,11 +11,11 @@
 // The two strings the grammar keeps for blocks, `{ }` and `{ name }`, are
 // pinned here too: they still mean what they meant.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic, alloc };
-from "core/effect" import { Alloc };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic, alloc };
+from "core/effect/lib.buri" import { Alloc };
 
-from "//lib/semantics" import {
+from "//lib/semantics/lib.buri" import {
   World, Wrap, Holder, takesWorld, anonHere, anonMatch, anonHidden, hidden,
   hiddenPrivate,
 };

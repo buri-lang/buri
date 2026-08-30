@@ -1,1 +1,1 @@
-from "//lib/friend/f" export { relay };
+from "//lib/friend/f.buri" export { relay };

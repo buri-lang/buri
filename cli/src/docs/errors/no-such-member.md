@@ -27,8 +27,8 @@ one part that was right.
 ## A program that provokes it
 
 ```buri fail code=no-such-member
-from "core/effect" import { Alloc, Fs };
-from "core/fs" import * as fs;
+from "core/effect/lib.buri" import { Alloc, Fs };
+from "core/fs/lib.buri" import * as fs;
 
 export fn appendWal<C: Alloc + Fs>(ctx: C): Bool {
   fs.appendBytes(ctx, "wal")

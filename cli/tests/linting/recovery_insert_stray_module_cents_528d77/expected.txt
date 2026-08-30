@@ -1,7 +1,7 @@
 error: expected a declaration, found `extra` [unexpected-token]
  --> lib/recovery_insert_stray_module_cents_528d77/lib.buri:5:1
   |
-5 | extra from "core/str" import * as str;
+5 | extra from "core/str/lib.buri" import * as str;
   | ^^^^^
   |
   = expected: a declaration
@@ -10,7 +10,7 @@ error: expected a declaration, found `extra` [unexpected-token]
 warning: str is imported but not used [unused-import]
  --> lib/recovery_insert_stray_module_cents_528d77/lib.buri:5:35
   |
-5 | extra from "core/str" import * as str;
+5 | extra from "core/str/lib.buri" import * as str;
   |                                   ^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up

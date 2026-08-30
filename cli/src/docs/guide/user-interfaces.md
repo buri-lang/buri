@@ -134,14 +134,14 @@ tokens — a library or an app, the rules are the same — declares its own clos
 vocabulary as an ordinary enum, with a constructor answering a colour:
 
 ```buri
-from "core/effect" import { Alloc };
-from "core/host" import * as host;
-from "ui/effect" import { Scope, Ui, Watch };
-from "ui/node" import * as ui;
-from "ui/style" import * as style;
-from "ui/style" import { Color };
-from "ui/theme" import * as theme;
-from "ui/theme" import { Theme };
+from "core/effect/lib.buri" import { Alloc };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Scope, Ui, Watch };
+from "ui/node/lib.buri" import * as ui;
+from "ui/style/lib.buri" import * as style;
+from "ui/style/lib.buri" import { Color };
+from "ui/theme/lib.buri" import * as theme;
+from "ui/theme/lib.buri" import { Theme };
 
 // `cardlib`'s vocabulary, and the constructor that names each of its tokens.
 export enum Token {

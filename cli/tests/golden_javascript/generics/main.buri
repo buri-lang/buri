@@ -1,7 +1,7 @@
 // One generic function instantiated at three types, so what monomorphisation
 // produces — and what it costs when the body is trivial — is visible.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 fn identity<T>(x: T): T { x }
 

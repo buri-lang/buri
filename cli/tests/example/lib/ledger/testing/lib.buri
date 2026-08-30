@@ -6,4 +6,4 @@
 // containing it may be imported only from a test source, so nothing here can
 // reach a production binary.
 
-from "//lib/ledger/testing/fixtures" export { sample, oneOff };
+from "//lib/ledger/testing/fixtures.buri" export { sample, oneOff };

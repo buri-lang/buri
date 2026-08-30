@@ -1,7 +1,7 @@
 warning: fromCents is imported but not used [unused-import]
  --> cmd/app/main.buri:8:29
   |
-8 | from "//lib/money" import { fromCents };
+8 | from "//lib/money/lib.buri" import { fromCents };
   |                             ^^^^^^^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up

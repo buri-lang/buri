@@ -1,2 +1,2 @@
-from "//lib/two/a" export { twoA };
-from "//lib/two/b" export { twoB };
+from "//lib/two/a.buri" export { twoA };
+from "//lib/two/b.buri" export { twoB };

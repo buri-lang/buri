@@ -10,8 +10,8 @@
 // The neighbouring case where the annotation *does* reach through the call is
 // not an error and is in the conformance suite: `let w: World = identity({ hi:
 // "hi" })` binds `T` before the argument is checked, and compiles.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
 struct World { export hi: Str, export hello: Option<Str> }
 

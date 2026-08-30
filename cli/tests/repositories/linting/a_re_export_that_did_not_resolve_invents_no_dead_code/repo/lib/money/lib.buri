@@ -4,4 +4,4 @@
 // first is reported. `dead-code` reads this file to decide what reaches what,
 // so a line of it that did not resolve is a line the rule cannot count on —
 // and the fix for the typo is the fix for both.
-from "//lib/money/cents" export { markup };
+from "//lib/money/cents.buri" export { markup };

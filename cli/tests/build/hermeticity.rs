@@ -152,8 +152,8 @@ fn a_test_source_cannot_import_core_host() {
     scratch.write("lib/probe/lib.buri", "export fn identity(n: Int): Int { n }\n");
     scratch.write(
         "lib/probe/test/env.buri",
-        "from \"core/testing/assert\" import * as assert;\n\
-         from \"core/host\" import * as host;\n\n\
+        "from \"core/testing/assert/lib.buri\" import * as assert;\n\
+         from \"core/host/lib.buri\" import * as host;\n\n\
          test \"reads the machine\" {\n  assert.eq(1, 1);\n}\n",
     );
     scratch

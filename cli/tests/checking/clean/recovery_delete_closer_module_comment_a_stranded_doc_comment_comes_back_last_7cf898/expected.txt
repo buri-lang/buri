@@ -6,7 +6,7 @@ error: this re-export list is missing its closing `}` [unclosed-delimiter]
   |
  --> main.buri:1:25
   |
-1 | from "core/list" export {
+1 | from "core/list/lib.buri" export {
   |                         ^ opened here
   |
   = fix: write `}` here

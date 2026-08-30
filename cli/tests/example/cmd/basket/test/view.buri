@@ -12,22 +12,22 @@
 // nothing to do with the page, and `Fetch` is an effect, so the way to supply
 // one is to write one.
 
-from "//cmd/basket/main" import {
+from "//cmd/basket/main.buri" import {
   appThemed, day, kitTheme, newState, night, page, settledFraction,
 };
-from "//lib/kit" import { themed };
-from "//lib/ledger" import { Entry, entry };
-from "//lib/money" import { fromCents };
-from "core/effect" import { Alloc, NetResponse };
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { alloc };
-from "ui/effect" import { Fetch, FetchError, Request, Ui, Watch };
-from "ui/prop" import { memo };
-from "ui/signal" import { signal, watch };
-from "ui/testing" import {
+from "//lib/kit/lib.buri" import { themed };
+from "//lib/ledger/lib.buri" import { Entry, entry };
+from "//lib/money/lib.buri" import { fromCents };
+from "core/effect/lib.buri" import { Alloc, NetResponse };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { alloc };
+from "ui/effect/lib.buri" import { Fetch, FetchError, Request, Ui, Watch };
+from "ui/prop/lib.buri" import { memo };
+from "ui/signal/lib.buri" import { signal, watch };
+from "ui/testing/lib.buri" import {
   headless, install, noFetch, observer, recorder, render, variables,
 };
-from "ui/theme" import * as theme;
+from "ui/theme/lib.buri" import * as theme;
 
 /// What //cmd/server's `/entries` route answers, recorded — the same three
 /// lines test/model.buri parses directly.

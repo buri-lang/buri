@@ -1,7 +1,7 @@
 // EXPECT: does not satisfy `Fs`
-from "core/effect" import { Alloc, Fs, Stdout };
-from "core/host" import * as host;
-from "core/fs" import * as fs;
+from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/fs/lib.buri" import * as fs;
 
 fn check<C: Alloc + Fs>(ctx: C, path: Str): Bool {
   fs.exists(ctx, path)

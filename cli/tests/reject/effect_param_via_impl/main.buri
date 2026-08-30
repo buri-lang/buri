@@ -5,9 +5,9 @@
 // be checked while signatures were elaborated, before conformance was
 // registered, so it read an empty impl table and admitted this: `sneaky`
 // performs an effect with no `ctx` anywhere in its signature.
-from "core/effect" import { Alloc, Clock, Stdout };
-from "core/host" import * as host;
-from "core/io" import * as io;
+from "core/effect/lib.buri" import { Alloc, Clock, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/io/lib.buri" import * as io;
 
 /// The field is private, so only this module can mint one — the shape a
 /// runtime-minted handle has, and the reason naming the type is not enough to

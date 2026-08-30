@@ -6,7 +6,7 @@
 // `Cents(1905)`; it goes through the constructor like any other caller.
 // `toCents` is the internal accessor, exported by cents.buri and deliberately
 // absent from lib.buri.
-from "//lib/money/cents" import { Cents, fromCents, toCents };
+from "//lib/money/cents.buri" import { Cents, fromCents, toCents };
 
 /// A million dollars, in cents.
 let MAX_CENTS: I64 = 100_000_000

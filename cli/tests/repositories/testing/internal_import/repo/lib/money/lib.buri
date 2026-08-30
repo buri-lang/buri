@@ -1,4 +1,4 @@
 // The whole surface of //lib/money. `toCents` is deliberately not on it: it is
 // how cents are stored, not what a dependent is promised.
 
-from "//lib/money/cents" export { fromCents, format };
+from "//lib/money/cents.buri" export { fromCents, format };

@@ -1,7 +1,7 @@
 warning: str is imported but not used [unused-import]
  --> lib/recovery_delete_separator_paren_cents_2e202e/lib.buri:5:29
   |
-5 | from "core/str" import * as str;
+5 | from "core/str/lib.buri" import * as str;
   |                             ^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up

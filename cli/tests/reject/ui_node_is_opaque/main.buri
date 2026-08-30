@@ -7,12 +7,12 @@
 // lowering for, and one that could take a node apart would be a second reader
 // of a shape only the runtime is meant to read. Both halves are refused here:
 // the pattern destructures, and the expression constructs.
-from "core/effect" import { Alloc };
+from "core/effect/lib.buri" import { Alloc };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
-from "ui/effect" import { Ui, Watch };
-from "ui/node" import * as ui;
-from "ui/node" import { Node };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Ui, Watch };
+from "ui/node/lib.buri" import * as ui;
+from "ui/node/lib.buri" import { Node };
 
 fn rewrap<C>(n: Node<C>): Node<C> {
   match (n) {

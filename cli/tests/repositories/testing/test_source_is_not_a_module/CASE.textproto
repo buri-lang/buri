@@ -25,8 +25,8 @@ run {
 # exists to catch, and the one a shared `testing` library is the answer to.
 edit {
   file: "lib/money/test/cents.buri"
-  replace: "from \"core/testing/assert\" import * as assert;"
-  with: "from \"//lib/money/test/parse\" import { digits };\nfrom \"core/testing/assert\" import * as assert;"
+  replace: "from \"core/testing/assert/lib.buri\" import * as assert;"
+  with: "from \"//lib/money/test/parse.buri\" import { digits };\nfrom \"core/testing/assert/lib.buri\" import * as assert;"
 }
 
 edit {
@@ -46,7 +46,7 @@ run {
 # source. The rule does not care who is asking.
 edit {
   file: "lib/money/test/cents.buri"
-  replace: "from \"//lib/money/test/parse\" import { digits };\n"
+  replace: "from \"//lib/money/test/parse.buri\" import { digits };\n"
   with: ""
 }
 
@@ -59,7 +59,7 @@ edit {
 edit {
   file: "lib/money/cents.buri"
   replace: "export fn fromCents(n: I64): I64 { n }"
-  with: "from \"//lib/money/test/parse\" import { digits };\n\nexport fn fromCents(n: I64): I64 { digits(n) }"
+  with: "from \"//lib/money/test/parse.buri\" import { digits };\n\nexport fn fromCents(n: I64): I64 { digits(n) }"
 }
 
 run {

@@ -1,14 +1,14 @@
 error: an import declaration ends with `;` [missing-terminator]
  --> lib/recovery_swap_adjacent_brace_cents_9325f2/lib.buri:4:30
   |
-4 | from "core/effect" import { } Alloc;
+4 | from "core/effect/lib.buri" import { } Alloc;
   |                              ^
   |
   = fix: write `;` here
 error: expected a declaration, found `Alloc` [unexpected-token]
  --> lib/recovery_swap_adjacent_brace_cents_9325f2/lib.buri:4:31
   |
-4 | from "core/effect" import { } Alloc;
+4 | from "core/effect/lib.buri" import { } Alloc;
   |                               ^^^^^
   |
   = expected: a declaration
@@ -17,7 +17,7 @@ error: expected a declaration, found `Alloc` [unexpected-token]
 warning: str is imported but not used [unused-import]
  --> lib/recovery_swap_adjacent_brace_cents_9325f2/lib.buri:5:29
   |
-5 | from "core/str" import * as str;
+5 | from "core/str/lib.buri" import * as str;
   |                             ^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up

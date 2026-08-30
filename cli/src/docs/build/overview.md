@@ -102,8 +102,8 @@ it. Everything else in the package is listed one path at a time.
 // The public surface of //lib/money. A dependent can import these names and no
 // others; `toCents` below is exported by cents.buri but not from here, so it is
 // visible inside this library and nowhere else.
-from "//lib/money/cents" export { Cents, fromDollars, fromCents, add, isZero, format };
-from "//lib/money/parse" export { ParseError, parse };
+from "//lib/money/cents.buri" export { Cents, fromDollars, fromCents, add, isZero, format };
+from "//lib/money/parse.buri" export { ParseError, parse };
 ```
 
 Module paths are absolute — there are no relative imports — so `//lib/money`
@@ -133,9 +133,9 @@ impl Cents {
 `lib/money/test/cents.buri`:
 
 ```buri repo=cli/tests/example role=test
-from "//lib/money" import { fromCents };
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
+from "//lib/money/lib.buri" import { fromCents };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
 
 test "pads the cents place" {
   let ctx = Hermetic();
@@ -150,8 +150,8 @@ withholds is not callable from another package, as a free function or as a
 method. `tools/report/test/render.buri`:
 
 ```buri repo=cli/tests/example role=test package=//tools/report
-# from "//lib/money" import { fromCents };
-# from "core/testing/assert" import * as assert;
+# from "//lib/money/lib.buri" import { fromCents };
+# from "core/testing/assert/lib.buri" import * as assert;
 test "the surface is the whole of what a dependent can call" {
   assert.eq(fromCents(1905).toCents(), 1905);   // ERROR: `toCents` is not on //lib/money's surface
 }

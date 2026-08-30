@@ -1,1 +1,1 @@
-from "//lib/core/c" export { base };
+from "//lib/core/c.buri" export { base };

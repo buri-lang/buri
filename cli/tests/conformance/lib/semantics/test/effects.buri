@@ -9,22 +9,22 @@
 // below that is *used* therefore binds explicitly what it uses, and the spread
 // tests assert only on the binding that follows the spread.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import {
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import {
   Hermetic, alloc, captureOut, captureErr, captured, capturedErr, stdin, stdinBytes, files,
   filesBytes, data, readOnly, noNet, clockAt, advance, randSeed, envOf,
 };
-from "core/effect" import { Alloc, Clock, Env, Fs, IoError, Net, Rand, Stderr, Stdin, Stdout };
+from "core/effect/lib.buri" import { Alloc, Clock, Env, Fs, IoError, Net, Rand, Stderr, Stdin, Stdout };
 
-from "core/bytes" import * as bytes;
-from "core/env" import * as env;
-from "core/fs" import * as fs;
-from "core/io" import * as io;
-from "core/net/http" import * as http;
-from "core/random" import * as random;
-from "core/time" import * as time;
+from "core/bytes/lib.buri" import * as bytes;
+from "core/env/lib.buri" import * as env;
+from "core/fs/lib.buri" import * as fs;
+from "core/io/lib.buri" import * as io;
+from "core/net/http/lib.buri" import * as http;
+from "core/random/lib.buri" import * as random;
+from "core/time/lib.buri" import * as time;
 
-from "//lib/semantics" import {
+from "//lib/semantics/lib.buri" import {
   loadText, saveText, roundTrip, greet, shout, stamp, elapsed, fetchBody,
   StaticFs, FrozenClock, EchoEnv, TeapotNet, guarded,
 };

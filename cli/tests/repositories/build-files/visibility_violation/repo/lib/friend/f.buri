@@ -1,3 +1,3 @@
-from "//lib/secret" import { secret };
+from "//lib/secret/lib.buri" import { secret };
 
 export fn relay(): Str { secret() }

@@ -1,5 +1,5 @@
-from "//lib/codec" import { encode };
-from "core/testing/assert" import * as assert;
+from "//lib/codec/lib.buri" import { encode };
+from "core/testing/assert/lib.buri" import * as assert;
 
 test "encodes zero" {
   assert.eq(encode(0), "zero");

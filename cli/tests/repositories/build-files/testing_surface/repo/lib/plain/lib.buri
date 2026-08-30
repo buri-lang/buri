@@ -1,1 +1,1 @@
-from "//lib/plain/p" export { p };
+from "//lib/plain/p.buri" export { p };

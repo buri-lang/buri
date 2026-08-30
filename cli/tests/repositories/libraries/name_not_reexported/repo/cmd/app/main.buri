@@ -2,10 +2,10 @@
 // surface, so importing it from //lib/money names something that, from here,
 // does not exist.
 
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
 
-from "//lib/money" import { fromCents, rawValue };
+from "//lib/money/lib.buri" import { fromCents, rawValue };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

@@ -1,1 +1,1 @@
-from "//lib/money/cents" export { total };
+from "//lib/money/cents.buri" export { total };

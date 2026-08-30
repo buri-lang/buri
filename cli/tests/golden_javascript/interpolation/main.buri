@@ -1,8 +1,8 @@
 // A `Template` is an array of parts handed to the runtime's formatter. Where
 // every hole renders on its own, the array and the call are both avoidable.
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-from "core/str" import * as str;
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/str/lib.buri" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

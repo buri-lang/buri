@@ -2,6 +2,6 @@
 // reachable even though `lib.buri` also re-exports it. Nothing here names
 // `toDollars`.
 
-from "//lib/money/cents" import { Cents };
+from "//lib/money/cents.buri" import { Cents };
 
 export fn toNearestDollar(c: Cents): Cents { Cents(c.0 - c.0 % 100) }

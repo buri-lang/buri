@@ -8,11 +8,11 @@
 // last test pins that a constructor which really does store its parameter
 // still needs an ordinary bound — the reject corpus holds the failing half.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
-from "core/str" import * as str;
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
+from "core/str/lib.buri" import * as str;
 
-from "//lib/semantics" import {
+from "//lib/semantics/lib.buri" import {
   Widget, render, eachRow, deferred, Cell, cellIndex, Held, heldTwice,
 };
 

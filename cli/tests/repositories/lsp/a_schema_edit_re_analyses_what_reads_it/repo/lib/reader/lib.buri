@@ -1,4 +1,4 @@
-from "//lib/wire" import { Point, defaultPoint };
+from "//lib/wire/lib.buri" import { Point, defaultPoint };
 
 /// The point every reader starts from.
 export fn origin(): Point {

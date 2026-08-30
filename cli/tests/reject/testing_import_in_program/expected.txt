@@ -1,7 +1,7 @@
 error: this is a test-only module [test-only-import]
  --> cmd/testing_import_in_program/main.buri:4:6
   |
-4 | from "core/testing/assert" import * as assert;
+4 | from "core/testing/assert/lib.buri" import * as assert;
   |      ^^^^^^^^^^^^^^^^^^^^^ importable only from a test source
   |
   = a path containing a `testing` segment may be imported only from a test source

@@ -4,8 +4,8 @@
 // is, because the function it is in is whole — the mistake is one declaration
 // wide, and so is the silence.
 
-from "core/effect" import { Alloc };
-from "core/str" import { fromInt };
+from "core/effect/lib.buri" import { Alloc };
+from "core/str/lib.buri" import { fromInt };
 
 export fn describe<C: Alloc>(ctx: C, n: I64): Str {
   let hidden = 7;

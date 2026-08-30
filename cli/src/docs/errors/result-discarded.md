@@ -26,9 +26,9 @@ spelling of a deliberate drop, and `buri lint` reports it as
 ## A program that provokes it
 
 ```buri fail code=result-discarded
-# from "core/effect" import { Alloc, Fs, Stdout };
-# from "core/host" import * as host;
-# from "core/fs" import * as fs;
+# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+# from "core/host/lib.buri" import * as host;
+# from "core/fs/lib.buri" import * as fs;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
   let _ = fs.readText(ctx, "config.toml");

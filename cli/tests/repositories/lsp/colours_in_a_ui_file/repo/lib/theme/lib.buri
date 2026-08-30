@@ -1,1 +1,1 @@
-from "//lib/theme/palette" export { brand, overlay, shaded };
+from "//lib/theme/palette.buri" export { brand, overlay, shaded };

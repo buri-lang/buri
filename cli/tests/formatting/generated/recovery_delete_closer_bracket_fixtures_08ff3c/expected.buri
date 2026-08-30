@@ -1,8 +1,8 @@
 // Inside //lib/ledger, so this imports the library's internals directly rather
 // than going through //lib/ledger — a fixture built out of the real thing needs
 // no back door in the public surface.
-from "//lib/ledger/entry" import { Entry, entry };
-from "//lib/money" import { fromCents, fromDollars };
+from "//lib/ledger/entry.buri" import { Entry, entry };
+from "//lib/money/lib.buri" import { fromCents, fromDollars };
 
 /// A three-entry ledger, one of them zero, for anyone testing against ledgers.
 /// Total is $36.50.

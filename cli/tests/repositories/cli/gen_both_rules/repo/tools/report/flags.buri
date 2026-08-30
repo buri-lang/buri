@@ -1,5 +1,5 @@
-from "//tools/report/argv" import { has };
-from "//tools/report/shared" import { heading };
+from "//tools/report/argv.buri" import { has };
+from "//tools/report/shared.buri" import { heading };
 
 export struct Flags { export verbose: Bool, export title: Str }
 

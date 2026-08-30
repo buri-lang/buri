@@ -1,7 +1,7 @@
 // EXPECT: `Region` is not declared in this module
-from "core/effect" import { Alloc, Stdout, Region };
-from "core/order" import { Ord, Order };
-from "core/host" import * as host;
+from "core/effect/lib.buri" import { Alloc, Stdout, Region };
+from "core/order/lib.buri" import { Ord, Order };
+from "core/host/lib.buri" import * as host;
 
 impl Ord for Region {
   fn compare(self, other: Region): Order { .Equal }

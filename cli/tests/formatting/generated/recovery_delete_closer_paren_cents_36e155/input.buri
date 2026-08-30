@@ -1,9 +1,9 @@
 // Tests for //lib/money. They import the library by label, exactly as any
 // dependent does, so they can only assert on what dependents can call.
 
-from "//lib/money" import { fromDollars, fromCents };
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
+from "//lib/money/lib.buri" import { fromDollars, fromCents };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
 
 test "dollars are a hundred cents" {
   assert.eq(fromDollars(3), fromCents(300));

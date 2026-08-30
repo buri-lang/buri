@@ -7,12 +7,12 @@
 // Every other unfoldable style degrades quietly to the inline tier. These two
 // constructors are the exception because they have nowhere to degrade *to*, and
 // silently dropping a breakpoint is worse than refusing it.
-from "core/effect" import { Alloc };
+from "core/effect/lib.buri" import { Alloc };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host" import * as host;
-from "ui/effect" import { Scope, Ui, Watch };
-from "ui/node" import * as ui;
-from "ui/style" import { Style };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Scope, Ui, Watch };
+from "ui/node/lib.buri" import * as ui;
+from "ui/style/lib.buri" import { Style };
 
 let wide: Style = .At(.Large, [.Computed(fn(scope) => [.Width(.Full)])]);
 

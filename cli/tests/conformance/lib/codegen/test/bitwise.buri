@@ -15,7 +15,7 @@
 // operands are bound rather than written inline because a bare integer literal
 // has no width yet, and these operators are defined on a width.
 
-from "core/testing/assert" import * as assert;
+from "core/testing/assert/lib.buri" import * as assert;
 
 
 test "& agrees with the 64-bit answer at every boundary" {

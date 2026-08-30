@@ -1,6 +1,6 @@
 // Nothing here depends on //lib/money, so the edit below never reaches this
 // target: its finding is reported from the record the first run wrote.
 
-from "core/list" import * as list;
+from "core/list/lib.buri" import * as list;
 
 export fn one(: I64 { 1 }

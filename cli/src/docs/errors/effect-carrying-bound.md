@@ -6,8 +6,8 @@ fix: pass a type that holds no capability, or drop the `{trait}` bound
 ---
 
 ```buri fail code=effect-carrying-bound
-# from "core/effect" import { Alloc, Stdout };
-# from "core/host" import * as host;
+# from "core/effect/lib.buri" import { Alloc, Stdout };
+# from "core/host/lib.buri" import * as host;
 
 struct Holder<C> { export inner: C }
 

@@ -1,6 +1,6 @@
-from "core/effect" import { Alloc };
-from "core/str" import * as str;
-from "//lib/money" import { Cents };
+from "core/effect/lib.buri" import { Alloc };
+from "core/str/lib.buri" import * as str;
+from "//lib/money/lib.buri" import { Cents };
 
 export fn label<C: Alloc>(ctx: C, c: Cents): Str {
     str.format(ctx, "${c.value}c")

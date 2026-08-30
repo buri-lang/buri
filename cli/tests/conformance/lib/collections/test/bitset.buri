@@ -4,10 +4,10 @@
 // bits to a word, so index 31 and index 32 land in different words and a
 // mistake in the division shows up there and nowhere else.
 
-from "core/testing/assert" import * as assert;
-from "core/testing/context" import { Hermetic };
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { Hermetic };
 
-from "core/bitset" import * as bitset;
+from "core/bitset/lib.buri" import * as bitset;
 
 // --- empty / capacity ---------------------------------------------------------
 

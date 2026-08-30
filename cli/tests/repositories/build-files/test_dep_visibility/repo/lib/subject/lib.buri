@@ -1,1 +1,1 @@
-from "//lib/subject/x" export { triple };
+from "//lib/subject/x.buri" export { triple };
