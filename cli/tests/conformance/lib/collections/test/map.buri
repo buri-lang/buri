@@ -6,7 +6,8 @@
 // not change the size).
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 from "core/list/lib.buri" import * as list;
 from "core/map/lib.buri" import { Map };
@@ -16,7 +17,7 @@ from "core/set/lib.buri" import * as set;
 // --- empty --------------------------------------------------------------------
 
 test "an empty map holds nothing" {
-  let ctx = Hermetic();
+  let ctx = context { };
   let m = map.empty<Str, Int>();
   assert.eq(m.len(), 0);
   assert.isTrue(m.isEmpty());
@@ -27,7 +28,7 @@ test "an empty map holds nothing" {
 // --- insert / get ---------------------------------------------------------------
 
 test "insert then get" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
   assert.eq(assert.some(m.get("a")), 1);
   assert.eq(assert.some(m.get("b")), 2);
@@ -36,14 +37,14 @@ test "insert then get" {
 }
 
 test "inserting the same key replaces the value and does not change the size" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "a", 99);
   assert.eq(assert.some(m.get("a")), 99);
   assert.eq(m.len(), 1);
 }
 
 test "a map is a value: inserting produces a new one" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let before = map.empty<Str, Int>().insert(ctx, "a", 1);
   let after = before.insert(ctx, "b", 2);
   assert.eq(before.len(), 1);
@@ -54,7 +55,7 @@ test "a map is a value: inserting produces a new one" {
 // --- remove ---------------------------------------------------------------------
 
 test "remove takes a key out" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let m = map.of(ctx, [("a", 1), ("b", 2)]).remove(ctx, "a");
   assert.isTrue(m.get("a").isNone());
   assert.eq(assert.some(m.get("b")), 2);
@@ -62,7 +63,7 @@ test "remove takes a key out" {
 }
 
 test "removing a key that is not there changes nothing" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let m = map.of(ctx, [("a", 1)]);
   assert.eq(m.remove(ctx, "zzz").len(), 1);
 }
@@ -70,14 +71,14 @@ test "removing a key that is not there changes nothing" {
 // --- of / entries / keys / values -------------------------------------------------
 
 test "of holds every entry, later ones winning" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let m = map.of(ctx, [("a", 1), ("b", 2), ("a", 3)]);
   assert.eq(m.len(), 2);
   assert.eq(assert.some(m.get("a")), 3);
 }
 
 test "keys and values are as many as there are entries" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let m = map.of(ctx, [("a", 1), ("b", 2), ("c", 3)]);
   assert.eq(m.entries(ctx).len(), 3);
   assert.eq(m.keys(ctx).sort(ctx), ["a", "b", "c"]);
@@ -88,7 +89,7 @@ test "keys and values are as many as there are entries" {
 // buckets and rehashes. Everything must still be findable afterwards, which is
 // the one way a rehash can go wrong.
 test "a map that outgrows its buckets keeps every entry" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let n = 200;
   let m = list.range(ctx, 0, n).foldCtx(
     ctx,
@@ -103,7 +104,7 @@ test "a map that outgrows its buckets keeps every entry" {
 }
 
 test "growth does not duplicate entries" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let m = list.range(ctx, 0, 100).foldCtx(
     ctx,
     fn(c, acc: Map<Int, Int>, i) => acc.insert(c, i, i),
@@ -113,7 +114,7 @@ test "growth does not duplicate entries" {
 }
 
 test "equals compares entries rather than layout" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // Built in opposite orders, so the buckets were filled differently.
   let a = map.of(ctx, [("x", 1), ("y", 2), ("z", 3)]);
   let b = map.of(ctx, [("z", 3), ("y", 2), ("x", 1)]);
@@ -127,7 +128,7 @@ test "NaN is an ordinary key" {
   // needs of its keys: a key that is not equal to itself can be inserted and
   // never found again. `Hash` agrees by construction — every NaN mixes as
   // zero — so lookup finds the bucket and `==` finds the entry in it.
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let nan = 0.0 / 0.0;
   let m = map.empty<F64, Str>().insert(ctx, nan, "n").insert(ctx, 1.5, "a");
   assert.eq(assert.some(m.get(nan)), "n");
@@ -142,14 +143,14 @@ test "NaN is an ordinary key" {
 // --- sets -------------------------------------------------------------------------
 
 test "a set collapses duplicates" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let s = set.of(ctx, [1, 2, 2, 3, 1]);
   assert.eq(s.len(), 3);
   assert.eq(s.toList(ctx).sort(ctx), [1, 2, 3]);
 }
 
 test "insert, has, and remove" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let s = set.empty<Str>().insert(ctx, "a");
   assert.isTrue(s.has("a"));
   assert.isFalse(s.has("b"));
@@ -158,7 +159,7 @@ test "insert, has, and remove" {
 }
 
 test "union, intersect and difference" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let a = set.of(ctx, [1, 2, 3]);
   let b = set.of(ctx, [3, 4]);
   assert.eq(a.union(ctx, b).toList(ctx).sort(ctx), [1, 2, 3, 4]);
@@ -168,7 +169,7 @@ test "union, intersect and difference" {
 }
 
 test "isSubsetOf and equals" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let a = set.of(ctx, [1, 2]);
   let b = set.of(ctx, [1, 2, 3]);
   assert.isTrue(a.isSubsetOf(ctx, b));
@@ -179,7 +180,7 @@ test "isSubsetOf and equals" {
 }
 
 test "a set of many members survives growth too" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let s = set.of(ctx, list.range(ctx, 0, 150));
   assert.eq(s.len(), 150);
   assert.isTrue(list.range(ctx, 0, 150).all(fn(i) => s.has(i)));

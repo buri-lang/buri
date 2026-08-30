@@ -9,7 +9,7 @@
 //    recursive function, so the failure is a crash, not a slow test.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { alloc };
+from "core/host/testing/lib.buri" import { alloc };
 from "core/effect/lib.buri" import { Alloc };
 from "core/list/lib.buri" import * as list;
 
@@ -42,7 +42,7 @@ test "the same holds across a merged mutually recursive loop" {
   assert.eq(fs.get(0).map(fn(f) => f(100)) ?? -1, 100);
   assert.eq(fs.get(1).map(fn(f) => f(100)) ?? -1, 100);
   assert.eq(fs.get(2).map(fn(f) => f(100)) ?? -1, 102);
-  assert.eq(fs.get(3).map(fn(f) => f(100) ?? -1, 300);
+  assert.eq(fs.get(3).map(fn(f) => f(100)) ?? -1, 300);
 }
 
 test "a parameter the loop never rebinds is captured unchanged" {
@@ -50,7 +50,7 @@ test "a parameter the loop never rebinds is captured unchanged" {
   let fs = scalers(ctx, 7, 0, []);
   assert.eq(fs.len(), 3);
   assert.eq(fs.get(0).map(fn(f) => f(2)) ?? -1, 14);
-  assert.eq(fs.get(1).map(fn(f) => f(2)) ?? -1, 14);
+  assert.eq(fs.get(1).map(fn(f) => f(2)?? ) -1, 14);
   assert.eq(fs.get(2).map(fn(f) => f(2)) ?? -1, 14);
 }
 

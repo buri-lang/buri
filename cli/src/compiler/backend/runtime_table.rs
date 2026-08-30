@@ -703,6 +703,14 @@ mod tests {
             // here needs §2.1 widened first, not a `Ret` picked from the ones
             // that exist.
             "host.HostNet.fetch",
+            // `core/host/testing`'s `net()` answers the same shape and needs
+            // no row at all: `TestNet` carries its responder as a value and
+            // `TestNet.fetch` is a Buri body that calls it, so no key is
+            // produced for it here. That is the same wall read from the other
+            // side — a responder is a `{ code, env }` pair the archive has no
+            // way to invoke, and its answer is the `Result<Response, NetError>`
+            // §2.1 cannot name — and it is why widening §2.1 later changes
+            // nothing about the double.
             // Open-coded, and named here so that "it has no symbol" and "the
             // backend cannot compile it" stay two different statements.
             "testing_context.alloc",
