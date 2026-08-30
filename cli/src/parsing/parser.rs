@@ -222,6 +222,63 @@ fn starts_expr(t: TokenKind) -> bool {
     }
 }
 
+/// Whether a token can begin a pattern.
+///
+/// The first set of [`Parser::pattern_primary`], kept beside it the way
+/// [`starts_expr`] is kept beside `primary_expr`: a new way to begin a pattern
+/// is a new arm there and a new line here.
+fn starts_pattern(t: TokenKind) -> bool {
+    matches!(
+        t,
+        TokenKind::Underscore
+            | TokenKind::Minus
+            | TokenKind::Int
+            | TokenKind::Float
+            | TokenKind::Str
+            | TokenKind::Char
+            | TokenKind::KeywordTrue
+            | TokenKind::KeywordFalse
+            | TokenKind::Dot
+            | TokenKind::LBracket
+            | TokenKind::LParen
+            | TokenKind::Ident
+    )
+}
+
+/// Whether a token can begin a type. The first set of [`Parser::ty_inner`].
+fn starts_type(t: TokenKind) -> bool {
+    matches!(
+        t,
+        TokenKind::KeywordFn
+            | TokenKind::KeywordSelfType
+            | TokenKind::LBracket
+            | TokenKind::LParen
+            | TokenKind::Ident
+    )
+}
+
+/// Whether a token can begin a name — an import spec, a generic parameter, a
+/// struct-literal field, a field pattern, a context binding, an enum variant.
+fn starts_name(t: TokenKind) -> bool {
+    matches!(t, TokenKind::Ident)
+}
+
+/// Whether a token can begin a declared field: a name, or the `export` that
+/// may precede one.
+fn starts_field(t: TokenKind) -> bool {
+    matches!(t, TokenKind::Ident | TokenKind::KeywordExport)
+}
+
+/// Whether a token can begin a function parameter, `self` and `ctx` included.
+fn starts_param(t: TokenKind) -> bool {
+    matches!(t, TokenKind::Ident | TokenKind::KeywordSelfValue | TokenKind::KeywordCtx)
+}
+
+/// Whether a token can begin a tuple-struct field: a type, or its `export`.
+fn starts_tuple_field(t: TokenKind) -> bool {
+    starts_type(t) || matches!(t, TokenKind::KeywordExport)
+}
+
 /// The rung comparison sits on, which is the one rung that is neither left-
 /// nor right-associative and so cannot be expressed as a binding power alone.
 const CMP_LEVEL: usize = 4;
@@ -326,6 +383,10 @@ fn since<T>(v: &[T], base: usize) -> &[T] {
 /// is still open outside it.
 #[derive(Clone, Copy)]
 struct Save {
+    /// The token the production started at. Not rewound — the tokens already
+    /// diagnosed are not read twice — but subtracted from the failure point to
+    /// get the delimiter depth the sync has to start at.
+    pos: usize,
     tree: crate::parsing::flat::Mark,
     exprs: usize,
     pats: usize,
@@ -657,6 +718,131 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Whether the list the parser is reading has ended, closer or no closer.
+    ///
+    /// A delimiter this list did not open, or a `;`, belongs to something
+    /// outside it. Reading an element from one of those reports the element
+    /// and hides the truth, which is that this list's own closer is missing —
+    /// so the loop stops and the closing delimiter is asked for instead.
+    fn list_ended(&self, close: Punctuation) -> bool {
+        self.is(close)
+            || matches!(
+                self.peek(),
+                TokenKind::Eof
+                    | TokenKind::Semi
+                    | TokenKind::RBrace
+                    | TokenKind::RParen
+                    | TokenKind::RBracket
+            )
+    }
+
+    /// One list element ended: whether another one follows.
+    ///
+    /// A separator that is missing with the next element already under the
+    /// cursor is one mistake worth one diagnostic. It is reported at the point
+    /// the comma belongs, carrying the edit that writes it, and the list goes
+    /// on — so the rest of the construct is read for what it says rather than
+    /// abandoned. Where the list genuinely ended this is `false`, and asking
+    /// for the closing delimiter is right.
+    fn more_elements(
+        &mut self,
+        close: Punctuation,
+        construct: &str,
+        starts: fn(TokenKind) -> bool,
+    ) -> bool {
+        if self.eat(Punctuation::Comma) {
+            return true;
+        }
+        if self.is(close) || self.at_eof() || !starts(self.peek()) {
+            return false;
+        }
+        self.separator_missing(construct);
+        true
+    }
+
+    /// The diagnostic itself, at the point the separator belongs, with the
+    /// edit that writes it — which is what makes it an editor quick fix.
+    fn separator_missing(&mut self, construct: &str) {
+        let prev = self.prev_span();
+        let at = Span::point(prev.file, prev.end as usize);
+        if let Some(d) = self.templated("missing-separator", at) {
+            d.bind("construct", construct);
+            d.edit(at, ",");
+        }
+    }
+
+    /// A construct's closing delimiter, or the diagnostic that names what it
+    /// was that never closed.
+    ///
+    /// The caret goes on the token that is not the closer and the secondary
+    /// span on the opener, so the message is one a reader can act on rather
+    /// than one they have to decode. Recovery then reads on as though the
+    /// closer had been written, which is what keeps the delimiter count true
+    /// for the rest of the file. A trial bails instead: a speculative reading
+    /// that repaired itself would always win.
+    fn expect_close(
+        &mut self,
+        close: Punctuation,
+        construct: &str,
+        opened: Span,
+    ) -> PResult<Span> {
+        if self.is(close) {
+            return Ok(self.bump());
+        }
+        if self.trial > 0 {
+            return Err(Bail);
+        }
+        let span = self.span();
+        let token = format!("`{}`", close.text());
+        if let Some(d) = self.templated("unclosed-delimiter", span) {
+            d.bind("construct", construct);
+            d.bind("token", token);
+            d.secondary_span(opened, "opened here");
+        }
+        Ok(self.prev_span())
+    }
+
+    /// A `;` that ends a declaration or a statement, named for what it ends.
+    fn expect_terminator(&mut self, construct: &str) -> PResult<Span> {
+        if self.is(Punctuation::Semi) {
+            return Ok(self.bump());
+        }
+        if self.trial > 0 {
+            return Err(Bail);
+        }
+        let prev = self.prev_span();
+        let at = Span::point(prev.file, prev.end as usize);
+        if let Some(d) = self.templated("missing-terminator", at) {
+            d.bind("construct", construct);
+            d.edit(at, ";");
+        }
+        Ok(prev)
+    }
+
+    /// The `=>` between a match arm's pattern and its body.
+    ///
+    /// Recovery reads the body anyway: the arrow is the only thing that was
+    /// missing, and an arm whose body was thrown away costs the reader a
+    /// second error about a type nobody wrote.
+    fn expect_arrow(&mut self) -> PResult<()> {
+        if self.eat(Punctuation::FatArrow) {
+            return Ok(());
+        }
+        if self.trial > 0 {
+            return Err(Bail);
+        }
+        let prev = self.prev_span();
+        let at = Span::point(prev.file, prev.end as usize);
+        if let Some(d) = self.templated("missing-arrow", at) {
+            d.edit(at, " =>");
+        }
+        if starts_expr(self.peek()) {
+            Ok(())
+        } else {
+            Err(Bail)
+        }
+    }
+
     /// An identifier, as the span it was written at.
     ///
     /// Inside the flat tree a name *is* its span: the text is `src[span]` for
@@ -688,6 +874,7 @@ impl<'a> Parser<'a> {
     /// Every arena length and scratch depth, for a rollback.
     fn save(&self) -> Save {
         Save {
+            pos: self.pos,
             tree: self.tree.mark(),
             exprs: self.scratch.exprs.len(),
             pats: self.scratch.pats.len(),
@@ -767,9 +954,44 @@ impl<'a> Parser<'a> {
 
     // -- recovery -----------------------------------------------------------
 
-    /// Skip to the start of something that could begin a new item.
-    fn sync_item(&mut self) {
+    /// How many delimiters the tokens from `from` to here left open.
+    ///
+    /// A production that bailed stopped inside the delimiters it had opened,
+    /// so a sync that started at depth zero would read their closers as an
+    /// outer construct's and be off by one for the rest of the file. This is
+    /// walked once per recovery, which is rare, over the tokens of one
+    /// construct.
+    fn open_delimiters_since(&self, from: usize) -> i32 {
+        self.open_since(from, false)
+    }
+
+    /// The same, counting braces only — what [`Parser::sync_item`] tracks. A
+    /// declaration's parentheses do not survive it, so counting them would
+    /// send the sync past the body and swallow the next declaration.
+    fn open_braces_since(&self, from: usize) -> i32 {
+        self.open_since(from, true)
+    }
+
+    fn open_since(&self, from: usize, braces_only: bool) -> i32 {
         let mut depth = 0i32;
+        for i in from..self.pos {
+            match self.kind_at(i) {
+                TokenKind::LBrace => depth = depth.saturating_add(1),
+                TokenKind::RBrace => depth = depth.saturating_sub(1),
+                TokenKind::LParen | TokenKind::LBracket if !braces_only => {
+                    depth = depth.saturating_add(1);
+                }
+                TokenKind::RParen | TokenKind::RBracket if !braces_only => {
+                    depth = depth.saturating_sub(1);
+                }
+                _ => {}
+            }
+        }
+        depth.max(0)
+    }
+
+    /// Skip to the start of something that could begin a new item.
+    fn sync_item(&mut self, mut depth: i32) {
         loop {
             match self.peek() {
                 TokenKind::Eof => return,
@@ -812,8 +1034,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Skip to the end of the current statement.
-    fn sync_stmt(&mut self) {
-        let mut depth = 0i32;
+    fn sync_stmt(&mut self, mut depth: i32) {
         loop {
             match self.peek() {
                 TokenKind::Eof => return,
@@ -848,8 +1069,9 @@ impl<'a> Parser<'a> {
                 Ok(Some(item)) => items.push(item),
                 Ok(None) => {}
                 Err(Bail) => {
+                    let depth = self.open_braces_since(save.pos);
                     self.restore(save);
-                    self.sync_item();
+                    self.sync_item(depth);
                 }
             }
             // Guarantee progress even if a sub-parser consumed nothing.
@@ -933,10 +1155,10 @@ impl<'a> Parser<'a> {
         let (path, path_span) = self.expect_string()?;
 
         if self.eat_keyword(Keyword::Export) {
-            self.expect(Punctuation::LBrace)?;
+            let open = self.expect(Punctuation::LBrace)?;
             let specs = self.import_specs(Punctuation::RBrace)?;
-            self.expect(Punctuation::RBrace)?;
-            let end = self.expect(Punctuation::Semi)?;
+            self.expect_close(Punctuation::RBrace, "re-export list", open)?;
+            let end = self.expect_terminator("a re-export declaration")?;
             return Ok(Item::ReExport(Box::new(ReExport { path, path_span, specs, span: start.to(end) })));
         }
 
@@ -952,24 +1174,24 @@ impl<'a> Parser<'a> {
             self.bump();
             ImportClause::Namespace(self.expect_ident()?)
         } else {
-            self.expect(Punctuation::LBrace)?;
+            let open = self.expect(Punctuation::LBrace)?;
             let specs = self.import_specs(Punctuation::RBrace)?;
-            self.expect(Punctuation::RBrace)?;
+            self.expect_close(Punctuation::RBrace, "import list", open)?;
             ImportClause::Named(specs)
         };
-        let end = self.expect(Punctuation::Semi)?;
+        let end = self.expect_terminator("an import declaration")?;
         Ok(Item::Import(Box::new(Import { path, path_span, clause, span: start.to(end) })))
     }
 
     fn import_specs(&mut self, close: Punctuation) -> PResult<Vec<ImportSpec>> {
         let mut specs = Vec::new();
-        while !self.is(close) && !self.at_eof() {
+        while !self.list_ended(close) {
             let name = self.expect_ident()?;
             let alias =
                 if self.eat_keyword(Keyword::As) { Some(self.expect_ident()?) } else { None };
             let span = name.span.to(alias.as_ref().map(|a| a.span).unwrap_or(name.span));
             specs.push(ImportSpec { name, alias, span });
-            if !self.eat(Punctuation::Comma) {
+            if !self.more_elements(close, "an import name", starts_name) {
                 break;
             }
         }
@@ -982,9 +1204,9 @@ impl<'a> Parser<'a> {
         if !self.is(Punctuation::Lt) {
             return Ok(Vec::new());
         }
-        self.bump();
+        let open = self.bump();
         let mut params = Vec::new();
-        while !self.is(Punctuation::Gt) && !self.at_eof() {
+        while !self.list_ended(Punctuation::Gt) {
             let name = self.expect_ident()?;
             let base = self.scratch.tys.len();
             if self.eat(Punctuation::Colon) {
@@ -1000,18 +1222,18 @@ impl<'a> Parser<'a> {
             self.scratch.tys.truncate(base);
             let span = name.span.to(self.prev_span());
             params.push(GenericParam { name, bounds, span });
-            if !self.eat(Punctuation::Comma) {
+            if !self.more_elements(Punctuation::Gt, "a generic parameter", starts_name) {
                 break;
             }
         }
-        self.expect(Punctuation::Gt)?;
+        self.expect_close(Punctuation::Gt, "generic parameter list", open)?;
         Ok(params)
     }
 
     fn params(&mut self) -> PResult<Vec<Param>> {
         let mut params = Vec::new();
         let mut first = true;
-        while !self.is(Punctuation::RParen) && !self.at_eof() {
+        while !self.list_ended(Punctuation::RParen) {
             let start = self.span();
             let (kind, name) = if self.is_keyword(Keyword::SelfValue) {
                 let span = self.bump();
@@ -1037,7 +1259,7 @@ impl<'a> Parser<'a> {
             };
             params.push(Param { kind, name, ty, span });
             first = false;
-            if !self.eat(Punctuation::Comma) {
+            if !self.more_elements(Punctuation::RParen, "a function parameter", starts_param) {
                 break;
             }
         }
@@ -1071,16 +1293,16 @@ impl<'a> Parser<'a> {
         self.expect_keyword(Keyword::Fn)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
-        self.expect(Punctuation::LParen)?;
+        let open = self.expect(Punctuation::LParen)?;
         let params = self.params()?;
-        self.expect(Punctuation::RParen)?;
+        self.expect_close(Punctuation::RParen, "parameter list", open)?;
         // The return type annotation is required on every top-level `fn`
         // (SPEC 9), which is what keeps inference local to a body.
         self.expect(Punctuation::Colon)?;
         let ret = self.ty()?;
 
         let body = if self.is(Punctuation::LBrace) {
-            Some(self.block()?)
+            Some(self.block("function body")?)
         } else if self.is(Punctuation::Semi) {
             if !self.allow_bodyless {
                 let span = self.span();
@@ -1106,12 +1328,12 @@ impl<'a> Parser<'a> {
         self.expect_keyword(Keyword::Fn)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
-        self.expect(Punctuation::LParen)?;
+        let open = self.expect(Punctuation::LParen)?;
         let params = self.params()?;
-        self.expect(Punctuation::RParen)?;
+        self.expect_close(Punctuation::RParen, "parameter list", open)?;
         self.expect(Punctuation::Colon)?;
         let ret = self.ty()?;
-        let end = self.expect(Punctuation::Semi)?;
+        let end = self.expect_terminator("a method signature")?;
         Ok(FnDecl {
             name,
             generics,
@@ -1129,27 +1351,28 @@ impl<'a> Parser<'a> {
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
 
-        let body = if self.eat(Punctuation::LParen) {
+        let body = if self.is(Punctuation::LParen) {
+            let open = self.bump();
             // Tuple struct. Fields carry the same `export` marker.
             let mut fields = Vec::new();
-            while !self.is(Punctuation::RParen) && !self.at_eof() {
+            while !self.list_ended(Punctuation::RParen) {
                 let fstart = self.span();
                 let fexported = self.eat_keyword(Keyword::Export);
                 let ty = self.ty()?;
                 fields.push(TupleField { exported: fexported, ty, span: fstart.to(self.prev_span()) });
-                if !self.eat(Punctuation::Comma) {
+                if !self.more_elements(Punctuation::RParen, "a tuple-struct field", starts_tuple_field) {
                     break;
                 }
             }
-            self.expect(Punctuation::RParen)?;
+            self.expect_close(Punctuation::RParen, "tuple-struct field list", open)?;
             // Tuple-struct declarations are terminated with `;`; record-struct
             // declarations are not.
-            self.expect(Punctuation::Semi)?;
+            self.expect_terminator("a `struct` declaration")?;
             StructBody::Tuple(fields)
         } else {
-            self.expect(Punctuation::LBrace)?;
+            let open = self.expect(Punctuation::LBrace)?;
             let fields = self.field_decls(Punctuation::RBrace, true)?;
-            self.expect(Punctuation::RBrace)?;
+            self.expect_close(Punctuation::RBrace, "`struct` body", open)?;
             StructBody::Record(fields)
         };
         let span = start.to(self.prev_span());
@@ -1164,7 +1387,7 @@ impl<'a> Parser<'a> {
         per_field_export: bool,
     ) -> PResult<Vec<FieldDecl>> {
         let mut fields = Vec::new();
-        while !self.is(close) && !self.at_eof() {
+        while !self.list_ended(close) {
             let docs = self.docs();
             let start = self.span();
             let keyword = if self.is_keyword(Keyword::Export) { Some(self.bump()) } else { None };
@@ -1180,7 +1403,7 @@ impl<'a> Parser<'a> {
             self.expect(Punctuation::Colon)?;
             let ty = self.ty()?;
             fields.push(FieldDecl { exported, name, ty, span: start.to(self.prev_span()), docs });
-            if !self.eat(Punctuation::Comma) {
+            if !self.more_elements(close, if per_field_export { "a record field" } else { "a variant payload field" }, starts_field) {
                 break;
             }
         }
@@ -1191,9 +1414,9 @@ impl<'a> Parser<'a> {
         self.expect_keyword(Keyword::Enum)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
-        self.expect(Punctuation::LBrace)?;
+        let open = self.expect(Punctuation::LBrace)?;
         let mut variants = Vec::new();
-        while !self.is(Punctuation::RBrace) && !self.at_eof() {
+        while !self.list_ended(Punctuation::RBrace) {
             let vdocs = self.docs();
             let vstart = self.span();
             let keyword = if self.is_keyword(Keyword::Export) { Some(self.bump()) } else { None };
@@ -1202,22 +1425,24 @@ impl<'a> Parser<'a> {
             if let Some(keyword) = keyword {
                 self.variant_export(keyword, name_start);
             }
-            let payload = if self.eat(Punctuation::LParen) {
+            let payload = if self.is(Punctuation::LParen) {
+                let open = self.bump();
                 let base = self.scratch.tys.len();
-                while !self.is(Punctuation::RParen) && !self.at_eof() {
+                while !self.list_ended(Punctuation::RParen) {
                     let t = self.ty()?;
                     self.scratch.tys.push(t);
-                    if !self.eat(Punctuation::Comma) {
+                    if !self.more_elements(Punctuation::RParen, "a variant payload field", starts_type) {
                         break;
                     }
                 }
-                self.expect(Punctuation::RParen)?;
+                self.expect_close(Punctuation::RParen, "variant payload", open)?;
                 let tys = self.tree.push_tkids(since(&self.scratch.tys, base));
                 self.scratch.tys.truncate(base);
                 VariantPayload::Tuple(tys)
-            } else if self.eat(Punctuation::LBrace) {
+            } else if self.is(Punctuation::LBrace) {
+                let open = self.bump();
                 let fields = self.field_decls(Punctuation::RBrace, false)?;
-                self.expect(Punctuation::RBrace)?;
+                self.expect_close(Punctuation::RBrace, "variant field list", open)?;
                 VariantPayload::Record(fields)
             } else {
                 VariantPayload::None
@@ -1228,11 +1453,11 @@ impl<'a> Parser<'a> {
                 span: vstart.to(self.prev_span()),
                 docs: vdocs,
             });
-            if !self.eat(Punctuation::Comma) {
+            if !self.more_elements(Punctuation::RBrace, "an enum variant", starts_field) {
                 break;
             }
         }
-        self.expect(Punctuation::RBrace)?;
+        self.expect_close(Punctuation::RBrace, "`enum`", open)?;
         let span = start.to(self.prev_span());
         Ok(EnumDecl { name, generics, variants, exported, span, docs })
     }
@@ -1243,7 +1468,7 @@ impl<'a> Parser<'a> {
         let generics = self.generic_params()?;
         self.expect(Punctuation::Eq)?;
         let ty = self.ty()?;
-        let end = self.expect(Punctuation::Semi)?;
+        let end = self.expect_terminator("a type alias")?;
         Ok(TypeAliasDecl { name, generics, ty, exported, span: start.to(end), docs })
     }
 
@@ -1260,7 +1485,7 @@ impl<'a> Parser<'a> {
         let ty = self.ty()?;
         self.expect(Punctuation::Eq)?;
         let value = self.expr()?;
-        let end = self.expect(Punctuation::Semi)?;
+        let end = self.expect_terminator("a `let` declaration")?;
         Ok(LetDecl { name, ty, value, exported, span: start.to(end), docs })
     }
 
@@ -1274,7 +1499,7 @@ impl<'a> Parser<'a> {
         self.bump(); // `trait` or `effect`
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
-        self.expect(Punctuation::LBrace)?;
+        let open = self.expect(Punctuation::LBrace)?;
         let mut methods = Vec::new();
         while !self.is(Punctuation::RBrace) && !self.at_eof() {
             let before = self.pos;
@@ -1282,15 +1507,17 @@ impl<'a> Parser<'a> {
             match self.method_sig() {
                 Ok(m) => methods.push(m),
                 Err(Bail) => {
+                    let depth = self.open_delimiters_since(save.pos);
                     self.restore(save);
-                    self.sync_stmt();
+                    self.sync_stmt(depth);
                     if self.is(Punctuation::RBrace) || self.pos == before {
                         break;
                     }
                 }
             }
         }
-        self.expect(Punctuation::RBrace)?;
+        let what = if is_effect { "`effect` body" } else { "`trait` body" };
+        self.expect_close(Punctuation::RBrace, what, open)?;
         let span = start.to(self.prev_span());
         Ok(TraitDecl { name, generics, methods, is_effect, exported, span, docs })
     }
@@ -1310,7 +1537,7 @@ impl<'a> Parser<'a> {
         } else {
             (None, first)
         };
-        self.expect(Punctuation::LBrace)?;
+        let open = self.expect(Punctuation::LBrace)?;
         let mut methods = Vec::new();
         let mut escaped = false;
         while !self.is(Punctuation::RBrace) && !self.at_eof() {
@@ -1342,8 +1569,9 @@ impl<'a> Parser<'a> {
                     // not be, so the loop resynchronized to the same token
                     // forever. `impl V { ... }` followed by any declaration
                     // used to hang the compiler outright.
+                    let depth = self.open_delimiters_since(save.pos);
                     self.restore(save);
-                    self.sync_stmt();
+                    self.sync_stmt(depth);
                     if self.is(Punctuation::RBrace) {
                         break;
                     }
@@ -1362,7 +1590,7 @@ impl<'a> Parser<'a> {
             let span = self.span();
             self.templated("impl-body-not-a-method", span);
         } else {
-            self.expect(Punctuation::RBrace)?;
+            self.expect_close(Punctuation::RBrace, "`impl` body", open)?;
         }
         Ok(ImplDecl { docs, generics, trait_ty, self_ty, methods, span: start.to(self.prev_span()) })
     }
@@ -1381,7 +1609,15 @@ impl<'a> Parser<'a> {
         let base = self.scratch.tys.len();
         let first = self.named_type()?;
         self.scratch.tys.push(first);
-        while self.eat(Punctuation::Comma) {
+        loop {
+            if !self.eat(Punctuation::Comma) {
+                // `for` closes this list, so what says another trait follows
+                // is a name where the keyword should be.
+                if self.is_keyword(Keyword::For) || self.peek() != TokenKind::Ident {
+                    break;
+                }
+                self.separator_missing("a derived trait");
+            }
             let t = self.named_type()?;
             self.scratch.tys.push(t);
         }
@@ -1389,7 +1625,7 @@ impl<'a> Parser<'a> {
         self.scratch.tys.truncate(base);
         self.expect_keyword(Keyword::For)?;
         let self_ty = self.named_type()?;
-        let end = self.expect(Punctuation::Semi)?;
+        let end = self.expect_terminator("a `derive` declaration")?;
         Ok(DeriveDecl { traits, self_ty, span: start.to(end) })
     }
 
@@ -1412,18 +1648,18 @@ impl<'a> Parser<'a> {
             NONE
         };
         let base = self.scratch.binds.len();
-        while !self.is(Punctuation::RBrace) && !self.at_eof() {
+        while !self.list_ended(Punctuation::RBrace) {
             let bstart = self.span();
             let effect = self.named_type()?;
             self.expect(Punctuation::Colon)?;
             let value = self.expr()?;
             let span = Location::of(bstart.to(self.prev_span()));
             self.scratch.binds.push(CtxBindData { effect: effect.0, value: value.0, span });
-            if !self.eat(Punctuation::Comma) {
+            if !self.more_elements(Punctuation::RBrace, "a context binding", starts_name) {
                 break;
             }
         }
-        let end = self.expect(Punctuation::RBrace)?;
+        let end = self.expect_close(Punctuation::RBrace, "context", start)?;
         let (bs, bl) = self.tree.push_bindings(since(&self.scratch.binds, base));
         self.scratch.binds.truncate(base);
         Ok(self.tree.push_ctx_body(CtxBodyData {
@@ -1437,7 +1673,7 @@ impl<'a> Parser<'a> {
     fn test_decl(&mut self, docs: Vec<String>) -> PResult<TestDecl> {
         let start = self.expect_keyword(Keyword::Test)?;
         let (name, name_span) = self.expect_string()?;
-        let body = self.block()?;
+        let body = self.block("`test` body")?;
         Ok(TestDecl { name, name_span, body, span: start.to(self.prev_span()), docs })
     }
 
@@ -1471,16 +1707,16 @@ impl<'a> Parser<'a> {
         if !self.is(Punctuation::Lt) {
             return Ok(TypeList::default());
         }
-        self.bump();
+        let open = self.bump();
         let base = self.scratch.tys.len();
-        while !self.is(Punctuation::Gt) && !self.at_eof() {
+        while !self.list_ended(Punctuation::Gt) {
             let t = self.ty()?;
             self.scratch.tys.push(t);
-            if !self.eat(Punctuation::Comma) {
+            if !self.more_elements(Punctuation::Gt, "a type argument", starts_type) {
                 break;
             }
         }
-        self.expect(Punctuation::Gt)?;
+        self.expect_close(Punctuation::Gt, "type argument list", open)?;
         let args = self.tree.push_tkids(since(&self.scratch.tys, base));
         self.scratch.tys.truncate(base);
         Ok(args)
@@ -1608,18 +1844,18 @@ impl<'a> Parser<'a> {
         // it makes `(A, B)` unambiguously a tuple everywhere.
         if self.is_keyword(Keyword::Fn) {
             self.bump();
-            self.expect(Punctuation::LParen)?;
+            let open = self.expect(Punctuation::LParen)?;
             let base = self.scratch.tys.len();
-            while !self.is(Punctuation::RParen) && !self.at_eof() {
+            while !self.list_ended(Punctuation::RParen) {
                 let t = self.ty()?;
                 self.scratch.tys.push(t);
-                if !self.eat(Punctuation::Comma) {
+                if !self.more_elements(Punctuation::RParen, "a function-type parameter", starts_type) {
                     break;
                 }
             }
             let params = self.tree.push_tkids(since(&self.scratch.tys, base));
             self.scratch.tys.truncate(base);
-            self.expect(Punctuation::RParen)?;
+            self.expect_close(Punctuation::RParen, "function type", open)?;
             self.expect(Punctuation::FatArrow)?;
             let ret = self.ty()?;
             let span = start.to(self.prev_span());
@@ -1633,9 +1869,9 @@ impl<'a> Parser<'a> {
         }
 
         if self.is(Punctuation::LBracket) {
-            self.bump();
+            let open = self.bump();
             let elem = self.ty()?;
-            self.expect(Punctuation::RBracket)?;
+            self.expect_close(Punctuation::RBracket, "array type", open)?;
             let span = start.to(self.prev_span());
             return Ok(self.tree.push_type(TypeKind::Array, [elem.0, 0, 0, 0], span));
         }
@@ -1654,14 +1890,14 @@ impl<'a> Parser<'a> {
             }
             let base = self.scratch.tys.len();
             self.scratch.tys.push(first);
-            while self.eat(Punctuation::Comma) {
+            while self.more_elements(Punctuation::RParen, "a tuple type element", starts_type) {
                 if self.is(Punctuation::RParen) {
                     break;
                 }
                 let t = self.ty()?;
                 self.scratch.tys.push(t);
             }
-            self.expect(Punctuation::RParen)?;
+            self.expect_close(Punctuation::RParen, "tuple type", start)?;
             let n = self.scratch.tys.len().saturating_sub(base);
             let elems = self.tree.push_tkids(since(&self.scratch.tys, base));
             self.scratch.tys.truncate(base);
@@ -1686,14 +1922,14 @@ impl<'a> Parser<'a> {
 
     // -- blocks and statements ---------------------------------------------
 
-    fn block(&mut self) -> PResult<BlockId> {
+    fn block(&mut self, construct: &'static str) -> PResult<BlockId> {
         self.enter()?;
-        let r = self.block_inner();
+        let r = self.block_inner(construct);
         self.leave();
         r
     }
 
-    fn block_inner(&mut self) -> PResult<BlockId> {
+    fn block_inner(&mut self, construct: &'static str) -> PResult<BlockId> {
         let start = self.expect(Punctuation::LBrace)?;
         let base = self.scratch.stmts.len();
         let mut tail = NONE;
@@ -1705,8 +1941,9 @@ impl<'a> Parser<'a> {
                 match self.let_stmt() {
                     Ok(s) => self.scratch.stmts.push(s),
                     Err(Bail) => {
+                        let depth = self.open_delimiters_since(save.pos);
                         self.restore(save);
-                        self.sync_stmt();
+                        self.sync_stmt(depth);
                     }
                 }
             } else {
@@ -1732,8 +1969,9 @@ impl<'a> Parser<'a> {
                         }
                     }
                     Err(Bail) => {
+                        let depth = self.open_delimiters_since(save.pos);
                         self.restore(save);
-                        self.sync_stmt();
+                        self.sync_stmt(depth);
                     }
                 }
             }
@@ -1742,7 +1980,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let end = self.expect(Punctuation::RBrace)?;
+        let end = self.expect_close(Punctuation::RBrace, construct, start)?;
         let (ss, sl) = self.tree.push_stmts(since(&self.scratch.stmts, base));
         self.scratch.stmts.truncate(base);
         Ok(self.tree.push_block(BlockData {
@@ -1762,7 +2000,7 @@ impl<'a> Parser<'a> {
             let name_span = self.bump();
             self.expect(Punctuation::Eq)?;
             let value = self.expr()?;
-            let end = self.expect(Punctuation::Semi)?;
+            let end = self.expect_terminator("a statement")?;
             // The binding is spelled `ctx` at the keyword's own span, so the
             // source under the span *is* the name — as it is for every other
             // name in the flat tree.
@@ -1786,7 +2024,7 @@ impl<'a> Parser<'a> {
         };
         self.expect(Punctuation::Eq)?;
         let value = self.expr()?;
-        let end = self.expect(Punctuation::Semi)?;
+        let end = self.expect_terminator("a statement")?;
         Ok(StmtData {
             kind: StmtKind::Let,
             is_ctx: false,
@@ -1819,9 +2057,9 @@ impl<'a> Parser<'a> {
     fn lambda(&mut self) -> PResult<ExprId> {
         let at = self.tree.next_node();
         let start = self.expect_keyword(Keyword::Fn)?;
-        self.expect(Punctuation::LParen)?;
+        let open = self.expect(Punctuation::LParen)?;
         let base = self.scratch.lparams.len();
-        while !self.is(Punctuation::RParen) && !self.at_eof() {
+        while !self.list_ended(Punctuation::RParen) {
             let name = self.expect_name()?;
             let ty = if self.eat(Punctuation::Colon) { self.ty()?.0 } else { NONE };
             let span = name.to(self.prev_span());
@@ -1830,11 +2068,11 @@ impl<'a> Parser<'a> {
                 ty,
                 span: Location::of(span),
             });
-            if !self.eat(Punctuation::Comma) {
+            if !self.more_elements(Punctuation::RParen, "a lambda parameter", starts_name) {
                 break;
             }
         }
-        self.expect(Punctuation::RParen)?;
+        self.expect_close(Punctuation::RParen, "lambda parameter list", open)?;
         let ret = if self.eat(Punctuation::Colon) {
             self.ty()?.0
         } else {
@@ -1991,7 +2229,7 @@ impl<'a> Parser<'a> {
         // two parses (SPEC 12.13). They are returned without entering
         // `postfix_ops`.
         if self.is(Punctuation::LBrace) {
-            let b = self.block()?;
+            let b = self.block("block")?;
             let span = self.tree.span_of(self.tree.block(b).span);
             return Ok(self.tree.push(Kind::Block, [b.0, 0, 0, 0], span, at));
         }
@@ -2017,10 +2255,10 @@ impl<'a> Parser<'a> {
         let start = self.expect_keyword(Keyword::If)?;
         // The condition is parenthesized, so the `{` that follows is always a
         // block (SPEC 12.1).
-        self.expect(Punctuation::LParen)?;
+        let open = self.expect(Punctuation::LParen)?;
         let cond = self.expr()?;
-        self.expect(Punctuation::RParen)?;
-        let then = self.block()?;
+        self.expect_close(Punctuation::RParen, "`if` condition", open)?;
+        let then = self.block("`if` branch")?;
         // `else` is mandatory. There is nothing sensible for a missing branch
         // to produce in a language where `if` is an expression.
         if !self.is_keyword(Keyword::Else) {
@@ -2039,7 +2277,7 @@ impl<'a> Parser<'a> {
             nested?
         } else {
             let bat = self.tree.next_node();
-            let b = self.block()?;
+            let b = self.block("`else` branch")?;
             let span = self.tree.span_of(self.tree.block(b).span);
             self.tree.push(Kind::Block, [b.0, 0, 0, 0], span, bat)
         };
@@ -2050,20 +2288,21 @@ impl<'a> Parser<'a> {
     fn match_expr(&mut self) -> PResult<ExprId> {
         let at = self.tree.next_node();
         let start = self.expect_keyword(Keyword::Match)?;
-        self.expect(Punctuation::LParen)?;
+        let paren = self.expect(Punctuation::LParen)?;
         let scrutinee = self.expr()?;
-        self.expect(Punctuation::RParen)?;
-        self.expect(Punctuation::LBrace)?;
+        self.expect_close(Punctuation::RParen, "`match` scrutinee", paren)?;
+        let open = self.expect(Punctuation::LBrace)?;
         let base = self.scratch.arms.len();
-        while !self.is(Punctuation::RBrace) && !self.at_eof() {
+        while !self.list_ended(Punctuation::RBrace) {
             let before = self.pos;
             let astart = self.span();
             let save = self.save();
             match self.match_arm(astart) {
                 Ok(a) => self.scratch.arms.push(a),
                 Err(Bail) => {
+                    let depth = self.open_delimiters_since(save.pos);
                     self.restore(save);
-                    self.sync_match_arm();
+                    self.sync_match_arm(depth);
                     if self.is(Punctuation::RBrace) {
                         break;
                     }
@@ -2072,14 +2311,14 @@ impl<'a> Parser<'a> {
             // Arms are comma-separated, always — the comma is required even
             // after a brace-terminated body, because without it `A => x`
             // followed by `-1 =>` would greedily parse as `x - 1` (SPEC 12.12).
-            if !self.eat(Punctuation::Comma) {
+            if !self.more_elements(Punctuation::RBrace, "a match arm", starts_pattern) {
                 break;
             }
             if self.pos == before {
                 self.bump();
             }
         }
-        let end = self.expect(Punctuation::RBrace)?;
+        let end = self.expect_close(Punctuation::RBrace, "`match`", open)?;
         let (as_, al) = self.tree.push_arms(since(&self.scratch.arms, base));
         self.scratch.arms.truncate(base);
         Ok(self.tree.push(Kind::Match, [scrutinee.0, as_, al, 0], start.to(end), at))
@@ -2091,7 +2330,7 @@ impl<'a> Parser<'a> {
     fn match_arm(&mut self, astart: Span) -> PResult<ArmData> {
         let pattern = self.pattern()?;
         let guard = if self.eat_keyword(Keyword::If) { self.expr()?.0 } else { NONE };
-        self.expect(Punctuation::FatArrow)?;
+        self.expect_arrow()?;
         let body = self.expr()?;
         Ok(ArmData {
             pattern: pattern.0,
@@ -2101,8 +2340,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn sync_match_arm(&mut self) {
-        let mut depth = 0i32;
+    fn sync_match_arm(&mut self, mut depth: i32) {
         loop {
             match self.peek() {
                 TokenKind::Eof => return,
@@ -2189,14 +2427,14 @@ impl<'a> Parser<'a> {
             TokenKind::LBracket => {
                 self.bump();
                 let base = self.scratch.exprs.len();
-                while !self.is(Punctuation::RBracket) && !self.at_eof() {
+                while !self.list_ended(Punctuation::RBracket) {
                     let e = self.expr()?;
                     self.scratch.exprs.push(e);
-                    if !self.eat(Punctuation::Comma) {
+                    if !self.more_elements(Punctuation::RBracket, "an array element", starts_expr) {
                         break;
                     }
                 }
-                let end = self.expect(Punctuation::RBracket)?;
+                let end = self.expect_close(Punctuation::RBracket, "array", start)?;
                 let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, base));
                 self.scratch.exprs.truncate(base);
                 Ok(self.tree.push(Kind::Array, [ks, kl, 0, 0], start.to(end), at))
@@ -2217,14 +2455,14 @@ impl<'a> Parser<'a> {
                 }
                 let base = self.scratch.exprs.len();
                 self.scratch.exprs.push(first);
-                while self.eat(Punctuation::Comma) {
+                while self.more_elements(Punctuation::RParen, "a tuple element", starts_expr) {
                     if self.is(Punctuation::RParen) {
                         break;
                     }
                     let e = self.expr()?;
                     self.scratch.exprs.push(e);
                 }
-                let end = self.expect(Punctuation::RParen)?;
+                let end = self.expect_close(Punctuation::RParen, "tuple", start)?;
                 if self.scratch.exprs.len().saturating_sub(base) < 2 {
                     self.templated("tuple-arity", start.to(end));
                 }
@@ -2345,25 +2583,25 @@ impl<'a> Parser<'a> {
                     }
                 }
                 TokenKind::LParen => {
-                    self.bump();
+                    let open = self.bump();
                     let abase = self.scratch.exprs.len();
-                    while !self.is(Punctuation::RParen) && !self.at_eof() {
+                    while !self.list_ended(Punctuation::RParen) {
                         let e = self.expr()?;
                         self.scratch.exprs.push(e);
-                        if !self.eat(Punctuation::Comma) {
+                        if !self.more_elements(Punctuation::RParen, "a call argument", starts_expr) {
                             break;
                         }
                     }
-                    let end = self.expect(Punctuation::RParen)?;
+                    let end = self.expect_close(Punctuation::RParen, "call", open)?;
                     let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, abase));
                     self.scratch.exprs.truncate(abase);
                     base =
                         self.tree.push(Kind::Call, [base.0, ks, kl, 0], start.to(end), at);
                 }
                 TokenKind::LBracket => {
-                    self.bump();
+                    let open = self.bump();
                     let index = self.expr()?;
-                    let end = self.expect(Punctuation::RBracket)?;
+                    let end = self.expect_close(Punctuation::RBracket, "index", open)?;
                     base = self.tree.push(
                         Kind::Index,
                         [base.0, index.0, 0, 0],
@@ -2419,7 +2657,7 @@ impl<'a> Parser<'a> {
                 // With records gone, a `{` following a path is always a struct
                 // literal. Nothing competes, so field shorthand is unambiguous.
                 TokenKind::LBrace => {
-                    self.bump();
+                    let open = self.bump();
                     let spread = if self.is(Punctuation::DotDot) {
                         self.bump();
                         let e = self.expr()?;
@@ -2429,7 +2667,7 @@ impl<'a> Parser<'a> {
                         NONE
                     };
                     let fbase = self.scratch.inits.len();
-                    while !self.is(Punctuation::RBrace) && !self.at_eof() {
+                    while !self.list_ended(Punctuation::RBrace) {
                         let fname = self.expect_name()?;
                         let value =
                             if self.eat(Punctuation::Colon) { self.expr()?.0 } else { NONE };
@@ -2439,11 +2677,11 @@ impl<'a> Parser<'a> {
                             value,
                             span: Location::of(fspan),
                         });
-                        if !self.eat(Punctuation::Comma) {
+                        if !self.more_elements(Punctuation::RBrace, "a struct-literal field", starts_name) {
                             break;
                         }
                     }
-                    let end = self.expect(Punctuation::RBrace)?;
+                    let end = self.expect_close(Punctuation::RBrace, "struct literal", open)?;
                     let (is, il) = self.tree.push_inits(since(&self.scratch.inits, fbase));
                     self.scratch.inits.truncate(fbase);
                     base = self.tree.push(
@@ -2596,14 +2834,18 @@ impl<'a> Parser<'a> {
                 }
                 let base = self.scratch.pats.len();
                 self.scratch.pats.push(first);
-                while self.eat(Punctuation::Comma) {
+                while self.more_elements(
+                    Punctuation::RParen,
+                    "a tuple-pattern element",
+                    starts_pattern,
+                ) {
                     if self.is(Punctuation::RParen) {
                         break;
                     }
                     let p = self.pattern()?;
                     self.scratch.pats.push(p);
                 }
-                let end = self.expect(Punctuation::RParen)?;
+                let end = self.expect_close(Punctuation::RParen, "tuple pattern", start)?;
                 let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
                 self.scratch.pats.truncate(base);
                 Ok(self.tree.ppush(PatternKind::Tuple, [ks, kl, 0, 0], start.to(end), at))
@@ -2661,16 +2903,17 @@ impl<'a> Parser<'a> {
     /// A variant pattern's payload, as an index into the payload table or
     /// [`NONE`].
     fn pattern_payload(&mut self) -> PResult<u32> {
-        if self.eat(Punctuation::LParen) {
+        if self.is(Punctuation::LParen) {
+            let open = self.bump();
             let base = self.scratch.pats.len();
-            while !self.is(Punctuation::RParen) && !self.at_eof() {
+            while !self.list_ended(Punctuation::RParen) {
                 let p = self.pattern()?;
                 self.scratch.pats.push(p);
-                if !self.eat(Punctuation::Comma) {
+                if !self.more_elements(Punctuation::RParen, "a variant-pattern field", starts_pattern) {
                     break;
                 }
             }
-            self.expect(Punctuation::RParen)?;
+            self.expect_close(Punctuation::RParen, "variant payload pattern", open)?;
             let (s, l) = self.tree.push_pkids(since(&self.scratch.pats, base));
             self.scratch.pats.truncate(base);
             return Ok(self.tree.push_payload(PatPayloadData {
@@ -2680,10 +2923,11 @@ impl<'a> Parser<'a> {
                 len: l,
             }));
         }
-        if self.eat(Punctuation::LBrace) {
+        if self.is(Punctuation::LBrace) {
+            let open = self.bump();
             let base = self.scratch.fpats.len();
             let mut rest = false;
-            while !self.is(Punctuation::RBrace) && !self.at_eof() {
+            while !self.list_ended(Punctuation::RBrace) {
                 if self.is(Punctuation::DotDot) {
                     self.bump();
                     rest = true;
@@ -2698,11 +2942,11 @@ impl<'a> Parser<'a> {
                     pattern,
                     span: Location::of(span),
                 });
-                if !self.eat(Punctuation::Comma) {
+                if !self.more_elements(Punctuation::RBrace, "a field pattern", starts_name) {
                     break;
                 }
             }
-            self.expect(Punctuation::RBrace)?;
+            self.expect_close(Punctuation::RBrace, "variant field pattern", open)?;
             let (s, l) = self.tree.push_fpats(since(&self.scratch.fpats, base));
             self.scratch.fpats.truncate(base);
             return Ok(self.tree.push_payload(PatPayloadData {
@@ -2723,7 +2967,7 @@ impl<'a> Parser<'a> {
         // anonymous, present and named.
         let mut rest_kind = 0u32;
         let mut rest_name = 0u32;
-        while !self.is(Punctuation::RBracket) && !self.at_eof() {
+        while !self.list_ended(Punctuation::RBracket) {
             if self.is(Punctuation::DotDot) {
                 let dd = self.bump();
                 let name = if matches!(self.peek(), TokenKind::Ident) {
@@ -2753,11 +2997,11 @@ impl<'a> Parser<'a> {
             }
             let p = self.pattern()?;
             self.scratch.pats.push(p);
-            if !self.eat(Punctuation::Comma) {
+            if !self.more_elements(Punctuation::RBracket, "an array-pattern element", starts_pattern) {
                 break;
             }
         }
-        let end = self.expect(Punctuation::RBracket)?;
+        let end = self.expect_close(Punctuation::RBracket, "array pattern", start)?;
         let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
         self.scratch.pats.truncate(base);
         Ok(self.tree.ppush(PatternKind::Array, [ks, kl, rest_kind, rest_name], start.to(end), at))

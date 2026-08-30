@@ -1,2 +1,2 @@
 // EXPECT: a function-type parameter ends with `,`
-export type Fold = fn(Int Int): Int;
+export type Fold = fn(Int Int) => Int;

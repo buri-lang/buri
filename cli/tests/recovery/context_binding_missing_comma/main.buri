@@ -2,7 +2,7 @@
 from "core/effect" import { Alloc, Clock };
 from "core/host" import * as host;
 
-export fn main(): Int {
+export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc Clock: host.clock };
-  0
+  .Ok(())
 }
