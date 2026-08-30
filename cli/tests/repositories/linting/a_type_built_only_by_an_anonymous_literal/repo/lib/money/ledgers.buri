@@ -1,0 +1,22 @@
+// An anonymous literal takes its type from its surroundings, so this
+// construction writes no type name down at all. A census that asked only
+// whether the package's text spells the type would have nothing to go on
+// here; the evidence has to be the typed tree, where the node is still a
+// struct literal carrying the type constructor it builds. `Stamp` is
+// therefore not reported, and `Ghost` — declared beside it and built by
+// nothing — is.
+//
+// `note` is the field question, and it is answered the same way with the head
+// absent as with it present: filling a field in is not reading it, so a field
+// this literal supplies and nothing consults is reported. A headless literal
+// writes a field exactly as a headed one does, and neither is a read.
+
+from "//lib/money/stamps" import { Stamp };
+
+fn stamp(): Stamp {
+  { mark: "wax", note: "unread" }
+}
+
+export fn wax(): Str {
+  stamp().mark
+}

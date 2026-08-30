@@ -1,0 +1,52 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a struct built only by an anonymous literal, which names no type at all: not reported, while the twin declared beside it and built by nothing is — and the field the headless literal fills is still reported, because filling one in is not reading it"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "findings.txt"
+}
+
+# The head goes on. Nothing else changes, and the report has to be the same
+# text — the same golden, deliberately, because "the head makes no difference"
+# is the whole claim, and two files holding the same bytes could drift apart
+# without anything going red.
+edit {
+  file: "lib/money/ledgers.buri"
+  replace: "  { mark: \"wax\", note: \"unread\" }\n"
+  with: "  Stamp { mark: \"wax\", note: \"unread\" }\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "findings.txt"
+}
+
+# Both fixes taken: the field nothing reads is deleted, which is an edit at the
+# one literal that filled it, and so is the type nothing builds.
+edit {
+  file: "lib/money/stamps.buri"
+  replace: "  export note: Str,\n"
+  with: ""
+}
+
+edit {
+  file: "lib/money/ledgers.buri"
+  replace: "  Stamp { mark: \"wax\", note: \"unread\" }\n"
+  with: "  Stamp { mark: \"wax\" }\n"
+}
+
+edit {
+  file: "lib/money/stamps.buri"
+  replace: "\nstruct Ghost {\n  export mark: Str,\n}\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

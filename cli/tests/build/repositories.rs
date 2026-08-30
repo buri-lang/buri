@@ -87,14 +87,23 @@ fn proto_schemas() {
 /// a second broken file is not a second reason to stop, and that a *build*
 /// file which does not read is the one thing recovery does not read around.
 ///
-/// Eight more are the dead-code family — a type, a field and a variant nothing
-/// uses — and half of them are negatives: a type named only by a signature or
-/// an alias, a field read only by the module beside it, and everything on the
-/// library's surface, none of which is reported. The other half is what is:
-/// the field elision leaves out of every literal, the variant a `_` arm meets
-/// and no shorthand builds, and the two shapes of doubt — an unresolved
-/// re-export, which reaches the exported names and no further, and a body that
-/// did not check, which reaches the names written inside it and no further.
+/// Nine more are the dead-code family — a type, a field and a variant nothing
+/// uses — and four of them are negatives: a type named only by a signature or
+/// an alias, a field read only by the module beside it, a type built only by
+/// literals that name no type at all, and everything on the library's surface,
+/// none of which is reported. The rest are what is: the field elision leaves
+/// out of every literal, the variant a `_` arm meets and no shorthand builds,
+/// and the two shapes of doubt — an unresolved re-export, which reaches the
+/// exported names and no further, and a body that did not check, which reaches
+/// the names written inside it and no further.
+///
+/// The anonymous-literal case is the one that answers a grammar change rather
+/// than a rule: a bare `{ … }` builds a struct while naming nothing, so the
+/// token half of the census cannot see the construction and the typed tree is
+/// the whole of the evidence. It pins both directions at once — the type is
+/// alive, including the private one no surface could have exempted, and the
+/// field the literal fills is still reported, because filling a field in is
+/// not reading it whether or not the literal wears a head.
 ///
 /// The other five say what an error is *not* a reason to go quiet about, which
 /// is the harder half and the one that regressed. A declaration the parser
@@ -112,7 +121,7 @@ fn proto_schemas() {
 /// parity between this command and the language server stated alongside it.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 42);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 43);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the
