@@ -1,0 +1,5 @@
+error [missing-separator] 6:40-6:40
+message: a context binding ends with `,`
+fix: write `,` here
+edit: 6:40-6:40 ","
+
