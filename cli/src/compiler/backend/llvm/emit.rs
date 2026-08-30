@@ -7940,6 +7940,11 @@ pub fn observe(program: &ir::Program, profile: Profile) -> Vec<Observed> {
         })
         .collect();
 
+    // The one bit whose seed is a property of the graph rather than of a body.
+    for (o, cycles) in out.iter_mut().zip(reaches_a_cycle(program)) {
+        o.may_diverge |= cycles;
+    }
+
     let mut changed = true;
     while changed {
         changed = false;
@@ -7971,10 +7976,118 @@ pub fn observe(program: &ir::Program, profile: Profile) -> Vec<Observed> {
     out
 }
 
-/// The six bits, as a tuple, so the fixpoint's "did anything change" is one
+/// The seven bits, as a tuple, so the fixpoint's "did anything change" is one
 /// comparison that a new bit cannot be left out of by accident.
-fn key(o: Observed) -> (bool, bool, bool, bool, bool, bool) {
-    (o.allocates, o.aborts, o.opaque, o.writes_args, o.reads_far, o.writes_far)
+fn key(o: Observed) -> (bool, bool, bool, bool, bool, bool, bool) {
+    (
+        o.allocates,
+        o.aborts,
+        o.opaque,
+        o.writes_args,
+        o.reads_far,
+        o.writes_far,
+        o.may_diverge,
+    )
+}
+
+/// The nodes of a directed graph that can reach a **cycle** — every member of
+/// one, and everything with a path into one.
+///
+/// A peel, which is Kahn's algorithm read from the far end: a node every one of
+/// whose successors has already been peeled off cannot reach a cycle, so peel it
+/// and repeat. What is left when nothing more will peel is exactly the set that
+/// can reach one — a self-edge keeps a node in its own count so it never peels,
+/// the two members of a two-cycle keep each other in, and every predecessor of
+/// either keeps a count above zero. Each edge is walked once.
+///
+/// Repeated edges are one edge: the peel counts *distinct* successors, because
+/// the same edge twice would need two peels and the second never comes. A
+/// successor this graph has no node for is dropped, and both callers say why
+/// that is their conservative direction.
+fn reaches_a_cycle_in(successors: &[Vec<usize>]) -> Vec<bool> {
+    let n = successors.len();
+    let mut out_edges: Vec<Vec<usize>> = Vec::with_capacity(n);
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, succ) in successors.iter().enumerate() {
+        let mut mine: Vec<usize> = succ.iter().copied().filter(|s| *s < n).collect();
+        mine.sort_unstable();
+        mine.dedup();
+        for s in &mine {
+            if let Some(row) = preds.get_mut(*s) {
+                row.push(i);
+            }
+        }
+        out_edges.push(mine);
+    }
+
+    let mut remaining: Vec<usize> = out_edges.iter().map(Vec::len).collect();
+    let mut peeled = vec![false; n];
+    let mut work: Vec<usize> = Vec::new();
+    for (i, left) in remaining.iter().enumerate() {
+        if *left == 0 {
+            if let Some(slot) = peeled.get_mut(i) {
+                *slot = true;
+            }
+            work.push(i);
+        }
+    }
+    while let Some(i) = work.pop() {
+        let Some(predecessors) = preds.get(i) else { continue };
+        for &p in predecessors {
+            if peeled.get(p).copied() == Some(true) {
+                continue;
+            }
+            let Some(left) = remaining.get_mut(p) else { continue };
+            *left = left.saturating_sub(1);
+            if *left == 0 {
+                if let Some(slot) = peeled.get_mut(p) {
+                    *slot = true;
+                }
+                work.push(p);
+            }
+        }
+    }
+    peeled.iter().map(|p| !*p).collect()
+}
+
+/// Which functions can reach a cycle in the **call graph** — the seed of
+/// [`Observed::may_diverge`].
+///
+/// [`observe`]'s fixpoint cannot answer this and must not be asked to. It starts
+/// each function at what a local scan found and joins its callees' answers
+/// upwards, which is a *least* fixpoint: a self-recursive function whose local
+/// scan found nothing would have nothing joined into it and would converge on
+/// "proven to return", which is the miscompile [`Observed::may_diverge`] exists
+/// to stop. So the seeds have to be right before that loop runs, and this is
+/// what makes them right.
+///
+/// The edges are `Inst::Call` — the fixpoint's own edges — plus `DecRef`'s
+/// `drop`, which is a call this backend emits and the fixpoint does not follow.
+/// It does not have to: a `DecRef` sets `opaque`, which already disqualifies the
+/// function. The edge is here so that what the peel walks is the call graph
+/// rather than most of it. An index this program has no function for is dropped,
+/// which costs nothing: `observe` answers `Observed::opaque` for one, and that
+/// carries `may_diverge` anyway.
+fn reaches_a_cycle(program: &ir::Program) -> Vec<bool> {
+    let callees: Vec<Vec<usize>> = program
+        .funcs
+        .iter()
+        .map(|f| {
+            let mut mine: Vec<usize> = Vec::new();
+            let Some(code) = f.code() else { return mine };
+            for block in &code.blocks {
+                for inst in &block.insts {
+                    match inst {
+                        ir::Inst::Call { func, .. } => mine.push(func.index()),
+                        ir::Inst::DecRef { drop: Some(func), .. } => mine.push(func.index()),
+                        _ => {}
+                    }
+                }
+            }
+            mine
+        })
+        .collect();
+    reaches_a_cycle_in(&callees)
 }
 
 /// Which values are *based on* one of this function's parameters, in the sense
@@ -8153,6 +8266,20 @@ fn local(code: &ir::Code, profile: Profile) -> Observed {
             }
         }
     }
+    // A cycle in the control-flow graph is a loop, and nothing in the IR bounds
+    // a loop's trip count — see [`Observed::may_diverge`]. Asked as a *cycle*
+    // and not as a back edge: `lower` emits blocks in whatever order it built
+    // them, and "an edge that points earlier in the list" calls a nested `if`'s
+    // join block a loop — which costs the attribute on every branchy function
+    // in the program.
+    let successors: Vec<Vec<usize>> = code
+        .blocks
+        .iter()
+        .map(|b| b.term.targets().iter().map(|t| t.block.index()).collect())
+        .collect();
+    if reaches_a_cycle_in(&successors).iter().any(|c| *c) {
+        o.may_diverge = true;
+    }
     o
 }
 
@@ -8248,5 +8375,92 @@ fn float_predicate(op: ir::BinOp) -> FloatPredicate {
         ir::BinOp::Le => FloatPredicate::OLE,
         ir::BinOp::Gt => FloatPredicate::OGT,
         _ => FloatPredicate::OGE,
+    }
+}
+
+#[cfg(test)]
+mod cycles {
+    use super::*;
+    use crate::compiler::semantics::types::FuncIdx;
+    use crate::diagnostics::Span;
+
+    /// A program of `edges.len()` functions in which function `i` calls every
+    /// index in `edges[i]` from its one block and does nothing else.
+    /// [`reaches_a_cycle`] reads calls and nothing else, so this is the whole
+    /// of what it needs.
+    fn call_graph(edges: &[&[usize]]) -> ir::Program {
+        let funcs = edges
+            .iter()
+            .enumerate()
+            .map(|(i, callees)| {
+                let mut code = ir::Code::new();
+                code.blocks.push(ir::Block {
+                    params: Vec::new(),
+                    insts: callees
+                        .iter()
+                        .map(|c| ir::Inst::Call {
+                            dests: Vec::new(),
+                            func: FuncIdx(*c as u32),
+                            args: Vec::new(),
+                        })
+                        .collect(),
+                    term: ir::Term::Return(Vec::new()),
+                });
+                ir::Func {
+                    symbol: format!("f{i}"),
+                    debug_name: format!("f{i}"),
+                    sig: ir::Signature { params: Vec::new(), rets: Vec::new() },
+                    facts: ir::Facts {
+                        params: Vec::new(),
+                        purity: ir::Purity::Pure,
+                        can_abort: false,
+                        can_park: false,
+                    },
+                    unit: 0,
+                    body: ir::Body::Code(code),
+                    span: Span::default(),
+                }
+            })
+            .collect();
+        ir::Program { funcs, units: vec![String::from("main")], types: Vec::new() }
+    }
+
+    /// A chain ends. A function that calls itself does not, and neither does
+    /// anything that can reach one that does.
+    #[test]
+    fn a_chain_peels_and_a_cycle_does_not() {
+        assert_eq!(reaches_a_cycle(&call_graph(&[&[1], &[2], &[]])), vec![false, false, false]);
+        assert_eq!(reaches_a_cycle(&call_graph(&[&[0]])), vec![true]);
+        // `0` and `1` are the cycle, `2` calls into it, `3` is off to the side.
+        assert_eq!(
+            reaches_a_cycle(&call_graph(&[&[1], &[0], &[1], &[]])),
+            vec![true, true, true, false]
+        );
+    }
+
+    /// The same edge twice is one edge. Without the dedup, `0` would need two
+    /// peels of `1` and only ever get one, so a straight-line program would
+    /// report a cycle and lose `willreturn` everywhere.
+    #[test]
+    fn a_repeated_call_is_one_edge() {
+        assert_eq!(reaches_a_cycle(&call_graph(&[&[1, 1, 1], &[]])), vec![false, false]);
+    }
+
+    /// The two shapes a **back-edge** rule gets wrong, which is why this is a
+    /// peel and not a comparison of indices. Both are what a control-flow
+    /// graph looks like: [`local`] asks the same question of one, and `lower`
+    /// numbers blocks in the order it built them rather than in any order a
+    /// reader could rely on.
+    #[test]
+    fn an_edge_that_points_backwards_is_not_a_cycle() {
+        // `0 -> 2 -> 1`, and nothing returns. A rule that called every edge
+        // into a lower index a loop would call `0 -> 2`'s sibling one.
+        assert_eq!(reaches_a_cycle_in(&[vec![2], vec![], vec![1]]), vec![false, false, false]);
+        // A diamond — a nested `if` and its join — with the join *before* one
+        // of its predecessors.
+        assert_eq!(
+            reaches_a_cycle_in(&[vec![2, 3], vec![], vec![1], vec![1]]),
+            vec![false, false, false, false]
+        );
     }
 }
