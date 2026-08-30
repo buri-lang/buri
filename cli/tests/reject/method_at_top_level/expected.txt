@@ -26,13 +26,15 @@ error: `Square` has no method `area` [no-such-method]
 16 |   let _ = ctx.println("${Square { side: 3 }.area()}");
    |                                             ^^^^
    |
-   = fix: check the spelling, or declare it in `impl Square { ... }` in that type's own module — a method may not be added from anywhere else
+   = fix: check the spelling, or declare it in `impl Square { ... }` in `//cmd/method_at_top_level/main`, where the type is declared — a method may not be added from anywhere else
 
      What to do
      ──────────
 
-     Check the spelling, or declare it in an impl block in that type's own
-     module.
+     Check the spelling. If the type is one of yours, declare the method in an
+     impl block in that type's own module. If the type ships with the toolchain
+     — a Result, an I64 — or belongs to another package, it cannot gain one from
+     here, and buri docs <module> lists the methods it has.
 
      Why
      ───

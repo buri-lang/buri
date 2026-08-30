@@ -1,0 +1,380 @@
+// core/ordmap and core/ordset — the persistent B-tree, and the set over it.
+//
+// The cases worth writing are the ones that make the *structure* work rather
+// than the interface. A node holds seven entries, so nothing below eight keys
+// has ever split, and nothing that has not split has ever borrowed or merged:
+// the large cases here are large on purpose, and the randomized one compares
+// every answer against a sorted list, which is the model an ordered map is
+// supposed to behave like.
+
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { Hermetic };
+
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/ordmap" import { OrdMap };
+from "core/ordmap" import * as ordmap;
+from "core/ordset" import { OrdSet };
+from "core/ordset" import * as ordset;
+from "core/str" import * as str;
+
+/// The key half of an entry, for asserting on order.
+fn keyOf<V>(entry: (Int, V)): Int {
+  let (k, _) = entry;
+  k
+}
+
+fn textOf<V>(entry: (Str, V)): Str {
+  let (k, _) = entry;
+  k
+}
+
+/// A map of `count` keys, inserted in an order that is not the key order —
+/// which is what makes the tree split and rebalance rather than grow to one
+/// side.
+fn scattered<C: Alloc>(ctx: C, count: Int): OrdMap<Int, Int> {
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc: OrdMap<Int, Int>, i) => {
+    let key = (i * 137) % count;
+    acc.insert(c, key, key * 2)
+  }, ordmap.empty<Int, Int>())
+}
+
+// --- empty ----------------------------------------------------------------------
+
+test "an empty map holds nothing" {
+  let m = ordmap.empty<Str, Int>();
+  assert.eq(m.len(), 0);
+  assert.isTrue(m.isEmpty());
+  assert.isTrue(m.get("nothing").isNone());
+  assert.isFalse(m.has("nothing"));
+  assert.isTrue(m.first().isNone());
+  assert.isTrue(m.last().isNone());
+}
+
+test "an empty map iterates to nothing" {
+  let ctx = Hermetic();
+  let m = ordmap.empty<Str, Int>();
+  assert.eq(m.entries(ctx).len(), 0);
+  assert.eq(m.keys(ctx), list.empty<Str>());
+  assert.eq(m.range(ctx, "a", "z").len(), 0);
+  assert.eq(m.remove(ctx, "a").len(), 0);
+}
+
+// --- insert / get -----------------------------------------------------------------
+
+test "insert then get" {
+  let ctx = Hermetic();
+  let m = ordmap.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
+  assert.eq(assert.some(m.get("a")), 1);
+  assert.eq(assert.some(m.get("b")), 2);
+  assert.eq(m.len(), 2);
+  assert.isTrue(m.get("c").isNone());
+}
+
+test "inserting the same key replaces the value and does not change the size" {
+  let ctx = Hermetic();
+  let m = ordmap.of(ctx, [("a", 1), ("b", 2)]).insert(ctx, "a", 99);
+  assert.eq(assert.some(m.get("a")), 99);
+  assert.eq(m.len(), 2);
+}
+
+test "of holds every entry, later ones winning" {
+  let ctx = Hermetic();
+  let m = ordmap.of(ctx, [("a", 1), ("b", 2), ("a", 3)]);
+  assert.eq(m.len(), 2);
+  assert.eq(assert.some(m.get("a")), 3);
+}
+
+// --- key order --------------------------------------------------------------------
+
+test "entries come out in key order whatever order they went in" {
+  let ctx = Hermetic();
+  let m = ordmap.of(ctx, [("delta", 4), ("alpha", 1), ("charlie", 3), ("bravo", 2)]);
+  let names = m.entries(ctx).map(ctx, fn(e) => textOf(e));
+  assert.eq(m.keys(ctx), ["alpha", "bravo", "charlie", "delta"]);
+  assert.eq(m.values(ctx), [1, 2, 3, 4]);
+  assert.eq(names, ["alpha", "bravo", "charlie", "delta"]);
+}
+
+test "a hundred keys inserted out of order come out in order" {
+  let ctx = Hermetic();
+  let m = scattered(ctx, 100);
+  assert.eq(m.len(), 100);
+  assert.eq(m.keys(ctx), list.range(ctx, 0, 100));
+  assert.eq(m.values(ctx), list.range(ctx, 0, 100).map(ctx, fn(k) => k * 2));
+}
+
+test "first and last are the ends of the key order" {
+  let ctx = Hermetic();
+  let m = scattered(ctx, 100);
+  assert.eq(keyOf(assert.some(m.first())), 0);
+  assert.eq(keyOf(assert.some(m.last())), 99);
+}
+
+// --- remove -----------------------------------------------------------------------
+
+test "remove takes a key out" {
+  let ctx = Hermetic();
+  let m = ordmap.of(ctx, [("a", 1), ("b", 2)]).remove(ctx, "a");
+  assert.isTrue(m.get("a").isNone());
+  assert.eq(assert.some(m.get("b")), 2);
+  assert.eq(m.len(), 1);
+}
+
+test "removing a key that is not there changes nothing" {
+  let ctx = Hermetic();
+  let m = ordmap.of(ctx, [("a", 1)]);
+  assert.eq(m.remove(ctx, "zzz").len(), 1);
+  assert.eq(assert.some(m.remove(ctx, "zzz").get("a")), 1);
+}
+
+test "removing every other key of two hundred leaves the rest in order" {
+  let ctx = Hermetic();
+  let m = scattered(ctx, 200);
+  let evens = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, k) => k % 2 == 0);
+  let odds = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, k) => k % 2 == 1);
+  let left = evens.foldCtx(ctx, fn(c, acc: OrdMap<Int, Int>, k) => acc.remove(c, k), m);
+  assert.eq(left.len(), 100);
+  assert.eq(left.keys(ctx), odds);
+  assert.isTrue(evens.all(fn(k) => left.get(k).isNone()));
+  assert.isTrue(odds.all(fn(k) => left.get(k) == .Some(k * 2)));
+}
+
+test "removing every key of two hundred empties the map" {
+  let ctx = Hermetic();
+  let m = scattered(ctx, 200);
+  // Out of key order again, so the removals fall in different places in the
+  // tree and every rebalance — borrow left, borrow right, merge — is reached.
+  let order = list.range(ctx, 0, 200).map(ctx, fn(i) => (i * 91) % 200);
+  let gone = order.foldCtx(ctx, fn(c, acc: OrdMap<Int, Int>, k) => acc.remove(c, k), m);
+  assert.eq(gone.len(), 0);
+  assert.isTrue(gone.isEmpty());
+  assert.isTrue(gone.first().isNone());
+  assert.eq(gone.entries(ctx).len(), 0);
+}
+
+// --- persistence ------------------------------------------------------------------
+
+test "a map is a value: inserting produces a new one" {
+  let ctx = Hermetic();
+  let before = ordmap.of(ctx, [("a", 1)]);
+  let after = before.insert(ctx, "b", 2);
+  assert.eq(before.len(), 1);
+  assert.eq(after.len(), 2);
+  assert.isTrue(before.get("b").isNone());
+}
+
+test "the version a write shares its nodes with is unchanged" {
+  let ctx = Hermetic();
+  let base = scattered(ctx, 120);
+  // Enough writes to copy paths through most of the tree; `base` shares every
+  // node none of them touched, and must still answer for all 120 keys.
+  let insert = fn(c, acc: OrdMap<Int, Int>, k) => acc.insert(c, k, k * 2);
+  let grown = list.range(ctx, 120, 200).foldCtx(ctx, insert, base);
+  let drop = fn(c, acc: OrdMap<Int, Int>, k) => acc.remove(c, k);
+  let shrunk = list.range(ctx, 0, 60).foldCtx(ctx, drop, base);
+  assert.eq(base.len(), 120);
+  assert.eq(base.keys(ctx), list.range(ctx, 0, 120));
+  assert.eq(grown.len(), 200);
+  assert.eq(grown.keys(ctx), list.range(ctx, 0, 200));
+  assert.eq(shrunk.len(), 60);
+  assert.eq(shrunk.keys(ctx), list.range(ctx, 60, 120));
+}
+
+// --- range ------------------------------------------------------------------------
+
+test "range is half open" {
+  let ctx = Hermetic();
+  let m = scattered(ctx, 50);
+  assert.eq(m.range(ctx, 10, 15).map(ctx, fn(e) => keyOf(e)), [10, 11, 12, 13, 14]);
+  assert.eq(m.range(ctx, 10, 10).len(), 0);
+  assert.eq(m.range(ctx, 11, 10).len(), 0);
+}
+
+test "ranges that share an endpoint tile without overlapping" {
+  let ctx = Hermetic();
+  let m = scattered(ctx, 50);
+  let lower = m.range(ctx, 0, 20);
+  let upper = m.range(ctx, 20, 50);
+  assert.eq(lower.len() + upper.len(), 50);
+  assert.eq(lower.concat(ctx, upper).map(ctx, fn(e) => keyOf(e)), list.range(ctx, 0, 50));
+}
+
+test "range clamps to what is there" {
+  let ctx = Hermetic();
+  let m = scattered(ctx, 50);
+  assert.eq(m.range(ctx, -100, 3).map(ctx, fn(e) => keyOf(e)), [0, 1, 2]);
+  assert.eq(m.range(ctx, 47, 500).map(ctx, fn(e) => keyOf(e)), [47, 48, 49]);
+  assert.eq(m.range(ctx, -100, 500).len(), 50);
+  assert.eq(m.range(ctx, 100, 200).len(), 0);
+}
+
+test "a range over a large map answers the same as filtering it" {
+  let ctx = Hermetic();
+  let m = scattered(ctx, 300);
+  let scanned = m.range(ctx, 77, 231).map(ctx, fn(e) => keyOf(e));
+  let filtered = m.keys(ctx).filterCtx(ctx, fn(_c, k) => k >= 77 && k < 231);
+  assert.eq(scanned, filtered);
+  assert.eq(scanned.len(), 154);
+}
+
+// --- prefix -----------------------------------------------------------------------
+
+test "prefix answers the keys that begin with it, in order" {
+  let ctx = Hermetic();
+  let m = ordmap.of(ctx, [("a", 1), ("ab", 2), ("abc", 3), ("ac", 4), ("b", 5), ("", 6)]);
+  assert.eq(m.prefix(ctx, "ab").map(ctx, fn(e) => textOf(e)), ["ab", "abc"]);
+  assert.eq(m.prefix(ctx, "a").map(ctx, fn(e) => textOf(e)), ["a", "ab", "abc", "ac"]);
+  assert.eq(m.prefix(ctx, "abc").map(ctx, fn(e) => textOf(e)), ["abc"]);
+}
+
+test "the empty prefix is every entry and an absent one is none" {
+  let ctx = Hermetic();
+  let m = ordmap.of(ctx, [("a", 1), ("ab", 2), ("b", 3)]);
+  assert.eq(m.prefix(ctx, "").len(), 3);
+  assert.eq(m.prefix(ctx, "zz").len(), 0);
+  assert.eq(m.prefix(ctx, "abc").len(), 0);
+}
+
+test "a prefix over a large map answers the same as filtering it" {
+  let ctx = Hermetic();
+  let keys = list.range(ctx, 0, 300).mapCtx(ctx, fn(c, i) => str.format(c, "key${(i * 173) % 300}"));
+  let insert = fn(c, acc: OrdMap<Str, Int>, k: Str) => acc.insert(c, k, k.len());
+  let m = keys.foldCtx(ctx, insert, ordmap.empty<Str, Int>());
+  assert.eq(m.len(), 300);
+  let scanned = m.prefix(ctx, "key1").map(ctx, fn(e) => textOf(e));
+  let filtered = m.keys(ctx).filterCtx(ctx, fn(_c, k) => k.startsWith("key1"));
+  assert.eq(scanned, filtered);
+  // key1, key10..key19, key100..key199.
+  assert.eq(scanned.len(), 111);
+}
+
+// --- equals -----------------------------------------------------------------------
+
+test "two maps with the same entries are equal whatever order they were built in" {
+  let ctx = Hermetic();
+  let up = fn(c, acc: OrdMap<Int, Int>, k) => acc.insert(c, k, k);
+  let down = fn(c, acc: OrdMap<Int, Int>, k) => acc.insert(c, 39 - k, 39 - k);
+  let forwards = list.range(ctx, 0, 40).foldCtx(ctx, up, ordmap.empty<Int, Int>());
+  let backwards = list.range(ctx, 0, 40).foldCtx(ctx, down, ordmap.empty<Int, Int>());
+  assert.isTrue(forwards.equals(ctx, backwards));
+  assert.isFalse(forwards.equals(ctx, backwards.remove(ctx, 7)));
+  assert.isFalse(forwards.equals(ctx, backwards.insert(ctx, 7, 700)));
+}
+
+// --- against a sorted list ----------------------------------------------------------
+
+/// One step of the randomized comparison: a key drawn from a range small enough
+/// that inserts collide and removes hit, applied to the map and to the list
+/// model at once.
+fn step<C: Alloc>(
+  ctx: C,
+  state: (OrdMap<Int, Int>, [Int], Int),
+  _i: Int,
+): (OrdMap<Int, Int>, [Int], Int) {
+  let (m, model, seed) = state;
+  let next = (seed * 1103515245 + 12345) % 2147483648;
+  // The high bits, because a linear congruential generator's low ones have
+  // short periods and a key drawn from them would revisit a handful of values.
+  let key = (next / 1024) % 400;
+  if ((next / 65536) % 3 == 0) {
+    (m.remove(ctx, key), model.filterCtx(ctx, fn(_c, x) => x != key), next)
+  } else {
+    let grown = if (model.contains(key)) { model } else { model.push(ctx, key).sort(ctx) };
+    (m.insert(ctx, key, key * 2), grown, next)
+  }
+}
+
+test "a thousand mixed operations agree with a sorted list" {
+  let ctx = Hermetic();
+  let start = (ordmap.empty<Int, Int>(), list.empty<Int>(), 7);
+  let run = fn(c, acc: (OrdMap<Int, Int>, [Int], Int), i) => step(c, acc, i);
+  let (m, model, _) = list.range(ctx, 0, 1000).foldCtx(ctx, run, start);
+  // The comparison is worth making only if the run built a tree several levels
+  // deep, so the size it settles at is asserted rather than assumed.
+  assert.eq(model.len(), 246);
+  assert.eq(m.len(), model.len());
+  assert.eq(m.keys(ctx), model);
+  assert.eq(m.values(ctx), model.map(ctx, fn(k) => k * 2));
+  assert.eq(keyOf(assert.some(m.first())), assert.some(model.first()));
+  assert.eq(keyOf(assert.some(m.last())), assert.some(model.last()));
+  assert.isTrue(model.all(fn(k) => m.get(k) == .Some(k * 2)));
+  let scanned = m.range(ctx, 100, 300).map(ctx, fn(e) => keyOf(e));
+  assert.eq(scanned, model.filterCtx(ctx, fn(_c, k) => k >= 100 && k < 300));
+}
+
+// --- the set ------------------------------------------------------------------------
+
+test "an empty set holds nothing" {
+  let ctx = Hermetic();
+  let s = ordset.empty<Int>();
+  assert.eq(s.len(), 0);
+  assert.isTrue(s.isEmpty());
+  assert.isFalse(s.has(1));
+  assert.isTrue(s.first().isNone());
+  assert.isTrue(s.last().isNone());
+  assert.eq(s.toList(ctx), list.empty<Int>());
+}
+
+test "a set collapses duplicates and iterates in order" {
+  let ctx = Hermetic();
+  let s = ordset.of(ctx, [5, 1, 3, 1, 5]);
+  assert.eq(s.len(), 3);
+  assert.eq(s.toList(ctx), [1, 3, 5]);
+  assert.eq(assert.some(s.first()), 1);
+  assert.eq(assert.some(s.last()), 5);
+  assert.isTrue(s.has(3));
+  assert.isFalse(s.has(4));
+}
+
+test "insert and remove on a set" {
+  let ctx = Hermetic();
+  let s = ordset.of(ctx, [1, 3]).insert(ctx, 2).insert(ctx, 3);
+  assert.eq(s.toList(ctx), [1, 2, 3]);
+  assert.eq(s.remove(ctx, 2).toList(ctx), [1, 3]);
+  assert.eq(s.remove(ctx, 99).len(), 3);
+}
+
+test "a set range is half open" {
+  let ctx = Hermetic();
+  let s = ordset.of(ctx, list.range(ctx, 0, 60));
+  assert.eq(s.range(ctx, 10, 14), [10, 11, 12, 13]);
+  assert.eq(s.range(ctx, 10, 10).len(), 0);
+}
+
+test "the set operations" {
+  let ctx = Hermetic();
+  let a = ordset.of(ctx, [1, 3, 5]);
+  let b = ordset.of(ctx, [3, 7]);
+  assert.eq(a.union(ctx, b).toList(ctx), [1, 3, 5, 7]);
+  assert.eq(a.intersect(ctx, b).toList(ctx), [3]);
+  assert.eq(a.difference(ctx, b).toList(ctx), [1, 5]);
+  assert.isTrue(ordset.of(ctx, [1, 5]).isSubsetOf(ctx, a));
+  assert.isFalse(b.isSubsetOf(ctx, a));
+  assert.isTrue(a.equals(ctx, ordset.of(ctx, [5, 3, 1])));
+  assert.isFalse(a.equals(ctx, b));
+}
+
+test "a set of two hundred members survives insert and remove" {
+  let ctx = Hermetic();
+  let members = list.range(ctx, 0, 200).map(ctx, fn(i) => (i * 137) % 200);
+  let add = fn(c, acc: OrdSet<Int>, x) => acc.insert(c, x);
+  let s = members.foldCtx(ctx, add, ordset.empty<Int>());
+  assert.eq(s.len(), 200);
+  assert.eq(s.toList(ctx), list.range(ctx, 0, 200));
+  let evens = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, k) => k % 2 == 0);
+  let odds = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, k) => k % 2 == 1);
+  let left = evens.foldCtx(ctx, fn(c, acc: OrdSet<Int>, x) => acc.remove(c, x), s);
+  assert.eq(left.toList(ctx), odds);
+  // The set it came from is untouched: the removals copied paths and shared
+  // everything else.
+  assert.eq(s.len(), 200);
+}
+
+test "a set of strings scans by prefix" {
+  let ctx = Hermetic();
+  let s = ordset.of(ctx, ["ac", "ab", "abc", "b", "a"]);
+  assert.eq(s.prefix(ctx, "ab"), ["ab", "abc"]);
+  assert.eq(s.prefix(ctx, ""), ["a", "ab", "abc", "ac", "b"]);
+  assert.eq(s.prefix(ctx, "z").len(), 0);
+}

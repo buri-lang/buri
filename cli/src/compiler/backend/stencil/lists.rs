@@ -160,8 +160,9 @@ struct StepShape {
 /// axes can be measured on its own the way every other axis in this project
 /// was: `STENCIL_OFF=listloop` puts every `list.*` call back through the
 /// ordinary runtime call, `estride` gives up the stride-baked
-/// load/store twins, `incbr` gives up the fused back edge, and `envskip` writes
-/// the environment even when it weighs nothing.
+/// load/store twins, `incbr` gives up the fused back edge, `envskip` writes
+/// the environment even when it weighs nothing, and `listget` puts an element
+/// read back through `buri_rt_list_get`.
 fn off(name: &str) -> bool {
     std::env::var("STENCIL_OFF").unwrap_or_default().split(',').any(|x| x == name)
 }
@@ -1094,6 +1095,7 @@ impl Jit<'_> {
             return false;
         }
         match key {
+            "list.get" => self.list_get(prog, st, o),
             "list.find" => self.list_find(prog, st, o, 1, false),
             "list.findIndex" => self.list_find(prog, st, o, 1, true),
             "list.sortBy" => self.list_sort(prog, st, o, 2),
@@ -1105,6 +1107,57 @@ impl Jit<'_> {
             "deriveArrayShow" => self.derive_array_show(prog, st, o),
             _ => false,
         }
+    }
+
+    /// `list.get(self, index) -> Option<T>`, open-coded.
+    ///
+    /// The one `core/list` entry a loop body reads *per element* without a
+    /// closure, and the whole of it is a bounds test and an indexed load — but
+    /// as a runtime call it costs the `crt` stencil's C frame, six argument
+    /// loads, a `bl`, and a `memcpy` of the element inside
+    /// `buri_rt_list_get`, because that entry's stride is a parameter. On the
+    /// `matmul` kernel that call and its `memcpy` are two thirds of the
+    /// sampled time; here it is `brcmp` + `eload` + a discriminant store.
+    ///
+    /// One unsigned compare covers both bounds: an `Int` slot holds a whole
+    /// 64-bit word, so a negative index reads as a very large unsigned one and
+    /// fails `index < len` exactly as `buri_rt_list_get`'s `index < 0` does. A
+    /// null block is not tested for the reason [`Jit::emit_list_loop`] does not
+    /// test for one either — a null block has length zero, so the same compare
+    /// has already answered.
+    fn list_get(&mut self, prog: &ir::Program, st: &mut Fn2, o: &Operands) -> bool {
+        if off("listget") {
+            return false;
+        }
+        let (Some(&(xs, xt)), Some(&(idx, _))) = (o.args.first(), o.args.get(1)) else {
+            return false;
+        };
+        let Some(src) = self.block_at(prog, xs, xt) else { return false };
+        // A counted element is a retain this would have to reproduce, and
+        // `buri_rt_list_get` already performs it through the glue it is handed.
+        if src.counted {
+            return false;
+        }
+        // Only the widths `elem_load` has a fixed stencil for: past them it
+        // reaches `eload/n`, whose body is the `memcpy` call this exists to
+        // remove.
+        if !self.has(&format!("eload/{}", src.size)) {
+            return false;
+        }
+        let ir::Type::Agg(id) = o.dest.1 else { return false };
+        let l = self.layout_of(prog, id);
+        let Some(opt) = super::runtime::OptRepr::of(&l) else { return false };
+        let d = o.dest.0;
+        let absent = st.label();
+        let done = st.label();
+        self.br_lt(idx, xs + 8, V::Fall, V::Blk(absent), Some("JIT_T"));
+        self.elem_load(d + opt.payload, xs, idx, src.stride, src.size);
+        self.store_disc(&l, d, opt.some as usize);
+        self.emit("jump", &[("JIT_T", V::Blk(done))]);
+        st.place(absent, self.region.code_addr());
+        self.store_disc(&l, d, opt.none as usize);
+        st.place(done, self.region.code_addr());
+        true
     }
 
     /// `find` and `findIndex`: the first element the predicate keeps, as an

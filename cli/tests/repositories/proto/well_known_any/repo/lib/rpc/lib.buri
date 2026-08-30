@@ -1,0 +1,3 @@
+from "//lib/rpc/any.proto" export { Any };
+from "//lib/rpc/detail.proto" export { ErrorInfo, encodeErrorInfo, decodeErrorInfo };
+from "//lib/rpc/status.proto" export { Status, encodeStatus, decodeStatus, encodeStatusJson };

@@ -62,10 +62,11 @@ fn graph_queries() {
 /// internal to the rule that declared it — one for the edition the reader
 /// requires and the two syntaxes it refuses, and one for each half of what it
 /// otherwise refuses: the constructs that are out of scope, and the files that
-/// are not schemas at all.
+/// are not schemas at all. The sixth is `google.protobuf.Any`, which is a
+/// message like any other here and is resolved by name rather than recognised.
 #[test]
 fn proto_schemas() {
-    run_corpus(&tests_dir().join("repositories/proto"), "proto", 5);
+    run_corpus(&tests_dir().join("repositories/proto"), "proto", 6);
 }
 
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own
@@ -83,10 +84,11 @@ fn lint_catalogue() {
 
 /// TESTING.md: where tests live, what a test source may reach, and what the
 /// runner does with a suite — the flags, the timeout, the golden-file update
-/// mode, and the exact shape of a failure report.
+/// mode, the exact shape of a failure report, and the verdict a suite that
+/// never compiled gets.
 #[test]
 fn test_suites() {
-    run_corpus(&tests_dir().join("repositories/testing"), "testing", 10);
+    run_corpus(&tests_dir().join("repositories/testing"), "testing", 11);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

@@ -11,6 +11,7 @@ use crate::compiler::semantics::inference::{Infer, LitCheck};
 use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
+use crate::compiler::standard_library;
 use crate::diagnostics::{self, Diagnostic, Invariant as _, Span};
 use crate::parsing::flat::{
     self, ArmData, BlockId, CtxBodyId, ExprId, ExprView as V, InitData, LambdaParamData, PartData,
@@ -271,6 +272,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 typed::Expr::new(typed::ExprKind::Bool(value), ty, span)
             }
             V::Unit { span } => typed::Expr::new(typed::ExprKind::Unit, Ty::Unit, span),
+            // The parser already reported why. `Ty::Error` unifies with
+            // everything, so nothing downstream reports a second time.
+            V::Error { span } => self.error_expr(span),
             V::Template { parts, span } => self.check_template(parts, span),
             V::Ident { name, span } => self.check_ident(name, span, expected),
             V::SelfValue { span } => match self.lookup_local("self") {
@@ -1206,11 +1210,66 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             _ => {}
         }
+        let fix = self.no_method_fix(recv, &shown, name);
         let d = self
             .templated("no-such-method", span)
             .bind("type", shown)
             .bind("method", name.to_string());
         d.notes.extend(notes);
+        // After the binds: every `bind` re-renders the page's own fix over it.
+        if let Some(fix) = fix {
+            d.fix(fix);
+        }
+    }
+
+    /// What to do about a missing method, which depends on who owns the
+    /// receiver's type. The page's fix — "declare it in an `impl` block in
+    /// that type's own module" — is an instruction only the owner can follow,
+    /// and a `Result` or an `I64` is owned by the toolchain.
+    fn no_method_fix(&self, recv: &Ty, shown: &str, name: &str) -> Option<String> {
+        match recv {
+            Ty::Param(_) => Some(format!(
+                "add a bound to `{shown}` that declares `{name}`, or call one the bounds it \
+                 already carries declare"
+            )),
+            Ty::Tuple(_) | Ty::Fn(..) => Some(format!(
+                "there is no module to declare `{name}` in, so write a free function taking \
+                 the value, or wrap it in a struct of yours and give that the method"
+            )),
+            Ty::Con(con, _) => {
+                let info = self.c.tables.tycon(*con);
+                // A primitive's table entry lives in a synthetic module; the
+                // module its methods are declared in is SPEC 6.7.3's.
+                let (path, role, header) = match &info.def {
+                    TyDef::Prim(p) => {
+                        (standard_library::defining_module(*p).to_string(), Role::Std, None)
+                    }
+                    _ => {
+                        let module = self.c.module(info.module);
+                        let params: Vec<&str> =
+                            info.generics.iter().map(|g| g.name.as_str()).collect();
+                        let header = if params.is_empty() {
+                            format!("impl {}", info.name)
+                        } else {
+                            format!("impl<{0}> {1}<{0}>", params.join(", "), info.name)
+                        };
+                        (module.path.clone(), module.role, Some(header))
+                    }
+                };
+                match (role, header) {
+                    (Role::Std | Role::Platform, _) | (_, None) => Some(format!(
+                        "check the spelling — `buri docs {path}` lists every method `{shown}` \
+                         has, and one may not be added to it from outside `{path}`"
+                    )),
+                    (_, Some(header)) => Some(format!(
+                        "check the spelling, or declare it in `{header} {{ ... }}` in \
+                         `{path}`, where the type is declared — a method may not be added \
+                         from anywhere else"
+                    )),
+                }
+            }
+            _ => None,
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -34,9 +34,8 @@
 //! `cli/src/docs/build/proto.md`.
 //!
 //! What is *not* here is refused by name rather than ignored: `service`,
-//! `extend`, `extensions`, groups, `map<>`, `google.protobuf.Any`, the two
-//! removed labels, and every feature value whose semantics this mapping cannot
-//! express. Each would change what a message means on the wire, and a reader
+//! `extend`, `extensions`, groups, `map<>`, the two removed labels, and every
+//! feature value whose semantics this mapping cannot express. Each would change what a message means on the wire, and a reader
 //! that skipped one would decode the file in front of it as a different file.
 //! `reserved`, and an `option` that is not a `features.` one, are skipped
 //! rather than refused: neither says anything about the shape of a message, and
@@ -1152,17 +1151,6 @@ impl<'a> Parser<'a> {
             );
             return None;
         }
-        if ty_word.ends_with("Any") && ty_word.contains("protobuf") {
-            self.unsupported(
-                ty_span,
-                "`google.protobuf.Any`",
-                "an `Any` holds a message whose type is known only at runtime, and a generated \
-                 Buri type has to know its fields at compile time",
-                "declare a `oneof` over the message types the field can actually hold",
-            );
-            return None;
-        }
-
         let ty = match Scalar::parse(&ty_word) {
             Some(s) => TypeRef::Scalar(s),
             None => TypeRef::Named(ty_word),
@@ -1584,6 +1572,19 @@ mod tests {
         assert_eq!(s.imports[1].path, "c.proto");
     }
 
+    /// `google.protobuf.Any` is a two-field message and is read as one. The
+    /// refusal used to fire on the spelling, before any name was resolved.
+    #[test]
+    fn a_well_known_any_is_an_ordinary_named_type() {
+        let s = ok(&format!("{HEAD}message M {{ google.protobuf.Any payload = 1; }}\n"));
+        let field = &s.messages[0].fields[0];
+        assert!(
+            matches!(&field.ty, TypeRef::Named(n) if n == "google.protobuf.Any"),
+            "{:?}",
+            field.ty
+        );
+    }
+
     /// Each unsupported construct is refused *by name*, because a message that
     /// says only "unsupported" is one nobody can act on.
     #[test]
@@ -1594,7 +1595,6 @@ mod tests {
             ("message M { extensions 100 to 200; }", "`extensions`"),
             ("message M { map<string, int32> m = 1; }", "`map<>`"),
             ("message M { group G = 1 { int32 x = 2; } }", "`group`"),
-            ("message M { google.protobuf.Any a = 1; }", "`google.protobuf.Any`"),
             ("import public \"x.proto\";", "`import public`"),
         ] {
             let es = errors(&format!("{HEAD}{src}\n"));

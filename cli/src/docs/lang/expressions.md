@@ -88,6 +88,12 @@ so is `NaN < NaN`. So `a <= b && b <= a` does not imply `a == b`, and `!(a < b)
 && !(a > b)` does not imply it either. `math.isNan(x)` is how a program asks the
 question `x != x` used to answer.
 
+Because a payload is not part of a `NaN`'s value, it is not preserved anywhere
+either: `bytes.f64FromBytes` answers the canonical quiet NaN for every NaN
+pattern, on every backend, and the bytes it round-trips back to are the same
+eight. There is no other way to construct a payload, so the distinction the
+paragraph above declines to make is one no program can observe.
+
 Rendering a float is the shortest decimal that
 round-trips, and that is a promise about digits rather than only about values:
 `1.0 / 3.0` prints the same characters on every backend.

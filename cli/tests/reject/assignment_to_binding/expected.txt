@@ -1,34 +1,24 @@
-error: expected `}`, found `=` [unexpected-token]
+error: there is no assignment; a binding is given its value once, where it is declared [no-assignment]
  --> cmd/assignment_to_binding/main.buri:8:5
   |
 8 |   n = 2;
   |     ^
   |
-  = expected: `}`
-  = actual: `=`
-  = fix: write `}` here
+  = fix: bind the new value to a new name with `let`, or return it from the expression that computes it
 
     What to do
     ──────────
 
-    Write what the message names. This is the parser's catch-all, so the useful
-    half of it is always the "expected" part.
+    Write a new binding rather than overwriting the old one. Where the value is
+    built up in steps, each step is a let of its own, and where it is built up
+    in a loop, it is the value the recursion or the fold returns.
 
-error: expected an identifier, found `_` [unexpected-token]
- --> cmd/assignment_to_binding/main.buri:9:7
-  |
-9 |   let _ = ctx.println("${n}");
-  |       ^
-  |
-  = expected: an identifier
-  = actual: `_`
-  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
-error: expected a declaration, found `.` [unexpected-token]
-  --> cmd/assignment_to_binding/main.buri:10:3
-   |
-10 |   .Ok(())
-   |   ^
-   |
-   = expected: a declaration
-   = actual: `.`
-   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+    Why
+    ───
+
+    Every binding is final: there is no assignment operator, no mut, and no
+    interior mutability. A name therefore means one value everywhere it is in
+    scope, which is what lets a reader answer "what is this?" by finding the one
+    line that says so, and what lets the compiler move a value rather than copy
+    it.
+

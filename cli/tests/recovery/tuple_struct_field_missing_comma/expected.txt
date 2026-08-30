@@ -1,0 +1,5 @@
+error [missing-separator] 2:31-2:31
+message: a tuple-struct field ends with `,`
+fix: write `,` here
+edit: 2:31-2:31 ","
+
