@@ -1,4 +1,4 @@
-// EXPECT: expected `}`, found `.`
+// EXPECT: a `match` is an operand, not the head of a `.`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 

@@ -159,6 +159,10 @@ pub enum Kind {
     Try,
     Generic,
     StructLit,
+    /// A region that did not parse. A leaf standing for the text the parser
+    /// gave up on, so that what follows is told a mistake was here rather than
+    /// handed a hole it cannot tell from an empty construct.
+    Error,
 }
 
 impl Kind {
@@ -948,6 +952,7 @@ impl Tree {
                 fields: self.slice(&self.inits, p[2], p[3]),
                 span,
             },
+            Kind::Error => ExprView::Error { span },
             // Every operator kind was answered above.
             Kind::Neg
             | Kind::Not
@@ -1284,6 +1289,7 @@ pub enum ExprView<'t> {
     Try { base: ExprId, span: Span },
     Generic { base: ExprId, args: &'t [TypeId], span: Span },
     StructLit { head: ExprId, spread: Option<ExprId>, fields: &'t [InitData], span: Span },
+    Error { span: Span },
 }
 
 /// One piece of a template literal, decoded.

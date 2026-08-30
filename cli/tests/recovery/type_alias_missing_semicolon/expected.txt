@@ -1,0 +1,5 @@
+error [missing-terminator] 2:27-2:27
+message: a type alias ends with `;`
+fix: write `;` here
+edit: 2:27-2:27 ";"
+

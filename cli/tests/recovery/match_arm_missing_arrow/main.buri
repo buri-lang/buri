@@ -1,0 +1,7 @@
+// EXPECT: a match arm is `pattern => expression`
+export fn pick(n: Int): Int {
+  match (n) {
+    1 1,
+    _ => 0,
+  }
+}

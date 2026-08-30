@@ -1,0 +1,7 @@
+// EXPECT: an array-pattern element ends with `,`
+export fn head(xs: [Int]): Int {
+  match (xs) {
+    [a b] => a,
+    _ => 0,
+  }
+}

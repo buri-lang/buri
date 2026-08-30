@@ -1,0 +1,5 @@
+// EXPECT: the mistake is one error, and `sum` is still an `Int`
+export fn total(a: Int, b: Int): Int {
+  let sum = a + b
+  sum * 2
+}
