@@ -54,6 +54,9 @@ cli/tests/
                         page the front end prints for it, case by case
   linting.rs            AND WHAT THE RULES STILL SAY — a lint fixture with one
                         token wrong, through a one-package repository
+  migrate.rs            A CORPUS-WIDE EDIT — `Hermetic()` to `core/host/testing`:
+                        the rewriter is `harness/migrate.rs`, and the migration
+                        itself is `#[ignore]`d
 
   conformance/          a Buri repository: `test/` blocks on language semantics
   reject/               programs that must not compile, with their diagnostics
@@ -73,8 +76,8 @@ cli/tests/
   message-audit/        run.sh: the diagnostics put to a model, one question
 ```
 
-**Twelve binaries**, so a full run links twelve times: five directories holding
-a `main.rs` and seven bare `.rs` files. A corpus is shared — the `conformance/`
+**Thirteen binaries**, so a full run links thirteen times: five directories
+holding a `main.rs` and eight bare `.rs` files. A corpus is shared — the `conformance/`
 repository is read by `language::conformance` on the JavaScript backend and by
 `native::conformance` and `native::stencil` on the copy-and-patch one, and
 `crash/` by four suites — so corpora sit at the top level rather than inside any
@@ -101,6 +104,7 @@ several sets of assertions.
 | `recovery` | That one mistake reads as one mistake: every compiling source in the repository with a token deleted, inserted or exchanged, held to invariants — one diagnostic per mistake, its caret at the mistake, its `fix` naming the token, no type error invented downstream, and the file still formatting — plus a hand-written case per list context pinning the exact message, span and edit. All six run by default. An invariant is held per mutation shape, against a ceiling rather than against zero where the mutated text has a second reading the grammar accepts — `ceiling()` states which rows those are and what each residue is. A ceiling is a **percentage of the row's population**, read off a `BURI_RECOVERY_CAP=0` run, so a source landing in the repository cannot tip a row whose per-case behaviour did not change; the two invariants that sample rather than sweep add the spread of a sample that size on top, and `a_ceiling_moves_with_the_row_and_not_with_the_corpus` is that property as a test. |
 | `checking` | The same mistakes, pinned rather than counted: seven hundred mutated sources with every error the front end reports about each one recorded beside it. A case whose errors are exactly the parser's lives under `clean/` and one the mistake led the checker into lives under `cascades/`, so a recovery that stops a cascade shows up as a file changing sides; the share that may cascade is a rate over the corpus. |
 | `linting` | What `buri lint` still finds in a file that did not parse whole: each lint fixture's source with one token wrong, through a repository of one package per case, with the whole report recorded. Two invariants over the population — the mistake invents no finding, and a finding whose evidence survived still fires — each against a rate ceiling. A third is a parity rather than a rate: the set `buri lint` prints and the set the language server publishes are compared over every case, because two halves that go quiet together keep any rate they like. |
+| `migrate` | That a corpus-wide edit is exact and finished. `harness/migrate.rs` rewrites `Hermetic()` and `core/testing/context`'s free functions into `core/host/testing`, taking every site from the parse tree and every context binding from the compiler — a fixpoint over `unsatisfied-bound`, which names the effect a context is short of. The cases here are one per rewrite the table states. The migration itself is `#[ignore]`d, because it is the one test in the tree that edits a checked-in corpus. |
 | `failing` | That a failing `buri test` fails *well*: the report a user reads — line, expected, got, counts, exit code — pinned byte for byte across every value shape, abort, title edge case and multi-module ordering, so the failure path is held to the same standard as the success path. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
