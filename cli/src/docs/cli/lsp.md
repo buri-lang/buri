@@ -233,10 +233,11 @@ it.
 things that already name a declaration in this language: what an import writes
 to reach the module, and the dotted path to the declaration inside it. The colon
 is where the package label ends, which nothing else in the string could tell
-you — a package may hold a source in a subdirectory, so `//lib/shop/catalog`
-alone does not say where the package stops and the module starts. A module
-belonging to no package is the standard library, whose path is what an import
-writes and so stands where the label would: `core/effect:Alloc`. A declaration
+you — a package may hold a source in a subdirectory, so
+`//lib/shop/catalog.buri` alone does not say where the package stops and the
+module starts. A module belonging to no package is the standard library, whose
+path is what an import writes and so stands where the label would:
+`core/effect:Alloc`. A declaration
 in the package's own root module leaves the module half empty, and the
 separating dot goes with it: `//lib/shop:currency`.
 
@@ -288,12 +289,21 @@ rather than answering about the call that string is an argument to.
 
 **A completion item says what it replaces.** A module path has a `/` in it and a
 client's idea of a word does not, so an item that carried only a label left the
-editor guessing which characters an accepted `core/order` was meant to stand in
-for — and it guessed `order`. Every item now carries the range: the path typed
-so far inside the quotes, or the partial name inside the braces. `detail` says
-the thing the label cannot: for a path, whether it is this package, one your
-target already declares, or the standard library; for an exported name, the
-signature the formatter would print. Sorting is by kind before spelling, because
+editor guessing which characters an accepted `core/order/lib.buri` was meant to
+stand in for — and it guessed `order`. Every item now carries the range: the
+path typed so far inside the quotes, or the partial name inside the braces.
+`detail` says the thing the label cannot: for a path, whether it is a file of
+this package, the surface of a library your target already declares, or the
+standard library; for an exported name, the signature the formatter would
+print.
+
+**A path is completed as a file, because that is what a path is.** The list
+inside the quotes is the standard library's modules, every file this package
+owns, and — for each library the target declares — that library's surface and
+nothing else. A dependency's inner modules are an `internal-import` and a test
+source is a module nobody may name, so neither is offered: a completion list is
+a claim about what would compile, and a row that would not is worse than a row
+that is missing. Sorting is by kind before spelling, because
 alphabetical order puts every capitalized name above every lowercase one, which
 is a fact about ASCII rather than about what you are looking for. The `///`
 prose is the one thing left out, and `completionItem/resolve` supplies it for
@@ -302,7 +312,7 @@ to show one line of it.
 
 **Which half filters is decided by what the client can filter.** A path prefix
 is filtered here: `core/z` comes back empty, because a module path is not a word
-and no client's filter would keep `core/order` off the list for you. A name
+and no client's filter would keep `core/order/lib.buri` off the list for you. A name
 inside the braces is not: every export comes back, each with a `textEdit` over
 the letters typed so far, and the client narrows the list against that range as
 you type — which is what keeps the list from being recomputed on every
@@ -437,12 +447,16 @@ path other modules write in an import. So dragging `lib/shop/catalog.buri` to
 `inventory.buri` in the file tree breaks the repository twice over, and neither
 break is in the file that moved. Before the editor performs the move it asks
 `workspace/willRenameFiles`, and the answer is both rewrites: the `sources`
-entry, and every `from "//lib/shop/catalog"` in every open repository. Creating
-a file adds its entry; deleting one removes it.
+entry, and every `from "//lib/shop/catalog.buri"` in every open repository.
+Creating a file adds its entry; deleting one removes it.
 
 The imports are found by *resolving* each path rather than by matching the
-string, because a module path need not contain the file's name — `//lib/shop`
-is `lib.buri`, and renaming that file changes a path that never mentioned it.
+string. A path now *is* the file's repository-relative name with `//` in front
+of it, so a string match would find them — but resolution is the thing that
+knows which repository the path is being read in, skips a path that leaves it,
+and answers for a `.proto` the same way it answers for a `.buri`. It is also
+what kept this code correct through the change that made the two spellings one:
+the rename rewrote paths it never had to be taught the shape of.
 A build file is skipped: moving a `BUILD.buri` is not moving a module, it is
 deleting a package, and that is a decision rather than a restatement.
 

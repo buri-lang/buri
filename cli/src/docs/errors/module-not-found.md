@@ -6,7 +6,7 @@ fix: create the file the path names, or correct the path — a module path maps 
 # A module path names exactly one file
 
 ```text
-error: "//cmd/discarded_result" names no file (cmd/discarded_result/lib.buri) [module-not-found]
+error: "//lib/nope/lib.buri" names no file (lib/nope/lib.buri) [module-not-found]
 ```
 
 ## What to do
@@ -21,7 +21,8 @@ there is never a question of which of two candidates a path meant.
 ## A program that provokes it
 
 A module path resolves against the repository, so this one is compiled against
-the worked monorepo in `cli/tests/example`, where `//lib/nope` does not exist.
+the worked monorepo in `cli/tests/example`, where `lib/nope/lib.buri` is not a
+file.
 
 ```buri fail code=module-not-found repo=cli/tests/example
 from "//lib/nope/lib.buri" import { Nope };

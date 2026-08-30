@@ -292,12 +292,12 @@ The rules are:
 - **The binary implicitly depends on the co-located library.** It does not
   appear in `dependencies`; a self-edge inside a package would be the only label
   in the system pointing at itself.
-- **The binary reaches the library only through `//tools/report`.** `main.buri`
-  may import that label — the library's entry point — and may not import
-  `//tools/report/render`. The library boundary is a property of the library,
-  not of the directory, so it holds even for a file sitting next to it.
+- **The binary reaches the library only through `//tools/report/lib.buri`.**
+  `main.buri` may import that file — the library's surface — and may not import
+  `//tools/report/render.buri`. The library boundary is a property of the
+  library, not of the directory, so it holds even for a file sitting next to it.
 - **The library may not reach the binary at all.** `lib.buri` importing
-  `//tools/report/main` is an error.
+  `//tools/report/main.buri` is an error.
 
 ## Visibility
 
@@ -394,7 +394,7 @@ error: cmd/server/routes.buri imports //lib/money, which is not in dependencies
   --> cmd/server/routes.buri:3:6
    |
  3 | from "//lib/money/lib.buri" import { Cents, format };
-   |      ^^^^^^^^^^^^^
+   |      ^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: add "//lib/money" to dependencies in cmd/server/BUILD.buri — `buri gen //cmd/server` does this automatically
 ```

@@ -178,11 +178,12 @@ transitively calls, so the toolchain applies no operating-system confinement.
 
 ## What a test source may and may not do
 
-May import: the target under test (`//lib/money`, or `//cmd/server/main` for a
-binary), the target's `dependencies`, the suite's `test.dependencies`, `core/*`
-including the test platform, and any test-only path.
+May import: the target under test (`//lib/money/lib.buri`, or
+`//cmd/server/main.buri` for a binary), the target's `dependencies`, the suite's
+`test.dependencies`, `core/*` including the test platform, and any test-only
+path.
 
-May **not**: import a library-internal module (`//lib/money/cents` →
+May **not**: import a library-internal module (`//lib/money/cents.buri` →
 `test-internal-import`); import another test source (they are compiled
 independently); be imported by anything; `export` anything.
 

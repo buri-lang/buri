@@ -116,8 +116,11 @@ from "//lib/money/lib.buri" import { Cents };
 - `impl` and `derive` are never exported.
 - Declaration order does not matter; mutual recursion needs no forward
   declarations. Circular imports are an error.
-- A path segment `testing` makes a module test-only. `core/host` is importable
-  only from the module exporting `main`.
+- Every module path names a file: `"core/list/lib.buri"`,
+  `"//lib/money/cents.buri"`, `"//cmd/app/main.buri"`. A path that names none is
+  `import-path-without-a-file`.
+- A `testing` directory segment makes a module test-only.
+  `core/host/lib.buri` is importable only from the module exporting `main`.
 
 ## Declarations
 

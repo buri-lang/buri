@@ -5,7 +5,7 @@ message: "{path}" does not export `{name}`
 # A module exports what it says it exports
 
 ```text
-error: "core/list" does not export `notAThing` [no-such-export]
+error: "core/list/lib.buri" does not export `notAThing` [no-such-export]
 ```
 
 ## What to do
