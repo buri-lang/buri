@@ -974,3 +974,55 @@ derive Eq, Show for Held;
 export fn heldTwice<T: Eq>(held: Held<T>): fn() => (Held<T>, Held<T>) {
   fn() => (held, held)
 }
+
+// =============================================================================
+// 14. Fields a literal may leave out (SPEC 5.6)
+// =============================================================================
+
+/// A transparent alias of `Option`. A field declared with it is a field
+/// declared `Option<Str>`, so it is elidable for the same reason.
+type Maybe = Option<Str>;
+
+/// The four shapes elision has to answer for in one type: a required field, a
+/// plain `Option`, one reached through an alias, and a nested one.
+export struct World {
+  export hi: Str,
+  export hello: Option<Str>,
+  export aliased: Maybe,
+  export nested: Option<Option<Int>>,
+}
+
+derive Eq, Show, Hash for World;
+
+/// Elidability is a property of the declaration: `slot` is written `Option<T>`
+/// and may be left out at every instantiation, `only` is written `T` and may
+/// be left out at none — `Holder<Option<Int>>` included.
+export struct Holder<T> {
+  export only: T,
+  export slot: Option<T>,
+}
+
+derive Eq, Show for Holder;
+
+/// Built inside the declaring module, so elision is exercised on both sides of
+/// the module boundary.
+export fn worldHere(): World {
+  World { hi: "hi" }
+}
+
+/// A private field that is also elidable. Visibility still decides where the
+/// type can be built: only this module writes the literal, elision or not.
+export struct Hidden {
+  export shown: Int,
+  private: Option<Int>,
+}
+
+derive Eq, Show for Hidden;
+
+export fn hidden(shown: Int): Hidden {
+  Hidden { shown }
+}
+
+export fn hiddenPrivate(h: Hidden): Option<Int> {
+  h.private
+}

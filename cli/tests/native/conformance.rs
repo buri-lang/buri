@@ -27,10 +27,11 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Twenty-seven of the thirty-six files are in it** — the number the harness
-//! prints, and one the prose had off by one before `semantics/generics.buri`
-//! joined them. `collections/ordmap.buri` is the twenty-seventh, and needed
-//! nothing the backend did not already have.
+//! **Twenty-eight of the thirty-eight files are in it** — the number the
+//! harness prints, and one the prose had off by one before
+//! `semantics/generics.buri` joined them. `semantics/elision.buri` is the
+//! twenty-eighth, and `collections/ordmap.buri` the twenty-seventh; neither
+//! needed anything the backend did not already have.
 //! `proto/binary.buri` was the twenty-sixth: it compiled and passed all along and
 //! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
 //! `Scan::short_circuit`, which is linear now. What is actually
@@ -260,6 +261,10 @@ const PACKAGES: &[Case] = &[
     // context, `list.mapCtx`, `[Str].join` and `str.format` — so it is in the
     // native set from the day it was written.
     included("semantics/variance.buri"),
+    // The sixth: a field a literal leaves out is an explicit `.None` by the
+    // time either backend sees it, which is the claim this file is here to put
+    // to the native one as well as to the reference one (SPEC 5.6).
+    included("semantics/elision.buri"),
     // -- out: the backend has no body for what they reach ---------------
     //
     // Every one of these is reported by `Backend::missing_intrinsics`
