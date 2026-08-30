@@ -196,6 +196,18 @@ pub struct Checker<'a> {
     /// Which bodies step 5 is asked for. [`Bodies::All`] unless a caller said
     /// otherwise.
     pub wanted: Bodies,
+    /// The `context` declarations checking has already reached, whether it
+    /// finished them or not.
+    ///
+    /// A declaration built from another (`context Deep { ..Base() }`) reads
+    /// the base's *recorded* type, so the base has to have been checked first
+    /// — and the order the ids were minted in is the order the modules were
+    /// discovered in, which is not that order. So a use checks its declaration
+    /// on demand (`expressions.rs`, `Static::Context`), and this is what keeps
+    /// that from doing the work twice or from following a cycle round for
+    /// ever: a declaration already in here answers with what it has, which for
+    /// one still in progress is nothing.
+    pub ctx_decls_reached: HashSet<ContextDeclId>,
 }
 
 /// A signature waiting for rule 26.
@@ -252,6 +264,7 @@ impl<'a> Checker<'a> {
             cyclic_aliases: HashSet::default(),
             self_scope: None,
             wanted: Bodies::All,
+            ctx_decls_reached: HashSet::default(),
         }
     }
 
@@ -3256,6 +3269,87 @@ fn main(): () {}
                 .iter()
                 .any(|d| d.code.as_deref() == Some("self-type-outside-impl")),
             "a free function's `Self` was admitted",
+        );
+    }
+
+    /// A `context` declaration built from one written *after* it.
+    ///
+    /// `..Base()` reads the type checking recorded for `Base`, and the
+    /// declarations used to be checked strictly in the order their ids were
+    /// minted: item order inside a module, and module-*discovery* order across
+    /// them. So a declaration whose base came later kept only the bindings it
+    /// wrote itself, silently — no diagnostic where the mistake was, and an
+    /// `unsatisfied-bound` at every use for an effect that is right there in
+    /// the source.
+    ///
+    /// It is not a contrived order. `cli/tests/conformance`'s
+    /// `lib/semantics/test/effects.buri` spreads `core/testing/context`'s
+    /// `Hermetic`, and the day the migration to `core/host/testing` made that
+    /// file the first in its package to import the module, the module was
+    /// discovered *through* it — so `Hermetic` was minted second and eleven
+    /// tests started failing on a file nothing had edited.
+    ///
+    /// [`Checker::ctx_decls_reached`] is the fix: a use checks its declaration
+    /// if checking has not reached it yet.
+    const SPREAD_BEFORE_ITS_BASE: &str = r#"
+from "core/effect/lib.buri" import { Clock };
+
+struct Frozen { at: I64 }
+
+impl Clock for Frozen {
+  fn nowMillis(self): I64 { self.at }
+  fn sleepMillis(self, millis: Int): () { () }
+}
+
+context Deep {
+  ..Base(),
+}
+
+context Base {
+  Clock: Frozen { at: 7 },
+}
+
+fn reading<C: Clock>(ctx: C): I64 { ctx.nowMillis() }
+
+test "the spread carries the base's binding" {
+  let ctx = Deep();
+  let _ = reading(ctx);
+}
+"#;
+
+    #[test]
+    fn a_context_may_spread_one_declared_after_it() {
+        // A test source, because that is where a context may be built — and
+        // where every one this found is written.
+        let mut map = SourceMap::new();
+        let analysis = crate::compiler::driver::analyze_snippet(
+            &mut map,
+            "resolve_test.buri",
+            SPREAD_BEFORE_ITS_BASE,
+            crate::compiler::modules::Role::TestSource,
+        );
+        let errors: Vec<String> = analysis
+            .diagnostics
+            .items
+            .iter()
+            .filter(|d| d.is_error())
+            .map(|d| d.message.clone())
+            .collect();
+        // The whole claim: the use of `Deep` type-checks. The binding is
+        // asserted below as well, so a `Deep` that compiled by binding nothing
+        // would still fail here.
+        assert!(errors.is_empty(), "the snippet did not compile: {errors:?}");
+        let tables = analysis.checked.tables;
+        let deep = tables
+            .ctx_decls
+            .iter()
+            .find(|d| d.name == "Deep")
+            .expect("the snippet declares `Deep`");
+        let checked = deep.checked.expect("`Deep` was checked");
+        assert_eq!(
+            tables.ctx_type(checked.ty).bindings.len(),
+            1,
+            "`Deep` binds what the spread gave it",
         );
     }
 }
