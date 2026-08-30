@@ -1,0 +1,6 @@
+// The far side of the chain. An exported alias may be written in terms of one
+// declared in another module, which is what lets a cycle span a module at all.
+
+from "//lib/units/soundings" import { Depth };
+
+export type Fathoms = Depth;

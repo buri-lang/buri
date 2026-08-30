@@ -1,0 +1,10 @@
+//! Depth reaches a type by way of another module, and that module's alias
+//! reaches Depth again. An editor is where a cycle like this is written.
+
+from "//lib/units/fathoms" import { Fathoms };
+
+export type Depth = Fathoms;
+
+export fn deeper(d: Depth): Depth {
+  d
+}

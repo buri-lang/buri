@@ -173,6 +173,14 @@ pub struct Checker<'a> {
     pending_ctx_rules: Vec<(FnId, ModuleId, u32)>,
     /// Guards re-export cycles.
     resolving: Vec<(ModuleId, String)>,
+    /// The aliases being expanded, outermost first, each as the module that
+    /// declares it and the name it is declared under. Guards alias cycles, the
+    /// way `resolving` guards re-export ones.
+    expanding: Vec<(ModuleId, String)>,
+    /// Every alias on a cycle already reported. A cycle is one mistake, so the
+    /// second signature that names one of these gets the error type without a
+    /// second diagnostic.
+    cyclic_aliases: HashSet<(ModuleId, String)>,
     /// Whether the declaration being elaborated is a trait, an effect, or an
     /// `impl`, which are the only places `Self` means anything.
     in_self_scope: bool,
@@ -209,6 +217,8 @@ impl<'a> Checker<'a> {
             order_con: None,
             pending_ctx_rules: Vec::new(),
             resolving: Vec::new(),
+            expanding: Vec::new(),
+            cyclic_aliases: HashSet::default(),
             in_self_scope: false,
             wanted: Bodies::All,
         }
@@ -1415,6 +1425,21 @@ impl<'a> Checker<'a> {
             tree::Item::TypeAlias(a) if t.name(a.name) == name => Some(a),
             _ => None,
         })?;
+        // An alias is transparent, so expanding one is a walk that has to end
+        // at a type that is not an alias. `type A = A;` — or `A` through `B`
+        // back to `A`, which an exported alias lets span modules — never ends,
+        // and used to be a stack overflow rather than a diagnostic.
+        let key = (module, name.to_string());
+        if let Some(at) = self.expanding.iter().position(|k| *k == key) {
+            self.report_alias_cycle(at, alias.name.span);
+            return Some(Ty::Error);
+        }
+        // Every alias of a cycle already reported is answered with the error
+        // type in silence. One cycle is one mistake, however many signatures
+        // and fields name it.
+        if self.cyclic_aliases.contains(&key) {
+            return Some(Ty::Error);
+        }
         let generics: Vec<GenericInfo> = alias
             .generics
             .iter()
@@ -1427,8 +1452,66 @@ impl<'a> Checker<'a> {
                 .fix(format!("supply exactly {}", generics.len()));
             return Some(Ty::Error);
         }
+        self.expanding.push(key);
         let body = self.elaborate(module, &generics, alias.ty);
+        self.expanding.pop();
         Some(substitute(&body, args, None))
+    }
+
+    /// Reports the cycle that starts at `at` in [`Checker::expanding`] and has
+    /// just come back round to it, and records every alias on it so that the
+    /// next use of any of them is silent.
+    ///
+    /// The primary span is the declaration the cycle closes on, because that is
+    /// where the edit goes; the uses that led here are correct in themselves.
+    /// Every other alias on the chain gets a secondary span, which is the only
+    /// way a reader sees the other file when the cycle crosses a module.
+    fn report_alias_cycle(&mut self, at: usize, decl: Span) {
+        let chain: Vec<(ModuleId, String)> = self.expanding.iter().skip(at).cloned().collect();
+        // `at` came from a `position` in the same vector, so the chain has a
+        // head; the compiler cannot know that, and a cycle of no aliases is
+        // nothing to say anyway.
+        let Some(head) = chain.first().map(|(m, _)| *m) else { return };
+        if chain.iter().any(|k| self.cyclic_aliases.contains(k)) {
+            return;
+        }
+        // A cycle inside one module names its aliases plainly; one that crosses
+        // a boundary has to say which module each name was declared in, or
+        // `A -> B -> A` is a chain a reader cannot follow to a file.
+        let crosses = chain.iter().any(|(m, _)| *m != head);
+        let written: Vec<String> = chain
+            .iter()
+            .map(|(m, n)| match crosses {
+                true => format!("`{n}` in \"{}\"", self.module(*m).path),
+                false => format!("`{n}`"),
+            })
+            .collect();
+        let closes = written.first().cloned().unwrap_or_default();
+        let cycle = format!("{} -> {closes}", written.join(" -> "));
+        let others: Vec<(Span, String)> = chain
+            .iter()
+            .skip(1)
+            .filter_map(|(m, n)| {
+                let span = self.alias_decl_span(*m, n)?;
+                Some((span, format!("`{n}`, next on the cycle, is declared here")))
+            })
+            .collect();
+        let d = self.templated("circular-type-alias", decl).bind("cycle", cycle);
+        for (span, label) in others {
+            d.secondary_span(span, label);
+        }
+        for key in chain {
+            self.cyclic_aliases.insert(key);
+        }
+    }
+
+    /// Where a module declares the alias it calls `name`.
+    fn alias_decl_span(&self, module: ModuleId, name: &str) -> Option<Span> {
+        let t = self.tree(module);
+        self.module(module).ast.items.iter().find_map(|i| match i {
+            tree::Item::TypeAlias(a) if t.name(a.name) == name => Some(a.name.span),
+            _ => None,
+        })
     }
 
     fn nearest_type_name(&self, module: ModuleId, name: &str) -> Option<String> {

@@ -1,0 +1,13 @@
+// EXPECT: circular type alias: `Celsius` -> `Fahrenheit` -> `Celsius`
+// Two aliases, neither of which ever reaches a type. The diagnostic names the
+// whole chain, because either one of the two is the one to change.
+type Celsius = Fahrenheit;
+type Fahrenheit = Celsius;
+
+fn convert(t: Celsius): Fahrenheit {
+  t
+}
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

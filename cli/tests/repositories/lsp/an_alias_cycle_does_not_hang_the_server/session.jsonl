@@ -1,0 +1,13 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The open publishes the cycle once, from the declaration it closes on.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/units/soundings.buri", "languageId": "buri", "version": 1, "text": "//! Depth reaches a type by way of another module, and that module's alias\n//! reaches Depth again. An editor is where a cycle like this is written.\n\nfrom \"//lib/units/fathoms\" import { Fathoms };\n\nexport type Depth = Fathoms;\n\nexport fn deeper(d: Depth): Depth {\n  d\n}\n"}}}
+# Hover on the alias at its declaration.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/units/soundings.buri"}, "position": {"line": 5, "character": 12}}}
+# Hover on the same alias written as a parameter type.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/units/soundings.buri"}, "position": {"line": 7, "character": 20}}}
+# Hover on the alias the other module declares, which is the far half of it.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/units/fathoms.buri"}, "position": {"line": 2, "character": 12}}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

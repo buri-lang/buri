@@ -1,0 +1,47 @@
+error: circular type alias: `Depth` in "//lib/units/soundings" -> `Sounding` in "//lib/units/soundings" -> `Fathoms` in "//lib/units/fathoms" -> `Depth` in "//lib/units/soundings" [circular-type-alias]
+ --> lib/units/soundings.buri:9:13
+  |
+9 | export type Depth = Sounding;
+  |             ^^^^^
+  |
+  --> lib/units/soundings.buri:12:13
+   |
+12 | export type Sounding = Fathoms;
+   |             ^^^^^^^^ `Sounding`, next on the cycle, is declared here
+   |
+ --> lib/units/fathoms.buri:6:13
+  |
+6 | export type Fathoms = Depth;
+  |             ^^^^^^^ `Fathoms`, next on the cycle, is declared here
+  |
+  = an alias is transparent, so expanding it has to end at a type; this chain comes back to where it started
+  = fix: break the cycle: give one of these a body that is a struct, an enum or a newtype, or point it at a type that is not on the chain
+
+    What to do
+    ──────────
+
+    Decide which name on the chain is the real type and declare it as one. A
+    struct or an enum may refer to itself — that is what makes a list or a tree
+    expressible — because its fields are a boundary the compiler can stop at. An
+    alias has no boundary, so a chain of them has to end somewhere else.
+
+    Why
+    ───
+
+    type Handle = Str does not introduce a type; it introduces a spelling. Every
+    place Handle is written the compiler substitutes Str, and the program is the
+    one it would have been if Str had been written there. So type A = A; asks
+    for a spelling of itself, and substituting it leaves the same question
+    standing. There is no answer to reach and no fixed point to settle on.
+
+    The diagnostic names the whole chain rather than only the declaration it
+    stopped at, because a cycle of three aliases has no single culprit — any one
+    of the three is the one to change — and because an exported alias lets the
+    chain cross a module, where the other half is in a file the reader is not
+    looking at. When it does cross, each name is printed with the module that
+    declares it and each of the other declarations carries a span of its own.
+
+    The alias resolves to the error type, so the signatures and fields written
+    in terms of it report nothing further: one cycle is one diagnostic, however
+    many places name it.
+
