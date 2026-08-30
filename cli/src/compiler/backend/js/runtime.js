@@ -1872,6 +1872,32 @@ function $host_HostEnv_arguments(self) {
   return [];
 }
 
+// `Tasks.parallel(self, items, f)` — every task started, then every task
+// awaited. This is the one place the JavaScript backend is *ahead* of the
+// natives rather than level with them: `Promise.all` over an array of started
+// calls is genuine concurrency the day the key lands, where the native runtime
+// runs the same steps in index order and gains its fan-out a slice later.
+//
+// Three things are load-bearing and none of them is the promise machinery:
+//
+//  * **`items.map` starts them all before the first `await`.** Awaiting inside
+//    the loop would be the sequential answer spelled concurrently, which is the
+//    one mistake this shape exists to avoid.
+//  * **The answer is `Promise.all`'s array**, which is in *argument* order and
+//    not completion order — the promise `core/tasks` makes, met by the method
+//    that already meets it rather than by sorting afterwards.
+//  * **`f` need not be async.** A step that never waits returns a value, which
+//    `Promise.all` passes through unchanged, so a program that uses `parallel`
+//    for its indices and not for its concurrency pays one microtask and no
+//    more.
+//
+// `$share` on the element, as every other combinator here does: the step owns
+// what it is handed.
+async function $host_HostTasks_parallel(self, xs, f) {
+  const out = await Promise.all(xs.map((x, i) => f(self, BigInt(i), $share(x))));
+  return $own(out);
+}
+
 function $host_HostProc_exitWith(self, code) {
   $host.flush();
   if (typeof process !== "undefined") process.exit(Number(code));
