@@ -140,6 +140,33 @@ test "option andThen returns None when the inner step fails" {
   assert.none(o.andThen(fn(s) => s.toInt()));
 }
 
+// --- Option: mapCtx / andThenCtx ----------------------------------------------
+
+test "option mapCtx threads the context into the function" {
+  let ctx = Hermetic();
+  let o: Option<Int> = .Some(7);
+  assert.eq(assert.some(o.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "7");
+}
+
+test "option mapCtx leaves None alone" {
+  let ctx = Hermetic();
+  let o: Option<Int> = .None;
+  assert.none(o.mapCtx(ctx, fn(c, n) => str.fromInt(c, n)));
+}
+
+test "option andThenCtx threads the context into the continuation" {
+  let ctx = Hermetic();
+  let o: Option<Int> = .Some(6);
+  let out = o.andThenCtx(ctx, fn(c, n) => Option.Some(str.fromInt(c, n)));
+  assert.eq(assert.some(out), "6");
+}
+
+test "option andThenCtx skips the continuation on None" {
+  let ctx = Hermetic();
+  let o: Option<Int> = .None;
+  assert.none(o.andThenCtx(ctx, fn(c, n) => Option.Some(str.fromInt(c, n))));
+}
+
 // --- Option: filter -----------------------------------------------------------
 
 test "option filter keeps a Some the predicate accepts" {
@@ -260,6 +287,40 @@ test "mapErr is how an error crosses a boundary between error types" {
   let r: Result<Int, Str> = .Err("nope");
   let mapped: Result<Int, Int> = r.mapErr(fn(e) => e.len());
   assert.eq(assert.err(mapped), 4);
+}
+
+// --- Result: mapCtx / mapErrCtx -----------------------------------------------
+
+test "mapCtx threads the context into the function" {
+  let ctx = Hermetic();
+  let r: Result<Int, Str> = .Ok(9);
+  assert.eq(assert.ok(r.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "9");
+}
+
+test "mapCtx leaves Err alone" {
+  let ctx = Hermetic();
+  let r: Result<Int, Str> = .Err("boom");
+  assert.eq(assert.err(r.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "boom");
+}
+
+test "mapErrCtx wraps the error with allocated context" {
+  let ctx = Hermetic();
+  let r: Result<Int, Str> = .Err("bad left");
+  let out = r.mapErrCtx(ctx, fn(c, e) => str.format(c, "parse: ${e}"));
+  assert.eq(assert.err(out), "parse: bad left");
+}
+
+test "mapErrCtx leaves Ok alone" {
+  let ctx = Hermetic();
+  let r: Result<Int, Str> = .Ok(3);
+  assert.eq(assert.ok(r.mapErrCtx(ctx, fn(c, e) => str.format(c, "parse: ${e}"))), 3);
+}
+
+test "mapErrCtx may change the error type" {
+  let ctx = Hermetic();
+  let r: Result<Int, Str> = .Err("nope");
+  let mapped: Result<Int, Int> = r.mapErrCtx(ctx, fn(c, e) => str.format(c, "e: ${e}").len());
+  assert.eq(assert.err(mapped), 7);
 }
 
 // --- Result: andThen / andThenCtx ---------------------------------------------

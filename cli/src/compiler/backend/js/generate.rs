@@ -21,8 +21,9 @@ use crate::compiler::backend::js::javascript::{self, BinOp, Expr, Stmt, UnOp, Va
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
 use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyDef};
 use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, ProgramRoots};
+use crate::compiler::middle::rc;
 use crate::diagnostics::Invariant as _;
-use crate::hash::Map as HashMap;
+use crate::hash::{Map as HashMap, Set as HashSet};
 
 pub struct Output {
     pub stmts: Vec<Stmt>,
@@ -44,6 +45,36 @@ struct FnState {
     temp: usize,
     /// What a `Continue` in this function's body rebinds.
     loops: LoopSlots,
+    /// Where this body's sharing marks go. See [`Marks`].
+    marks: Marks,
+}
+
+/// Where one function body's sharing marks go, keyed by the **address** of the
+/// node they belong to.
+///
+/// `middle::rc` numbers a body's nodes in pre-order and keys its plan by that
+/// number; this emitter walks the same tree by reference and restructures it
+/// as it goes, so a second copy of the numbering here would be a second copy
+/// of a rule that has to agree exactly. One pre-order pass records where each
+/// number's node *is*, and every lookup after that is the node the emitter is
+/// already holding. The tree does not move while a function is emitted, so the
+/// address is a name for the node and nothing else.
+#[derive(Default)]
+struct Marks {
+    /// Mark the value this node produces: `None` unconditionally, `Some(l)`
+    /// only if `l` — the parent this projection reads out of — is itself
+    /// marked.
+    value: HashMap<usize, Option<LocalId>>,
+    /// Locals to mark before this node's own code runs.
+    locals: HashMap<usize, Vec<LocalId>>,
+    /// Nodes whose `locals` have already been emitted, so that a node reached
+    /// through `tail` and then again through `expr` marks once.
+    done: HashSet<usize>,
+}
+
+/// A node's address, which is what [`Marks`] is keyed by.
+fn node_key(e: &typed::Expr) -> usize {
+    std::ptr::from_ref(e) as usize
 }
 
 impl FnState {
@@ -53,7 +84,7 @@ impl FnState {
         for (li, l) in locals.iter().enumerate() {
             names.insert(LocalId(li as u32), local_name(li, &l.name));
         }
-        FnState { names, temp: 0, loops: LoopSlots::default() }
+        FnState { names, temp: 0, loops: LoopSlots::default(), marks: Marks::default() }
     }
 }
 
@@ -88,6 +119,10 @@ pub struct Gen<'a> {
     const_index: HashMap<String, usize>,
     /// Set while emitting a `context { .. }`, where nothing may be shared.
     in_context: bool,
+    /// Where a second reference to a value comes into existence, from
+    /// `middle::rc` run with `Options::sharing`. Empty for a `Gen` that is only
+    /// being asked which intrinsics exist.
+    sharing: rc::Plan,
 }
 
 /// The runtime's exports, so a missing one is a build error rather than a
@@ -135,6 +170,7 @@ impl<'a> Gen<'a> {
                 names: HashMap::default(),
                 temp: 0,
                 loops: LoopSlots::default(),
+                marks: Marks::default(),
             },
             missing: Vec::new(),
             runtime: runtime_names(),
@@ -143,7 +179,56 @@ impl<'a> Gen<'a> {
             consts: Vec::new(),
             const_index: HashMap::default(),
             in_context: false,
+            sharing: rc::Plan::default(),
         }
+    }
+
+    /// The marks for one body, from the plan's node numbers and one pre-order
+    /// pass over the tree.
+    ///
+    /// Only the increments are read. A release is what a garbage collector
+    /// does, and this backend emits none — the plan's `DecRef` sites, its
+    /// reuse pairings and its ownership column are all for the native branch.
+    /// The marks for one body: the plan's node numbers, resolved to nodes by
+    /// one pre-order pass.
+    ///
+    /// **Which types carry a mark is not decided here.** `rc::sharing` runs its
+    /// classifier over the whole program and emits a site only where a value
+    /// can reach a list; a second opinion in the backend would be a second
+    /// rule to keep in step, and the direction it could get wrong is an
+    /// aliased list nobody copied.
+    fn marks_for(&self, f: &monomorphize::Func, plan: &rc::FuncPlan) -> Marks {
+        let mut marks = Marks::default();
+        let Some(body) = f.body() else { return marks };
+        // Whether each node is a local read, which is what decides between the
+        // two ways a `Target::Local` is spelled.
+        let mut nodes: Vec<(usize, bool)> = Vec::new();
+        rc::preorder(body, &mut |_, e| {
+            nodes.push((node_key(e), matches!(e.kind, ExprKind::Local(_))));
+        });
+        for site in &plan.sites {
+            if site.op != rc::RcOp::IncRef {
+                continue;
+            }
+            let Some(&(key, is_local_read)) = nodes.get(site.node.index()) else { continue };
+            match site.target {
+                // A projection: the value this node produces is a second
+                // reference to something a parent still holds.
+                rc::Target::Node(_) => {
+                    let parent =
+                        plan.inherits.iter().find(|(n, _)| *n == site.node).map(|(_, l)| *l);
+                    marks.value.insert(key, parent);
+                }
+                // A local read that keeps the local alive past it — and, where
+                // the node is not the read itself, a lambda's capture or an
+                // arm's payload, which are marked as statements before it.
+                rc::Target::Local(l) if is_local_read => {
+                    marks.value.entry(key).or_insert(None);
+                }
+                rc::Target::Local(l) => marks.locals.entry(key).or_default().push(l),
+            }
+        }
+        marks
     }
 }
 
@@ -170,6 +255,9 @@ pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<Strin
 
 pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output {
     let mut g = Gen::over(program, tables, profile);
+    // The ownership half of `middle::rc`, which this branch of the pipeline
+    // runs for its increments alone. MEMORY.md §5.5.
+    g.sharing = rc::sharing(program);
 
     let mut stmts = Vec::new();
     // A program that reaches the filesystem or standard input needs node's
@@ -268,8 +356,11 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
         }
     }
 
-    for f in program.funcs.iter() {
+    for (fi, f) in program.funcs.iter().enumerate() {
         g.func = FnState::for_locals(&f.locals);
+        if let Some(marks) = g.sharing.funcs.get(fi).map(|plan| g.marks_for(f, plan)) {
+            g.func.marks = marks;
+        }
         let mut params: Vec<String> =
             f.params.iter().map(|p| g.local_name_of(p)).collect();
 
@@ -889,6 +980,7 @@ impl<'a> Gen<'a> {
 
     /// Emits `e` in tail position: the statements end with a `return`.
     fn tail(&mut self, e: &typed::Expr, out: &mut Vec<Stmt>) {
+        self.mark_locals(e, out);
         match &e.kind {
             ExprKind::Block { stmts, tail } => {
                 for s in stmts {
@@ -1603,7 +1695,46 @@ impl<'a> Gen<'a> {
     // Expression position
     // -----------------------------------------------------------------------
 
+    /// One expression, with its sharing marks around it.
+    ///
+    /// The marks are a wrapper rather than a case inside the emitter because
+    /// they apply to *whatever* the node produced: a projection, a local read
+    /// and a capture all reach the same two lines.
     fn expr(&mut self, e: &typed::Expr, out: &mut Vec<Stmt>) -> Expr {
+        self.mark_locals(e, out);
+        let value = self.emit(e, out);
+        self.mark_value(e, value)
+    }
+
+    /// The locals this node marks before it runs: a lambda's captures, and an
+    /// arm's payload bindings.
+    fn mark_locals(&mut self, e: &typed::Expr, out: &mut Vec<Stmt>) {
+        let key = node_key(e);
+        if !self.func.marks.done.insert(key) {
+            return;
+        }
+        let Some(locals) = self.func.marks.locals.get(&key).cloned() else { return };
+        for l in locals {
+            let name = self.local_name_of(&l);
+            out.push(Stmt::Expr(Expr::call(Expr::ident("$share"), vec![Expr::ident(name)])));
+        }
+    }
+
+    /// The mark on the value this node produced, where it has one.
+    fn mark_value(&mut self, e: &typed::Expr, value: Expr) -> Expr {
+        let Some(parent) = self.func.marks.value.get(&node_key(e)).copied() else {
+            return value;
+        };
+        match parent {
+            None => Expr::call(Expr::ident("$share"), vec![value]),
+            Some(l) => {
+                let name = self.local_name_of(&l);
+                Expr::call(Expr::ident("$fromShared"), vec![Expr::ident(name), value])
+            }
+        }
+    }
+
+    fn emit(&mut self, e: &typed::Expr, out: &mut Vec<Stmt>) -> Expr {
         match &e.kind {
             ExprKind::Int(v, neg) => self.int_literal(*v, *neg, &e.ty),
             ExprKind::Float(v) => {

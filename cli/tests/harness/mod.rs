@@ -275,7 +275,7 @@ pub fn run_in(dir: &Path, args: &[&str]) -> Run {
 /// `--color=never` placement, the ANSI stripping and the `what` string, which
 /// is three ways for a perturbed run to stop being comparable with a clean one.
 pub fn run_in_with_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Run {
-    run_in_full(dir, args, None, env)
+    run_in_full(dir, args, None, env, None)
 }
 
 /// The same, with bytes on standard input.
@@ -284,10 +284,40 @@ pub fn run_in_with_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Run {
 /// stream closes — so the input has to be handed over whole and the pipe shut,
 /// which `Command::output` does not do on its own.
 pub fn run_in_with_stdin(dir: &Path, args: &[&str], stdin: Option<&[u8]>) -> Run {
-    run_in_full(dir, args, stdin, &[])
+    run_in_full(dir, args, stdin, &[], None)
 }
 
-fn run_in_full(dir: &Path, args: &[&str], stdin: Option<&[u8]>, env: &[(&str, &str)]) -> Run {
+/// The same, with both descriptors on *one* file rather than two pipes.
+///
+/// Two pipes are two captures, and concatenating them records an order neither
+/// stream ever had. A terminal and a CI log are one descriptor, so a case about
+/// *where a line lands among the others* has to be run this way to mean
+/// anything: what comes back is the interleave a person would have read.
+pub fn run_in_merged(dir: &Path, args: &[&str]) -> Run {
+    let n = SEQ.fetch_add(1, Ordering::Relaxed);
+    let path = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("merged-{}-{n}.txt", std::process::id()));
+    let mut run = {
+        let file = std::fs::File::create(&path).expect("a capture file");
+        // One file description, duplicated: the two descriptors share an
+        // offset, so a write appends after whatever was written last.
+        let second = file.try_clone().expect("the capture file duplicates");
+        run_in_full(dir, args, None, &[], Some((file, second)))
+    };
+    let text = std::fs::read_to_string(&path).expect("the capture file reads back");
+    let _ = std::fs::remove_file(&path);
+    run.stdout = strip_ansi(&text);
+    run.stderr = String::new();
+    run
+}
+
+fn run_in_full(
+    dir: &Path,
+    args: &[&str],
+    stdin: Option<&[u8]>,
+    env: &[(&str, &str)],
+    capture: Option<(std::fs::File, std::fs::File)>,
+) -> Run {
     let mut cmd = Command::new(buri());
     // `--color=never` belongs to `buri`, so it goes *before* any `--`.
     // Appended, it would land in the argument list `buri run` hands to the
@@ -307,6 +337,23 @@ fn run_in_full(dir: &Path, args: &[&str], stdin: Option<&[u8]>, env: &[(&str, &s
     cmd.args(&argv).current_dir(dir);
     for (name, value) in env {
         cmd.env(name, value);
+    }
+    if let Some((out, err)) = capture {
+        use std::process::Stdio;
+        let code = cmd
+            .stdout(Stdio::from(out))
+            .stderr(Stdio::from(err))
+            .status()
+            .expect("the buri binary runs")
+            .code()
+            .unwrap_or(-1);
+        // The caller reads the file back; nothing came down a pipe.
+        return Run {
+            code,
+            stdout: String::new(),
+            stderr: String::new(),
+            what: format!("buri {}", args.join(" ")),
+        };
     }
     let out = match stdin {
         None => cmd.output().expect("the buri binary runs"),
