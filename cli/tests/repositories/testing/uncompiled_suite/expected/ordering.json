@@ -1,0 +1,2 @@
+{"severity":"error","message":"expected `Str`, found `Int`","code":"type-mismatch","location":{"file":"lib/greeting/test/greeting.buri","line":7,"column":25,"endLine":7,"endColumn":26,"text":"  assert.eq(greeting(), 1);","label":"the parameter type is `Str`"},"expected":"`Str`","actual":"`Int`","fix":"produce a `Str` here, or change what surrounds it to accept an `Int`","notes":["an integer literal defaults to `Int` but takes any integer type, and `Str` is not one"],"related":[]}
+1 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)

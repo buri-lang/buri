@@ -84,10 +84,11 @@ fn lint_catalogue() {
 
 /// TESTING.md: where tests live, what a test source may reach, and what the
 /// runner does with a suite — the flags, the timeout, the golden-file update
-/// mode, and the exact shape of a failure report.
+/// mode, the exact shape of a failure report, and the verdict a suite that
+/// never compiled gets.
 #[test]
 fn test_suites() {
-    run_corpus(&tests_dir().join("repositories/testing"), "testing", 10);
+    run_corpus(&tests_dir().join("repositories/testing"), "testing", 11);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded
