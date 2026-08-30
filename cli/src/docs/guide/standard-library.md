@@ -238,7 +238,13 @@ constructor of the same name (`readFile(path)`, `writeFile(path, body)`,
 what **breaks**: `fs().faults([readFile(p).fails(.PermissionDenied)])` fails
 every matching call and `failsOnCall(n, e)` the `n`th, so success comes from the
 fixture and failure comes from the plan — and a fault whose call never happens
-fails the test. See [testing](../build/testing.md).
+fails the test. `tasks()` is the one double whose subject is not state but
+**scheduling**: `Tasks.parallel` promises its results in the items' order and
+nothing about the order the work runs in, so `tasks()` runs the tasks in program
+order, `tasks().anyOrder()` in one seeded order, and `tasks().everyOrder()` runs
+the whole `test` body once per completion order. A seed is the order's own
+number, so a failure names a line that replays it. See
+[testing](../build/testing.md).
 
 ### Allocators
 

@@ -361,6 +361,7 @@ test's.
 | `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
 | `env()` | `Env` | No variables and no arguments. |
 | `proc()` | `Proc` | Records the exit instead of taking it; `exited()` answers the code. |
+| `tasks()` | `Tasks` | Runs the tasks one at a time, in **program order**, until a builder says otherwise. |
 
 Configuration is a **method on the value that answers a new handle**, so a
 chain reads in the order it is applied and the value it was called on is
@@ -378,6 +379,7 @@ unchanged:
 | `fs().filesBytes([(Str, [U8])])` | The byte twin, for a fixture that is not text |
 | `fs().readOnly()` | The **same** files, through a handle whose every write fails with `.ReadOnly` |
 | `net().respond(fn(Request) => Result<Response, NetError>)` | A network answering every request through that function |
+| `tasks().anyOrder()`, `.everyOrder()`, `.seed(n)` | A scheduler running its tasks in one order, in every order, or in the one that seed names |
 
 `args` and not `arguments`, and it is the one name here that is not
 `core/host`'s: `Env` already declares `arguments(self): [Str]` — the reader —
@@ -751,6 +753,71 @@ open a socket in anything it transitively calls — that is
 the toolchain applies no operating-system confinement, because a suite has no
 name for a real capability to begin with
 ([`hermeticity.md`](./hermeticity.md)).
+
+### The order the work happens in
+
+`Tasks.parallel` promises its **results** in the items' order and promises
+nothing about the order the work runs in. That second order is the one thing
+about a concurrent program a test cannot otherwise pin down, so `tasks()` makes
+it a value the test writes:
+
+| Builder | Answers |
+|---|---|
+| `tasks()` | A scheduler running its tasks in **program order** — the items' own |
+| `tasks().anyOrder()` | One seeded order per run: the **reverse** of program order unless a seed says otherwise |
+| `tasks().seed(n)` | The order numbered `n`, counted from zero, wrapping past the last |
+| `tasks().everyOrder()` | Every order — the whole `test` body runs once per completion order |
+| `tasks().faults([TaskFault])` | The tasks the plan names end the block, with the reason the test gave |
+
+Nothing here is concurrent. A double that raced would be the thing it exists to
+remove, so a task runs to completion before the next one starts and `calls()`
+reports them in the order they finished:
+
+```buri repo=cli/tests/example role=test
+# from "core/effect/lib.buri" import { Tasks };
+# from "core/host/testing/lib.buri" import { task, tasks };
+# from "core/testing/assert/lib.buri" import * as assert;
+# fn doubled<C: Tasks>(ctx: C, items: [Int]): [Int] {
+#   ctx.parallel(items, fn(_c, _i, item) => item * 2)
+# }
+test "the answer does not depend on the order the work finished in" {
+  let scheduler = tasks().anyOrder();
+  let ctx = context { Tasks: scheduler };
+  // The items' order, whatever order the work ran in.
+  assert.eq(doubled(ctx, [1, 2, 3]), [2, 4, 6]);
+  // And the order it ran in, which is the thing this double chose.
+  assert.eq(scheduler.calls(), [task(2), task(1), task(0)]);
+}
+```
+
+**A seed is the order's own number.** There are `n!` orders of `n` tasks and a
+seed is which of them, counted from zero in the order the orders themselves
+sort in — so `seed(0)` is program order, the last seed is the reverse, and a
+seed *replays* rather than merely re-randomising. `everyOrder`'s fourth run and
+`seed(3)` are the same order, which is what lets a failure name one line to
+paste back. `anyOrder()` with no seed is deliberately not random: a suite whose
+result changed between two runs of the same program could not be cached, and a
+failure nobody can reproduce is a failure nobody fixes.
+
+**`everyOrder()` re-runs the body, not the fan-out.** A task's effects are the
+point, and re-running only the loop would re-run them against a filesystem the
+last order had already written to — so every run builds its own doubles from the
+same lines, and the assertion at the end of the body is an assertion about
+*every* order. `runs()` says which run this is, counted from one, and `orders()`
+how many there will be. Six tasks are 720 runs of the block; above six it
+refuses and says so, because a fan-out that wide is `anyOrder`'s question.
+
+The first failing order ends the block — a failed assertion is an abort and
+there is nothing to catch — so the orders after it do not run.
+
+**A fault ends the block.** A task has no error channel: `parallel` answers
+`[B]` and every `B` comes from the closure, so a task the plan fails is a task
+that ends the program, which is what a task that died would do to the run for
+real. The tasks scheduled before it have run and had their effects; the ones
+after it have not started. `task(k).fails(why)` fails that task every time it is
+reached and `task(k).failsOnCall(n, why)` the `n`th, counted over the fan-outs
+that reach it — and, as everywhere else here, **a fault whose task is never
+reached fails the test**.
 
 ## Test data and golden files
 

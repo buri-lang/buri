@@ -16,13 +16,14 @@ from "core/testing/assert/lib.buri" import * as assert;
 // functions of the same module, so a test writes the call it expects the way
 // the code under test made it.
 from "core/host/testing/lib.buri" import {
-  alloc, appendFile, clock, env, fetch, fileExists, fs, makeDir, net, proc,
-  rand, readBytes, readDir, readFile, readFileBytes, readLine, removeFile,
-  renameFile, stderr, stdin, stdout, syncFile, writeFile, writeFileBytes,
+  TaskCall, alloc, appendFile, clock, env, fetch, fileExists, fs, makeDir, net,
+  proc, rand, readBytes, readDir, readFile, readFileBytes, readLine,
+  removeFile, renameFile, stderr, stdin, stdout, syncFile, task, tasks,
+  writeFile, writeFileBytes,
 };
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, Header, IoError, Net, NetError, Proc, Rand, Region,
-  Request, Response, Stderr, Stdin, Stdout,
+  Request, Response, Stderr, Stdin, Stdout, Tasks,
 };
 from "core/net/http/lib.buri" import * as http;
 from "core/str/lib.buri" import * as str;
@@ -1112,11 +1113,13 @@ test "a call is compared by its arguments and not by where it came from" {
 // they stand on. Success comes from the environment and failure comes from the
 // plan, so every block here declares both halves and asserts the outcome.
 //
-// Two of the five bind `Tasks: tasks().everyOrder()`. `TestTasks` is D5 and has
-// not landed, so those two read their files in program order and the clause
-// about *order* — that the merge holds whatever order the reads land in — is
-// the one thing in this section that is not yet asserted. Everything else in
-// all five is.
+// Two of the five bind `Tasks: tasks().everyOrder()` in the note. These five
+// read their files in program order and assert the rest of every clause; the
+// order half is asserted in the `tasks()` section at the end of this file,
+// where `everyOrder` runs a body once per completion order and the answer is
+// the same in all of them. Splitting it that way keeps a fault-plan block about
+// the fault plan: a block that changed two things at once would be a worse
+// witness for either.
 
 struct Configuration {
   name: Str,
@@ -1221,8 +1224,9 @@ fn appFiles(): [(Str, Str)] {
 
 // --- the five worked examples -------------------------------------------------
 
-/// The note's first example, without its `Tasks` binding: `everyOrder` is
-/// `TestTasks` and has not landed, so the three reads happen in program order.
+/// The note's first example, without its `Tasks` binding: the reads happen in
+/// program order here, and the `tasks()` section at the end of this file is
+/// where the order half is asserted.
 test "merges the three files" {
   let files = fs().files(appFiles());
   let ctx = context { Alloc: alloc(), Fs: files };
@@ -1510,4 +1514,197 @@ test "a plan whose entries all fire leaves the block passing" {
   let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(which(loadText(ctx, "a")), "NotFound");
   assert.eq(which(saveText(ctx, "b", "C")), "ReadOnly");
+}
+
+// -----------------------------------------------------------------------------
+// tasks() — the order the work happens in
+// -----------------------------------------------------------------------------
+//
+// `Tasks.parallel` promises its results in the items' order and promises
+// nothing about the order the work runs in. `tasks()` is the double that makes
+// the second one a value: program order by default, one seeded order under
+// `anyOrder()`, and every order under `everyOrder()` — which runs the whole
+// `test` body once per completion order, so an assertion at the end of a body is
+// an assertion about *every* order.
+//
+// Two things are asserted in every block below, because they are the promise
+// and the choice: the **result** is in the items' order, and `calls()` is the
+// order the work actually happened in.
+//
+// The closures here read their index and their item and never their first
+// parameter. A step is handed the caller's context there and what reaches it is
+// the receiver's — `host.HostTasks.parallel` has the same shape and the same
+// gap, which the `Self`-substitution fix owns — so a corpus that leaned on it
+// would be pinning a bug rather than a promise.
+
+/// Every item labelled with its own index, one task each — a fan-out whose
+/// answer says which index each task was handed.
+fn labelled<C: Tasks>(ctx: C, items: [Int]): [Int] {
+  ctx.parallel(items, fn(_c, i, item) => i * 100 + item)
+}
+
+test "tasks() runs its tasks in program order" {
+  let scheduler = tasks();
+  let ctx = context { Tasks: scheduler };
+  assert.eq(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
+  assert.eq(scheduler.calls(), [task(0), task(1), task(2)]);
+}
+
+test "the results are in the items' order whatever order the work ran in" {
+  let scheduler = tasks().anyOrder();
+  let ctx = context { Tasks: scheduler };
+  // The same answer as the block above, from the opposite order.
+  assert.eq(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
+  assert.eq(scheduler.calls(), [task(2), task(1), task(0)]);
+}
+
+test "anyOrder with no seed is the reverse of program order" {
+  let scheduler = tasks().anyOrder();
+  let ctx = context { Tasks: scheduler };
+  let _ = labelled(ctx, [1, 2]);
+  assert.eq(scheduler.calls(), [task(1), task(0)]);
+}
+
+test "a seed is the order's own number, counted from zero" {
+  let first = tasks().seed(0);
+  let one = context { Tasks: first };
+  let _ = labelled(one, [1, 2, 3]);
+  assert.eq(first.calls(), [task(0), task(1), task(2)]);
+
+  let fourth = tasks().seed(3);
+  let two = context { Tasks: fourth };
+  let _ = labelled(two, [1, 2, 3]);
+  assert.eq(fourth.calls(), [task(1), task(2), task(0)]);
+
+  let last = tasks().seed(5);
+  let three = context { Tasks: last };
+  let _ = labelled(three, [1, 2, 3]);
+  assert.eq(last.calls(), [task(2), task(1), task(0)]);
+}
+
+test "a seed past the last one wraps" {
+  // Six orders of three tasks, so `seed(6)` is `seed(0)` — which is what makes a
+  // seed derived from a program's content legal at every length.
+  let scheduler = tasks().seed(6);
+  let ctx = context { Tasks: scheduler };
+  let _ = labelled(ctx, [1, 2, 3]);
+  assert.eq(scheduler.calls(), [task(0), task(1), task(2)]);
+}
+
+test "everyOrder runs the body once per completion order" {
+  let scheduler = tasks().everyOrder();
+  let ctx = context { Tasks: scheduler };
+  assert.eq(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
+  // Three tasks, six orders, and this run is one of them: the order the work
+  // happened in is the `runs()`th of the six, counted from one.
+  assert.eq(scheduler.orders(), 6);
+  assert.eq(scheduler.calls(), nthOrderOfThree(scheduler.runs() - 1));
+  // And there is never a seventh run. The sixth *is* reached, which is a claim
+  // no passing block can make about itself: `cli/tests/failing/every_order/` is
+  // the golden that makes it, by failing on the sixth and only then.
+  assert.isTrue(scheduler.runs() <= scheduler.orders());
+}
+
+test "everyOrder over two tasks is two runs" {
+  let scheduler = tasks().everyOrder();
+  let ctx = context { Tasks: scheduler };
+  let _ = labelled(ctx, [1, 2]);
+  assert.eq(scheduler.orders(), 2);
+  assert.eq(scheduler.calls(), nthOrderOfTwo(scheduler.runs() - 1));
+}
+
+test "a block that schedules nothing runs once" {
+  let scheduler = tasks().everyOrder();
+  let ctx = context { Tasks: scheduler };
+  assert.eq(labelled(ctx, []), []);
+  // No fan-out means nothing to order, and an empty fan-out is a fan-out of
+  // nothing rather than an order of one.
+  assert.eq(scheduler.orders(), 1);
+  assert.eq(scheduler.runs(), 1);
+  assert.eq(scheduler.calls(), []);
+}
+
+test "one task has one order" {
+  let scheduler = tasks().everyOrder();
+  let ctx = context { Tasks: scheduler };
+  assert.eq(labelled(ctx, [4]), [4]);
+  assert.eq(scheduler.orders(), 1);
+  assert.eq(scheduler.calls(), [task(0)]);
+}
+
+test "two fan-outs in one run are scheduled the same way" {
+  let scheduler = tasks().anyOrder();
+  let ctx = context { Tasks: scheduler };
+  let _ = labelled(ctx, [1, 2, 3]);
+  let _ = labelled(ctx, [4, 5, 6]);
+  // One decision per run, not one per call — so a test asserting on both is
+  // asserting about one thing.
+  assert.eq(
+    scheduler.calls(),
+    [task(2), task(1), task(0), task(2), task(1), task(0)],
+  );
+}
+
+test "a builder answers a new scheduler and a new log" {
+  let first = tasks();
+  let ctx = context { Tasks: first };
+  let _ = labelled(ctx, [1, 2]);
+  // The receiver is untouched by the builder, and the builder's answer has run
+  // nothing at all.
+  assert.eq(first.calls(), [task(0), task(1)]);
+  assert.eq(first.anyOrder().calls(), []);
+}
+
+test "a task is handed its own index" {
+  let scheduler = tasks().anyOrder();
+  let ctx = context { Tasks: scheduler };
+  // Backwards through the list, and every task still gets the index of the item
+  // it was given — which is what `effect Tasks` promises and what makes the
+  // order safe to change.
+  assert.eq(labelled(ctx, [10, 20, 30]), [10, 120, 230]);
+}
+
+/// The six orders of three tasks, in the order their seeds count.
+fn nthOrderOfThree(rank: Int): [TaskCall] {
+  match (rank) {
+    0 => [task(0), task(1), task(2)],
+    1 => [task(0), task(2), task(1)],
+    2 => [task(1), task(0), task(2)],
+    3 => [task(1), task(2), task(0)],
+    4 => [task(2), task(0), task(1)],
+    _ => [task(2), task(1), task(0)],
+  }
+}
+
+/// The two orders of two tasks.
+fn nthOrderOfTwo(rank: Int): [TaskCall] {
+  match (rank) {
+    0 => [task(0), task(1)],
+    _ => [task(1), task(0)],
+  }
+}
+
+// --- the fault plan, at the third double ---------------------------------------
+//
+// A task has no error channel — `parallel` answers `[B]` and every `B` comes
+// from the closure — so a task the plan fails is a task that ends the block,
+// which is what a task that died would do to the run for real. Neither half of
+// that can be asserted from inside a block: the failing one is a block that
+// failed, and so is a plan whose task is never reached.
+// `cli/tests/failing/every_order/` is the golden for both, with the reason the
+// test wrote in the report.
+//
+// What is assertable here is the rule around them: a plan that has been
+// replaced makes no claim, which is `TestFs::faults`' rule read at a third
+// type.
+
+test "faults replaces, and a plan it replaced claims nothing" {
+  // `TestFs::faults`' rule at the third double: two plans for one task have no
+  // answer to which of them wins, so the second replaces the first — and the
+  // promise goes with it, which is what lets this block hold a fault that never
+  // fires and still pass.
+  let scheduler = tasks().faults([task(1).fails("gone")]).faults([]);
+  let ctx = context { Tasks: scheduler };
+  assert.eq(labelled(ctx, [1, 2]), [1, 102]);
+  assert.eq(scheduler.calls(), [task(0), task(1)]);
 }

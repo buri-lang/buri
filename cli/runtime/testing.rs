@@ -168,6 +168,21 @@ enum Slot {
     /// one of the variants above: a captured stream is a transcript whichever
     /// module minted it, and one table with one shape per *state* beats one
     /// table with one shape per module.
+    /// `core/host/testing`'s `TestTasks` — the order it schedules its tasks
+    /// in, the plan it fails them through, and the tasks that have completed.
+    ///
+    /// `mode` is program order, one seeded order, or every order; `seed` is the
+    /// order's own number, or `-1` for the mode's default. Both are numbers
+    /// rather than a Rust enum because they are the numbers that cross:
+    /// `host_testing.buri`'s `tasksOrdering` sends them, and one place spelling
+    /// the mapping out is one place for the two sides to agree.
+    ///
+    /// `faults` is the plan itself, which the other two doubles keep in the
+    /// program: a task's fault is an index, a count and a sentence, and all
+    /// three of those cross, so the matching happens here beside the walk that
+    /// needs it. `plan` still names the [`Slot::Plan`] holding the *promise*,
+    /// entry for entry with this list.
+    Tasks { mode: i64, seed: i64, plan: i64, log: Vec<i64>, faults: Vec<TaskFault> },
     Proc { code: Option<i64> },
 }
 
@@ -1476,7 +1491,9 @@ fn fs_view(handle: i64) -> (i64, bool) {
 fn slot_plan(handle: i64) -> i64 {
     let table = lock();
     match usize::try_from(handle).ok().and_then(|i| table.get(i)) {
-        Some(Slot::Fs { plan, .. } | Slot::Net { plan, .. }) => *plan,
+        Some(
+            Slot::Fs { plan, .. } | Slot::Net { plan, .. } | Slot::Tasks { plan, .. },
+        ) => *plan,
         _ => -1,
     }
 }
@@ -2921,6 +2938,11 @@ pub extern "C" fn buri_rt_test_enter(index: i64) -> i32 {
     // early answers: a binary nothing is driving checks the post-condition too,
     // because it is the program's rule and not the runner's protocol.
     WATERMARK.store(lock().len(), std::sync::atomic::Ordering::Relaxed);
+    // And this block has been run no times. `TestTasks.everyOrder` counts the
+    // runs of one *body*, so the count belongs to the block and is reset where
+    // the block is: `buri_rt_test_replay` advances it, and a block that never
+    // schedules anything leaves it at the one run every block makes.
+    *replay() = Replay { pass: 0, total: 1, note: None };
     let Some(from) = resume_at() else { return 1 };
     if index < from {
         return 0;
@@ -2950,14 +2972,13 @@ static WATERMARK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsiz
 /// of report: a failed assertion is what went wrong, and an unused fault plan is
 /// a consequence of stopping early rather than a second failure.
 ///
-/// **One watermark per block, not per run of a block.** `TestTasks.everyOrder`
-/// reruns the body once per completion order, and every one of those runs
-/// installs its own doubles above the one watermark [`buri_rt_test_enter`] set:
-/// a plan the second run declared and used would sit beside the first run's,
-/// which is right, but a plan a *rerun* declared and never reached would be
-/// reported against the block as a whole. Whoever lands `everyOrder` owns that
-/// question — either the reruns share one plan, or each retires the one before
-/// it.
+/// **One watermark per run of a block, and the reruns move it.**
+/// `TestTasks.everyOrder` runs the body once per completion order, and every one
+/// of those runs installs its own doubles; a plan the third run declared and
+/// never reached is the third run's failure and not the block's. So this is
+/// asked at the end of *every* run, and [`buri_rt_test_replay`] moves the
+/// watermark up before the next one — which is the question this comment used to
+/// leave open, answered in the direction that keeps each run's promise its own.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_test_leave(index: i64) {
     let unconsumed = unconsumed_since(WATERMARK.load(std::sync::atomic::Ordering::Relaxed));
@@ -3117,6 +3138,490 @@ fn quote_into(text: &str, out: &mut String) {
     out.push('"');
 }
 
+// ---------------------------------------------------------------------------
+// `tasks()` — the order the work happens in
+// ---------------------------------------------------------------------------
+//
+// The one double whose subject is scheduling rather than state.
+// `Tasks.parallel` promises its results in the items' order and promises
+// nothing about the order the work runs in; `TestTasks` makes that order a
+// value a test writes down, and this file is where the choice is made.
+//
+// The walk is `cli/runtime/rt.rs`'s walk with a permutation in front of it and
+// a log behind it, and it is the *same boundary* — the closure trampoline of
+// [`crate::list::StepEntry`] — because a double that reached its steps some
+// other way would be testing a different thing from the one that ships.
+//
+// A seed is the order's own number in the factorial number system, counted
+// from zero over the orders in lexicographic order. That is what makes
+// `everyOrder`'s `k`th run and `seed(k)` the same order, and it is what lets a
+// failure report print one line that replays what failed.
+
+/// Program order — the items' own.
+const ORDER_PROGRAM: i64 = 0;
+/// One seeded order per run of the body.
+const ORDER_SEEDED: i64 = 1;
+/// Every order, one run of the body each.
+const ORDER_EVERY: i64 = 2;
+
+/// The largest fan-out `everyOrder` will enumerate.
+///
+/// Six items are 720 runs of the block and seven are 5040. A test that wants a
+/// wider fan-out wants `anyOrder`, and one that wanted every order of it wanted
+/// something no machine is going to finish.
+const EVERY_ORDER_CEILING: i64 = 6;
+
+/// One planned failure, as the runner matches it: which task, which call of it,
+/// and what the failure will say.
+///
+/// The whole fault, unlike `TestFs`' and `TestNet`'s, which keep the plan in the
+/// program because an `IoError` cannot cross. A task's fault carries an index, a
+/// count and a sentence — three things that cross — so the matching is here
+/// beside the walk that needs it, and `Slot::Plan` holds the *promise* exactly as
+/// it does for the other two.
+struct TaskFault {
+    index: i64,
+    nth: i64,
+    reason: String,
+}
+
+/// `tasks()` — program order, no plan, an empty log.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_tasks(out: *mut i64) {
+    let handle = install(Slot::Tasks {
+        mode: ORDER_PROGRAM,
+        seed: -1,
+        plan: -1,
+        log: Vec::new(),
+        faults: Vec::new(),
+    });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// A **new** scheduler at that mode and seed, carrying this one's plan.
+///
+/// A fresh log, as every builder in this module answers one: the tasks a test
+/// reads back are the tasks run through the value it put in its context. The
+/// plan travels, exactly as `TestFs`' does through `files` — a builder is
+/// configuration and not a write.
+fn tasks_at(handle: i64, mode: i64, seed: i64) -> i64 {
+    let (plan, faults) = with(handle, (-1, Vec::new()), |slot| match slot {
+        Slot::Tasks { plan, faults, .. } => (
+            *plan,
+            faults
+                .iter()
+                .map(|f| TaskFault { index: f.index, nth: f.nth, reason: f.reason.clone() })
+                .collect(),
+        ),
+        _ => (-1, Vec::new()),
+    });
+    install(Slot::Tasks { mode, seed, plan, log: Vec::new(), faults })
+}
+
+/// The mode and seed a scheduler handle names, or program order for a handle
+/// naming nothing — [`with`]'s fallback rule.
+fn tasks_ordering_of(handle: i64) -> (i64, i64) {
+    let table = lock();
+    match usize::try_from(handle).ok().and_then(|i| table.get(i)) {
+        Some(Slot::Tasks { mode, seed, .. }) => (*mode, *seed),
+        _ => (ORDER_PROGRAM, -1),
+    }
+}
+
+/// `TestTasks::anyOrder` — one seeded order, at the default seed.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_any_order(handle: i64, out: *mut i64) {
+    let next = tasks_at(handle, ORDER_SEEDED, -1);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(next) }
+}
+
+/// `TestTasks::everyOrder` — every order, one run of the body each.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_every_order(handle: i64, out: *mut i64) {
+    let next = tasks_at(handle, ORDER_EVERY, -1);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(next) }
+}
+
+/// `TestTasks::seed` — one seeded order, at the seed the test named.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_seed(
+    handle: i64,
+    seed: i64,
+    out: *mut i64,
+) {
+    let next = tasks_at(handle, ORDER_SEEDED, seed);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(next) }
+}
+
+/// `TestTasks::replan` — a **new** scheduler with a fresh, empty plan and this
+/// one's ordering, retiring the plan it was using.
+///
+/// [`buri_rt_host_testing_fs_with_plan`]'s function at the third double, and its
+/// reason read once more: `faults` replaces rather than composing, and a promise
+/// that has been replaced is not one [`buri_rt_test_leave`] should report.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_replan(handle: i64, out: *mut i64) {
+    let (mode, seed) = tasks_ordering_of(handle);
+    retire(slot_plan(handle));
+    let plan = install(Slot::Plan { entries: Vec::new(), retired: false });
+    let next = install(Slot::Tasks { mode, seed, plan, log: Vec::new(), faults: Vec::new() });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(next) }
+}
+
+/// `TestTasks::addFault(index, nth, reason)` — one entry of a scheduler's plan.
+///
+/// It lands in two places, which is one place more than the other two doubles
+/// need: [`Slot::Plan`] holds what a failure message would say, exactly as
+/// `addFsFault` leaves it, and the slot holds the three fields the walk matches
+/// on — because for tasks the matching is here rather than in the program. The
+/// two lists are appended together and are read by the same index, which is what
+/// lets [`buri_rt_host_testing_note_fault`] mark the entry a walk fired.
+///
+/// # Safety
+/// The pointer must address its byte length, or be null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_add_fault(
+    handle: i64,
+    index: i64,
+    nth: i64,
+    _reason_base: *mut u8,
+    reason: *const u8,
+    reason_len: u64,
+) {
+    // SAFETY: the caller promises the range.
+    let reason = unsafe { String::from_utf8_lossy(view(reason, reason_len)).into_owned() };
+    let mut shown = format!("task({index}) fails \"{reason}\"");
+    if nth != 0 {
+        shown.push_str(&format!(" on call {nth}"));
+    }
+    plan_push(handle, shown);
+    with(handle, (), |slot| {
+        if let Slot::Tasks { faults, .. } = slot {
+            faults.push(TaskFault { index, nth, reason: reason.clone() });
+        }
+    });
+}
+
+/// `TestTasks::calls() -> [TaskCall]` — the tasks that completed, in the order
+/// they completed.
+///
+/// `TaskCall` is one `Int`, so the element is a word and the list is the log
+/// itself: there is no record to build the way `fsCalls` builds one.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_calls(handle: i64, out: *mut BuriList) {
+    let log: Vec<i64> = with(handle, Vec::new(), |slot| match slot {
+        Slot::Tasks { log, .. } => log.clone(),
+        _ => Vec::new(),
+    });
+    let value = list_of(&log, |index: &i64| *index);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `TestTasks::runs()` — which run of the body this is, counted from one.
+///
+/// The receiver is read for nothing: the runs are the *block*'s, and a block
+/// with two schedulers in it is still one block being run again.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_test_tasks_runs(_handle: i64) -> i64 {
+    i64::try_from(replay().pass + 1).unwrap_or(i64::MAX)
+}
+
+/// `TestTasks::orders()` — how many runs of the body there will be.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_test_tasks_orders(_handle: i64) -> i64 {
+    i64::try_from(replay().total).unwrap_or(i64::MAX)
+}
+
+/// `TestTasks.parallel(self, items, f) -> [B]` — `f` at every item, in the order
+/// this scheduler chose, and the results in the items' order.
+///
+/// `buri_rt_host_tasks_parallel`'s walk with three things around it: the
+/// permutation in front, the log behind, and the plan between them. The four
+/// words after `len` are [`crate::list::StepEntry`]'s ABI, and the `[B]` block is
+/// written at each item's **own** index rather than at the position the work was
+/// done in — which is the whole of `Tasks.parallel`'s order promise, and is why
+/// a scheduler is free to hand the work out in any order at all.
+///
+/// Every element of the result is written by exactly one step, because the order
+/// is a permutation of `0..n`; a plan that fails one of them ends the process
+/// before the block is handed back, so there is no arm here that leaves the
+/// result half-filled and returns it.
+///
+/// # Safety
+/// `ptr` covers `len * in_stride` bytes; `entry` is the thunk the backend
+/// generated for this call and `state` the record it was generated against;
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_parallel(
+    handle: i64,
+    ptr: *const u8,
+    len: u64,
+    entry: crate::list::StepEntry,
+    state: *mut u8,
+    in_stride: u64,
+    out_stride: u64,
+    out: *mut BuriList,
+) {
+    let (n, from, to) = (len as usize, in_stride as usize, out_stride as usize);
+    let result = crate::list::block(n, to);
+    for index in task_order(handle, n) {
+        let i = usize::try_from(index).unwrap_or(0);
+        fail_planned_task(handle, index);
+        // SAFETY: `i * from` is inside the `n`-element source the caller
+        // promised, and `i * to` is inside the block just allocated. The thunk
+        // is the one the backend generated for these two element types, and `i`
+        // is a member of a permutation of `0..n`, so both are in range whatever
+        // order the walk is in.
+        unsafe {
+            entry(
+                state,
+                index as u64,
+                ptr.add(i.saturating_mul(from)),
+                result.ptr.add(i.saturating_mul(to)),
+            );
+        }
+        note_task(handle, index);
+    }
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(result) }
+}
+
+/// The order this run schedules `count` tasks in, and where `everyOrder` learns
+/// how many runs there are to make.
+///
+/// The count is not known until a `parallel` says it, and this is the call that
+/// says it. A second fan-out in the same run does not change the number of runs
+/// — the first is the one being enumerated — and is scheduled by the same rank
+/// at its own length.
+fn task_order(handle: i64, count: usize) -> Vec<i64> {
+    let (mode, seed) = tasks_ordering_of(handle);
+    let orders = orders_of(count);
+    if mode == ORDER_EVERY && count as i64 > EVERY_ORDER_CEILING {
+        let named = format!("{count}");
+        crate::abort::die(&[
+            b"everyOrder over ",
+            named.as_bytes(),
+            b" tasks is more runs of this block than a suite can finish: ",
+            b"a fan-out that wide is anyOrder's question",
+        ]);
+    }
+    let rank = match mode {
+        ORDER_EVERY => {
+            let mut replay = replay();
+            if replay.total <= 1 {
+                replay.total = orders;
+            }
+            replay.pass
+        }
+        ORDER_SEEDED if seed < 0 => orders.saturating_sub(1),
+        ORDER_SEEDED => (seed as u128) % orders.max(1),
+        _ => 0,
+    };
+    let order = permutation(count, rank);
+    note_order(mode, rank, &order);
+    order
+}
+
+/// `n!`, saturating.
+///
+/// A `u128` holds `34!`. Past that the count is not a number any suite is going
+/// to reach, and saturating is what keeps a seed legal at every length rather
+/// than making one length a panic.
+fn orders_of(n: usize) -> u128 {
+    (1..=n as u128).try_fold(1u128, |acc, i| acc.checked_mul(i)).unwrap_or(u128::MAX)
+}
+
+/// The `rank`th permutation of `0..n`, counted from zero in lexicographic
+/// order, wrapping past the last.
+///
+/// The factorial number system, read out digit by digit: the first digit is the
+/// rank over `(n-1)!` and names which of the remaining items goes first. Written
+/// this way rather than as a shuffle because a shuffle is not invertible — a
+/// report that names a seed has to be a report a reader can replay, and this is
+/// the mapping that makes `everyOrder`'s `k`th run and `seed(k)` the same
+/// sentence.
+fn permutation(n: usize, rank: u128) -> Vec<i64> {
+    let mut pool: Vec<i64> = (0..n as i64).collect();
+    let mut left = rank % orders_of(n).max(1);
+    let mut out = Vec::with_capacity(n);
+    for taken in 0..n {
+        let remaining = orders_of(n - taken - 1);
+        let digit = usize::try_from(left / remaining.max(1)).unwrap_or(0).min(pool.len() - 1);
+        left %= remaining.max(1);
+        out.push(pool.remove(digit));
+    }
+    out
+}
+
+/// One completed task, appended to the log.
+fn note_task(handle: i64, index: i64) {
+    with(handle, (), |slot| {
+        if let Slot::Tasks { log, .. } = slot {
+            log.push(index);
+        }
+    });
+}
+
+/// The plan's answer for the task about to run — and the end of the block where
+/// there is one.
+///
+/// A task answers `B` and every `B` comes from the closure, so a double cannot
+/// fail one and carry on: what a task that died would do to the run is end it,
+/// and that is what this does, with the test's own words where a real one would
+/// have had a stack. The tasks scheduled before it have already had their
+/// effects, which is the state a reader of the report wants.
+///
+/// The count is of *matching* tasks — this index in the log — so
+/// `failsOnCall(2, …)` names the second `parallel` that reached it, a walk
+/// reaching each index once.
+fn fail_planned_task(handle: i64, index: i64) -> Option<()> {
+    let (at, reason) = chosen_task_fault(handle, index)?;
+    buri_rt_host_testing_note_fault(handle, at as i64);
+    let named = format!("task({index}): ");
+    crate::abort::die(&[b"a task was failed by the plan: ", named.as_bytes(), reason.as_bytes()])
+}
+
+/// The first entry of the plan this task matches and its position satisfies —
+/// which entry, and what the failure would say.
+///
+/// `chosenFsFault`'s rule, on this side rather than in the program: the first,
+/// so a plan is read in the order it was written, and every entry sees the same
+/// count of matching tasks. Separate from [`fail_planned_task`] because that
+/// function ends the process and this is the half with an answer to check.
+fn chosen_task_fault(handle: i64, index: i64) -> Option<(usize, String)> {
+    let nth = with(handle, 0, |slot| match slot {
+        Slot::Tasks { log, .. } => log.iter().filter(|entry| **entry == index).count() as i64,
+        _ => 0,
+    }) + 1;
+    with(handle, None, |slot| match slot {
+        Slot::Tasks { faults, .. } => faults
+            .iter()
+            .position(|f| f.index == index && (f.nth == 0 || f.nth == nth))
+            .map(|at| (at, faults[at].reason.clone())),
+        _ => None,
+    })
+}
+
+/// Which run of the `test` body this is, and how many there are.
+///
+/// One per block rather than one per double, which is what `everyOrder` means:
+/// the body is what re-runs, and every run of it builds its own doubles from the
+/// same lines. [`buri_rt_test_enter`] resets it and [`buri_rt_test_replay`]
+/// advances it.
+struct Replay {
+    /// The run being made, counted from zero. It is also the rank of the order
+    /// this run schedules with, which is why `seed(runs() - 1)` replays it.
+    pass: u128,
+    /// How many runs there are. One until an `everyOrder` fan-out says
+    /// otherwise.
+    total: u128,
+    /// The mode, the rank and the order of the first fan-out of this run — the
+    /// datum a failure report names. **D6 renders it**; this file records it and
+    /// [`task_order_note`] writes the sentence.
+    note: Option<(i64, u128, Vec<i64>)>,
+}
+
+static REPLAY: Mutex<Replay> = Mutex::new(Replay { pass: 0, total: 1, note: None });
+
+/// Lock, recovering from poisoning, for the reason [`lock`] gives.
+fn replay() -> std::sync::MutexGuard<'static, Replay> {
+    match REPLAY.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// Records the order a fan-out was handed, for the report to name.
+///
+/// The **first** of the run, not the last: `everyOrder` enumerates the orders of
+/// the first fan-out, so that is the one whose number a replay line has to
+/// carry.
+fn note_order(mode: i64, rank: u128, order: &[i64]) {
+    let mut replay = replay();
+    if replay.note.is_none() {
+        replay.note = Some((mode, rank, order.to_vec()));
+    }
+}
+
+/// What a failure report says about the order this run used, or `None` where
+/// nothing ordered anything.
+///
+/// **The datum D6 renders.** The sentence is assembled here for
+/// [`note_failure`]'s reason — the pieces are the runner's and this file writes
+/// the line — and it is deliberately not printed by anything yet: the failure
+/// report is one wire format shared by three backends, and widening it is a
+/// slice of its own. A caller that has one prints it under the message.
+pub fn task_order_note() -> Option<String> {
+    let replay = replay();
+    let (mode, rank, order) = replay.note.as_ref()?;
+    if *mode == ORDER_PROGRAM {
+        return None;
+    }
+    let listed: Vec<String> = order.iter().map(i64::to_string).collect();
+    let run = if replay.total > 1 {
+        format!(", order {} of {}", replay.pass + 1, replay.total)
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "the tasks completed in the order {}{run} — replay it with `tasks().seed({rank})`",
+        listed.join(", ")
+    ))
+}
+
+/// The end of one run of a `test` body: whether to run it again.
+///
+/// `middle::monomorphize` emits this after [`buri_rt_test_leave`], so the two
+/// questions are asked in the order a reader wants — *did this run keep what it
+/// promised*, and only then *is there another order to try*. Answering 1 makes
+/// the body call itself, which is what "reruns the body" means on all three
+/// backends from one lowering.
+///
+/// It moves the watermark up, which is the question
+/// [`buri_rt_test_leave`]'s doc comment left for whoever landed `everyOrder`:
+/// every run installs its own doubles, so a plan the *next* run declares is the
+/// only plan the next `leave` is asking about. The runs before it have each been
+/// asked already.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_test_replay(index: i64) -> u8 {
+    let mut replay = replay();
+    if replay.pass + 1 >= replay.total {
+        return 0;
+    }
+    replay.pass += 1;
+    replay.note = None;
+    drop(replay);
+    if resume_at().is_some() {
+        runner().at = index;
+    }
+    WATERMARK.store(lock().len(), std::sync::atomic::Ordering::Relaxed);
+    1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3230,6 +3735,10 @@ fn probe_two_read_lines() {
     /// native backend and the JavaScript one both produce.
     #[test]
     fn a_plan_reports_the_entries_nothing_fired() {
+        // `unconsumed_since` is a question about the whole table above a
+        // watermark, so a case that installs a plan of its own on another thread
+        // would answer it. There are two now.
+        let _alone = one_runner_at_a_time();
         let from = lock().len();
         let files = buri_rt_host_testing_new_fs();
         let handle = buri_rt_host_testing_fs_with_plan(files);
@@ -3290,4 +3799,221 @@ fn probe_two_read_lines() {
             );
         }
     }
+
+    /// A seed is the order's own number, and the numbering is lexicographic.
+    ///
+    /// This is the mapping the whole double rests on: it is what makes
+    /// `everyOrder`'s `k`th run and `seed(k)` the same order, which is what lets
+    /// a failure report print a line a reader can paste back. `runtime.js`'s
+    /// `$tpermutation` is the same function for the other backend, and
+    /// `conformance/lib/semantics/test/host_testing.buri` asserts three of these
+    /// six through both of them.
+    #[test]
+    fn a_seed_names_the_order_it_replays() {
+        let all: Vec<Vec<i64>> = (0..6).map(|rank| permutation(3, rank)).collect();
+        assert_eq!(
+            all,
+            vec![
+                vec![0, 1, 2],
+                vec![0, 2, 1],
+                vec![1, 0, 2],
+                vec![1, 2, 0],
+                vec![2, 0, 1],
+                vec![2, 1, 0],
+            ]
+        );
+        // Past the last one it wraps, so a seed derived from a program's content
+        // is legal at every length.
+        assert_eq!(permutation(3, 6), vec![0, 1, 2]);
+        assert_eq!(permutation(3, 11), vec![2, 1, 0]);
+        // The degenerate lengths, which every fan-out eventually is.
+        assert_eq!(permutation(0, 4), Vec::<i64>::new());
+        assert_eq!(permutation(1, 4), vec![0]);
+        assert_eq!(orders_of(0), 1);
+        assert_eq!(orders_of(6), 720);
+    }
+
+    /// The three modes, at the handles a program would reach them through.
+    ///
+    /// The default seed is the **reverse** of program order — the one order most
+    /// likely to catch a program that depended on the order it was given — and a
+    /// builder carries the plan while answering a new log.
+    #[test]
+    fn the_ordering_a_builder_answers() {
+        let _alone = one_runner_at_a_time();
+        let plain = tasks_handle();
+        assert_eq!(task_order(plain, 3), vec![0, 1, 2]);
+
+        let any = tasks_at(plain, ORDER_SEEDED, -1);
+        assert_eq!(task_order(any, 3), vec![2, 1, 0]);
+
+        let seeded = tasks_at(plain, ORDER_SEEDED, 3);
+        assert_eq!(task_order(seeded, 3), vec![1, 2, 0]);
+
+        // A builder answers a new handle: the receiver still schedules the way
+        // it did.
+        assert_eq!(task_order(plain, 3), vec![0, 1, 2]);
+    }
+
+    /// `everyOrder` counts the runs of the **block**, and the count is the one
+    /// `buri_rt_test_replay` walks.
+    ///
+    /// The call site is `cli/tests/failing/every_order/`, whose first block is
+    /// true on five runs and false on the sixth: a golden holding that failure is
+    /// the body having run six times. What is checked here is the protocol under
+    /// it — the total is the first fan-out's `n!`, the pass advances once per
+    /// answer, and the last answer is no.
+    #[test]
+    fn the_body_is_run_once_per_order() {
+        let _alone = one_runner_at_a_time();
+        buri_rt_test_enter(0);
+        let every = tasks_at(tasks_handle(), ORDER_EVERY, -1);
+
+        // The first fan-out is what says how many orders there are.
+        assert_eq!(buri_rt_host_testing_test_tasks_orders(every), 1);
+        assert_eq!(task_order(every, 3), vec![0, 1, 2]);
+        assert_eq!(buri_rt_host_testing_test_tasks_orders(every), 6);
+        assert_eq!(buri_rt_host_testing_test_tasks_runs(every), 1);
+
+        let mut seen = vec![vec![0, 1, 2]];
+        for run in 2..=6 {
+            assert_eq!(buri_rt_test_replay(0), 1, "run {run}");
+            assert_eq!(buri_rt_host_testing_test_tasks_runs(every), run);
+            seen.push(task_order(every, 3));
+        }
+        // Six runs, six orders, each of them once.
+        assert_eq!(buri_rt_test_replay(0), 0);
+        assert_eq!(seen, (0..6).map(|rank| permutation(3, rank)).collect::<Vec<_>>());
+
+        // And a block that orders nothing is run once.
+        buri_rt_test_enter(0);
+        assert_eq!(buri_rt_test_replay(0), 0);
+        assert_eq!(buri_rt_host_testing_test_tasks_runs(every), 1);
+    }
+
+    /// The datum a failure report names — **D6 renders it**, and this is the
+    /// sentence it will render.
+    ///
+    /// Program order says nothing, because there is nothing about it to replay;
+    /// a seeded order names its seed; and an `everyOrder` run names which of the
+    /// orders it is as well, because the failing one is the last that ran.
+    #[test]
+    fn the_report_can_name_the_order_and_the_seed() {
+        let _alone = one_runner_at_a_time();
+        buri_rt_test_enter(0);
+        let plain = tasks_handle();
+        let _ = task_order(plain, 3);
+        assert_eq!(task_order_note(), None);
+
+        buri_rt_test_enter(0);
+        let seeded = tasks_at(plain, ORDER_SEEDED, 3);
+        let _ = task_order(seeded, 3);
+        assert_eq!(
+            task_order_note(),
+            Some(String::from(
+                "the tasks completed in the order 1, 2, 0 — replay it with `tasks().seed(3)`"
+            ))
+        );
+
+        buri_rt_test_enter(0);
+        let every = tasks_at(plain, ORDER_EVERY, -1);
+        let _ = task_order(every, 3);
+        assert_eq!(buri_rt_test_replay(0), 1);
+        let _ = task_order(every, 3);
+        assert_eq!(
+            task_order_note(),
+            Some(String::from(
+                "the tasks completed in the order 0, 2, 1, order 2 of 6 \
+                 — replay it with `tasks().seed(1)`"
+            ))
+        );
+    }
+
+    /// A fault is matched here rather than in the program, because a task's
+    /// fault is three things that cross — and the promise is still
+    /// [`Slot::Plan`]'s, entry for entry.
+    ///
+    /// The firing itself ends the process, so what is checked is the half with an
+    /// answer: which entry a walk would choose. `cli/tests/failing/every_order/`
+    /// is the call site, on both backends.
+    #[test]
+    fn a_fault_is_chosen_by_the_task_and_the_count() {
+        let _alone = one_runner_at_a_time();
+        let from = lock().len();
+        let scheduler = replan_of(tasks_handle());
+        add_task_fault(scheduler, 1, 0, "gone");
+        add_task_fault(scheduler, 2, 2, "twice is too many");
+        assert_eq!(
+            unconsumed_since(from),
+            vec![
+                String::from("task(1) fails \"gone\""),
+                String::from("task(2) fails \"twice is too many\" on call 2"),
+            ]
+        );
+
+        // Task 0 is named by nothing; task 1 by an entry that fires every time;
+        // task 2 by one that waits for the second fan-out to reach it.
+        assert_eq!(chosen_task_fault(scheduler, 0), None);
+        assert_eq!(chosen_task_fault(scheduler, 1), Some((0, String::from("gone"))));
+        assert_eq!(chosen_task_fault(scheduler, 2), None);
+        note_task(scheduler, 2);
+        assert_eq!(
+            chosen_task_fault(scheduler, 2),
+            Some((1, String::from("twice is too many")))
+        );
+
+        // A builder carries the plan and its promise; a second `faults` retires
+        // both.
+        let carried = tasks_at(scheduler, ORDER_SEEDED, -1);
+        assert_eq!(chosen_task_fault(carried, 1), Some((0, String::from("gone"))));
+        replan_of(scheduler);
+        assert!(unconsumed_since(from).is_empty());
+    }
+
+    /// Two things in this file are one per *process* rather than one per handle
+    /// — the run counter `everyOrder` walks, and *"every plan installed since a
+    /// watermark"* — and `cargo test` runs these cases on many threads at once.
+    /// A case that asks about either takes this first. It is a lock over those
+    /// cases and not over the crate: every other case here asks about a handle
+    /// it minted itself.
+    static ONE_RUNNER: Mutex<()> = Mutex::new(());
+
+    fn one_runner_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        match ONE_RUNNER.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// `tasks()`, without the out-pointer the row is called through.
+    fn tasks_handle() -> i64 {
+        let mut handle = 0i64;
+        // SAFETY: `handle` is a live, aligned `i64`.
+        unsafe { buri_rt_host_testing_tasks(&raw mut handle) };
+        handle
+    }
+
+    /// `TestTasks::replan`, likewise.
+    fn replan_of(handle: i64) -> i64 {
+        let mut next = 0i64;
+        // SAFETY: `next` is a live, aligned `i64`.
+        unsafe { buri_rt_host_testing_test_tasks_replan(handle, &raw mut next) };
+        next
+    }
+
+    /// One entry of a plan, at the row's own signature.
+    fn add_task_fault(handle: i64, index: i64, nth: i64, reason: &str) {
+        // SAFETY: the range is a live `&str`'s.
+        unsafe {
+            buri_rt_host_testing_test_tasks_add_fault(
+                handle,
+                index,
+                nth,
+                std::ptr::null_mut(),
+                reason.as_ptr(),
+                reason.len() as u64,
+            );
+        }
+    }
+
 }

@@ -72,6 +72,18 @@
 //! a handle and a plan, and the reason `faults` hands the runner a rendering of
 //! each entry as it installs it.
 //!
+//! ## The order the work happens in
+//!
+//! `tasks()` is the one double whose subject is not state but **scheduling**.
+//! `Tasks.parallel` promises its results in the items' order and promises
+//! nothing about the order the work runs in, so a program that depended on the
+//! second would pass every test and fail in production. This double makes the
+//! order a value a test writes down: program order by default, `anyOrder()` for
+//! one seeded order, and `everyOrder()` for all of them — which re-runs the
+//! `test` body once per completion order, so the assertion at the end of it is
+//! an assertion about every order rather than about one. A seed is the order's
+//! own number, so a failure names a line that replays it.
+//!
 //! ## `args`, and the one name that could not be the spelling it wants
 //!
 //! `Env` declares `arguments(self): [Str]` — the reader — and a type has one
@@ -82,7 +94,7 @@
 
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, Header, IoError, Method, Net, NetError, Proc, Rand,
-  Region, Request, Response, Stderr, Stdin, Stdout,
+  Region, Request, Response, Stderr, Stdin, Stdout, Tasks,
 };
 
 // --- Alloc --------------------------------------------------------------------
@@ -1065,5 +1077,207 @@ impl NetCall {
   /// about to assert on is `failsOnCall(1, .Timeout)` and a responder.
   export fn failsOnCall(self, nth: Int, error: NetError): NetFault {
     NetFault { call: self, error: error, nth: nth }
+  }
+}
+
+// --- Tasks --------------------------------------------------------------------
+
+/// Runs every task, one at a time, in an order the test chooses — and by
+/// default in the order the items are written.
+///
+/// `Tasks.parallel` promises its *results* in the items' order and promises
+/// nothing about the order the work happens in, which is the one thing about a
+/// concurrent program a test cannot otherwise pin down. This double makes that
+/// order a value: `tasks()` runs the tasks in program order, `anyOrder()` runs
+/// them in one seeded order, and `everyOrder()` runs the whole `test` body once
+/// per completion order. Nothing here is concurrent — a double that raced would
+/// be the thing it exists to remove — so a task runs to completion before the
+/// next one starts, and `calls()` reports them in that order.
+///
+/// ## The seed is the order's own number
+///
+/// There are `n!` orders of `n` tasks, and a seed is which of them, counted
+/// from zero in the order the orders themselves sort in: `seed(0)` is program
+/// order, `seed(1)` swaps the last two, and the last seed is the reverse. So a
+/// seed **replays** rather than merely re-randomising: `everyOrder`'s fourth
+/// run and `seed(3)` are the same order, which is what lets a failure report
+/// name one line a reader can paste back. A seed past the last one wraps, so a
+/// number derived from a program's content is a legal seed at every length.
+///
+/// `anyOrder()` with no seed is the **reverse** of program order, which is the
+/// single order most likely to catch a program that depended on the order it
+/// was given. It is deliberately not a random one: a suite whose result changed
+/// between two runs of the same program could not be cached, and a failure
+/// nobody can reproduce is a failure nobody fixes.
+///
+/// ## A bare handle, where `TestFs` and `TestNet` carry two things
+///
+/// Those two hold their fault plan in the program because a plan carries an
+/// `IoError` or a `NetError`, and `cli/runtime/lib.rs` §2.1 cannot hand an
+/// error variant with a field back across a row. A task has no error to carry —
+/// `parallel` answers `[B]` and every `B` comes from the closure — so a fault
+/// here is an *index*, a count and a sentence, all three of which cross. The
+/// runner therefore does the matching as well as the promising, and this value
+/// is the handle and nothing else.
+export struct TestTasks(I64);
+
+impl Tasks for TestTasks {
+  /// Every task once, in the order this double schedules them, and the results
+  /// in the items' order.
+  ///
+  /// The runtime drives the walk, through the same closure trampoline
+  /// `host.HostTasks.parallel` uses (`backend/intrinsic_keys.rs`'s `step_call`)
+  /// and for the reason that mechanism exists: calling a Buri closure is what a
+  /// Buri body cannot arrange from the outside, because the step is handed the
+  /// caller's context and a method body has no name for it. So the double runs
+  /// the *same* boundary the real implementation runs, which is what makes a
+  /// test of a program through this an honest test of the program through that.
+  fn parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B];
+}
+
+/// Program order, no faults, and a fresh log.
+export fn tasks(): TestTasks;
+
+impl TestTasks {
+  /// A **new** scheduler running its tasks in one seeded order.
+  ///
+  /// The default seed is the reverse of program order; `seed(n)` names another.
+  /// One order per run of the body, not one per `parallel`: two fan-outs of the
+  /// same length in one block are scheduled the same way, so a test that asserts
+  /// on both is asserting about one decision rather than two.
+  export fn anyOrder(self): TestTasks;
+  /// A **new** scheduler that runs the whole `test` body once per completion
+  /// order — `n!` times for a `parallel` over `n` items.
+  ///
+  /// The body, not the fan-out: a task's effects are the point, and re-running
+  /// only the loop would re-run them against a filesystem the last order had
+  /// already written to. Every run therefore builds its own doubles from the
+  /// same lines, which is what makes the runs independent and what makes the
+  /// assertion at the end of the body an assertion about *every* order.
+  ///
+  /// Six items are 720 runs of the body and seven are 5040, so this refuses
+  /// above six and says so. A fan-out that wide is `anyOrder`'s question.
+  ///
+  /// The first failing order ends the block, because a failed assertion is an
+  /// abort and there is nothing to catch (SPEC 6.10) — so the report names the
+  /// order that failed and the seed that replays it, and the orders after it do
+  /// not run.
+  export fn everyOrder(self): TestTasks;
+  /// A **new** scheduler at that seed — the order's own number, counted from
+  /// zero, wrapping past the last.
+  ///
+  /// This is `anyOrder` with the choice named, and it is what a failure report
+  /// prints for a reader to paste back: `seed(3)` is `everyOrder`'s fourth run,
+  /// exactly.
+  export fn seed(self, n: Int): TestTasks;
+  /// A **new** scheduler failing the tasks this plan names — and a promise that
+  /// every one of them is reached.
+  ///
+  /// A task has no error channel to answer through, so a task the plan fails is
+  /// a task that ends the program — which is what a task that died would do to
+  /// the run for real. A fault is therefore a call and a **reason**, and the
+  /// block fails with that reason where a real one would have failed with a
+  /// stack. The tasks scheduled before it have run and had their effects; the
+  /// ones after it have not started.
+  ///
+  /// The rules are `TestFs::faults`' rules: `task(k).fails(why)` fails that task
+  /// every time it is reached and `task(k).failsOnCall(n, why)` the `n`th time,
+  /// counted from one over the matching tasks — which counts `parallel` calls,
+  /// since one call reaches each index once. A fault whose task is never
+  /// reached fails the test. `faults` replaces rather than composing, and
+  /// retires the plan it replaced.
+  export fn faults(self, plan: [TaskFault]): TestTasks {
+    let planned = self.replan();
+    let _ = describeTaskPlan(planned, plan, 0);
+    planned
+  }
+  /// Every task this scheduler ran, in the order they completed.
+  ///
+  /// The order the *work* happened in, which is what this double exists to
+  /// choose and the only place it is observable: the result list is in the
+  /// items' order whatever this says. A task the plan failed is not here,
+  /// because it never completed — and the block it ended has no assertion left
+  /// to read this with anyway.
+  export fn calls(self): [TaskCall];
+  /// Which run of the `test` body this is, counted from one.
+  ///
+  /// One for a block that is not being re-run, so a test that reads it under
+  /// `tasks()` or `anyOrder()` reads the truth rather than a special case. Under
+  /// `everyOrder` it is the number of the order this run is using, plus one —
+  /// `seed(runs() - 1)` is this run's order.
+  ///
+  /// The answer is the **block**'s rather than this handle's: the body's runs
+  /// are the runner's bookkeeping, and a block with two schedulers in it is
+  /// still one block being run again. It is a method because that is how a test
+  /// reaches it, not because the handle decides it.
+  export fn runs(self): Int;
+  /// How many runs of the body there will be: `n!` under `everyOrder` once a
+  /// `parallel` has said what `n` is, and one otherwise.
+  ///
+  /// One before the first `parallel`, because until then nothing knows how many
+  /// tasks there are to order.
+  export fn orders(self): Int;
+  /// A **new** scheduler with a fresh, empty plan and this one's ordering,
+  /// retiring the plan it was using.
+  fn replan(self): TestTasks;
+  /// One entry of a plan: which task, on which call, and why — the three
+  /// pieces a failure message is assembled from, and the three the runner
+  /// matches on.
+  fn addFault(self, index: Int, nth: Int, reason: Str): ();
+}
+
+/// Hands the runner each entry of a plan as it is installed.
+///
+/// `describeFsPlan`'s walk. It is a walk here rather than a list crossing whole
+/// because a `[TaskFault]` is a list of records holding a `Str`, and one row per
+/// entry is the shape the other two doubles already use.
+fn describeTaskPlan(ctx: TestTasks, plan: [TaskFault], i: Int): () {
+  match (plan.get(i)) {
+    .None => (),
+    .Some(fault) => {
+      let _ = ctx.addFault(fault.call.index, fault.nth, fault.reason);
+      describeTaskPlan(ctx, plan, i + 1)
+    },
+  }
+}
+
+/// One task of one `parallel`, named by its index — as `calls()` reports it and
+/// as a plan names it.
+///
+/// The index and not the item: a task is identified by where it is in the
+/// fan-out, which is the one thing every task of every `parallel` has and the
+/// only thing the effect's signature promises about it (`f` is handed the
+/// index). An item would have to be `Show`n to be recorded and `Eq` to be
+/// matched, and `parallel` bounds neither.
+export struct TaskCall {
+  index: Int,
+}
+
+derive Eq, Show for TaskCall;
+
+/// The task at that index, as a call.
+export fn task(index: Int): TaskCall {
+  TaskCall { index: index }
+}
+
+/// One planned failure of a `TestTasks`. `FsFault`'s three fields, with a reason
+/// where the filesystem has an error: a task answers `B` and has no error
+/// channel, so what a fault carries is what the failure will say.
+export struct TaskFault {
+  call: TaskCall,
+  reason: Str,
+  nth: Int,
+}
+
+impl TaskCall {
+  /// This task fails with this reason, every time it is reached.
+  export fn fails(self, reason: Str): TaskFault {
+    TaskFault { call: self, reason: reason, nth: 0 }
+  }
+  /// The `nth` time this task is reached it fails, counted from one over the
+  /// matching tasks — which is once per `parallel`, so `n` is the number of the
+  /// fan-out rather than of the task.
+  export fn failsOnCall(self, nth: Int, reason: Str): TaskFault {
+    TaskFault { call: self, reason: reason, nth: nth }
   }
 }
