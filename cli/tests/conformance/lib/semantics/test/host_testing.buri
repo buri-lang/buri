@@ -21,10 +21,11 @@ from "core/host/testing/lib.buri" import {
   renameFile, stderr, stdin, stdout, syncFile, writeFile, writeFileBytes,
 };
 from "core/effect/lib.buri" import {
-  Alloc, Clock, Env, Fs, IoError, Net, NetError, Proc, Rand, Region, Request,
-  Response, Stderr, Stdin, Stdout,
+  Alloc, Clock, Env, Fs, Header, IoError, Net, NetError, Proc, Rand, Region,
+  Request, Response, Stderr, Stdin, Stdout,
 };
 from "core/net/http/lib.buri" import * as http;
+from "core/str/lib.buri" import * as str;
 
 // Ordinary functions over the effects, so what the doubles are asked is what a
 // program would ask them rather than what a test can reach directly.
@@ -1101,4 +1102,412 @@ test "a call is compared by its arguments and not by where it came from" {
   let _ = assert.ok(loadText(ctx, "a"));
   assert.eq(store.calls(), [readFile("a")]);
   assert.notEq(store.calls(), [readFile("b")]);
+}
+
+// -----------------------------------------------------------------------------
+// faults() — the fault plan
+// -----------------------------------------------------------------------------
+//
+// The design note's five worked examples, clause by clause, and then the rules
+// they stand on. Success comes from the environment and failure comes from the
+// plan, so every block here declares both halves and asserts the outcome.
+//
+// Two of the five bind `Tasks: tasks().everyOrder()`. `TestTasks` is D5 and has
+// not landed, so those two read their files in program order and the clause
+// about *order* — that the merge holds whatever order the reads land in — is
+// the one thing in this section that is not yet asserted. Everything else in
+// all five is.
+
+struct Configuration {
+  name: Str,
+  token: Str,
+}
+
+derive Eq, Show for Configuration;
+
+/// Merges the three files of a configuration directory, naming the first that
+/// could not be read.
+fn getConfiguration<C: Alloc + Fs>(ctx: C): Result<Configuration, Str> {
+  match (ctx.readFile("app/config.toml")) {
+    .Err(e) => .Err(reported(ctx, "app/config.toml", e)),
+    .Ok(config) => match (ctx.readFile("app/secrets.env")) {
+      .Err(e) => .Err(reported(ctx, "app/secrets.env", e)),
+      .Ok(secrets) => match (ctx.readFile("app/overrides.json")) {
+        .Err(e) => .Err(reported(ctx, "app/overrides.json", e)),
+        .Ok(_extra) => .Ok(Configuration {
+          name: quoted(config),
+          token: valueOf(secrets),
+        }),
+      },
+    },
+  }
+}
+
+/// The text between the first pair of quotation marks.
+fn quoted(text: Str): Str {
+  match (text.splitOnce("\"")) {
+    .None => "",
+    .Some(opened) => match (opened.1.splitOnce("\"")) {
+      .None => "",
+      .Some(closed) => closed.0,
+    },
+  }
+}
+
+/// Everything after the first `=`.
+fn valueOf(text: Str): Str {
+  match (text.splitOnce("=")) {
+    .None => "",
+    .Some(parts) => parts.1.trim(),
+  }
+}
+
+/// A path and what went wrong with it, as a caller would report it.
+fn reported<C: Alloc>(ctx: C, path: Str, error: IoError): Str {
+  match (error) {
+    .PermissionDenied => str.format(ctx, "${path}: permission denied"),
+    .Other(message) => str.format(ctx, "${path}: ${message}"),
+    _ => str.format(ctx, "${path}: unreadable"),
+  }
+}
+
+/// Appends every entry to one write-ahead log, stopping at the first failure —
+/// so what is in the log afterwards is a prefix of what it was asked to write.
+fn commitThree<C: Alloc + Fs>(ctx: C, entries: [[U8]]): Result<(), Str> {
+  commitFrom(ctx, entries, 0)
+}
+
+fn commitFrom<C: Alloc + Fs>(ctx: C, entries: [[U8]], i: Int): Result<(), Str> {
+  match (entries.get(i)) {
+    .None => .Ok(()),
+    .Some(entry) => match (ctx.appendFile("wal", entry)) {
+      .Err(e) => .Err(reported(ctx, "wal", e)),
+      .Ok(_written) => commitFrom(ctx, entries, i + 1),
+    },
+  }
+}
+
+/// Fetches the configuration from upstream and caches it, retrying a timeout
+/// once. Nothing is written unless an answer arrived.
+fn refreshFromUpstream<C: Alloc + Fs + Net>(ctx: C, request: Request): Result<(), Str> {
+  match (ctx.fetch(request)) {
+    .Ok(answer) => cached(ctx, answer),
+    .Err(.Timeout) => match (ctx.fetch(request)) {
+      .Ok(answer) => cached(ctx, answer),
+      .Err(_again) => .Err("upstream: timeout"),
+    },
+    .Err(_other) => .Err("upstream: refused"),
+  }
+}
+
+fn cached<C: Alloc + Fs>(ctx: C, answer: Response): Result<(), Str> {
+  match (http.bodyText(ctx, answer.body)) {
+    .Err(_bad) => .Err("upstream: not text"),
+    .Ok(text) => match (ctx.writeFile("app/cache.json", text)) {
+      .Err(e) => .Err(reported(ctx, "app/cache.json", e)),
+      .Ok(_written) => .Ok(()),
+    },
+  }
+}
+
+/// The three files the note's first two examples declare.
+fn appFiles(): [(Str, Str)] {
+  [
+    ("app/config.toml", "name = \"demo\""),
+    ("app/secrets.env", "TOKEN=abc"),
+    ("app/overrides.json", "{}"),
+  ]
+}
+
+// --- the five worked examples -------------------------------------------------
+
+/// The note's first example, without its `Tasks` binding: `everyOrder` is
+/// `TestTasks` and has not landed, so the three reads happen in program order.
+test "merges the three files" {
+  let files = fs().files(appFiles());
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(
+    getConfiguration(ctx),
+    .Ok(Configuration { name: "demo", token: "abc" }),
+  );
+}
+
+test "a secrets file that cannot be read is reported" {
+  let files = fs()
+    .files(appFiles())
+    .faults([readFile("app/secrets.env").fails(.PermissionDenied)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(getConfiguration(ctx), .Err("app/secrets.env: permission denied"));
+}
+
+test "the third append fails and nothing after it is written" {
+  let entries: [[U8]] = [[97], [98], [99]];
+  let wal = fs().faults([appendFile("wal", [99]).failsOnCall(1, .Other("disk full"))]);
+  let ctx = context { Alloc: alloc(), Fs: wal };
+  assert.eq(commitThree(ctx, entries), .Err("wal: disk full"));
+  assert.eq(
+    wal.calls(),
+    [appendFile("wal", [97]), appendFile("wal", [98]), appendFile("wal", [99])],
+  );
+  // The prefix is what survived: the failed append wrote nothing.
+  assert.eq(assert.ok(wal.read("wal")), "ab");
+}
+
+test "nothing is written when upstream times out" {
+  let request = http.request(.Get, "https://config.test/app");
+  let files = fs().files([("app/cache.json", "old")]);
+  let upstream = net().faults([fetch(request).fails(.Timeout)]);
+  let ctx = context { Alloc: alloc(), Fs: files, Net: upstream };
+  assert.eq(refreshFromUpstream(ctx, request), .Err("upstream: timeout"));
+  assert.eq(files.snapshot(), [("app/cache.json", "old")]);
+  assert.eq(files.calls(), []);
+}
+
+test "a timed-out first attempt is retried" {
+  let ctx = context { Alloc: alloc() };
+  let answer = http.text(ctx, "name = \"demo\"");
+  let request = http.request(.Get, "https://config.test/app");
+  let upstream = net()
+    .respond(fn(_request) => .Ok(answer))
+    .faults([fetch(request).failsOnCall(1, .Timeout)]);
+  let files = fs();
+  let live = context { Alloc: alloc(), Fs: files, Net: upstream };
+  assert.ok(refreshFromUpstream(live, request));
+  assert.eq(upstream.calls(), [fetch(request), fetch(request)]);
+  assert.eq(assert.ok(files.read("app/cache.json")), "name = \"demo\"");
+}
+
+// --- the rules the five stand on ----------------------------------------------
+
+test "a fault fires only on the call it names" {
+  let files = fs()
+    .files([("a", "A"), ("b", "B")])
+    .faults([readFile("b").fails(.PermissionDenied)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+  assert.eq(which(loadText(ctx, "b")), "PermissionDenied");
+}
+
+test "fails fires on every matching call" {
+  let files = fs().files([("a", "A")]).faults([readFile("a").fails(.PermissionDenied)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(which(loadText(ctx, "a")), "PermissionDenied");
+  assert.eq(which(loadText(ctx, "a")), "PermissionDenied");
+  assert.eq(which(loadText(ctx, "a")), "PermissionDenied");
+}
+
+test "failsOnCall fires on the nth matching call and no other" {
+  let files = fs().files([("a", "A")]).faults([readFile("a").failsOnCall(2, .NotFound)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+  assert.eq(which(loadText(ctx, "a")), "NotFound");
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+}
+
+/// The `n` is a position among the *matching* calls, so a call of another shape
+/// between two of them does not move it.
+test "the call number counts matching calls and not calls" {
+  let files = fs()
+    .files([("a", "A"), ("b", "B")])
+    .faults([readFile("a").failsOnCall(2, .NotFound)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+  assert.eq(assert.ok(loadText(ctx, "b")), "B");
+  assert.eq(which(loadText(ctx, "a")), "NotFound");
+}
+
+/// Matching is the `Eq` the `FsCall` records derive, so a fault names a call
+/// exactly as `calls()` reports it — same constructor, same arguments.
+test "a fault matches by every argument of the call it names" {
+  let files = fs().faults([writeFile("a", "B").fails(.PermissionDenied)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.ok(saveText(ctx, "a", "A"));
+  assert.eq(which(saveText(ctx, "a", "B")), "PermissionDenied");
+  assert.eq(assert.ok(files.read("a")), "A");
+}
+
+/// The same path under two methods is two calls, which is what one record per
+/// double and a name inside it is for.
+test "a fault on one method leaves the other alone" {
+  let files = fs().files([("a", "A")]).faults([readFileBytes("a").fails(.NotFound)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+  assert.isTrue(ctx.readFileBytes("a").isErr());
+}
+
+test "a call the plan failed is a call, and it performed nothing" {
+  let files = fs().files([("a", "A")]).faults([removeFile("a").fails(.PermissionDenied)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(which(ctx.removeFile("a")), "PermissionDenied");
+  assert.eq(files.calls(), [removeFile("a")]);
+  assert.eq(files.snapshot(), [("a", "A")]);
+}
+
+test "an error that carries text carries it back unchanged" {
+  let files = fs().faults([makeDir("d").fails(.Other("no space"))]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(ctx.makeDir("d"), .Err(.Other("no space")));
+}
+
+/// Every variant of `IoError`, including the one that carries a `Str`: the plan
+/// holds the value the test wrote, so nothing here is a variant index in
+/// disguise.
+test "every IoError variant a plan can name crosses unchanged" {
+  let files = fs().faults([
+    readFile("notFound").fails(.NotFound),
+    readFile("denied").fails(.PermissionDenied),
+    readFile("readOnly").fails(.ReadOnly),
+    readFile("exists").fails(.AlreadyExists),
+    readFile("notADirectory").fails(.NotADirectory),
+    readFile("crossDevice").fails(.CrossDevice),
+    readFile("other").fails(.Other("spelled out")),
+  ]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(ctx.readFile("notFound"), .Err(.NotFound));
+  assert.eq(ctx.readFile("denied"), .Err(.PermissionDenied));
+  assert.eq(ctx.readFile("readOnly"), .Err(.ReadOnly));
+  assert.eq(ctx.readFile("exists"), .Err(.AlreadyExists));
+  assert.eq(ctx.readFile("notADirectory"), .Err(.NotADirectory));
+  assert.eq(ctx.readFile("crossDevice"), .Err(.CrossDevice));
+  assert.eq(ctx.readFile("other"), .Err(.Other("spelled out")));
+}
+
+test "every NetError variant a plan can name crosses unchanged" {
+  let timeout = http.request(.Get, "https://n.test/timeout");
+  let refused = http.request(.Get, "https://n.test/refused");
+  let badUrl = http.request(.Get, "https://n.test/badUrl");
+  let transport = http.request(.Get, "https://n.test/transport");
+  let aborted = http.request(.Get, "https://n.test/aborted");
+  let server = net().faults([
+    fetch(timeout).fails(.Timeout),
+    fetch(refused).fails(.Refused),
+    fetch(badUrl).fails(.BadUrl("u")),
+    fetch(transport).fails(.Transport("t")),
+    fetch(aborted).fails(.Aborted),
+  ]);
+  let ctx = context { Alloc: alloc(), Net: server };
+  assert.eq(ctx.fetch(timeout), .Err(.Timeout));
+  assert.eq(ctx.fetch(refused), .Err(.Refused));
+  assert.eq(ctx.fetch(badUrl), .Err(.BadUrl("u")));
+  assert.eq(ctx.fetch(transport), .Err(.Transport("t")));
+  assert.eq(ctx.fetch(aborted), .Err(.Aborted));
+}
+
+/// A failed request never reaches the responder, which is what makes `respond`
+/// and `faults` two answers to two different questions.
+test "a request the plan fails does not reach the responder" {
+  let request = http.request(.Get, "https://n.test/one");
+  let other = http.request(.Get, "https://n.test/two");
+  let ctx = context { Alloc: alloc() };
+  let answer = http.text(ctx, "answered");
+  let server = net()
+    .respond(fn(_request) => .Ok(answer))
+    .faults([fetch(request).fails(.Refused)]);
+  let live = context { Alloc: alloc(), Net: server };
+  assert.eq(live.fetch(request), .Err(.Refused));
+  assert.eq(assert.ok(live.fetch(other)).status, 200);
+  assert.eq(server.calls(), [fetch(request), fetch(other)]);
+}
+
+/// Two requests differing in one header are two calls, so a plan naming one of
+/// them leaves the other alone — `NetCall`'s `Eq` reads the whole request.
+test "a net fault matches the whole request" {
+  let plain = http.request(.Get, "https://n.test/x");
+  let tagged = Request {
+    method: .Get,
+    url: "https://n.test/x",
+    headers: [Header { name: "x-trace", value: "1" }],
+    body: [],
+  };
+  let ctx = context { Alloc: alloc() };
+  let answer = http.text(ctx, "ok");
+  let server = net().respond(fn(_request) => .Ok(answer)).faults([fetch(tagged).fails(.Aborted)]);
+  let live = context { Alloc: alloc(), Net: server };
+  assert.eq(assert.ok(live.fetch(plain)).status, 200);
+  assert.eq(live.fetch(tagged), .Err(.Aborted));
+}
+
+// --- the plan travels with the double -----------------------------------------
+
+test "a builder after faults keeps the plan" {
+  let files = fs().faults([readFile("a").fails(.NotFound)]).files([("a", "A")]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(which(loadText(ctx, "a")), "NotFound");
+}
+
+test "faults after a builder keeps the files" {
+  let files = fs()
+    .files([("a", "A"), ("b", "B")])
+    .faults([readFile("b").fails(.CrossDevice)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+  assert.eq(which(loadText(ctx, "b")), "CrossDevice");
+}
+
+test "readOnly keeps the plan and the plan is consulted first" {
+  let files = fs().files([("a", "A")]).faults([readFile("a").fails(.NotFound)]).readOnly();
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(which(loadText(ctx, "a")), "NotFound");
+}
+
+test "faults answers a new filesystem and leaves its receiver whole" {
+  let sound = fs().files([("a", "A")]);
+  let broken = sound.faults([readFile("a").fails(.NotFound)]);
+  assert.eq(assert.ok(loadText(context { Alloc: alloc(), Fs: sound }, "a")), "A");
+  assert.eq(which(loadText(context { Alloc: alloc(), Fs: broken }, "a")), "NotFound");
+}
+
+test "faults answers a new log" {
+  let files = fs().files([("a", "A")]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+  let broken = files.faults([readFile("a").fails(.NotFound)]);
+  assert.eq(broken.calls(), []);
+  assert.eq(files.calls(), [readFile("a")]);
+  // And the plan is kept, because a plan is a promise: a block that declared
+  // this fault and never made the call would fail on the way out.
+  assert.eq(which(loadText(context { Alloc: alloc(), Fs: broken }, "a")), "NotFound");
+  assert.eq(broken.calls(), [readFile("a")]);
+}
+
+/// `faults` replaces, as `respond` does: two plans for one call have no answer
+/// to which of them wins, and the plan that was replaced is retired along with
+/// its promise.
+test "the last faults in the chain is the plan" {
+  let files = fs()
+    .files([("a", "A")])
+    .faults([readFile("a").fails(.PermissionDenied)])
+    .faults([readFile("a").fails(.NotFound)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(which(loadText(ctx, "a")), "NotFound");
+}
+
+test "respond keeps the plan" {
+  let request = http.request(.Get, "https://n.test/x");
+  let ctx = context { Alloc: alloc() };
+  let answer = http.text(ctx, "ok");
+  let server = net().faults([fetch(request).fails(.Timeout)]).respond(fn(_r) => .Ok(answer));
+  let live = context { Alloc: alloc(), Net: server };
+  assert.eq(live.fetch(request), .Err(.Timeout));
+}
+
+// --- the promise ---------------------------------------------------------------
+//
+// "A fault whose call never happens fails the test" is the one clause that
+// cannot be asserted from inside a test block — a block that failed it is a
+// block that failed. `cli/tests/failing/unconsumed_fault/` is the golden that
+// pins it, on both backends, with the fault's own spelling in the report.
+//
+// What can be asserted here is the other side of it: a plan every one of whose
+// entries fires leaves the block passing, which every block above already shows,
+// and a plan that is retired makes no claim at all — which is what the block
+// above this comment relies on and what this one states.
+
+test "a plan whose entries all fire leaves the block passing" {
+  let files = fs()
+    .files([("a", "A"), ("b", "B")])
+    .faults([readFile("a").fails(.NotFound), writeFile("b", "C").fails(.ReadOnly)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(which(loadText(ctx, "a")), "NotFound");
+  assert.eq(which(saveText(ctx, "b", "C")), "ReadOnly");
 }

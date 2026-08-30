@@ -215,8 +215,11 @@ a response that needs one is built before it and captured. `fs()`, `net()` and
 `stdin()` each keep a log of what they were asked: `calls()` answers it in the
 order the calls completed, and a test writes down what it expects with the
 constructor of the same name (`readFile(path)`, `writeFile(path, body)`,
-`fetch(request)`, `readBytes(n)`, one per method). See
-[testing](../build/testing.md).
+`fetch(request)`, `readBytes(n)`, one per method). Those same constructors say
+what **breaks**: `fs().faults([readFile(p).fails(.PermissionDenied)])` fails
+every matching call and `failsOnCall(n, e)` the `n`th, so success comes from the
+fixture and failure comes from the plan — and a fault whose call never happens
+fails the test. See [testing](../build/testing.md).
 
 ### Allocators
 

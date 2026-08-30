@@ -1072,116 +1072,182 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
-    // `TestFs`'s seventeen. `self` is `struct TestFs(I64)` and carries a handle,
-    // so it is `Arg::Scalar` here as `MemFs`'s is — including on the two
-    // builders and on `readOnly`, which read the receiver's view rather than
-    // ignoring it.
+    // `TestFs`'s twenty-two, every one over a **handle**: a `TestFs` is a handle
+    // and a fault plan since the plan landed, and an argument crosses as its
+    // leaves, so a row taking `self` would be handed three values where it
+    // expects one. The eleven methods of `Fs` are Buri bodies over these rows,
+    // and `host_testing.buri` says why the plan stays in the program — an
+    // `IoError` carries a `Str` on `.Other`, which §2.1 cannot name.
     //
     // `snapshot` answers a `[(Str, Str)]`, which is a list like any other at
     // this boundary: `Ret::Out` writes the descriptor, and the element width is
-    // the tuple's layout rather than anything this table names.
-    Entry { key: "host_testing.fs", symbol: "buri_rt_host_testing_fs", args: &[], ret: Ret::Out },
+    // the tuple's layout rather than anything this table names. The three
+    // builders and `newFs` answer the handle itself and so are `Ret::Scalar`,
+    // `newNet`'s shape.
     Entry {
-        key: "host_testing.TestFs.files",
-        symbol: "buri_rt_host_testing_test_fs_files",
-        args: &[Arg::Scalar, Arg::List],
-        ret: Ret::Out,
+        key: "host_testing.newFs",
+        symbol: "buri_rt_host_testing_new_fs",
+        args: &[],
+        ret: Ret::Scalar,
     },
     Entry {
-        key: "host_testing.TestFs.filesBytes",
-        symbol: "buri_rt_host_testing_test_fs_files_bytes",
+        key: "host_testing.fsFiles",
+        symbol: "buri_rt_host_testing_fs_files",
         args: &[Arg::Scalar, Arg::List],
-        ret: Ret::Out,
+        ret: Ret::Scalar,
     },
     Entry {
-        key: "host_testing.TestFs.readOnly",
-        symbol: "buri_rt_host_testing_test_fs_read_only",
+        key: "host_testing.fsFilesBytes",
+        symbol: "buri_rt_host_testing_fs_files_bytes",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.fsReadOnly",
+        symbol: "buri_rt_host_testing_fs_read_only",
         args: &[Arg::Scalar],
-        ret: Ret::Out,
+        ret: Ret::Scalar,
     },
     Entry {
-        key: "host_testing.TestFs.read",
-        symbol: "buri_rt_host_testing_test_fs_read",
+        key: "host_testing.fsWithPlan",
+        symbol: "buri_rt_host_testing_fs_with_plan",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.fsRead",
+        symbol: "buri_rt_host_testing_fs_read",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.snapshot",
-        symbol: "buri_rt_host_testing_test_fs_snapshot",
+        key: "host_testing.fsSnapshot",
+        symbol: "buri_rt_host_testing_fs_snapshot",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestFs.calls",
-        symbol: "buri_rt_host_testing_test_fs_calls",
+        key: "host_testing.fsCalls",
+        symbol: "buri_rt_host_testing_fs_calls",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestFs.readFile",
-        symbol: "buri_rt_host_testing_test_fs_read_file",
+        key: "host_testing.fsReadFile",
+        symbol: "buri_rt_host_testing_fs_read_file",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.writeFile",
-        symbol: "buri_rt_host_testing_test_fs_write_file",
+        key: "host_testing.fsWriteFile",
+        symbol: "buri_rt_host_testing_fs_write_file",
         args: &[Arg::Scalar, Arg::Str, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.fileExists",
-        symbol: "buri_rt_host_testing_test_fs_file_exists",
+        key: "host_testing.fsFileExists",
+        symbol: "buri_rt_host_testing_fs_file_exists",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Int(8),
     },
     Entry {
-        key: "host_testing.TestFs.readDir",
-        symbol: "buri_rt_host_testing_test_fs_read_dir",
+        key: "host_testing.fsReadDir",
+        symbol: "buri_rt_host_testing_fs_read_dir",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.readFileBytes",
-        symbol: "buri_rt_host_testing_test_fs_read_file_bytes",
+        key: "host_testing.fsReadFileBytes",
+        symbol: "buri_rt_host_testing_fs_read_file_bytes",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.writeFileBytes",
-        symbol: "buri_rt_host_testing_test_fs_write_file_bytes",
+        key: "host_testing.fsWriteFileBytes",
+        symbol: "buri_rt_host_testing_fs_write_file_bytes",
         args: &[Arg::Scalar, Arg::Str, Arg::List],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.appendFile",
-        symbol: "buri_rt_host_testing_test_fs_append_file",
+        key: "host_testing.fsAppendFile",
+        symbol: "buri_rt_host_testing_fs_append_file",
         args: &[Arg::Scalar, Arg::Str, Arg::List],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.renameFile",
-        symbol: "buri_rt_host_testing_test_fs_rename_file",
+        key: "host_testing.fsRenameFile",
+        symbol: "buri_rt_host_testing_fs_rename_file",
         args: &[Arg::Scalar, Arg::Str, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.removeFile",
-        symbol: "buri_rt_host_testing_test_fs_remove_file",
+        key: "host_testing.fsRemoveFile",
+        symbol: "buri_rt_host_testing_fs_remove_file",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.makeDir",
-        symbol: "buri_rt_host_testing_test_fs_make_dir",
+        key: "host_testing.fsMakeDir",
+        symbol: "buri_rt_host_testing_fs_make_dir",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.syncFile",
-        symbol: "buri_rt_host_testing_test_fs_sync_file",
+        key: "host_testing.fsSyncFile",
+        symbol: "buri_rt_host_testing_fs_sync_file",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
+    },
+    // The fault plan's promise. The plan never crosses — it is a list of Buri
+    // values holding an `IoError`, and §2.1 cannot name an error variant that
+    // carries a field, so matching is the `Eq` the `Call` records derive and
+    // happens in `host_testing.buri`. These carry the half a program cannot
+    // keep: `addFsFault` and `addNetFault` say what an entry would read like in
+    // a failure message, `noteFault` records that one fired, and `test.leave`
+    // reports the rest. `noteFsCall` is the twelfth way into a log — a call the
+    // plan failed never reaches the row that would have recorded it, and it is
+    // still a call.
+    Entry {
+        key: "host_testing.addFsFault",
+        symbol: "buri_rt_host_testing_add_fs_fault",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.addNetFault",
+        symbol: "buri_rt_host_testing_add_net_fault",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.faultFails",
+        symbol: "buri_rt_host_testing_fault_fails",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.noteFault",
+        symbol: "buri_rt_host_testing_note_fault",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.noteFsCall",
+        symbol: "buri_rt_host_testing_note_fs_call",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.netRebind",
+        symbol: "buri_rt_host_testing_net_rebind",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.netWithPlan",
+        symbol: "buri_rt_host_testing_net_with_plan",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
     },
     // The call log's remaining four. `spelled` is an `FsCall` constructor's
     // decode and not a filesystem operation: a test writing a call down performs
@@ -1312,6 +1378,14 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Sum,
     },
+    // The one key here that no Buri declaration produces: `middle::monomorphize`
+    // emits it after every `test` body, so that "a fault whose call never
+    // happens fails the test" is checked once for all three backends rather than
+    // three times in three entry points. [`TEST_ENTER`] is the other half and is
+    // called from `emit.rs`'s `test_entry_point` instead, because it is the
+    // *runner's* protocol — which block to run — and this is the *program's*
+    // rule.
+    Entry { key: "test.leave", symbol: TEST_LEAVE, args: &[Arg::Scalar], ret: Ret::Void },
 ];
 
 pub fn entry(key: &str) -> Option<&'static Entry> {
@@ -1346,6 +1420,12 @@ pub const ABORT_ASSERT: &str = "buri_rt_abort_assert";
 /// `test` block at `index`, and a note of which one it is for the record an
 /// abort writes. `cli/runtime/testing.rs` states the protocol.
 pub const TEST_ENTER: &str = "buri_rt_test_enter";
+/// `buri_rt_test_leave(index)` — the end of a `test` block: every fault the
+/// block planned has happened, or the block fails now with the ones that did
+/// not. Reached through the table above rather than from `test_entry_point`,
+/// because `middle::monomorphize` emits the call inside the body's own function
+/// and so all three backends get it from one place.
+pub const TEST_LEAVE: &str = "buri_rt_test_leave";
 /// `buri_rt_test_fail_compared(kind, len, actual, len, expected, len)` — `-> !`,
 /// a failed comparison with both values already rendered by the `Show`
 /// `middle::derives` generated at their type.
@@ -1513,6 +1593,10 @@ mod tests {
             // is open-coded the same way.
             "host_testing.alloc",
             "host_testing.TestAlloc.allocate",
+            // Buri bodies, for the reason two paragraphs up.
+            "host_testing.fs",
+            "host_testing.TestFs.readFile",
+            "host_testing.TestFs.faults",
             // The archive has no body for `core/fs`'s real filesystem past
             // `fileExists` (`cli/runtime/host.rs`). Not a missing *shape*:
             // `MemFs`'s three are the same `Result<T, IoError>` and are in the
@@ -1542,8 +1626,15 @@ mod tests {
             // way to invoke, and its answer is the `Result<Response, NetError>`
             // §2.1 cannot name — and it is why widening §2.1 later changes
             // nothing about the double. Its *log* is a different question and
-            // has three rows above: `newNet`, `recordFetch` and
-            // `netCalls` cross nothing §2.1 restricts.
+            // has five rows above: `newNet`, `netRebind`, `netWithPlan`,
+            // `recordFetch` and `netCalls` cross nothing §2.1 restricts. So does
+            // its **fault plan**, which is the same wall a third time: the plan
+            // is a list of Buri values holding a `NetError`, so it stays in the
+            // program and only its rendering and its fired flags cross.
+            //
+            // `host_testing.fs` is absent for a different reason and is not a
+            // gap: `fs()` is a Buri body too now, because a `TestFs` is a handle
+            // and a plan. `newFs` is the row that mints the handle.
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }
