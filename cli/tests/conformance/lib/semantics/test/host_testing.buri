@@ -1,0 +1,573 @@
+// SPEC 10, 11.2, 11.3 — `core/host/testing`, the doubles a test source binds.
+//
+// `core/host` is the platform's implementations and is importable only from the
+// module that exports `main`; this is the same surface for a test source, and
+// the `testing` segment in the path is the whole of that rule. The names are
+// `core/host`'s names — `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `clock`,
+// `rand`, `env`, `proc` — but they are **called**, so each one is a fresh
+// runner-side handle and no two tests share a clock or a filesystem.
+//
+// Every assertion here is a literal written into the file, so the two backends
+// either both pass it or disagree about the language. `cli/tests/native/
+// conformance.rs` runs this same file through the copy-and-patch backend.
+
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing/lib.buri" import {
+  alloc, stdout, stderr, stdin, fs, clock, rand, env, proc,
+};
+from "core/effect/lib.buri" import {
+  Alloc, Clock, Env, Fs, IoError, Proc, Rand, Region, Stderr, Stdin, Stdout,
+};
+
+// Ordinary functions over the effects, so what the doubles are asked is what a
+// program would ask them rather than what a test can reach directly.
+
+fn speak<C: Stdout>(ctx: C, what: Str): () {
+  let _ = ctx.print("[");
+  let _ = ctx.print(what);
+  let _ = ctx.println("]");
+}
+
+fn shout<C: Stderr>(ctx: C, what: Str): () {
+  let _ = ctx.eprint("<");
+  let _ = ctx.eprintln(what);
+}
+
+fn elapsed<C: Clock>(ctx: C, waiting: Int): I64 {
+  let before = ctx.nowMillis();
+  let _ = ctx.sleepMillis(waiting);
+  ctx.nowMillis() - before
+}
+
+fn stop<C: Proc>(ctx: C, code: Int): () {
+  ctx.exitWith(code)
+}
+
+fn loadText<C: Fs>(ctx: C, path: Str): Result<Str, IoError> {
+  ctx.readFile(path)
+}
+
+fn saveText<C: Fs>(ctx: C, path: Str, body: Str): Result<(), IoError> {
+  ctx.writeFile(path, body)
+}
+
+/// Appends what is at `source` to what is at `into`, creating `into` when it is
+/// absent — one function under test that reads, writes and reports.
+fn copyInto<C: Fs>(ctx: C, source: Str, into: Str): Result<(), IoError> {
+  match (ctx.readFileBytes(source)) {
+    .Err(e) => .Err(e),
+    .Ok(body) => ctx.appendFile(into, body),
+  }
+}
+
+/// Which `IoError` a `Result` failed with, as a word.
+///
+/// Exhaustive over the enum rather than `isErr`, so a filesystem that answered
+/// a *different* failure would be a different word here rather than the same
+/// passing assertion.
+fn which<T>(r: Result<T, IoError>): Str {
+  match (r) {
+    .Ok(_v) => "ok",
+    .Err(.NotFound) => "NotFound",
+    .Err(.PermissionDenied) => "PermissionDenied",
+    .Err(.ReadOnly) => "ReadOnly",
+    .Err(.AlreadyExists) => "AlreadyExists",
+    .Err(.NotADirectory) => "NotADirectory",
+    .Err(.CrossDevice) => "CrossDevice",
+    .Err(.Other(_m)) => "Other",
+  }
+}
+
+// -----------------------------------------------------------------------------
+// alloc
+// -----------------------------------------------------------------------------
+
+test "the test allocator answers the count it was asked for" {
+  let ctx = context { Alloc: alloc() };
+  assert.eq(ctx.allocate(64), Region(64));
+  assert.eq(ctx.allocate(0), Region(0));
+}
+
+// -----------------------------------------------------------------------------
+// stdout and stderr
+// -----------------------------------------------------------------------------
+
+test "captured reads back what a function printed" {
+  let sink = stdout();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  speak(ctx, "hello");
+  assert.eq(sink.captured(), "[hello]\n");
+}
+
+test "each call to stdout is a stream of its own" {
+  let first = stdout();
+  let second = stdout();
+  let ctx = context { Alloc: alloc(), Stdout: first };
+  speak(ctx, "one");
+  assert.eq(second.captured(), "");
+  assert.eq(first.captured(), "[one]\n");
+}
+
+test "writeBytes is captured as the text the octets spell" {
+  let sink = stdout();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let _ = ctx.writeBytes([104, 105]);
+  assert.eq(sink.captured(), "hi");
+}
+
+test "standard error is its own transcript, under the same method name" {
+  let out = stdout();
+  let err = stderr();
+  let ctx = context { Alloc: alloc(), Stdout: out, Stderr: err };
+  shout(ctx, "bad");
+  assert.eq(err.captured(), "<bad\n");
+  assert.eq(out.captured(), "");
+}
+
+// -----------------------------------------------------------------------------
+// stdin
+// -----------------------------------------------------------------------------
+
+test "a fresh stdin is already at end of input" {
+  let ctx = context { Alloc: alloc(), Stdin: stdin() };
+  assert.none(ctx.readLine());
+  assert.none(ctx.readBytes(1));
+}
+
+test "lines reads the lines it was given, then end of input" {
+  let ctx = context { Alloc: alloc(), Stdin: stdin().lines(["first", "second"]) };
+  assert.eq(assert.some(ctx.readLine()), "first");
+  assert.eq(assert.some(ctx.readLine()), "second");
+  assert.none(ctx.readLine());
+}
+
+test "each call to stdin is a cursor of its own" {
+  let first = stdin().lines(["a", "b"]);
+  let second = stdin().lines(["a", "b"]);
+  let one = context { Alloc: alloc(), Stdin: first };
+  let two = context { Alloc: alloc(), Stdin: second };
+  assert.eq(assert.some(one.readLine()), "a");
+  assert.eq(assert.some(one.readLine()), "b");
+  assert.none(one.readLine());
+  // The second stream was never read, so it is still at its first line.
+  assert.eq(assert.some(two.readLine()), "a");
+}
+
+test "bytes takes exactly what it asks for, then end of input" {
+  let ctx = context { Alloc: alloc(), Stdin: stdin().bytes([1, 2, 3, 4]) };
+  let head: [U8] = [1, 2, 3];
+  let tail: [U8] = [4];
+  assert.eq(assert.some(ctx.readBytes(3)), head);
+  assert.eq(assert.some(ctx.readBytes(3)), tail);
+  assert.none(ctx.readBytes(3));
+}
+
+test "a stdin of lines has no octets and one of octets has no lines" {
+  let lines = context { Alloc: alloc(), Stdin: stdin().lines(["a"]) };
+  assert.none(lines.readBytes(1));
+  let octets = context { Alloc: alloc(), Stdin: stdin().bytes([104, 105]) };
+  assert.none(octets.readLine());
+}
+
+test "the last builder in the chain is the stream" {
+  // One stream, two spellings: `lines` and `bytes` REPLACE each other rather
+  // than composing the way `TestEnv`'s two builders do.
+  let want: [U8] = [65];
+  let octets = context { Alloc: alloc(), Stdin: stdin().lines(["a"]).bytes([65]) };
+  assert.eq(assert.some(octets.readBytes(1)), want);
+  assert.none(octets.readLine());
+  let text = context { Alloc: alloc(), Stdin: stdin().bytes([65]).lines(["a"]) };
+  assert.eq(assert.some(text.readLine()), "a");
+  assert.none(text.readBytes(1));
+}
+
+test "a builder answers a new stdin and leaves its receiver at end of input" {
+  let empty = stdin();
+  let filled = empty.lines(["x"]);
+  let a = context { Alloc: alloc(), Stdin: empty };
+  let b = context { Alloc: alloc(), Stdin: filled };
+  assert.eq(assert.some(b.readLine()), "x");
+  assert.none(a.readLine());
+}
+
+// -----------------------------------------------------------------------------
+// fs — the filesystem and its two fixtures
+// -----------------------------------------------------------------------------
+
+test "a fresh filesystem holds nothing" {
+  let empty = fs();
+  let ctx = context { Alloc: alloc(), Fs: empty };
+  assert.isTrue(ctx.readFile("a").isErr());
+  assert.isFalse(ctx.fileExists("a"));
+  assert.eq(empty.snapshot().len(), 0);
+}
+
+test "files contains exactly the entries it was given" {
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A"), ("b", "B")]) };
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+  assert.eq(assert.ok(loadText(ctx, "b")), "B");
+  assert.isTrue(loadText(ctx, "c").isErr());
+}
+
+test "reading a path the filesystem does not have gives IoError.NotFound" {
+  // The match in `which` is exhaustive, so a fourth answer cannot hide behind
+  // `isErr`.
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]) };
+  assert.eq(which(loadText(ctx, "missing")), "NotFound");
+}
+
+test "an empty file is a file, not an absent one" {
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("e", "")]) };
+  assert.isTrue(ctx.fileExists("e"));
+  assert.eq(assert.ok(loadText(ctx, "e")), "");
+}
+
+test "a write is readable back, and a second one replaces the body" {
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "one")]) };
+  assert.ok(saveText(ctx, "a", "two"));
+  assert.eq(assert.ok(loadText(ctx, "a")), "two");
+  assert.ok(saveText(ctx, "b", "new"));
+  assert.eq(assert.ok(loadText(ctx, "b")), "new");
+}
+
+test "each call to fs is a filesystem of its own" {
+  let mine = fs().files([("a", "A")]);
+  let yours = fs();
+  let ctx = context { Alloc: alloc(), Fs: mine };
+  assert.ok(saveText(ctx, "b", "B"));
+  assert.eq(yours.snapshot().len(), 0);
+  assert.eq(mine.snapshot().len(), 2);
+}
+
+test "files is additive, and the later entry for a path wins" {
+  let both = fs().files([("a", "one")]).files([("a", "two"), ("b", "B")]);
+  assert.eq(both.snapshot(), [("a", "two"), ("b", "B")]);
+}
+
+test "filesBytes is the byte twin, and composes with files in either order" {
+  let raw: [U8] = [104, 105];
+  let one = fs().files([("t", "text")]).filesBytes([("b", raw)]);
+  let two = fs().filesBytes([("b", raw)]).files([("t", "text")]);
+  let a = context { Alloc: alloc(), Fs: one };
+  let b = context { Alloc: alloc(), Fs: two };
+  assert.eq(assert.ok(a.readFileBytes("b")), raw);
+  assert.eq(assert.ok(a.readFile("t")), "text");
+  assert.eq(assert.ok(b.readFile("b")), "hi");
+  assert.eq(one.snapshot(), two.snapshot());
+}
+
+test "a builder answers a new filesystem and leaves its receiver alone" {
+  let empty = fs();
+  let filled = empty.files([("a", "A")]);
+  assert.eq(empty.snapshot().len(), 0);
+  assert.eq(filled.snapshot().len(), 1);
+}
+
+test "octets a text encoding cannot carry survive a round trip" {
+  let ctx = context { Alloc: alloc(), Fs: fs() };
+  let raw: [U8] = [0, 1, 254, 255, 128];
+  assert.ok(ctx.writeFileBytes("blob", raw));
+  assert.eq(assert.ok(ctx.readFileBytes("blob")), raw);
+}
+
+test "append creates the file when it is absent, then adds to the end" {
+  let ctx = context { Alloc: alloc(), Fs: fs() };
+  let whole: [U8] = [1, 10, 2, 20];
+  assert.ok(ctx.appendFile("log", [1, 10]));
+  assert.ok(ctx.appendFile("log", [2, 20]));
+  assert.eq(assert.ok(ctx.readFileBytes("log")), whole);
+}
+
+test "rename replaces the destination and leaves nothing at the source" {
+  let store = fs().files([("from", "F"), ("to", "T")]);
+  let ctx = context { Alloc: alloc(), Fs: store };
+  assert.ok(ctx.renameFile("from", "to"));
+  assert.eq(store.snapshot(), [("to", "F")]);
+  assert.eq(which(ctx.renameFile("gone", "to")), "NotFound");
+}
+
+test "remove of a missing file is NotFound, not a silent success" {
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]) };
+  assert.ok(ctx.removeFile("a"));
+  assert.eq(which(ctx.removeFile("a")), "NotFound");
+}
+
+test "makeDir creates the parents, and a path already naming a file does not" {
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("f", "F")]) };
+  assert.ok(ctx.makeDir("a/b/c"));
+  assert.isTrue(ctx.fileExists("a"));
+  assert.isTrue(ctx.fileExists("a/b/c"));
+  assert.eq(which(ctx.makeDir("f")), "AlreadyExists");
+}
+
+test "readDir lists the immediate children, files and directories alike" {
+  let ctx = context {
+    Alloc: alloc(),
+    Fs: fs().files([("d/one", "1"), ("d/deep/two", "2")]),
+  };
+  assert.ok(ctx.makeDir("d/empty"));
+  assert.eq(assert.ok(ctx.readDir("d")), ["deep", "empty", "one"]);
+}
+
+test "sync answers whether there was anything to have flushed" {
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]) };
+  assert.ok(ctx.syncFile("a"));
+  assert.eq(which(ctx.syncFile("missing")), "NotFound");
+}
+
+// -----------------------------------------------------------------------------
+// fs().readOnly() — `ReadOnly<C>` folded into a method
+// -----------------------------------------------------------------------------
+
+test "readOnly forwards every read" {
+  let raw: [U8] = [7, 8];
+  let ctx = context {
+    Alloc: alloc(),
+    Fs: fs().files([("a", "A")]).filesBytes([("blob", raw)]).readOnly(),
+  };
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+  assert.eq(assert.ok(ctx.readFileBytes("blob")), raw);
+  assert.isTrue(ctx.fileExists("a"));
+  assert.isTrue(assert.ok(ctx.readDir("")).len() >= 1);
+}
+
+test "a write through readOnly FAILS" {
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]).readOnly() };
+  assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+}
+
+test "readOnly refuses a write to a path that does not exist either" {
+  let ctx = context { Alloc: alloc(), Fs: fs().readOnly() };
+  assert.eq(assert.err(saveText(ctx, "new", "B")), .ReadOnly);
+}
+
+test "every writing half of the surface FAILS through readOnly" {
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]).readOnly() };
+  assert.eq(assert.err(ctx.writeFileBytes("a", [1])), .ReadOnly);
+  assert.eq(assert.err(ctx.appendFile("a", [1])), .ReadOnly);
+  assert.eq(assert.err(ctx.renameFile("a", "b")), .ReadOnly);
+  assert.eq(assert.err(ctx.removeFile("a")), .ReadOnly);
+  assert.eq(assert.err(ctx.makeDir("d")), .ReadOnly);
+  assert.eq(assert.ok(ctx.readFile("a")), "A");
+}
+
+test "sync is not a write, so readOnly forwards it" {
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]).readOnly() };
+  assert.ok(ctx.syncFile("a"));
+}
+
+test "readOnly ATTENUATES the same filesystem rather than copying it" {
+  // The whole of the fold: `ReadOnly<C>` holds the inner value, so a read
+  // through the attenuated handle answers whatever the filesystem holds *now*.
+  let store = fs().files([("a", "A")]);
+  let guarded = store.readOnly();
+  let open = context { Alloc: alloc(), Fs: store };
+  assert.ok(saveText(open, "b", "B"));
+  assert.eq(assert.ok(guarded.read("b")), "B");
+  assert.eq(guarded.snapshot(), store.snapshot());
+}
+
+test "attenuating a filesystem leaves the one it was called on writable" {
+  let store = fs().files([("a", "A")]);
+  let guarded = context { Alloc: alloc(), Fs: store.readOnly() };
+  let open = context { Alloc: alloc(), Fs: store };
+  assert.eq(assert.err(saveText(guarded, "a", "B")), .ReadOnly);
+  assert.ok(saveText(open, "a", "C"));
+  assert.eq(store.snapshot(), [("a", "C")]);
+}
+
+test "the attenuation travels with a builder applied after it" {
+  // A builder is configuration and not a write, so it neither fails on a
+  // read-only handle nor quietly hands back a writable one.
+  let ctx = context { Alloc: alloc(), Fs: fs().readOnly().files([("a", "A")]) };
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+  assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
+}
+
+// -----------------------------------------------------------------------------
+// read() and snapshot() — the read-backs
+// -----------------------------------------------------------------------------
+
+test "read answers what the filesystem holds, without binding the effect" {
+  let store = fs().files([("a", "A")]);
+  assert.eq(assert.ok(store.read("a")), "A");
+  assert.eq(which(store.read("missing")), "NotFound");
+}
+
+test "read sees what a function under test wrote" {
+  let store = fs();
+  let ctx = context { Alloc: alloc(), Fs: store };
+  assert.ok(saveText(ctx, "out/report.txt", "done"));
+  assert.eq(assert.ok(store.read("out/report.txt")), "done");
+}
+
+test "snapshot is sorted by path, whatever order the entries arrived in" {
+  let store = fs().files([("c", "C"), ("a", "A")]);
+  let ctx = context { Alloc: alloc(), Fs: store };
+  assert.ok(saveText(ctx, "b", "B"));
+  assert.eq(store.snapshot(), [("a", "A"), ("b", "B"), ("c", "C")]);
+}
+
+test "snapshot sorts by path and not by insertion, even after a rewrite" {
+  let store = fs().files([("z", "Z"), ("m", "M"), ("a", "A")]);
+  let ctx = context { Alloc: alloc(), Fs: store };
+  assert.ok(saveText(ctx, "m", "M2"));
+  assert.ok(ctx.removeFile("z"));
+  assert.eq(store.snapshot(), [("a", "A"), ("m", "M2")]);
+}
+
+test "snapshot reads octets back as the text they spell" {
+  let raw: [U8] = [104, 105];
+  let store = fs().filesBytes([("b", raw)]);
+  assert.eq(store.snapshot(), [("b", "hi")]);
+}
+
+test "snapshot is files only: a directory holds no octets" {
+  let store = fs().files([("a", "A")]);
+  let ctx = context { Alloc: alloc(), Fs: store };
+  assert.ok(ctx.makeDir("d"));
+  assert.isTrue(ctx.fileExists("d"));
+  assert.eq(store.snapshot(), [("a", "A")]);
+}
+
+test "an empty filesystem's snapshot is empty" {
+  assert.eq(fs().snapshot().len(), 0);
+}
+
+/// The shape the design note is for: an environment declared, a function run,
+/// and the outcome read back as the return value plus the environment.
+test "a function that merges two files is asserted through the environment" {
+  let store = fs().files([("app/a.txt", "one"), ("app/b.txt", "two")]);
+  let ctx = context { Alloc: alloc(), Fs: store };
+  assert.ok(copyInto(ctx, "app/a.txt", "app/merged.txt"));
+  assert.ok(copyInto(ctx, "app/b.txt", "app/merged.txt"));
+  assert.eq(
+    store.snapshot(),
+    [("app/a.txt", "one"), ("app/b.txt", "two"), ("app/merged.txt", "onetwo")],
+  );
+}
+
+// -----------------------------------------------------------------------------
+// clock
+// -----------------------------------------------------------------------------
+
+test "a test clock starts at zero and moves only when it is moved" {
+  let ctx = context { Alloc: alloc(), Clock: clock() };
+  assert.eq(ctx.nowMillis(), 0);
+  assert.eq(ctx.nowMillis(), 0);
+  assert.eq(elapsed(ctx, 5), 5);
+  assert.eq(ctx.nowMillis(), 5);
+}
+
+test "at answers a new clock and leaves the one it was called on alone" {
+  let origin = clock();
+  let later = origin.at(1000);
+  let a = context { Alloc: alloc(), Clock: origin };
+  let b = context { Alloc: alloc(), Clock: later };
+  let _ = b.sleepMillis(7);
+  assert.eq(b.nowMillis(), 1007);
+  assert.eq(a.nowMillis(), 0);
+}
+
+// -----------------------------------------------------------------------------
+// rand
+// -----------------------------------------------------------------------------
+
+test "an unseeded generator is the same sequence on every backend" {
+  let ctx = context { Alloc: alloc(), Rand: rand() };
+  assert.eq(ctx.nextInt(0, 100), 69);
+  assert.eq(ctx.nextInt(0, 100), 89);
+  assert.eq(ctx.nextInt(10, 11), 10);
+}
+
+test "seed answers a new generator at the start of its sequence" {
+  let base = rand();
+  let seeded = base.seed(7);
+  let ctx = context { Alloc: alloc(), Rand: seeded };
+  assert.eq(ctx.nextInt(0, 1000), 583);
+  let other = context { Alloc: alloc(), Rand: base };
+  assert.eq(other.nextInt(0, 100), 69);
+}
+
+test "two generators at the same seed agree with each other" {
+  let a = context { Alloc: alloc(), Rand: rand().seed(42) };
+  let b = context { Alloc: alloc(), Rand: rand().seed(42) };
+  assert.eq(a.nextInt(0, 1000000), b.nextInt(0, 1000000));
+}
+
+test "a seeded generator answers a float in the unit interval" {
+  let ctx = context { Alloc: alloc(), Rand: rand().seed(1) };
+  let x = ctx.nextFloat();
+  assert.isTrue(x >= 0.0);
+  assert.isTrue(x < 1.0);
+}
+
+// -----------------------------------------------------------------------------
+// env
+// -----------------------------------------------------------------------------
+
+test "a fresh environment has no variables and no arguments" {
+  let ctx = context { Alloc: alloc(), Env: env() };
+  assert.isTrue(ctx.variable("HOME").isNone());
+  assert.eq(ctx.arguments().len(), 0);
+}
+
+test "the two builders compose in either order" {
+  let one = env().variables([("HOME", "/tmp")]).args(["--verbose"]);
+  let two = env().args(["--verbose"]).variables([("HOME", "/tmp")]);
+  let a = context { Alloc: alloc(), Env: one };
+  let b = context { Alloc: alloc(), Env: two };
+  assert.eq(assert.some(a.variable("HOME")), "/tmp");
+  assert.eq(assert.some(b.variable("HOME")), "/tmp");
+  assert.eq(a.arguments().join(a, " "), "--verbose");
+  assert.eq(b.arguments().join(b, " "), "--verbose");
+}
+
+test "a builder answers a new environment and leaves its receiver empty" {
+  let empty = env();
+  let filled = empty.variables([("LANG", "C")]);
+  let a = context { Alloc: alloc(), Env: empty };
+  let b = context { Alloc: alloc(), Env: filled };
+  assert.isTrue(a.variable("LANG").isNone());
+  assert.eq(assert.some(b.variable("LANG")), "C");
+}
+
+test "an environment holds what it was given and nothing else" {
+  let ctx = context {
+    Alloc: alloc(),
+    Env: env().variables([("HOME", "/tmp"), ("LANG", "C")]).args(["--verbose", "x"]),
+  };
+  assert.eq(assert.some(ctx.variable("HOME")), "/tmp");
+  assert.eq(assert.some(ctx.variable("LANG")), "C");
+  assert.isTrue(ctx.variable("PATH").isNone());
+  let args = ctx.arguments();
+  assert.eq(args.len(), 2);
+  assert.eq(args.join(ctx, " "), "--verbose x");
+}
+
+// -----------------------------------------------------------------------------
+// proc
+// -----------------------------------------------------------------------------
+
+test "nothing has exited a fresh process" {
+  let p = proc();
+  assert.none(p.exited());
+}
+
+test "an exit is recorded rather than taken" {
+  let p = proc();
+  let ctx = context { Alloc: alloc(), Proc: p };
+  stop(ctx, 2);
+  // The block is still running, which is the claim: a test that ended the
+  // process would have taken every block after this one with it.
+  assert.eq(assert.some(p.exited()), 2);
+}
+
+test "the first exit is the one that happened" {
+  let p = proc();
+  let ctx = context { Alloc: alloc(), Proc: p };
+  stop(ctx, 3);
+  stop(ctx, 4);
+  assert.eq(assert.some(p.exited()), 3);
+}

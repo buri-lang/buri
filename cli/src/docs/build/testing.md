@@ -123,7 +123,7 @@ A test source may import:
 | The target under test | `//lib/money/lib.buri` for a library, `//cmd/server/main.buri` for a binary |
 | The target's `dependencies` | The same libraries the target itself depends on |
 | The suite's `test.dependencies` | Fakes, fixtures, matchers |
-| `core/*` | Including the test platform: `core/testing/assert/lib.buri`, `core/testing/context/lib.buri` |
+| `core/*` | Including the test platform: `core/testing/assert/lib.buri`, `core/host/testing/lib.buri`, `core/testing/context/lib.buri` |
 
 | Any test-only path | `//lib/ledger/testing/lib.buri`, `//lib/testing/fakes/lib.buri` — the package is declared in `test.dependencies` like any other library |
 
@@ -340,6 +340,130 @@ test "falls back when the variable is unset" {
 Each call builds a fresh context, so what one test writes to its filesystem or
 prints to its captured stdout is invisible to the next — which is why a named
 context is called rather than referred to.
+
+### `core/host/testing` — the same doubles, under `core/host`'s names
+
+`core/host/testing` is the platform a test source binds, and it is
+`core/host`'s surface written out for a test: the same names — `alloc`,
+`stdout`, `stderr`, `stdin`, `fs`, `clock`, `rand`, `env`, `proc` — **called**
+rather than referred to. `core/host`'s `clock` is one clock because a process
+has one; `clock()` is a fresh clock every call, so a test never inherits another
+test's.
+
+| Member | Effect | In a test |
+|---|---|---|
+| `alloc()` | `Alloc` | Real, with a per-test arena the runner reclaims. |
+| `stdout()`, `stderr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` reads either one back. |
+| `stdin()` | `Stdin` | At end of input, so a suite never blocks on a pipe nobody is writing to. |
+| `fs()` | `Fs` | In-memory and empty. Writes are visible to that test and discarded after it. |
+| `clock()` | `Clock` | At zero. `sleepMillis` advances it without sleeping. |
+| `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
+| `env()` | `Env` | No variables and no arguments. |
+| `proc()` | `Proc` | Records the exit instead of taking it; `exited()` answers the code. |
+
+Configuration is a **method on the value that answers a new handle**, so a
+chain reads in the order it is applied and the value it was called on is
+unchanged:
+
+| Builder | Answers |
+|---|---|
+| `clock().at(1000)` | A clock at that instant |
+| `rand().seed(7)` | A generator at that seed, from the start of its sequence |
+| `env().variables([(Str, Str)])` | An environment with those variables and this one's arguments |
+| `env().args([Str])` | An environment with those arguments and this one's variables |
+| `stdin().lines([Str])` | A stream of those lines, then end of input |
+| `stdin().bytes([U8])` | A stream of those octets, then end of input |
+| `fs().files([(Str, Str)])` | A filesystem holding this one's files and these as well |
+| `fs().filesBytes([(Str, [U8])])` | The byte twin, for a fixture that is not text |
+| `fs().readOnly()` | The **same** files, through a handle whose every write fails with `.ReadOnly` |
+
+`args` and not `arguments`, and it is the one name here that is not
+`core/host`'s: `Env` already declares `arguments(self): [Str]` — the reader —
+and a type has one method of each name.
+
+`lines` and `bytes` are the one pair that **replace** each other rather than
+composing: a stream is either the lines a test wrote or the octets it wrote, a
+stdin built from octets answers `.None` to `readLine`, and the last builder in
+the chain is the stream. `files` and `filesBytes` do compose, in either order,
+because both write into the one map a file lives in.
+
+`readOnly()` is `core/testing/context`'s `ReadOnly<C>` wrapper folded into a
+method, and the fold keeps what made it a wrapper: it attenuates the *same*
+filesystem rather than a copy, so a read through the attenuated handle answers
+whatever the filesystem holds now. `ReadOnly<C>` itself stays, because it
+attenuates any `Fs` — including one a test wrote — and the method attenuates
+only this one.
+
+### Reading the environment back
+
+The outcome of a test is the return value **plus the environment read back**.
+`captured()` does that for a stream, `exited()` for the process, and `TestFs`
+has two of its own:
+
+| Read-back | Answers |
+|---|---|
+| `read(path)` | `Result<Str, IoError>` — what the filesystem holds there, the same answer `readFile` gives |
+| `snapshot()` | `[(Str, Str)]` — every file, as text, **sorted by path** |
+
+Neither needs the `Fs` effect bound: asserting on what a function wrote is
+reading an environment back rather than performing an effect. `snapshot()` is
+sorted rather than in write order so that a function which reorders two writes
+that do not interact does not fail the test, and it lists files only — a
+directory `makeDir` created holds no octets, and `readDir` is the question it
+answers.
+
+```buri role=test
+# from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing/lib.buri" import { alloc, fs };
+from "core/effect/lib.buri" import { Alloc, Fs, IoError };
+# fn archive<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
+#   match (ctx.readFile(path)) {
+#     .Err(e) => .Err(e),
+#     .Ok(body) => ctx.writeFile("{path}.bak", body),
+#   }
+# }
+
+test "archiving leaves the original alone and writes the copy beside it" {
+  let files = fs().files([("notes.txt", "hello")]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.ok(archive(ctx, "notes.txt"));
+  assert.eq(files.snapshot(), [("notes.txt", "hello"), ("notes.txt.bak", "hello")]);
+}
+
+test "a read-only filesystem refuses the write, and nothing is written" {
+  let files = fs().files([("notes.txt", "hello")]);
+  let ctx = context { Alloc: alloc(), Fs: files.readOnly() };
+  assert.eq(assert.err(archive(ctx, "notes.txt")), .ReadOnly);
+  assert.eq(files.snapshot(), [("notes.txt", "hello")]);
+}
+```
+
+```buri role=test
+# from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing/lib.buri" import { alloc, clock, env, stdout };
+from "core/effect/lib.buri" import { Alloc, Clock, Env, Stdout };
+# fn logPath<C: Env>(ctx: C): Str { ctx.variable("LEDGER_LOG") ?? "ledger.log" }
+
+test "reads the log path from the environment" {
+  let ctx = context {
+    Alloc: alloc(),
+    Env: env().variables([("LEDGER_LOG", "custom.log")]).args(["--verbose"]),
+  };
+  assert.eq(logPath(ctx), "custom.log");
+}
+
+test "a context names only the effects the function under test needs" {
+  let sink = stdout();
+  let ctx = context { Alloc: alloc(), Clock: clock().at(1000), Stdout: sink };
+  let now = ctx.nowMillis();
+  let _ = ctx.println("started at {now}");
+  assert.eq(sink.captured(), "started at 1000\n");
+}
+```
+
+The second block is the shape to copy: a test context binds what the function
+needs and nothing else, rather than a pre-assembled world. `core/testing/context`
+and its `Hermetic()` keep working unchanged while the corpus moves across.
 
 Anything the runner does not provide is an ordinary struct with methods, since
 effects are ordinary interfaces ([`SPEC.md` §10.9](../SPEC.md)), and it is bound

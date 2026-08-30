@@ -964,6 +964,301 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
+    // -- core/host/testing --------------------------------------------------
+    //
+    // `core/host`'s names for a test source, over the same handle table. Every
+    // receiver is `Arg::Scalar` for the reason stated above `testing_context`'s
+    // rows: these carry a handle, and `core/host`'s own implementations are
+    // empty structs that do not.
+    //
+    // A **builder** — `at`, `seed`, `variables`, `args` — takes its receiver
+    // and answers a fresh handle through the out-pointer, so it is
+    // `Arg::Scalar` in and `Ret::Out` out. The receiver is passed even where
+    // the body ignores it (`at`, `seed`): the C signature is the Buri argument
+    // list flattened, and dropping a parameter because one implementation has
+    // no use for it is exactly the kind of disagreement nothing diagnoses.
+    //
+    // `alloc` and `TestAlloc.allocate` are open-coded (`emit.rs`).
+    Entry {
+        key: "host_testing.stdout",
+        symbol: "buri_rt_host_testing_stdout",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.stderr",
+        symbol: "buri_rt_host_testing_stderr",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestStdout.print",
+        symbol: "buri_rt_host_testing_test_stdout_print",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestStdout.println",
+        symbol: "buri_rt_host_testing_test_stdout_println",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestStdout.writeBytes",
+        symbol: "buri_rt_host_testing_test_stdout_write_bytes",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestStdout.captured",
+        symbol: "buri_rt_host_testing_test_stdout_captured",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestStderr.eprint",
+        symbol: "buri_rt_host_testing_test_stderr_eprint",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestStderr.eprintln",
+        symbol: "buri_rt_host_testing_test_stderr_eprintln",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestStderr.captured",
+        symbol: "buri_rt_host_testing_test_stderr_captured",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.stdin",
+        symbol: "buri_rt_host_testing_stdin",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestStdin.lines",
+        symbol: "buri_rt_host_testing_test_stdin_lines",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestStdin.bytes",
+        symbol: "buri_rt_host_testing_test_stdin_bytes",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestStdin.readLine",
+        symbol: "buri_rt_host_testing_test_stdin_read_line",
+        args: &[Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "host_testing.TestStdin.readBytes",
+        symbol: "buri_rt_host_testing_test_stdin_read_bytes",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    // `TestFs`'s sixteen. `self` is `struct TestFs(I64)` and carries a handle,
+    // so it is `Arg::Scalar` here as `MemFs`'s is — including on the two
+    // builders and on `readOnly`, which read the receiver's view rather than
+    // ignoring it.
+    //
+    // `snapshot` answers a `[(Str, Str)]`, which is a list like any other at
+    // this boundary: `Ret::Out` writes the descriptor, and the element width is
+    // the tuple's layout rather than anything this table names.
+    Entry { key: "host_testing.fs", symbol: "buri_rt_host_testing_fs", args: &[], ret: Ret::Out },
+    Entry {
+        key: "host_testing.TestFs.files",
+        symbol: "buri_rt_host_testing_test_fs_files",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestFs.filesBytes",
+        symbol: "buri_rt_host_testing_test_fs_files_bytes",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestFs.readOnly",
+        symbol: "buri_rt_host_testing_test_fs_read_only",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestFs.read",
+        symbol: "buri_rt_host_testing_test_fs_read",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.snapshot",
+        symbol: "buri_rt_host_testing_test_fs_snapshot",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestFs.readFile",
+        symbol: "buri_rt_host_testing_test_fs_read_file",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.writeFile",
+        symbol: "buri_rt_host_testing_test_fs_write_file",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.fileExists",
+        symbol: "buri_rt_host_testing_test_fs_file_exists",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Int(8),
+    },
+    Entry {
+        key: "host_testing.TestFs.readDir",
+        symbol: "buri_rt_host_testing_test_fs_read_dir",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.readFileBytes",
+        symbol: "buri_rt_host_testing_test_fs_read_file_bytes",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.writeFileBytes",
+        symbol: "buri_rt_host_testing_test_fs_write_file_bytes",
+        args: &[Arg::Scalar, Arg::Str, Arg::List],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.appendFile",
+        symbol: "buri_rt_host_testing_test_fs_append_file",
+        args: &[Arg::Scalar, Arg::Str, Arg::List],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.renameFile",
+        symbol: "buri_rt_host_testing_test_fs_rename_file",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.removeFile",
+        symbol: "buri_rt_host_testing_test_fs_remove_file",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.makeDir",
+        symbol: "buri_rt_host_testing_test_fs_make_dir",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestFs.syncFile",
+        symbol: "buri_rt_host_testing_test_fs_sync_file",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.clock",
+        symbol: "buri_rt_host_testing_clock",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestClock.at",
+        symbol: "buri_rt_host_testing_test_clock_at",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestClock.nowMillis",
+        symbol: "buri_rt_host_testing_test_clock_now_millis",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.TestClock.sleepMillis",
+        symbol: "buri_rt_host_testing_test_clock_sleep_millis",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.rand",
+        symbol: "buri_rt_host_testing_rand",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestRand.seed",
+        symbol: "buri_rt_host_testing_test_rand_seed",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestRand.nextInt",
+        symbol: "buri_rt_host_testing_test_rand_next_int",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.TestRand.nextFloat",
+        symbol: "buri_rt_host_testing_test_rand_next_float",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry { key: "host_testing.env", symbol: "buri_rt_host_testing_env", args: &[], ret: Ret::Out },
+    Entry {
+        key: "host_testing.TestEnv.variables",
+        symbol: "buri_rt_host_testing_test_env_variables",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestEnv.args",
+        symbol: "buri_rt_host_testing_test_env_args",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestEnv.variable",
+        symbol: "buri_rt_host_testing_test_env_variable",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "host_testing.TestEnv.arguments",
+        symbol: "buri_rt_host_testing_test_env_arguments",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.proc",
+        symbol: "buri_rt_host_testing_proc",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestProc.exitWith",
+        symbol: "buri_rt_host_testing_test_proc_exit_with",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestProc.exited",
+        symbol: "buri_rt_host_testing_test_proc_exited",
+        args: &[Arg::Scalar],
+        ret: Ret::Sum,
+    },
 ];
 
 pub fn entry(key: &str) -> Option<&'static Entry> {
@@ -1161,6 +1456,10 @@ mod tests {
             // backend cannot compile it" stay two different statements.
             "testing_context.alloc",
             "testing_context.TestAlloc.allocate",
+            // `core/host/testing`'s allocator is the same two instructions and
+            // is open-coded the same way.
+            "host_testing.alloc",
+            "host_testing.TestAlloc.allocate",
             // The archive has no body for `core/fs`'s real filesystem past
             // `fileExists` (`cli/runtime/host.rs`). Not a missing *shape*:
             // `MemFs`'s three are the same `Result<T, IoError>` and are in the

@@ -49,6 +49,22 @@
           # `backend-llvm` -- so the lockfile names its closure and vendoring
           # fetches it. `cargoLock.lockFile` reads the hashes out of the
           # lockfile, so there is still no `cargoHash` to keep in sync by hand.
+          #
+          # **This vendors the toolchain's lockfile and not the runtime's, and
+          # that is a known gap rather than an oversight.** Since 2026-08-30
+          # `cli/runtime` has a dependency tree of its own — four crates behind
+          # `net`, `cli/runtime/manifest.lock` — and `cli/build.rs` runs a
+          # nested `cargo` to build it. In this sandbox that cargo can reach
+          # neither the network nor a vendor directory holding those crates, so
+          # it degrades exactly as it is designed to: an empty archive, a
+          # `cargo:warning` saying so, `runtime_native::AVAILABLE == false`, and
+          # a `buri` that builds and runs the JavaScript backend with no native
+          # one. `nix build` is therefore still green and still produces a
+          # *less capable* toolchain than a `cargo install` does, which wants
+          # closing before the flake is the recommended way to get `buri`.
+          # Closing it means vendoring both lockfiles into one directory the
+          # nested cargo can see through `CARGO_HOME`; `importCargoLock` takes
+          # one `lockFile`, so it is a merge and a piece of work of its own.
           cargoLock.lockFile = ./Cargo.lock;
 
           # Default features, which is `backend-stencil` alone -- and it needs

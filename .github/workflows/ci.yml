@@ -29,8 +29,10 @@ name: CI
 #   fails, an EMPTY library is written, `stencil::AVAILABLE` is false, and every
 #   test in `cli/tests/native/stencil.rs` returns early: the suite passes having
 #   checked nothing. That is why the stencil libraries are ASSERTED non-empty
-#   below rather than believed. On macOS `clang` is what `cc` already is, so
-#   the macOS leg pays nothing for it.
+#   below rather than believed — and, beside them, the runtime archive, which
+#   degrades the same way and gained a second route into it when the runtime
+#   grew a dependency tree it might not be able to resolve. On macOS `clang` is
+#   what `cc` already is, so the macOS leg pays nothing for it.
 #   `build/link.rs` reads `CC` too, so this also decides which driver the
 #   product's own link runs through. It is set on the four jobs that verify the
 #   native path and nowhere else, so that `minimal`, `lean`, `tree-sitter` and
@@ -149,6 +151,14 @@ jobs:
       - run: cargo build -p buri --tests
       - name: The stencil libraries are not empty
         run: bash .github/scripts/assert-stencils.sh
+      # The same gate for the other blob the build script writes. It degrades
+      # the same way — an empty archive on a host with no runtime, and since the
+      # `net` feature on a dependency tree that cannot be resolved — and an
+      # empty one makes every native test skip and the suite pass vacuously.
+      # It also asserts the size budget and that none of the four networking
+      # crates has been linked in; the script argues both.
+      - name: The runtime archive is not empty
+        run: bash .github/scripts/assert-runtime-archive.sh
 
       # `--no-fail-fast` because the test binaries are domains, and one failing
       # domain should not hide the others.
@@ -210,6 +220,14 @@ jobs:
       - run: cargo build -p buri --tests
       - name: The stencil libraries are not empty
         run: bash .github/scripts/assert-stencils.sh
+      # The same gate for the other blob the build script writes. It degrades
+      # the same way — an empty archive on a host with no runtime, and since the
+      # `net` feature on a dependency tree that cannot be resolved — and an
+      # empty one makes every native test skip and the suite pass vacuously.
+      # It also asserts the size budget and that none of the four networking
+      # crates has been linked in; the script argues both.
+      - name: The runtime archive is not empty
+        run: bash .github/scripts/assert-runtime-archive.sh
 
       # FIRST, and alone. This is the liveness gate: every test in
       # `cli/tests/native/stencil.rs` opens with `if !supported() { return; }`,
@@ -402,6 +420,14 @@ jobs:
       - run: cargo build -p buri --tests
       - name: The stencil libraries are not empty
         run: bash .github/scripts/assert-stencils.sh
+      # The same gate for the other blob the build script writes. It degrades
+      # the same way — an empty archive on a host with no runtime, and since the
+      # `net` feature on a dependency tree that cannot be resolved — and an
+      # empty one makes every native test skip and the suite pass vacuously.
+      # It also asserts the size budget and that none of the four networking
+      # crates has been linked in; the script argues both.
+      - name: The runtime archive is not empty
+        run: bash .github/scripts/assert-runtime-archive.sh
 
       # FIRST, and alone — the liveness gate, for the reason the arm64 job
       # states: every test in `cli/tests/native/stencil.rs` opens with
@@ -578,6 +604,14 @@ jobs:
           esac
           echo "LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)" >> "$GITHUB_ENV"
 
+      # The fourth native job, and the same liveness gate as the other three:
+      # an empty archive here would make the agreement test below compare two
+      # backends that both skipped. `--tests` is what runs `cli/build.rs`, and
+      # it is work the step after it would do anyway.
+      - run: cargo build -p buri --tests --features backend-llvm
+      - name: The runtime archive is not empty
+        run: bash .github/scripts/assert-runtime-archive.sh
+
       # The agreement test (ARCHITECTURE.md §4) is what makes the release
       # build's code generator worth turning on, and it only exists with both.
       - run: cargo test -p buri --no-fail-fast --features backend-llvm
@@ -659,6 +693,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p buri --no-default-features
+
+      # The other half of "cargo install buri works": the tarball has to carry
+      # what the build script compiles. It stopped doing so once the runtime
+      # became a cargo package — `cargo package` skips a nested package's whole
+      # directory — and this is the assertion that the repair holds. Here rather
+      # than in a `test` leg because this job is the one about installing.
+      - name: The published crate ships the runtime
+        run: bash .github/scripts/assert-package-ships-runtime.sh
 
   # ---------------------------------------------------------------------------
   # The formal development: the build must succeed, the audit must record no

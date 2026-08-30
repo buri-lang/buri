@@ -4165,7 +4165,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // arena the runner reclaims. Natively there is no runner and one
             // allocator, so the handle names nothing and zero is as good a name
             // as any.
-            "testing_context.alloc" => {
+            "testing_context.alloc" | "host_testing.alloc" => {
                 let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
                 let zero = self.ctx.i64_type().const_zero();
                 let values = [zero.into()];
@@ -4178,7 +4178,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // function of the *types*, computed by `middle::layout`, so
             // `allocate` returns what it was asked for and the accounting is the
             // caller's.
-            "testing_context.TestAlloc.allocate" => {
+            "testing_context.TestAlloc.allocate" | "host_testing.TestAlloc.allocate" => {
                 let Some(bytes) = args.get(1).copied() else { return false };
                 let value = self.get(state, bytes);
                 self.set(state, dest, value);
@@ -7138,6 +7138,8 @@ fn open_coded_key(key: &str) -> bool {
             | "list.empty"
             | "testing_context.alloc"
             | "testing_context.TestAlloc.allocate"
+            | "host_testing.alloc"
+            | "host_testing.TestAlloc.allocate"
             | "list.zip"
             | "list.flatten"
             // Claimed for the shape, not for every call site: a counted

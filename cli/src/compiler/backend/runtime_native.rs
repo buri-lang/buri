@@ -88,6 +88,16 @@ fn snake_into(segment: &str, out: &mut String) {
 /// Empty on a host `cli/build.rs` builds no runtime for — anything that is not
 /// macOS or Linux — which is the same set of hosts that has no native backend
 /// to link it into. [`AVAILABLE`] is the question to ask.
+///
+/// Since the runtime's `net` feature there is a second way to be empty, and it
+/// is not a property of the host: a build that could not **resolve** the
+/// runtime's dependency tree writes an empty archive too, with a
+/// `cargo:warning` naming which of the three causes it was (no network and a
+/// cold registry, a sandbox that vendored only the toolchain's lockfile, or a
+/// `cli/runtime/manifest.lock` the manifest has outgrown). That is the
+/// "degrades rather than breaks" clause reaching one level further down, and
+/// the reason it is not silent in CI is
+/// `.github/scripts/assert-runtime-archive.sh`.
 pub const ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libburi_rt.a"));
 
 /// Whether this toolchain has a runtime to link against.

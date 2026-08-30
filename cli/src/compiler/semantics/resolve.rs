@@ -165,12 +165,12 @@ pub struct Checker<'a> {
     pub option_con: Option<TyConId>,
     pub result_con: Option<TyConId>,
     pub order_con: Option<TyConId>,
-    /// The free functions whose signatures are elaborated and whose `ctx` rule
-    /// is still to be checked, in declaration order — which is the order the
-    /// check used to run in, so the diagnostics are the same ones in the same
-    /// sequence. Held rather than checked in place because rule 26 asks two
-    /// questions no earlier pass can answer (see `Checker::run`).
-    pending_ctx_rules: Vec<(FnId, ModuleId, u32)>,
+    /// The signatures whose `ctx` rule is still to be checked, in declaration
+    /// order — which is the order the check used to run in, so the diagnostics
+    /// are the same ones in the same sequence. Held rather than checked in
+    /// place because rule 26 asks two questions no earlier pass can answer
+    /// (see `Checker::run`).
+    pending_ctx_rules: Vec<PendingCtxRule>,
     /// Guards re-export cycles.
     resolving: Vec<(ModuleId, String)>,
     /// The aliases being expanded, outermost first, each as the module that
@@ -196,6 +196,28 @@ pub struct Checker<'a> {
     /// Which bodies step 5 is asked for. [`Bodies::All`] unless a caller said
     /// otherwise.
     pub wanted: Bodies,
+}
+
+/// A signature waiting for rule 26.
+///
+/// The rule reads a parameter list and the generics it was written against,
+/// and three kinds of declaration carry one. A free `fn` and a method supplied
+/// by an `impl` both have an [`FnInfo`]; a method *signature* in a `trait` or
+/// `effect` body never becomes an `FnId` at all and is found by its position
+/// in the trait's own table. Only a free `fn` can be `main`, so only that
+/// variant carries the item index the `main` check needs to find its
+/// `tree::FnDecl` again.
+#[derive(Clone, Copy)]
+enum PendingCtxRule {
+    /// A `fn` at module scope, with the module and item index it was declared
+    /// at.
+    Free(FnId, ModuleId, u32),
+    /// A method supplied by an `impl` block, whether it implements a trait or
+    /// is one of the type's own.
+    Method(FnId),
+    /// A method signature in a `trait` or `effect` body: the trait, and the
+    /// method's position in its `methods`.
+    Signature(TraitId, usize),
 }
 
 impl<'a> Checker<'a> {
@@ -978,6 +1000,14 @@ impl<'a> Checker<'a> {
                                 .collect()
                         });
                         self.tables.trait_mut(tid).methods = methods;
+                        // Rule 26 holds of a declaration as much as of a
+                        // definition: an `effect` whose method takes a second
+                        // context, or names one `env`, is the same mistake
+                        // wherever the body ends up being written.
+                        let count = self.tables.trait_(tid).methods.len();
+                        self.pending_ctx_rules.extend(
+                            (0..count).map(|slot| PendingCtxRule::Signature(tid, slot)),
+                        );
                     }
                     tree::Item::Fn(d) => {
                         let Some(sym) = self.scope(id).own.get(t.name(d.name)).cloned() else {
@@ -1035,7 +1065,7 @@ impl<'a> Checker<'a> {
             }
         }
 
-        self.pending_ctx_rules.push((fid, module, item));
+        self.pending_ctx_rules.push(PendingCtxRule::Free(fid, module, item));
         self.record_intrinsic(fid, module, d);
     }
 
@@ -1052,44 +1082,83 @@ impl<'a> Checker<'a> {
     ///
     /// Both are settled by the time this runs, and nothing between the two
     /// points reads what it reports.
+    ///
+    /// Running last is also what lets the rule reach a *method*. An `impl`'s
+    /// methods do not exist as functions until `register_conformance` has run,
+    /// and that pass comes after the one that elaborates free signatures — so
+    /// a check that ran in place could only ever have seen the free half,
+    /// which is exactly the half it used to see.
     fn check_ctx_rules(&mut self) {
-        for (fid, module, item) in std::mem::take(&mut self.pending_ctx_rules) {
-            let Some(tree::Item::Fn(d)) = self.module(module).ast.items.get(item as usize) else {
+        for pending in std::mem::take(&mut self.pending_ctx_rules) {
+            let Some((params, generics)) = self.ctx_rule_signature(pending) else {
                 continue;
             };
-            self.check_ctx_rule(fid, d);
+            // Whether there is anything to say is decided from a borrow; only
+            // saying it needs owned copies. This runs once per signature in
+            // the program, the standard library included, and the answer is
+            // almost always "nothing" — so the copy belongs on the reporting
+            // path.
+            if self.violates_ctx_rule(params, generics) {
+                let (params, generics) = (params.to_vec(), generics.to_vec());
+                self.report_ctx_rule(&params, &generics);
+            }
+            if let PendingCtxRule::Free(fid, module, item) = pending {
+                self.check_entry_point(fid, module, item);
+            }
         }
+    }
+
+    /// The two things rule 26 reads, wherever the signature was written.
+    ///
+    /// The slot of a `Signature` is minted from the very list it indexes, so
+    /// today it cannot miss; the lookup is total anyway rather than an `ice`,
+    /// because a later pass that rewrote a trait's methods would otherwise
+    /// turn a stale slot into a crash instead of a skipped check.
+    fn ctx_rule_signature(
+        &self,
+        pending: PendingCtxRule,
+    ) -> Option<(&[ParamInfo], &[GenericInfo])> {
+        match pending {
+            PendingCtxRule::Free(fid, _, _) | PendingCtxRule::Method(fid) => {
+                let info = self.tables.fn_info(fid);
+                Some((&info.params, &info.generics))
+            }
+            PendingCtxRule::Signature(trait_id, slot) => self
+                .tables
+                .trait_(trait_id)
+                .methods
+                .get(slot)
+                .map(|m| (m.params.as_slice(), m.generics.as_slice())),
+        }
+    }
+
+    /// `main` takes no parameters, declares no generics, and returns
+    /// `Result<(), Str>`. It is a free `fn` in the entry module, which is why
+    /// only [`PendingCtxRule::Free`] reaches here: a method is never `main`,
+    /// whatever it is called.
+    fn check_entry_point(&mut self, fid: FnId, module: ModuleId, item: u32) {
+        let info = self.tables.fn_info(fid);
+        let (name_is_main, exported) = (info.name == "main", info.exported);
+        if !name_is_main || !exported || self.module(module).role != Role::Entry {
+            return;
+        }
+        let Some(tree::Item::Fn(d)) = self.module(module).ast.items.get(item as usize) else {
+            return;
+        };
+        self.check_main_signature(fid, d);
     }
 
     /// An effect-carrying parameter must be `self` or `ctx`, at most one of
     /// each. Both are fixed positions with fixed names, so you read the first
     /// two parameters and stop (SPEC 10.2).
-    fn check_ctx_rule(&mut self, fid: FnId, d: &tree::FnDecl) {
-        // Whether there is anything to say is decided from a borrow; only
-        // saying it needs an owned `FnInfo`. This runs once per function in
-        // the program, the standard library included, and the answer is almost
-        // always "nothing" — so the copy belongs on the reporting path.
-        if self.violates_ctx_rule(fid) {
-            self.report_ctx_rule(fid);
-        }
-        // `main` takes no parameters, declares no generics, and returns
-        // `Result<(), Str>`.
-        let info = self.tables.fn_info(fid);
-        let (name_is_main, exported, module) =
-            (info.name == "main", info.exported, info.module);
-        if name_is_main && exported && self.module(module).role == Role::Entry {
-            self.check_main_signature(fid, d);
-        }
-    }
-
-    /// The predicate half of the rule above: does any parameter break it?
-    /// Written as a mirror of the loop that reports, so the two cannot drift —
-    /// a `true` here is exactly one diagnostic or more there.
-    fn violates_ctx_rule(&self, fid: FnId) -> bool {
-        let info = self.tables.fn_info(fid);
+    ///
+    /// The predicate half: does any parameter break it? Written as a mirror of
+    /// the loop that reports, so the two cannot drift — a `true` here is
+    /// exactly one diagnostic or more there.
+    fn violates_ctx_rule(&self, params: &[ParamInfo], generics: &[GenericInfo]) -> bool {
         let mut ctx_count: usize = 0;
         let mut self_count: usize = 0;
-        for (i, p) in info.params.iter().enumerate() {
+        for (i, p) in params.iter().enumerate() {
             match p.role {
                 ParamRole::SelfParam => {
                     self_count = self_count.saturating_add(1);
@@ -1105,7 +1174,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 ParamRole::Normal => {
-                    if self.tables.is_effect_carrying(&p.ty, &info.generics) {
+                    if self.tables.is_effect_carrying(&p.ty, generics) {
                         return true;
                     }
                 }
@@ -1114,11 +1183,10 @@ impl<'a> Checker<'a> {
         false
     }
 
-    fn report_ctx_rule(&mut self, fid: FnId) {
-        let info = self.tables.fn_info(fid).clone();
+    fn report_ctx_rule(&mut self, params: &[ParamInfo], generics: &[GenericInfo]) {
         let mut ctx_count: usize = 0;
         let mut self_count: usize = 0;
-        for (i, p) in info.params.iter().enumerate() {
+        for (i, p) in params.iter().enumerate() {
             match p.role {
                 ParamRole::SelfParam => {
                     self_count = self_count.saturating_add(1);
@@ -1138,7 +1206,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 ParamRole::Normal => {
-                    if self.tables.is_effect_carrying(&p.ty, &info.generics) {
+                    if self.tables.is_effect_carrying(&p.ty, generics) {
                         let name = p.name.clone();
                         // A type that implements an effect *is* the
                         // capability, so "drop the effect bound" would be
@@ -1908,6 +1976,7 @@ impl<'a> Checker<'a> {
                 ast: AstRef::Method { module, item: index, sub: sub as u32 },
                 intrinsic: method.body.is_none(),
             });
+            self.pending_ctx_rules.push(PendingCtxRule::Method(fid));
             // `slot` is a position in `trait_methods`, which is what `supplied`
             // was sized to, so it is always in range.
             let already = supplied.get(slot).is_some_and(Option::is_some);
@@ -2033,6 +2102,7 @@ impl<'a> Checker<'a> {
                 ast: AstRef::Method { module, item: index, sub: sub as u32 },
                 intrinsic: method.body.is_none(),
             });
+            self.pending_ctx_rules.push(PendingCtxRule::Method(fid));
             match target {
                 Some(con) => self.register_method(con, mname, fid, method.name.span),
                 // `[T]` has no type constructor; its methods live in a table
@@ -2422,6 +2492,174 @@ fn main(): () {}
         assert_eq!(f.params[1].ty, f.params[0].ty);
         assert_eq!(f.ret, f.params[0].ty);
         assert!(!matches!(f.params[1].ty, Ty::SelfTy));
+    }
+
+    // -----------------------------------------------------------------------
+    // Rule 26 inside a `trait` body and an `impl` block
+    // -----------------------------------------------------------------------
+
+    /// How many times a snippet reports one diagnostic code.
+    ///
+    /// The count rather than the presence: what this covers is a set of
+    /// signatures nobody read, so a test that merely saw *a* diagnostic would
+    /// pass on the one signature that was already being checked.
+    fn reported(src: &str, code: &str) -> usize {
+        let mut map = SourceMap::new();
+        let analysis = crate::compiler::driver::analyze_snippet(
+            &mut map,
+            "resolve_test.buri",
+            src,
+            crate::compiler::modules::Role::Entry,
+        );
+        analysis
+            .diagnostics
+            .items
+            .iter()
+            .filter(|d| d.code.as_deref() == Some(code))
+            .count()
+    }
+
+    /// A `trait` declaration, the `impl` that supplies it, and one of the
+    /// type's own methods — the three shapes a method signature comes in, each
+    /// taking a context under a name that is not `ctx`.
+    const SINKS: &str = r#"
+from "core/effect/lib.buri" import { Stdout };
+
+struct Ledger { lines: Int }
+
+trait Report {
+  fn write<C: Stdout>(self, sink: C): ();
+}
+
+impl Report for Ledger {
+  fn write<C: Stdout>(self, sink: C): () {
+    ()
+  }
+}
+
+impl Ledger {
+  fn dump<C: Stdout>(self, sink: C): () {
+    ()
+  }
+}
+
+fn main(): () {}
+"#;
+
+    /// All three, not none. `pending_ctx_rules` used to be pushed from the
+    /// `Item::Fn` path alone, so a method — which is where a context is most
+    /// often taken — was exempt from the rule its own callers read.
+    #[test]
+    fn an_effect_carrying_parameter_is_refused_in_every_kind_of_method() {
+        assert_eq!(reported(SINKS, "effect-param-not-ctx"), 3);
+    }
+
+    /// The position half of the rule reaches a method too: receiver first,
+    /// context second, everything else after.
+    #[test]
+    fn a_ctx_out_of_position_is_refused_in_every_kind_of_method() {
+        let src = r#"
+from "core/effect/lib.buri" import { Stdout };
+
+struct Bell { tone: Str }
+
+trait Ring {
+  fn ring<C: Stdout>(self, times: Int, ctx: C): ();
+}
+
+impl Ring for Bell {
+  fn ring<C: Stdout>(self, times: Int, ctx: C): () {
+    ()
+  }
+}
+
+impl Bell {
+  fn peal<C: Stdout>(self, times: Int, ctx: C): () {
+    ()
+  }
+}
+
+fn main(): () {}
+"#;
+        assert_eq!(reported(src, "ctx-not-first"), 3);
+    }
+
+    /// A misplaced receiver, in the two places one survives to rule 26: an
+    /// inherent `impl` refuses a method that does not open with `self` before
+    /// it is ever registered — that is `impl-fn-without-self` — so what is
+    /// left is a `trait` body and the `impl` that supplies it.
+    #[test]
+    fn a_misplaced_self_is_refused_in_a_trait_body_and_in_its_impl() {
+        let src = r#"
+struct Square { side: Int }
+
+trait Scale {
+  fn scaled(factor: Int, self): Int;
+}
+
+impl Scale for Square {
+  fn scaled(factor: Int, self): Int {
+    self.side * factor
+  }
+}
+
+fn main(): () {}
+"#;
+        // The parser reports the same code at each site on its own, so the
+        // semantic half is the second of each pair.
+        assert_eq!(reported(src, "self-not-first"), 4);
+    }
+
+    /// A legitimate `ctx` does not license a second capability beside it: the
+    /// loop reads on past the first two parameters, in a method as anywhere.
+    #[test]
+    fn an_effect_carrying_parameter_after_a_ctx_is_still_refused() {
+        let src = r#"
+from "core/effect/lib.buri" import { Stdout };
+
+struct Twice { n: Int }
+
+impl Twice {
+  fn both<C: Stdout, D: Stdout>(self, ctx: C, also: D): () {
+    ()
+  }
+}
+
+fn main(): () {}
+"#;
+        assert_eq!(reported(src, "effect-param-not-ctx"), 1);
+    }
+
+    /// The other direction, which is what keeps this from being a rule against
+    /// methods: one that follows the convention says nothing at all.
+    #[test]
+    fn a_method_that_follows_the_convention_is_admitted() {
+        let src = r#"
+from "core/effect/lib.buri" import { Stdout };
+
+struct Quiet { n: Int }
+
+trait Speak {
+  fn speak<C: Stdout>(self, ctx: C, times: Int): ();
+}
+
+impl Speak for Quiet {
+  fn speak<C: Stdout>(self, ctx: C, times: Int): () {
+    ()
+  }
+}
+
+impl Quiet {
+  fn hush<C: Stdout>(self, ctx: C): () {
+    ()
+  }
+}
+
+fn main(): () {}
+"#;
+        for code in ["effect-param-not-ctx", "ctx-not-first", "self-not-first"] {
+            assert_eq!(reported(src, code), 0, "a well-formed method reported `{code}`");
+        }
     }
 
     /// And `Self` outside both is still the mistake it was: the scope is
