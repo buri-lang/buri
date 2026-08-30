@@ -1,0 +1,26 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a re-export naming something its module does not export: the unresolved re-export is the whole report, and the export it meant to reach is not reported dead — the surface is what dead-code reads, and this one did not resolve"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# Spelling it right is the whole fix, and it ends both halves at once: the
+# re-export resolves and the name is on the surface. A second finding appearing
+# here would say the report above was hiding one rather than declining to
+# invent one.
+edit {
+  file: "lib/money/lib.buri"
+  replace: "export { markup };"
+  with: "export { markupCents };"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

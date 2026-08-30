@@ -1,0 +1,2 @@
+from "//lib/shop/orders" export { Address, Delivery, Payment, blank };
+from "//lib/shop/desk" export { relabel };

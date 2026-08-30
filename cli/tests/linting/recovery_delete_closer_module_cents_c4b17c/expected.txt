@@ -10,3 +10,11 @@ error: this function body is missing its closing `}` [unclosed-delimiter]
   |                                  ^ opened here
   |
   = fix: write `}` here
+warning: `doubled` is bound and never used [unused-variable]
+ --> lib/recovery_delete_closer_module_cents_c4b17c/lib.buri:6:7
+  |
+6 |   let doubled = n * 2;
+  |       ^^^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place

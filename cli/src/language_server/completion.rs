@@ -15,10 +15,11 @@
 //! the words the lexer can still see in it, and a context with no candidates
 //! answers with an empty list rather than with a guess.
 //!
-//! Where the cursor is decides what is offered, and there are six places here:
-//! a module path, an import clause, a member after a `.`, a variant after a
-//! bare `.`, a written type, and ordinary code. A `BUILD.buri` has a seventh,
-//! which is [`super::build_files`]'s answer rather than this one's.
+//! Where the cursor is decides what is offered, and there are seven places
+//! here: a module path, an import clause, a member after a `.`, a variant
+//! after a bare `.`, a field name inside a struct literal's braces, a written
+//! type, and ordinary code. A `BUILD.buri` has an eighth, which is
+//! [`super::build_files`]'s answer rather than this one's.
 
 use crate::compiler::semantics::resolve::{ModuleScope, Sym};
 use crate::compiler::semantics::typed;
@@ -26,7 +27,7 @@ use crate::compiler::semantics::types::{self as types, ModuleId, Ty, TyConId};
 use crate::compiler::standard_library;
 use crate::diagnostics::Span;
 use crate::json::Value;
-use crate::parsing::flat::{TypeId, TypeView};
+use crate::parsing::flat::{ExprId, ExprView, Tree, TypeId, TypeView};
 use crate::parsing::lexer::Keyword;
 use std::path::Path;
 use super::convert::{self, Position};
@@ -149,6 +150,18 @@ fn in_source(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Vec<V
         // target declares yet. The buffer itself is still a list of names.
         return lexical(text, prefix, replacing, &uri);
     };
+
+    // Inside a struct literal's braces, where a field name goes. The list is
+    // the type's own fields and nothing else — a name from the module's scope
+    // written there is not a value, it is a field that does not exist — so
+    // this answers on its own rather than adding to what follows, and a
+    // literal with every field already given answers with nothing.
+    if let Some(literal) = literal_at(analyzed, path, text, cursor) {
+        if literal.naming {
+            let fields = unwritten_fields(analyzed, &literal, module_id(analyzed, path));
+            return rendered(analyzed, fields, prefix, text, replacing, &uri, None);
+        }
+    }
 
     // A written type is the one context where a value would not typecheck, so
     // it is the one context that offers no values.
@@ -330,14 +343,39 @@ fn locals_at(analyzed: &Analyzed, path: &Path, cursor: u32) -> Vec<(String, Symb
 
 /// The enum a bare `.` is completing a variant of.
 ///
-/// Two things say what is expected there and both are already computed: a
-/// `match` says it with its scrutinee, and every other position says it with
-/// the type the checker gave the expression the cursor is inside. Where
-/// neither answers, the source may still have written the type down — and
-/// where nothing has, there is no expected type, and every variant in the
-/// repository is not one.
+/// Three things say what is expected there and all three are already computed:
+/// a struct literal says it with the declared type of the field whose value is
+/// being written, a `match` says it with its scrutinee, and every other
+/// position says it with the type the checker gave the expression the cursor
+/// is inside. Where none answers, the source may still have written the type
+/// down — and where nothing has, there is no expected type, and every variant
+/// in the repository is not one.
+///
+/// The field's declaration comes first because it is the one of the three that
+/// does not need the buffer to check: `Item { stock: .Ou }` names no variant
+/// that exists, so the checker replaced the value with an error and has
+/// nothing left to say about a position whose type was never in doubt.
 fn expected_enum(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Option<TyConId> {
-    checked_enum(analyzed, path, cursor).or_else(|| annotated_enum(analyzed, path, text, cursor))
+    field_enum(analyzed, path, text, cursor)
+        .or_else(|| checked_enum(analyzed, path, cursor))
+        .or_else(|| annotated_enum(analyzed, path, text, cursor))
+}
+
+/// The enum a struct literal's field is declared to hold, where the cursor is
+/// writing that field's value as a bare `.variant` and nothing else.
+///
+/// "And nothing else" is the whole of the restriction: `Item { stock: f(.A) }`
+/// is a call whose parameter decides what `.A` may be, and the field's own
+/// type is the wrong answer there. So the field's value has to *be* the
+/// inferred-variant expression for this to speak at all, and every other shape
+/// is left to the checker, which knows about calls.
+fn field_enum(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Option<TyConId> {
+    let literal = literal_at(analyzed, path, text, cursor)?;
+    let field = literal.variant_of?;
+    let tables = &analyzed.analysis.checked.tables;
+    let declared = declared_fields(tables, literal.con, literal.variant);
+    let con = declared.iter().find(|f| f.name == field)?.ty.head()?;
+    (!tables.tycon(con).variants().is_empty()).then_some(con)
 }
 
 /// The enum the type annotation on this line names.
@@ -403,6 +441,191 @@ fn checked_enum(analyzed: &Analyzed, path: &Path, cursor: u32) -> Option<TyConId
 
 fn covers(span: Span, offset: u32) -> bool {
     span.start <= offset && offset <= span.end
+}
+
+// ---------------------------------------------------------------------------
+// Struct literals
+// ---------------------------------------------------------------------------
+
+/// Where inside a `Item { … }` the cursor is.
+///
+/// Read off the tree the parser built rather than off the characters around
+/// the cursor, because the characters do not distinguish the two positions
+/// this exists to tell apart: the `:` in `Item { stock: x }` introduces a
+/// value and the one in `let stock: Item` introduces a type, and `{` after a
+/// name is a literal in an expression and a block after a `fn`. The parser
+/// already decided, and its list recovery means a literal missing its `}` or
+/// its separators is still a literal with fields in it — which is the state a
+/// buffer is in for every keystroke but the last.
+struct Literal {
+    /// The type being built.
+    con: TyConId,
+    /// The variant of it, for the record form `Stock.OnHand { count: 1 }`. A
+    /// variant has a field list of its own, and it is a different one.
+    variant: Option<usize>,
+    /// The field names already written, less the one the cursor is on — a
+    /// half-typed `pri` is not a field this literal has given.
+    given: Vec<String>,
+    /// Whether the cursor is where a field name goes: inside the braces, and
+    /// in neither the head, the `..spread`, nor any field's value.
+    naming: bool,
+    /// The field whose value is the bare `.variant` the cursor is inside.
+    variant_of: Option<String>,
+}
+
+/// The innermost struct literal the cursor is inside, and where in it.
+///
+/// Innermost by span width, so `Outer { inner: Inner { … } }` answers about
+/// `Inner` — the same rule [`checked_enum`] picks an expected type by.
+fn literal_at(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Option<Literal> {
+    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
+    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+    let tree = &module.ast.tree;
+    let mut best: Option<(u32, ExprId)> = None;
+    for index in 0..tree.nodes().len() {
+        let id = ExprId(index as u32);
+        let ExprView::StructLit { span, .. } = tree.expr(id) else { continue };
+        if span.file != file || !covers(span, cursor) {
+            continue;
+        }
+        let width = span.end.saturating_sub(span.start);
+        if best.is_none_or(|(w, _)| width < w) {
+            best = Some((width, id));
+        }
+    }
+    let ExprView::StructLit { head, spread, fields, .. } = tree.expr(best?.1) else {
+        return None;
+    };
+    let (con, variant) = head_type(analyzed, path, tree, head)?;
+
+    // The head names the type, and the cursor on it is completing a type name
+    // rather than a field. The `{` is what separates the two, and a cursor
+    // that has not passed one is still in the head's half of the literal —
+    // which matters because the head's span ends at its last character and the
+    // space after it belongs to neither.
+    let opened = text
+        .get(tree.span(head).end as usize..cursor as usize)
+        .is_some_and(|between| between.contains('{'));
+    let mut naming = opened;
+    if spread.is_some_and(|s| covers(tree.span(s), cursor)) {
+        naming = false;
+    }
+    let mut given = Vec::new();
+    let mut variant_of = None;
+    for init in fields {
+        let name = tree.span_of(init.name);
+        let written = text.get(name.start as usize..name.end as usize).unwrap_or("");
+        if covers(name, cursor) {
+            continue;
+        }
+        if let Some(value) = tree.opt(init.value) {
+            if covers(tree.span(value), cursor) {
+                naming = false;
+                if let ExprView::DotVariant { .. } = tree.expr(value) {
+                    variant_of = Some(written.to_string());
+                }
+            }
+        }
+        given.push(written.to_string());
+    }
+    Some(Literal { con, variant, given, naming, variant_of })
+}
+
+/// The type a literal's head names, and the variant of it where the head names
+/// one.
+///
+/// The module's scope rather than the checked tree, for the same reason
+/// [`receiver_symbol`] looks a receiver up before it asks the typed tree: a
+/// literal being typed into is a literal with a field that does not exist yet,
+/// so the checker replaced it with an error and has nothing to say about what
+/// was being built. The name it was built from is still written down.
+///
+/// A head written as a bare `.OnHand { … }` is the one shape this does not
+/// answer: which enum that is is the *expected* type of the head, and asking
+/// for it from inside the literal the head belongs to would be asking this
+/// question again.
+fn head_type(
+    analyzed: &Analyzed,
+    path: &Path,
+    tree: &Tree,
+    head: ExprId,
+) -> Option<(TyConId, Option<usize>)> {
+    let (_, scope) = module_scope(analyzed, path)?;
+    match tree.expr(head) {
+        ExprView::Ident { name, .. } => match scope.names.get(name) {
+            Some(Sym::Ty(con)) => Some((*con, None)),
+            _ => None,
+        },
+        // `List<I64> { … }` — the arguments say nothing about which fields the
+        // type has, so the base is the whole of the question.
+        ExprView::Generic { base, .. } => head_type(analyzed, path, tree, base),
+        // Two shapes share this one: `catalog.Item { … }` through a namespace
+        // import, and `Stock.OnHand { … }`, an enum's record variant.
+        ExprView::Field { base, name, .. } => {
+            let ExprView::Ident { name: outer, .. } = tree.expr(base) else { return None };
+            if let Some(id) = scope.namespaces.get(outer) {
+                let exports = &analyzed.analysis.checked.scopes.get(id.index())?.exports;
+                return match exports.get(name) {
+                    Some(Sym::Ty(con)) => Some((*con, None)),
+                    _ => None,
+                };
+            }
+            let Some(Sym::Ty(con)) = scope.names.get(outer) else { return None };
+            let index = analyzed
+                .analysis
+                .checked
+                .tables
+                .tycon(*con)
+                .variants()
+                .iter()
+                .position(|v| v.name == name)?;
+            Some((*con, Some(index)))
+        }
+        _ => None,
+    }
+}
+
+/// The fields a literal has not written yet.
+///
+/// Not the fields it *must* write: an `Option` field may be left out (SPEC
+/// 5.6) and is still offered, because elidable is not the same as gone — a
+/// literal that leaves `note` out is complete, and a reader who wants to say
+/// `.Some(\"…\")` has to be able to reach the name. Nothing here distinguishes
+/// the two, and the detail text is the field's declaration as
+/// `symbols::describe` renders it — `export note: Option<Str>` — which says
+/// what the field is and claims nothing about whether it is required.
+///
+/// A field the declaring module did not export is left out of a literal
+/// written anywhere else, the same rule [`members_of`] reads by: offering one
+/// is offering a `private-field`.
+fn unwritten_fields(
+    analyzed: &Analyzed,
+    literal: &Literal,
+    from: Option<ModuleId>,
+) -> Vec<(String, Symbol)> {
+    let tables = &analyzed.analysis.checked.tables;
+    let (con, variant) = (literal.con, literal.variant);
+    let declaring = tables.tycon(con).module;
+    declared_fields(tables, con, variant)
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| f.exported || from == Some(declaring))
+        .filter(|(_, f)| !literal.given.contains(&f.name))
+        .map(|(index, f)| (f.name.clone(), Symbol::Field { con, variant, index }))
+        .collect()
+}
+
+/// The field list a literal of this shape writes: a struct's own, or a record
+/// variant's, which is a different list under the same type.
+fn declared_fields(
+    tables: &types::Tables,
+    con: TyConId,
+    variant: Option<usize>,
+) -> &[types::FieldInfo] {
+    match variant {
+        Some(v) => tables.tycon(con).variants().get(v).map_or(&[], |v| v.fields.as_slice()),
+        None => tables.tycon(con).fields(),
+    }
 }
 
 // ---------------------------------------------------------------------------
