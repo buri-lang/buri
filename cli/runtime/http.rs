@@ -1,8 +1,8 @@
 //! A minimal HTTP/1.1 client, for `Net::fetch`.
 //!
 //! Synchronous by necessity — Buri has no `async` in v0.3, so a request blocks,
-//! exactly as `$host_HostNet_fetch` blocks on JavaScript (`runtime.js:1392-1404`,
-//! which uses a synchronous `XMLHttpRequest` and says the same thing).
+//! exactly as `$host_HostNet_fetch` blocks on JavaScript (`runtime.js`, which
+//! uses a synchronous `XMLHttpRequest` and says the same thing).
 //!
 //! ## Scope, stated honestly
 //!
