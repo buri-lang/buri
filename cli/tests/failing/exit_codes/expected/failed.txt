@@ -1,4 +1,4 @@
-FAIL //lib/subject  test/subject.buri  "the answer"
+FAIL //lib/subject  test/subject.buri.buri  "the answer"
   assert.eq failed
     actual:   41
     expected: 42

@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-terminator]
+ --> main.buri:1:50
+  |
+1 | from "core/str/lib.buri" import { concat, split }
+  |                                                  ^
+  |
+  = fix: write `;` here

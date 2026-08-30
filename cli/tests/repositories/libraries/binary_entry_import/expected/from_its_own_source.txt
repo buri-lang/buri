@@ -1,16 +1,16 @@
-error: //cmd/tool/main is a binary's entry point [binary-entry-import]
+error: //cmd/tool/main.buri is a binary's entry point [binary-entry-import]
  --> cmd/tool/routes.buri:1:6
   |
 1 | from "//cmd/tool/main.buri" import { banner };
-  |      ^^^^^^^^^^^^^^^^^
+  |      ^^^^^^^^^^^^^^^^^^^^^^
   |
   = only that binary's own test sources may import it; a library may not reach the binary in its package at all
   = fix: move what you need into a library both can depend on
 warning: banner is imported but not used [unused-import]
- --> cmd/tool/routes.buri:1:33
+ --> cmd/tool/routes.buri:1:38
   |
 1 | from "//cmd/tool/main.buri" import { banner };
-  |                                 ^^^^^^
+  |                                      ^^^^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
   = fix: remove the import

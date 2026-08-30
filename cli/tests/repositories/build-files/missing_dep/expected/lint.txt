@@ -2,6 +2,6 @@ warning: cmd/app/main.buri imports //lib/money, which is not in dependencies [mi
  --> cmd/app/main.buri:9:6
   |
 9 | from "//lib/money/lib.buri" import { fromCents };
-  |      ^^^^^^^^^^^^^
+  |      ^^^^^^^^^^^^^^^^^^^^^^
   |
   = fix: add "//lib/money" to dependencies in cmd/app/BUILD.buri — `buri gen //cmd/app` does this automatically

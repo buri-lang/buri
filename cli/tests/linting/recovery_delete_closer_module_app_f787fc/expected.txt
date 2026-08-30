@@ -1,0 +1,9 @@
+error: expected a type, found `,` [unexpected-token]
+  --> lib/recovery_delete_closer_module_app_f787fc/main.buri:10:27
+   |
+10 | export fn main(): Result<(, Str> {
+   |                           ^
+   |
+   = expected: a type
+   = actual: `,`
+   = fix: name a type here, as in `Int` or `[Str]`

@@ -1,8 +1,8 @@
 warning: list is imported but not used [unused-import]
- --> lib/kit/kit.buri:4:30
+ --> lib/kit/kit.buri:4:39
   |
 4 | from "core/list/lib.buri" import * as list;
-  |                              ^^^^
+  |                                       ^^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
   = fix: remove the import

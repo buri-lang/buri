@@ -1,19 +1,19 @@
-error: //lib/money/test/parse is a test source [test-source-import]
+error: //lib/money/test/parse.buri is a test source [test-source-import]
  --> lib/money/cents.buri:1:6
   |
 1 | from "//lib/money/test/parse.buri" import { digits };
-  |      ^^^^^^^^^^^^^^^^^^^^^^^^ test sources are not importable
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ test sources are not importable
   |
   = test sources are compiled independently and are not modules anybody can name
   = fix: put the shared helper in a library and list it in `test.dependencies` — a path with a `testing` segment if it is test-only
-error: "//lib/money/test/parse" does not export `digits` [no-such-export]
- --> lib/money/cents.buri:1:40
+error: "//lib/money/test/parse.buri" does not export `digits` [no-such-export]
+ --> lib/money/cents.buri:1:45
   |
 1 | from "//lib/money/test/parse.buri" import { digits };
-  |                                        ^^^^^^
+  |                                             ^^^^^^
   |
-  = `digits` is declared in "//lib/money/test/parse" but not exported
-  = fix: check the spelling, or add `export` to `digits`'s declaration in "//lib/money/test/parse"
+  = `digits` is declared in "//lib/money/test/parse.buri" but not exported
+  = fix: check the spelling, or add `export` to `digits`'s declaration in "//lib/money/test/parse.buri"
 
     What to do
     ──────────

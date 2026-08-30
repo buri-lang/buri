@@ -1,9 +1,0 @@
-error: expected an expression, found `,` [unexpected-token]
-  --> lib/recovery_insert_stray_brace_app_65e748/main.buri:13:3
-   |
-13 |   , let _ = io.println(ctx, "done");
-   |   ^
-   |
-   = expected: an expression
-   = actual: `,`
-   = fix: write a value here

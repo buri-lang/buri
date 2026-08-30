@@ -1,0 +1,16 @@
+error: expected `=`, found `context` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_c216df/main.buri:11:11
+   |
+11 |   let ctx context = { Alloc: host.alloc, Stdout: host.stdout };
+   |           ^^^^^^^
+   |
+   = expected: `=`
+   = actual: `context`
+   = fix: write `=` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_c216df/main.buri:13:22
+   |
+13 |   let _ = io.println(ctx, "done");
+   |                      ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

@@ -1,4 +1,4 @@
-FAIL //cmd/app  test/app.buri  "a binary's suite fails the same way a library's does"
+FAIL //cmd/app  test/app.buri.buri  "a binary's suite fails the same way a library's does"
   assert.eq failed
     actual:   "hello"
     expected: "goodbye"

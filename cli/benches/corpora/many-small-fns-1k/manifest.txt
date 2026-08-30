@@ -1,12 +1,12 @@
-# Provenance for a checked-in benchmark corpus. See
-# cli/benches/corpora/README.md and design/PERFORMANCE.md §3.1.
+# Provenance for a benchmark corpus. See design/PERFORMANCE.md §3.1
+# and the README beside this file.
 name = many-small-fns-1k
 profile = many-small-fns
-generator_revision = 1
-revision = 1
-recorded = 2026-08-18
+generator_revision = 5
+revision = 2
+recorded = 2026-08-30
 params = lines=1000
 lines = 1018
-bytes = 30482
+bytes = 30492
 modules = 3
-digest = 406b6c18615edcca896eabc9e4f75e189d258a970d7ce2c263f70b660e95858e
+digest = 786a414814913496d30f3943a4a873beda837d51c8264e2843079a42fa9afe87

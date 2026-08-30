@@ -33,7 +33,7 @@ function $eqD3(a,b){
       return false;
   }
 }
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
   $host_HostStdout_println(ctx_0[1],$str($eqD0($k0,$k1))+' '+$str($eqD0($k0,$k0)));
   $host_HostStdout_println(ctx_0[1],$show($k0,$D0)+' '+$show($k1,$D0));

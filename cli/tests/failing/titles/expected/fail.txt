@@ -1,34 +1,34 @@
-FAIL //lib/titled  test/titled.buri  "a title with: a colon"
+FAIL //lib/titled  test/titled.buri.buri  "a title with: a colon"
   assert.eq failed
     actual:   1
     expected: 2
   --> lib/titled/test/titled.buri:9:1
-FAIL //lib/titled  test/titled.buri  "a title with \"quotes\" in it"
+FAIL //lib/titled  test/titled.buri.buri  "a title with \"quotes\" in it"
   assert.eq failed
     actual:   1
     expected: 2
   --> lib/titled/test/titled.buri:13:1
-FAIL //lib/titled  test/titled.buri  "a title with a backslash \\ and a tab \t"
+FAIL //lib/titled  test/titled.buri.buri  "a title with a backslash \\ and a tab \t"
   assert.eq failed
     actual:   1
     expected: 2
   --> lib/titled/test/titled.buri:17:1
-FAIL //lib/titled  test/titled.buri  "a título with ünïcödé — 日本語 🎉"
+FAIL //lib/titled  test/titled.buri.buri  "a título with ünïcödé — 日本語 🎉"
   assert.eq failed
     actual:   1
     expected: 2
   --> lib/titled/test/titled.buri:21:1
-FAIL //lib/titled  test/titled.buri  ""
+FAIL //lib/titled  test/titled.buri.buri  ""
   assert.eq failed
     actual:   1
     expected: 2
   --> lib/titled/test/titled.buri:25:1
-FAIL //lib/titled  test/titled.buri  "braces { } brackets [ ] and a comma , "
+FAIL //lib/titled  test/titled.buri.buri  "braces { } brackets [ ] and a comma , "
   assert.eq failed
     actual:   1
     expected: 2
   --> lib/titled/test/titled.buri:29:1
-FAIL //lib/titled  test/titled.buri  "a title with a newline \n in it"
+FAIL //lib/titled  test/titled.buri.buri  "a title with a newline \n in it"
   assert.eq failed
     actual:   1
     expected: 2

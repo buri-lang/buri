@@ -1,8 +1,8 @@
-error: //lib/money/cents is internal to //lib/money [internal-import]
+error: //lib/money/cents.buri is internal to //lib/money [internal-import]
  --> cmd/app/main.buri:8:6
   |
 8 | from "//lib/money/cents.buri" import { fromCents };
-  |      ^^^^^^^^^^^^^^^^^^^
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = only names re-exported by lib/money/lib.buri are available
   = fix: import the library instead: from "//lib/money/lib.buri" import { ... }

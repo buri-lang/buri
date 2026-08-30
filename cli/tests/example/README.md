@@ -27,7 +27,7 @@ lib/
     posting/
       rules.buri
     testing/
-      lib.buri                //lib/ledger/testing — test-only, by its path
+      lib.buri                //lib/ledger/testing/lib.buri — test-only, by its path
       fixtures.buri
     test/
       ledger.buri
@@ -70,9 +70,9 @@ cmd/
 tools/
   report/                     a library and a binary in one package
     BUILD.buri
-    lib.buri                  //tools/report
+    lib.buri                  //tools/report/lib.buri
     render.buri
-    main.buri                 //tools/report/main
+    main.buri                 //tools/report/main.buri
     flags.buri
     test/
       render.buri

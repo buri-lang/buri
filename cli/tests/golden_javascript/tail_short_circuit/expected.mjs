@@ -1,14 +1,14 @@
 const $k0=[3n,1n,4n,1n,5n];
 const $k1=[0,0];
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],$str(__cmd_x_main$allBelow($k0,10n,0n))+' '+$str(__cmd_x_main$allBelow($k0,4n,0n)));
-  $host_HostStdout_println(ctx_0[1],$str(__cmd_x_main$anyAtLeast($k0,5n,0n))+' '+$str(__cmd_x_main$anyAtLeast($k0,9n,0n)));
-  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main$firstOr($k0,2n))+' '+String(__cmd_x_main$firstOr($k0,9n)));
-  $host_HostStdout_println(ctx_0[1],$str(__cmd_x_main$bothSmall(1n,2n))+' '+$str(__cmd_x_main$bothSmall(1n,20n)));
+  $host_HostStdout_println(ctx_0[1],$str(__cmd_x_main_buri$allBelow($k0,10n,0n))+' '+$str(__cmd_x_main_buri$allBelow($k0,4n,0n)));
+  $host_HostStdout_println(ctx_0[1],$str(__cmd_x_main_buri$anyAtLeast($k0,5n,0n))+' '+$str(__cmd_x_main_buri$anyAtLeast($k0,9n,0n)));
+  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main_buri$firstOr($k0,2n))+' '+String(__cmd_x_main_buri$firstOr($k0,9n)));
+  $host_HostStdout_println(ctx_0[1],$str(__cmd_x_main_buri$bothSmall(1n,2n))+' '+$str(__cmd_x_main_buri$bothSmall(1n,20n)));
   return $k1;
 }
-function __cmd_x_main$allBelow(xs_0,limit_1,i_2){
+function __cmd_x_main_buri$allBelow(xs_0,limit_1,i_2){
   while(true){
     if(i_2>=$list_len(xs_0)){
       return true;
@@ -23,7 +23,7 @@ function __cmd_x_main$allBelow(xs_0,limit_1,i_2){
     }
   }
 }
-function __cmd_x_main$anyAtLeast(xs_0,limit_1,i_2){
+function __cmd_x_main_buri$anyAtLeast(xs_0,limit_1,i_2){
   while(true){
     if(i_2>=$list_len(xs_0)){
       return false;
@@ -38,7 +38,7 @@ function __cmd_x_main$anyAtLeast(xs_0,limit_1,i_2){
     }
   }
 }
-function __cmd_x_main$firstOr(xs_0,i_1){
+function __cmd_x_main_buri$firstOr(xs_0,i_1){
   while(true){
     if(i_1>=$list_len(xs_0)){
       return -1n;
@@ -53,6 +53,6 @@ function __cmd_x_main$firstOr(xs_0,i_1){
     }
   }
 }
-function __cmd_x_main$bothSmall(a_0,b_1){
+function __cmd_x_main_buri$bothSmall(a_0,b_1){
   return a_0<10n&&b_1<10n;
 }

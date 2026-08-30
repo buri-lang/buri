@@ -1,6 +1,6 @@
 const $k3=[2n,3n,5n,7n,11n];
 const $k4=[0,0];
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
   $host_HostStdout_println(ctx_0[1],String(6n)+' '+'default');
   $host_HostStdout_println(ctx_0[1],String(1n)+' '+String(3n));

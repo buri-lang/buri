@@ -1,0 +1,12 @@
+error: this re-export list is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:1:41
+  |
+1 | from "core/list/lib.buri" export { fold ;
+  |                                         ^
+  |
+ --> main.buri:1:34
+  |
+1 | from "core/list/lib.buri" export { fold ;
+  |                                  ^ opened here
+  |
+  = fix: write `}` here

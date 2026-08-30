@@ -1,8 +1,8 @@
-error: "core/list" does not export `notAThing` [no-such-export]
- --> cmd/reexport_name_not_exported/main.buri:4:27
+error: "core/list/lib.buri" does not export `notAThing` [no-such-export]
+ --> cmd/reexport_name_not_exported/main.buri:4:36
   |
 4 | from "core/list/lib.buri" export { notAThing };
-  |                           ^^^^^^^^^
+  |                                    ^^^^^^^^^
   |
   = a re-export may name only what its module path exports
   = fix: check the spelling, or drop `notAThing` from this list

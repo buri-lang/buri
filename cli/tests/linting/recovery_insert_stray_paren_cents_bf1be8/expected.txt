@@ -1,0 +1,17 @@
+warning: str is imported but not used [unused-import]
+ --> lib/recovery_insert_stray_paren_cents_bf1be8/lib.buri:5:38
+  |
+5 | from "core/str/lib.buri" import * as str;
+  |                                      ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: expected a type, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_cents_bf1be8/lib.buri:7:35
+  |
+7 | export fn describe<C: Alloc>(ctx: ? C): Str {
+  |                                   ^
+  |
+  = expected: a type
+  = actual: `?`
+  = fix: name a type here, as in `Int` or `[Str]`

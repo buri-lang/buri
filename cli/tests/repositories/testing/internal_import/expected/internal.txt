@@ -2,7 +2,7 @@ error: lib/money/test/cents.buri imports a library-internal module [test-interna
  --> lib/money/test/cents.buri:3:6
   |
 3 | from "//lib/money/cents.buri" import { fromCents, toCents };
-  |      ^^^^^^^^^^^^^^^^^^^ internal to the library under test
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^ internal to the library under test
   |
   = tests reach their library the same way dependents do
   = fix: import //lib/money, and re-export `fromCents`, `toCents` from lib/money/lib.buri if it is part of the surface you meant to test

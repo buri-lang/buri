@@ -1,0 +1,17 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_swap_adjacent_brace_app_305aae/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected an expression, found `_` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_305aae/main.buri:14:3
+   |
+14 |   _ let = io.println(ctx, banner());
+   |   ^
+   |
+   = expected: an expression
+   = actual: `_`
+   = fix: write a value here

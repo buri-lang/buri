@@ -11,8 +11,8 @@ fn size(n: I64): Str {
     if (n > 10) {
       if (n > 100) {
         if (n > 1000) {
-          if (n > 10000) { "huge" } else { "large" }
-         else { "big" }
+          if (n > 10000) { "huge"  else { "large" }
+        } else { "big" }
       } else { "medium" }
     } else { "small" }
   } else { "none" }

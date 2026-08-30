@@ -1,0 +1,25 @@
+error: there is nothing named `describe` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_module_app_d32f69/main.buri:12:27
+   |
+12 |   let _ = io.println(ctx, describe());
+   |                           ^^^^^^^^
+   |
+   = fix: declare `describe`, or import it — a name is in scope only from this module's own declarations and its imports
+error: expected a declaration, found `describe` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_d32f69/main.buri:16:1
+   |
+16 | describe fn(): Str {
+   | ^^^^^^^^
+   |
+   = expected: a declaration
+   = actual: `describe`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected an identifier, found `(` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_d32f69/main.buri:16:12
+   |
+16 | describe fn(): Str {
+   |            ^
+   |
+   = expected: an identifier
+   = actual: `(`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

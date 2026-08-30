@@ -1,5 +1,5 @@
 const $k0=[0,0];
-function __cmd_x_main$main(){
+function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
   const name_1='world';
   const n_2=42n;

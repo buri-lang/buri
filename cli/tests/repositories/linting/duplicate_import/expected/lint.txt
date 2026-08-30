@@ -1,13 +1,13 @@
-warning: `core/effect` is imported twice [duplicate-import]
+warning: `core/effect/lib.buri` is imported twice [duplicate-import]
  --> cmd/app/main.buri:9:6
   |
 9 | from "core/effect/lib.buri" import { Stdout };
-  |      ^^^^^^^^^^^^^
+  |      ^^^^^^^^^^^^^^^^^^^^^^
   |
  --> cmd/app/main.buri:8:6
   |
 8 | from "core/effect/lib.buri" import { Alloc };
-  |      ^^^^^^^^^^^^^ first imported here
+  |      ^^^^^^^^^^^^^^^^^^^^^^ first imported here
   |
   = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
   = fix: merge the two into one import

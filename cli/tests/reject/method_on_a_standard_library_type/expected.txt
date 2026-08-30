@@ -5,7 +5,7 @@ error: `Result<I64, Str>` has no method `mapErrContext` [no-such-method]
   |         ^^^^^^^^^^^^^
   |
   = did you mean `mapErrCtx`?
-  = fix: check the spelling — `buri docs core/result` lists every method `Result<I64, Str>` has, and one may not be added to it from outside `core/result`
+  = fix: check the spelling — `buri docs core/result/lib.buri` lists every method `Result<I64, Str>` has, and one may not be added to it from outside `core/result/lib.buri`
 
     What to do
     ──────────

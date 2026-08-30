@@ -1,9 +1,9 @@
-FAIL //lib/money  test/money.buri  "the report renders the value structurally"
+FAIL //lib/money  test/money.buri.buri  "the report renders the value structurally"
   assert.eq failed
     actual:   Money { cents: 1 }
     expected: Money { cents: 2 }
   --> lib/money/test/money.buri:13:1
-FAIL //lib/money  test/money.buri  "the program's own Show says something else"
+FAIL //lib/money  test/money.buri.buri  "the program's own Show says something else"
   assert.eq failed
     actual:   "Money(hand written)"
     expected: "not this"

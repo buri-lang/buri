@@ -2,12 +2,11 @@
 # and the README beside this file.
 name = comment-free-100k
 profile = comment-free
-generator_revision = 4
-revision = 4
-recorded = 2026-08-27
-params = doc_comment_pct=0 lines=100000 seed=0x0b001a575eed000f
-lines = 100928
-bytes = 2815601
+generator_revision = 5
+revision = 5
+recorded = 2026-08-30
+params = doc_comment_pct=0 lines=100000
+lines = 100937
+bytes = 2845286
 modules = 456
-digest = 6f3db9255ea4bf04fb6605d68d7f4ec757a2b113395beaf48e2738cbfe023da3
-native = false
+digest = c84467357101d9c1893ff79f1e65990e14b9edf10524a3595ea44c6c39c7e4c6

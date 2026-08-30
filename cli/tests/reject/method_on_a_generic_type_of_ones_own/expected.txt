@@ -4,7 +4,7 @@ error: `Pair<Int, Int>` has no method `second` [no-such-method]
 12 |   let _ = ctx.println("${p.second()}");
    |                            ^^^^^^
    |
-   = fix: check the spelling, or declare it in `impl<A, B> Pair<A, B> { ... }` in `//cmd/method_on_a_generic_type_of_ones_own/main`, where the type is declared — a method may not be added from anywhere else
+   = fix: check the spelling, or declare it in `impl<A, B> Pair<A, B> { ... }` in `//cmd/method_on_a_generic_type_of_ones_own/main.buri`, where the type is declared — a method may not be added from anywhere else
 
      What to do
      ──────────

@@ -1,9 +1,9 @@
 const $k0=[0,0];
-function __cmd_x_main$main(){
-  $host_HostStdout_println([],__cmd_x_main$roman(1n)+' '+__cmd_x_main$roman(9n)+' '+__cmd_x_main$roman(10n)+' '+__cmd_x_main$roman(11n));
+function __cmd_x_main_buri$main(){
+  $host_HostStdout_println([],__cmd_x_main_buri$roman(1n)+' '+__cmd_x_main_buri$roman(9n)+' '+__cmd_x_main_buri$roman(10n)+' '+__cmd_x_main_buri$roman(11n));
   return $k0;
 }
-function __cmd_x_main$roman(n_0){
+function __cmd_x_main_buri$roman(n_0){
   switch(n_0){
     case 1n:
       return 'I';

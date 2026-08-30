@@ -27,11 +27,11 @@ warning: nothing reads `Ledger.seal` [unused-field]
      with one is never reported. So is a value handed to the runtime, or
      compared structurally. What is left is the field nothing at all looks at.
 
-error: "//lib/money/cents" does not export `Ledgor` [no-such-export]
- --> lib/money/lib.buri:5:35
+error: "//lib/money/cents.buri" does not export `Ledgor` [no-such-export]
+ --> lib/money/lib.buri:5:40
   |
 5 | from "//lib/money/cents.buri" export { Ledgor, ledger, markupCents };
-  |                                   ^^^^^^
+  |                                        ^^^^^^
   |
   = a re-export may name only what its module path exports
   = did you mean `Ledger`?
