@@ -4,6 +4,40 @@
 //! allocator. Non-atomic because the language has no threads, which is a
 //! language decision this pass gets to spend rather than one it has to defend.
 //!
+//! # The count is non-atomic *per block*, not per program
+//!
+//! That sentence is still true of every program this toolchain compiles, and
+//! it is no longer true by construction. Since G2 an `incref` and a `decref`
+//! are each **two** counts behind one branch: bit 63 of the block's `cap`
+//! (`layout::CAP_SHARED_FLAG`) says the block may be reached from more than
+//! one thread, and it chooses the atomic form. Both backends open-code the
+//! fork — `backend/llvm/emit.rs::fork_on_shared`, and the three reference
+//! stencils in `backend/stencil/sources.rs::memory` — and `cli/runtime`'s own
+//! `buri_rt_incref`/`buri_rt_decref` take it too, so a block reached from a
+//! generic path is counted the same way as one reached from emitted code.
+//!
+//! **Nothing sets the bit.** G1 reserved it and every reader masks; G2 grew
+//! the branch and left it dark; G3 is the slice that turns it on, and *this
+//! pass* is where it will be turned on, because [`sharing`] already computes
+//! the question the bit asks — where a second reference to a value comes into
+//! existence — for the JavaScript branch's sticky `$u`. So this module's
+//! output does not change today, and what changes when it does is one more
+//! consumer of an analysis that is already here.
+//!
+//! Two properties of the count survive the fork, and both were the reason the
+//! bit is in `cap` rather than in the count itself (MEMORY.md §5.1,
+//! `layout::CAP_SHARED_FLAG`'s own doc):
+//!
+//!  * **`IMMORTAL` saturation.** The atomic arms add and subtract a *delta* of
+//!    `0` for an `IMMORTAL` block and `1` otherwise, which is the branchless
+//!    `select` of the unshared arm written as an `atomicrmw` operand. A plain
+//!    `fetch_add(1)` would wrap `u64::MAX` to zero and free every literal.
+//!  * **The `rc == 1` uniqueness test.** Unchanged and unforked
+//!    (`buri_rt_unique_cap`): a thread holding no reference cannot make a
+//!    second one, so a count of one cannot move under the caller who read it.
+//!    The elision and reuse this pass plans are therefore sound on a shared
+//!    block for the same reason they are sound on an unshared one.
+//!
 //! Three things, in order of how much they matter:
 //!
 //!  * **Inference.** Each parameter is `own` or `borrow`. A borrowed parameter

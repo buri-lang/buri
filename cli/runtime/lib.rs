@@ -352,9 +352,10 @@
 //! `runtime_native::net()` reads it, and `Backend::missing_intrinsics` refuses a
 //! program reaching `host.HostListen.*`, `host.HostSockets.*` or
 //! `host.HostTasks.*` with a diagnostic naming the operations
-//! (`networking-not-available`) before code generation starts. None of those
-//! keys exists yet; the refusal is in place first so that the day one lands it
-//! is not an unresolved `buri_rt_*` symbol from the system linker.
+//! (`networking-not-available`) before code generation starts. No program
+//! reaches those keys yet — the three effects are declared and granted by no
+//! platform — and the refusal is in place first so that the day one is granted
+//! it is not an unresolved `buri_rt_*` symbol from the system linker.
 //!
 //! `host.HostNet.fetch` is deliberately **not** one of those keys, and that is
 //! a decision rather than an omission: with `net` off this runtime still speaks

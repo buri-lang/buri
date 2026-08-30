@@ -671,13 +671,22 @@ pub fn codegen_key(
 /// link_key = H(Link, toolchain_version, mode, platform, arch,
 ///              linker.name(), linker.version(),
 ///              [codegen_key(u) for u in units],   // ordered
-///              runtime_archive_hash)
+///              runtime_archive_hash | "omitted")
 /// ```
 ///
 /// Ordered, because link order determines symbol resolution order and therefore
 /// determines the bytes. The runtime archive is in it because editing the
 /// runtime relinks every artifact and recompiles none (BUILD-AND-WATCH.md
 /// §2.2), and nothing else in this key would notice.
+///
+/// The last term is the archive's *decision* and not merely its digest
+/// ([`link::RuntimeArchive`]). A link that does not name the archive does not
+/// depend on it, so folding the digest in would relink an artifact whose bytes
+/// could not have moved; and the two decisions have to be two keys, because
+/// they are two command lines and therefore two artifacts. It stays **one**
+/// term either way rather than becoming a digest plus a flag: an omitted
+/// archive has no digest to state, and a term whose value is sometimes
+/// meaningless is a term a reader has to be told to ignore.
 ///
 /// This is a *different function* from `action_key(.., Action::Link)`, which
 /// stays exactly what it was and is what a JavaScript artifact is keyed on. The
@@ -688,18 +697,21 @@ pub fn link_key(
     flags: &Flags,
     linker: &dyn Linker,
     unit_keys: &[ActionKey],
+    runtime: link::RuntimeArchive,
 ) -> ActionKey {
-    link_key_of(flags.mode, target_of(output), linker, unit_keys)
+    link_key_of(flags.mode, target_of(output), linker, unit_keys, runtime)
 }
 
-/// [`link_key`] without a repository, which is what makes the two claims it
+/// [`link_key`] without a repository, which is what makes the three claims it
 /// rests on testable as claims rather than as the shadow of a build: that the
-/// unit keys enter **in order**, and that the linker's identity enters at all.
+/// unit keys enter **in order**, that the linker's identity enters at all, and
+/// that the archive decision moves the key exactly when it moves.
 pub fn link_key_of(
     mode: crate::commands::arguments::BuildMode,
     target: Target,
     linker: &dyn Linker,
     unit_keys: &[ActionKey],
+    runtime: link::RuntimeArchive,
 ) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Link, mode);
     k.platform(target.platform, target.arch);
@@ -707,7 +719,13 @@ pub fn link_key_of(
     for key in unit_keys {
         k.dependency(key);
     }
-    k.input("runtime", runtime_archive_hash().as_bytes());
+    match runtime {
+        link::RuntimeArchive::Linked => k.input("runtime", runtime_archive_hash().as_bytes()),
+        // Not the empty string: "this link named no archive" and "this link
+        // named an archive whose digest is of no bytes" would otherwise be one
+        // key, and on a host with no runtime the second is what the digest is.
+        link::RuntimeArchive::Omitted => k.input("runtime", b"omitted"),
+    }
     k.finish()
 }
 
@@ -1145,7 +1163,11 @@ fn build_native(
 
     explain_closure(session, target, output, flags);
     let objects = compile_objects(session, target, output, flags, &mut diagnostics)?;
-    let key = link_key(output, flags, &linker, &objects.keys);
+    // Asked here and again inside the linker, of the same objects, because it
+    // is a pure function of them: the key has to name the command line the link
+    // is about to run, and the linker has to build that command line.
+    let runtime = link::runtime_archive_for(&objects.units);
+    let key = link_key(output, flags, &linker, &objects.keys, runtime);
     let linker = linker.in_dir(link::dir(&session.root, key.as_str()));
     let label = session.workspace.label(target);
     let explain_link = |status: crate::build::cache::Status| {
@@ -1410,7 +1432,8 @@ fn test_binary_named(
     };
     let objects =
         objects_named(session, prefix, label, output, flags, program, tables, diagnostics)?;
-    let key = link_key(output, flags, &linker, &objects.keys);
+    let runtime = link::runtime_archive_for(&objects.units);
+    let key = link_key(output, flags, &linker, &objects.keys, runtime);
     let linker = linker.in_dir(link::dir(&session.root, key.as_str()));
     let explain_link = |status: crate::build::cache::Status| {
         crate::build::cache::explain(flags.explain, status, Action::Link, label, output.platform(), &key);
