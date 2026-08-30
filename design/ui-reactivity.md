@@ -520,6 +520,13 @@ language one, and the existing machinery covers it:
   still short, and for the ordinary reason rather than that one: `parallel`
   returns only when the last task has finished, and a page's concurrency is its
   event loop.
+
+  `Listen` and `Sockets` are where `Tasks` was: declared, with empty rows, until
+  an acceptor answers them. They also show the limit of what an empty row
+  claims. They are granted **together** — being a server is one authority in two
+  halves — and when they are granted, `JS` and `WEB` still will not have them,
+  because a page does not hold a port open. An empty row says nobody grants this
+  today, never that everybody eventually will.
 - **Email is a different effect grant, not a lesser web.** Its host exports
   rendering but nothing interactive — no `Ui`, no `Fetch`; a `render` evaluates
   the tree once (`Const` and `Computed` props resolve; `Cell` has nothing to
@@ -636,6 +643,9 @@ design is *for*.
   because `parallel` waits for its last task and a page has an interface that a
   wait is visible in. The shape a page would want is the callback one `Fetch`
   already has, and it is the concurrency work's, not this document's.
+- **An acceptor for `Listen`/`Sockets`.** Both are declared with empty rows, so
+  no platform grants them. Granting one is a table edit; earning the grant is
+  the runtime work. The two move together and never onto `JS` or `WEB`.
 - **A per-target vocabulary check.** A style or widget with no meaning on some
   target — hover in email, a form in a static render. Backend degradation with a
   warning is the answer until real components hit it.

@@ -156,7 +156,7 @@ pub fn net() -> bool {
 /// Whether an intrinsic key is one only a `net` runtime answers.
 ///
 /// The three host effects the networking archive carries — `Listen` accepts
-/// connections, `Sockets` reads and writes them, `Tasks` runs Buri code on the
+/// connections, `Sockets` writes to open ones, `Tasks` runs Buri code on the
 /// carrier pool the same reactor drives. Matched on the effect type rather than
 /// on the whole key, so an operation added to one of them by a later slice is
 /// covered the day it is added rather than the day somebody remembers this
@@ -278,7 +278,7 @@ mod tests {
     fn the_networking_family_is_three_effects() {
         for key in [
             "host.HostListen.listen",
-            "host.HostSockets.read",
+            "host.HostSockets.socketSendText",
             "host.HostTasks.parallel",
         ] {
             assert!(net_intrinsic(key), "{key} is not recognised as networking");
