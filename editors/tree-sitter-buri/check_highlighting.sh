@@ -118,6 +118,10 @@ GRAMMAR="
 75 passwordHash property
 76 seed variable
 76 name property
+83 credential function
+83 u variable.parameter
+84 passwordHash property
+85 id property
 "
 
 # --- What the grammar is not asked for ---------------------------------------
@@ -143,6 +147,11 @@ UNCOLOURED="
 58 other
 58 pair
 75 hash
+84 u
+85 u
+86 stored
+87 mark
+88 stored
 "
 
 # --- What the server is asked for --------------------------------------------
@@ -216,6 +225,18 @@ SERVER="
 75 hash variable
 76 seed variable
 76 name property
+83 credential function
+83 u variable
+83 User type
+84 stored variable
+84 u variable
+84 passwordHash property
+85 mark variable
+85 u variable
+85 id property
+86 stored variable
+87 mark variable
+88 stored variable
 "
 
 # ---------------------------------------------------------------------------

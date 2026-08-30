@@ -1,1 +1,1 @@
-from "//lib/reference/sections" export { anonymous, describe, Source };
+from "//lib/reference/sections" export { anonymous, credential, describe, Source };

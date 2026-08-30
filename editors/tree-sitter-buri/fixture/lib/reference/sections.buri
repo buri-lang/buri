@@ -76,3 +76,16 @@ export fn anonymous(hash: Str): User {
     let seed: User = { id: UserId("u2"), name: "Grace", passwordHash: hash };
     { ..seed, name: "Grace H." }
 }
+
+/// The two private-by-omission fields, read. `check_highlighting.sh` asserts
+/// about a file the compiler has nothing to say about, and a field written at
+/// every literal and read at none is a field `unused-field` has something to
+/// say about — so the reads live here, after every row the tables pin.
+export fn credential(u: User): Str {
+    let stored = u.passwordHash;
+    let mark = u.id.0;
+    match (stored) {
+        "" => mark,
+        _ => stored,
+    }
+}
