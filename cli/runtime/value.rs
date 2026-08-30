@@ -147,6 +147,33 @@ pub fn list_of_strs(items: &[String]) -> BuriList {
     BuriList { ptr, len: items.len() as u64 }
 }
 
+/// A `[Header]` from name/value pairs.
+///
+/// `Header` is `struct { name: Str, value: Str }` (`effect.buri`), which
+/// VALUE-MODEL.md §5 lays out as two `Str`s back to back — so the element is 48
+/// bytes and the spine is one block, exactly as [`list_of_strs`]'s is. The two
+/// `Str`s of an element are written in field order, which is the order the
+/// struct declares them in and the order generated code indexes them by.
+pub fn list_of_headers(items: &[(String, String)]) -> BuriList {
+    let stride = 2 * std::mem::size_of::<BuriStr>();
+    if items.is_empty() {
+        return BuriList { ptr: std::ptr::null_mut(), len: 0 };
+    }
+    let bytes = items.len().saturating_mul(stride);
+    let ptr = buri_rt_alloc(bytes as u64);
+    for (i, (name, value)) in items.iter().enumerate() {
+        // SAFETY: `i * stride` and the second `Str` after it are within the
+        // `items.len() * stride` block, and both are 8-aligned because the
+        // payload is 16-aligned and `size_of::<BuriStr>()` is a multiple of 8.
+        unsafe {
+            let element = ptr.add(i * stride).cast::<BuriStr>();
+            element.write(str_of(name));
+            element.add(1).write(str_of(value));
+        }
+    }
+    BuriList { ptr, len: items.len() as u64 }
+}
+
 /// A `[U8]` from bytes — stride 1, so the payload is the bytes themselves.
 pub fn list_of_bytes(bytes: &[u8]) -> BuriList {
     if bytes.is_empty() {
