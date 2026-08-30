@@ -105,10 +105,11 @@ body for, and `backend::split_networking` sorts that half out from the ordinary
 "this backend has no implementation of" half at each of the two emission sites.
 The refusal is `networking-not-available`, whose fix names the feature rather
 than asking for a bug report: the program is fine and the toolchain is what has
-to change. None of those keys exists yet — they arrive with `core/tasks` and the
-server surface — and the refusal is in place first, so that the day one lands it
-lands with its diagnostic already written rather than as an unresolved
-`buri_rt_*` symbol from `cc`.
+to change. No program reaches those keys yet — the three effects are declared in
+`core/effect` and granted by no platform, so the host values their operations
+hang off cannot be constructed — and the refusal is in place first, so that the
+day a platform grants one the key lands with its diagnostic already written
+rather than as an unresolved `buri_rt_*` symbol from `cc`.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 
