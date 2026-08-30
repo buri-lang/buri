@@ -1,0 +1,23 @@
+error: a record field ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_cents_ff65c8/lib.buri:15:18
+   |
+15 |   export tax: I64
+   |                  ^
+   |
+   = fix: write `,` here
+warning: nothing reads `Entry.packer` [unused-field]
+  --> lib/recovery_delete_separator_brace_cents_ff65c8/lib.buri:16:3
+   |
+16 |   packer: Str,
+   |   ^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+warning: nothing reads `Entry.note` [unused-field]
+  --> lib/recovery_delete_separator_brace_cents_ff65c8/lib.buri:17:3
+   |
+17 |   note: Option<Str>,
+   |   ^^^^^^^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it

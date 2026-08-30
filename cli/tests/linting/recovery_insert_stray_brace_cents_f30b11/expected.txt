@@ -1,0 +1,23 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_brace_cents_f30b11/lib.buri:21:3
+   |
+21 |   extra Entry { cents, label: "" }
+   |   ^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_cents_f30b11/lib.buri:21:3
+   |
+21 |   extra Entry { cents, label: "" }
+   |   ^^^^^
+   |
+   = did you mean `entry`?
+   = fix: correct the spelling, or declare it
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_brace_cents_f30b11/lib.buri:21:8
+   |
+21 |   extra Entry { cents, label: "" }
+   |        ^
+   |
+   = fix: write `;` here

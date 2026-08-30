@@ -1,0 +1,7 @@
+error: an enum variant ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_cents_dbb855/lib.buri:13:7
+   |
+13 |   Open
+   |       ^
+   |
+   = fix: write `,` here

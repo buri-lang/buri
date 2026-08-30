@@ -1,0 +1,19 @@
+error: there is nothing named `seal` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_cents_6f15a0/lib.buri:17:21
+   |
+17 |   Ledger { entries, seal"" : }
+   |                     ^^^^
+   |
+   = fix: declare `seal`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_cents_6f15a0/lib.buri:17:25
+   |
+17 |   Ledger { entries, seal"" : }
+   |                         ^^
+   |
+  --> lib/recovery_swap_adjacent_brace_cents_6f15a0/lib.buri:17:10
+   |
+17 |   Ledger { entries, seal"" : }
+   |          ^ opened here
+   |
+   = fix: write `}` here

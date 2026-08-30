@@ -1,0 +1,21 @@
+// Declaring them is the whole of what happens to `Ledger` and `Tally`. No
+// other line in the package writes either name down, nothing builds one, and
+// neither is on the library's surface — so there is no consumer outside this
+// repository that could be reaching for them either.
+//
+// Each is one finding, at the name. A type nothing uses has no field anything
+// reads and no variant anything matches, so reporting those as well would be
+// the same news four times.
+
+struct Ledger {
+  entries: I64,
+}
+
+enum Tally {
+  Open,
+  ? Closed,
+}
+
+export fn describe(n: I64): I64 {
+  n + 1
+}

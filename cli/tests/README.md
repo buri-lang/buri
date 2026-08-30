@@ -355,7 +355,7 @@ exist to answer no to.
 **The generated corpora** are the same bargain at three orders of magnitude,
 and they are written rather than typed. `formatting/generated/` holds a
 thousand `recovery_*` pairs, `checking/` seven hundred sources with the page
-the front end prints for each, and `linting/` five hundred lint fixtures with
+the front end prints for each, and `linting/` six hundred lint fixtures with
 the findings they still draw — all three sampled from `harness/mutation.rs`'s
 population by `harness/pinned.rs`, one case per **coverage cell**: the mutation
 kind, the delimiter open at the site, the declaration around it, what opened

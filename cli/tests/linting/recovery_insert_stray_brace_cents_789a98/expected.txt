@@ -1,0 +1,9 @@
+error: expected `:`, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_brace_cents_789a98/lib.buri:7:16
+  |
+7 |   export amount, : I64,
+  |                ^
+  |
+  = expected: `:`
+  = actual: `,`
+  = fix: write `:` here

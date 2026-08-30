@@ -1,0 +1,9 @@
+error: expected an identifier, found `fn` [unexpected-token]
+  --> lib/recovery_delete_closer_module_cents_335428/lib.buri:20:8
+   |
+20 | export fn entry(cents: I64): Entry {
+   |        ^^
+   |
+   = expected: an identifier
+   = actual: `fn`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

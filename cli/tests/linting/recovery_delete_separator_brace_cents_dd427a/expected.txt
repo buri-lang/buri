@@ -1,0 +1,7 @@
+error: a record field ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_cents_dd427a/lib.buri:11:20
+   |
+11 |   export cents: I64
+   |                    ^
+   |
+   = fix: write `,` here

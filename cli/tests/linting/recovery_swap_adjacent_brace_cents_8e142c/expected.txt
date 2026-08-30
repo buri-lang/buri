@@ -1,0 +1,21 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_cents_8e142c/lib.buri:20:13
+   |
+20 |   match (m{ )
+   |             ^
+   |
+  --> lib/recovery_swap_adjacent_brace_cents_8e142c/lib.buri:20:11
+   |
+20 |   match (m{ )
+   |           ^ opened here
+   |
+   = fix: write `}` here
+error: expected `{`, found `.` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_8e142c/lib.buri:21:5
+   |
+21 |     .Open => l.entries,
+   |     ^
+   |
+   = expected: `{`
+   = actual: `.`
+   = fix: write `{` here

@@ -1,0 +1,9 @@
+error: expected a declaration, found `extra` [unexpected-token]
+  --> lib/recovery_insert_stray_module_cents_671c10/lib.buri:15:1
+   |
+15 | extra export enum Tally {
+   | ^^^^^
+   |
+   = expected: a declaration
+   = actual: `extra`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

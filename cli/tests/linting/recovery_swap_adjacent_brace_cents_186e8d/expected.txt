@@ -1,0 +1,36 @@
+error: this `match` does not cover `.Closed` [match-not-exhaustive]
+  --> lib/recovery_swap_adjacent_brace_cents_186e8d/lib.buri:20:3
+   |
+20 |   match (m) {
+   |   ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Closed`, or a `_` arm for everything left
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_swap_adjacent_brace_cents_186e8d/lib.buri:21:10
+   |
+21 |     .Open l =>.entries,
+   |          ^
+   |
+   = fix: write `=>` here
+error: expected `I64`, found `Ledger` [type-mismatch]
+  --> lib/recovery_swap_adjacent_brace_cents_186e8d/lib.buri:21:11
+   |
+21 |     .Open l =>.entries,
+   |           ^ the other arms is `I64`
+   |
+   = expected: `I64`
+   = actual: `Ledger`
+   = fix: produce a `I64` here, or change what surrounds it to accept a `Ledger`
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_cents_186e8d/lib.buri:21:13
+   |
+21 |     .Open l =>.entries,
+   |             ^^
+   |
+  --> lib/recovery_swap_adjacent_brace_cents_186e8d/lib.buri:20:13
+   |
+20 |   match (m) {
+   |             ^ opened here
+   |
+   = fix: write `}` here

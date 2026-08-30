@@ -1,0 +1,25 @@
+warning: nothing uses `Ledger` [unused-type]
+  --> lib/recovery_swap_adjacent_brace_cents_a13cde/lib.buri:10:8
+   |
+10 | struct Ledger {
+   |        ^^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface
+warning: nothing uses `Tally` [unused-type]
+  --> lib/recovery_swap_adjacent_brace_cents_a13cde/lib.buri:14:6
+   |
+14 | enum Tally {
+   |      ^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface
+error: expected an expression, found `+` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_a13cde/lib.buri:20:3
+   |
+20 |   + n 1
+   |   ^
+   |
+   = expected: an expression
+   = actual: `+`
+   = fix: write a value here

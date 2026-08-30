@@ -1,0 +1,9 @@
+error: expected a declaration, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_module_cents_d3e35d/lib.buri:20:1
+   |
+20 | @ export fn entry(cents: I64): Entry {
+   | ^
+   |
+   = expected: a declaration
+   = actual: `@`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

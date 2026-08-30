@@ -1,0 +1,21 @@
+error: expected an identifier, found `.` [unexpected-token]
+  --> lib/recovery_delete_closer_brace_steps_fe3750/lib.buri:19:5
+   |
+19 |     .Increment => n + 1,
+   |     ^
+   |
+   = expected: an identifier
+   = actual: `.`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_steps_fe3750/lib.buri:27:1
+   |
+27 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_steps_fe3750/lib.buri:17:39
+   |
+17 | export fn apply(s: Step, n: I64): I64 {
+   |                                       ^ opened here
+   |
+   = fix: write `}` here

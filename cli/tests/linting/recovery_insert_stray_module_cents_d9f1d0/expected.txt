@@ -1,9 +1,0 @@
-error: expected `;`, found `?` [unexpected-token]
- --> lib/recovery_insert_stray_module_cents_d9f1d0/lib.buri:5:32
-  |
-5 | from "core/str" import * as str? ;
-  |                                ^
-  |
-  = expected: `;`
-  = actual: `?`
-  = fix: write `;` here

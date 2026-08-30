@@ -1,9 +1,0 @@
-error: expected an identifier, found `@` [unexpected-token]
- --> lib/recovery_insert_stray_module_cents_35b9fe/lib.buri:5:29
-  |
-5 | from "core/str" import * as @ str;
-  |                             ^
-  |
-  = expected: an identifier
-  = actual: `@`
-  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

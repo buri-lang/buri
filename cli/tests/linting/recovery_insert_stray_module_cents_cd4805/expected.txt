@@ -1,0 +1,9 @@
+error: expected an identifier, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_module_cents_cd4805/lib.buri:9:1
+  |
+9 | , }
+  | ^
+  |
+  = expected: an identifier
+  = actual: `,`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

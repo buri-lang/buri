@@ -1,0 +1,19 @@
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_swap_adjacent_brace_cents_04e2a1/lib.buri:22:12
+   |
+22 |     .Closed 0 =>,
+   |            ^
+   |
+   = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_cents_04e2a1/lib.buri:22:15
+   |
+22 |     .Closed 0 =>,
+   |               ^^
+   |
+  --> lib/recovery_swap_adjacent_brace_cents_04e2a1/lib.buri:20:13
+   |
+20 |   match (m) {
+   |             ^ opened here
+   |
+   = fix: write `}` here
