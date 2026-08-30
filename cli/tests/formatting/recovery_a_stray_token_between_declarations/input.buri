@@ -1,0 +1,5 @@
+export fn before(  a:Int ):Int { a }
+
+@
+
+export fn after(  b:Int ):Int { b }
