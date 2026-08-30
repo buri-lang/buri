@@ -3,7 +3,9 @@ from "core/order" import { Show };
 derive Eq for Money;
 /// `Eq` is derived and `Show` is written by hand, so the two sides of a failure
 /// can be compared against what the program itself would print.
-export struct Money { export cents: Int }
+export struct Money {
+    export cents: Int,
+}
 
 impl Show for Money {
     fn show(self): Str {
