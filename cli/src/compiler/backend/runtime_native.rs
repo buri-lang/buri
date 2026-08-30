@@ -156,18 +156,20 @@ pub fn net() -> bool {
 /// Whether an intrinsic key is one only a `net` runtime answers.
 ///
 /// The three host effects the networking archive carries — `Listen` accepts
-/// connections, `Sockets` reads and writes them, `Tasks` runs Buri code on the
+/// connections, `Sockets` writes to open ones, `Tasks` runs Buri code on the
 /// carrier pool the same reactor drives. Matched on the effect type rather than
 /// on the whole key, so an operation added to one of them by a later slice is
 /// covered the day it is added rather than the day somebody remembers this
 /// list.
 ///
-/// **None of these keys exists yet.** They arrive with `core/tasks` and the
-/// server surface; what exists now is the refusal, so that the day a key lands
-/// it lands with the diagnostic already written. A key this returns true for
-/// and the archive answers anyway is not a problem — the gap is only ever
-/// consulted when [`net`] is false, and with `net` off the archive answers none
-/// of them.
+/// **No program reaches these keys yet.** All three effects are declared —
+/// `core/effect` has them and `core/host` implements them — and the grant table
+/// gives all three an empty platform list, so nothing can construct the host
+/// value that would reach an operation. What exists now is the refusal, so that
+/// the day a platform grants one it lands with the diagnostic already written.
+/// A key this returns true for and the archive answers anyway is not a problem
+/// — the gap is only ever consulted when [`net`] is false, and with `net` off
+/// the archive answers none of them.
 ///
 /// `host.HostNet.fetch` is deliberately **not** here: `cli/runtime/http.rs`
 /// writes its own cleartext client and reaches none of the four crates. The day
@@ -276,7 +278,7 @@ mod tests {
     fn the_networking_family_is_three_effects() {
         for key in [
             "host.HostListen.listen",
-            "host.HostSockets.read",
+            "host.HostSockets.socketSendText",
             "host.HostTasks.parallel",
         ] {
             assert!(net_intrinsic(key), "{key} is not recognised as networking");
