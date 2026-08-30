@@ -1858,4 +1858,34 @@ mod tests {
             }
         }
     }
+
+    /// The two tables agree about where each key's **context** is: this one
+    /// spells it `Arg::Dropped` at that index, the other spells it
+    /// `Entry::ctx`, and they describe one C signature.
+    ///
+    /// One direction only, on purpose. `Arg::Dropped` also covers a zero-sized
+    /// receiver — `HostStdout` is an empty struct — which `runtime_table.rs`
+    /// needs no column for, because a value of no bytes spreads to no leaves
+    /// there anyway. A **context** is the case where that reasoning fails: it
+    /// is dropped whatever it weighs, and `C: Alloc` is an ordinary bound that
+    /// an ordinary implementing value satisfies (SPEC 10.1), so the argument
+    /// can arrive carrying a handle. Hence: every context the other table names
+    /// must be dropped here.
+    #[test]
+    fn an_entry_names_the_context_the_other_table_drops() {
+        use crate::compiler::backend::runtime_table;
+        let mut checked = 0usize;
+        for shared in runtime_table::ENTRIES {
+            let Some(at) = shared.ctx else { continue };
+            let Some(here) = ENTRIES.iter().find(|e| e.key == shared.key) else { continue };
+            assert_eq!(
+                here.args.get(at),
+                Some(&Arg::Dropped),
+                "{}: argument {at} is the context and this table does not drop it",
+                shared.key
+            );
+            checked += 1;
+        }
+        assert!(checked > 20, "only {checked} contexts were checked against both tables");
+    }
 }
