@@ -5,3 +5,11 @@ error: an import declaration ends with `;` [missing-terminator]
   |                                  ^
   |
   = fix: write `;` here
+warning: `total` is bound and never used [unused-variable]
+  --> lib/recovery_delete_separator_module_app_55fbcc/main.buri:12:7
+   |
+12 |   let total = 3 * 4;
+   |       ^^^^^
+   |
+   = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+   = fix: use it, delete the `let`, or write `_` in its place

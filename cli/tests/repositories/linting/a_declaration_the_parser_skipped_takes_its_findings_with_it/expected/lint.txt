@@ -1,0 +1,22 @@
+error: expected an identifier, found `from` [unexpected-token]
+  --> lib/money/routes.buri:10:1
+   |
+10 | from "//lib/money/cents" import { Cents, toDollars };
+   | ^^^^
+   |
+   = expected: an identifier
+   = actual: `from`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+
+     What to do
+     ──────────
+
+     Write what the message names. This is the parser's catch-all, so the useful
+     half of it is always the "expected" part.
+
+     A mistake the parser can name — a separator, a terminator, an arrow, a
+     delimiter that never closed — carries its own code and says which construct
+     wanted it. This one is what is left: a token that begins nothing the
+     grammar admits in a position where several things would have been
+     admissible.
+

@@ -24,13 +24,24 @@ where the body stopped making sense, so everything written inside the failed
 expression is gone — and a rule that read it would report the gap rather than
 the code, calling a name unused because its only use went missing. The four
 rules that read bodies — `unused-variable`, `test-without-assertion`,
-`dead-code`, `ctx-rebinding` — therefore stay silent for exactly the scope that
-failed: the body the checker gave up on, and, when the failure is at a module's
-top level, every body in that module, because an import that resolved to
-nothing changes what all of them can see. Nothing wider goes quiet, and the
-rules that read the source rather than the tree — parameter counts, nesting
-depth, function length, warning comments, test titles, duplicate imports,
-unused imports — answer the same either way.
+`dead-code`, `ctx-rebinding` — therefore stay silent for exactly the body that
+failed: the function the error landed in, its signature counted as part of it,
+and no other. The body beside it is read, and so is the body below the
+declaration that failed. Nothing wider goes quiet, and the rules that read the
+source rather than the tree — parameter counts, nesting depth, function length,
+warning comments, test titles, duplicate imports, unused imports — answer the
+same either way.
+
+`dead-code` asks a second question and so has a second reason to go quiet. It
+reads the package's imports and re-exports to decide which exported names
+anything reaches, so an error landing on one of those lines — or a run of
+declarations the parser could not read at all, which might have held the import
+that reaches the name — leaves it with a shorter list than the author wrote,
+and it declines to call anything unreached on that evidence. An error anywhere
+else is not a reason, however far from a body it sits: an alias that closes a
+cycle, a field whose type did not check, a signature that did not, each is one
+declaration a reader can see is wrong, and none of them says anything about
+what reaches what.
 
 The silence is one-directional: a finding may be missed inside a broken body,
 and none is invented there. Fix the type error and run the linter again to see
@@ -46,10 +57,13 @@ holds the syntax error and every finding the mistake did not take with it, and
 the exit code is the one any finding earns rather than a special one for a file
 that did not parse.
 
-What goes quiet is the scope named above and nothing wider: the declaration the
-parser could not read, and — when the mistake sits outside every body, as a
-missing `;` on an import does — that module's bodies, because what the module
-binds is no longer a whole account of what its code can see.
+What goes quiet is the scope named above and nothing wider: the body the
+mistake landed in. Where the mistake *sits* is not the test — a declaration the
+parser recovered whole hides nothing at all, and a missing `;` on an import is
+recovered whole, so the unused binding twenty lines below it is still reported.
+A run of declarations the parser could not read is the case that does cost
+something: it takes its own findings with it, and it stops `dead-code` counting
+for that package, on the grounds the section above gives.
 
 There is one file the linter does not read around, and it is a build file. A
 `BUILD.buri` or `REPO.buri` that does not parse is the shape of the repository
