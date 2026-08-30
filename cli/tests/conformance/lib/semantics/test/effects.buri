@@ -57,7 +57,9 @@ context Mine {
   Fs: StaticFs { only: "known.txt", body: "from my own Fs" },
   Clock: FrozenClock { at: 424242 },
   Env: EchoEnv { always: "echo" },
-  Net: TeapotNet { body: "teapot" },
+  // "teapot" as octets — see `TeapotNet`: an effect method takes only `self`,
+  // so the fake is handed the bytes rather than encoding them.
+  Net: TeapotNet { body: [116, 101, 97, 112, 111, 116] },
 }
 
 /// The whole world, written out, so a test can use every effect in it.
@@ -848,7 +850,8 @@ test "MY net is what core/net/http is built on" {
   let ctx = Mine();
   let response = assert.ok(http.get(ctx, "http://example.com"));
   assert.eq(response.status, 418);
-  assert.eq(response.body, "teapot");
+  assert.eq(assert.ok(http.bodyText(ctx, response.body)), "teapot");
+  assert.eq(response.headers, []);
   assert.isFalse(response.isOk());
 }
 
