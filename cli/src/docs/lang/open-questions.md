@@ -107,7 +107,7 @@ alike.
    "undefined above 2^53" is a rule programmers internalize or one they
    discover. It is one they discover: buri-lang/buri#8 and #4 are the same
    person finding it twice, from two directions, porting nanosecond timestamps.
-   So `I64` and `U64` are `BigInt`s on that backend now. The
+   So `I64`, `U64`, `I128` and `U128` are `BigInt`s on that backend now. The
    objection this entry raised to that — it taxes every loop counter for a case
    most never reach — is real and was paid rather than argued away: the
    narrow widths keep the `number` representation, and a loop counter that does

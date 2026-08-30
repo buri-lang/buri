@@ -206,6 +206,15 @@ test "narrowing from U128 to U64" {
   assert.eq(assert.err(b.toU64()).target, "U64");
 }
 
+// The `RangeError` renders the value it was handed, so a 128-bit one that
+// rounded on the way in would say so here.
+test "a RangeError from a 128-bit source names every digit" {
+  let a: I128 = 170141183460469231731687303715884105727;
+  let e = assert.err(a.toI64());
+  assert.eq(e.value, "170141183460469231731687303715884105727");
+  assert.eq(e.target, "I64");
+}
+
 test "U64 into I64 fails above I64's maximum" {
   let a: U64 = 9007199254740991;
   assert.eq(assert.ok(a.toI64()), 9007199254740991);

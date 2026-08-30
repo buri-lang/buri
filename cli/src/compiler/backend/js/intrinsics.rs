@@ -187,13 +187,12 @@ impl<'a> Gen<'a> {
                 Some(self.prim_op_pub(op, from, args.to_vec()))
             }
             // The default `+` leaves overflow undefined; these are the
-            // alternatives, spelled out where they are used. The bounds are
-            // the exactly-representable ones, so a `.Some` is always a value
-            // the answer really is — which at a `BigInt` width is the type's
-            // whole range, the same bound a native backend answers about.
+            // alternatives, spelled out where they are used. The bound is the
+            // type's own range on every backend, so a `.Some` is always a value
+            // the answer really is and `.None` always means overflow.
             "checkedAdd" | "checkedSub" | "checkedMul" | "checkedDiv" => {
                 let (x, y) = two()?;
-                let (lo, hi) = from.exact_int_range()?;
+                let (lo, hi) = from.int_range()?;
                 let bound = if from.is_bigint() { "$checkedInBig" } else { "$checkedIn" };
                 let op = match name {
                     "checkedAdd" => BinOp::Add,
@@ -252,11 +251,7 @@ impl<'a> Gen<'a> {
                 }
                 let bits = u64::from(from.bits());
                 let widest = if op == BinOp::Mul { bits.saturating_mul(2) } else { bits + 1 };
-                // A type whose whole range a double does not hold is one whose
-                // operands may already be rounded, so computing the
-                // intermediate exactly is not a repair.
-                let whole_range_is_exact = from.int_range() == from.exact_int_range();
-                if widest <= 53 || !whole_range_is_exact {
+                if widest <= 53 {
                     return Some(self.wrap_bits(Expr::bin(op, x, y), from, from));
                 }
                 Some(Expr::call(
@@ -320,7 +315,7 @@ impl<'a> Gen<'a> {
         }
         // A float target has no integer range; `F64 -> F32` fails only when
         // the value does not survive as a finite binary32.
-        let Some((lo, hi)) = to.exact_int_range() else {
+        let Some((lo, hi)) = to.int_range() else {
             return Expr::call(
                 Expr::ident("$convF32"),
                 vec![v, Expr::Str(to.name().to_string())],

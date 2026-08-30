@@ -2223,13 +2223,16 @@ impl<'a> Jit<'a> {
                         && (op.starts_with("wrapTo")
                             || crate::compiler::semantics::builtins::conversion_is_exact(prim, to)
                             || op == "toChar");
-                    match (exact, self.convert(st, prim, to, p(0), ret0)) {
-                        // An inexact `toX` answers a `Result` (SPEC 6.2.1) and
-                        // is refused rather than cast, which would silently
-                        // drop the failure case.
-                        (false, _) => self.unsupported(format!("Body::Runtime {key}")),
-                        (true, Err(why)) => self.unsupported(why),
-                        (true, Ok(())) => self.emit("ret", &[]),
+                    // An inexact `toX` answers a `Result` (SPEC 6.2.1), so it
+                    // is a range test and two arms rather than a cast.
+                    let done = if exact {
+                        self.convert(st, prim, to, p(0), ret0)
+                    } else {
+                        self.convert_checked(prog, fi, st, prim, to, p(0), ret0)
+                    };
+                    match done {
+                        Err(why) => self.unsupported(why),
+                        Ok(()) => self.emit("ret", &[]),
                     }
                     return;
                 }
@@ -2820,6 +2823,112 @@ impl Jit<'_> {
         let here = self.region.code_addr();
         st.place(done, here);
         true
+    }
+
+    /// `x.toT()` where not every `x` fits, which answers
+    /// `Result<T, RangeError>` (SPEC 6.2.1).
+    ///
+    /// The test is at the **source's** width against the **target's** own
+    /// range, because "does not fit `T`" is a fact about `T`. A bound the
+    /// source cannot reach is not tested at all: `I64 -> U64` cannot exceed
+    /// `U64`'s maximum, and `U64 -> I64` cannot fall below `I64`'s minimum, so
+    /// each of those is one comparison rather than two.
+    ///
+    /// The `.Err` arm renders the value it was handed, so a value that had
+    /// already lost digits would say so rather than hide behind the message.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the program and the function index locate the `Result`'s layout, \
+                  the two primitives are the conversion, and the two offsets are \
+                  where the value comes from and where the answer goes; none is \
+                  derivable from another"
+    )]
+    fn convert_checked(
+        &mut self,
+        prog: &ir::Program,
+        fi: usize,
+        st: &mut Fn2,
+        from: Prim,
+        to: Prim,
+        src: u32,
+        dest: u32,
+    ) -> Result<(), String> {
+        let refuse = || format!("Body::Runtime num.{}.to{}", from.name(), to.name());
+        // Integers only. A float source has `NaN` and the infinities to answer
+        // for, and `Char` is a set of scalar values rather than a range.
+        if !from.is_integer() || !to.is_integer() {
+            return Err(refuse());
+        }
+        let (Some((tag, _, _)), Some((from_lo, from_hi)), Some((to_lo, to_hi))) =
+            (prim_tag(from), from.int_range(), to.int_range())
+        else {
+            return Err(refuse());
+        };
+        let Some(ir::Type::Agg(id)) = prog.funcs.get(fi).and_then(|f| f.sig.rets.first().copied())
+        else {
+            return Err(refuse());
+        };
+        let ty = prog.type_info(id).ty.clone();
+        let Ty::Con(_, arguments) = &ty else { return Err(refuse()) };
+        let Some(error_ty) = arguments.get(1).cloned() else { return Err(refuse()) };
+        let result = self.layout_of_type(ty.clone());
+        // A niche layout puts both payloads at the same offset, and this writes
+        // one of two payloads — so it is refused rather than guessed at.
+        if !matches!(
+            result.repr,
+            Repr::Enum { repr: EnumRepr::Bare { .. } | EnumRepr::Tagged { .. }, .. }
+        ) {
+            return Err(refuse());
+        }
+        let error = self.layout_of_type(error_ty);
+        if error.fields.len() != 2 {
+            return Err(refuse());
+        }
+        let ok_at = super::lists::payload_at(&result, 0);
+        let Some(err_at) = result.variant(1).first().copied() else { return Err(refuse()) };
+
+        let bound = st.scratch + super::rtcall::SPARE_WORD * 8;
+        let verdict = st.scratch;
+        let err = st.label();
+        let done = st.label();
+        for (op, needed, pattern) in
+            [("lt", to_lo > from_lo, to_lo as u128), ("gt", to_hi < from_hi, to_hi)]
+        {
+            if !needed {
+                continue;
+            }
+            self.imm_num(bound, from, pattern);
+            self.emit(
+                &format!("bin/{op}/{tag}/ff/f"),
+                &[
+                    ("JIT_D", V::I(u64::from(verdict))),
+                    ("JIT_A", V::I(u64::from(src))),
+                    ("JIT_B", V::I(u64::from(bound))),
+                    ("JIT_CONT", V::Fall),
+                ],
+            );
+            let brkey = self.arm_key("br/f", "JIT_F");
+            self.emit(
+                &brkey,
+                &[
+                    ("JIT_A", V::I(u64::from(verdict))),
+                    ("JIT_T", V::Blk(err)),
+                    ("JIT_F", V::Fall),
+                ],
+            );
+        }
+        self.convert(st, from, to, src, dest + ok_at)?;
+        self.store_disc(&result, dest, 0);
+        self.emit("jump", &[("JIT_T", V::Blk(done))]);
+
+        let here = self.region.code_addr();
+        st.place(err, here);
+        self.show_prim(st, from, src, dest + err_at + error.field(0), false)?;
+        self.str_literal(dest + err_at + error.field(1), to.name().as_bytes());
+        self.store_disc(&result, dest, 1);
+        let here = self.region.code_addr();
+        st.place(done, here);
+        Ok(())
     }
 
     /// `saturatingAdd`, `saturatingSub`, `saturatingMul`.

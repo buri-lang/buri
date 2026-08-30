@@ -261,12 +261,13 @@ const PACKAGES: &[Case] = &[
     // checks that the reason is still true.
     excluded(
         "numbers/conversions.buri",
-        "an *inexact* conversion answers `Result<T, E>` (SPEC 6.2.1), and \
-             constructing that needs `core/num`'s `RangeError`, which is a \
-             struct of two `Str`s and not a variant index — so it is a \
-             different shape from the runtime `Result` of §2.1 and not the \
-             same work. The exact ones — every widening, and every `wrapTo*` \
-             — are compiled",
+        "the two inexact conversions whose *source* is not an integer: \
+             `F64 -> I64`, where `NaN` and the infinities are outside every \
+             range rather than at one end of it, and `U32 -> Char`, where the \
+             target is a set of scalar values and not a range at all. The \
+             integer narrowings are compiled — `stencil::emit`'s \
+             `convert_checked` builds the `Result<T, RangeError>` — as are \
+             every widening and every `wrapTo*`",
     ),
     excluded("json/decoding.buri", "`json.decode`, and core/char's classifiers"),
     excluded("json/encoding.buri", "`derivePrimJson` at every primitive"),

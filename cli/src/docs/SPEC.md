@@ -380,9 +380,9 @@ category and no numeric tower.
 **Every integer type holds its whole range on every backend.** An `I64` is an
 `I64` whether the program runs natively or on JavaScript, so a nanosecond
 timestamp keeps its last three digits either way. That costs something on
-JavaScript, where a double holds every integer only up to 2^53: `I64` and `U64`
-compile to a `BigInt`, which is a heap value rather than an immediate, and the
-widths up to 32 bits stay a `number`. Code on a hot path
+JavaScript, where a double holds every integer only up to 2^53: the widths up to
+32 bits compile to a `number` and the widths at 64 bits and above compile to a
+`BigInt`, which is a heap value rather than an immediate. Code on a hot path
 that does not need the range can say `I32` and get the faster representation;
 code that needs the range gets the right answer without asking.
 
@@ -931,9 +931,10 @@ depends on the backend.
 On a **native** backend every integer type is its own width and integer
 arithmetic is two's complement, so the observable consequence of overflow is a
 wrapped value. On the **JavaScript** backend a width up to 32 bits compiles to a
-`number` and `I64` and `U64` compile to a `BigInt`, so those types hold their own
-range exactly — and a `BigInt` has no width to overflow at, so the observable
-consequence of overflow there is an answer larger than the type. Neither is promised and neither is a definition — a program that overflows
+`number` and one at 64 bits or above compiles to a `BigInt`, so every integer
+type holds its own range exactly — and a `BigInt` has no width to overflow at,
+so the observable consequence of overflow there is an answer larger than the
+type. Neither is promised and neither is a definition — a program that overflows
 is wrong, and these are descriptions of two implementations rather than a
 specification of one.
 
@@ -2589,7 +2590,7 @@ alike.
    "undefined above 2^53" is a rule programmers internalize or one they
    discover. It is one they discover: buri-lang/buri#8 and #4 are the same
    person finding it twice, from two directions, porting nanosecond timestamps.
-   So `I64` and `U64` are `BigInt`s on that backend now. The
+   So `I64`, `U64`, `I128` and `U128` are `BigInt`s on that backend now. The
    objection this entry raised to that — it taxes every loop counter for a case
    most never reach — is real and was paid rather than argued away: the
    narrow widths keep the `number` representation, and a loop counter that does

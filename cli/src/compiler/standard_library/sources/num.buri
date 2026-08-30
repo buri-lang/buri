@@ -4,13 +4,12 @@
 //! `F64`, not a separate tier, so everyday code and code that names an exact
 //! width interoperate with no conversion at the boundary.
 //!
-//! Each is its own width, and what that costs depends on where the program
-//! runs. On a native backend a width is a width and arithmetic is two's
-//! complement. On the JavaScript backend the widths up to 32 bits are a
-//! `number`; `I64` and `U64` are a `BigInt`, which is exact but is a heap
-//! value, so code on a hot path that does not need the range can say `I32` and
-//! get the cheaper one. `I128` and `U128` are still a `number` there, and are
-//! inexact above 2^53.
+//! Each is its own width, and every backend holds that whole width. On a
+//! native backend a width is a width and arithmetic is two's complement. On the
+//! JavaScript backend the widths up to 32 bits are a `number` and the widths at
+//! 64 bits and above are a `BigInt`, which is exact but is a heap value: code
+//! on a hot path that does not need the range can say `I32` and get the
+//! cheaper one.
 //!
 //! Overflow and underflow are undefined behaviour (SPEC 6.2), and that is where
 //! the two still part: a width wraps and a `BigInt` does not. `Wrapping`,

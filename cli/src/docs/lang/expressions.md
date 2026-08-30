@@ -57,9 +57,10 @@ depends on the backend.
 On a **native** backend every integer type is its own width and integer
 arithmetic is two's complement, so the observable consequence of overflow is a
 wrapped value. On the **JavaScript** backend a width up to 32 bits compiles to a
-`number` and `I64` and `U64` compile to a `BigInt`, so those types hold their own
-range exactly — and a `BigInt` has no width to overflow at, so the observable
-consequence of overflow there is an answer larger than the type. Neither is promised and neither is a definition — a program that overflows
+`number` and one at 64 bits or above compiles to a `BigInt`, so every integer
+type holds its own range exactly — and a `BigInt` has no width to overflow at,
+so the observable consequence of overflow there is an answer larger than the
+type. Neither is promised and neither is a definition — a program that overflows
 is wrong, and these are descriptions of two implementations rather than a
 specification of one.
 

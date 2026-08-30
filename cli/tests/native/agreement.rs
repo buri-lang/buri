@@ -940,12 +940,13 @@ export fn main(): Result<(), Str> {
 // Row 4 — 128-bit arithmetic
 // -------------------------------------------------------------------
 
-/// A listed divergence, and the one where the native answer is simply the
-/// right one: JavaScript has no 128-bit integer to compute in.
+/// ~~A listed divergence~~ — an agreement row. JavaScript had no 128-bit
+/// integer to compute in and computed in a double instead, which is how
+/// `1000000007` cubed came back as `1.0000000210000002e+27`.
 #[test]
 fn row_04_wide_integer_arithmetic() {
     rows_or_skip!();
-    diverge(
+    agree(
         "row 4",
         r#"
 from "core/host" import { stdout };
@@ -957,17 +958,16 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 "#,
-        "1.0000000210000002e+27\n",
         "1000000021000000147000000343\n",
     );
 }
 
-/// `show` at the 128-bit extremes, which is the same divergence read off a
-/// constant rather than out of a multiplication.
+/// `show` at the 128-bit extremes, which is the same row read off a constant
+/// rather than out of a multiplication.
 #[test]
 fn row_04_integer_show_at_the_128_bit_extremes() {
     rows_or_skip!();
-    diverge(
+    agree(
         "row 4 show",
         r#"
 from "core/host" import { stdout };
@@ -981,7 +981,6 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 "#,
-        "-1.7014118346046923e+38 1.7014118346046923e+38 3.402823669209385e+38\n",
         "-170141183460469231731687303715884105728 170141183460469231731687303715884105727 \
              340282366920938463463374607431768211455\n",
     );

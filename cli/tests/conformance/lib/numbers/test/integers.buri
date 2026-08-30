@@ -155,6 +155,16 @@ test "I128 adds, subtracts, multiplies and divides inside its range" {
   assert.eq(a % 2, 0);
 }
 
+// The reported case: nanoseconds since the epoch held as an `I128`, where the
+// low digits are the ones that carry the meaning (buri-lang/buri#4).
+test "I128 keeps the low digits of a nanosecond timestamp" {
+  let seconds: I128 = 1700000000;
+  let nanos: I128 = seconds * 1000000000 + 123456789;
+  assert.eq(nanos, 1700000000123456789);
+  assert.eq(nanos % 1000000000, 123456789);
+  assert.eq(assert.ok(nanos.toI64()), 1700000000123456789);
+}
+
 test "U8 adds, subtracts, multiplies and divides inside its range" {
   let a: U8 = 200;
   let b: U8 = 55;
