@@ -92,13 +92,13 @@ export fn tick<C: Alloc + Ui + Watch>(ctx: C, state: State, memo: Str): () {
 /// context the call was made with, because a lambda may not capture one. A
 /// suspending call no longer blocks the page, so a browser grants `Net` like
 /// every other platform and this line reads the way it always should have.
-export fn load<C: Alloc + Net + Ui + Watch>(ctx: C, state: State): () {
+export fn load<C: Alloc + Net + Ui>(ctx: C, state: State): () {
   let _ = state.notice.set(ctx, "asking the server for its ledger");
   received(ctx, state, http.get(ctx, LEDGER_URL))
 }
 
 /// What to do with a response, or with the reason there was not one.
-fn received<C: Alloc + Ui + Watch>(
+fn received<C: Alloc + Ui>(
   ctx: C,
   state: State,
   result: Result<Response, NetError>,
@@ -120,7 +120,7 @@ fn received<C: Alloc + Ui + Watch>(
 }
 
 /// Replaces the basket with `lines`, and says so when there are none.
-fn showing<C: Alloc + Ui + Watch>(ctx: C, state: State, lines: [Entry]): () {
+fn showing<C: Ui>(ctx: C, state: State, lines: [Entry]): () {
   let _ = state.items.set(ctx, lines);
   let noMemos: [Str] = [];
   let _ = state.ticked.set(ctx, noMemos);

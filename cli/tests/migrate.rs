@@ -210,7 +210,7 @@ fn every_free_function_becomes_its_builder() {
         ("filesBytes([(\"a\", [1])])", "fs().filesBytes([(\"a\", [1])])"),
         ("clockAt(1700)", "clock().at(1700)"),
         ("randSeed(7)", "rand().seed(7)"),
-        ("envOf([(\"K\", \"v\")], [\"x\"])", "env().variables([(\"K\", \"v\")]).args([\"x\"])"),
+        ("envOf([(\"K\", \"v\")], [\"x\"])", "env().variables([(\"K\", \"v\")]).arguments([\"x\"])"),
         ("readOnly(files([(\"a\", \"b\")]))", "fs().files([(\"a\", \"b\")]).readOnly()"),
     ];
     for (old, new) in cases {

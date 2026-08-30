@@ -313,7 +313,13 @@ fn regenerate_build_files(session: &mut Session, diagnostics: &Diagnostics) -> u
     fixed
 }
 
-/// Applies every finding that carries a byte edit, and returns how many.
+/// Applies every finding that carries a byte edit, and returns how many
+/// **findings** were answered.
+///
+/// Findings and not edits, which used to be the same number and is not any
+/// more: `unused-context` deletes a parameter and the argument at every call
+/// site, so one finding is one edit plus one per caller. Counting the edits
+/// made `--fix` announce more findings than the report above it had listed.
 ///
 /// Per file, descending by offset so earlier edits keep their offsets, and
 /// **refusing the whole file** on any overlap rather than guessing which of two
@@ -322,15 +328,29 @@ fn regenerate_build_files(session: &mut Session, diagnostics: &Diagnostics) -> u
 /// on itself — and a file that fails it is left exactly as it was.
 fn apply_fixes(session: &mut Session, diagnostics: &Diagnostics) -> usize {
     use std::collections::BTreeMap;
-    let mut by_file: BTreeMap<u32, Vec<crate::diagnostics::Edit>> = BTreeMap::new();
-    for d in &diagnostics.items {
+    // The finding each edit came from, so that a file written out can say which
+    // findings it answered rather than how many byte ranges it moved.
+    let mut by_file: BTreeMap<u32, (Vec<crate::diagnostics::Edit>, BTreeSet<usize>)> =
+        BTreeMap::new();
+    for (i, d) in diagnostics.items.iter().enumerate() {
         for e in &d.edits {
-            by_file.entry(e.at.file.0).or_default().push(e.clone());
+            let row = by_file.entry(e.at.file.0).or_default();
+            // Two findings answered by one edit is one edit, not an overlap.
+            // `unused-context-bound` is where that happens: a bound list is one
+            // piece of text with shared separators, so removing two of its
+            // elements is a single rewrite, and each of the findings about
+            // that parameter carries it. Applying it once answers both, and
+            // the count below says two because two findings went away.
+            if !row.0.iter().any(|had| had.at == e.at && had.replacement == e.replacement) {
+                row.0.push(e.clone());
+            }
+            row.1.insert(i);
         }
     }
 
-    let mut applied = regenerate_build_files(session, diagnostics);
-    for (file, edits) in by_file {
+    let mut answered: BTreeSet<usize> = BTreeSet::new();
+    let applied = regenerate_build_files(session, diagnostics);
+    for (file, (edits, findings)) in by_file {
         let id = crate::diagnostics::FileId(file);
         // Sorting, overlap, bounds and character boundaries are all settled
         // here, once, so that the application below cannot fail.
@@ -360,9 +380,9 @@ fn apply_fixes(session: &mut Session, diagnostics: &Diagnostics) -> usize {
             eprintln!("error: writing {}: {err}", path.display());
             continue;
         }
-        applied += edits.len();
+        answered.extend(findings);
     }
-    applied
+    applied + answered.len()
 }
 
 /// `unsatisfiable-target`. A target whose closure admits no platform at all is
@@ -800,6 +820,8 @@ fn check_hygiene(
     check_dead_code(session, target, analysis, &unchecked, diagnostics);
     check_unused_declarations(session, target, analysis, &unchecked, diagnostics);
     check_ctx_rebindings(own, analysis, &unchecked, diagnostics);
+    check_unused_contexts(session, target, analysis, &unchecked, diagnostics);
+    check_unused_context_bounds(session, target, analysis, &unchecked, diagnostics);
     check_discarded_results(own, analysis, diagnostics);
     check_unused_variables(own, analysis, &unchecked, diagnostics);
     check_deep_nesting(own, analysis, diagnostics);
@@ -1797,6 +1819,648 @@ fn check_ctx_rebindings(
     for span in found {
         diagnostics.push(Diagnostic::templated("ctx-rebinding", span));
     }
+}
+
+/// `unused-context`. A `ctx` parameter is the whole of what a function is
+/// allowed to do to the world, so a body that never reads it is a signature
+/// saying "this touches the world" over code that does not — and the cost is
+/// paid by the callers, every one of which has to be holding a context to make
+/// the call.
+///
+/// **The body is the whole of the evidence, and one question answers it.**
+/// There are three ways to use a context — call a method it declares, hand it
+/// to a callee that asks for one, hand it to a function-typed parameter — and
+/// every one of the three reads the parameter's local. So the rule is a walk
+/// for [`typed::ExprKind::Local`] naming `body.params[ctx_index]`, and it has
+/// no other case to forget.
+///
+/// **There is no lambda-capture arm, and the invariant that makes one
+/// unnecessary still holds.** A `ctx` parameter is put into
+/// `Infer::effect_locals` by construction — `inference.rs`'s `check_body` does
+/// it for every `ParamRole::Ctx` parameter unconditionally, over the comment
+/// "`ctx` is one by construction — the `ctx` rule admits nothing else there" —
+/// and `expressions.rs`'s lambda checker reports `lambda-captures-effect` for
+/// any capture in that set. So a body whose `captures` list holds `ctx` has
+/// already failed to check, and is skipped below with every other body that
+/// did. [`typed::walk`] descends into a lambda's body regardless, so a read
+/// written inside one would be found by the `Local` arm even if the language
+/// ever allowed the capture.
+///
+/// **A body that did not check is answered from its text instead of going
+/// quiet**, which is [`names_ctx`]: the tree is truncated at the failure and
+/// the file is not, and a context has one spelling. `unused-variable` cannot do
+/// that — a local's name is the author's — and this rule can, so it does.
+///
+/// Two declarations are not asked about:
+///
+/// * **one with no body.** A trait method's signature, an effect's operation
+///   and the standard library's intrinsic declarations have no entry in
+///   `checked.bodies` at all, so the loop over the bodies leaves them out by
+///   construction rather than by a test.
+/// * **one an `impl` supplies** (`impl_of.is_some()`). The signature is the
+///   trait's, and an implementation cannot drop a parameter the trait
+///   declared. Whether the *trait* needs it is a question about the trait.
+fn check_unused_contexts(
+    session: &Session,
+    target: TargetId,
+    analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
+    diagnostics: &mut Diagnostics,
+) {
+    use crate::compiler::semantics::types::ParamRole;
+    let mine = editable_modules_of(analysis, target.package);
+    let mut found: Vec<(Span, Vec<crate::diagnostics::Edit>)> = Vec::new();
+    for (fid, body) in &analysis.checked.bodies {
+        let info = analysis.checked.tables.fn_info(*fid);
+        if !mine.contains(&info.module) {
+            continue;
+        }
+        if info.impl_of.is_some() || !compiled_by(session, analysis, target, info.module) {
+            continue;
+        }
+        let Some(index) = info.params.iter().position(|p| p.role == ParamRole::Ctx) else {
+            continue;
+        };
+        let (Some(param), Some(ctx_local)) =
+            (info.params.get(index), body.params.get(index).copied())
+        else {
+            continue;
+        };
+        // A body that did not check has lost the reads written under whatever
+        // it failed on, so the tree is not the evidence there and the text is.
+        let used = if unchecked.body(*fid) {
+            names_ctx(session, extent_of(info, body), param.span)
+        } else {
+            let mut read = false;
+            typed::walk(&body.expr, &mut |e| {
+                if matches!(&e.kind, typed::ExprKind::Local(l) if *l == ctx_local) {
+                    read = true;
+                }
+            });
+            read
+        };
+        if used {
+            continue;
+        }
+        let span = param.span;
+        found.push((span, context_edits(session, analysis, unchecked, target, *fid, index)));
+    }
+    // `bodies` is a map, so the order findings are met in is not the order they
+    // are written in. Sorting here makes one run's report the same as the next.
+    found.sort_by_key(|(span, _)| (span.file.0, span.start));
+    for (span, edits) in found {
+        let mut d = Diagnostic::templated("unused-context", span);
+        for e in edits {
+            d = d.with_edit(e.at, &e.replacement);
+        }
+        diagnostics.push(d);
+    }
+}
+
+/// A declaration's whole text, from its name to the end of its body.
+///
+/// The same extent [`Unchecked::of`] takes, and for the same reason: an error
+/// on a parameter's type is as much a reason not to read the body as one
+/// inside it, so the two questions have to be asked about one region.
+fn extent_of(
+    info: &crate::compiler::semantics::types::FnInfo,
+    body: &typed::Body,
+) -> Span {
+    if info.span.file != body.expr.span.file {
+        return info.span;
+    }
+    Span::new(
+        info.span.file,
+        info.span.start.min(body.expr.span.start) as usize,
+        info.span.end.max(body.expr.span.end) as usize,
+    )
+}
+
+/// Whether the text of a declaration writes `ctx` anywhere but at the parameter
+/// itself.
+///
+/// This is what the rule asks of a body that did not check, and it is why a
+/// mistake somewhere in a function costs almost none of this rule's findings.
+/// The typed tree is truncated at the expression the checker stopped on, so a
+/// use written below it is gone — but **the text is not**, and a context has
+/// exactly one spelling. There is no alias for `ctx`, no way to reach it
+/// through a name of your own, and no way to capture it into a lambda
+/// (`lambda-captures-effect`); writing the word is the whole of what using one
+/// looks like. So the token is total evidence where the tree is partial, which
+/// is the trade [`check_unused_imports`] already makes and states: reading
+/// tokens rather than the tree is what leaves no expression form to forget.
+///
+/// The parameter's own occurrence is excluded by extent rather than by
+/// counting, so a signature written across lines is read like any other.
+fn names_ctx(session: &Session, extent: Span, param: Span) -> bool {
+    let lexed = crate::parsing::lexer::lex(session.map.text(extent.file), extent.file);
+    (0..lexed.tokens.len()).any(|i| {
+        let at = lexed.tokens.span(i);
+        at.start >= extent.start
+            && at.end <= extent.end
+            && !(at.start >= param.start && at.end <= param.end)
+            && lexed.tokens.text(i) == "ctx"
+    })
+}
+
+/// Whether the target being linted is the rule that *compiles* this module.
+///
+/// A package holding a library and a binary is linted twice, and the two passes
+/// see different halves of it: the binary's closure holds the library's
+/// ordinary sources but not its test sources, and the library's pass holds
+/// both. Every other body rule can ignore that, because a finding met twice is
+/// deduplicated — but this one carries an edit, and the first pass to report is
+/// the one whose edit survives. So the rule that compiles a declaration is the
+/// one that answers for it, which is also the only pass that can see every call
+/// the fix has to rewrite. The boundary is the rule's rather than the
+/// directory's (BUILD-FILES.md: "rules inside a package do not reach into each
+/// other"), which is the question [`Workspace::rule_of_file`] answers.
+///
+/// A file no rule lists is `unused-library`'s business rather than this one's:
+/// every pass that can see it answers, and the report deduplicates.
+///
+/// [`Workspace::rule_of_file`]: crate::build::workspace::Workspace::rule_of_file
+fn compiled_by(
+    session: &Session,
+    analysis: &crate::compiler::driver::Analysis,
+    target: TargetId,
+    module: ModuleId,
+) -> bool {
+    let Some(m) = analysis.loaded.modules.get(module.index()) else { return false };
+    let Some(rel) = package_relative(session, target.package, &m.path) else { return true };
+    match session.workspace.rule_of_file(target.package, &rel) {
+        Some(kind) => kind == target.kind,
+        None => true,
+    }
+}
+
+/// A module path (`//lib/money/cents.buri`) as its package's rule lists it
+/// (`cents.buri`).
+fn package_relative(session: &Session, package: PackageId, path: &str) -> Option<String> {
+    let rest = path.strip_prefix("//")?;
+    let dir = session.workspace.package(package).path.clone();
+    if dir.is_empty() {
+        return Some(rest.to_string());
+    }
+    rest.strip_prefix(&format!("{dir}/")).map(str::to_string)
+}
+
+/// The bytes that delete a `ctx` parameter and the argument at every call site.
+///
+/// Empty — the finding stands with the page's sentence and nothing to apply —
+/// wherever this pass cannot see the whole of the change. `--fix` and an
+/// editor's quick fix both write without asking again, so half a rewrite is the
+/// one outcome worth refusing: it leaves a repository that does not compile and
+/// no longer holds the finding that would explain why.
+///
+/// The three refusals are each a call site this analysis cannot reach:
+///
+/// * **the library publishes the name.** A caller may be in a package this
+///   analysis never loaded. That is [`check_dead_code`]'s stance and it is here
+///   for the same reason — the surface is the whole of what makes a name
+///   reachable from outside ("if it is not named in `lib.buri`, it is not
+///   reachable from outside the library") — with `testing/lib.buri` counted
+///   beside it, because any test source anywhere may import that one.
+/// * **something takes the function as a value.** An [`typed::ExprKind::FnRef`]
+///   is the function at its `Ty::Fn`, which is the type whatever asked for it
+///   declared; deleting the parameter changes that type rather than a call.
+/// * **the package did not check whole.** A body that failed has lost the calls
+///   written under the failure, and a run of declarations the parser skipped may
+///   hold one, so the list of call sites is short by an unknown amount.
+fn context_edits(
+    session: &Session,
+    analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
+    target: TargetId,
+    func: FnId,
+    index: usize,
+) -> Vec<crate::diagnostics::Edit> {
+    let own = target.package;
+    let info = analysis.checked.tables.fn_info(func);
+    if published_by(session, analysis, own).contains(info.name.as_str()) {
+        return Vec::new();
+    }
+    let mine = editable_modules_of(analysis, own);
+    if mine.iter().any(|m| unchecked.module(*m)) {
+        return Vec::new();
+    }
+    let Some(param) = info.params.get(index) else { return Vec::new() };
+    let Some(declaration) = dropped_from_list(session, param.span) else { return Vec::new() };
+
+    let mut edits = vec![declaration];
+    let mut refused = false;
+    for (fid, body) in &analysis.checked.bodies {
+        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) {
+            continue;
+        }
+        if unchecked.body(*fid) {
+            return Vec::new();
+        }
+        typed::walk(&body.expr, &mut |e| match &e.kind {
+            typed::ExprKind::FnRef(callee) if callee.decl() == Some(func) => refused = true,
+            typed::ExprKind::CallFn { func: callee, args } if callee.decl() == Some(func) => {
+                match args.get(index).and_then(|a| dropped_from_list(session, a.span)) {
+                    Some(edit) => edits.push(edit),
+                    None => refused = true,
+                }
+            }
+            _ => {}
+        });
+    }
+    if refused { Vec::new() } else { edits }
+}
+
+/// Every name the package publishes: its `lib.buri` surface, and the
+/// `testing/lib.buri` beside it, which a test source anywhere may import.
+fn published_by(
+    session: &Session,
+    analysis: &crate::compiler::driver::Analysis,
+    own: PackageId,
+) -> BTreeSet<String> {
+    let mut out: BTreeSet<String> = analysis
+        .checked
+        .surfaces
+        .get(&own)
+        .map(|names| names.iter().cloned().collect())
+        .unwrap_or_default();
+    let testing = session.workspace.package(own).module_path("testing/lib.buri");
+    for m in &analysis.loaded.modules {
+        if m.pkg != Some(own) || m.path != testing {
+            continue;
+        }
+        for item in &m.ast.items {
+            if let crate::parsing::tree::Item::ReExport(r) = item {
+                out.extend(r.specs.iter().map(|sp| m.ast.tree.name(sp.name).to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// One element of a comma-separated list, and the separator that goes with it.
+///
+/// Deleting `ctx: C` on its own leaves `fn f(, a: Int)`, so the separator is
+/// half of the edit — and which separator it is depends on where in the list
+/// the element sits: the comma *after* it when there is one, the comma *before*
+/// it when the element is last, and neither when it is the only element. The
+/// whitespace past a trailing comma goes with it, which is what makes one rule
+/// right both for a list written on one line and for a list written down a
+/// column.
+///
+/// The answer is read out of the text rather than off the neighbouring spans,
+/// and the reason is the receiver: in `x.f(ctx)` the parameter before `ctx` is
+/// `self`, whose span is `x` — three tokens back from the comma this would have
+/// to find, with the method's name in between. The text has the punctuation in
+/// it and the span table does not.
+///
+/// `None` when what sits between the element and its separator is anything
+/// other than whitespace. That is a comment, near enough always, and this
+/// deletes text rather than reformatting it: the one thing it must not do is
+/// take a reader's sentence out with the parameter it was written about.
+fn dropped_from_list(session: &Session, at: Span) -> Option<crate::diagnostics::Edit> {
+    let text = session.map.text(at.file);
+    let (start, end) = (at.start as usize, at.end as usize);
+    let after = text.get(end..)?;
+    let ahead = after.len() - after.trim_start().len();
+    let next = after.get(ahead..)?.chars().next()?;
+    if next == ',' {
+        let past = after.get(ahead + 1..)?;
+        let gap = past.len() - past.trim_start().len();
+        return Some(deletion(at, start, end + ahead + 1 + gap));
+    }
+    if next != ')' {
+        return None;
+    }
+    let behind = text.get(..start)?.trim_end();
+    if behind.ends_with(',') {
+        return Some(deletion(at, behind.len() - 1, end));
+    }
+    if behind.ends_with('(') {
+        return Some(deletion(at, start, end));
+    }
+    None
+}
+
+/// A deletion of `from..to` in the file `at` names.
+fn deletion(at: Span, from: usize, to: usize) -> crate::diagnostics::Edit {
+    crate::diagnostics::Edit { at: Span::new(at.file, from, to), replacement: String::new() }
+}
+
+/// `unused-context-bound`. A `ctx` parameter says a function touches the
+/// world; its bounds say which parts of it. A bound the body never exercises
+/// is a demand on every caller for a capability the code does not use — and it
+/// spreads, because a caller's own signature has to carry the bound to satisfy
+/// it.
+///
+/// **Three uses, and the reason there is no fourth.** The checker consults a
+/// type parameter's bound list in exactly two places, and both of them are a
+/// call that is written down in the checked tree:
+///
+/// * `expressions.rs`'s `resolve_method` at a `Ty::Param` receiver — a method
+///   on a type parameter can only come from its bounds — which becomes a
+///   [`typed::ExprKind::CallTrait`] whose `recv` is that parameter and whose
+///   `trait_id` is the bound. That is `ctx.println(…)`.
+/// * `inference.rs`'s `satisfies` at a `Ty::Param`, reached from the
+///   obligations `expressions.rs`'s `instantiate` raises. `instantiate` has
+///   three callers — `fn_ref`, `call_fn` and `call_trait_method` — and each
+///   writes the type arguments it produced into the node it built, so a
+///   callee's bound landing on `C` is a `targs` entry that mentions
+///   `Ty::Param(i)`. That is `str.format(ctx, …)`.
+///
+/// The third use in the note's list is not a bound demand at all, which is why
+/// it has to be stated rather than derived: handing the context to a
+/// **function-typed parameter** ([`typed::ExprKind::CallValue`]) gives the
+/// whole of `C` to code this function cannot see, so it uses *every* bound.
+/// The callback was written against `C` as declared and nothing here can say
+/// which parts of it the callback reaches.
+///
+/// A struct or enum literal carries type arguments too, and nothing today
+/// raises an obligation for them — a `TyCon`'s generics are never instantiated
+/// — but they are read anyway, so that the rule does not quietly depend on
+/// that staying true.
+///
+/// **What is not asked**, in the order the loop below asks it.
+///
+/// Three of the five are [`check_unused_contexts`]'s, for its reasons: a
+/// declaration with no body (there is no entry in `checked.bodies` at all), an
+/// `impl` method (whose generics must match the trait's bound for bound, so a
+/// dead bound there is dead on the *trait*), and a `ctx` whose type is not a
+/// type parameter, which has no bound list to trim. The scope is narrowed once
+/// more, to a parameter carrying at least one `effect`: that is what makes it
+/// a context, and `T: Eq` on ordinary data is a different question with a
+/// different answer.
+///
+/// The fourth is the one place this rule is *less* able than that one: **a
+/// body that did not check is not asked**. A context has exactly one spelling
+/// and a bound has none — it is used through method names it declares and
+/// through callees whose own bounds name it — so where the typed tree is
+/// truncated there is nothing for the lexer to answer with.
+///
+/// The fifth is a division of labour rather than a doubt: **a context the body
+/// never reads at all is [`check_unused_contexts`]'s, and only its.** Every
+/// bound on such a parameter is dead by construction, so reporting them here
+/// would answer one mistake with one finding plus one per bound — and the edit
+/// they carry is the wrong one, because what that signature needs is the
+/// parameter taken out rather than its bounds trimmed.
+fn check_unused_context_bounds(
+    session: &Session,
+    target: TargetId,
+    analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
+    diagnostics: &mut Diagnostics,
+) {
+    use crate::compiler::semantics::types::{ParamRole, Ty};
+    let tables = &analysis.checked.tables;
+    let mine = editable_modules_of(analysis, target.package);
+    let mut found: Vec<(Span, String, String, Vec<crate::diagnostics::Edit>)> = Vec::new();
+    for (fid, body) in &analysis.checked.bodies {
+        let info = tables.fn_info(*fid);
+        if !mine.contains(&info.module) || info.impl_of.is_some() || unchecked.body(*fid) {
+            continue;
+        }
+        let Some(index) = info.params.iter().position(|p| p.role == ParamRole::Ctx) else {
+            continue;
+        };
+        let Some(Ty::Param(gi)) = info.params.get(index).map(|p| &p.ty) else { continue };
+        let Some(generic) = info.generics.get(*gi as usize) else { continue };
+        if !generic.bounds.iter().any(|b| tables.trait_(*b).is_effect) {
+            continue;
+        }
+        if !body.params.get(index).copied().is_some_and(|local| reads_ctx(body, local)) {
+            continue;
+        }
+        let used = bounds_used(analysis, body, *gi, &generic.bounds);
+        let unused: Vec<usize> = generic
+            .bounds
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| !used.contains(b))
+            .map(|(k, _)| k)
+            .collect();
+        if unused.is_empty() {
+            continue;
+        }
+        // The spans come from the declaring module's own syntax tree, so a
+        // finding this rule makes always points at a file in `mine` — which is
+        // what keeps it out of `core/…`, where a span would defeat the lint
+        // cache for the target rather than merely misplace the caret.
+        let Some(spans) = bound_spans(analysis, info, *gi as usize) else { continue };
+        if spans.len() != generic.bounds.len() {
+            continue;
+        }
+        let edits = dropped_bounds(session, &spans, &unused);
+        for k in unused {
+            let (Some(span), Some(bound)) = (spans.get(k).copied(), generic.bounds.get(k)) else {
+                continue;
+            };
+            let bound = tables.trait_(*bound).name.clone();
+            found.push((span, bound, generic.name.clone(), edits.clone()));
+        }
+    }
+    // `bodies` is a map, so the order findings are met in is not the order they
+    // are written in.
+    found.sort_by_key(|(span, _, _, _)| (span.file.0, span.start));
+    for (span, bound, param, edits) in found {
+        let mut d = Diagnostic::templated("unused-context-bound", span)
+            .with_bind("bound", bound)
+            .with_bind("param", param);
+        for e in edits {
+            d = d.with_edit(e.at, &e.replacement);
+        }
+        diagnostics.push(d);
+    }
+}
+
+/// Whether anything in the body names the context parameter's local.
+///
+/// The question [`check_unused_contexts`] asks, asked again here for the
+/// opposite reason: that rule reports a `no`, and this one has nothing to say
+/// about one. It is the tree alone, with no fallback to the text, because the
+/// only caller has already declined to speak for a body that did not check.
+fn reads_ctx(body: &typed::Body, ctx_local: crate::compiler::semantics::types::LocalId) -> bool {
+    let mut read = false;
+    typed::walk(&body.expr, &mut |e| {
+        if matches!(&e.kind, typed::ExprKind::Local(l) if *l == ctx_local) {
+            read = true;
+        }
+    });
+    read
+}
+
+/// Which of a context parameter's bounds the body exercises.
+///
+/// The three arms are the note's three uses, in the same order, and each is
+/// read off the node the checker wrote its own answer into — see
+/// [`check_unused_context_bounds`] for why there is no fourth.
+fn bounds_used(
+    analysis: &crate::compiler::driver::Analysis,
+    body: &typed::Body,
+    gi: u32,
+    bounds: &[crate::compiler::semantics::types::TraitId],
+) -> BTreeSet<crate::compiler::semantics::types::TraitId> {
+    use crate::compiler::semantics::types::Ty;
+    let tables = &analysis.checked.tables;
+    let mut used = BTreeSet::new();
+    typed::walk(&body.expr, &mut |e| match &e.kind {
+        // A method the bound declares, called on the context.
+        typed::ExprKind::CallTrait { trait_id, method, recv, targs, .. } => {
+            if matches!(recv, Ty::Param(i) if *i == gi) {
+                used.insert(*trait_id);
+            }
+            if let Some(m) = tables.trait_(*trait_id).methods.get(*method) {
+                note_targs(&m.generics, targs, gi, &mut used);
+            }
+        }
+        // A callee that asks for a context of its own, and a callee taken as a
+        // value, which instantiates its generics in the same way.
+        typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
+            if let typed::Callee::Decl { id, targs } = func {
+                note_targs(&tables.fn_info(*id).generics, targs, gi, &mut used);
+            }
+        }
+        // A function-typed parameter, which uses every bound.
+        typed::ExprKind::CallValue { args, .. } => {
+            if args.iter().any(|a| matches!(&a.ty, Ty::Param(i) if *i == gi)) {
+                used.extend(bounds.iter().copied());
+            }
+        }
+        typed::ExprKind::StructLit { con, targs, .. }
+        | typed::ExprKind::EnumLit { con, targs, .. } => {
+            note_targs(&tables.tycon(*con).generics, targs, gi, &mut used);
+        }
+        _ => {}
+    });
+    used
+}
+
+/// Every bound a generic item's own list demands of `Ty::Param(gi)`, at one
+/// instantiation of it.
+///
+/// A type argument that merely *mentions* the parameter counts, because a
+/// derived implementation is a fold over the type's components: `satisfies`
+/// answers `Wrapper<C>: Show` by asking `C: Show`. Reading the mention rather
+/// than the whole argument is the conservative direction — it can only hold a
+/// bound alive that nothing needed, never delete one that something did.
+fn note_targs(
+    generics: &[crate::compiler::semantics::types::GenericInfo],
+    targs: &[crate::compiler::semantics::types::Ty],
+    gi: u32,
+    used: &mut BTreeSet<crate::compiler::semantics::types::TraitId>,
+) {
+    for (g, t) in generics.iter().zip(targs) {
+        if mentions_param(t, gi) {
+            used.extend(g.bounds.iter().copied());
+        }
+    }
+}
+
+fn mentions_param(t: &crate::compiler::semantics::types::Ty, gi: u32) -> bool {
+    use crate::compiler::semantics::types::Ty;
+    match t {
+        Ty::Param(i) => *i == gi,
+        Ty::Con(_, args) | Ty::Tuple(args) => args.iter().any(|a| mentions_param(a, gi)),
+        Ty::Array(e) => mentions_param(e, gi),
+        Ty::Fn(params, ret) => {
+            params.iter().any(|p| mentions_param(p, gi)) || mentions_param(ret, gi)
+        }
+        _ => false,
+    }
+}
+
+/// The span of each bound a type parameter was written with, in order.
+///
+/// Read from the declaring module's syntax tree, because `GenericInfo` keeps
+/// the resolved [`TraitId`]s and the span of the parameter as a whole — the
+/// text `Fs` sits at is only in the tree the parser built.
+///
+/// [`TraitId`]: crate::compiler::semantics::types::TraitId
+fn bound_spans(
+    analysis: &crate::compiler::driver::Analysis,
+    info: &crate::compiler::semantics::types::FnInfo,
+    gi: usize,
+) -> Option<Vec<Span>> {
+    let (module, item) = info.ast.item()?;
+    let m = analysis.loaded.modules.get(module.index())?;
+    let crate::parsing::tree::Item::Fn(decl) = m.ast.items.get(item as usize)? else {
+        return None;
+    };
+    let g = decl.generics.get(gi)?;
+    let t = &m.ast.tree;
+    Some(t.type_list(g.bounds).iter().map(|b| t.type_span(*b)).collect())
+}
+
+/// The bytes that take a set of bounds out of one type parameter's list.
+///
+/// **One rewrite, not one per bound**, and the separators are why: deleting
+/// `Fs` from `<C: Alloc + Fs + Io>` has to take a `+` with it, and so does
+/// deleting `Io` — the same `+`. Two findings whose edits both claim it are
+/// refused as overlapping and neither is applied, so the whole removal is
+/// computed once here and every finding about the parameter carries it.
+///
+/// The list is walked as runs of adjacent bounds. A run that starts after the
+/// first bound takes the separator *before* it (`" + Fs + Io"`); a run that
+/// starts at the first and does not reach the last takes the separator *after*
+/// (`"Fs + Io + "`); a run that is the whole list takes the colon too, leaving
+/// `<C>`. Runs are separated by a bound that stays, so no two of these ranges
+/// meet.
+///
+/// Nothing but the separators may be swallowed. What else sits inside a bound
+/// list is a comment — a reader's sentence about the code — and this deletes
+/// text rather than reformatting it, so it refuses the whole rewrite instead.
+fn dropped_bounds(
+    session: &Session,
+    spans: &[Span],
+    removed: &[usize],
+) -> Vec<crate::diagnostics::Edit> {
+    let Some(first) = spans.first() else { return Vec::new() };
+    let text = session.map.text(first.file);
+    let mut edits = Vec::new();
+    let mut rest: &[usize] = removed;
+    while let Some((&a, after)) = rest.split_first() {
+        // The run: this bound and every one adjacent to it, which is the group
+        // whose separators are shared and so cannot be deleted independently.
+        let mut b = a;
+        rest = after;
+        while let Some((&next, more)) = rest.split_first() {
+            if next != b + 1 {
+                break;
+            }
+            b = next;
+            rest = more;
+        }
+        let (Some(head), Some(tail)) = (spans.get(a), spans.get(b)) else { return Vec::new() };
+        let (from, to) = if a > 0 {
+            match spans.get(a - 1) {
+                Some(before) => (before.end as usize, tail.end as usize),
+                None => return Vec::new(),
+            }
+        } else if let Some(after) = spans.get(b + 1) {
+            (head.start as usize, after.start as usize)
+        } else {
+            // Every bound goes, so the `:` that introduced them goes as well.
+            let Some(before) = text.get(..head.start as usize) else { return Vec::new() };
+            let Some(colon) = before.trim_end().strip_suffix(':') else { return Vec::new() };
+            (colon.trim_end().len(), tail.end as usize)
+        };
+        if !only_separators(text, from, to, spans) {
+            return Vec::new();
+        }
+        edits.push(deletion(*first, from, to));
+    }
+    edits
+}
+
+/// Whether `from..to` holds nothing but bounds, the punctuation that joins
+/// them, and space.
+fn only_separators(text: &str, from: usize, to: usize, spans: &[Span]) -> bool {
+    let Some(region) = text.get(from..to) else { return false };
+    region.char_indices().all(|(offset, c)| {
+        let at = from + offset;
+        spans.iter().any(|s| at >= s.start as usize && at < s.end as usize)
+            || c.is_whitespace()
+            || c == '+'
+            || c == ':'
+    })
 }
 
 /// `discarded-result`. `let _ = <Result>` is already a hard type error

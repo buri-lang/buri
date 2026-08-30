@@ -1510,7 +1510,12 @@ An alternation counts toward coverage wherever it appears, not only at the top
 of a pattern: `.Some(true | false)` covers `.Some` completely, exactly as
 `.Some(true) | .Some(false)` does.
 
-Unreachable arms are a compile error, not a warning.
+Unreachable arms are a compile error, not a warning. So is an unreachable
+*alternative*: reachability is asked of each `|` alternative of an arm against
+the arms above it and the alternatives to its left, so `.Now(_) | .World`
+below an arm that already handles `.Now` reports the `.Now(_)` half rather than
+passing because its other half is live. An arm with no live alternative at all
+is the arm-level error.
 
 ---
 

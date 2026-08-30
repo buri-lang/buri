@@ -1,0 +1,23 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a quick fix that reaches past the file the cursor is in: `unused-context` deletes the parameter in one module and the argument in the one that calls it, in a single WorkspaceEdit"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}
+
+# What the client wrote, on both sides of the edit.
+file {
+  path: "lib/one/width.buri"
+  golden: "width.buri"
+}
+
+file {
+  path: "lib/one/report.buri"
+  golden: "report.buri"
+}

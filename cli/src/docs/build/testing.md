@@ -360,7 +360,7 @@ test's.
 | `clock()` | `Clock` | At zero. `sleepMillis` advances it without sleeping. |
 | `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
 | `env()` | `Env` | No variables and no arguments. |
-| `proc()` | `Proc` | Records the exit instead of taking it; `exited()` answers the code. |
+| `proc()` | `Proc` | **Absorbs** the exit instead of taking it, so the test carries on. |
 
 Configuration is a **method on the value that answers a new handle**, so a
 chain reads in the order it is applied and the value it was called on is
@@ -371,7 +371,7 @@ unchanged:
 | `clock().at(1000)` | A clock at that instant |
 | `rand().seed(7)` | A generator at that seed, from the start of its sequence |
 | `env().variables([(Str, Str)])` | An environment with those variables and this one's arguments |
-| `env().args([Str])` | An environment with those arguments and this one's variables |
+| `env().arguments([Str])` | An environment with those arguments and this one's variables |
 | `stdin().lines([Str])` | A stream of those lines, then end of input |
 | `stdin().bytes([U8])` | A stream of those octets, then end of input |
 | `fs().files([(Str, Str)])` | A filesystem holding this one's files and these as well |
@@ -379,9 +379,15 @@ unchanged:
 | `fs().readOnly()` | The **same** files, through a handle whose every write fails with `.ReadOnly` |
 | `net().respond(fn(Request) => Result<Response, NetError>)` | A network answering every request through that function |
 
-`args` and not `arguments`, and it is the one name here that is not
-`core/host`'s: `Env` already declares `arguments(self): [Str]` — the reader —
-and a type has one method of each name.
+Every builder here is spelled as the design note writes it, and `arguments` is
+the one that cost something to get. A type's methods are one map keyed by name,
+and a method written in `impl Env for TestEnv` goes into it beside the ones
+written in `impl TestEnv`, so neither the extra argument nor the different
+return type tells the two apart: `Env`'s reader and this builder could not both
+be `arguments`. The **reader** is what moved. `core/effect`'s `Env` declares
+`args(self): [Str]` now — the name a program already used, since `core/env` has
+always exported `args(ctx)` and was the method's only caller — and the builder
+on the double is `arguments`.
 
 `lines` and `bytes` are the one pair that **replace** each other rather than
 composing: a stream is either the lines a test wrote or the octets it wrote, a
@@ -399,8 +405,7 @@ only this one.
 ### Reading the environment back
 
 The outcome of a test is the return value **plus the environment read back**.
-`captured()` does that for a stream, `exited()` for the process, and `TestFs`
-has two of its own:
+`captured()` does that for a stream, and `TestFs` has two of its own:
 
 | Read-back | Answers |
 |---|---|
@@ -414,6 +419,12 @@ sorted rather than in write order so that a function which reorders two writes
 that do not interact does not fail the test, and it lists files only — a
 directory `makeDir` created holds no octets, and `readDir` is the question it
 answers.
+
+`proc()` is the one double with nothing to read back, and deliberately: what a
+test asserts about a function that exits is that the *test* carried on, which
+the assertions written after the call already say. An exit code recorded where
+no method could read it would be state kept for its own sake, so `exitWith`
+absorbs the call and answers `()`.
 
 ```buri role=test
 # from "core/testing/assert/lib.buri" import * as assert;
@@ -450,7 +461,7 @@ from "core/effect/lib.buri" import { Alloc, Clock, Env, Stdout };
 test "reads the log path from the environment" {
   let ctx = context {
     Alloc: alloc(),
-    Env: env().variables([("LEDGER_LOG", "custom.log")]).args(["--verbose"]),
+    Env: env().variables([("LEDGER_LOG", "custom.log")]).arguments(["--verbose"]),
   };
   assert.eq(logPath(ctx), "custom.log");
 }

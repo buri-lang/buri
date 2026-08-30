@@ -185,6 +185,13 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
     let session = &linted.analyzed.session;
     let mut out = Vec::new();
     let mut regenerated: BTreeSet<String> = BTreeSet::new();
+    // Two findings answered by one rewrite are one action, not two identical
+    // entries in the menu. `unused-context-bound` is where that happens: a
+    // bound list is one piece of text with shared separators, so every finding
+    // about one type parameter carries the same edit. Keyed on the bytes
+    // rather than on the title, because two findings of most lints share a
+    // title and differ in what they would write.
+    let mut offered: Vec<Vec<(u32, u32, u32, String)>> = Vec::new();
 
     for d in &linted.diagnostics.items {
         let Some(code) = d.code.as_deref() else { continue };
@@ -198,6 +205,15 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
             {
                 continue;
             }
+            let bytes: Vec<(u32, u32, u32, String)> = d
+                .edits
+                .iter()
+                .map(|e| (e.at.file.0, e.at.start, e.at.end, e.replacement.clone()))
+                .collect();
+            if offered.contains(&bytes) {
+                continue;
+            }
+            offered.push(bytes);
             out.push(Action {
                 title: d.fix.as_deref().unwrap_or(code).to_string(),
                 code: code.to_string(),

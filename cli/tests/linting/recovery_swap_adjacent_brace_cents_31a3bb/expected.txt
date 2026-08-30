@@ -1,9 +1,0 @@
-error: expected `=`, found `n` [unexpected-token]
- --> lib/recovery_swap_adjacent_brace_cents_31a3bb/lib.buri:6:15
-  |
-6 |   let doubled n = * 2;
-  |               ^
-  |
-  = expected: `=`
-  = actual: `n`
-  = fix: write `=` here

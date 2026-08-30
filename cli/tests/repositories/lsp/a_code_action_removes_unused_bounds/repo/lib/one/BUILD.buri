@@ -1,0 +1,4 @@
+library {
+    sources: ["announce.buri"]
+    visibility: ["//visibility:public"]
+}
