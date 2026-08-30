@@ -7,7 +7,8 @@
 //! authority can enter.
 //!
 //! Every name here is `core/host`'s name — `alloc`, `stdout`, `stderr`,
-//! `clock`, `rand`, `env`, `proc` — but **called** rather than referred to.
+//! `stdin`, `fs`, `clock`, `rand`, `env`, `proc` — but **called** rather than
+//! referred to.
 //! `core/host`'s `clock` is one clock because a process has one; `clock()` is a
 //! fresh one every call, so what one test does to it is invisible to the next.
 //! That is the whole reason these are functions and `core/host`'s are `let`s.
@@ -34,7 +35,7 @@
 //! — `at`, `seed`, `variables`, `captured` — is spelled exactly as written.
 
 from "core/effect/lib.buri" import {
-  Alloc, Clock, Env, Proc, Rand, Stderr, Stdout, Region,
+  Alloc, Clock, Env, Fs, IoError, Proc, Rand, Stderr, Stdin, Stdout, Region,
 };
 
 // --- Alloc --------------------------------------------------------------------
@@ -84,6 +85,106 @@ impl TestStderr {
   /// Everything written to this stream so far. The same name `TestStdout`
   /// carries: two types, one question, and the receiver says which stream.
   export fn captured(self): Str;
+}
+
+// --- Input --------------------------------------------------------------------
+
+/// End of input, until a test says otherwise: `readLine` and `readBytes` both
+/// answer `.None`.
+///
+/// `core/host`'s `stdin` is the process's, which a test must never read — a
+/// suite that blocked on a pipe nobody was writing to would hang rather than
+/// fail. This one is a fixture, and the default fixture is the empty one.
+export struct TestStdin(I64);
+impl Stdin for TestStdin {
+  fn readLine(self): Option<Str>;
+  fn readBytes(self, n: Int): Option<[U8]>;
+}
+export fn stdin(): TestStdin;
+
+impl TestStdin {
+  /// A **new** stdin reading those lines, then end of input.
+  export fn lines(self, lines: [Str]): TestStdin;
+  /// A **new** stdin reading those octets, then end of input.
+  ///
+  /// `lines` and `bytes` **replace** each other rather than composing the way
+  /// `TestEnv`'s two builders do, and that is the difference between two axes
+  /// and one: a stream is either the lines a test wrote or the octets it wrote,
+  /// and a stdin built from octets answers `.None` to `readLine`. The last
+  /// builder in the chain is the stream.
+  export fn bytes(self, b: [U8]): TestStdin;
+}
+
+// --- Filesystem ---------------------------------------------------------------
+
+/// In-memory and empty. Writes are visible to that test and discarded after it.
+///
+/// A file holds **octets**, and `readFile` decodes them as UTF-8 the way a real
+/// filesystem's does — so `writeFileBytes` of a byte a text encoding cannot
+/// carry reads back through `readFileBytes` unchanged.
+///
+/// Two places where an in-memory filesystem is thinner than a real one, both
+/// observable and both deliberate. It is a flat map of paths, so the parents of
+/// a fixture's path are not directories until `makeDir` says so; and `sync` has
+/// nothing to flush, so it is `.Ok` for any path that exists. Everything else —
+/// append creating a file, rename replacing one, removing what is not there —
+/// answers exactly what a real filesystem answers, which is what lets one
+/// conformance block run against both.
+export struct TestFs(I64);
+impl Fs for TestFs {
+  fn readFile(self, path: Str): Result<Str, IoError>;
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
+  fn fileExists(self, path: Str): Bool;
+  fn readDir(self, path: Str): Result<[Str], IoError>;
+  fn readFileBytes(self, path: Str): Result<[U8], IoError>;
+  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
+  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
+  fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
+  fn removeFile(self, path: Str): Result<(), IoError>;
+  fn makeDir(self, path: Str): Result<(), IoError>;
+  fn syncFile(self, path: Str): Result<(), IoError>;
+}
+export fn fs(): TestFs;
+
+impl TestFs {
+  /// A **new** filesystem holding this one's files and these as well, as the
+  /// UTF-8 the text spells. The last entry for a path wins, and so does a later
+  /// builder: `fs().files(a).files(b)` is `a` overwritten by `b`.
+  export fn files(self, entries: [(Str, Str)]): TestFs;
+  /// The byte twin, for a fixture that is not text. It composes with `files` in
+  /// either order, because both write into the one map a file lives in.
+  export fn filesBytes(self, entries: [(Str, [U8])]): TestFs;
+  /// A **new** handle onto the *same* files, through which every write fails
+  /// with `.ReadOnly`.
+  ///
+  /// This is `core/testing/context`'s `ReadOnly<C>` folded into a method, and
+  /// the fold keeps what made the wrapper a wrapper: it holds the inner value
+  /// rather than a copy of it, so a read through the attenuated handle sees
+  /// whatever the filesystem holds *now*. `readFile`, `fileExists`, `readDir`,
+  /// `readFileBytes` and `syncFile` are forwarded — `sync` is not a write and
+  /// there is nothing this could be hiding — and the six that write are
+  /// refused.
+  ///
+  /// `ReadOnly<C>` itself stays: it attenuates *any* `Fs`, including one a test
+  /// wrote, and this method attenuates only this one.
+  export fn readOnly(self): TestFs;
+  /// What this filesystem holds at `path`, or `.Err(.NotFound)`.
+  ///
+  /// The same answer `readFile` gives, reachable without the `Fs` effect: a
+  /// test asserting on what a function *wrote* is reading an environment back
+  /// rather than performing an effect, and should not have to bind one to do
+  /// it.
+  export fn read(self, path: Str): Result<Str, IoError>;
+  /// Every file, as text, **sorted by path**.
+  ///
+  /// Sorted rather than in the order the writes happened, because the order of
+  /// the writes is `calls()`'s question and the contents is this one's: a test
+  /// that asserted on insertion order would fail the day a function under test
+  /// reordered two writes that do not interact.
+  ///
+  /// A directory `makeDir` created holds no octets and is not a file, so it is
+  /// not here; `readDir` is the question it answers.
+  export fn snapshot(self): [(Str, Str)];
 }
 
 // --- Clock --------------------------------------------------------------------

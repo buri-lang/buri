@@ -109,6 +109,21 @@ enum Slot {
     Rand(u32),
     /// `TestEnv`.
     Env { vars: Vec<(String, String)>, args: Vec<String> },
+    /// `core/host/testing`'s `TestFs` — a **view**: the handle of the
+    /// [`Slot::Files`] store its files live in, and whether writes through this
+    /// view are refused.
+    ///
+    /// The one shape that names another slot, and it is what folds
+    /// `core/testing/context`'s `ReadOnly<C>` wrapper into a method. The
+    /// wrapper holds the inner value, so a read through it sees whatever that
+    /// filesystem holds now; `readOnly` here installs a second view onto the
+    /// same store and keeps that property, where a flag inside `Slot::Files`
+    /// would have forced either a copy or a builder that edited its receiver.
+    ///
+    /// `store` is always an index below the view's own, because the store is
+    /// installed first — which is what makes reading a view one lookup rather
+    /// than a walk.
+    Fs { store: i64, read_only: bool },
     /// `core/host/testing`'s `TestProc` — the code the first `exitWith` asked
     /// for, and `None` where nothing exited.
     ///
@@ -1145,6 +1160,10 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_env_arguments(
 // header gives about `core/testing/context`'s: both native backends open-code
 // them, because the handle names nothing and `allocate` answers the count it
 // was handed.
+//
+// One shape is genuinely new rather than a second spelling: `TestFs` is a
+// *view* onto a store, so that `readOnly` can attenuate a filesystem without
+// copying it. [`Slot::Fs`] says why.
 
 /// `stdout()` — a fresh, empty transcript.
 ///
@@ -1215,6 +1234,698 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stderr_captured(
     let text = transcript(handle);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(str_of(&text)) }
+}
+
+/// `stdin()` — end of input, until a test says otherwise.
+///
+/// `lines` empty and `bytes` absent, so `readLine` runs off the end of the
+/// lines and `readBytes` falls through to the `_` arm: both `.None`, which is
+/// the empty fixture stated twice rather than a special case.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_stdin(out: *mut i64) {
+    let handle = install(Slot::Stdin { lines: Vec::new(), at: 0, bytes: None });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `TestStdin::lines` — a **new** stdin reading those lines.
+///
+/// It does not keep the receiver's octets, and `bytes` does not keep its
+/// lines: a stream is one or the other, and the last builder in a chain is the
+/// stream. `core/host/testing`'s header says so where a reader meets it.
+///
+/// # Safety
+/// `xs` points at `count` [`BuriStr`]s; `out` is writable and aligned for an
+/// `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_lines(
+    _handle: i64,
+    xs: *const u8,
+    count: u64,
+    out: *mut i64,
+) {
+    // SAFETY: forwarded to the caller.
+    let lines = unsafe { strings(xs, count) };
+    let handle = install(Slot::Stdin { lines, at: 0, bytes: None });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `TestStdin::bytes` — a **new** stdin reading those octets.
+///
+/// # Safety
+/// `ptr` is readable for `len` bytes, or null with `len == 0`; `out` is
+/// writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_bytes(
+    _handle: i64,
+    ptr: *const u8,
+    len: u64,
+    out: *mut i64,
+) {
+    let bytes = if ptr.is_null() || len == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: the caller promises `len` readable bytes.
+        unsafe { std::slice::from_raw_parts(ptr, len as usize) }.to_vec()
+    };
+    let handle = install(Slot::Stdin { lines: Vec::new(), at: 0, bytes: Some(bytes) });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `TestStdin::readLine` — `.Some(line)` or `.None` at end of input.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_read_line(
+    handle: i64,
+    out: *mut BuriStr,
+) -> i32 {
+    let line = with(handle, None, |slot| match slot {
+        Slot::Stdin { lines, at, bytes } if bytes.is_none() => {
+            let line = lines.get(*at).cloned();
+            if line.is_some() {
+                *at = at.saturating_add(1);
+            }
+            line
+        }
+        _ => None,
+    });
+    let Some(line) = line else { return 0 };
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&line)) };
+    BURI_OK
+}
+
+/// `TestStdin::readBytes` — up to `n` octets, and `.None` when there were none.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_read_bytes(
+    handle: i64,
+    n: i64,
+    out: *mut BuriList,
+) -> i32 {
+    let taken = with(handle, None, |slot| match slot {
+        Slot::Stdin { at, bytes: Some(bytes), .. } => {
+            if *at >= bytes.len() || n <= 0 {
+                return None;
+            }
+            let end = at.saturating_add(n as usize).min(bytes.len());
+            let chunk = bytes.get(*at..end).unwrap_or(&[]).to_vec();
+            *at = end;
+            Some(chunk)
+        }
+        _ => None,
+    });
+    let Some(chunk) = taken else { return 0 };
+    let value = list_of_bytes(&chunk);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) };
+    BURI_OK
+}
+
+// -- `core/host/testing`'s filesystem ---------------------------------------
+//
+// A `TestFs` handle is a **view**: [`Slot::Fs`] names the [`Slot::Files`] store
+// its files live in and says whether writes through *this* view are refused.
+// `readOnly` installs a second view onto the same store, which is what folds
+// `ReadOnly<C>` into a method without turning it into a copy — the wrapper
+// holds the inner value, so a read through the attenuated handle sees whatever
+// the filesystem holds now.
+//
+// Two slots per `fs()` rather than one, and that is the price of the fold. The
+// alternative — a flag inside `Slot::Files` — would make `readOnly` either
+// copy the files (a different value, not an attenuation of this one) or
+// attenuate the receiver as well (a builder that edited what it was called
+// on, which no other builder in this module does).
+
+/// `IoError::ReadOnly`'s index, in declaration order in `core/effect`.
+///
+/// `lib.rs` §2.1's "the error variant's index in declaration order", like
+/// [`IO_NOT_FOUND`] and [`IO_ALREADY_EXISTS`] above.
+const IO_READ_ONLY: i32 = 2;
+
+/// The store a `TestFs` handle reads and writes, and whether writes through it
+/// are refused.
+///
+/// A handle naming no view answers `-1`, which no `usize` conversion accepts,
+/// so every caller below falls through to [`with`]'s fallback rather than
+/// aborting — [`with`]'s rule, for the reason it gives.
+fn fs_view(handle: i64) -> (i64, bool) {
+    let table = lock();
+    match usize::try_from(handle).ok().and_then(|i| table.get(i)) {
+        Some(Slot::Fs { store, read_only }) => (*store, *read_only),
+        _ => (-1, false),
+    }
+}
+
+/// A store holding `entries`, and a view onto it with `read_only`.
+///
+/// The order matters: the store is installed first so that a view's `store` is
+/// always an index below its own, which is what makes [`fs_view`] one lookup
+/// rather than a walk.
+fn fs_install(entries: Vec<(String, Vec<u8>)>, dirs: Vec<String>, read_only: bool) -> i64 {
+    let store = install(Slot::Files { entries, dirs });
+    install(Slot::Fs { store, read_only })
+}
+
+/// This view's files and directories, copied.
+fn fs_contents(store: i64) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
+    with(store, (Vec::new(), Vec::new()), |slot| match slot {
+        Slot::Files { entries, dirs } => (entries.clone(), dirs.clone()),
+        _ => (Vec::new(), Vec::new()),
+    })
+}
+
+/// A `[(Str, Str)]`, as one block of 48-byte elements.
+///
+/// Two `Str`s end to end is what `middle::layout` gives a tuple of two 24-byte,
+/// 8-aligned records, and it is the shape [`BuriPair`] already describes on the
+/// way in — `buri_rt_str_split_once` writes the same pair through an
+/// out-pointer. Each string's bytes are their own block, as
+/// [`crate::value::list_of_strs`]' comment says.
+fn list_of_pairs(items: &[(String, String)]) -> BuriList {
+    let stride = size_of::<BuriPair>();
+    if items.is_empty() {
+        return BuriList { ptr: std::ptr::null_mut(), len: 0 };
+    }
+    let bytes = items.len().saturating_mul(stride);
+    let ptr = crate::memory::buri_rt_alloc(bytes as u64);
+    for (i, (key, value)) in items.iter().enumerate() {
+        // SAFETY: `i * stride` is within the `items.len() * stride` block, and
+        // the destination is 8-aligned because the payload is 16-aligned and
+        // the stride is a multiple of 8.
+        unsafe {
+            ptr.add(i.saturating_mul(stride))
+                .cast::<BuriPair>()
+                .write(BuriPair { key: str_of(key), value: str_of(value) })
+        };
+    }
+    BuriList { ptr, len: items.len() as u64 }
+}
+
+/// `fs()` — in-memory, empty, and writable.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_fs(out: *mut i64) {
+    let handle = fs_install(Vec::new(), Vec::new(), false);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `TestFs::files` — a **new** filesystem holding this one's files and these as
+/// well, as the UTF-8 the text spells.
+///
+/// Additive rather than replacing, so `files` and `filesBytes` compose in
+/// either order: both write into the one map a file lives in, and a path
+/// written twice is the later body — `fs_put`'s rule, and an object
+/// assignment's.
+///
+/// The attenuation travels with the files: `fs().readOnly().files(..)` is a
+/// read-only filesystem with those files in it, because a builder is
+/// configuration and not a write.
+///
+/// # Safety
+/// `xs` points at `count` `(Str, Str)` elements; `out` is writable and aligned
+/// for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_files(
+    handle: i64,
+    xs: *const u8,
+    count: u64,
+    out: *mut i64,
+) {
+    // SAFETY: forwarded to the caller.
+    let added = unsafe { pairs(xs, count) };
+    let added = added.into_iter().map(|(k, v)| (k, v.into_bytes()));
+    let fresh = fs_extended(handle, added);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(fresh) }
+}
+
+/// `TestFs::filesBytes` — the byte twin, for a fixture that is not text.
+///
+/// # Safety
+/// `xs` points at `count` `(Str, [U8])` elements; `out` is writable and aligned
+/// for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_files_bytes(
+    handle: i64,
+    xs: *const u8,
+    count: u64,
+    out: *mut i64,
+) {
+    // SAFETY: forwarded to the caller.
+    let added = unsafe { byte_pairs(xs, count) };
+    let fresh = fs_extended(handle, added);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(fresh) }
+}
+
+/// The handle both builders answer: this view's files with `added` written over
+/// them, in a store of its own, under this view's attenuation.
+fn fs_extended(handle: i64, added: impl IntoIterator<Item = (String, Vec<u8>)>) -> i64 {
+    let (store, read_only) = fs_view(handle);
+    let (mut entries, dirs) = fs_contents(store);
+    for (path, body) in added {
+        match entries.iter_mut().find(|(k, _)| *k == path) {
+            Some(entry) => entry.1 = body,
+            None => entries.push((path, body)),
+        }
+    }
+    fs_install(entries, dirs, read_only)
+}
+
+/// `TestFs::readOnly` — a **new** handle onto the *same* files, through which
+/// every write fails.
+///
+/// The same store, deliberately: `ReadOnly<C>` holds the inner value, so a read
+/// through it answers whatever that filesystem holds now, and a method that
+/// copied would be a snapshot wearing an attenuator's name.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_only(
+    handle: i64,
+    out: *mut i64,
+) {
+    let (store, _) = fs_view(handle);
+    let fresh = install(Slot::Fs { store, read_only: true });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(fresh) }
+}
+
+/// `TestFs::read(self, path) -> Result<Str, IoError>` — the read-back, without
+/// the effect.
+///
+/// The same answer `readFile` gives, including `.Err(.NotFound)` and the lossy
+/// decode; what it does not need is an `Fs` bound, because asserting on what a
+/// function wrote is reading an environment back rather than performing an
+/// effect.
+///
+/// # Safety
+/// `ptr`/`len` describe a readable range; `out` is writable and aligned for a
+/// [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriStr,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let (store, _) = fs_view(handle);
+    let Some(body) = fs_read(store, &path) else { return IO_NOT_FOUND };
+    let value = str_of(&String::from_utf8_lossy(&body));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) };
+    BURI_OK
+}
+
+/// `TestFs::snapshot(self) -> [(Str, Str)]` — every file, as text, sorted by
+/// path.
+///
+/// **UTF-16 code-unit order**, which is `sort()`'s on the other backend and the
+/// comparison [`crate::buri_rt_str_compare`] makes: the same reason
+/// `buri_rt_testing_context_mem_fs_read_dir` sorts that way, and the same two
+/// strings it would differ on.
+///
+/// Files only. A directory `makeDir` recorded holds no octets and is not a
+/// file, and `readDir` is the question it answers.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_snapshot(
+    handle: i64,
+    out: *mut BuriList,
+) {
+    let (store, _) = fs_view(handle);
+    let (entries, _) = fs_contents(store);
+    let mut items: Vec<(String, String)> = entries
+        .into_iter()
+        .map(|(k, v)| (k, String::from_utf8_lossy(&v).into_owned()))
+        .collect();
+    items.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+    let value = list_of_pairs(&items);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `TestFs.readFile(self, path) -> Result<Str, IoError>`, forwarded through the
+/// view. A read is never refused.
+///
+/// # Safety
+/// As [`buri_rt_host_testing_test_fs_read`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_file(
+    handle: i64,
+    base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded to the caller.
+    unsafe { buri_rt_host_testing_test_fs_read(handle, base, ptr, len, out) }
+}
+
+/// `TestFs.writeFile(self, path, body) -> Result<(), IoError>`.
+///
+/// `.Err(.ReadOnly)` through an attenuated view, and otherwise it cannot fail:
+/// a write to a path already there replaces it in place, so `files` written
+/// twice reads back once.
+///
+/// # Safety
+/// Both ranges are readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_write_file(
+    handle: i64,
+    _pbase: *mut u8,
+    pptr: *const u8,
+    plen: u64,
+    _bbase: *mut u8,
+    bptr: *const u8,
+    blen: u64,
+) -> i32 {
+    let (store, read_only) = fs_view(handle);
+    if read_only {
+        return IO_READ_ONLY;
+    }
+    // SAFETY: the caller promises both ranges.
+    let (path, body) = unsafe {
+        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
+    };
+    fs_put(store, path, body);
+    BURI_OK
+}
+
+/// `TestFs.fileExists(self, path) -> Bool` — true for a file, and for a
+/// directory `makeDir` recorded.
+///
+/// # Safety
+/// The range is readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_file_exists(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) -> u8 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let (store, _) = fs_view(handle);
+    let found = with(store, false, |slot| match slot {
+        Slot::Files { entries, dirs } => {
+            entries.iter().any(|(k, _)| *k == path) || dirs.contains(&path)
+        }
+        _ => false,
+    });
+    u8::from(found)
+}
+
+/// `TestFs.readDir(self, path) -> Result<[Str], IoError>` — one entry per
+/// immediate child, deduplicated, in UTF-16 code-unit order.
+///
+/// `buri_rt_testing_context_mem_fs_read_dir`'s two subtleties, unchanged: a
+/// directory that holds nothing is still not an error, and the directories
+/// `makeDir` recorded are listed alongside the files.
+///
+/// # Safety
+/// The range is readable; `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_dir(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriList,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let prefix = if path.is_empty() || path == "." {
+        String::new()
+    } else {
+        format!("{}/", path.trim_end_matches('/'))
+    };
+    let (store, _) = fs_view(handle);
+    let mut names: Vec<String> = Vec::new();
+    with(store, (), |slot| {
+        if let Slot::Files { entries, dirs } = slot {
+            let keys = entries.iter().map(|(k, _)| k).chain(dirs.iter());
+            for key in keys {
+                let Some(rest) = key.strip_prefix(prefix.as_str()) else { continue };
+                let Some(first) = rest.split('/').next().filter(|s| !s.is_empty()) else {
+                    continue;
+                };
+                if !names.iter().any(|n| n == first) {
+                    names.push(first.to_string());
+                }
+            }
+        }
+    });
+    names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+    let value = list_of_strs(&names);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) };
+    BURI_OK
+}
+
+/// `TestFs.readFileBytes(self, path) -> Result<[U8], IoError>` — the octets as
+/// they were stored.
+///
+/// # Safety
+/// The range is readable; `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_file_bytes(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriList,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let (store, _) = fs_view(handle);
+    let Some(body) = fs_read(store, &path) else { return IO_NOT_FOUND };
+    let value = list_of_bytes(&body);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) };
+    BURI_OK
+}
+
+/// `TestFs.writeFileBytes(self, path, body) -> Result<(), IoError>` — replaces
+/// the file, or creates it. `.Err(.ReadOnly)` through an attenuated view.
+///
+/// # Safety
+/// Both ranges are readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_write_file_bytes(
+    handle: i64,
+    _pbase: *mut u8,
+    pptr: *const u8,
+    plen: u64,
+    bptr: *const u8,
+    blen: u64,
+) -> i32 {
+    let (store, read_only) = fs_view(handle);
+    if read_only {
+        return IO_READ_ONLY;
+    }
+    // SAFETY: the caller promises both ranges.
+    let (path, body) = unsafe {
+        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
+    };
+    fs_put(store, path, body);
+    BURI_OK
+}
+
+/// `TestFs.appendFile(self, path, body) -> Result<(), IoError>` — adds the
+/// octets to the end, creating the file when it is absent.
+///
+/// # Safety
+/// Both ranges are readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_append_file(
+    handle: i64,
+    _pbase: *mut u8,
+    pptr: *const u8,
+    plen: u64,
+    bptr: *const u8,
+    blen: u64,
+) -> i32 {
+    let (store, read_only) = fs_view(handle);
+    if read_only {
+        return IO_READ_ONLY;
+    }
+    // SAFETY: the caller promises both ranges.
+    let (path, body) = unsafe {
+        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
+    };
+    with(store, (), |slot| {
+        if let Slot::Files { entries, .. } = slot {
+            match entries.iter_mut().find(|(k, _)| *k == path) {
+                Some(entry) => entry.1.extend_from_slice(&body),
+                None => entries.push((path, body)),
+            }
+        }
+    });
+    BURI_OK
+}
+
+/// `TestFs.renameFile(self, from, to) -> Result<(), IoError>` — replaces `to`,
+/// and `.Err(.NotFound)` where `from` names nothing.
+///
+/// # Safety
+/// Both ranges are readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_rename_file(
+    handle: i64,
+    _fbase: *mut u8,
+    fptr: *const u8,
+    flen: u64,
+    _tbase: *mut u8,
+    tptr: *const u8,
+    tlen: u64,
+) -> i32 {
+    let (store, read_only) = fs_view(handle);
+    if read_only {
+        return IO_READ_ONLY;
+    }
+    // SAFETY: the caller promises both ranges.
+    let (from, to) = unsafe {
+        (
+            String::from_utf8_lossy(view(fptr, flen)).into_owned(),
+            String::from_utf8_lossy(view(tptr, tlen)).into_owned(),
+        )
+    };
+    with(store, IO_NOT_FOUND, |slot| {
+        let Slot::Files { entries, .. } = slot else { return IO_NOT_FOUND };
+        let Some(at) = entries.iter().position(|(k, _)| *k == from) else {
+            return IO_NOT_FOUND;
+        };
+        let (_, body) = entries.remove(at);
+        match entries.iter_mut().find(|(k, _)| *k == to) {
+            Some(entry) => entry.1 = body,
+            None => entries.push((to, body)),
+        }
+        BURI_OK
+    })
+}
+
+/// `TestFs.removeFile(self, path) -> Result<(), IoError>` — `.Err(.NotFound)`
+/// where the path names nothing, as `unlink(2)` answers.
+///
+/// # Safety
+/// The range is readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_remove_file(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) -> i32 {
+    let (store, read_only) = fs_view(handle);
+    if read_only {
+        return IO_READ_ONLY;
+    }
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    with(store, IO_NOT_FOUND, |slot| {
+        let Slot::Files { entries, .. } = slot else { return IO_NOT_FOUND };
+        let Some(at) = entries.iter().position(|(k, _)| *k == path) else {
+            return IO_NOT_FOUND;
+        };
+        entries.remove(at);
+        BURI_OK
+    })
+}
+
+/// `TestFs.makeDir(self, path) -> Result<(), IoError>` — parents included, an
+/// existing directory `.Ok`, and a path already naming a file
+/// `.Err(.AlreadyExists)`.
+///
+/// # Safety
+/// The range is readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_make_dir(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) -> i32 {
+    let (store, read_only) = fs_view(handle);
+    if read_only {
+        return IO_READ_ONLY;
+    }
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let clean = fs_clean(&path).to_string();
+    if clean.is_empty() {
+        return BURI_OK;
+    }
+    with(store, BURI_OK, |slot| {
+        let Slot::Files { entries, dirs } = slot else { return BURI_OK };
+        if entries.iter().any(|(k, _)| *k == clean) {
+            return IO_ALREADY_EXISTS;
+        }
+        let parts: Vec<&str> = clean.split('/').collect();
+        for i in 0..parts.len() {
+            let at = parts.get(..=i).unwrap_or(&[]).join("/");
+            if !at.is_empty() && !dirs.contains(&at) {
+                dirs.push(at);
+            }
+        }
+        BURI_OK
+    })
+}
+
+/// `TestFs.syncFile(self, path) -> Result<(), IoError>` — nothing to flush, so
+/// it answers whether there was anything to have flushed.
+///
+/// **Not** refused through an attenuated view: `sync` is not a write, and there
+/// is nothing an attenuator could be hiding — whatever the filesystem already
+/// holds is what gets flushed. `ReadOnly<C>::syncFile` forwards for the same
+/// reason, in those words.
+///
+/// # Safety
+/// The range is readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_fs_sync_file(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let clean = fs_clean(&path).to_string();
+    if clean.is_empty() {
+        return BURI_OK;
+    }
+    let (store, _) = fs_view(handle);
+    with(store, IO_NOT_FOUND, |slot| match slot {
+        Slot::Files { entries, dirs } => {
+            let held = entries.iter().any(|(k, _)| *k == path) || dirs.contains(&clean);
+            if held {
+                BURI_OK
+            } else {
+                IO_NOT_FOUND
+            }
+        }
+        _ => IO_NOT_FOUND,
+    })
 }
 
 /// `clock()` — at zero, and advancing only when a test advances it.
