@@ -122,7 +122,7 @@ extern int64_t buri_rt_host_rand_next_int(int64_t lo, int64_t hi);
 extern double buri_rt_host_rand_next_float(void);
 extern int32_t buri_rt_host_env_variable(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                          BuriStr *out);
-extern void buri_rt_host_env_arguments(BuriList *out);
+extern void buri_rt_host_env_args(BuriList *out);
 extern void buri_rt_host_proc_exit_with(int64_t code);
 
 /* rendering — `cli/runtime/fmt.rs`. Every one writes an owned `Str` through an
@@ -465,7 +465,7 @@ static int mode_env(void) {
   int32_t missing = buri_rt_host_env_variable(S("BURI_RT_DEFINITELY_NOT_SET"), &absent);
 
   BuriList args;
-  buri_rt_host_env_arguments(&args);
+  buri_rt_host_env_args(&args);
 
   printf("var=%.*s missing=%s args=%llu:", present == BURI_OK ? bytes_of(value) : 0,
          present == BURI_OK ? chars_of(value) : "", missing == BURI_OK ? "some" : "none",

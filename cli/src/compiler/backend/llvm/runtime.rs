@@ -78,7 +78,7 @@ pub enum Arg {
     /// argument (`backend/intrinsic_keys.rs`'s `step_call`).
     ///
     /// ```text
-    ///   entry       the generated `ccc` thunk, `void(state, in, out)`
+    ///   entry       the generated `ccc` thunk, `void(state, index, in, out)`
     ///   state       this backend's own record, opaque to the runtime
     ///   in_stride   the source element's stride
     ///   out_stride  the result element's stride
@@ -298,6 +298,24 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_proc_exit_with",
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::NoReturn,
+    },
+    // -- Tasks --------------------------------------------------------------
+    //
+    // `parallel(self, items, f)`, the second key of the closure trampoline and
+    // the one it was built for. `self` is `HostTasks`, an empty struct, so it is
+    // `Arg::Dropped` like every other host receiver; `items` is `Arg::Elems`,
+    // because the source's element type is what the entry thunk is generated at;
+    // `f` is `Arg::Step`, the four words.
+    //
+    // The body is in `cli/runtime/rt.rs` behind feature `net`, which is why
+    // `runtime_native::net_intrinsic` names the `host.HostTasks.*` family: a
+    // toolchain built without the reactor refuses this key with a sentence
+    // before code generation rather than with a missing symbol from `cc`.
+    Entry {
+        key: "host.HostTasks.parallel",
+        symbol: "buri_rt_host_tasks_parallel",
+        args: &[Arg::Dropped, Arg::Elems, Arg::Step],
+        ret: Ret::Out,
     },
     // -- core/alloc's counters ----------------------------------------------
     //
@@ -643,10 +661,10 @@ pub const ENTRIES: &[Entry] = &[
     // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
     // generated `ccc` entry thunk of [`Arg::Step`] instead of through the loop
     // [`super::emit::Unit::list_closure`] emits. It is the *pilot* for that
-    // mechanism and nothing else uses it: `core/list`'s own combinators keep
-    // their loops, which are faster than a call per element can be, and the
-    // operations the trampoline exists for — a task pool, an accepting
-    // socket — are not written yet.
+    // mechanism and nothing in `core/list` uses it: those combinators keep
+    // their loops, which are faster than a call per element can be. The
+    // operation the trampoline exists for is `host.HostTasks.parallel`, whose
+    // row is in the `core/host` block above.
     //
     // `Arg::Elems` and not `Arg::List`, because the source's element type is
     // what `generic_element` answers and what the entry thunk is generated at.
@@ -1004,8 +1022,8 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Sum,
     },
     Entry {
-        key: "testing_context.TestEnv.arguments",
-        symbol: "buri_rt_testing_context_test_env_arguments",
+        key: "testing_context.TestEnv.args",
+        symbol: "buri_rt_testing_context_test_env_args",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
@@ -1016,12 +1034,16 @@ pub const ENTRIES: &[Entry] = &[
     // rows: these carry a handle, and `core/host`'s own implementations are
     // empty structs that do not.
     //
-    // A **builder** — `at`, `seed`, `variables`, `args` — takes its receiver
+    // A **builder** — `at`, `seed`, `variables`, `arguments` — takes its receiver
     // and answers a fresh handle through the out-pointer, so it is
     // `Arg::Scalar` in and `Ret::Out` out. The receiver is passed even where
     // the body ignores it (`at`, `seed`): the C signature is the Buri argument
     // list flattened, and dropping a parameter because one implementation has
     // no use for it is exactly the kind of disagreement nothing diagnoses.
+    //
+    // `proc` and `TestProc.exitWith` have no rows, for `TestNet.fetch`'s reason
+    // rather than the allocator's: both are Buri bodies, so no key reaches this
+    // table. `TestProc` records nothing because nothing can read it back.
     //
     // `alloc` and `TestAlloc.allocate` are open-coded (`emit.rs`).
     Entry {
@@ -1322,8 +1344,8 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestEnv.args",
-        symbol: "buri_rt_host_testing_test_env_args",
+        key: "host_testing.TestEnv.arguments",
+        symbol: "buri_rt_host_testing_test_env_arguments",
         args: &[Arg::Scalar, Arg::List],
         ret: Ret::Out,
     },
@@ -1334,28 +1356,10 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Sum,
     },
     Entry {
-        key: "host_testing.TestEnv.arguments",
-        symbol: "buri_rt_host_testing_test_env_arguments",
+        key: "host_testing.TestEnv.args",
+        symbol: "buri_rt_host_testing_test_env_args",
         args: &[Arg::Scalar],
         ret: Ret::Out,
-    },
-    Entry {
-        key: "host_testing.proc",
-        symbol: "buri_rt_host_testing_proc",
-        args: &[],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "host_testing.TestProc.exitWith",
-        symbol: "buri_rt_host_testing_test_proc_exit_with",
-        args: &[Arg::Scalar, Arg::Scalar],
-        ret: Ret::Void,
-    },
-    Entry {
-        key: "host_testing.TestProc.exited",
-        symbol: "buri_rt_host_testing_test_proc_exited",
-        args: &[Arg::Scalar],
-        ret: Ret::Sum,
     },
 ];
 
@@ -1402,10 +1406,36 @@ pub const TEST_FAIL_EXPECTED: &str = "buri_rt_test_fail_expected";
 pub const ALLOC: &str = "buri_rt_alloc";
 /// `buri_rt_free(p)`.
 pub const FREE: &str = "buri_rt_free";
+/// `buri_rt_incref(p)` — the **shared** arm of `incref` (MEMORY.md §5.1).
+///
+/// The unshared arm is open-coded and always will be; this is reached only from
+/// the fork on `cap`'s bit 63, which nothing sets, and it is a call because the
+/// atomic sequence behind it is cold, is written once in the runtime, and is
+/// twelve instructions this backend would otherwise put in front of the
+/// optimizer at every reference operation in the program — measured at a
+/// median +46 % of native release lowering, against +21 % for the call
+/// (`design/PERFORMANCE.md` §6.6).
+pub const INCREF: &str = "buri_rt_incref";
+/// `buri_rt_decref(p, drop_glue)` — the **shared** arm of `decref`, and the
+/// free that follows it. `drop_glue` is null for a type holding no references.
+pub const DECREF: &str = "buri_rt_decref";
 /// `buri_rt_argv_init(argc, argv)` — the emitted `main`'s first statement.
 pub const ARGV_INIT: &str = "buri_rt_argv_init";
 /// `buri_rt_flush()` — required before every return path from `main`.
 pub const FLUSH: &str = "buri_rt_flush";
+/// `buri_rt_frames_are_per_carrier()` — the artifact's one statement about
+/// itself, made once at startup (`cli/runtime/lib.rs` §6).
+///
+/// **This backend makes it and the frame-threaded one does not**, and that is
+/// a fact about where a Buri frame lives rather than a difference of opinion
+/// about scheduling. Here a Buri function is an ordinary LLVM function and its
+/// locals are `alloca`s, so a carrier's 512 KiB thread stack is its own and the
+/// runtime may run two `Tasks.parallel` steps at once. There a program has one
+/// Buri stack — the `buri$stencil$stack` block its `main` guards — and a step
+/// runs in a frame the *call site* set aside, so two of them would share it.
+/// Saying nothing is the safe answer, which is why the call is here and not a
+/// parameter of one over there.
+pub const FRAMES_PER_CARRIER: &str = "buri_rt_frames_are_per_carrier";
 /// `buri_rt_i128_divmod(a_lo, a_hi, b_lo, b_hi, signed, quot, rem)`.
 pub const I128_DIVMOD: &str = "buri_rt_i128_divmod";
 /// `buri_rt_i128_checked(op, a_lo, a_hi, b_lo, b_hi, signed, out) -> i32` and

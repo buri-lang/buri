@@ -274,6 +274,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("unknown-visibility", "A visibility entry is one of five forms", &["build/build-files"]),
     e!("unnamed-namespace-import", "A namespace import must be named"),
     e!("unplaceable-source", "A generated rule places a source where the imports already put it", &["build/build-files"]),
+    e!("unreachable-alternative", "Every alternative of an or-pattern must be reachable"),
     e!("unreachable-arm", "Every arm must be reachable"),
     e!("unresolved-name", "Every name resolves to a declaration"),
     e!("unresolved-type", "Every type name resolves to a declaration"),

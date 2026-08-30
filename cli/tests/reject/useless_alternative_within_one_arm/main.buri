@@ -1,0 +1,21 @@
+// EXPECT: this alternative is unreachable
+// Nothing above this arm covers anything. The alternative that kills the third
+// one is the first one, in the same arm — alternatives are tried left to right,
+// so each is asked about the ones to its left as well as about the arms above.
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+
+enum Shape { Empty, Circle(Bool) }
+
+fn area(s: Shape): Int {
+  match (s) {
+    Shape.Circle(true) | Shape.Empty | Shape.Circle(true) => 1,
+    Shape.Circle(false) => 0,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${area(Shape.Empty)}");
+  .Ok(())
+}
