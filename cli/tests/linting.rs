@@ -103,10 +103,10 @@ const FLOOR: usize = 250;
 /// What share of the cases may gain a finding the seed did not have, as a
 /// percentage.
 ///
-/// Not zero, and the four cases behind the number are why: a stray token
-/// written into an import list really is an unused import, and a deleted
-/// closer that runs two functions together really does make one of them
-/// longer. Two points is one above what the toolchain shows, so the bound is a
+/// Not zero, and the cases behind the number are why: a stray token written
+/// into an import list really is an unused import, and a deleted closer that
+/// runs two functions together really does make one of them longer. Two
+/// points is one above the 0.9% the whole population shows, so the bound is a
 /// ratchet and not a description.
 const INVENTED_CEILING: usize = 2;
 
@@ -120,9 +120,13 @@ const INVENTED_CEILING: usize = 2;
 /// when a parse error meant the file was not read at all; with recovery it is
 /// wider than it needs to be, and this number is what narrowing it would buy.
 ///
-/// Five points is one above what the toolchain shows, so the bound is a
-/// ratchet on that and not a description of it.
-const LOST_A_FINDING_CEILING: usize = 5;
+/// Nine points, and the number is read off the **whole population** — 151 of
+/// 2,000 candidates, 7.5% — rather than off the pinned corpus, which shows
+/// 1.9% because it is one case per shape and the shapes are not equally
+/// common. That is `recovery.rs`'s rule for a ceiling, and this is the same
+/// mistake it was written to stop: a bound fitted to a sample goes red on the
+/// next draw for a reason that has nothing to do with the toolchain.
+const LOST_A_FINDING_CEILING: usize = 9;
 
 fn corpus_dir() -> PathBuf {
     tests_dir().join("linting")
@@ -328,7 +332,9 @@ fn corpus() -> &'static [Case] {
     })
 }
 
-fn build_corpus() -> Vec<Case> {
+/// The population one run draws, with the seeds that are usable and a `keep`
+/// that admits only a mutation the parser now refuses.
+fn population(total: usize, per_kind: usize, per_cell: usize) -> (Vec<Source>, Vec<pinned::Pick>) {
     let sources = usable_seeds();
     assert!(
         sources.len() >= 15,
@@ -338,11 +344,21 @@ fn build_corpus() -> Vec<Case> {
     let mut keep = |m: &mutation::Mutation| {
         !buri::parsing::parser::parse(&m.source, FileId(0)).errors.is_empty()
     };
+    let picks = pinned::select_with(&sources, BASE_SEED, total, per_kind, per_cell, &mut keep);
+    (sources, picks)
+}
+
+fn build_corpus() -> Vec<Case> {
     // A wider offer than the other corpora take, because this one draws from
     // twenty seeds rather than three hundred: the cells run out long before
     // the budget does, and widening is where the rest of the cases come from.
-    let picks = pinned::select_with(&sources, BASE_SEED, TOTAL, 40, 2, &mut keep);
+    let (sources, picks) = population(TOTAL, 40, 2);
+    measured("linting-corpus", &sources, picks)
+}
 
+/// What one lint pass says about every case in a population, with the two
+/// invariants read off it.
+fn measured(label: &str, sources: &[Source], picks: Vec<pinned::Pick>) -> Vec<Case> {
     // The seeds go through the same fixture, so that "what this file said
     // before the mistake" is the same measurement as "what it says now".
     let by_name: BTreeMap<&str, &Source> = sources.iter().map(|s| (s.name.as_str(), s)).collect();
@@ -356,7 +372,7 @@ fn build_corpus() -> Vec<Case> {
     for p in &picks {
         batch.push((p.name.clone(), p.mutation.source.clone()));
     }
-    let findings = lint_all("linting-corpus", &batch);
+    let findings = lint_all(label, &batch);
     let empty = Findings {
         text: String::new(),
         at: Vec::new(),
@@ -510,6 +526,52 @@ fn a_finding_outside_the_break_still_fires() {
         over.len(),
         cases.len(),
         over.iter()
+            .take(8)
+            .map(|c| format!("{}: {}", c.name, c.lost.join(", ")))
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+}
+
+/// **The same two claims, over a population nothing is checked in for.**
+///
+/// The pinned corpus is one case per cell, which is what makes it readable and
+/// is also what stops it being a measurement: a rate over five hundred cases
+/// chosen for their variety is not the rate over the cases a repository has.
+/// So the invariants run a second time over every candidate the sampler can
+/// offer, with no cap on the cell — thousands of them, nothing recorded, the
+/// same ceilings.
+///
+/// `BURI_LINT_POPULATION` widens it; the default is what fits the budget.
+#[test]
+fn the_invariants_hold_over_the_wider_population() {
+    let cap = std::env::var("BURI_LINT_POPULATION")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(2_000);
+    let (sources, picks) = population(cap, 400, 64);
+    let cases = measured("linting-population", &sources, picks);
+    let invented = cases.iter().filter(|c| !c.invented.is_empty()).count();
+    let lost = cases.iter().filter(|c| !c.lost.is_empty()).count();
+    let n = cases.len().max(1);
+    eprintln!(
+        "linting population: {} cases, {invented} invent a finding, {lost} lose one",
+        cases.len()
+    );
+    assert!(cases.len() > 1_000, "the wider population is {} cases", cases.len());
+    assert!(
+        invented.saturating_mul(100) / n <= INVENTED_CEILING,
+        "{invented} of {} cases invent a finding, over the {INVENTED_CEILING}% ceiling",
+        cases.len()
+    );
+    assert!(
+        lost.saturating_mul(100) / n <= LOST_A_FINDING_CEILING,
+        "{lost} of {} cases lose a finding whose evidence survived, over the \
+         {LOST_A_FINDING_CEILING}% ceiling:\n  {}",
+        cases.len(),
+        cases
+            .iter()
+            .filter(|c| !c.lost.is_empty())
             .take(8)
             .map(|c| format!("{}: {}", c.name, c.lost.join(", ")))
             .collect::<Vec<_>>()
