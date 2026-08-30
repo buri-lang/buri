@@ -3,7 +3,10 @@ derive Eq, Show for Point;
 // library rather than in the test source because a test source may not export.
 
 /// Named fields.
-export struct Point { export x: Int, export y: Int }
+export struct Point {
+    export x: Int,
+    export y: Int,
+}
 
 derive Eq, Show for Pair;
 /// Positional fields.
@@ -15,11 +18,18 @@ export struct Hollow {}
 
 derive Eq, Show for Colour;
 /// Every variant payloadless.
-export enum Colour { Red, Green, Blue }
+export enum Colour {
+    Red,
+    Green,
+    Blue,
+}
 
 derive Eq, Show for Shape;
 /// A positional payload beside a record one.
-export enum Shape { Circle(Float), Rect { w: Int, h: Int } }
+export enum Shape {
+    Circle(Float),
+    Rect { w: Int, h: Int },
+}
 
 derive Eq, Show for Deep;
 /// A struct whose fields are themselves every container.
