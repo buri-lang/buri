@@ -285,6 +285,17 @@ fn formatting_the_corpus_preserves_what_it_means() {
 /// choice about depending on `zed_extension_api`, so it lives outside the
 /// workspace, and adding it to `members` is a one-line change that would make
 /// `cargo test -p buri` resolve crates.io with nothing else noticing.
+///
+/// **Two manifests, not one.** `cli/runtime` is a package of its own —
+/// `libburi_rt.a`, built by `cli/build.rs` and `include_bytes!`d into the
+/// binary — and it is outside the workspace for exactly the reason
+/// `editors/zed` is. That is what makes reading it here necessary rather than
+/// tidy: a dependency added there is resolved by no `cargo` command this suite
+/// runs, so without this the first crate in the runtime would arrive in
+/// complete silence. Its bar is the **stricter** one: the archive is linked
+/// into every native binary the compiler produces, so a crate admitted there is
+/// a crate shipped inside every program a user builds, and the admitted set is
+/// therefore empty rather than closed.
 #[test]
 fn dependencies_stay_behind_the_bar() {
     /// The whole admitted set, by prefix.
@@ -294,20 +305,33 @@ fn dependencies_stay_behind_the_bar() {
                        reasonably write, it is behind a cargo feature the default build can turn \
                        off, and its absence degrades the toolchain rather than breaking it.";
 
+    /// Every line under a `[dependencies]`-shaped table, as `(name, line)`.
+    ///
+    /// A hand-rolled reader rather than a TOML parser, because the bar is about
+    /// there being no dependency to parse: a test that needed a crate to check
+    /// that there are no crates would be its own counterexample.
+    fn declared(manifest: &str) -> Vec<(String, String)> {
+        let mut in_deps = false;
+        let mut found = Vec::new();
+        for line in manifest.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                // `[dependencies]` and every `[target.'...'.dependencies]`.
+                in_deps = line.contains("dependencies");
+                continue;
+            }
+            if !in_deps || line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let name = line.split(['=', ' ']).next().unwrap_or(line).trim();
+            found.push((name.to_string(), line.to_string()));
+        }
+        found
+    }
+
     let cli = std::fs::read_to_string(repo_root().join("cli/Cargo.toml")).expect("cli/Cargo.toml");
-    let mut in_deps = false;
     let mut seen = 0;
-    for line in cli.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            // `[dependencies]` and every `[target.'...'.dependencies]`.
-            in_deps = line.contains("dependencies");
-            continue;
-        }
-        if !in_deps || line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let name = line.split(['=', ' ']).next().unwrap_or(line).trim();
+    for (name, line) in declared(&cli) {
         assert!(
             ADMITTED.iter().any(|a| name.starts_with(a)),
             "cli/Cargo.toml declares `{name}`, which is not in the admitted set {ADMITTED:?}.\n{BAR}"
@@ -320,6 +344,25 @@ fn dependencies_stay_behind_the_bar() {
         seen += 1;
     }
     assert!(seen > 0, "the admitted dependencies vanished; this test is now asserting nothing");
+
+    // The runtime archive's manifest. Zero dependencies, and the reason is one
+    // step stronger than the toolchain's: `cli/build.rs` links what this
+    // package builds into every native binary `buri` produces, so a crate here
+    // is not a crate a contributor installs — it is a crate every *user* ships.
+    let runtime = std::fs::read_to_string(repo_root().join("cli/runtime/Cargo.toml"))
+        .expect("cli/runtime/Cargo.toml");
+    let runtime_deps: Vec<String> = declared(&runtime).into_iter().map(|(n, _)| n).collect();
+    assert!(
+        runtime_deps.is_empty(),
+        "cli/runtime/Cargo.toml declares {runtime_deps:?}. The runtime's archive is linked into \
+         every native binary this compiler produces, so its admitted set is empty rather than \
+         closed.\n{BAR}"
+    );
+    assert!(
+        runtime.contains("[dependencies]"),
+        "cli/runtime/Cargo.toml no longer has a `[dependencies]` table, so the check above is \
+         reading a manifest whose shape it does not recognise and asserting nothing"
+    );
 
     // The default feature set is the one `cargo install buri` gets, and it must
     // not be the one that needs LLVM installed (BUILD-AND-WATCH.md §2). The
@@ -346,9 +389,9 @@ fn dependencies_stay_behind_the_bar() {
 
     let root = std::fs::read_to_string(repo_root().join("Cargo.toml")).expect("Cargo.toml");
     assert!(
-        root.contains("exclude = [\"editors/zed\"]"),
-        "the root Cargo.toml no longer excludes editors/zed, so the Zed extension's \
-         dependencies are about to become the toolchain's"
+        root.contains("exclude = [\"editors/zed\", \"cli/runtime\"]"),
+        "the root Cargo.toml no longer excludes both editors/zed and cli/runtime, so the Zed \
+         extension's dependencies, or the runtime's, are about to become the toolchain's"
     );
 }
 
