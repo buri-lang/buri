@@ -2630,7 +2630,6 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
 
         let mut bindings: Vec<(TraitId, typed::Expr)> = Vec::new();
-        let mut spans: Vec<(TraitId, Span)> = Vec::new();
         // The effects bound explicitly here, as opposed to inherited from a
         // spread.
         let mut explicit: Vec<TraitId> = Vec::new();
@@ -2648,7 +2647,13 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // The inherited binding keeps the *implementing type* the
                     // base recorded. Without it monomorphization has nothing
                     // to dispatch on, and every effect a spread supplies is
-                    // unusable.
+                    // unusable — the failure is `type-arguments-required` at
+                    // the *use*, "`Clock` could not be resolved to a concrete
+                    // type", far from the context that lost it. What pins that
+                    // is the section "An effect INHERITED through a spread" in
+                    // `cli/tests/conformance/lib/semantics/test/effects.buri`:
+                    // every block there is a build-time claim as much as a
+                    // runtime one, and both backends run them.
                     let base_bindings = self.c.tables.ctx_type(id).bindings.clone();
                     for (tr, impl_ty) in base_bindings {
                         let e = typed::Expr::new(
@@ -2657,7 +2662,6 @@ impl<'a, 'b> Infer<'a, 'b> {
                             base_span,
                         );
                         bindings.push((tr, e));
-                        spans.push((tr, base_span));
                     }
                 }
                 Ty::Error => {}
@@ -2714,7 +2718,6 @@ impl<'a, 'b> Infer<'a, 'b> {
                 *slot = (tid, value);
             } else {
                 bindings.push((tid, value));
-                spans.push((tid, binding_span));
             }
         }
 

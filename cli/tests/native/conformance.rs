@@ -27,9 +27,12 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Thirty of the forty files are in it** — the number the
+//! **Thirty-one of the forty-one files are in it** — the number the
 //! harness prints, and one the prose had off by one before
-//! `semantics/generics.buri` joined them. `semantics/host_testing.buri` is the
+//! `semantics/generics.buri` joined them. `semantics/http.buri` is the
+//! thirty-first — `Request` and `Response`, which are two structs over a
+//! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
+//! `semantics/host_testing.buri` is the
 //! thirtieth — `core/host/testing`'s seven doubles, which are the same handle
 //! table `core/testing/context`'s implementations already use, so it needed
 //! nothing the archive did not have. `semantics/anonymous.buri` is the
@@ -310,6 +313,12 @@ const PACKAGES: &[Case] = &[
     // test platform coexist, and this is the one that has to keep agreeing with
     // the JavaScript runner while the migration runs.
     included("semantics/host_testing.buri"),
+    // The ninth: `Request` and `Response`, the two types `Net.fetch` speaks in.
+    // No `Net` call in it reaches the network — `noNet()` refuses and the rest
+    // is construction — so what this proves natively is the *shape*: a struct
+    // holding a `[Header]` and a `[U8]`, its derived `Eq` and `Show`, and the
+    // `core/bytes` pair underneath the text constructors.
+    included("semantics/http.buri"),
     // -- out: the backend has no body for what they reach ---------------
     //
     // Every one of these is reported by `Backend::missing_intrinsics`

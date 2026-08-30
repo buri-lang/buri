@@ -1,0 +1,43 @@
+error: `write` does not have the signature `Report` declares [signature-mismatch]
+  --> cmd/impl_method_adds_a_bound/main.buri:23:12
+   |
+23 |   fn write<C: Stdout + Alloc>(self, ctx: C): () {
+   |            ^^^^^^^^^^^^^^^^^ expected `C: Stdout`, found `C: Stdout + Alloc`
+   |
+  --> cmd/impl_method_adds_a_bound/main.buri:19:3
+   |
+19 |   fn write<C: Stdout>(self, ctx: C): ();
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ declared here
+   |
+   = a call through a bound is checked against the trait's declaration and dispatched to the `impl`'s method, so the two are one signature
+   = fix: give `write` the signature `Report` declares
+
+     What to do
+     ──────────
+
+     Write the method with the parameters, the type parameters and their bounds,
+     and the return type the trait declared it with. Where the trait wrote Self,
+     an impl may write either Self or the type it is implementing for — they are
+     the same type inside the block.
+
+     Why
+     ───
+
+     A method is matched to the slot it fills by name, and nothing else about
+     the two declarations has to agree for that match to succeed. Everything
+     after it assumes they agree completely: a caller reaching the method
+     through a bound is typechecked against the *trait's* declaration, and the
+     code generator reconstructs the impl function's type arguments from the
+     trait's. An impl that took one more parameter, or one fewer type parameter,
+     or a Str where the trait said Int, was therefore a promise made in one
+     place and broken in another — found at some later call site if at all.
+
+     A bound is compared as a set, so writing the same bounds in another order
+     is not a disagreement. Asking for one the trait does not declare is: a
+     caller was never told to supply it, so the requirement would be discovered
+     at monomorphization rather than at the call that failed to meet it.
+
+     Only the method's own type parameters are counted. The ones on the impl
+     head belong to the block rather than to the method, so impl<T> Show for [T]
+     supplies show<C> with one type parameter, not two.
+

@@ -150,18 +150,18 @@ interfaces. There is no mocking framework and no global to stub.
 struct StubNet { export failing: Str }
 
 impl Net for StubNet {
-    fn fetch(self, method: Str, url: Str, body: Str): Result<NetResponse, NetError> {
-        if (url == self.failing) {
+    fn fetch(self, request: Request): Result<Response, NetError> {
+        if (request.url == self.failing) {
             .Err(.Timeout)
         } else {
-            .Ok(NetResponse { status: 200, body: "{}" })
+            .Ok(http.status(200))
         }
     }
 }
 
 test "a timeout reaches the caller as an error" {
     let ctx = context { ..Hermetic(), Net: StubNet { failing: "https://example.test/slow" } };
-    assert.eq(assert.err(body(ctx, "https://example.test/slow")), NetError.Timeout);
+    assert.eq(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
 }
 ```
 
