@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-separator]
-  --> lib/recovery_swap_adjacent_paren_app_ddd4d3/main.buri:13:25
-   |
-13 |   let _ = io.println(ctx"done" ,);
-   |                         ^
-   |
-   = fix: write `,` here

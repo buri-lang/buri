@@ -1,9 +1,0 @@
-error: expected a string literal, found `?` [unexpected-token]
- --> lib/recovery_insert_stray_module_cents_52456f/lib.buri:5:6
-  |
-5 | from ? "core/str" import * as str;
-  |      ^
-  |
-  = expected: a string literal
-  = actual: `?`
-  = fix: quote it, as in `"core/list"`

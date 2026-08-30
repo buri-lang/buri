@@ -1,0 +1,9 @@
+error: expected `{`, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_module_cents_d92bea/lib.buri:5:24
+  |
+5 | from "core/str" import , * as str;
+  |                        ^
+  |
+  = expected: `{`
+  = actual: `,`
+  = fix: write `{` here

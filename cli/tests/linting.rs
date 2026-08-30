@@ -23,6 +23,12 @@
 //! which the checking corpus already does better. So a case here starts from a
 //! file with a finding in it, and asks what the mistake did to that finding.
 //!
+//! The cost of that choice is a coupling worth knowing about: a lint fixture
+//! landing in `repositories/linting/` is a new seed, so it changes which cases
+//! this corpus holds and the tree has to be blessed again. That is the trade —
+//! the seeds are the files somebody wrote a rule for, and there is no second
+//! copy of them to drift.
+//!
 //! # The fixture
 //!
 //! One scratch repository, one package per case, and the case's source *is*

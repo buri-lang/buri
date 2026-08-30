@@ -1,0 +1,9 @@
+// Nothing here is broken, and `str` is imported and never used. A package
+// whose neighbour does not parse is still a package with a finding in it.
+
+from "core/effect" { import Alloc };
+from "core/str" import * as str;
+
+export fn describe<C: Alloc>(ctx: C): Str {
+  "some".concat(ctx, " cents")
+}
