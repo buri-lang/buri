@@ -2,8 +2,8 @@
 // (`Result` is must-use), 6.8 (`?`), 6.9 (`??`).
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic, stdin };
-from "core/effect/lib.buri" import { Stdin };
+from "core/host/testing/lib.buri" import { alloc, stdin };
+from "core/effect/lib.buri" import { Alloc, Stdin };
 from "core/io/lib.buri" import * as io;
 from "core/list/lib.buri" import * as list;
 from "core/str/lib.buri" import * as str;
@@ -143,26 +143,26 @@ test "option andThen returns None when the inner step fails" {
 // --- Option: mapCtx / andThenCtx ----------------------------------------------
 
 test "option mapCtx threads the context into the function" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let o: Option<Int> = .Some(7);
   assert.eq(assert.some(o.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "7");
 }
 
 test "option mapCtx leaves None alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let o: Option<Int> = .None;
   assert.none(o.mapCtx(ctx, fn(c, n) => str.fromInt(c, n)));
 }
 
 test "option andThenCtx threads the context into the continuation" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let o: Option<Int> = .Some(6);
   let out = o.andThenCtx(ctx, fn(c, n) => Option.Some(str.fromInt(c, n)));
   assert.eq(assert.some(out), "6");
 }
 
 test "option andThenCtx skips the continuation on None" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let o: Option<Int> = .None;
   assert.none(o.andThenCtx(ctx, fn(c, n) => Option.Some(str.fromInt(c, n))));
 }
@@ -268,7 +268,7 @@ test "result map leaves Err alone" {
 }
 
 test "result map may change the Ok type" {
-  let ctx = Hermetic();
+  let ctx = context { };
   let r: Result<Int, Str> = .Ok(3);
   assert.eq(assert.ok(r.map(fn(x) => x > 1)), true);
 }
@@ -292,32 +292,32 @@ test "mapErr is how an error crosses a boundary between error types" {
 // --- Result: mapCtx / mapErrCtx -----------------------------------------------
 
 test "mapCtx threads the context into the function" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let r: Result<Int, Str> = .Ok(9);
   assert.eq(assert.ok(r.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "9");
 }
 
 test "mapCtx leaves Err alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let r: Result<Int, Str> = .Err("boom");
   assert.eq(assert.err(r.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))), "boom");
 }
 
 test "mapErrCtx wraps the error with allocated context" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let r: Result<Int, Str> = .Err("bad left");
   let out = r.mapErrCtx(ctx, fn(c, e) => str.format(c, "parse: ${e}"));
   assert.eq(assert.err(out), "parse: bad left");
 }
 
 test "mapErrCtx leaves Ok alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let r: Result<Int, Str> = .Ok(3);
   assert.eq(assert.ok(r.mapErrCtx(ctx, fn(c, e) => str.format(c, "parse: ${e}"))), 3);
 }
 
 test "mapErrCtx may change the error type" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let r: Result<Int, Str> = .Err("nope");
   let mapped: Result<Int, Int> = r.mapErrCtx(ctx, fn(c, e) => str.format(c, "e: ${e}").len());
   assert.eq(assert.err(mapped), 7);
@@ -346,14 +346,14 @@ test "result andThen composes twice" {
 }
 
 test "andThenCtx threads the context into the continuation" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let r: Result<Int, Str> = .Ok(5);
   let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok<Str, Str>(str.fromInt(c, n)));
   assert.eq(assert.ok(out), "5");
 }
 
 test "andThenCtx leaves Err alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let r: Result<Int, Str> = .Err("boom");
   let out = r.andThenCtx(ctx, fn(c, n) => Result.Ok<Str, Str>(str.fromInt(c, n)));
   assert.eq(assert.err(out), "boom");
@@ -496,7 +496,7 @@ test "?? chains three Options" {
 }
 
 test "?? does not evaluate its right operand when the Option is Some" {
-  let ctx = context { Stdin: stdin(["untouched"]) };
+  let ctx = context { Stdin: stdin().lines(["untouched"]) };
   let o: Option<Int> = .Some(1);
   let got = o ?? eagerDefault(ctx);
   assert.eq(got, 1);
@@ -506,7 +506,7 @@ test "?? does not evaluate its right operand when the Option is Some" {
 }
 
 test "?? does evaluate its right operand when the Option is None" {
-  let ctx = context { Stdin: stdin(["untouched"]) };
+  let ctx = context { Stdin: stdin().lines(["untouched"]) };
   let o: Option<Int> = .None;
   let got = o ?? eagerDefault(ctx);
   assert.eq(got, 99);
@@ -514,7 +514,7 @@ test "?? does evaluate its right operand when the Option is None" {
 }
 
 test "?? does not evaluate its right operand when the Result is Ok" {
-  let ctx = context { Stdin: stdin(["untouched"]) };
+  let ctx = context { Stdin: stdin().lines(["untouched"]) };
   let r: Result<Int, Str> = .Ok(1);
   let got = r ?? eagerDefault(ctx);
   assert.eq(got, 1);
@@ -522,7 +522,7 @@ test "?? does not evaluate its right operand when the Result is Ok" {
 }
 
 test "?? does evaluate its right operand when the Result is Err" {
-  let ctx = context { Stdin: stdin(["untouched"]) };
+  let ctx = context { Stdin: stdin().lines(["untouched"]) };
   let r: Result<Int, Str> = .Err("boom");
   let got = r ?? eagerDefault(ctx);
   assert.eq(got, 99);
@@ -530,7 +530,7 @@ test "?? does evaluate its right operand when the Result is Err" {
 }
 
 test "the second ?? operand is not evaluated when the first suffices" {
-  let ctx = context { Stdin: stdin(["untouched"]) };
+  let ctx = context { Stdin: stdin().lines(["untouched"]) };
   let a: Option<Int> = .None;
   let b: Option<Int> = .Some(2);
   let got = a ?? b ?? eagerDefault(ctx);
@@ -558,7 +558,7 @@ test "assert.err returns the error" {
 // --- Option and Result in collections -----------------------------------------
 
 test "a list of Options can be folded into a list of values" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs: [Option<Int>] = [.Some(1), .None, .Some(3)];
   let kept = xs.foldCtx(
     ctx,
@@ -596,7 +596,7 @@ test "foldResult over a list of Results stops at the first bad parse" {
 }
 
 test "mapping a parse over a list yields Options in order" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let parsed = ["1", "x", "3"].map(ctx, fn(s) => s.toInt());
   assert.eq(parsed.len(), 3);
   assert.eq(assert.some(assert.some(parsed.get(0))), 1);
