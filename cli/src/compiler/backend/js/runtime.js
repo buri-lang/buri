@@ -3373,7 +3373,11 @@ function $ui_testing_Rendered_identity(self, name, at) {
 // `from` is the table's length as the current `test` block started, which is
 // what makes `$test_leave` a question about that block's doubles. `$run` sets
 // it; `buri_rt_test_enter` marks the same watermark natively.
-const $t = { h: [], data: {}, fail: null, from: 0 };
+// `pass`, `total` and `note` are `everyOrder`'s: which run of the block's body
+// this is, how many there are, and the order the report would name. `$run`
+// resets all three as a block starts, which is what `buri_rt_test_enter` does
+// natively.
+const $t = { h: [], data: {}, fail: null, from: 0, pass: 0n, total: 1n, note: null };
 
 function $handle(v) {
   $t.h.push(v);
@@ -3944,6 +3948,216 @@ function $test_leave(index) {
   if (unconsumed.length === 0) return 0;
   $abort("a fault was planned and never happened: " + unconsumed.join("; "));
   return 0;
+}
+
+// --- tasks(): the order the work happens in ---------------------------------------
+//
+// The one double whose subject is scheduling rather than state.
+// `Tasks.parallel` promises its results in the items' order and promises
+// nothing about the order the work runs in; `TestTasks` makes that order a
+// value a test writes down, and this is where the choice is made.
+//
+// `cli/runtime/testing.rs` is the same design for the other backend and the two
+// have to agree line for line: a seed names an order, and a seed that named two
+// different orders on two backends would be a replay line that only works where
+// it was printed.
+
+// Program order, one seeded order, every order. The numbers cross from the
+// builders, and this is one of the two places that spell them out.
+const $TASKS_PROGRAM = 0;
+const $TASKS_SEEDED = 1;
+const $TASKS_EVERY = 2;
+
+// Six items are 720 runs of a block and seven are 5040.
+const $TASKS_CEILING = 6;
+
+function $host_testing_tasks() {
+  return $handle({ mode: $TASKS_PROGRAM, seed: -1n, plan: -1, log: [], faults: [] });
+}
+
+// A new scheduler at that mode and seed, carrying this one's plan and its
+// faults, and a fresh log — every builder in this module answers a new handle
+// and a new log, and a builder is configuration rather than a write.
+function $tsched(self, mode, seed) {
+  const s = $slot(self);
+  return $handle({ mode, seed, plan: s.plan, log: [], faults: s.faults.slice() });
+}
+
+function $host_testing_TestTasks_anyOrder(self) {
+  return $tsched(self, $TASKS_SEEDED, -1n);
+}
+
+function $host_testing_TestTasks_everyOrder(self) {
+  return $tsched(self, $TASKS_EVERY, -1n);
+}
+
+function $host_testing_TestTasks_seed(self, n) {
+  return $tsched(self, $TASKS_SEEDED, n);
+}
+
+// A new scheduler with a fresh, empty plan and this one's ordering, retiring the
+// plan it was using: `faults` replaces rather than composing.
+function $host_testing_TestTasks_replan(self) {
+  const s = $slot(self);
+  $tretire(s.plan);
+  const plan = $tmint({ plan: [], retired: false });
+  return $handle({ mode: s.mode, seed: s.seed, plan, log: [], faults: [] });
+}
+
+// One entry of a plan, in the two places it belongs: the promise `$test_leave`
+// reports on, and the three fields the walk matches on — because for tasks the
+// matching is here rather than in the program. The two lists are appended
+// together and read by the same index.
+function $host_testing_TestTasks_addFault(self, index, nth, reason) {
+  const shown =
+    "task(" + index + ') fails "' + reason + '"' + (nth === 0n ? "" : " on call " + nth);
+  $tfault(self[0], shown);
+  $slot(self).faults.push({ index: Number(index), nth: Number(nth), reason });
+  return 0;
+}
+
+function $host_testing_TestTasks_calls(self) {
+  return $slot(self).log.map(function (index) {
+    return [index];
+  });
+}
+
+// The runs are the *block*'s: a block with two schedulers in it is still one
+// block being run again, so the receiver is read for nothing.
+function $host_testing_TestTasks_runs(self) {
+  return $t.pass + 1n;
+}
+
+function $host_testing_TestTasks_orders(self) {
+  return $t.total;
+}
+
+// `n!`, as a BigInt, which has no ceiling to saturate at.
+function $tfactorial(n) {
+  let out = 1n;
+  for (let i = 2n; i <= n; i++) out *= i;
+  return out;
+}
+
+// The `rank`th permutation of `0..n`, counted from zero in lexicographic order,
+// wrapping past the last — the factorial number system, read out digit by
+// digit. Written this way rather than as a shuffle because a shuffle is not
+// invertible, and a report that names a seed has to be one a reader can replay.
+function $tpermutation(n, rank) {
+  const pool = [];
+  for (let i = 0; i < n; i++) pool.push(i);
+  let left = n === 0 ? 0n : rank % $tfactorial(BigInt(n));
+  const out = [];
+  for (let taken = 0; taken < n; taken++) {
+    const remaining = $tfactorial(BigInt(n - taken - 1));
+    let digit = Number(left / remaining);
+    if (digit >= pool.length) digit = pool.length - 1;
+    left %= remaining;
+    out.push(pool.splice(digit, 1)[0]);
+  }
+  return out;
+}
+
+// The order this run schedules `n` tasks in, and the call where `everyOrder`
+// learns how many runs there are to make: the count is not known until a
+// `parallel` says it.
+function $torder(self, n) {
+  const s = $slot(self);
+  const orders = $tfactorial(BigInt(n));
+  if (s.mode === $TASKS_EVERY && n > $TASKS_CEILING) {
+    $abort(
+      "everyOrder over " +
+        n +
+        " tasks is more runs of this block than a suite can finish: " +
+        "a fan-out that wide is anyOrder's question",
+    );
+  }
+  let rank = 0n;
+  if (s.mode === $TASKS_EVERY) {
+    if ($t.total <= 1n) $t.total = orders;
+    rank = $t.pass;
+  } else if (s.mode === $TASKS_SEEDED) {
+    rank = s.seed < 0n ? (orders > 0n ? orders - 1n : 0n) : s.seed % (orders > 0n ? orders : 1n);
+  }
+  const order = $tpermutation(n, rank);
+  // The first fan-out of the run, not the last: `everyOrder` enumerates the
+  // orders of the first, so that is the one whose number a replay line carries.
+  if ($t.note === null) $t.note = { mode: s.mode, rank, order: order.slice() };
+  return order;
+}
+
+// The plan's answer for the task about to run — and the end of the block where
+// there is one. A task answers `B` and every `B` comes from the closure, so a
+// double cannot fail one and carry on: what a task that died would do to the run
+// is end it.
+function $tplanned(self, index) {
+  const s = $slot(self);
+  if (s.faults.length === 0) return;
+  const nth = s.log.filter(function (entry) {
+    return Number(entry) === index;
+  }).length + 1;
+  for (let at = 0; at < s.faults.length; at++) {
+    const fault = s.faults[at];
+    if (fault.index !== index) continue;
+    if (fault.nth !== 0 && fault.nth !== nth) continue;
+    $host_testing_noteFault(self[0], BigInt(at));
+    $abort("a task was failed by the plan: task(" + index + "): " + fault.reason);
+  }
+}
+
+// `parallel(self, items, f)` — every task once, in the order this scheduler
+// chose, and the results in the items' order.
+//
+// **Not** `Promise.all`, which is what the real `HostTasks.parallel` is: a
+// double that raced would be the thing it exists to remove, so a task runs to
+// completion before the next one starts and the order is the whole of what this
+// decides. The result is written at each item's own index rather than appended,
+// which is `Tasks.parallel`'s order promise and is why the scheduler is free to
+// hand the work out in any order at all.
+function $host_testing_TestTasks_parallel(self, xs, f) {
+  const out = new Array(xs.length);
+  for (const index of $torder(self, xs.length)) {
+    $tplanned(self, index);
+    out[index] = f(self, BigInt(index), $share(xs[index]));
+    $slot(self).log.push(BigInt(index));
+  }
+  return $own(out);
+}
+
+// What a failure report says about the order this run used, or null where
+// nothing ordered anything. **The datum D6 renders**: the report is one wire
+// format shared by three backends, and widening it is a slice of its own.
+function $taskOrderNote() {
+  const n = $t.note;
+  if (!n || n.mode === $TASKS_PROGRAM) return null;
+  const run = $t.total > 1n ? ", order " + ($t.pass + 1n) + " of " + $t.total : "";
+  return (
+    "the tasks completed in the order " +
+    n.order.join(", ") +
+    run +
+    " — replay it with `tasks().seed(" +
+    n.rank +
+    ")`"
+  );
+}
+
+// The end of one run of a `test` body: whether to run it again.
+//
+// `middle::monomorphize` emits this after `$test_leave`, so the two questions
+// are asked in the order a reader wants — did this run keep what it promised,
+// and only then is there another order to try. Answering true makes the body
+// call itself, which is what "reruns the body" means on all three backends from
+// one lowering.
+//
+// It moves the watermark up, which is the question `$test_leave` leaves open:
+// every run installs its own doubles, so a plan the *next* run declares is the
+// only plan the next `$test_leave` is asking about.
+function $test_replay(index) {
+  if ($t.pass + 1n >= $t.total) return false;
+  $t.pass += 1n;
+  $t.note = null;
+  $t.from = $t.h.length;
+  return true;
 }
 
 // A fresh, empty log, and the handle that names it. A bare `I64` rather than a

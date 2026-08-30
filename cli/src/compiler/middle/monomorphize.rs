@@ -523,7 +523,7 @@ impl<'a> Monomorphizer<'a> {
                 let Some(body) = self.checked.bodies.get(&fid) else { return };
                 let mut b = body.clone();
                 let rewritten = self.rewrite(b.expr, &[]);
-                b.expr = self.leaving(i, rewritten);
+                b.expr = self.leaving(i, slot, rewritten);
                 let f = self.func_mut(slot);
                 f.params = b.params;
                 f.locals = b.locals;
@@ -548,17 +548,43 @@ impl<'a> Monomorphizer<'a> {
     /// A block that aborts never reaches the hook, which is the order a reader
     /// wants: the failed assertion is the failure, and an unused plan is a
     /// consequence of stopping early rather than a second complaint.
-    fn leaving(&self, index: usize, body: typed::Expr) -> typed::Expr {
+    fn leaving(&self, index: usize, slot: usize, body: typed::Expr) -> typed::Expr {
         let span = body.span;
-        let leave = typed::Expr::new(
-            ExprKind::Intrinsic {
-                name: String::from("test.leave"),
-                targs: Vec::new(),
-                args: vec![typed::Expr::new(
-                    ExprKind::Int(index as u128, false),
-                    self.tables().prim(Prim::I64),
+        let leave = self.hook("test.leave", index, Ty::Unit, span);
+        // And then: is there another order to try? `TestTasks.everyOrder` runs
+        // the body once per completion order, and this is where a rerun
+        // happens — the block calls **itself**, in tail position, so a rerun is
+        // an ordinary self-call that `middle::tail_calls` turns into a jump.
+        //
+        // A self-call rather than a loop this pass builds, and a loop here
+        // rather than one in the three places blocks are called from. The
+        // second choice is `test.leave`'s and for its reason: the two native
+        // entry points are hand-written machine code and the JavaScript one is
+        // a string, so a rerun spelled there would be three implementations of
+        // one rule. The first is because `ExprKind::Loop` is `tail_calls`'
+        // shape — it rebinds a function's parameters and is entered from
+        // outside — and a `test` block has no parameters to rebind, so the
+        // honest spelling of "run it again" is the call the language already
+        // has.
+        //
+        // The order of the two is the order a reader wants: *did this run keep
+        // what it promised* is asked of the run that just ended, and only a run
+        // that kept it goes round again.
+        let again = typed::Expr::new(
+            ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args: Vec::new() },
+            Ty::Unit,
+            span,
+        );
+        let replay = typed::Expr::new(
+            ExprKind::If {
+                cond: Box::new(self.hook(
+                    "test.replay",
+                    index,
+                    self.tables().prim(Prim::Bool),
                     span,
-                )],
+                )),
+                then: Box::new(again),
+                else_: Box::new(typed::Expr::new(ExprKind::Unit, Ty::Unit, span)),
             },
             Ty::Unit,
             span,
@@ -566,9 +592,37 @@ impl<'a> Monomorphizer<'a> {
         typed::Expr::new(
             ExprKind::Block {
                 stmts: vec![typed::Stmt::Expr(body), typed::Stmt::Expr(leave)],
-                tail: None,
+                tail: Some(Box::new(replay)),
             },
             Ty::Unit,
+            span,
+        )
+    }
+
+    /// One of the two runner hooks around a `test` body, called with the
+    /// block's index.
+    ///
+    /// Neither is produced by a Buri declaration — both runtime tables say so —
+    /// so this is where their argument list is written down, once for the two of
+    /// them.
+    fn hook(
+        &self,
+        name: &str,
+        index: usize,
+        ret: Ty,
+        span: crate::diagnostics::Span,
+    ) -> typed::Expr {
+        typed::Expr::new(
+            ExprKind::Intrinsic {
+                name: String::from(name),
+                targs: Vec::new(),
+                args: vec![typed::Expr::new(
+                    ExprKind::Int(index as u128, false),
+                    self.tables().prim(Prim::I64),
+                    span,
+                )],
+            },
+            ret,
             span,
         )
     }
@@ -1508,6 +1562,12 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "host.HostUi.signal",
     "host.HostUi.write",
     "host.HostWatch.read",
+    // `core/host/testing`'s scheduler, which is `host.HostTasks.parallel`'s
+    // entry read once more: the same two strides and the same generated entry
+    // thunk, because the double drives the same trampoline. A test double that
+    // reached its steps some other way would be testing a different mechanism
+    // from the one that ships.
+    "host_testing.TestTasks.parallel",
     // The one operation whose subject is in neither a parameter nor the
     // receiver: `decode` is asked for a `T` and handed a `Json`. `T` reaches
     // the runtime as a descriptor, built in `build_fn`.
@@ -1861,6 +1921,7 @@ mod tests {
         host.HostTasks.parallel \
         host.HostUi.memo host.HostUi.read host.HostUi.signal host.HostUi.write \
         host.HostWatch.read \
+        host_testing.TestTasks.parallel \
         json.decode \
         list.all list.any list.concat list.count list.drop list.empty \
         list.filter list.filterCtx list.find list.findIndex list.flatten \

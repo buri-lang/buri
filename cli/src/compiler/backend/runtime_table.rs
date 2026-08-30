@@ -674,6 +674,42 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.newNet", "buri_rt_host_testing_new_net", Ret::Scalar),
     e("host_testing.recordFetch", "buri_rt_host_testing_record_fetch", Ret::Void),
     e("host_testing.netCalls", "buri_rt_host_testing_net_calls", Ret::Out),
+    // -- tasks(): the order the work happens in ------------------------------
+    //
+    // `parallel` is the **second** key of the closure trampoline in this table
+    // and the reason the double is worth having: it reaches its steps through
+    // the same entry thunk `host.HostTasks.parallel` reaches them through, so a
+    // program tested against this is tested against the boundary that ships.
+    // `self` is a `TestTasks`, a handle, so it is a scalar where the real one is
+    // `Arg::Dropped` — the runtime has to be able to ask which order this run
+    // schedules in. The other rows are the ordering builders, the log, and the
+    // plan's two halves.
+    es("host_testing.TestTasks.parallel", "buri_rt_host_testing_test_tasks_parallel", Ret::Out),
+    e("host_testing.tasks", "buri_rt_host_testing_tasks", Ret::Out),
+    e(
+        "host_testing.TestTasks.anyOrder",
+        "buri_rt_host_testing_test_tasks_any_order",
+        Ret::Out,
+    ),
+    e(
+        "host_testing.TestTasks.everyOrder",
+        "buri_rt_host_testing_test_tasks_every_order",
+        Ret::Out,
+    ),
+    e("host_testing.TestTasks.seed", "buri_rt_host_testing_test_tasks_seed", Ret::Out),
+    e("host_testing.TestTasks.calls", "buri_rt_host_testing_test_tasks_calls", Ret::Out),
+    e("host_testing.TestTasks.runs", "buri_rt_host_testing_test_tasks_runs", Ret::Scalar),
+    e(
+        "host_testing.TestTasks.orders",
+        "buri_rt_host_testing_test_tasks_orders",
+        Ret::Scalar,
+    ),
+    e("host_testing.TestTasks.replan", "buri_rt_host_testing_test_tasks_replan", Ret::Out),
+    e(
+        "host_testing.TestTasks.addFault",
+        "buri_rt_host_testing_test_tasks_add_fault",
+        Ret::Void,
+    ),
     e("host_testing.clock", "buri_rt_host_testing_clock", Ret::Out),
     e("host_testing.TestClock.at", "buri_rt_host_testing_test_clock_at", Ret::Out),
     e(
@@ -710,6 +746,12 @@ pub const ENTRIES: &[Entry] = &[
     // is the *runner's* protocol — which block to run — and this is the
     // *program's* rule.
     e("test.leave", "buri_rt_test_leave", Ret::Void),
+    // The other half of the same lowering, emitted after it: whether to run this
+    // body again. `TestTasks.everyOrder` reruns the body once per completion
+    // order, and answering yes here is how — the body calls itself, so the
+    // reruns are one tree on all three backends rather than a loop in each of
+    // three entry points.
+    e("test.replay", "buri_rt_test_replay", Ret::Scalar),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.
@@ -800,6 +842,11 @@ mod tests {
             "host_testing.fs",
             "host_testing.TestFs.readFile",
             "host_testing.TestFs.faults",
+            // `TestTasks.faults` is a Buri body over `replan` and `addFault`,
+            // for the reason its two twins are: a plan is walked one entry at a
+            // time, and the walk is the program's.
+            "host_testing.faults",
+            "host_testing.TestTasks.faults",
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }

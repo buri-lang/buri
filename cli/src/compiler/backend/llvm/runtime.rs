@@ -1350,6 +1350,75 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
+    // -- tasks(): the order the work happens in ------------------------------
+    //
+    // `parallel` is the closure trampoline's third key and the reason the double
+    // is worth having: the test's scheduler reaches its steps through the same
+    // entry thunk the real one reaches them through. `self` is `Arg::Scalar`
+    // where `host.HostTasks.parallel`'s is `Arg::Dropped`, because a `TestTasks`
+    // is a handle and the runtime has to ask it which order this run schedules
+    // in; `items` is `Arg::Elems` and `f` is `Arg::Step`, exactly as they are
+    // there.
+    Entry {
+        key: "host_testing.TestTasks.parallel",
+        symbol: "buri_rt_host_testing_test_tasks_parallel",
+        args: &[Arg::Scalar, Arg::Elems, Arg::Step],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.tasks",
+        symbol: "buri_rt_host_testing_tasks",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.anyOrder",
+        symbol: "buri_rt_host_testing_test_tasks_any_order",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.everyOrder",
+        symbol: "buri_rt_host_testing_test_tasks_every_order",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.seed",
+        symbol: "buri_rt_host_testing_test_tasks_seed",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.calls",
+        symbol: "buri_rt_host_testing_test_tasks_calls",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.runs",
+        symbol: "buri_rt_host_testing_test_tasks_runs",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.TestTasks.orders",
+        symbol: "buri_rt_host_testing_test_tasks_orders",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.TestTasks.replan",
+        symbol: "buri_rt_host_testing_test_tasks_replan",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.addFault",
+        symbol: "buri_rt_host_testing_test_tasks_add_fault",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
     Entry {
         key: "host_testing.clock",
         symbol: "buri_rt_host_testing_clock",
@@ -1449,6 +1518,9 @@ pub const ENTRIES: &[Entry] = &[
     // *runner's* protocol — which block to run — and this is the *program's*
     // rule.
     Entry { key: "test.leave", symbol: TEST_LEAVE, args: &[Arg::Scalar], ret: Ret::Void },
+    // And the other half of it, emitted after: whether to run this body again,
+    // which is how `TestTasks.everyOrder` reruns it once per completion order.
+    Entry { key: "test.replay", symbol: TEST_REPLAY, args: &[Arg::Scalar], ret: Ret::Scalar },
 ];
 
 pub fn entry(key: &str) -> Option<&'static Entry> {
@@ -1492,6 +1564,11 @@ pub const TEST_LEAVE: &str = "buri_rt_test_leave";
 /// `buri_rt_test_fail_compared(kind, len, actual, len, expected, len)` — `-> !`,
 /// a failed comparison with both values already rendered by the `Show`
 /// `middle::derives` generated at their type.
+/// `buri_rt_test_replay(index) -> u8` — whether to run this `test` body again,
+/// which `TestTasks.everyOrder` answers yes to once per completion order.
+/// Emitted by `middle::monomorphize` immediately after [`TEST_LEAVE`], and
+/// reached through the table for the same reason.
+pub const TEST_REPLAY: &str = "buri_rt_test_replay";
 pub const TEST_FAIL_COMPARED: &str = "buri_rt_test_fail_compared";
 /// `buri_rt_test_fail_expected(kind, len, shown, len)` — `-> !`, `failExpected`
 /// with its one value rendered.

@@ -221,6 +221,14 @@ pub fn step_call(key: &str) -> Option<StepCall> {
         "host.HostTasks.parallel" => {
             Some(StepCall { kind: Step::Map, ctx: Some(0), func: 2, arity: 3, index: Some(1) })
         }
+        // `core/host/testing`'s scheduler, at the same three arguments. The
+        // double reaches its steps through this boundary rather than through a
+        // Buri loop of its own, and that is the point of it: what a test runs
+        // its program through is the mechanism the program will ship on, with
+        // one decision — the order — changed.
+        "host_testing.TestTasks.parallel" => {
+            Some(StepCall { kind: Step::Map, ctx: Some(0), func: 2, arity: 3, index: Some(1) })
+        }
         _ => None,
     }
 }
@@ -233,7 +241,8 @@ pub fn step_key(key: &str) -> bool {
 /// Every key [`step_call`] answers for, so that a reader — and the tests
 /// below — can enumerate them rather than rediscover them from a `match`.
 /// `the_table_and_the_roll_agree`, below, is what keeps the two from drifting.
-pub const STEP_KEYS: &[&str] = &["list.mapCtxStep", "host.HostTasks.parallel"];
+pub const STEP_KEYS: &[&str] =
+    &["list.mapCtxStep", "host.HostTasks.parallel", "host_testing.TestTasks.parallel"];
 
 #[cfg(test)]
 mod tests {
