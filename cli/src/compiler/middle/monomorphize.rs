@@ -938,18 +938,23 @@ impl<'a> Monomorphizer<'a> {
         // `None` covers an out-of-range slot and a method the `impl` never
         // supplied; both are already diagnosed, and both are poison here.
         let Some(fid) = imp.method(method) else { return ExprKind::Error };
-        // The impl's own generics are bound by the receiver's type arguments.
-        let mut instance_targs: Vec<Ty> = match &recv {
-            Ty::Con(_, a) => a.clone(),
-            _ => Vec::new(),
+        let counts = Counts {
+            declared: self.tables().fn_info(fid).generics.len(),
+            trait_generics: self.tables().trait_(trait_id).generics.len(),
         };
-        let declared = self.tables().fn_info(fid).generics.len();
-        instance_targs.extend(method_targs);
-        instance_targs.truncate(declared.max(instance_targs.len()));
-        while instance_targs.len() < declared {
-            instance_targs.push(Ty::Unit);
-        }
-        instance_targs.truncate(declared);
+        let instance_targs = match instance_targs(&imp.head, &recv, counts, &method_targs) {
+            Ok(targs) => targs,
+            Err(err) => {
+                let name = self.tables().trait_(trait_id).name.clone();
+                self.diags.push(
+                    Diagnostic::templated("type-arguments-required", span)
+                        .with_bind("trait", name)
+                        .with_note(err.note())
+                        .with_fix(err.fix()),
+                );
+                return ExprKind::Error;
+            }
+        };
 
         let slot = self.request(Key::Fn(fid, instance_targs));
         ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args }
@@ -1173,6 +1178,184 @@ impl<'a> Monomorphizer<'a> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Rebuilding an implementation's type arguments
+// ---------------------------------------------------------------------------
+//
+// A trait method call carries the type arguments of the *trait's* declaration
+// of the method; the function that has to be instantiated is the *impl's*, and
+// the two have different generic lists:
+//
+//   trait   Fs                          declares          fn readFile<>(…)
+//   TraitMethod.generics                is                trait generics ++ method generics
+//   impl<C: Fs> Fs for ReadOnly<C>      supplies          FnInfo.generics = impl generics ++ method generics
+//
+// So the method's own arguments carry over unchanged, and the impl's have to
+// be read back off the receiver — `ReadOnly<HostFs>` says `C = HostFs`. That is
+// a match of the impl's head against the receiver, and it is written as one
+// here. It used to be arithmetic: take the receiver's arguments, append the
+// method's, pad with `Ty::Unit` and truncate to the declared count. That is
+// right exactly when the trait has no generics of its own and the impl head is
+// the type constructor applied to its parameters in order — true of everything
+// in the tree today — and every other shape came out as a silently wrong
+// instantiation rather than as a diagnostic.
+
+/// The two counts the split needs, from the callee and from the trait.
+#[derive(Clone, Copy, Debug)]
+struct Counts {
+    /// `FnInfo.generics.len()` of the function the `impl` supplies: the impl's
+    /// own generics followed by the method's.
+    declared: usize,
+    /// `TraitInfo.generics.len()`: the trait's own parameters, which prefix
+    /// every one of its methods' generic lists.
+    trait_generics: usize,
+}
+
+/// Why an implementation's type arguments could not be rebuilt. Every variant
+/// is a disagreement between an `impl` and the trait it implements, which is
+/// what `signature-mismatch` will report at the declaration once it exists;
+/// until then it is reported here, at the call that would have been
+/// miscompiled.
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum TargError {
+    /// The trait declares parameters of its own. `impl T for X` has nowhere to
+    /// write what they are bound to, so nothing here can recover them —
+    /// `generic-effect-unsupported` refuses the declaration outright, and this
+    /// is the same refusal seen from the far end.
+    GenericTrait,
+    /// The `impl` declares fewer generics in total than the method it supplies
+    /// needs — its method's generic list disagrees with the trait's.
+    MethodArity { declared: usize, method_own: usize },
+    /// The receiver is not an instance of the `impl`'s head.
+    HeadMismatch,
+    /// The `impl` declares a generic the head never mentions, so no receiver
+    /// can say what it is.
+    Unbound(u32),
+}
+
+impl TargError {
+    fn note(&self) -> String {
+        match self {
+            TargError::GenericTrait => {
+                "a trait or effect with type parameters of its own has no way to say what an \
+                 `impl` binds them to"
+                    .into()
+            }
+            TargError::MethodArity { declared, method_own } => format!(
+                "the implementation declares {declared} type parameters in all, and the method \
+                 it supplies needs {method_own} of its own"
+            ),
+            TargError::HeadMismatch => {
+                "the receiver is not an instance of the type the `impl` names".into()
+            }
+            TargError::Unbound(i) => format!(
+                "the implementation's type parameter {i} is never mentioned in the type it is \
+                 written for, so the receiver does not say what it is"
+            ),
+        }
+    }
+
+    /// What to do about it. The page's own fix — annotate the call — is the
+    /// answer to the *other* thing it reports, a receiver whose type is not
+    /// yet known; none of these is fixed at the call site at all.
+    fn fix(&self) -> &'static str {
+        match self {
+            TargError::GenericTrait => {
+                "declare the type parameters on the methods that need them rather than on the \
+                 trait or effect itself"
+            }
+            TargError::MethodArity { .. } => {
+                "give the method in the `impl` the type parameters its trait declares for it, \
+                 and no others"
+            }
+            TargError::HeadMismatch => {
+                "implement the trait for the type the receiver has, or pass a receiver of the \
+                 type the `impl` is written for"
+            }
+            TargError::Unbound(_) => {
+                "mention every one of the `impl`'s type parameters in the type it is written \
+                 for, or drop the ones it does not use"
+            }
+        }
+    }
+}
+
+/// The type arguments to instantiate an `impl`'s method at.
+///
+/// `head` is the `impl`'s head in its own generic scope (`ReadOnly<C>` as
+/// `Con(ReadOnly, [Param(0)])`), `recv` the concrete receiver, and
+/// `method_targs` what the call site instantiated the *trait's* declaration of
+/// the method at — the trait's generics followed by the method's.
+fn instance_targs(
+    head: &Ty,
+    recv: &Ty,
+    counts: Counts,
+    method_targs: &[Ty],
+) -> Result<Vec<Ty>, TargError> {
+    if counts.trait_generics != 0 {
+        return Err(TargError::GenericTrait);
+    }
+    // With the trait's own list empty, every argument the call site supplied
+    // is the method's, and the split point is known rather than guessed.
+    let method_own = method_targs.len();
+    let Some(impl_generics) = counts.declared.checked_sub(method_own) else {
+        return Err(TargError::MethodArity { declared: counts.declared, method_own });
+    };
+
+    let mut bound: Vec<Option<Ty>> = vec![None; impl_generics];
+    if !match_head(head, recv, &mut bound) {
+        return Err(TargError::HeadMismatch);
+    }
+    let mut targs = Vec::with_capacity(counts.declared);
+    for (i, slot) in bound.into_iter().enumerate() {
+        match slot {
+            Some(ty) => targs.push(ty),
+            None => return Err(TargError::Unbound(i as u32)),
+        }
+    }
+    targs.extend_from_slice(method_targs);
+    Ok(targs)
+}
+
+/// Matches an `impl` head against a concrete receiver, binding the head's
+/// parameters. Returns whether the two have the same shape; `bound` is
+/// meaningful only when they do.
+///
+/// A parameter the head mentions twice — `impl<T> Pair<T, T>` — has to be
+/// bound to the same type both times, which is why a bound slot is compared
+/// rather than overwritten.
+fn match_head(head: &Ty, recv: &Ty, bound: &mut [Option<Ty>]) -> bool {
+    match (head, recv) {
+        (Ty::Param(i), actual) => match bound.get_mut(*i as usize) {
+            Some(slot @ None) => {
+                *slot = Some(actual.clone());
+                true
+            }
+            Some(Some(already)) => already == actual,
+            // A parameter index past the impl's own generics: the head was
+            // elaborated in a scope this call does not know about.
+            None => false,
+        },
+        (Ty::Con(a, xs), Ty::Con(b, ys)) => {
+            a == b && xs.len() == ys.len() && zip_match(xs, ys, bound)
+        }
+        (Ty::Array(a), Ty::Array(b)) => match_head(a, b, bound),
+        (Ty::Tuple(xs), Ty::Tuple(ys)) => xs.len() == ys.len() && zip_match(xs, ys, bound),
+        (Ty::Fn(xs, a), Ty::Fn(ys, b)) => {
+            xs.len() == ys.len() && zip_match(xs, ys, bound) && match_head(a, b, bound)
+        }
+        (Ty::Unit, Ty::Unit) => true,
+        // `Ty::Error` matches nothing on purpose: a poisoned receiver has
+        // already been reported, and `imp.method` returning `None` is the arm
+        // that catches it before this is reached.
+        _ => false,
+    }
+}
+
+fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
+    heads.iter().zip(recvs).all(|(h, r)| match_head(h, r, bound))
+}
+
 /// The subject and the descriptor of an intrinsic's argument list, dropping
 /// everything between them. `structural_call` appends the descriptor last, so
 /// this is never empty on the paths that call it.
@@ -1228,4 +1411,182 @@ pub(super) fn short_hash(s: &str) -> String {
         h /= 36;
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // Rebuilding an implementation's type arguments
+    // -----------------------------------------------------------------------
+    //
+    // The inputs are two types, two counts and a list, so the cases are
+    // written as those rather than as Buri source: the shapes that matter
+    // include ones no program in the tree spells, which is the reason the old
+    // arithmetic survived as long as it did.
+
+    const P0: Ty = Ty::Param(0);
+    const P1: Ty = Ty::Param(1);
+
+    /// A type constructor id, named for what a test means by it.
+    fn con(id: u32, args: Vec<Ty>) -> Ty {
+        Ty::Con(TyConId(id), args)
+    }
+
+    fn int() -> Ty {
+        con(1, vec![])
+    }
+
+    fn string() -> Ty {
+        con(2, vec![])
+    }
+
+    fn counts(declared: usize, trait_generics: usize) -> Counts {
+        Counts { declared, trait_generics }
+    }
+
+    /// Shape one: neither the `impl` nor the method is generic. Every `impl`
+    /// in `core/host` is this — `impl Fs for HostFs`, called as
+    /// `ctx.readFile(p)`.
+    #[test]
+    fn a_plain_impl_of_a_plain_method_instantiates_at_nothing() {
+        let host_fs = con(10, vec![]);
+        let got = instance_targs(&host_fs, &host_fs, counts(0, 0), &[]);
+        assert_eq!(got, Ok(Vec::new()));
+    }
+
+    /// Shape two: the method has generics of its own and the `impl` has none.
+    /// `impl Show for Order { fn show<C: Alloc>(self, ctx: C): Str }` — the
+    /// call site's `C` carries over untouched.
+    #[test]
+    fn a_method_generic_carries_over_from_the_call_site() {
+        let order = con(11, vec![]);
+        let got = instance_targs(&order, &order, counts(1, 0), &[int()]);
+        assert_eq!(got, Ok(vec![int()]));
+    }
+
+    /// Shape three: the `impl` head is generic and the method is not.
+    /// `impl<C: Fs> Fs for ReadOnly<C>` in `core/testing/context`, reached as
+    /// `ReadOnly<HostFs>`. The old arithmetic got this one right by
+    /// coincidence — the receiver's arguments happened to be the impl's, in
+    /// order.
+    #[test]
+    fn an_impl_generic_is_read_off_the_receiver() {
+        let host_fs = con(10, vec![]);
+        let head = con(12, vec![P0]);
+        let recv = con(12, vec![host_fs.clone()]);
+        let got = instance_targs(&head, &recv, counts(1, 0), &[]);
+        assert_eq!(got, Ok(vec![host_fs]));
+    }
+
+    /// Shape four: both. The impl's generics come first and the method's
+    /// second, which is the order `register_impl_body` builds `FnInfo.generics`
+    /// in.
+    #[test]
+    fn an_impl_generic_and_a_method_generic_split_at_the_declared_count() {
+        let head = con(12, vec![P0]);
+        let recv = con(12, vec![int()]);
+        let got = instance_targs(&head, &recv, counts(2, 0), &[string()]);
+        assert_eq!(got, Ok(vec![int(), string()]));
+    }
+
+    /// The head need not be the constructor applied to its parameters in
+    /// order, which is the assumption the arithmetic was built on. Nothing in
+    /// the tree writes one of these yet, and the language admits them.
+    #[test]
+    fn a_head_that_reorders_or_nests_its_parameters_still_matches() {
+        let head = con(13, vec![Ty::Array(Box::new(P1)), P0]);
+        let recv = con(13, vec![Ty::Array(Box::new(string())), int()]);
+        let got = instance_targs(&head, &recv, counts(2, 0), &[]);
+        assert_eq!(got, Ok(vec![int(), string()]));
+    }
+
+    /// A head that pins an argument rather than abstracting over it —
+    /// `impl Show for Pair<Int, T>` — binds one parameter, not two.
+    #[test]
+    fn a_partly_concrete_head_binds_only_what_it_abstracts_over() {
+        let head = con(13, vec![int(), P0]);
+        let recv = con(13, vec![int(), string()]);
+        assert_eq!(instance_targs(&head, &recv, counts(1, 0), &[]), Ok(vec![string()]));
+
+        let other = con(13, vec![string(), string()]);
+        assert_eq!(instance_targs(&head, &other, counts(1, 0), &[]), Err(TargError::HeadMismatch));
+    }
+
+    /// One parameter used twice has to be bound to one type.
+    #[test]
+    fn a_parameter_the_head_repeats_is_bound_once() {
+        let head = con(13, vec![P0, P0]);
+        let same = con(13, vec![int(), int()]);
+        assert_eq!(instance_targs(&head, &same, counts(1, 0), &[]), Ok(vec![int()]));
+
+        let different = con(13, vec![int(), string()]);
+        assert_eq!(
+            instance_targs(&head, &different, counts(1, 0), &[]),
+            Err(TargError::HeadMismatch)
+        );
+    }
+
+    /// The case the `Ty::Unit` padding used to swallow: an `impl` generic the
+    /// head never mentions. The old code produced `[C, Unit]` — the method's
+    /// argument bound to the impl's parameter and the method's own left as
+    /// unit — and compiled it.
+    #[test]
+    fn an_impl_generic_the_head_never_mentions_is_reported() {
+        let point = con(11, vec![]);
+        assert_eq!(
+            instance_targs(&point, &point, counts(2, 0), &[int()]),
+            Err(TargError::Unbound(0))
+        );
+    }
+
+    /// A receiver of another type constructor entirely. `impls` is keyed by
+    /// head constructor so this is unreachable from a call today; it is the
+    /// property the match is asserting, and asserting it is what makes the
+    /// key's guarantee checkable rather than assumed.
+    #[test]
+    fn a_receiver_of_another_type_does_not_match() {
+        let head = con(12, vec![P0]);
+        let recv = con(13, vec![int()]);
+        assert_eq!(instance_targs(&head, &recv, counts(1, 0), &[]), Err(TargError::HeadMismatch));
+    }
+
+    /// The truncation the old code did: an `impl` whose method declares more
+    /// generics than the trait's does. `signature-mismatch` will catch it at
+    /// the declaration; until then it is caught here rather than papered over.
+    #[test]
+    fn an_impl_that_declares_too_few_generics_is_reported() {
+        let order = con(11, vec![]);
+        assert_eq!(
+            instance_targs(&order, &order, counts(0, 0), &[int()]),
+            Err(TargError::MethodArity { declared: 0, method_own: 1 })
+        );
+    }
+
+    /// A trait with parameters of its own is refused rather than guessed at,
+    /// from both ends: `generic-effect-unsupported` at the declaration, and
+    /// this at the call a compiled-anyway program would have reached.
+    #[test]
+    fn a_generic_trait_is_refused() {
+        let order = con(11, vec![]);
+        assert_eq!(
+            instance_targs(&order, &order, counts(1, 1), &[int()]),
+            Err(TargError::GenericTrait)
+        );
+    }
+
+    /// Every rejection says something specific enough to act on.
+    #[test]
+    fn every_rejection_has_a_note() {
+        for err in [
+            TargError::GenericTrait,
+            TargError::MethodArity { declared: 0, method_own: 1 },
+            TargError::HeadMismatch,
+            TargError::Unbound(0),
+        ] {
+            assert!(!err.note().is_empty(), "{err:?} has no note");
+            assert!(!err.fix().is_empty(), "{err:?} has no fix");
+        }
+    }
 }
