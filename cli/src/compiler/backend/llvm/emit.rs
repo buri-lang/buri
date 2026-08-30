@@ -76,8 +76,8 @@ use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::middle::layout::{
-    self, EnumRepr, Repr as LayoutRepr, Scalar, HEADER_CAP_OFFSET, HEADER_RC_OFFSET, IMMORTAL,
-    STR_ASCII_FLAG, STR_LEN_MASK,
+    self, EnumRepr, Repr as LayoutRepr, Scalar, CAP_MASK, HEADER_CAP_OFFSET, HEADER_RC_OFFSET,
+    IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
 };
 use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty};
@@ -2871,7 +2871,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             // The count is `cap / stride`, and `cap` is the second header word
             // (VALUE-MODEL.md §2) — which is what makes a drop glue taking only
-            // a pointer enough for a list.
+            // a pointer enough for a list. Bit 63 of the word is the reserved
+            // multi-threaded mark (`layout::CAP_SHARED_FLAG`), so it is masked
+            // off before the divide: a set bit would make this walk 2^60
+            // elements of a block that holds a handful.
             Job::ReleaseElems { elem, .. } => {
                 let stride = self.reprs.stride_of(&elem);
                 let word = self.ctx.i64_type();
@@ -2882,10 +2885,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     i64::from(HEADER_CAP_OFFSET),
                     "cap.p",
                 );
-                let cap = match self.builder.build_load(word, cap_at, "cap") {
+                let raw = match self.builder.build_load(word, cap_at, "cap.raw") {
                     Ok(BasicValueEnum::IntValue(v)) => v,
                     _ => word.const_zero(),
                 };
+                let cap = self
+                    .builder
+                    .build_and(raw, word.const_int(CAP_MASK, false), "cap")
+                    .unwrap_or(raw);
                 let count = self
                     .builder
                     .build_int_unsigned_div(cap, word.const_int(u64::from(stride), false), "count")
@@ -4609,10 +4616,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Ok(BasicValueEnum::IntValue(v)) => v,
             _ => word.const_zero(),
         };
-        let cap = match self.builder.build_load(word, cap_at, "cat.cap") {
+        // The reserved multi-threaded bit lives in the top of the same word
+        // (`layout::CAP_SHARED_FLAG`), and this is a room-for-the-result test:
+        // an unmasked read would report the whole address space as headroom and
+        // write past the block.
+        let cap_raw = match self.builder.build_load(word, cap_at, "cat.cap.raw") {
             Ok(BasicValueEnum::IntValue(v)) => v,
             _ => word.const_zero(),
         };
+        let cap = self
+            .builder
+            .build_and(cap_raw, word.const_int(CAP_MASK, false), "cat.cap")
+            .unwrap_or(cap_raw);
         // `IMMORTAL` is `u64::MAX`, so a literal or an interned constant fails
         // this test by construction and never reaches either fast path.
         let is_one = self

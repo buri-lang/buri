@@ -526,6 +526,14 @@ type's own may be `export`ed, and a method supplied to a trait may not. An `impl
 in either form may appear only in the defining module of its type, so there is no
 way to implement a trait for someone else's type.
 
+A supplied method's signature is the trait's. Its parameters, its return type,
+and its own type parameters — how many, and what each is bound by — are what the
+declaration wrote, reading `Self` as the implementing type: `compare` above may
+write `Version` or `Self` for its second parameter, because inside the block
+those are one type. A call reaching the method through a bound is checked
+against the *trait's* declaration and dispatched to the `impl`'s, so the two are
+one signature rather than two that happen to share a name.
+
 #### 5.12.3 `derive` generates the implementation
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
