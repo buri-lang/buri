@@ -16,9 +16,13 @@ error: an expression statement is legal only in a test source [expression-statem
     ───
 
     A block is lets followed by a result expression, and there is no third
-    statement form. That is the hole that must-use closes: with no expression
-    statements, let _ = is the only way to discard a value, so Result cannot be
-    dropped by accident. A test source is the one exception, which is what lets
+    statement form. A test source is the one exception, which is what lets
     assert.eq(...) stand alone — and there, any expression of type () may, a
     match or an if whose branches all assert included, each terminated by ;.
+
+    Between this rule and result-discarded there are exactly two places a value
+    can be thrown away — bound to a _, or left standing — and a Result is
+    refused in both, which is what makes must-use total rather than a
+    convention. So when the statement has type Result, the fix above says
+    .ignore() instead: let _ = ...; would only trade this error for that one.
 
