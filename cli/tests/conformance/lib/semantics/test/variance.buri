@@ -9,7 +9,8 @@
 // still needs an ordinary bound — the reject corpus holds the failing half.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 from "core/str/lib.buri" import * as str;
 
 from "//lib/semantics/lib.buri" import {
@@ -21,17 +22,17 @@ from "//lib/semantics/lib.buri" import {
 // -----------------------------------------------------------------------------
 
 test "a tree over the context it is rendered with is data, not a second context" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(render(ctx, .Label("a")), "a");
 }
 
 test "the recursive arm resolves to the same answer" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(render(ctx, .Group([.Label("a"), .Label("b"), .Label("c")])), "a+b+c");
 }
 
 test "a nested group is still data" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     render(ctx, .Group([.Label("a"), .Group([.Label("b"), .Label("c")])])),
     "a+b+c",
@@ -39,7 +40,7 @@ test "a nested group is still data" {
 }
 
 test "a handler receives the context the tree was rendered with" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     render(ctx, .Press("go", fn(c, n) => str.format(c, "pressed ${n}"))),
     "pressed 2",
@@ -51,12 +52,12 @@ test "a handler receives the context the tree was rendered with" {
 // -----------------------------------------------------------------------------
 
 test "a row closure returning a tree over the bounded context is a parameter" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(eachRow(ctx, ["x", "y"], fn(c, item, count) => .Label(item)), "x,y");
 }
 
 test "the row closure sees the context and the index it was handed" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     eachRow(ctx, ["x", "y"], fn(c, item, count) => .Press(item, fn(h, n) => str.format(h, "${count}"))),
     "2,2",
@@ -68,12 +69,12 @@ test "the row closure sees the context and the index it was handed" {
 // -----------------------------------------------------------------------------
 
 test "a component with no ctx may close over a subtree" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(render(ctx, deferred(.Label("h"))()), "h");
 }
 
 test "the closed-over subtree is the one that comes back" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(render(ctx, deferred(.Group([.Label("a"), .Label("b")]))()), "a+b");
 }
 

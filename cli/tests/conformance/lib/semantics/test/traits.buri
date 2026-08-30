@@ -1,7 +1,8 @@
 // SPEC 5.11, 5.12 — traits, `impl`, `derive`, and operators as trait methods.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 from "core/num/lib.buri" import * as num;
 from "core/list/lib.buri" import * as list;
 from "core/order/lib.buri" import { Order };
@@ -112,7 +113,7 @@ test "derived Ord on an enum compares payloads within one variant" {
 }
 
 test "derived Ord sorts a list into declaration order" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let sorted = [Level.High, Level.Low, Level.Medium].sortBy(ctx, fn(a, b) => a.compare(b));
   assert.eq(sorted, [Level.Low, Level.Medium, Level.High]);
 }
@@ -122,7 +123,7 @@ test "derived Ord sorts a list into declaration order" {
 // -----------------------------------------------------------------------------
 
 test "derived Show mentions every field value" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let s = version(7, 22, 333).show(ctx);
   assert.isTrue(s.contains("7"));
   assert.isTrue(s.contains("22"));
@@ -130,7 +131,7 @@ test "derived Show mentions every field value" {
 }
 
 test "derived Show renders fields in declaration order" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let s = version(7, 22, 333).show(ctx);
   let major = assert.some(s.indexOf("7"));
   let minor = assert.some(s.indexOf("22"));
@@ -140,14 +141,14 @@ test "derived Show renders fields in declaration order" {
 }
 
 test "derived Show names the enum variant" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.isTrue(Level.Medium.show(ctx).contains("Medium"));
   assert.isTrue(Shape.Circle(2.0).show(ctx).contains("Circle"));
   assert.isTrue(Shape.Empty.show(ctx).contains("Empty"));
 }
 
 test "derived Show is a function of the value" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(version(1, 2, 3).show(ctx), version(1, 2, 3).show(ctx));
   assert.notEq(version(1, 2, 3).show(ctx), version(1, 2, 4).show(ctx));
 }
@@ -246,7 +247,7 @@ test "num.min through an Ord bound follows the hand-written impl" {
 }
 
 test "sorting through a hand-written Ord follows it" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let sorted = [Backwards(1), Backwards(3), Backwards(2)]
     .sortBy(ctx, fn(a, b) => a.compare(b));
   assert.eq(sorted, [Backwards(3), Backwards(2), Backwards(1)]);
@@ -274,7 +275,7 @@ test "the hand-written bridge order holds across every adjacent pair" {
 }
 
 test "the hand-written enum Ord sorts into bridge order" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let sorted = [Suit.Hearts, Suit.Spades, Suit.Clubs, Suit.Diamonds]
     .sortBy(ctx, fn(a, b) => a.compare(b));
   assert.eq(sorted, [Suit.Clubs, Suit.Diamonds, Suit.Hearts, Suit.Spades]);
@@ -287,7 +288,7 @@ test "a hand-written enum Eq is what == uses" {
 }
 
 test "a hand-written Show on an enum replaces the structural one" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(Suit.Hearts.show(ctx), "H");
   assert.eq(Suit.Clubs.show(ctx), "C");
 }
@@ -354,7 +355,7 @@ test "two bounds joined with + are both callable" {
 }
 
 test "a bound of mine and a bound from core/order together" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let shown = weighAndShow(ctx, Feather { count: 12 });
   assert.isTrue(shown.contains("12"));
   assert.isTrue(shown.endsWith("=12"));
@@ -395,7 +396,7 @@ test "a second implementation writes Self for its own type" {
 }
 
 test "a Self callback applied once per element of a list" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(relayAll(ctx, [Scale { factor: 2 }, Scale { factor: 3 }], 4), [10, 15]);
   assert.eq(relayAll(ctx, list.empty<Scale>(), 4), list.empty<Int>());
 }
@@ -422,7 +423,7 @@ test "a type that recurses through a list can be compared" {
 }
 
 test "a type that recurses through a list can be rendered" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.isTrue(Rose.Branch([Rose.Leaf(1)]).show(ctx).contains("Leaf"));
 }
 

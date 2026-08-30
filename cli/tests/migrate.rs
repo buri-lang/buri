@@ -37,28 +37,158 @@ mod harness;
 mod migrate;
 
 use harness::{indent, repo_root, Scratch};
-use migrate::{plan, sources_under, Style};
+use migrate::{effects_the_build_file_blocks, nothing_blocked, plan, sources_under, Style};
 
-/// The packages that have moved. Named here rather than passed in, so that the
-/// idempotence sweep and the migration cannot drift apart: a batch is finished
-/// when its packages are on this list and
-/// [`the_migrated_packages_have_nothing_left_to_rewrite`] still passes.
-const PACKAGES: &[&str] = &[
-    // E7, batch 1.
-    "lib/data",
-    "lib/collections",
-    // E9, batch 3.
-    "lib/text",
-    "lib/crypto",
-    "lib/calendar",
-    "lib/numbers",
-    "lib/memory",
-    "lib/canary",
-    "lib/codegen",
+/// A repository the migration runs over, the directories inside it whose
+/// sources are planned, and the targets `buri test` is asked for while the
+/// fixpoint runs.
+///
+/// A corpus is a repository and not a package because the fixpoint compiles:
+/// the diagnostics it reads name files by their *repository*-relative path,
+/// and a label only means anything from a repository root. The conformance
+/// tree is one repository holding many packages; every other corpus here is a
+/// fixture repository holding one or two.
+struct Corpus {
+    /// The repository root, relative to this repository's root.
+    root: &'static str,
+    /// The directories under it whose `.buri` sources are planned. Every
+    /// source is planned, not only the ones that name the old module — a file
+    /// that names none of this is returned byte-identical, and planning it is
+    /// what proves that.
+    packages: &'static [&'static str],
+    /// What `buri test` is asked for while the fixpoint runs. The migration
+    /// reads compile errors, so all that matters is that these targets
+    /// *compile* the planned sources; several of these fixtures are suites
+    /// that then fail on purpose, which is not a compile error and so not this
+    /// migration's business.
+    targets: &'static [&'static str],
+}
+
+/// The corpora the migration has moved. Named here rather than passed in, so
+/// that the idempotence sweep and the migration cannot drift apart.
+///
+/// E7 is the conformance repository's first two packages, E8 the next three
+/// and E9 the seven after that; E10 is every row below the first.
+const CORPORA: &[Corpus] = &[
+    Corpus {
+        root: "cli/tests/conformance",
+        packages: &[
+            // E7, batch 1.
+            "lib/data",
+            "lib/collections",
+            // E8, batch 2.
+            "lib/semantics",
+            "lib/json",
+            "lib/proto",
+            // E9, batch 3.
+            "lib/text",
+            "lib/crypto",
+            "lib/calendar",
+            "lib/numbers",
+            "lib/memory",
+            "lib/canary",
+            "lib/codegen",
+        ],
+        targets: &[
+            "//lib/data",
+            "//lib/collections",
+            "//lib/semantics",
+            "//lib/json",
+            "//lib/proto",
+            "//lib/text",
+            "//lib/crypto",
+            "//lib/calendar",
+            "//lib/numbers",
+            "//lib/memory",
+            "//lib/canary",
+            "//lib/codegen",
+        ],
+    },
+    // The build system's own monorepo. `//...` rather than a list, because
+    // `the_example_monorepo_is_clean` builds it that way, and a corpus the
+    // migration compiles differently from its own driver is a corpus the
+    // migration can be wrong about.
+    Corpus { root: "cli/tests/example", packages: &["cmd", "lib", "tools"], targets: &["//..."] },
+    Corpus {
+        root: "cli/tests/repositories/cli/gen_both_rules/repo",
+        packages: &["tools"],
+        targets: &["//tools/report"],
+    },
+    Corpus {
+        root: "cli/tests/repositories/testing/accept_golden/repo",
+        packages: &["lib"],
+        targets: &["//lib/report"],
+    },
+    // The three `cli/tests/failing` repositories. Each holds a suite that
+    // fails on purpose, and each of them compiles.
+    Corpus {
+        root: "cli/tests/failing/captured_output/repo",
+        packages: &["lib"],
+        targets: &["//lib/noisy"],
+    },
+    Corpus {
+        root: "cli/tests/failing/hand_written_show/repo",
+        packages: &["lib"],
+        targets: &["//lib/money"],
+    },
+    Corpus {
+        root: "cli/tests/failing/long_values/repo",
+        packages: &["lib"],
+        targets: &["//lib/wide"],
+    },
 ];
 
-/// The corpus both halves work in.
-const CORPUS: &str = "cli/tests/conformance";
+/// The files under [`CORPORA`] the migration is **not** run over, and why.
+/// Paths are relative to this repository's root, so that one list spans every
+/// corpus.
+///
+/// One entry, and it is not a limitation of the script: `effects.buri` is
+/// `core/testing/context`'s own conformance file. Its subject is the module
+/// being migrated away from — `readOnly`'s attenuator, `noNet`'s refusals,
+/// `capturedErr`, `advance`, and `..Hermetic()` spread through three named
+/// context declarations — and `core/host/testing`'s equivalent is the file
+/// next door, `host_testing.buri`, written for E1–E4 precisely so that the two
+/// spellings are covered side by side while they coexist. Rewriting it would
+/// leave a module this repository still ships with no conformance file at all,
+/// six waves before E12 deletes it. It moves with the module, in E12.
+const HELD: &[(&str, &str)] = &[(
+    "cli/tests/conformance/lib/semantics/test/effects.buri",
+    "`core/testing/context`'s own conformance file — it moves with the module, in E12",
+)];
+
+/// The files the migration runs over and cannot finish, and what each is
+/// waiting for.
+///
+/// Each is migrated as far as `core/host/testing` reaches and keeps importing
+/// `core/testing/context` for the one name that has no twin.
+/// [`the_migrated_packages_have_nothing_left_to_rewrite`] holds the list to
+/// both halves of that: a file here that no longer names the old module is a
+/// row to delete, and a file that names it and is not here is a migration that
+/// stopped early without saying so.
+const PARTIAL: &[(&str, &str)] = &[
+    (
+        "cli/tests/conformance/lib/semantics/test/http.buri",
+        "`noNet()`, which E3's `net()` replaces; the rest of the file is migrated",
+    ),
+    (
+        "cli/tests/example/cmd/basket/test/view.buri",
+        "`noNet()`, which E3's `net()` replaces; `alloc` has moved and every context \
+         in the file is written out already",
+    ),
+    // The two suites that declare `test { data }`. Their `Fs` is the runner's
+    // seeded `data()` and `fs()` is empty, so the row does not hold for them —
+    // `effects_the_build_file_blocks` is what works that out, and E13 is what
+    // unblocks it. Both files are otherwise migrated: their `Hermetic()`s stay
+    // because a site binds one context, not one effect.
+    (
+        "cli/tests/example/lib/store/test/store.buri",
+        "`test { data }`, which E13 retires; its three sites need the seeded `data()`",
+    ),
+    (
+        "cli/tests/repositories/testing/accept_golden/repo/lib/report/test/render.buri",
+        "`test { data }`, which E13 retires; its one site needs the seeded `data()`",
+    ),
+];
 
 // ---------------------------------------------------------------------------
 // The rewriter, case by case
@@ -224,6 +354,69 @@ fn a_name_the_file_also_binds_is_refused_rather_than_guessed_at() {
 }
 
 #[test]
+fn a_file_that_names_none_of_this_is_left_exactly_as_it_is() {
+    // Every file of a package is planned, including the ones that never named
+    // `core/testing/context` — and what the migration owes those is nothing at
+    // all. The `core/effect` import is the trap: it is a line this rewrite
+    // knows how to write, and a plan that rewrote it here would reorder a
+    // neighbour's imports for no reason. `lib/semantics/shapes.buri` and
+    // `host_testing.buri` are the two real files that shape came from.
+    let source = "from \"core/effect/lib.buri\" import { Stdout, Alloc, Fs };\n\
+                  from \"core/host/testing/lib.buri\" import { alloc };\n\
+                  test \"t\" {\n  let ctx = context { Alloc: alloc() };\n}\n";
+    let p = plan("test/case.buri", source);
+    assert!(!p.work_left(), "there is nothing here to do");
+    assert!(!p.still_names_the_old_module());
+    assert_eq!(p.render(Style::Final).0, source, "and so nothing is written");
+}
+
+/// The same, one step in: a file that *is* migrated but already imports every
+/// effect its contexts name keeps its own import line, in its own order.
+#[test]
+fn an_effect_import_that_is_already_enough_is_left_alone() {
+    let source = "from \"core/testing/context/lib.buri\" import { Hermetic };\n\
+                  from \"core/effect/lib.buri\" import { Stdout, Alloc };\n\
+                  test \"t\" {\n  let ctx = Hermetic();\n}\n";
+    let out = rewritten(source, &["Alloc"]);
+    assert!(
+        out.contains("from \"core/effect/lib.buri\" import { Stdout, Alloc };"),
+        "{}",
+        indent(&out)
+    );
+}
+
+#[test]
+fn a_name_with_no_twin_keeps_its_import_and_nothing_else_does() {
+    // `lib/semantics/test/http.buri`'s shape: two names from the old module,
+    // one of which — `noNet` — this migration has nothing to put in place of.
+    // The call stays, so the import of *that* name has to stay with it, and
+    // the import of `alloc` has to move all the same. Dropping the line whole
+    // would leave the file naming something it no longer imports; keeping it
+    // whole would leave `alloc` imported from two modules at once.
+    let source = "from \"core/testing/context/lib.buri\" import { alloc, noNet };\n\
+                  from \"core/effect/lib.buri\" import { Alloc, Net };\n\
+                  test \"t\" {\n  let ctx = context { Alloc: alloc(), Net: noNet() };\n}\n";
+    let out = rewritten(source, &[]);
+    assert!(
+        out.contains("from \"core/testing/context/lib.buri\" import { noNet };"),
+        "{}",
+        indent(&out)
+    );
+    assert!(
+        out.contains("from \"core/host/testing/lib.buri\" import { alloc };"),
+        "{}",
+        indent(&out)
+    );
+    assert!(out.contains("context { Alloc: alloc(), Net: noNet() }"), "{}", indent(&out));
+
+    // And the inverse: a file with nothing left to keep loses the line.
+    let clean = "from \"core/testing/context/lib.buri\" import { alloc };\n\
+                 test \"t\" {\n  let ctx = context { Alloc: alloc() };\n}\n";
+    let out = rewritten(clean, &[]);
+    assert!(!out.contains("core/testing/context"), "{}", indent(&out));
+}
+
+#[test]
 fn a_function_with_no_twin_is_left_alone_and_named() {
     let source = "from \"core/testing/context/lib.buri\" import { noNet };\n\
                   test \"t\" {\n  let n = noNet();\n}\n";
@@ -236,6 +429,109 @@ fn a_function_with_no_twin_is_left_alone_and_named() {
     );
     assert!(p.render(Style::Final).0.contains("let n = noNet();"));
 }
+
+/// A `Hermetic()` written in a *named context declaration* is answered by the
+/// diagnostic its callers draw.
+///
+/// `context Inherited { ..Hermetic() }` is a declaration nothing is missing
+/// from until somebody calls it, and the compiler reports the missing binding
+/// where it is called — a test with no `Hermetic()` in it at all. So the
+/// attribution follows the edge: a declaration with no site of its own hands
+/// the diagnostic to the context declarations it names. `lib/semantics`'s
+/// `evaluation.buri` is the file this came from, and `effects.buri` — held
+/// back for E12 — is the one that chains three of them.
+#[test]
+fn a_context_declaration_is_answered_by_the_diagnostic_its_caller_drew() {
+    let source = "from \"core/testing/context/lib.buri\" import { Hermetic };\n\
+                  context Inherited {\n  ..Hermetic(),\n}\n\
+                  test \"t\" {\n  let ctx = Inherited();\n  let _ = ticked(ctx);\n}\n";
+    let files = vec![("test/case.buri".to_string(), source.to_string())];
+    let mut round = 0;
+    let report = migrate::migrate(&files, &nothing_blocked, |rendered| {
+        round += 1;
+        if round > 1 {
+            return String::new();
+        }
+        // Reported at the call, which is the only place it can be.
+        let line = rendered[0].1.lines().position(|l| l.contains("ticked(ctx)")).unwrap() + 1;
+        format!(
+            "{{\"code\": \"unsatisfied-bound\", \"severity\": \"error\", \
+             \"message\": \"`a context` does not satisfy `Clock`\", \
+             \"location\": {{\"file\": \"test/case.buri\", \"line\": {line}}}}}"
+        )
+    });
+    assert_eq!(report.derived, 1, "one site, and the compiler named its effect");
+    assert_eq!(report.approximated, 0, "and named it, so nothing was approximated");
+    let out = report.plans[0].render(Style::Final).0;
+    assert!(out.contains("..context { Clock: clock() },"), "{}", indent(&out));
+}
+
+/// A package that declares `test { data }` keeps its `Hermetic()`.
+///
+/// `Hermetic`'s `Fs` is `data()`, which the runner seeds from that declaration;
+/// `core/host/testing`'s `fs()` is empty. The table's `data() -> fs()` row is
+/// behaviour-preserving only where the declaration is, so a suite that names a
+/// file in it is a suite the rewrite would break in a way the compiler cannot
+/// see — an empty filesystem type-checks, and the run goes red instead. The
+/// site stays spelled `Hermetic()` and the report names it, exactly like one
+/// waiting on a constructor that does not exist yet.
+///
+/// Both halves are here: the same source, in a package that declares `data`
+/// and in one that does not.
+#[test]
+fn a_suite_that_declares_test_data_keeps_the_filesystem_it_was_seeded_with() {
+    const BUILD_WITH_DATA: &str = "library {\n  sources: [\"lib.buri\"]\n  test {\n    \
+                                   sources: [\"test/case.buri\"]\n    \
+                                   data: [\"test/golden/one.txt\"]\n  }\n}\n";
+    const BUILD_WITHOUT: &str =
+        "library {\n  sources: [\"lib.buri\"]\n  test {\n    sources: [\"test/case.buri\"]\n  }\n}\n";
+    let source = "from \"core/testing/context/lib.buri\" import { Hermetic };\n\
+                  test \"t\" {\n  let ctx = Hermetic();\n  let _ = read(ctx);\n}\n";
+
+    for (build, blocked) in [(BUILD_WITH_DATA, true), (BUILD_WITHOUT, false)] {
+        let scratch = Scratch::repo("migrate-data");
+        scratch.write("lib/one/BUILD.buri", build);
+        scratch.write("lib/one/test/case.buri", source);
+        let root = scratch.path("");
+
+        let files = vec![("lib/one/test/case.buri".to_string(), source.to_string())];
+        let held = |rel: &str| migrate::effects_the_build_file_blocks(&root, rel);
+        assert_eq!(
+            held("lib/one/test/case.buri").contains_key("Fs"),
+            blocked,
+            "the build file is what says whether `Fs` can move"
+        );
+
+        let mut round = 0;
+        let report = migrate::migrate(&files, &held, |rendered| {
+            round += 1;
+            if round > 1 {
+                return String::new();
+            }
+            let line = rendered[0].1.lines().position(|l| l.contains("read(ctx)")).unwrap() + 1;
+            format!(
+                "{{\"code\": \"unsatisfied-bound\", \"severity\": \"error\", \
+                 \"message\": \"`a context` does not satisfy `Fs`\", \
+                 \"location\": {{\"file\": \"lib/one/test/case.buri\", \"line\": {line}}}}}"
+            )
+        });
+
+        let out = report.plans[0].render(Style::Final).0;
+        if blocked {
+            assert_eq!(report.unmigrated.len(), 1, "{}", indent(&out));
+            assert!(report.unmigrated[0].1.contains("test { data }"), "{:?}", report.unmigrated);
+            assert!(out.contains("let ctx = Hermetic();"), "{}", indent(&out));
+            assert!(out.contains(OLD_IMPORT), "the file still needs it:\n{}", indent(&out));
+        } else {
+            assert_eq!(report.unmigrated.len(), 0, "{}", indent(&out));
+            assert!(out.contains("let ctx = context { Fs: fs() };"), "{}", indent(&out));
+            assert!(!out.contains(OLD_IMPORT), "{}", indent(&out));
+        }
+    }
+}
+
+/// The import line a migrated file is supposed to lose.
+const OLD_IMPORT: &str = "core/testing/context";
 
 // ---------------------------------------------------------------------------
 // The proof the script is done
@@ -251,110 +547,216 @@ fn a_function_with_no_twin_is_left_alone_and_named() {
 fn the_migrated_packages_have_nothing_left_to_rewrite() {
     let root = repo_root();
     let mut left = Vec::new();
+    let mut residue = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
     let mut checked = 0;
-    for package in PACKAGES {
-        let sources = sources_under(&root.join(CORPUS), package);
-        assert!(!sources.is_empty(), "{package} has no sources; has it moved or been renamed?");
-        for rel in sources {
-            let text = std::fs::read_to_string(root.join(CORPUS).join(&rel)).unwrap();
-            let p = plan(&rel, &text);
-            assert!(p.refused.is_none(), "{}", p.refused.unwrap());
-            checked += 1;
-            if p.touches_anything() {
-                left.push(format!("{rel}: {} site(s) and an import to move", p.sites.len()));
+    for corpus in CORPORA {
+        let corpus_root = root.join(corpus.root);
+        for package in corpus.packages {
+            for rel in sources_under(&corpus_root, package) {
+                let whole = format!("{}/{rel}", corpus.root);
+                if HELD.iter().any(|(held, _)| *held == whole) {
+                    continue;
+                }
+                let text = std::fs::read_to_string(corpus_root.join(&rel)).unwrap();
+                let p = plan(&rel, &text);
+                assert!(p.refused.is_none(), "{}", p.refused.unwrap());
+                checked += 1;
+                // A package whose build file blocks an effect is one this half
+                // cannot finish the check for: whether a site *needs* the
+                // blocked effect is a question for the compiler, and there is
+                // none here. What it must still do is say so, which is the
+                // `PARTIAL` row below. E13 is what takes this branch away.
+                let held = effects_the_build_file_blocks(&corpus_root, &rel);
+                if p.work_left() && held.is_empty() {
+                    left.push(format!("{whole}: {} site(s) and an import to move", p.sites.len()));
+                }
+                // A file that still names the old module has to say why, in a
+                // list somebody reads — and the list has to still be true.
+                if p.still_names_the_old_module() {
+                    seen.push(whole.clone());
+                    if !PARTIAL.iter().any(|(f, _)| *f == whole) {
+                        residue
+                            .push(format!("{whole} still imports the old module and is not in PARTIAL"));
+                    }
+                }
             }
         }
     }
-    assert!(checked >= 8, "expected {PACKAGES:?}'s sources, found {checked}");
+    for (file, why) in PARTIAL {
+        if !seen.iter().any(|rel| rel == file) {
+            residue.push(format!("{file} no longer needs the old module — delete its row ({why})"));
+        }
+    }
+    assert!(checked >= 40, "expected every corpus's sources, found {checked}");
     assert!(
         left.is_empty(),
-        "the migration is not finished in {PACKAGES:?}:\n  {}",
+        "the migration is not finished:\n  {}",
         left.join("\n  ")
     );
+    assert!(residue.is_empty(), "the residue is not what it says it is:\n  {}", residue.join("\n  "));
+}
+
+/// Every file [`HELD`] and [`PARTIAL`] name exists and still names the old
+/// module.
+///
+/// Both lists are prose about files, and prose about files rots. This is the
+/// half of that which is checkable: a row naming a file that is gone, or one
+/// that has nothing to do with `core/testing/context` any more, fails here.
+#[test]
+fn the_held_and_partial_lists_name_files_that_are_still_there() {
+    let root = repo_root();
+    for (file, why) in HELD.iter().chain(PARTIAL) {
+        let path = root.join(file);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{file} ({why}) cannot be read: {e}"));
+        assert!(
+            text.contains("core/testing/context"),
+            "{file} no longer names the old module, so its row is stale: {why}"
+        );
+    }
+}
+
+/// Every corpus row names a repository that is there, and packages inside it
+/// that hold sources.
+///
+/// [`CORPORA`] is the one place the two halves of this target agree on what
+/// has moved, and a row pointing at a directory that has been renamed would
+/// make the sweep above quietly check nothing.
+#[test]
+fn every_corpus_names_a_repository_with_sources_in_it() {
+    let root = repo_root();
+    for corpus in CORPORA {
+        let corpus_root = root.join(corpus.root);
+        assert!(
+            corpus_root.join("REPO.buri").is_file(),
+            "{} is not a repository root",
+            corpus.root
+        );
+        assert!(!corpus.targets.is_empty(), "{} names no targets", corpus.root);
+        for package in corpus.packages {
+            assert!(
+                !sources_under(&corpus_root, package).is_empty(),
+                "{}/{package} holds no sources",
+                corpus.root
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // The migration
 // ---------------------------------------------------------------------------
 
-/// Runs the migration and writes it into the checked-in corpus.
+/// Runs the migration and writes it into the checked-in corpora.
 ///
-/// Ignored, because it is the one test here that edits a tree somebody else
-/// owns. It works in a scratch copy while the fixpoint runs — the compiler is
-/// asked the same question a dozen times and none of those answers belongs in
-/// the repository — and copies the settled text back only at the end.
+/// Ignored, because it is the one test here that edits trees somebody else
+/// owns. Each corpus is migrated in a scratch copy of its own repository — the
+/// compiler is asked the same question a dozen times and none of those answers
+/// belongs in the repository — and the settled text is copied back only at the
+/// end.
 ///
-/// `BURI_MIGRATE` overrides [`PACKAGES`], comma separated, so the batches after
-/// this one need no edit here to be run.
+/// `BURI_MIGRATE` overrides [`CORPORA`], comma separated, and each entry is a
+/// corpus's `root`, so a later batch needs no edit here to be re-run on its
+/// own.
 #[test]
-#[ignore = "edits the checked-in corpus; run it deliberately"]
+#[ignore = "edits the checked-in corpora; run it deliberately"]
 fn migrate_the_corpus() {
     let root = repo_root();
-    let corpus = root.join(CORPUS);
-    let chosen: Vec<String> = match std::env::var("BURI_MIGRATE") {
-        Ok(list) => list.split(',').map(|s| s.trim().to_string()).collect(),
-        Err(_) => PACKAGES.iter().map(|s| (*s).to_string()).collect(),
+    let chosen: Vec<&Corpus> = match std::env::var("BURI_MIGRATE") {
+        Ok(list) => {
+            let wanted: Vec<String> = list.split(',').map(|s| s.trim().to_string()).collect();
+            let picked: Vec<&Corpus> =
+                CORPORA.iter().filter(|c| wanted.iter().any(|w| w == c.root)).collect();
+            assert_eq!(
+                picked.len(),
+                wanted.len(),
+                "BURI_MIGRATE names a corpus that is not in CORPORA: {wanted:?}"
+            );
+            picked
+        }
+        Err(_) => CORPORA.iter().collect(),
     };
 
-    let files: Vec<(String, String)> = chosen
-        .iter()
-        .flat_map(|package| sources_under(&corpus, package))
-        .map(|rel| {
-            let text = std::fs::read_to_string(corpus.join(&rel)).unwrap();
-            (rel, text)
-        })
-        .collect();
-    assert!(!files.is_empty(), "no sources under {chosen:?}");
-
-    let scratch = Scratch::copy_of("migrate", &corpus);
-    let targets: Vec<String> = chosen.iter().map(|p| format!("//{p}")).collect();
-    let report = migrate::migrate(&files, |rendered| {
-        for (rel, text) in rendered {
-            scratch.write(rel, text);
-        }
-        let mut args: Vec<&str> = vec!["test", "--error-format=json", "--force"];
-        args.extend(targets.iter().map(String::as_str));
-        scratch.run(&args).all()
-    });
-
     let mut moved = 0;
-    for p in &report.plans {
-        let (text, _) = p.render(Style::Final);
-        if text != p.original {
-            std::fs::write(corpus.join(&p.rel), &text).unwrap();
-            moved += 1;
+    let mut derived = 0;
+    let mut approximated = 0;
+    let mut unmigrated: Vec<(String, String)> = Vec::new();
+    let mut shapes: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+
+    for corpus in chosen {
+        let corpus_root = root.join(corpus.root);
+        let files: Vec<(String, String)> = corpus
+            .packages
+            .iter()
+            .flat_map(|package| sources_under(&corpus_root, package))
+            .filter(|rel| {
+                let whole = format!("{}/{rel}", corpus.root);
+                match HELD.iter().find(|(held, _)| *held == whole) {
+                    Some((held, why)) => {
+                        println!("held: {held} — {why}");
+                        false
+                    }
+                    None => true,
+                }
+            })
+            .map(|rel| {
+                let text = std::fs::read_to_string(corpus_root.join(&rel)).unwrap();
+                (rel, text)
+            })
+            .collect();
+        assert!(!files.is_empty(), "no sources under {}", corpus.root);
+
+        let scratch = Scratch::copy_of("migrate", &corpus_root);
+        let blocked = |rel: &str| effects_the_build_file_blocks(&corpus_root, rel);
+        let report = migrate::migrate(&files, &blocked, |rendered| {
+            for (rel, text) in rendered {
+                scratch.write(rel, text);
+            }
+            let mut args: Vec<&str> = vec!["test", "--error-format=json", "--force"];
+            args.extend(corpus.targets.iter().copied());
+            scratch.run(&args).all()
+        });
+
+        for p in &report.plans {
+            let (text, _) = p.render(Style::Final);
+            if text != p.original {
+                std::fs::write(corpus_root.join(&p.rel), &text).unwrap();
+                moved += 1;
+            }
+            for note in &p.notes {
+                println!("note: {}/{}: {note}", corpus.root, p.rel);
+            }
+            for site in &p.sites {
+                let key = if site.blocked.is_some() {
+                    "Hermetic() (unmigrated)".to_string()
+                } else if site.effects.is_empty() {
+                    "context { }".to_string()
+                } else {
+                    site.effects.iter().copied().collect::<Vec<_>>().join(", ")
+                };
+                *shapes.entry(key).or_default() += 1;
+            }
         }
-        for note in &p.notes {
-            println!("note: {note}");
-        }
+        derived += report.derived;
+        approximated += report.approximated;
+        unmigrated.extend(
+            report.unmigrated.iter().map(|(rel, why)| (format!("{}/{rel}", corpus.root), why.clone())),
+        );
+        println!("{}: {} round(s)", corpus.root, report.rounds);
     }
 
-    println!("migration: {} file(s) rewritten in {} round(s)", moved, report.rounds);
+    println!("migration: {moved} file(s) rewritten");
     println!(
-        "  sites: {} derived, {} over-approximated, {} unmigrated",
-        report.derived,
-        report.approximated,
-        report.unmigrated.len()
+        "  sites: {derived} derived, {approximated} over-approximated, {} unmigrated",
+        unmigrated.len()
     );
-    for (rel, why) in &report.unmigrated {
+    for (rel, why) in &unmigrated {
         println!("  unmigrated: {rel} — {why}");
     }
 
     // The shape of what was written, so a reader of the log can see the
     // narrowing rather than take it on trust.
-    let mut shapes: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-    for p in &report.plans {
-        for site in &p.sites {
-            let key = if site.blocked.is_some() {
-                "Hermetic() (unmigrated)".to_string()
-            } else if site.effects.is_empty() {
-                "context { }".to_string()
-            } else {
-                site.effects.iter().copied().collect::<Vec<_>>().join(", ")
-            };
-            *shapes.entry(key).or_default() += 1;
-        }
-    }
     for (shape, count) in &shapes {
         println!("  {count:>4} × {shape}");
     }

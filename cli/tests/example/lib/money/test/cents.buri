@@ -3,7 +3,8 @@
 
 from "//lib/money/lib.buri" import { fromDollars, fromCents };
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 test "dollars are a hundred cents" {
   assert.eq(fromDollars(3), fromCents(300));
@@ -22,7 +23,7 @@ test "zero is recognized" {
 test "pads the cents place" {
   // Only this test needs a context: formatting allocates, and nothing else
   // here does. You can see which is which without leaving the test.
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(fromCents(1905).format(ctx), "\$19.05");
   assert.eq(fromDollars(19).format(ctx), "\$19.00");
 }

@@ -181,7 +181,27 @@ fn check_const(c: &mut Checker, cid: ConstId) {
     c.const_values.insert(cid, body.expr);
 }
 
-fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
+/// Checks one `context` declaration, once.
+///
+/// Called both from the loop above, in the order the ids were minted, and from
+/// a *use* of the declaration that found it unchecked
+/// (`expressions.rs`'s `Static::Context`). The second caller is what makes the
+/// order the ids were minted in stop mattering: a declaration built from
+/// another reads the base's recorded type, and the minting order is the order
+/// the modules were discovered in — so `context Fixture { ..Hermetic() }` in a
+/// file that is the first in its package to import `core/testing/context`
+/// used to be checked *before* `Hermetic` was, and quietly kept only the
+/// bindings it wrote itself. Every use of it then failed `unsatisfied-bound`
+/// for an effect the spread was supposed to supply.
+///
+/// [`Checker::ctx_decls_reached`] is what keeps this to once each: a second
+/// call returns, and so does a call that arrives round a cycle
+/// (`context A { ..A() }`), which leaves `checked` at `None` and the use at
+/// `Ty::Error` exactly as before.
+pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
+    if !c.ctx_decls_reached.insert(id) {
+        return;
+    }
     let info = c.tables.ctx_decl(id).clone();
     let Some((decl_module, decl_index)) = info.ast.item() else { return };
     let Some(tree::Item::Context(decl)) = c.module(decl_module).ast.items.get(decl_index as usize)
