@@ -2,19 +2,23 @@
 # `website` is the documentation site generator. It is not part of the CLI and
 # ships with nothing: it reads `cli/src/docs/**` and the README and writes HTML.
 members = ["cli", "website"]
-# Two packages that are deliberately outside the workspace, for the same
-# reason: `cargo test -p buri` must not resolve either of them.
+# One package deliberately outside the workspace: `editors/zed` is a Zed
+# extension, and a Zed extension must depend on `zed_extension_api` and compile
+# to WASM, neither of which `cargo test -p buri` has any business resolving.
 #
-# `editors/zed` is a Zed extension, and a Zed extension must depend on
-# `zed_extension_api` and compile to WASM.
-#
-# `cli/runtime` is `libburi_rt.a`, built by `cli/build.rs` with an explicit
-# `--manifest-path` once per toolchain build and `include_bytes!`d into the
-# binary. Excluding it keeps its `[profile.release]` — the archive's LTO,
-# `panic = "abort"` and single codegen unit — its own rather than the
-# workspace's, and keeps the nested `cargo build` off the workspace's
-# target directory and its lock.
-exclude = ["editors/zed", "cli/runtime"]
+# `cli/runtime` — `libburi_rt.a`, the archive `cli/build.rs` builds once per
+# toolchain build and `include_bytes!`es into the binary — used to be a second
+# entry here and no longer needs to be one, because it is no longer a package
+# *in the tree*. Its manifest is `cli/runtime/manifest.toml`, under a name Cargo
+# does not recognise, and `cli/build.rs` assembles the real package in `OUT_DIR`
+# and builds it there. That is a packaging decision (a `Cargo.toml` in that
+# directory deletes the directory from the published `buri` crate) and it has
+# the side effect of making this exclusion unnecessary: there is nothing under
+# `cli/` for `cargo test -p buri` to resolve. The runtime keeps its own
+# `[profile.release]` — the archive's LTO, `panic = "abort"` and single codegen
+# unit — because the assembled package carries an empty `[workspace]` table of
+# its own.
+exclude = ["editors/zed"]
 resolver = "2"
 
 # The dependency policy. It used to be "none at all", and native code
@@ -40,17 +44,49 @@ resolver = "2"
 # enforceable: if turning a feature off broke the toolchain, the feature would
 # not stay off.
 #
-# The admitted set, in full: `inkwell` behind `backend-llvm`. Native debug code
-# generation was a second entry until the stencil backend replaced it, and it
-# needs no crate, so the *default* toolchain is back to no dependencies at all.
-# `notify` is not admitted and is not needed: the watch loop polls the declared
-# source set rather than watching the filesystem
-# (design/native/BUILD-AND-WATCH.md §1.2).
+# ## One bar, two admitted sets — and they are not interchangeable
 #
-# It is in the lockfile and it is optional, so `cargo build -p buri` resolves
-# nothing and the gates are still compiled both ways.
-# `cli/tests/language/corpus.rs`'s `dependencies_stay_behind_the_bar` is what
-# holds the paragraph above to a closed set rather than to a habit.
+# The bar above is one sentence and it is applied twice, because there are two
+# things that can depend on a crate and the consequence of doing so is not the
+# same for both. Keeping the sets apart is the amendment this paragraph is:
+# before it there was one list, and one list would have made "tokio is in the
+# compiler" and "tokio is in every program the compiler produces" the same
+# sentence.
+#
+# **The toolchain's set — what a contributor installs.** `cli/Cargo.toml`, and
+# in full: `inkwell` behind `backend-llvm`. Native debug code generation was a
+# second entry until the stencil backend replaced it, and it needs no crate, so
+# the *default* toolchain still has no dependency at all. `notify` is not
+# admitted and is not needed: the watch loop polls the declared source set
+# rather than watching the filesystem (design/native/BUILD-AND-WATCH.md §1.2).
+# `inkwell` is in the lockfile and it is optional, so `cargo build -p buri`
+# resolves nothing and the gates are still compiled both ways.
+#
+# **The runtime's set — what every *user* ships.** `cli/runtime/manifest.toml`,
+# and in full: `tokio`, `hyper`, `rustls` and `tungstenite`, all four behind the
+# `net` feature, which is on by default. `libburi_rt.a` is linked into every
+# native binary this compiler produces, so a crate admitted there is a crate
+# admitted into strangers' programs — which is why that set carries a **fourth**
+# clause the toolchain's does not: it is closed by an exact list, asserted as an
+# equality, rather than by a prefix or a habit. The four are argued one at a
+# time where they are declared; what they buy together is one capability, an
+# asynchronous networking stack, which is the largest thing in the native design
+# that this repository could not reasonably write.
+#
+# The set is not the same *kind* of thing as the toolchain's in one more way
+# worth stating: turning `backend-llvm` off costs a release code generator a
+# contributor can do without, while turning `net` off costs a *language
+# capability* — `Net`, `Listen`, `Tasks` — that a program either has or is
+# refused for. "Degrades rather than breaks" is met on both, but on the
+# runtime's side the degradation has to be a diagnostic naming the missing
+# effect rather than a link error, which is why the toolchain learns the
+# feature's state (`Backend::missing_intrinsics`) instead of finding out at
+# `cc` time.
+#
+# `cli/tests/language/corpus.rs`'s `dependencies_stay_behind_the_bar` reads both
+# manifests and is what holds the two paragraphs above to their lists rather
+# than to a habit: a prefix match and an "is it optional" check on the
+# toolchain's, an exact-set equality on the runtime's.
 
 # The lints that pin the toolchain's central promise: **no input may panic the
 # compiler**. A malformed source file, build file, schema, flag, or

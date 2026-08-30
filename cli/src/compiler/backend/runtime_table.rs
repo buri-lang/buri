@@ -508,6 +508,55 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.TestStderr.eprint", "buri_rt_host_testing_test_stderr_eprint", Ret::Void),
     e("host_testing.TestStderr.eprintln", "buri_rt_host_testing_test_stderr_eprintln", Ret::Void),
     e("host_testing.TestStderr.captured", "buri_rt_host_testing_test_stderr_captured", Ret::Out),
+    e("host_testing.stdin", "buri_rt_host_testing_stdin", Ret::Out),
+    e("host_testing.TestStdin.lines", "buri_rt_host_testing_test_stdin_lines", Ret::Out),
+    e("host_testing.TestStdin.bytes", "buri_rt_host_testing_test_stdin_bytes", Ret::Out),
+    e(
+        "host_testing.TestStdin.readLine",
+        "buri_rt_host_testing_test_stdin_read_line",
+        Ret::Opt,
+    ),
+    e(
+        "host_testing.TestStdin.readBytes",
+        "buri_rt_host_testing_test_stdin_read_bytes",
+        Ret::Opt,
+    ),
+    // `TestFs`'s sixteen. The eleven the `Fs` effect declares are `MemFs`'s
+    // shapes, and the five above them are this module's: two builders, the
+    // attenuator, and the two read-backs a test asserts through.
+    //
+    // `snapshot` is `Ret::Out` over a `[(Str, Str)]` — one block of two-`Str`
+    // elements, which is the layout `str.splitOnce` already writes through an
+    // out-pointer, one element wide.
+    e("host_testing.fs", "buri_rt_host_testing_fs", Ret::Out),
+    e("host_testing.TestFs.files", "buri_rt_host_testing_test_fs_files", Ret::Out),
+    e("host_testing.TestFs.filesBytes", "buri_rt_host_testing_test_fs_files_bytes", Ret::Out),
+    e("host_testing.TestFs.readOnly", "buri_rt_host_testing_test_fs_read_only", Ret::Out),
+    e("host_testing.TestFs.read", "buri_rt_host_testing_test_fs_read", Ret::Res),
+    e("host_testing.TestFs.snapshot", "buri_rt_host_testing_test_fs_snapshot", Ret::Out),
+    e("host_testing.TestFs.readFile", "buri_rt_host_testing_test_fs_read_file", Ret::Res),
+    e("host_testing.TestFs.writeFile", "buri_rt_host_testing_test_fs_write_file", Ret::Res),
+    e(
+        "host_testing.TestFs.fileExists",
+        "buri_rt_host_testing_test_fs_file_exists",
+        Ret::Scalar,
+    ),
+    e("host_testing.TestFs.readDir", "buri_rt_host_testing_test_fs_read_dir", Ret::Res),
+    e(
+        "host_testing.TestFs.readFileBytes",
+        "buri_rt_host_testing_test_fs_read_file_bytes",
+        Ret::Res,
+    ),
+    e(
+        "host_testing.TestFs.writeFileBytes",
+        "buri_rt_host_testing_test_fs_write_file_bytes",
+        Ret::Res,
+    ),
+    e("host_testing.TestFs.appendFile", "buri_rt_host_testing_test_fs_append_file", Ret::Res),
+    e("host_testing.TestFs.renameFile", "buri_rt_host_testing_test_fs_rename_file", Ret::Res),
+    e("host_testing.TestFs.removeFile", "buri_rt_host_testing_test_fs_remove_file", Ret::Res),
+    e("host_testing.TestFs.makeDir", "buri_rt_host_testing_test_fs_make_dir", Ret::Res),
+    e("host_testing.TestFs.syncFile", "buri_rt_host_testing_test_fs_sync_file", Ret::Res),
     e("host_testing.clock", "buri_rt_host_testing_clock", Ret::Out),
     e("host_testing.TestClock.at", "buri_rt_host_testing_test_clock_at", Ret::Out),
     e(

@@ -52,7 +52,8 @@ Every heap allocation has a **16-byte header immediately before the payload**:
 
 ```
   ptr - 16   u64  rc     reference count, or IMMORTAL
-  ptr -  8   u64  cap    usable payload bytes
+  ptr -  8   u64  cap    bit 63: shared (reserved, never set)
+                         bits 0..62: usable payload bytes
   ptr        ...  payload
 ```
 
@@ -68,6 +69,45 @@ Every string literal, every constant aggregate the middle end interns, and every
 zero-sized value has it. `incref` is a saturating add, so it is branchless;
 `decref` tests for it, which is one well-predicted compare. MEMORY.md §5 has the
 sequences.
+
+### 2.1 Bit 63 of `cap` is reserved for the multi-threaded mark
+
+`cap` holds the usable payload bytes in its **low 63 bits**. **Bit 63 is
+reserved** and **nothing in the tree sets it**. Set will mean *this block may be
+reached from more than one thread*, and it is the bit `incref`/`decref` will
+branch on to choose an atomic count.
+
+The reservation is recorded — and every reader already masks — before anything
+sets it, so that turning it on later moves no code but the code that turns it
+on. `middle::layout::CAP_SHARED_FLAG` and `CAP_MASK` are the compiler's copy of
+the number; `cli/runtime/memory.rs`'s `BURI_RT_CAP_SHARED` and
+`BURI_RT_CAP_MASK` are the runtime's, spelled twice for the reason `BURI_OK` is.
+
+**Why `cap` and not `rc`.** A bit of the count would cost both of the two
+properties §2 just gave the count. `IMMORTAL` is `u64::MAX` and `incref` is a
+*saturating* add exactly so the sentinel is a fixed point with no branch on the
+side where the traffic is; a tag bit in the same word makes that add wrong. And
+MEMORY.md §5.3's entire licence for in-place reuse is the literal test
+`rc == 1`, which a tagged count fails for a block that is genuinely unique — the
+uniqueness test would go quietly false and every append would copy. `cap` has
+neither problem: it is a byte count that nothing does arithmetic on without
+knowing it is one, it is read on cold paths, and a capacity runs out of address
+space long before bit 63.
+
+This is the same trick §3.1 already plays with bit 63 of `Str::len`, one word
+along — the precedent, not a collision.
+
+**The readers.** `cli/runtime/memory.rs` masks in one place, `cap_of`,
+which `buri_rt_free`, `buri_rt_realloc`, `buri_rt_cap`, `buri_rt_unique_cap` and
+the `make_immortal` accounting all read through; `buri_rt_grown_capacity` masks
+its `old_cap` argument, because doubling the flag would ask for the address
+space. Both backends open-code a read and both mask it: the `[T]` element count
+`cap / stride` in a release glue (`llvm/emit.rs::glue`,
+`stencil/glue.rs::elems_glue`) and the LLVM `str.concat` in-place probe, whose
+`fits` test is a *room for the result* question and would otherwise report the
+whole address space as headroom. `buri_rt_realloc` also *preserves* the bit
+across a move rather than clearing it, so growing a block cannot silently
+un-share it.
 
 ## 3. `Str`
 
