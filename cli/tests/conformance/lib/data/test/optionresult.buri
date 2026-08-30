@@ -385,16 +385,46 @@ test "ignore consumes an Err and returns unit" {
   assert.isTrue(true);
 }
 
-test "ignore called as a free function" {
+test "ignore returns unit, so it equals unit" {
+  let r: Result<Int, Str> = .Ok(1);
+  let u = r.ignore();
+  assert.eq(u, ());
+}
+
+test "ignore is a method, and there is no free-function spelling of it" {
+  // `ignore` lives in `impl<T, E> Result<T, E>`, so `r.ignore()` is the whole
+  // of how it is written. The error page's fix says `.ignore()` for that
+  // reason, and this is the test that keeps the two agreeing.
   let r: Result<Int, Str> = .Err("whatever");
   r.ignore();
   assert.isTrue(true);
 }
 
-test "ignore returns unit, so it equals unit" {
-  let r: Result<Int, Str> = .Ok(1);
-  let u = r.ignore();
-  assert.eq(u, ());
+// --- Result: what must-use does *not* forbid (SPEC 5.7.1) ---------------------
+
+test "a named binding of a Result is legal" {
+  // `_x` binds. It is a name nothing reads, which is `unused-variable`'s
+  // question rather than must-use's — and this is the shape that must keep
+  // compiling.
+  let _x: Result<Int, Str> = .Ok(1);
+  assert.isTrue(true);
+}
+
+test "a wildcard in a match arm inspects rather than discards" {
+  // `.Err(_)` reads the failure case and chooses to say nothing about the
+  // payload, which is handling. Only a `let`'s pattern discards.
+  let r: Result<Int, Str> = .Err("gone");
+  let n = match (r) {
+    .Ok(v) => v,
+    .Err(_) => 7,
+  };
+  assert.eq(n, 7);
+}
+
+test "a nested binding keeps the Result, so the pattern is not a discard" {
+  let (count, outcome) = (1, doubleOk(4));
+  assert.eq(count, 1);
+  assert.eq(outcome.withDefault(0), 8);
 }
 
 // --- `?` on Option (SPEC 6.8) -------------------------------------------------
