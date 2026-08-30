@@ -1675,12 +1675,24 @@ impl<'a, 'b> Infer<'a, 'b> {
                 )
             }
             None => {
-                let missing: Vec<String> = decl_fields
-                    .iter()
-                    .zip(&values)
-                    .filter(|(_, v)| v.is_none())
-                    .map(|(f, _)| f.name.clone())
-                    .collect();
+                let mut missing: Vec<String> = Vec::new();
+                let mut filled: Vec<typed::Expr> = Vec::with_capacity(decl_fields.len());
+                for (f, v) in decl_fields.iter().zip(values) {
+                    let e = match v {
+                        Some(e) => e,
+                        None => {
+                            let want = substitute(&f.ty, &targs, None);
+                            match self.elided_none(&f.ty, &want, span) {
+                                Some(none) => none,
+                                None => {
+                                    missing.push(f.name.clone());
+                                    typed::Expr::new(typed::ExprKind::Error, want, span)
+                                }
+                            }
+                        }
+                    };
+                    filled.push(e);
+                }
                 if !missing.is_empty() {
                     let t = self.c.tables.tycon(con).name.clone();
                     let missing = diagnostics::names(&missing);
@@ -1688,26 +1700,34 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .bind("name", t.clone())
                         .bind("fields", missing.clone())
                         .fix(format!(
-                            "give {missing} a value, or start from an existing one with \
-                             `{t} {{ ..base, field: value }}`"
+                            "give {missing} a value — only an `Option` field may be left out — \
+                             or start from an existing one with `{t} {{ ..base, field: value }}`"
                         ));
                 }
-                let filled: Vec<typed::Expr> = values
-                    .into_iter()
-                    .zip(&decl_fields)
-                    .map(|(v, f)| {
-                        v.unwrap_or_else(|| {
-                            typed::Expr::new(
-                                typed::ExprKind::Error,
-                                substitute(&f.ty, &targs, None),
-                                span,
-                            )
-                        })
-                    })
-                    .collect();
                 typed::Expr::new(typed::ExprKind::StructLit { con, targs, fields: filled }, ty, span)
             }
         }
+    }
+
+    /// The `.None` a left-out `Option` field stands for (SPEC 5.6). Judged on
+    /// the declared type, never the substituted one, so which fields a literal
+    /// may leave out is a property of the struct rather than of one
+    /// instantiation of it.
+    fn elided_none(&self, declared: &Ty, want: &Ty, span: Span) -> Option<typed::Expr> {
+        let con = match declared {
+            Ty::Con(id, _) if self.c.option_con == Some(*id) => *id,
+            _ => return None,
+        };
+        let variant = self.c.tables.tycon(con).variant_index("None")?;
+        let targs = match want {
+            Ty::Con(_, args) => args.clone(),
+            _ => return None,
+        };
+        Some(typed::Expr::new(
+            typed::ExprKind::EnumLit { con, targs, variant, args: Vec::new() },
+            want.clone(),
+            span,
+        ))
     }
 
     fn struct_lit_head(&mut self, head: ExprId) -> Option<TyConId> {

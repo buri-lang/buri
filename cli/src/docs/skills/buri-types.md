@@ -44,6 +44,10 @@ let maybe = xs[0];                      // Option<Int>, never Int
 - Fields are module-private unless `export`ed. A struct with any private field
   cannot be constructed from scratch elsewhere, but `{ ..u, name: "x" }` still
   works, because it never names the hidden fields.
+- A literal gives every *required* field a value. A field whose **declared** type
+  is `Option<...>` may be left out, and is then `.None` — judged on the
+  declaration, so `type Maybe = Option<Str>` counts and the `T` of a
+  `struct S<T>` does not, even at `S<Option<Int>>`.
 - An enum's variants carry no `export` of their own: they are exported exactly
   when the enum is. Hiding a representation is a struct with a private field.
 - An array literal is not an allocation. Any operation whose result length
