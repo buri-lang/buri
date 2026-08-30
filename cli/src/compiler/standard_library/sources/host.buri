@@ -11,7 +11,7 @@
 //! that asked for it.
 
 from "core/effect/lib.buri" import {
-  Alloc, Clock, Env, Fs, Net, Proc, Rand, Stderr, Stdin, Stdout, Tasks,
+  Alloc, Clock, Env, Fs, Listen, Net, Proc, Rand, Sockets, Stderr, Stdin, Stdout, Tasks,
   IoError, NetError, Region, Request, Response,
 };
 // One `Request` now. `ui/effect` used to declare a second — the
@@ -101,6 +101,35 @@ impl Tasks for HostTasks {
   fn parallel<A, B>(self, items: [A], f: fn(HostTasks, Int, A) => B): [B];
 }
 
+/// Being a server rather than talking to one.
+///
+/// **Granted by no platform**, on `HostTasks`'s terms and for the same kind of
+/// reason: there is no acceptor behind it yet. It is granted together with
+/// `HostSockets` when there is, and never on `JS` or `WEB` — a page does not
+/// hold a port open, and that is a fact about pages rather than a slice nobody
+/// has written.
+export struct HostListen {}
+impl Listen for HostListen {
+  fn listen(
+    self,
+    address: Str,
+    port: Int,
+    onRequest: fn(HostListen, Request) => Response,
+  ): Result<(), NetError>;
+}
+
+/// Pushing on a connection that is already open.
+///
+/// **Granted by no platform**, and granted with `HostListen` when it is: the
+/// two are the halves of one authority to be a server, and a platform that can
+/// accept a connection is exactly a platform that can write back on it.
+export struct HostSockets {}
+impl Sockets for HostSockets {
+  fn socketSendText(self, socket: Int, text: Str): ();
+  fn socketSendBytes(self, socket: Int, body: [U8]): ();
+  fn socketClose(self, socket: Int, code: Int, reason: Str): ();
+}
+
 /// The reactive graph. Bound by a program with a user interface; a platform
 /// that renders nothing simply never has one asked of it.
 export struct HostUi {}
@@ -129,5 +158,7 @@ export let rand: HostRand = HostRand {};
 export let env: HostEnv = HostEnv {};
 export let proc: HostProc = HostProc {};
 export let tasks: HostTasks = HostTasks {};
+export let listen: HostListen = HostListen {};
+export let sockets: HostSockets = HostSockets {};
 export let ui: HostUi = HostUi {};
 export let watch: HostWatch = HostWatch {};

@@ -68,8 +68,15 @@
 //! ```text
 //! .buri/link/<link-key>/manifest        unit name -> codegen key -> cached|run
 //! .buri/link/<link-key>/<unit>.o        the object, from the cache
-//! .buri/link/<link-key>/libburi_rt.a    the embedded runtime archive
+//! .buri/link/<link-key>/libburi_rt.a    the embedded runtime archive, when
+//!                                       these objects reference it
 //! ```
+//!
+//! The archive's last line is a decision rather than a constant:
+//! [`runtime_archive_for`] asks the objects whether any of them names a
+//! `buri_rt_*` symbol, and the answer both gates the file and enters the `link`
+//! key. On this toolchain it is `Linked` for every Buri program — see that
+//! function for why, and for what would have to change.
 //!
 //! It exists because a linker takes paths and [`Linker::link`] takes bytes, and
 //! because the manifest is what makes "which objects changed" answerable from
@@ -122,6 +129,109 @@ pub fn host_platform() -> Option<Platform> {
 pub fn can_link(target: Target) -> bool {
     host_platform() == Some(target.platform)
         && target.arch.is_none_or(|a| host_arch() == Some(a))
+}
+
+// ---------------------------------------------------------------------------
+// Whether the runtime archive is linked at all
+// ---------------------------------------------------------------------------
+
+/// Whether a link puts `libburi_rt.a` on the driver's command line.
+///
+/// It used to be one question — "does this toolchain *have* an archive" — and
+/// the answer to "does this program *need* one" was left to `-dead_strip` and
+/// `--gc-sections`. That still works, and it is still what decides the
+/// artifact's size — per target rather than by BUILD-AND-WATCH.md §2.2's single
+/// number: hello world is 356 KB with its debug information removed against a
+/// 6.05 MB archive on arm64 macOS, and 401 KB against 8.73 MB on x86-64 Linux.
+/// The *linked* file on Linux is 2.19 MB, and the difference is not the
+/// stripping: an ELF link copies the archive members' DWARF into the executable
+/// where `ld64` leaves it in the members. The numbers, and how each was taken,
+/// are in `tests/native/stencil.rs::hello_world_still_links_the_runtime_archive`.
+/// What it could not do is keep the archive out of the `link` **key**: an
+/// artifact that names no runtime symbol was still relinked whenever the
+/// runtime changed, because the key held the archive's digest unconditionally.
+///
+/// So the answer is a value rather than a `bool`, and it travels to both places
+/// that need it: [`CDriver::link`]'s command line, and
+/// `build::actions::link_key_of`'s `runtime` term. Those two must agree —
+/// disagreeing would key one artifact under another's inputs — and they agree
+/// because both ask [`runtime_archive_for`] about the same objects.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RuntimeArchive {
+    /// The archive is staged beside the objects and named on the command line.
+    Linked,
+    /// It is neither written nor named: nothing in these objects refers to it,
+    /// or this toolchain has none.
+    Omitted,
+}
+
+impl RuntimeArchive {
+    /// Whether the archive reaches the command line.
+    pub fn is_linked(self) -> bool {
+        self == RuntimeArchive::Linked
+    }
+}
+
+/// Whether these objects reference the runtime archive.
+///
+/// This is [`crate::compiler::backend::networking_gap`]'s question asked one
+/// level lower down, and it is asked of the **objects** rather than of
+/// `program.funcs` — which is a correction to the shape the design proposed,
+/// and the reason for it is measurable rather than stylistic. A program's
+/// intrinsic keys are not the whole of what it asks the archive for: both
+/// native entry points call `buri_rt_argv_init` and `buri_rt_flush`
+/// unconditionally (`stencil/asm.rs`, `llvm/emit.rs::entry_point`), reference
+/// counting reaches `buri_rt_alloc`/`buri_rt_free`, a division emits
+/// `buri_rt_abort_div_zero`, `==` on `Str` emits `buri_rt_str_eq`, and none of
+/// those is a `FuncKind::Intrinsic` anybody could have walked for. A query over
+/// the program would have had to restate every emitter's structural calls, in a
+/// third place, and would have been wrong the first time one of them moved —
+/// and being wrong here is an unresolved symbol at `cc` time.
+///
+/// So the question is asked of what the backend actually produced, and the
+/// prefix is the one rule `runtime_native::SYMBOL_PREFIX` already states: an
+/// object that refers to a runtime entry carries that entry's name in its
+/// symbol table, as ASCII, whatever the object format. Conservative in the one
+/// direction that is safe — a string constant that happens to spell
+/// `buri_rt_` links an archive nothing needs, which costs a staged file and a
+/// dead-stripped nothing, where the opposite mistake costs a failed link.
+///
+/// **On this toolchain the answer is [`RuntimeArchive::Linked`] for every Buri
+/// program**, because of the two entry-point calls above. That is not a
+/// disappointment hidden in a comment: it is the finding, it is pinned by
+/// `tests/native/stencil.rs::hello_world_still_links_the_runtime_archive`, and
+/// the `Omitted` branch is reachable today only for objects that were not made
+/// from Buri source and for a toolchain with no archive at all. It becomes
+/// interesting the day an entry point stops needing the runtime.
+///
+/// One pass over the objects, comparing only at the bytes that could begin the
+/// prefix — the link is about to read every one of them off disk anyway.
+pub fn runtime_archive_for(units: &[Emitted]) -> RuntimeArchive {
+    if !runtime_native::AVAILABLE {
+        return RuntimeArchive::Omitted;
+    }
+    let needle = runtime_native::SYMBOL_PREFIX.as_bytes();
+    if units.iter().any(|unit| mentions(&unit.bytes, needle)) {
+        RuntimeArchive::Linked
+    } else {
+        RuntimeArchive::Omitted
+    }
+}
+
+/// Whether `haystack` contains `needle`.
+///
+/// `windows(n).any(..)` would say the same thing and compare at every offset;
+/// this compares only where the first byte matches, which over a few megabytes
+/// of object is the difference between a scan and a memory-bandwidth-bound
+/// one. `get(i..)` rather than `[i..]` because this repository's lints deny
+/// indexing, and the slice cannot be empty here in any case.
+fn mentions(haystack: &[u8], needle: &[u8]) -> bool {
+    let Some(first) = needle.first() else { return true };
+    haystack
+        .iter()
+        .enumerate()
+        .filter(|(_, byte)| *byte == first)
+        .any(|(i, _)| haystack.get(i..).is_some_and(|rest| rest.starts_with(needle)))
 }
 
 // ---------------------------------------------------------------------------
@@ -542,6 +652,13 @@ impl CDriver {
                 // A build id is a hash of content that is about to be compared
                 // byte for byte.
                 flags.push("-Wl,--build-id=none".into());
+                // `-dead_strip`'s counterpart: the artifact keeps the part of
+                // the archive it reaches. Measured by relinking the x86-64
+                // Linux CI job's own objects and archive with and without it,
+                // debug information removed from both: 373 936 bytes against
+                // 673 440. It does not touch `.debug_*` — the linked file is
+                // 2.19 MB either way — which is why the test that polices this
+                // measures the stripped size.
                 flags.push("-Wl,--gc-sections".into());
                 // What `std` reaches for. Harmless where glibc has folded them
                 // in, and required where it has not — the same three
@@ -649,8 +766,13 @@ impl Linker for CDriver {
             }
         }
 
-        let archive = self.dir.join(runtime_native::ARCHIVE_NAME);
-        if runtime_native::AVAILABLE {
+        // The decision, taken once and used twice below — the staged file and
+        // the command line. `build::actions` asks the same function about the
+        // same objects to build the `link` key, which is what makes the key a
+        // fact about the link that actually ran.
+        let runtime = runtime_archive_for(units);
+        if runtime.is_linked() {
+            let archive = self.dir.join(runtime_native::ARCHIVE_NAME);
             let stale = std::fs::metadata(&archive).map(|m| m.len()).ok()
                 != Some(runtime_native::ARCHIVE.len() as u64);
             if stale {
@@ -715,7 +837,7 @@ impl Linker for CDriver {
         for path in &objects {
             command.arg(path.file_name().unwrap_or(path.as_os_str()));
         }
-        if runtime_native::AVAILABLE {
+        if runtime.is_linked() {
             command.arg(runtime_native::ARCHIVE_NAME);
         }
         command.args(self.platform_flags());
@@ -867,6 +989,52 @@ mod tests {
         std::fs::write(dir.join("manifest"), &text).expect("writing the manifest");
         assert_eq!(read_manifest(&dir).as_deref(), Some(rows().as_slice()));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The substring search the archive decision rests on, at the offsets that
+    /// break a hand-rolled one.
+    ///
+    /// `mentions` compares only where the first byte matches, so the cases that
+    /// matter are a match at the very end, a run of first-byte matches that go
+    /// nowhere, and a needle longer than what is left.
+    #[test]
+    fn a_runtime_symbol_is_found_wherever_it_sits() {
+        let needle = b"buri_rt_";
+        assert!(mentions(b"buri_rt_flush", needle), "a match at offset zero");
+        assert!(mentions(b"\0\0_buri_rt_alloc\0", needle), "a match in the middle");
+        assert!(mentions(b"xxxburi_rt_", needle), "a match that ends the haystack");
+        assert!(!mentions(b"buri_rt", needle), "a prefix of the needle is not the needle");
+        assert!(!mentions(b"", needle), "an empty object mentions nothing");
+        assert!(!mentions(b"bbbbbbbb", needle), "first-byte matches that go nowhere");
+        assert!(!mentions(b"buri_rtX", needle), "one byte short");
+        assert!(mentions(b"", b""), "an empty needle is everywhere");
+    }
+
+    /// The decision itself, over objects this test writes: the answer is the
+    /// symbol prefix and nothing else about the bytes.
+    ///
+    /// Gated on `AVAILABLE`, because a toolchain with no archive answers
+    /// `Omitted` to everything — which is the first clause of the function and
+    /// is asserted on its own below.
+    #[test]
+    fn the_decision_is_whether_an_object_names_a_runtime_symbol() {
+        let unit = |bytes: &[u8]| Emitted {
+            name: String::from("main.o"),
+            key: crate::build::cache::ActionKey::of(b""),
+            bytes: bytes.to_vec(),
+        };
+        assert_eq!(runtime_archive_for(&[]), RuntimeArchive::Omitted);
+        if !runtime_native::AVAILABLE {
+            assert_eq!(runtime_archive_for(&[unit(b"buri_rt_flush")]), RuntimeArchive::Omitted);
+            return;
+        }
+        assert_eq!(runtime_archive_for(&[unit(b"printf\0main\0")]), RuntimeArchive::Omitted);
+        assert_eq!(runtime_archive_for(&[unit(b"\0buri_rt_flush\0")]), RuntimeArchive::Linked);
+        // Any one unit is enough: the archive is one file on one command line.
+        assert_eq!(
+            runtime_archive_for(&[unit(b"printf"), unit(b"buri_rt_alloc")]),
+            RuntimeArchive::Linked
+        );
     }
 
     /// A missing manifest is `None` rather than an empty build.
