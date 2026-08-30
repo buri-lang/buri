@@ -1,0 +1,18 @@
+export struct Meters(Float);
+
+struct
+
+export Point { x: Int, y: Int }
+
+export struct One {
+    only: Int,
+}
+
+export enum Hello {
+    World,
+    Now(Bool),
+}
+
+export enum Just {
+    Here,
+}

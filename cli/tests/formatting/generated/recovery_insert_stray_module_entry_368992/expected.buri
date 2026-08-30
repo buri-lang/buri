@@ -9,7 +9,10 @@ from "//lib/money" import { Cents, fromCents };
 // because a suite that asserts on an entry has to be able to print the one it
 // got. Both are the derives; neither is a decision this type makes for itself.
 derive Eq, Show for Entry;
-export struct Entry { export memo: Str, export amount: Cents }
+export struct Entry {
+    export memo: Str,
+    export amount: Cents,
+}
 
 export fn entry(memo: Str, amount: Cents): Entry {
   Entry { memo, amount }

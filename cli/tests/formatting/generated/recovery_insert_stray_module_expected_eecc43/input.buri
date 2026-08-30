@@ -4,6 +4,9 @@ export struct Meters(export Float);
 // why this derive
 derive Show for Shape;
 /// What this one is for.
-@ export enum Shape { Circle(Float), Empty }
+@ export enum Shape {
+    Circle(Float),
+    Empty,
+}
 
 derive Eq for SomethingElsewhere;

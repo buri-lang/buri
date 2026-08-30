@@ -1,6 +1,0 @@
-impl S , {
-  /// what this does
-  fn f(self): Int { 1 }
-  // and about the next one
-  fn g(self): Int { 2 }
-}

@@ -1,9 +1,0 @@
-error: expected `{`, found `extra` [unexpected-token]
- --> main.buri:1:19
-  |
-1 | export enum Shape extra { Circle(Float), Rect { width: Float, height: Float }, Triangle(Float, Float, Float), Empty }
-  |                   ^^^^^
-  |
-  = expected: `{`
-  = actual: `extra`
-  = fix: write `{` here

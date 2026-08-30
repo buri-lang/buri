@@ -126,6 +126,30 @@ const INVENTED_CEILING: usize = 2;
 /// common. That is `recovery.rs`'s rule for a ceiling, and this is the same
 /// mistake it was written to stop: a bound fitted to a sample goes red on the
 /// next draw for a reason that has nothing to do with the toolchain.
+///
+/// Re-measured after the formatter style change and the `circular-type-alias`
+/// diagnostic landed: still 151 of 2,000, to the case. The seeds are the lint
+/// fixtures under `repositories/linting/`, which neither change touched, and
+/// no mutation in the population produces an alias cycle — a one-token edit
+/// makes a *syntax* error far more readily than it makes an alias refer back
+/// to itself. So the nine stands unchanged.
+///
+/// It is worth naming what would move it, because `Unchecked::of` reads the
+/// **position** of an error and not its code, so the new diagnostic is on the
+/// same footing as a syntax error. A `circular-type-alias` sits on a type
+/// alias, which is at module level and inside no body, so it takes the same
+/// path a missing `;` on an import does: the module is marked unread and every
+/// lint in it goes quiet. Confirmed by hand rather than assumed — a module
+/// with a cyclic alias and an unused local reports the cycle and *not* the
+/// `unused-variable`, while the same module with the cycle removed reports the
+/// `unused-variable`. It takes a *used* alias to do it: an unused cyclic alias
+/// is never expanded, so nothing fires and nothing goes quiet, which is why no
+/// mutation in this population reaches it.
+///
+/// So the ceiling is unmoved but the surface under it is now wider: it is not
+/// only broken syntax that can silence a module's lints. That is the second
+/// case for narrowing `Unchecked::of`, and this number is still where the cost
+/// of not narrowing it is visible.
 const LOST_A_FINDING_CEILING: usize = 9;
 
 fn corpus_dir() -> PathBuf {

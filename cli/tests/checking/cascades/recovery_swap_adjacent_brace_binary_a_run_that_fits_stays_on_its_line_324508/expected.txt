@@ -12,7 +12,7 @@ error: this statement has type `Bool`, not `()` [statement-not-unit]
 1 | export fn f(a: Int, b: Int): Bool { a > 0 && b 0 > }
   |                                     ^^^^^^^^^^
   |
-  = only a call whose type is `()` may stand alone; bind anything else
+  = only an expression whose type is `()` may stand alone; bind anything else
   = fix: bind it with `let _ = ...;`
 error: expected `Bool`, found `I64` [type-mismatch]
  --> main.buri:1:46

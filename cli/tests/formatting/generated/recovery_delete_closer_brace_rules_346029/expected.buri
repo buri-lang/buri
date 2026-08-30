@@ -6,7 +6,10 @@
 from "core/effect" import { Alloc };
 from "//lib/ledger/entry" import { Entry };
 
-export enum Rule { DropZero, MemoPrefix { prefix: Str } }
+export enum Rule {
+    DropZero,
+    MemoPrefix { prefix: Str },
+}
 
 export fn apply<C: Alloc>(ctx: C, entries: [Entry], rule: Rule): [Entry] {
   match (rule {

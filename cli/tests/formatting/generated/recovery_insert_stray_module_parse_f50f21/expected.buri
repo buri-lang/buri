@@ -11,7 +11,10 @@ from "//lib/money/cents" import { Cents, fromCents, toCents };
 /// A million dollars, in cents.
 let MAX_CENTS: I64 = 100_000_000;
 
-export enum ParseError { NotANumber { text: Str }, TooLarge }
+export enum ParseError {
+    NotANumber { text: Str },
+    TooLarge,
+}
 
 // `assert.eq` needs `Eq` to compare and `Show` to render a failure, so an error
 // type a test asserts on derives both.

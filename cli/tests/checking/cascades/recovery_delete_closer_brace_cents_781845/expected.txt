@@ -21,7 +21,7 @@ error: this statement has type `Str`, not `()` [statement-not-unit]
 34 |     let pad = if (rest < 10) { "0" } else { "" ;
    |                                             ^^^^
    |
-   = only a call whose type is `()` may stand alone; bind anything else
+   = only an expression whose type is `()` may stand alone; bind anything else
    = fix: bind it with `let _ = ...;`
 error: there is nothing named `pad` in scope [unresolved-name]
   --> main.buri:35:35

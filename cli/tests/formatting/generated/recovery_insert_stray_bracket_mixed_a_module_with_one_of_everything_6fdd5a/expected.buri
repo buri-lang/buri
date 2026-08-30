@@ -10,9 +10,17 @@ export type Pair<T> = (T, T);
 let SEED: [U32] = [1779033703, 3144134277, 1013904242, 2773480762, extra 1359893119, 2600822924, 528734635, 1541459225];
 
 derive Eq, Ord for Working;
-export struct Working { export a: U32, export b: U32, export h: U32 }
+export struct Working {
+    export a: U32,
+    export b: U32,
+    export h: U32,
+}
 
-export enum Shape { Circle(Float), Rect { width: Float, height: Float }, Empty }
+export enum Shape {
+    Circle(Float),
+    Rect { width: Float, height: Float },
+    Empty,
+}
 
 export trait Weigh {
     fn grams<C: Alloc + Stdout>(self, ctx: C, scale: Str): Float;

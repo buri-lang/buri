@@ -1,0 +1,16 @@
+error: an enum variant ends with `,` [missing-separator]
+ --> main.buri:7:37
+  |
+7 | export enum Hello { World, Now(Bool) 
+  |                                     ^
+  |
+  = fix: write `,` here
+error: expected an identifier, found `enum` [unexpected-token]
+ --> main.buri:9:8
+  |
+9 | export enum Just { Here }
+  |        ^^^^
+  |
+  = expected: an identifier
+  = actual: `enum`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

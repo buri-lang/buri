@@ -1,7 +1,0 @@
-error: an enum variant ends with `,` [missing-separator]
-  --> main.buri:10:6
-   |
-10 |     A
-   |      ^
-   |
-   = fix: write `,` here

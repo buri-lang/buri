@@ -20,7 +20,7 @@ error: this statement has type `I64`, not `()` [statement-not-unit]
 10 |   a + extra b + c + d + e + f
    |   ^^^^^^^^^
    |
-   = only a call whose type is `()` may stand alone; bind anything else
+   = only an expression whose type is `()` may stand alone; bind anything else
    = fix: bind it with `let _ = ...;`
 error: there is nothing named `extra` in scope [unresolved-name]
   --> lib/recovery_insert_stray_brace_app_bc0fd4/main.buri:10:7

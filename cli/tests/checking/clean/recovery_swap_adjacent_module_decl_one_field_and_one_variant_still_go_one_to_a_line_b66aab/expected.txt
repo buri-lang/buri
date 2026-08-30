@@ -1,0 +1,9 @@
+error: expected `{`, found `Here` [unexpected-token]
+ --> main.buri:9:18
+  |
+9 | export enum Just Here { }
+  |                  ^^^^
+  |
+  = expected: `{`
+  = actual: `Here`
+  = fix: write `{` here
