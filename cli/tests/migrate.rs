@@ -1,17 +1,21 @@
-//! **The `Hermetic()` migration**: the script, and the cases that hold it to
-//! what it claims.
+//! **The `Hermetic()` migration**: the script, and the proof it has nothing
+//! left to do.
 //!
 //! The rewriter itself is `harness/migrate.rs`, and its doc comment states the
-//! two rules it is built on. This target is what runs it:
+//! two rules it is built on. This target is what runs it and what holds it to
+//! them:
 //!
 //! ```text
-//! cargo test -p buri --test migrate                                  # the cases
+//! cargo test -p buri --test migrate                                  # the proofs
 //! cargo test -p buri --test migrate -- --ignored --nocapture         # the migration
 //! ```
 //!
 //! The migration is `#[ignore]`d because it is the one test in the tree that
 //! edits a checked-in corpus. Everything else here is ordinary: unit cases over
-//! synthetic sources, one per rewrite the table names.
+//! synthetic sources, one per rewrite the table names, and one sweep over the
+//! packages that have already moved asserting that a second run finds nothing —
+//! which is the whole of "the script is idempotent", written down where it
+//! fails if it stops being true.
 
 #![allow(
     clippy::unwrap_used,
@@ -217,6 +221,40 @@ fn a_function_with_no_twin_is_left_alone_and_named() {
         p.notes
     );
     assert!(p.render(Style::Final).0.contains("let n = noNet();"));
+}
+
+// ---------------------------------------------------------------------------
+// The proof the script is done
+// ---------------------------------------------------------------------------
+
+/// A second run over what has already moved rewrites nothing.
+///
+/// This is the structural half only — no compiler, so it costs one parse per
+/// file — and it is enough: the migration's whole entry point is a file that
+/// imports `core/testing/context`, so a package with no such import in it is a
+/// package the script would walk past. The day one comes back, this fails.
+#[test]
+fn the_migrated_packages_have_nothing_left_to_rewrite() {
+    let root = repo_root();
+    let mut left = Vec::new();
+    let mut checked = 0;
+    for package in PACKAGES {
+        for rel in sources_under(&root.join(CORPUS), package) {
+            let text = std::fs::read_to_string(root.join(CORPUS).join(&rel)).unwrap();
+            let p = plan(&rel, &text);
+            assert!(p.refused.is_none(), "{}", p.refused.unwrap());
+            checked += 1;
+            if p.touches_anything() {
+                left.push(format!("{rel}: {} site(s) and an import to move", p.sites.len()));
+            }
+        }
+    }
+    assert!(checked >= 8, "expected the two packages' sources, found {checked}");
+    assert!(
+        left.is_empty(),
+        "the migration is not finished in {PACKAGES:?}:\n  {}",
+        left.join("\n  ")
+    );
 }
 
 // ---------------------------------------------------------------------------
