@@ -771,6 +771,16 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// A leaf standing for a region that did not parse.
+    ///
+    /// The checker gives it `Ty::Error`, which unifies with everything, so a
+    /// syntax error stays a syntax error instead of becoming a type error
+    /// about a construct nobody wrote.
+    fn error_expr(&mut self, span: Span) -> ExprId {
+        let at = self.tree.next_node();
+        self.tree.push(Kind::Error, [0; 4], span, at)
+    }
+
     /// A construct's closing delimiter, or the diagnostic that names what it
     /// was that never closed.
     ///
@@ -1069,9 +1079,11 @@ impl<'a> Parser<'a> {
                 Ok(Some(item)) => items.push(item),
                 Ok(None) => {}
                 Err(Bail) => {
+                    let from = self.tokens.span(self.at(save.pos));
                     let depth = self.open_braces_since(save.pos);
                     self.restore(save);
                     self.sync_item(depth);
+                    items.push(Item::Error(Box::new(from.to(self.prev_span()))));
                 }
             }
             // Guarantee progress even if a sub-parser consumed nothing.
@@ -1933,6 +1945,7 @@ impl<'a> Parser<'a> {
         let start = self.expect(Punctuation::LBrace)?;
         let base = self.scratch.stmts.len();
         let mut tail = NONE;
+        let mut broken = NONE;
 
         while !self.is(Punctuation::RBrace) && !self.at_eof() {
             let before = self.pos;
@@ -1942,8 +1955,10 @@ impl<'a> Parser<'a> {
                     Ok(s) => self.scratch.stmts.push(s),
                     Err(Bail) => {
                         let depth = self.open_delimiters_since(save.pos);
+                        let from = self.tokens.span(self.at(save.pos));
                         self.restore(save);
                         self.sync_stmt(depth);
+                        broken = self.error_expr(from.to(self.prev_span())).0;
                     }
                 }
             } else {
@@ -1970,8 +1985,10 @@ impl<'a> Parser<'a> {
                     }
                     Err(Bail) => {
                         let depth = self.open_delimiters_since(save.pos);
+                        let from = self.tokens.span(self.at(save.pos));
                         self.restore(save);
                         self.sync_stmt(depth);
+                        broken = self.error_expr(from.to(self.prev_span())).0;
                     }
                 }
             }
@@ -1981,6 +1998,12 @@ impl<'a> Parser<'a> {
         }
 
         let end = self.expect_close(Punctuation::RBrace, construct, start)?;
+        // A block that recovered and has nothing to return is not an empty
+        // block: its value is the error node, so the return type it is checked
+        // against reports nothing.
+        if tail == NONE {
+            tail = broken;
+        }
         let (ss, sl) = self.tree.push_stmts(since(&self.scratch.stmts, base));
         self.scratch.stmts.truncate(base);
         Ok(self.tree.push_block(BlockData {

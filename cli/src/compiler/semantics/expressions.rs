@@ -271,6 +271,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 typed::Expr::new(typed::ExprKind::Bool(value), ty, span)
             }
             V::Unit { span } => typed::Expr::new(typed::ExprKind::Unit, Ty::Unit, span),
+            // The parser already reported why. `Ty::Error` unifies with
+            // everything, so nothing downstream reports a second time.
+            V::Error { span } => self.error_expr(span),
             V::Template { parts, span } => self.check_template(parts, span),
             V::Ident { name, span } => self.check_ident(name, span, expected),
             V::SelfValue { span } => match self.lookup_local("self") {
