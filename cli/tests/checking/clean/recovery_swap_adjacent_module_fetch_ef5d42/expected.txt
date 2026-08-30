@@ -1,9 +1,0 @@
-error: expected a string literal, found `{` [unexpected-token]
-  --> main.buri:48:6
-   |
-48 | test { "the callback runs once per request"
-   |      ^
-   |
-   = expected: a string literal
-   = actual: `{`
-   = fix: quote it, as in `"core/list"`

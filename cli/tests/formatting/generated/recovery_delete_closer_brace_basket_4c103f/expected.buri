@@ -15,18 +15,22 @@ from "core/host/lib.buri" import * as host;
 from "ui/effect/lib.buri" import { Ui, Watch };
 from "ui/node/lib.buri" import * as ui;
 from "ui/theme/lib.buri" import * as theme;
-
-from "//lib/kit/lib.buri" import * as kit;
 from "//cmd/basket/state.buri" import { newState };
 from "//cmd/basket/theme.buri" import { appThemed, day, kitTheme, night };
 from "//cmd/basket/view.buri" import { page };
+from "//lib/kit/lib.buri" import * as kit;
 
 // Re-exported so the suites can reach them. Everything else in this package
 // stays inside the binary — the components in view.buri are private to it,
 // which is why the suite tests them through the page they build.
-from "//cmd/basket/model.buri" export { draft, Draft, entriesFrom, flip, isTicked, pad, settledFraction };
+from "//cmd/basket/model.buri" export {
+    Draft, draft, entriesFrom, flip, isTicked, pad, settledFraction,
+};
+
 from "//cmd/basket/state.buri" export { newState };
+
 from "//cmd/basket/theme.buri" export { appThemed, day, kitTheme, night };
+
 from "//cmd/basket/view.buri" export { page };
 
 /// The page's complete effect budget.
@@ -63,5 +67,5 @@ export fn main(): Result<(), Str> {
   ui.mount(ctx, page(ctx, state), [
     kit.themed(kitTheme),
     theme.switching(.Cell(state.dark), appThemed(night), appThemed(day)),
-  ])
+  ]
 }

@@ -15,7 +15,8 @@ from "core/testing/assert/lib.buri" import * as assert;
 from "core/testing/context/lib.buri" import { Hermetic };
 
 /// What //cmd/server's `/entries` route answers, recorded. The same text
-/// test/view.buri feeds through a stub `Fetch`.
+/// test/view.buri feeds through a stub `Net`, as the octets a body is made
+/// of.
 let RECORDED: Str = "coffee 4.50\nbooks 32.00\ntram 2.75\n";
 
 test "a recorded response becomes entries" {

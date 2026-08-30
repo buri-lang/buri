@@ -184,6 +184,12 @@ export enum NetError {
   /// a closed connection, a deadline the caller set. Distinct from `Timeout`,
   /// which is the *transport* giving up: this one is the program's own doing,
   /// and a caller that retries a `Timeout` should not retry this.
+  ///
+  /// It is also the reason this enum is the only one: `ui/effect` used to
+  /// declare a `FetchError` whose fifth variant this was, because a
+  /// callback-shaped request could be called off and a blocking one could
+  /// not. A page's requests are `Net`'s now, so there is one list of reasons
+  /// a request produced no response.
   Aborted,
 }
 
@@ -342,19 +348,8 @@ impl Response {
   }
 }
 
-/// What `Fetch` — the UI backend's non-blocking client — answers.
-///
-/// Not `Response`: `Fetch` is `core/ui`'s callback-shaped effect and is retired
-/// whole in a later slice, and widening its payload in the meantime would move
-/// a hundred fixtures for a type that is about to go away.
-export struct NetResponse {
-  export status: Int,
-  export body: Str,
-}
-
 derive Eq, Show for IoError;
 derive Eq, Show for NetError;
-derive Eq, Show for NetResponse;
 derive Eq, Show for Method;
 derive Eq, Show for Header;
 derive Eq, Show for Request;
