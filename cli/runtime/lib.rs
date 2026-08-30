@@ -141,17 +141,22 @@
 //!
 //! 5. **A closure parameter arrives as an entry thunk and an opaque state.**
 //!    Rule 4 answers "the runtime cannot name `T`" for a value; this answers it
-//!    for a *call*. Four words: a `void(state, in, out)` the backend generated
-//!    at the call site, where the element types are known; the backend's own
-//!    record, which the runtime passes back untouched and never looks inside;
-//!    and the two element strides, because an operation with a step reads one
-//!    element type and writes another.
+//!    for a *call*. Four words: a `void(state, index, in, out)` the backend
+//!    generated at the call site, where the element types are known; the
+//!    backend's own record, which the runtime passes back untouched and never
+//!    looks inside; and the two element strides, because an operation with a
+//!    step reads one element type and writes another. The `index` is which item
+//!    the call is for: the runtime drives the walk, so it is the only side that
+//!    knows, and `effect Tasks` promises the step is told. It is on every step
+//!    rather than on the keys that read it, so that this boundary has one C
+//!    signature (`list.rs`'s `StepEntry`).
 //!
 //!    §0 says a closure "cannot be called from C", and it still cannot: what
-//!    the runtime calls is the thunk, which is C. `list.mapCtxStep` is the one
-//!    entry that uses this today and it is a pilot — the mechanism a scheduler
-//!    will want, exercised against an answer that is already known
-//!    (`list.rs`'s `StepEntry`).
+//!    the runtime calls is the thunk, which is C. Two entries use this:
+//!    `list.mapCtxStep`, the pilot, which is `list.mapCtx` reached a second way
+//!    and exists to be compared against an answer that is already known; and
+//!    `host.HostTasks.parallel`, which is the scheduler the pilot was landed
+//!    for (`list.rs`'s `StepEntry`, `rt.rs`).
 //!
 //! ## 2.1 `Result<T, E>`, and the one thing rule 3 leaves open
 //!
@@ -333,10 +338,21 @@
 //! `tungstenite`, which is the runtime's whole admitted dependency set and is
 //! closed by an exact list rather than by a habit (`manifest.toml` argues each
 //! entry, the root `Cargo.toml` states the bar, and
-//! `dependencies_stay_behind_the_bar` asserts the equality). As of this slice
-//! **nothing references any of them** — `net.rs` names one type from each and
-//! stops — so the archive is twenty-four bytes larger with the feature than
-//! without it, and neither backend has a symbol to emit a call to.
+//! `dependencies_stay_behind_the_bar` asserts the equality).
+//!
+//! **`tokio` is linked; the other three are not.** [`rt`] is the carrier
+//! runtime — the reactor, the run baton, the carrier pool and the task table —
+//! and `Clock::sleepMillis` and `Net::fetch` wait on it, so the archive now
+//! carries the reactor's code and `.github/scripts/assert-runtime-archive.sh`
+//! names only `hyper`, `rustls` and `tungstenite` as symbols it must not find.
+//! Those three are still referenced by nothing but `net.rs`'s `size_of`, and
+//! the slice that links one of *them* moves that list again.
+//!
+//! Nothing about the **feature's** shape changed with it: `net` off is still a
+//! runtime with no dependency at all, [`rt`] does not compile, and
+//! `Clock::sleepMillis` is `thread::sleep` as it always was. Every entry in
+//! this file answers the same value either way — the feature buys suspension,
+//! and suspension is not yet Buri-visible.
 //!
 //! **What a toolchain built without it owes the user.** `net` off is a
 //! *language capability* missing, not a code generator missing, so the
@@ -372,6 +388,11 @@ mod math;
 mod memory;
 mod net;
 mod rng;
+/// The carrier runtime — the tokio handle, the run baton, the carrier pool and
+/// the task table. Behind `net` in full: without the feature there is no
+/// reactor to hold and nothing here compiles.
+#[cfg(feature = "net")]
+pub mod rt;
 mod testing;
 mod text;
 mod value;

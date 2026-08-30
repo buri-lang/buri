@@ -183,24 +183,34 @@ unresolved-name error at the one line that asked for it. Both halves of a grant
 are withheld together — the implementation struct as well as the value — so
 there is nothing left to construct by name.
 
-**Three effects are granted by nobody.** `Tasks` — "run this over every item at
-once" — and `Listen` and `Sockets` — "I accept connections" and "I can write to
-open sockets" — are declared in `core/effect`, and `core/host` declares a
-`HostTasks`, a `HostListen` and a `HostSockets` with a value apiece, and *no*
-platform grants any of those names. `Tasks: host.tasks` is therefore refused on
-every target, with the reason rather than with "no such name", and so are the
-other two. That is deliberate: a signature is the expensive thing to change once
-programs are written against it, so it lands, is reviewed and is documented
-ahead of the scheduler and the server that will answer it — and because a
-platform *is* the set of effects its host exports, "declared but unreachable"
-needs no second mechanism to say so. Granting one later is an edit to one row of
-the grant table.
+`Tasks` — "run this over every item at once" — is granted on `LINUX`, `MACOS`
+and `JS`, and withheld from `WEB`, which is the same three as `Fs` and `Net` and
+is withheld for a reason of the same kind: `parallel` returns only when the last
+task has finished, and a page has an interface that a wait is visible in. A
+page's concurrency is its event loop.
 
-`Listen` and `Sockets` are also the pair that shows what an empty row is *not*
-saying. They will be granted together, because being a server is one authority
-in two halves, and they will never be granted on `JS` or `WEB` — a page does not
-hold a port open. So an empty row means "nobody grants this today" and never
-"everybody will".
+It is worth knowing how that grant arrived, because it is the shape the grant
+table is *for*. `Tasks` was declared first and granted by nobody — a row with an
+empty platform list — so its signature could be written, reviewed and documented
+before there was a scheduler to argue with, and every `Tasks: host.tasks` was
+refused everywhere with that reason rather than with "no such name". Granting it
+was an edit to that one row. Nothing about a program that had been written
+against the signature changed, and no second mechanism — no "not implemented"
+flag, no feature gate — was ever involved, because a platform *is* the set of
+effects its host exports and an empty set of platforms is an ordinary value of
+that field.
+
+**Two effects are still granted by nobody.** `Listen` and `Sockets` — "I accept
+connections" and "I can write to open sockets" — are declared in `core/effect`,
+and `core/host` declares a `HostListen` and a `HostSockets` with a value apiece,
+and *no* platform grants either name, so `Listen: host.listen` is refused on
+every target with that reason rather than with "no such name". They are `Tasks`
+one stage earlier, for the same purpose.
+
+They are also the pair that shows what an empty row is *not* saying. They will
+be granted together, because being a server is one authority in two halves, and
+they will never be granted on `JS` or `WEB` — a page does not hold a port open.
+So an empty row means "nobody grants this today" and never "everybody will".
 
 Note what is *not* claimed: an effect is an ordinary interface, so anyone may
 write a type that satisfies it (Section 10.9 does). That is not a forgery hole —

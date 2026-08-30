@@ -148,8 +148,9 @@ pub fn list_closure_key(key: &str) -> bool {
 // sentence and not a contradiction of it: the runtime never synthesizes
 // anything, because the four words of [`StepCall`]'s ABI carry a function
 // **the backend generated at the call site**, which is where the element type
-// is known. What crosses the C boundary is three pointers — the backend's own
-// state, one element in, one element out — at every element type there is.
+// is known. What crosses the C boundary is three pointers and a number — the
+// backend's own state, which item this is, one element in, one element out — at
+// every element type there is.
 //
 // Nothing here replaces `list_call`. An open-coded loop is faster than any
 // call per element could be (`stencil/lists.rs`'s header measures it), so a key
@@ -176,21 +177,58 @@ pub struct StepCall {
     /// How many arguments the declaration takes, so that "the closure is last"
     /// is checkable rather than remembered.
     pub arity: usize,
+    /// Which of the **closure's own parameters** receives the runtime's index,
+    /// where the closure takes one.
+    ///
+    /// This is the one field that indexes into the step's signature rather than
+    /// into the intrinsic's argument list, and it has to: the index is not a
+    /// Buri argument at all. It is the loop counter, which only the runtime
+    /// has, so it arrives as the second word of `StepEntry` and the entry thunk
+    /// writes it into the parameter this names.
+    ///
+    /// `None` is a step that is not told where it is — `list.mapCtxStep`, whose
+    /// closure is `fn(C, A) => B`. The word still crosses (one C signature, not
+    /// one per key); the thunk ignores it, and no slot is reserved for it in
+    /// the state record.
+    pub index: Option<usize>,
 }
 
-/// The table. One row today, and it is a **pilot**: `list.mapCtxStep` is
-/// `list.mapCtx` with its step reached through the trampoline instead of
-/// open-coded, and it exists so that the mechanism `core/tasks` needs lands
-/// green — with a conformance fixture and an agreement row behind it — before
-/// there is a scheduler to land it with.
+/// The table. Two rows.
 ///
-/// It is deliberately **non-suspending**: the runtime calls the step and comes
-/// back, exactly as an open-coded loop would, so the only thing under test is
-/// the boundary. `Tasks.parallel` is the same four words with a scheduler
-/// behind them.
+/// `list.mapCtxStep` is the **pilot**: `list.mapCtx` with its step reached
+/// through the trampoline instead of open-coded. It landed a wave before there
+/// was anything else to call the mechanism with, so that the boundary was green
+/// — a conformance fixture and an agreement row behind it — before a scheduler
+/// was written on top of it. It is deliberately non-suspending: the runtime
+/// calls the step and comes back, exactly as an open-coded loop would.
+///
+/// `host.HostTasks.parallel` is what the mechanism was built for. Same four
+/// words, and today the same walk — the native body runs the steps in index
+/// order on the calling carrier (`cli/runtime/rt.rs`) — with a scheduler behind
+/// them in D4. It is the row that makes the index parameter necessary:
+/// `effect Tasks` hands the step its item's own index, and only the side
+/// driving the walk knows one.
 pub fn step_call(key: &str) -> Option<StepCall> {
     match key {
-        "list.mapCtxStep" => Some(StepCall { kind: Step::Map, ctx: Some(1), func: 2, arity: 3 }),
+        "list.mapCtxStep" => {
+            Some(StepCall { kind: Step::Map, ctx: Some(1), func: 2, arity: 3, index: None })
+        }
+        // `parallel(self, items, f)`, with `f: fn(Self, Int, A) => B`. The
+        // receiver carries the effect, so the *context* the step is handed is
+        // argument 0 — `self` — rather than a separate `Alloc` the way
+        // `mapCtxStep`'s is. The index is the closure's second parameter,
+        // between that context and the element.
+        "host.HostTasks.parallel" => {
+            Some(StepCall { kind: Step::Map, ctx: Some(0), func: 2, arity: 3, index: Some(1) })
+        }
+        // `core/host/testing`'s scheduler, at the same three arguments. The
+        // double reaches its steps through this boundary rather than through a
+        // Buri loop of its own, and that is the point of it: what a test runs
+        // its program through is the mechanism the program will ship on, with
+        // one decision — the order — changed.
+        "host_testing.TestTasks.parallel" => {
+            Some(StepCall { kind: Step::Map, ctx: Some(0), func: 2, arity: 3, index: Some(1) })
+        }
         _ => None,
     }
 }
@@ -203,7 +241,8 @@ pub fn step_key(key: &str) -> bool {
 /// Every key [`step_call`] answers for, so that a reader — and the tests
 /// below — can enumerate them rather than rediscover them from a `match`.
 /// `the_table_and_the_roll_agree`, below, is what keeps the two from drifting.
-pub const STEP_KEYS: &[&str] = &["list.mapCtxStep"];
+pub const STEP_KEYS: &[&str] =
+    &["list.mapCtxStep", "host.HostTasks.parallel", "host_testing.TestTasks.parallel"];
 
 #[cfg(test)]
 mod tests {
@@ -226,9 +265,38 @@ mod tests {
         for key in STEP_KEYS {
             assert!(step_key(key), "{key} is on the roll and not in the table");
         }
-        for key in ["list.map", "list.mapCtx", "tasks.parallel", "list.mapCtxStepped"] {
+        for key in [
+            "list.map",
+            "list.mapCtx",
+            "tasks.parallel",
+            "list.mapCtxStepped",
+            // `core/tasks::parallel` forwards to the effect method and is
+            // ordinary Buri, so the key that reaches a backend is the `impl`'s.
+            "host.HostTasks",
+            "host.HostTasks.parallelly",
+        ] {
             assert_eq!(step_key(key), STEP_KEYS.contains(&key), "{key}");
         }
+    }
+
+    /// The index is a property of the *key*, and only one key has one.
+    ///
+    /// It cannot be derived from the signature — two steps can take the same
+    /// types and mean different things by the second parameter — so it is in
+    /// the table, and both backends read it from here. What it names is a
+    /// position in the *closure's* parameters, and the two facts that make that
+    /// position usable are asserted rather than assumed: it is not the element
+    /// (which is last and travels through `arg`), and it is not the context
+    /// (which is a Buri argument and travels in the record).
+    #[test]
+    fn only_a_key_that_promises_an_index_is_given_one() {
+        let tasks = step_call("host.HostTasks.parallel").expect("the scheduler");
+        assert_eq!(tasks.index, Some(1), "`effect Tasks` names the index second");
+        assert_ne!(tasks.index, Some(tasks.arity - 1), "the index is not the element");
+        assert!(step_call("list.mapCtxStep").expect("the pilot").index.is_none());
+        // A step told where it is still takes its context out of the record,
+        // and that context is still the argument the table names.
+        assert_eq!(tasks.ctx, Some(0), "`parallel`'s receiver carries the effect");
     }
 
     /// A runtime-driven key is **not** an open-coded one. The two tables name

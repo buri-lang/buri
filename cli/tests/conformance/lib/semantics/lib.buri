@@ -30,6 +30,8 @@ from "//lib/semantics/shapes.buri" export {
   // fakes
   StaticFs, FrozenClock, EchoEnv, TeapotNet, OneShotListen, QuietSockets, serveOnce,
   SerialTasks, runInOrder,
+  pushedWith, repeatedWith, joinedWith, stampedWith, ReadOnly, Logged, loggedWith, Ticking,
+  ticking,
   Guarded, guarded,
   // which positions of a type constructor hand a value back
   Widget, render, eachRow, deferred, Cell, cellIndex, Held, heldTwice,

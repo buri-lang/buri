@@ -13,10 +13,10 @@ error: `JS` does not grant `ui` [host-not-granted]
 ## What to do
 
 Drop the effect from the context, or build this target for a platform that
-grants it. Where the fix names no platform to build for, there is none: some
-effects are declared ahead of the runtime that answers them — `Tasks`, `Listen`
-and `Sockets` are those today — so dropping it from the context is the whole of
-the fix.
+grants it. Where the fix names no platform to build for, there is none: an
+effect can be declared ahead of the runtime that answers it — `Listen` and
+`Sockets` are those today — and while it is, dropping it from the context is the
+whole of the fix.
 
 ## Why
 
@@ -30,6 +30,11 @@ before its implementation — the signature is the expensive thing to change onc
 programs are written against it — and the table simply gives that effect an
 empty list of platforms. No new mechanism, no "not implemented yet" flag: it is
 withheld everywhere, for a stated reason, and granting it later is one row.
+
+`Tasks` is the worked example, in both directions. It landed declared and
+granted by nobody, was refused on all four platforms with that reason, and was
+then granted on three by editing that one row — at which point programs written
+against the signature it had been reviewed with simply started compiling.
 
 An empty list is not a promise that the list will fill. `Listen` and `Sockets`
 have one today because no platform serves yet; when one does, `JS` and `WEB`

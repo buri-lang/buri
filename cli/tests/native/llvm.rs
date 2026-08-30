@@ -2939,3 +2939,95 @@ export fn main(): Result<(), Str> {{
     );
     assert_eq!(live_blocks(&many.1), 0, "the heap did not come back balanced: {:?}", many.1);
 }
+
+/// A `C: Alloc` parameter reached with a value that **implements** `Alloc`
+/// rather than with a `context { … }` record — the shape SPEC 10.8's
+/// attenuation is made of, and the one a native ABI rule used to get wrong.
+///
+/// `<C: Alloc>` and `<T: Ord>` are one feature (SPEC 10.1), so the argument at
+/// `C` need not be a context, and `Tagged` here is a plain struct that forwards
+/// `allocate` and carries a word of its own so that it is **not** zero-sized.
+///
+/// Both backends drop a runtime call's context argument, because `cli/runtime`
+/// allocates through `buri_rt_alloc` and has no use for one. Which argument
+/// that is was asked of the *value's type* — "is it a `Ty::Ctx`?" — which is the
+/// same answer only while every `C` is instantiated at a context. A `Tagged`
+/// spread to a leaf the C signature has no parameter for, and every argument
+/// after it moved one register down.
+///
+/// Two operations, because the two backends got it wrong in two places:
+///
+/// * `list.push` is a [`runtime_table::ENTRIES`] row, and its context is named
+///   by `Entry::ctx` / `Arg::Dropped` at index one. This is the one that
+///   segfaulted in `memmove` under the stencil backend.
+/// * `str.concat` has **no** row on either side, so its argument list is
+///   narrowed at the call site instead — `emit.rs`'s `concat_ctx`. This one is
+///   only reachable here: the conformance corpus covers the stencil backend
+///   (`semantics/effects.buri`'s "a bare implementing value" blocks) and
+///   `native/conformance.rs` drives that generator, so this file is where the
+///   LLVM half of the same rule is exercised at all.
+///
+/// A wrong answer here is not a refusal — it links and runs — so the assertion
+/// is on the two values, not on the exit code.
+#[test]
+fn a_value_that_implements_alloc_is_a_context_bounds_argument() {
+    skip_unless_executable!();
+    let (out, err, code) = build_and_run(
+        "bare-implementor",
+        &program(
+            r#"
+from "core/effect/lib.buri" import { Region };
+from "core/list/lib.buri" import * as list;
+from "core/str/lib.buri" import * as str;
+
+/// Satisfies `Alloc` by forwarding, and is not a context. The `tag` is what
+/// makes it eight bytes wide: a zero-sized implementor would spread to no
+/// leaves and the two readings would agree by accident.
+struct Tagged<C> {
+  export inner: C,
+  export tag: Int,
+}
+
+impl<C: Alloc> Alloc for Tagged<C> {
+  fn allocate(self, bytes: Int): Region {
+    self.inner.allocate(bytes)
+  }
+}
+
+/// The context is argument **one**, after the receiver.
+fn pushed<C: Alloc>(ctx: C, item: Int, into: [Int]): [Int] {
+  into.push(ctx, item)
+}
+
+/// The context is argument **zero**, so both indices the rule can take are
+/// reached from one program.
+fn repeated<C: Alloc>(ctx: C, item: Int): [Int] {
+  list.repeat(ctx, item, 2)
+}
+
+/// No table row on either backend.
+fn joined<C: Alloc>(ctx: C, a: Str, b: Str): Str {
+  a.concat(ctx, b)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let bare = Tagged { inner: ctx, tag: 9 };
+  let pushedOnto = pushed(bare, 7, [1]);
+  let twice = repeated(bare, 5);
+  let _ = ctx.println(str.format(
+    ctx,
+    "${pushedOnto[0] ?? 0} ${pushedOnto[1] ?? 0} ${twice[1] ?? 0} ${joined(bare, "ab", "cd")}",
+  ));
+  // And the context record built from the same implementations, which is what
+  // every other program here passes: one answer, two argument types.
+  let alsoPushed = pushed(ctx, 7, [1]);
+  let _ = ctx.println("${alsoPushed[1] ?? 0} ${joined(ctx, "ab", "cd")}");
+  .Ok(())
+}
+"#,
+        ),
+    );
+    assert_eq!(out, "1 7 5 abcd\n7 abcd\n", "stderr was: {err}");
+    assert_eq!(code, Some(0));
+}

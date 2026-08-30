@@ -1,0 +1,6 @@
+from "core/effect/lib.buri" import { Alloc, Fs, IoError };
+
+/// Writes one entry, and reports whether the filesystem took it.
+export fn record<C: Alloc + Fs>(ctx: C, path: Str, entry: Str): Result<(), IoError> {
+    ctx.writeFile(path, entry)
+}

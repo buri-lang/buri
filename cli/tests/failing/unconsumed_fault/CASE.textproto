@@ -1,0 +1,28 @@
+# `core/host/testing`'s `.faults([...])` is a fixture *and* a promise: success
+# comes from the environment, failure comes from the plan, and **a fault whose
+# call never happens fails the test**. A plan is a claim about what the code
+# under test does, and a claim nothing exercised is one the next change to that
+# code will quietly stop being true.
+#
+# Nothing inside a `test` block can check that claim — the block has returned by
+# the time the answer matters — so `middle::monomorphize` emits
+# `buri_rt_test_leave(index)` after every body and the runner answers it. This
+# case is the report it writes, with the unconsumed fault's own spelling in it.
+#
+# Two blocks, because a post-condition is only evidence with its negative twin
+# beside it: the first makes the call it planned and passes, and the second
+# plans a call it never makes. If the check ever stopped firing, the golden's
+# second half is the diff that says so; if it ever started firing on a plan that
+# *was* used, the first half is.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a fault whose call never happens fails the test, and names itself in the report"
+
+run {
+  args: ["test", "//lib/journal", "--force", "--output=js"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

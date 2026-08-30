@@ -148,12 +148,17 @@ export effect Proc {
 /// `self` or `ctx` (SPEC 10.6), so a task receives the full context as a
 /// parameter and captures nothing effectful.
 ///
-/// **No platform grants this yet.** `core/host` declares `HostTasks` and
-/// `tasks`, and the grant table gives them no platform at all, so every
-/// `Tasks: host.tasks` is refused today with the reason. The declaration lands
-/// ahead of the scheduler on purpose: the signature is the part that is
-/// expensive to change once programs are written against it, and it can be
-/// reviewed, documented and pinned before there is a runtime to argue with.
+/// **Granted on LINUX, MACOS and JS**, and withheld from WEB, which is the same
+/// three as `Fs` and `Net` and for a reason of the same kind: `parallel` returns
+/// only when the last task has finished, and a page has an interface that
+/// freezing is visible in. A page's concurrency is its event loop.
+///
+/// How much of it runs at once is a property of the platform and not of this
+/// signature. JavaScript starts the tasks together and awaits them together;
+/// the native runtime runs them in index order on the calling carrier today and
+/// fans them out onto its carrier pool in the slice after this one. Every one of
+/// those answers the same list, because the order promise above is what the
+/// signature commits to and the overlap is not.
 export effect Tasks {
   /// Runs `f` over every item and answers the results in the items' order.
   fn parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B];

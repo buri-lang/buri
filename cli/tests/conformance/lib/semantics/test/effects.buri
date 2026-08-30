@@ -33,6 +33,7 @@ from "//lib/semantics/lib.buri" import {
   loadText, saveText, roundTrip, greet, shout, stamp, elapsed, fetchBody,
   StaticFs, FrozenClock, EchoEnv, TeapotNet, OneShotListen, QuietSockets, serveOnce, guarded,
   SerialTasks, runInOrder,
+  pushedWith, repeatedWith, joinedWith, stampedWith, ReadOnly, loggedWith, ticking,
 };
 
 // -----------------------------------------------------------------------------
@@ -1204,4 +1205,69 @@ test "a context binding two effects with fn(Self, ...) reaches both through boun
   };
   assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
   assert.eq(runInOrder(ctx, [3, 4]), 107);
+}
+
+// -----------------------------------------------------------------------------
+// A context-bounded parameter, satisfied by something that is not a context
+// (SPEC 10.1, 10.8)
+// -----------------------------------------------------------------------------
+//
+// `<C: Alloc>` is an ordinary bound, so the argument at `C` need not be a
+// `context { … }` record — anything that implements `Alloc` satisfies it, and
+// `core/testing/context`'s `alloc()` is a `struct TestAlloc(I64)` that does.
+// Every block above passes a context, and every one of these deliberately does
+// not.
+//
+// This is a recorded compiler bug written out as assertions. The native ABI
+// drops a call's context argument, because the runtime allocates through
+// `buri_rt_alloc` and has no use for one — and it asked *which* argument that
+// was by looking at the value's type. A bare implementing value is not a
+// `Ty::Ctx`, so it spread to a leaf the C signature has no parameter for and
+// shifted every argument after it one register down: the reduced case died in
+// `memmove` before the first block ran. Which argument is the context is now
+// read off the declaration (`backend/runtime_table.rs`'s `Entry::ctx`).
+
+test "a bare implementing value satisfies a context bound" {
+  // The reduced repro. `alloc()` is not a context and never was one.
+  assert.eq(pushedWith(alloc(), 7, [1]), [1, 7]);
+}
+
+test "a bare implementing value reaches a context in first position" {
+  // `list.repeat(ctx, item, times)` has no receiver, so its context is
+  // argument zero — the other index the rule can take.
+  assert.eq(repeatedWith(alloc(), 5), [5, 5]);
+}
+
+test "a bare implementing value reaches str.concat, which has no table row" {
+  assert.eq(joinedWith(alloc(), "ab", "cd"), "abcd");
+}
+
+test "an attenuating wrapper is a context bound's argument" {
+  // SPEC 10.8's shape, and the reason the language wants the bound to be
+  // ordinary: `ReadOnly` forwards `Alloc` and nothing else, so a callee holding
+  // one genuinely cannot do the rest.
+  assert.eq(pushedWith(ReadOnly { inner: alloc() }, 7, [1]), [1, 7]);
+}
+
+test "an implementor carrying a counted pointer is a context bound's argument" {
+  // Two leaves and a `Str` among them, so the argument the C signature drops is
+  // wider than one word and is one reference counting still has to balance.
+  assert.eq(loggedWith(alloc(), [1]), [1, 4]);
+}
+
+test "one value satisfying two effects discharges a two-effect bound" {
+  // `C: Alloc + Clock` through a single implementing value rather than a
+  // context binding two rows, so the bound being a *list* is exercised.
+  let both = ticking(context { Alloc: alloc(), Clock: clockAt(5) });
+  assert.eq(stampedWith(both, [1]), [1, 5]);
+}
+
+test "a context holding the same double still reaches the same answer" {
+  // The shape every other block in this file uses, asserted next to the bare
+  // one: a `context { … }` whose binding is the very same `TestAlloc` handle.
+  // The two are different types and must reach one answer.
+  let ctx = context { Alloc: alloc() };
+  assert.eq(pushedWith(ctx, 7, [1]), [1, 7]);
+  assert.eq(repeatedWith(ctx, 5), [5, 5]);
+  assert.eq(joinedWith(ctx, "ab", "cd"), "abcd");
 }

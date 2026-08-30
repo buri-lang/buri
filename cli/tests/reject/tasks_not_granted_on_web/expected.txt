@@ -1,20 +1,20 @@
-error: `JS` does not grant `tasks` [host-not-granted]
-  --> cmd/tasks_granted_by_no_platform_on_js/main.buri:23:17
+error: `WEB` does not grant `HostTasks` [host-not-granted]
+  --> cmd/tasks_not_granted_on_web/main.buri:24:12
    |
-23 |     Tasks: host.tasks,
-   |                 ^^^^^
+24 |     Tasks: host.HostTasks {},
+   |            ^^^^^^^^^^^^^^
    |
-   = a platform is the set of effects its host exports; no platform runs tasks yet; `Tasks` is declared so that its signature is fixed, and the scheduler that answers `parallel` lands with the servers
-   = fix: drop `Tasks` from the context
+   = a platform is the set of effects its host exports; `parallel` returns only when the last task has finished, which freezes a page; a page's concurrency is its event loop, and the effect that reaches it lands with the servers
+   = fix: drop `Tasks` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS
 
      What to do
      ──────────
 
      Drop the effect from the context, or build this target for a platform that
-     grants it. Where the fix names no platform to build for, there is none:
-     some effects are declared ahead of the runtime that answers them — Tasks,
-     Listen and Sockets are those today — so dropping it from the context is the
-     whole of the fix.
+     grants it. Where the fix names no platform to build for, there is none: an
+     effect can be declared ahead of the runtime that answers it — Listen and
+     Sockets are those today — and while it is, dropping it from the context is
+     the whole of the fix.
 
      Why
      ───
@@ -30,6 +30,12 @@ error: `JS` does not grant `tasks` [host-not-granted]
      effect an empty list of platforms. No new mechanism, no "not implemented
      yet" flag: it is withheld everywhere, for a stated reason, and granting it
      later is one row.
+
+     Tasks is the worked example, in both directions. It landed declared and
+     granted by nobody, was refused on all four platforms with that reason, and
+     was then granted on three by editing that one row — at which point programs
+     written against the signature it had been reviewed with simply started
+     compiling.
 
      An empty list is not a promise that the list will fill. Listen and Sockets
      have one today because no platform serves yet; when one does, JS and WEB

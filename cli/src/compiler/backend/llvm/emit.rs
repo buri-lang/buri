@@ -150,7 +150,7 @@ pub struct Unit<'ctx, 'a> {
     release_elems: Map<Ty, FunctionValue<'ctx>>,
     retains: Map<Ty, FunctionValue<'ctx>>,
     /// The C-ABI entry thunks of [`Job::Entry`], one per step signature.
-    entries: Map<(Vec<Ty>, Ty), FunctionValue<'ctx>>,
+    entries: Map<(Vec<Ty>, Ty, Option<usize>), FunctionValue<'ctx>>,
     env_glue: Option<FunctionValue<'ctx>>,
     /// Helper bodies still to be built. Drained by [`Unit::finish`] rather than
     /// built where they are asked for, because a helper is asked for in the
@@ -2023,6 +2023,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         return None;
                     };
+                    let step_index = step_call(key).and_then(|c| c.index);
                     // A context that owns a reference count would need a
                     // retain per element rather than a copy, and none does:
                     // `core/host`'s allocators are empty structs and
@@ -2030,8 +2031,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // where there is a span to hang it on.
                     if ps
                         .iter()
+                        .enumerate()
                         .take(ps.len().saturating_sub(1))
-                        .any(|t| self.rc_counted(t))
+                        .any(|(i, t)| step_index != Some(i) && self.rc_counted(t))
                     {
                         self.error(
                             span,
@@ -2040,14 +2042,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         return None;
                     }
-                    let bytes = self.step_state_bytes(&ps);
+                    let bytes = self.step_state_bytes(&ps, step_index);
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
                     // The contexts, beside the closure. They are Buri arguments
                     // this row `Arg::Dropped`s out of the C signature, and this
                     // is where they go instead — read back by the entry thunk,
                     // which is the only thing that wants them.
-                    let ctx_at = self.step_ctx_offsets(&ps);
+                    let ctx_at = self.step_ctx_offsets(&ps, step_index);
                     let from: Vec<ir::ValueId> = step_call(key)
                         .and_then(|c| c.ctx)
                         .into_iter()
@@ -2086,7 +2088,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         self.store_slots(into, &cslots, align, &cpieces);
                     }
-                    let thunk = self.entry_thunk(&ps, &r);
+                    let thunk = self.entry_thunk(&ps, &r, step_index);
                     let (Some(inn), Some(outn)) = (element.clone(), elements.answer.clone())
                     else {
                         self.error(
@@ -2787,9 +2789,10 @@ enum Job<'ctx> {
     /// rest: the glue every closure environment shares.
     EnvGlue { value: FunctionValue<'ctx> },
     /// The C-ABI entry thunk a **runtime-driven step** is reached through:
-    /// `void(state, arg, out)`, which runs one closure once on one element.
-    /// `params` and `ret` are that closure's own signature.
-    Entry { value: FunctionValue<'ctx>, params: Vec<Ty>, ret: Ty },
+    /// `void(state, index, arg, out)`, which runs one closure once on one
+    /// element. `params` and `ret` are that closure's own signature, and
+    /// `index` is which of `params` the runtime's loop counter goes into.
+    Entry { value: FunctionValue<'ctx>, params: Vec<Ty>, ret: Ty, index: Option<usize> },
 }
 
 /// The element types one runtime entry's generic parameters are read at.
@@ -2905,18 +2908,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// The C-ABI entry thunk for one step signature.
     ///
-    /// `void(ptr state, ptr arg, ptr out)` at `ccc` — the shape
-    /// `cli/runtime/list.rs`'s `StepEntry` declares, and the same three
-    /// pointers the frame-threaded backend's `Helper::Entry` takes. One per
-    /// `(params, ret)`, because that is what the body depends on and a second
-    /// call site at the same element types wants the same function.
-    fn entry_thunk(&mut self, params: &[Ty], ret: &Ty) -> FunctionValue<'ctx> {
-        let key = (params.to_vec(), ret.clone());
+    /// `void(ptr state, i64 index, ptr arg, ptr out)` at `ccc` — the shape
+    /// `cli/runtime/list.rs`'s `StepEntry` declares, and the same four
+    /// arguments the frame-threaded backend's `Helper::Entry` takes. One per
+    /// `(params, ret, index)`, because that is what the body depends on and a
+    /// second call site at the same element types wants the same function. The
+    /// index *position* is in the key rather than derived from the types: two
+    /// steps can take the same types and mean different things by the second
+    /// parameter.
+    fn entry_thunk(
+        &mut self,
+        params: &[Ty],
+        ret: &Ty,
+        index: Option<usize>,
+    ) -> FunctionValue<'ctx> {
+        let key = (params.to_vec(), ret.clone(), index);
         if let Some(f) = self.entries.get(&key) {
             return *f;
         }
         let p = self.ptr_ty();
-        let ty = self.ctx.void_type().fn_type(&[p.into(), p.into(), p.into()], false);
+        let word = self.ctx.i64_type();
+        let ty = self.ctx.void_type().fn_type(&[p.into(), word.into(), p.into(), p.into()], false);
         let name = format!("buri.entry.{}", self.helpers);
         self.helpers = self.helpers.saturating_add(1);
         let f = self.module.add_function(&name, ty, Some(Linkage::Private));
@@ -2925,11 +2937,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // one convention for the same reason the glue above is.
         attrs::set_convention(f, attrs::C);
         self.entries.insert(key, f);
-        self.pending.push(Job::Entry { value: f, params: params.to_vec(), ret: ret.clone() });
+        self.pending.push(Job::Entry {
+            value: f,
+            params: params.to_vec(),
+            ret: ret.clone(),
+            index,
+        });
         f
     }
 
-    /// [`Unit::entry_thunk`]'s body: three pointers in, one Buri call.
+    /// [`Unit::entry_thunk`]'s body: three pointers and a counter in, one Buri
+    /// call.
     ///
     /// This is [`Unit::build_thunk`]'s problem from the other side. A thunk
     /// converts a closure's environment for a Buri caller; this converts *C
@@ -2946,16 +2964,29 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// are the same value at every element, and a C signature has no parameter
     /// for one. A zero-sized context is no leaves at all; `TestAlloc`'s handle
     /// is one, and [`STEP_CTX`] is where it was put.
-    fn build_entry(&mut self, state: &mut Function<'ctx>, params: &[Ty], ret: &Ty) {
+    ///
+    /// The **index** comes out of neither. It is the runtime's loop counter,
+    /// which changes per element and which nothing on this side of the boundary
+    /// can derive, so it is its own C argument and is copied straight into the
+    /// parameter `index` names. A step whose closure does not take one — the
+    /// `list.mapCtxStep` pilot — leaves the register unread.
+    fn build_entry(
+        &mut self,
+        state: &mut Function<'ctx>,
+        params: &[Ty],
+        ret: &Ty,
+        index: Option<usize>,
+    ) {
         let ptr = self.ptr_ty();
         let (Some(record), Some(arg), Some(out)) = (
             state.value.get_nth_param(0).and_then(|p| p.try_into().ok()),
-            state.value.get_nth_param(1).and_then(|p| p.try_into().ok()),
             state.value.get_nth_param(2).and_then(|p| p.try_into().ok()),
+            state.value.get_nth_param(3).and_then(|p| p.try_into().ok()),
         ) else {
             let _ = self.builder.build_unreachable();
             return;
         };
+        let counter = state.value.get_nth_param(1);
         let record: PointerValue<'ctx> = record;
         let arg: PointerValue<'ctx> = arg;
         let out: PointerValue<'ctx> = out;
@@ -2979,8 +3010,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let fty = self.closure_fn_type(&param_slots, &ret_slots);
 
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![env.into()];
-        let ctx_at = self.step_ctx_offsets(params);
-        for (t, off) in params.iter().zip(ctx_at) {
+        let ctx_at = self.step_ctx_offsets(params, index);
+        // `ctx_at` is parallel to the parameters that are in the record, which
+        // is every one but the element and the index; the walk pairs them up
+        // rather than assuming the two lists line up position for position.
+        let record_params: Vec<usize> = (0..params.len().saturating_sub(1))
+            .filter(|i| index != Some(*i))
+            .collect();
+        let mut from_record = record_params.into_iter().zip(ctx_at);
+        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+            if index == Some(i) {
+                // The counter, at its declared width. `Int` is `i64` and the
+                // C argument already is one, so this is a move.
+                if let Some(v) = counter {
+                    argv.push(v.into());
+                }
+                continue;
+            }
+            let Some((_, off)) = from_record.next() else { continue };
             let r = self.reprs.of_ty(t);
             let (slots, align) = (r.slots.clone(), r.layout.align);
             if slots.is_empty() {
@@ -3023,11 +3070,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// them being wrong, and nothing would diagnose it — the record is opaque
     /// to everything between the two.
     ///
-    /// The last parameter is the element, which travels through `arg`.
-    fn step_ctx_offsets(&mut self, params: &[Ty]) -> Vec<u32> {
+    /// The last parameter is the element, which travels through `arg`;
+    /// `index`, where there is one, travels in its own C argument. Neither is
+    /// in the record, so neither takes room in the answer.
+    fn step_ctx_offsets(&mut self, params: &[Ty], index: Option<usize>) -> Vec<u32> {
         let mut at = STEP_CTX;
         let mut out = Vec::new();
-        for t in params.iter().take(params.len().saturating_sub(1)) {
+        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+            if index == Some(i) {
+                continue;
+            }
             out.push(at);
             let size = self.reprs.of_ty(t).layout.size;
             at = at.saturating_add(size.next_multiple_of(8));
@@ -3036,9 +3088,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// The size of a step's state record: `{ code, env, ctx... }`.
-    fn step_state_bytes(&mut self, params: &[Ty]) -> u32 {
+    fn step_state_bytes(&mut self, params: &[Ty], index: Option<usize>) -> u32 {
         let mut at = STEP_CTX;
-        for t in params.iter().take(params.len().saturating_sub(1)) {
+        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+            if index == Some(i) {
+                continue;
+            }
             let size = self.reprs.of_ty(t).layout.size;
             at = at.saturating_add(size.next_multiple_of(8));
         }
@@ -3146,8 +3201,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.build_thunk(&mut state, func, env, first);
                 return;
             }
-            Job::Entry { params, ret, .. } => {
-                self.build_entry(&mut state, &params, &ret);
+            Job::Entry { params, ret, index, .. } => {
+                self.build_entry(&mut state, &params, &ret, index);
                 return;
             }
             Job::Release { ty, .. } => {
@@ -3906,14 +3961,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
-    /// Whether an argument is a context, and therefore not the runtime's
-    /// business (VALUE-MODEL.md §8).
+    /// Which argument of `str.concat` is the context, at the arity this call
+    /// arrived with — the one the C signature has no parameter for.
     ///
-    /// `Ty::Ctx` and not "spreads to no leaves": `core/testing/context`'s
-    /// implementations carry an `I64` handle each, because Buri has no mutation
-    /// and a captured stdout's state lives on the runner's side.
-    fn is_context(&self, ty: ir::Type) -> bool {
-        matches!(self.type_of(ty), Some(Ty::Ctx(_)))
+    /// `str.concat` has no [`runtime::ENTRIES`] row, so the `Arg::Dropped` that
+    /// answers this for every other key is spelled here instead, off the same
+    /// source: the **declaration**. `Str.concat<C: Alloc>(self, ctx: C, other:
+    /// Str)` is three arguments and the middle one is the context;
+    /// `lower::template`'s `str.concat(a, b)` is two and never had one.
+    ///
+    /// By position rather than by type. This asked `Ty::Ctx` once, which is the
+    /// same question only while every `C: Alloc` is instantiated at a `context
+    /// { … }` record — and `C` is an ordinary type parameter with an ordinary
+    /// bound (SPEC 10.1), so a value that merely *implements* `Alloc` satisfies
+    /// it. `core/host/testing`'s `alloc()` is `struct TestAlloc(I64)` and
+    /// carries a handle; one of those in this position spread to a leaf and
+    /// `pieces` was read off by one from there on.
+    const fn concat_ctx(argc: usize) -> Option<usize> {
+        if argc == 3 { Some(1) } else { None }
     }
 
     /// The source type behind an [`ir::Type`], where there is one.
@@ -4841,18 +4906,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         args: &[ir::ValueId],
     ) -> bool {
         // Two shapes reach this key: `str.concat(self, ctx, other)` from a
-        // method call, whose context is zero-sized and contributes no leaf, and
-        // `str.concat(a, b)` from `lower::template`, which never had one. Both
-        // flatten to the same six words, so the flattening is the check.
+        // method call, and `str.concat(a, b)` from `lower::template`, which
+        // never had a context. Both flatten to the same six words, so the
+        // flattening is the check.
+        let drop = Self::concat_ctx(args.len());
         let mut pieces: Vec<BasicValueEnum<'ctx>> = Vec::new();
-        for a in args {
+        for (i, a) in args.iter().enumerate() {
             // A context contributes nothing, whatever it weighs — the same rule
             // `entry_args` applies to `Arg::Dropped`, and for the same reason.
-            // Here it is read off the *source* type rather than from a table,
-            // because this key arrives in two shapes: `str.concat(self, ctx,
-            // other)` from a method call and `str.concat(a, b)` from
-            // `lower::template`, which never had one.
-            if self.is_context(code.ty_of(*a)) {
+            // Which argument it is comes from the arity rather than from the
+            // type, because this key has no table row to name it; see
+            // `concat_ctx`.
+            if drop == Some(i) {
                 continue;
             }
             let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*a));

@@ -92,14 +92,11 @@ impl Proc for HostProc {
 
 /// Running the program's own work concurrently.
 ///
-/// **Granted by no platform.** The effect and its implementation are declared
-/// here so that the signature is fixed and reviewable; the scheduler that
-/// would answer `parallel` does not exist yet, so the grant table gives this
-/// row no platform and every `Tasks: host.tasks` is refused with that reason.
-/// A declaration nothing can reach is the honest way to land an interface
-/// early: it cannot be called by accident, and the day a platform implements
-/// it the change is one row in the table rather than a new name a program has
-/// to be rewritten to use.
+/// **Granted on LINUX, MACOS and JS.** Not on WEB: `parallel` returns only when
+/// the last task has finished, which is the shape a page's host is built to
+/// avoid — the same reason `Net` is withheld there.
+///
+/// `core/tasks` is the module a program calls; this is what a context binds.
 export struct HostTasks {}
 impl Tasks for HostTasks {
   fn parallel<A, B>(self, items: [A], f: fn(HostTasks, Int, A) => B): [B];
