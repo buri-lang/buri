@@ -112,9 +112,9 @@ export fn page<C: Alloc + Fetch + Ui + Watch>(ctx: C, state: State): Node<C> {
   ui.column([pageStyle], [
     banner(state),
     ui.region(.Main, [.Layout(.Column), .Gap(.Rem(1.0))], [
-      composer(ctx, state),
+      composer(state),
       notice(state),
-      lines(ctx, state),
+      lines(state),
       summary(ctx, state),
     ]),
     colophon(),
@@ -145,7 +145,7 @@ fn banner<C>(state: State): Node<C> {
 /// Both fields are labelled, because `ui.field` has no form that is not. An
 /// unlabelled input is the commonest accessibility failure there is and, unlike
 /// a missing `alt`, it has no visual fallback — so it is not expressible.
-fn composer<C: Alloc + Fetch + Ui + Watch>(ctx: C, state: State): Node<C> {
+fn composer<C: Alloc + Fetch + Ui + Watch>(state: State): Node<C> {
   ui.form(fn(c, submitted) => add(c, state), [formStyle], [
     ui.field(.Const("Item"), .Text, state.draftMemo),
     ui.field(.Const("Amount in dollars"), .Number, state.draftAmount),
@@ -174,7 +174,7 @@ fn notice<C>(state: State): Node<C> {
 }
 
 /// The basket, or the fact that there is not one yet.
-fn lines<C: Alloc + Ui + Watch>(ctx: C, state: State): Node<C> {
+fn lines<C: Alloc + Ui + Watch>(state: State): Node<C> {
   ui.choose(
     .Computed(fn(scope) => state.items.get(scope).isEmpty()),
     card(.Const("Nothing in the basket"), [
@@ -233,7 +233,7 @@ fn line<C: Alloc + Ui + Watch>(ctx: C, state: State, item: Entry): Node<C> {
 /// reader is idle rather than interrupting. Without a live region here a
 /// reactive change to the total would be silent, which is the failure mode a
 /// screen reader cannot work around.
-fn summary<C: Alloc + Ui + Watch>(ctx: C, state: State): Node<C> {
+fn summary<C: Ui>(ctx: C, state: State): Node<C> {
   // A memo, so that the fraction is computed once per change however many
   // things read it, and not at all while nothing does.
   let settled: Prop<Float> = memo(

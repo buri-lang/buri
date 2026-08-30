@@ -5,7 +5,10 @@
 // of structs that implement an effect so a test can bind one in a context and
 // prove its own implementation is the one that ran.
 
-from "core/effect/lib.buri" import { Alloc, Clock, Env, Fs, IoError, Net, NetError, Request, Response, Stdout };
+from "core/effect/lib.buri" import {
+  Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Request, Response, Sockets, Stdout,
+  Tasks,
+};
 from "core/net/http/lib.buri" import * as http;
 from "core/num/lib.buri" import { Add, Div, Mul, Neg, Rem, Sub };
 from "core/order/lib.buri" import { Eq, Hash, Ord, Order, Show };
@@ -896,6 +899,186 @@ impl Net for TeapotNet {
   fn fetch(self, request: Request): Result<Response, NetError> {
     .Ok(Response { status: 418, headers: [], body: self.body })
   }
+}
+
+/// A `Listen` that binds, serves nothing, and stops.
+///
+/// No platform grants `Listen`, so `host.listen` is unreachable from any
+/// program — but an effect is an ordinary interface and anyone may write a
+/// type that satisfies it (SPEC 10.9), which is what lets the *shape* be
+/// exercised years before there is a server behind it. It answers `.Ok(())`
+/// when `bindsTo` names an address and `.Err(.Refused)` when it is empty, so a
+/// test can tell the two returns apart.
+///
+/// **This fake calls `onRequest`, and that used to be a compiler bug.** `Self`
+/// in an effect method's signature was substituted with the *receiver's* type,
+/// so a call through a `context` value gave the handler's first parameter the
+/// **context's** type while the `impl` body hands it the implementation — two
+/// different layouts. JavaScript never noticed; the stencil backend segfaulted,
+/// with no output, the moment such a handler was invoked. `Self` is the
+/// *implementing* type now, read off the context's bindings
+/// (`implementing_ty`, `semantics/expressions.rs`) and, where a bounded type
+/// parameter hid the context from the front end, corrected at instantiation
+/// (`rewrite_call_args`, `middle/monomorphize.rs`).
+///
+/// The shape is not this file's invention: `Tasks.parallel` takes
+/// `fn(Self, Int, A) => B` and `ui/effect`'s `Fetch.fetch` takes
+/// `fn(Self, …) => ()`. `SerialTasks` below is the first of those two as a
+/// fake, so the generic half of the same signature is exercised beside this
+/// one.
+///
+/// The handler is handed `self`, so a test's handler can read `bindsTo` off it
+/// — which is the assertion a wrong `Self` fails rather than refuses: reading a
+/// field of the implementation is a claim about *which type* arrived, not only
+/// about how many bytes it was.
+export struct OneShotListen {
+  export bindsTo: Str,
+}
+
+impl Listen for OneShotListen {
+  fn listen(
+    self,
+    address: Str,
+    port: Int,
+    onRequest: fn(OneShotListen, Request) => Response,
+  ): Result<(), NetError> {
+    match (self.bindsTo) {
+      "" => .Err(.Refused),
+      _ => {
+        let reply = onRequest(
+          self,
+          Request { method: .Get, url: address, headers: [], body: [] },
+        );
+        match (reply.status) {
+          200 => .Ok(()),
+          _ => .Err(.Refused),
+        }
+      },
+    }
+  }
+}
+
+/// A `Sockets` that swallows everything.
+///
+/// Every method answers `()`, and an effect method takes only `self`, so a
+/// fake here cannot record what it was told — `sockets()` in `core/host/testing`
+/// is where that lands, with the `Slot` machinery the other doubles use. What
+/// this one is for is the part that *is* checkable without a runtime: that a
+/// context can bind `Sockets` beside `Listen` and `Net` and still call every
+/// one of their methods by name.
+export struct QuietSockets {}
+
+impl Sockets for QuietSockets {
+  fn socketSendText(self, socket: Int, text: Str): () {
+    ()
+  }
+  fn socketSendBytes(self, socket: Int, body: [U8]): () {
+    ()
+  }
+  fn socketClose(self, socket: Int, code: Int, reason: Str): () {
+    ()
+  }
+}
+
+/// Every method of the three effects a server binds together, reached through
+/// one context.
+///
+/// This is a compile-time claim before it is a runtime one, and the compile-
+/// time half is the point. Method lookup on a bounded `C` searches *every*
+/// bound (`find_in_bounds`, `semantics/expressions.rs`), and two bounds
+/// declaring one name make the **call** ambiguous rather than either
+/// declaration wrong — `Ui.read` and `Watch.read` are the shipped case, and
+/// there is no way to un-claim a name once programs are written against it.
+/// Five method names across `Listen`, `Sockets` and `Net`, all called here by
+/// name: a build error in this function is the failure, and it arrives at the
+/// only moment the answer is cheap to change.
+///
+/// Answers the network's status when the fake server bound its address, and
+/// its negation when it refused, so the runtime half sees which effect
+/// answered which call.
+///
+/// The handler is written, passed and **run** — `OneShotListen` invokes it —
+/// and the receiver here is a bounded `C`, which is the half the front end
+/// cannot settle on its own: a generic body is checked once for every
+/// instantiation at once, so `Self` is `C` until `C` is known. Calling this
+/// with a `context` value is therefore the monomorphization half of the
+/// `Self` question, and `test/effects.buri` does exactly that.
+///
+/// `c` is unused, and has to be: inside a generic body the handler's `Self` is
+/// whatever implements `Listen` for `C`, which no bound here names. The test
+/// that reads a field off the handler's first parameter calls `listen` on the
+/// context value itself, where the implementing type is in view.
+export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
+  let _ = ctx.socketSendText(7, "opened");
+  let _ = ctx.socketSendBytes(7, []);
+  let _ = ctx.socketClose(7, 1000, "done");
+  let fetched = match (ctx.fetch(Request { method: .Get, url: url, headers: [], body: [] })) {
+    .Ok(reply) => reply.status,
+    .Err(_) => 0,
+  };
+  let served = ctx.listen(
+    "127.0.0.1",
+    0,
+    fn(c, request) => Response {
+      status: if (request.url == "127.0.0.1") { 200 } else { 404 },
+      headers: [],
+      body: [],
+    },
+  );
+  match (served) {
+    .Ok(_) => fetched,
+    .Err(_) => 0 - fetched,
+  }
+}
+
+/// A `Tasks` that runs everything on the calling thread, in order.
+///
+/// `Tasks.parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B]` is
+/// the *generic* member of the `fn(Self, …)` family — a method with type
+/// parameters of its own whose callback names `Self`, which is two questions
+/// at once: the type arguments have to reach `instantiate`, and `Self` has to
+/// be the implementation. It is answered here as a fake because no platform
+/// grants `Tasks` and an effect is an ordinary interface (SPEC 10.9).
+///
+/// It answers up to three items because a `[B]` longer than a literal needs
+/// `Alloc` and `parallel` takes no context — fixed-size construction never
+/// does (SPEC 10.5), which is exactly what an array literal is. Two is what
+/// the tests use; the third arm is there so the `match` is not a two-case
+/// special.
+///
+/// `bias` and `label` are what a handler reads off the runner it is handed, so
+/// a test's assertion is about *which type* arrived and not only about how many
+/// bytes it was — and the two are an `Int` and a `Str`, which are a word and a
+/// pointer, so a handler reading both would not survive being handed a
+/// differently shaped value by luck.
+export struct SerialTasks {
+  export label: Str,
+  export bias: Int,
+}
+
+impl Tasks for SerialTasks {
+  // Written `Self` rather than `SerialTasks`, which `OneShotListen` above
+  // spells the other way: an `impl` may write either and they are the same
+  // type, so the pair keeps the two spellings from drifting.
+  fn parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B] {
+    match (items) {
+      [] => [],
+      [a] => [f(self, 0, a)],
+      [a, b] => [f(self, 0, a), f(self, 1, b)],
+      [a, b, c, ..] => [f(self, 0, a), f(self, 1, b), f(self, 2, c)],
+    }
+  }
+}
+
+/// `parallel` reached through a **bounded type parameter**, which is
+/// `serveOnce`'s question at a generic method.
+///
+/// The handler ignores its runner for `serveOnce`'s reason — inside a generic
+/// body nothing names what implements `Tasks` for `C` — and the answer folds
+/// the first two results so a caller sees one number.
+export fn runInOrder<C: Tasks>(ctx: C, items: [Int]): Int {
+  let out = ctx.parallel(items, fn(runner, i, item) => i * 100 + item);
+  (out[0] ?? 0) + (out[1] ?? 0)
 }
 
 // =============================================================================

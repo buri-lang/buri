@@ -1,0 +1,58 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the two halves of unused-context-bound's fix discipline: a published name whose bound goes anyway, because dropping a demand cannot break a caller, and a bound list holding a comment, which is reported and left alone"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//...", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# One of the two is rewritten, and the one that is not is still reported
+# afterwards. `stamp` is on the library's surface and is rewritten regardless:
+# unlike `unused-context`, this fix touches no call site, so there is no half
+# of it that could be left behind in a package this analysis never loaded.
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 1
+  golden: "fix.txt"
+}
+
+file {
+  path: "lib/label/stamp.buri"
+  golden: "stamp.buri"
+}
+
+# What a person writes instead: the bound goes and so does the sentence that
+# was about it, which is the decision the tool declined to make on their behalf.
+edit {
+  file: "lib/label/stamp.buri"
+  replace: "export fn note<C: Alloc // it will allocate once the sink is real\n  + Stdout>(ctx: C, label: Str): () {"
+  with: "export fn note<C: Stdout>(ctx: C, label: Str): () {"
+}
+
+# And then nothing in the file names `Alloc` at all.
+edit {
+  file: "lib/label/stamp.buri"
+  replace: "import { Alloc, Stdout };"
+  with: "import { Stdout };"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "build.txt"
+}
