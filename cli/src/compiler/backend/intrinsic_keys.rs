@@ -213,21 +213,27 @@ pub fn step_call(key: &str) -> Option<StepCall> {
         "list.mapCtxStep" => {
             Some(StepCall { kind: Step::Map, ctx: Some(1), func: 2, arity: 3, index: None })
         }
-        // `parallel(self, items, f)`, with `f: fn(Self, Int, A) => B`. The
-        // receiver carries the effect, so the *context* the step is handed is
-        // argument 0 — `self` — rather than a separate `Alloc` the way
-        // `mapCtxStep`'s is. The index is the closure's second parameter,
-        // between that context and the element.
+        // `parallel(self, ctx, items, f)`, with `f: fn(C, Int, A) => B`. The
+        // receiver carries the *effect* and `ctx` carries the *authority*, and
+        // they are two arguments because they are two values: argument 0
+        // dispatches — it is the scheduler, and for `TestTasks` it is a live
+        // handle the runtime reads — while argument 1 is the caller's whole
+        // context, which is what `Tasks` promises every step. Pointing this
+        // column at argument 0 is what handed a step the implementation, so a
+        // step reading a clock out of its context read the scheduler's bytes
+        // instead. The index is the closure's second parameter, between that
+        // context and the element.
         "host.HostTasks.parallel" => {
-            Some(StepCall { kind: Step::Map, ctx: Some(0), func: 2, arity: 3, index: Some(1) })
+            Some(StepCall { kind: Step::Map, ctx: Some(1), func: 3, arity: 4, index: Some(1) })
         }
-        // `core/host/testing`'s scheduler, at the same three arguments. The
+        // `core/host/testing`'s scheduler, at the same four arguments. The
         // double reaches its steps through this boundary rather than through a
         // Buri loop of its own, and that is the point of it: what a test runs
         // its program through is the mechanism the program will ship on, with
-        // one decision — the order — changed.
+        // one decision — the order — changed. Argument 0 is the live handle
+        // this one genuinely reads; argument 1 is the context, as above.
         "host_testing.TestTasks.parallel" => {
-            Some(StepCall { kind: Step::Map, ctx: Some(0), func: 2, arity: 3, index: Some(1) })
+            Some(StepCall { kind: Step::Map, ctx: Some(1), func: 3, arity: 4, index: Some(1) })
         }
         _ => None,
     }
@@ -295,8 +301,17 @@ mod tests {
         assert_ne!(tasks.index, Some(tasks.arity - 1), "the index is not the element");
         assert!(step_call("list.mapCtxStep").expect("the pilot").index.is_none());
         // A step told where it is still takes its context out of the record,
-        // and that context is still the argument the table names.
-        assert_eq!(tasks.ctx, Some(0), "`parallel`'s receiver carries the effect");
+        // and that context is still the argument the table names — argument 1,
+        // `ctx`, and not argument 0, which is the scheduler. The two are
+        // different values and the assertion says which is which, because
+        // naming the receiver here is the bug this row is the fix for.
+        assert_eq!(tasks.ctx, Some(1), "`parallel`'s context is its own parameter");
+        assert_ne!(tasks.ctx, Some(0), "argument 0 is the implementation, not the context");
+        for key in STEP_KEYS {
+            let call = step_call(key).expect(key);
+            assert_ne!(call.ctx, Some(call.func), "{key}: the closure is not its own context");
+            assert_ne!(call.ctx, None, "{key}: a step is always handed a context");
+        }
     }
 
     /// A runtime-driven key is **not** an open-coded one. The two tables name

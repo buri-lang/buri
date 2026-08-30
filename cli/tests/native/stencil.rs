@@ -37,8 +37,9 @@ use buri::compiler::driver;
 use buri::compiler::middle::{self, monomorphize};
 use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostics, SourceMap};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::OnceLock;
 
 /// Why this host cannot build and run a stencil artifact, or `None`.
@@ -216,11 +217,19 @@ fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     // here passed while `buri test` failed 977 of 997 conformance tests on the
     // same emitter. A harness that links more permissively than the product is
     // a harness that cannot see the product's bugs.
+    //
+    // `--gc-sections` is that same flag's Linux counterpart, and it was missing
+    // here until the carrier-door test asked what the link had stripped and got
+    // an answer from a link that had stripped nothing
+    // (`the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows`).
+    // The other two Linux flags are not optional either — the runtime archive's
+    // `tokio` worker reaches libm's `pow`, and libm is its own library there
+    // where macOS folds it into libSystem.
     if cfg!(target_os = "macos") {
         cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
     }
     if cfg!(target_os = "linux") {
-        cc.args(["-lpthread", "-ldl", "-lm"]);
+        cc.args(["-Wl,--gc-sections", "-lpthread", "-ldl", "-lm"]);
     }
     let out = cc.output().unwrap();
     assert!(
@@ -1345,6 +1354,18 @@ fn run_corpus(path: &str, source: &str) -> Ran {
         cc.arg(o);
     }
     cc.arg(archive());
+    // `build/link.rs::platform_flags`, for `build_with`'s reason: a harness
+    // that links more permissively than the product cannot see the product's
+    // bugs, and one that links *less* completely than it invents failures the
+    // product does not have. The Linux three are not optional — the runtime
+    // archive's `tokio` multi-thread worker reaches libm's `pow`, and libm is
+    // its own library there where macOS folds it into libSystem.
+    if cfg!(target_os = "macos") {
+        cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
+    }
+    if cfg!(target_os = "linux") {
+        cc.args(["-Wl,--gc-sections", "-lpthread", "-ldl", "-lm"]);
+    }
     let out = cc.output().unwrap();
     assert!(out.status.success(), "`{path}`: the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
     let out = Command::new(&binary).output().unwrap();
@@ -1472,7 +1493,7 @@ export fn main(): Result<(), Str> {
         panic!("the product's link failed: {:?}", messages(&d));
     }
 
-    let ran = Command::new(&out).output().unwrap();
+    let ran = run_artifact(&out);
     assert_eq!(
         ran.status.code(),
         Some(0),
@@ -1681,7 +1702,7 @@ export fn main(): Result<(), Str> {
         }
         linked.push((name, size));
         // And it is a program, not an empty file the linker was talked into.
-        let ran = Command::new(&out).output().unwrap();
+        let ran = run_artifact(&out);
         assert_eq!(
             ran.status.code(),
             Some(0),
@@ -1721,13 +1742,74 @@ export fn main(): Result<(), Str> {
 /// the linked-size ceiling above is what still runs there — so this answers
 /// `None` and says so on the line the test prints.
 fn debug_stripped_size(artifact: &Path, to: &Path) -> Option<u64> {
-    std::fs::copy(artifact, to).ok()?;
+    // `artifact` is the file the caller is about to *execute*, so this function
+    // opens it for reading and never for writing: the measurement is taken on a
+    // copy and `strip` is pointed at the copy. `execve` refuses a file that any
+    // process on the machine holds open for writing (`ETXTBSY`), so a
+    // measurement that stripped the artifact in place would be handing the
+    // caller that refusal.
+    //
+    // The copy's handle is scoped rather than left to the end of the function:
+    // it is written, flushed, and *closed* where the block ends, before `strip`
+    // is spawned. A `fork` inherits every descriptor that is open at the instant
+    // it runs, so a write handle still open across a spawn outlives the scope
+    // that opened it — which is why the lifetime is spelled out here rather than
+    // left inside `fs::copy`.
+    let bytes = std::fs::read(artifact).ok()?;
+    {
+        let mut file = std::fs::File::create(to).ok()?;
+        file.write_all(&bytes).ok()?;
+        file.sync_all().ok()?;
+    }
+    // `output` runs the child to completion and reaps it, so `strip` has exited
+    // and let go of `to` before its size is read — let alone before the caller
+    // executes anything.
     let ran = Command::new("strip").arg("-S").arg(to).output().ok()?;
     if !ran.status.success() {
         eprintln!("`strip -S` refused {}: {}", to.display(), String::from_utf8_lossy(&ran.stderr));
         return None;
     }
     std::fs::metadata(to).ok().map(|m| m.len())
+}
+
+/// Runs a freshly linked artifact, waiting out an `ETXTBSY` that is not this
+/// thread's to close.
+///
+/// `execve` refuses a file while *any* process on the machine holds a
+/// descriptor on it open for writing, and "any process" reaches wider than this
+/// file's structure can. The artifact is written by `link::place` through a
+/// truncating `File`, and a child forked by another `#[test]` running
+/// concurrently in this same binary inherits every descriptor that is open at
+/// the instant it forks — that one included, until the child reaches its own
+/// `execve` and `O_CLOEXEC` takes it away. Nothing on this side of the fork
+/// closes that window. What this side can do is never widen it — which is what
+/// the scoped handle in [`debug_stripped_size`] above is for, and why nothing
+/// here strips an artifact in place — and then wait it out.
+///
+/// Bounded and short, because the condition is: the descriptor is gone the
+/// moment that child execs, so a tenth of a second is far past every instance
+/// of this race, and a refusal that outlives it is a different problem and is
+/// reported as one rather than waited on.
+fn run_artifact(path: &Path) -> Output {
+    const TRIES: u32 = 20;
+    const PAUSE: std::time::Duration = std::time::Duration::from_millis(5);
+
+    let mut last = String::new();
+    for _ in 0..TRIES {
+        match Command::new(path).output() {
+            Ok(out) => return out,
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                last = e.to_string();
+                std::thread::sleep(PAUSE);
+            }
+            Err(e) => panic!("cannot run {}: {e}", path.display()),
+        }
+    }
+    panic!(
+        "{} was still open for writing somewhere after {TRIES} attempts over {} ms: {last}",
+        path.display(),
+        u128::from(TRIES) * PAUSE.as_millis()
+    )
 }
 
 /// What an artifact for `target` may weigh, linked and debug-stripped, in
@@ -1809,6 +1891,329 @@ fn a_deep_recursion_inside_the_stack_still_answers() {
     assert_eq!(ran.status, 0, "{}", ran.stderr);
 }
 
+// ---------------------------------------------------------------------------
+// The carrier door, and the second stack behind it
+// ---------------------------------------------------------------------------
+
+/// A probe that **enters Buri code from a second carrier** and reports what
+/// the first carrier's stack looked like afterwards.
+///
+/// Three questions in one C file, and each is a thing the door can get wrong:
+///
+///  1. does `buri$carrier$main` run the root at all, on a thread that is not
+///     the process's own;
+///  2. did it use a **different** Buri stack — the sentinel is written over
+///     the low megabytes of `buri$stencil$stack`, which is exactly where a
+///     door that had kept `program_entry`'s `adrp` would have put its frames;
+///  3. is the block it used outside the static one, by address.
+///
+/// A **constructor** rather than a wrapper around `main`, for [`ALLOC_PROBE`]'s
+/// reason: the emitted entry point is the one `cli/runtime/lib.rs` §6
+/// describes, and replacing it would be measuring a different program. It runs
+/// before `main`, so the sentinel is intact when it is written and the static
+/// stack is untouched when it is read — and `main` runs the same root
+/// afterwards on the static block, which is what makes the expected output two
+/// lines rather than one.
+///
+/// `base_seen` is taken **after** the door returns: the block goes back on this
+/// carrier's free list, so the next acquire on this thread is the very block
+/// the door just ran on (`memory.rs`'s
+/// `a_carrier_stack_is_writable_up_to_its_guard_and_comes_back`).
+const CARRIER_PROBE: &str = r#"
+#include <pthread.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+extern void buri$carrier$main(void *state, void *out);
+extern unsigned char buri$stencil$stack[];
+extern void *buri_rt_stack_acquire(void);
+extern void buri_rt_stack_release(void *base);
+
+#define SENTINEL 0x5a
+#define WATCHED (8u * 1024u * 1024u)
+
+static unsigned char answer[4096];
+static void *base_seen;
+
+static void *carrier(void *unused) {
+  (void)unused;
+  buri$carrier$main(0, answer);
+  base_seen = buri_rt_stack_acquire();
+  buri_rt_stack_release(base_seen);
+  return 0;
+}
+
+__attribute__((constructor)) static void buri_carrier_probe(void) {
+  memset(buri$stencil$stack, SENTINEL, WATCHED);
+  pthread_t t;
+  if (pthread_create(&t, 0, carrier, 0) != 0) { fprintf(stderr, "carrier: no thread\n"); return; }
+  pthread_join(t, 0);
+  unsigned long clobbered = 0;
+  for (unsigned i = 0; i < WATCHED; i++) if (buri$stencil$stack[i] != SENTINEL) clobbered++;
+  unsigned char *lo = buri$stencil$stack;
+  unsigned char *hi = lo + 65u * 1024u * 1024u;
+  int inside = ((unsigned char *)base_seen >= lo && (unsigned char *)base_seen < hi);
+  fprintf(stderr, "carrier: clobbered=%lu inside=%d\n", clobbered, inside);
+}
+"#;
+
+/// `(bytes of the static stack the carrier clobbered, whether its block was
+/// inside the static one)` from a [`CARRIER_PROBE`]-linked run.
+fn carrier_probed(stderr: &str) -> (u64, bool) {
+    let line = stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("carrier: "))
+        .unwrap_or_else(|| panic!("the carrier probe printed nothing: {stderr:?}"));
+    let (clobbered, rest) = line
+        .strip_prefix("clobbered=")
+        .and_then(|l| l.split_once(" inside="))
+        .unwrap_or_else(|| panic!("the carrier probe said {line:?}"));
+    (clobbered.trim().parse().unwrap(), rest.trim() == "1")
+}
+
+/// **A second carrier enters Buri code on its own stack, and recurses ten
+/// thousand frames inside it.**
+///
+/// This is the whole of slice B7 in one assertion. Before it there was one
+/// Buri stack — a `__bss` block `main` guards once — and a second carrier
+/// entering Buri code would have written its frames *into the first carrier's*,
+/// past nothing, with the guard belonging to somebody else's recursion.
+///
+/// Ten thousand non-tail frames, for `recursion`'s reason: a tail call runs in
+/// constant stack space (SPEC §8.3) and would say nothing about a stack at all.
+/// They are deep enough to reach megabytes into a block and shallow enough to
+/// fit one, so a door that had kept the static block would clobber the
+/// sentinel by a wide margin rather than by a byte.
+///
+/// Two lines of output, not one: the constructor's carrier runs the root and
+/// then `main` runs it again on the static block. A door that never entered
+/// prints one line; a door that entered and faulted prints none.
+#[test]
+fn a_second_carrier_recurses_ten_thousand_frames_on_its_own_stack() {
+    if !supported() {
+        return;
+    }
+    let source = r#"
+from "core/host/lib.buri" import { stdout };
+fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }
+export fn main(): Result<(), Str> {
+  let _ = stdout.println("depth ${f(10000)}");
+  .Ok(())
+}
+"#;
+    let ran = run_with("carrier-entry", source, Some(CARRIER_PROBE));
+    assert_eq!(ran.status, 0, "{}", ran.stderr);
+    assert_eq!(
+        ran.stdout, "depth 10000\ndepth 10000\n",
+        "the root ran {} time(s), not twice: {:?}",
+        ran.stdout.lines().count(),
+        ran.stdout
+    );
+    let (clobbered, inside) = carrier_probed(&ran.stderr);
+    assert_eq!(
+        clobbered, 0,
+        "the carrier wrote {clobbered} bytes into the process's own Buri stack: it \
+         is running on the static block, not on one of its own"
+    );
+    assert!(!inside, "the block the carrier acquired is inside `buri$stencil$stack`");
+}
+
+/// **A runaway recursion on a carrier faults at the carrier's own guard.**
+///
+/// The counterpart to `a_runaway_recursion_faults_at_the_guard`, on the stack
+/// that slice B7 added. Its whole content is that the fault happens *at all*:
+/// a per-carrier block with no guard would run five million frames past 64 MiB
+/// and into whatever `mmap` had placed after it, and a block that was really
+/// the static one would fault at the old guard — which the test above rules
+/// out on the same door, on the same machine, in the same file.
+///
+/// The process is killed rather than exiting, which is what the machine stack
+/// does when it is exhausted and what `asm::install_guard`'s counterpart
+/// asserts. Which signal is the kernel's business.
+#[test]
+fn a_runaway_recursion_on_a_carrier_faults_at_its_own_guard() {
+    if !supported() {
+        return;
+    }
+    use std::os::unix::process::ExitStatusExt;
+    let source = r#"
+from "core/host/lib.buri" import { stdout };
+fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }
+export fn main(): Result<(), Str> {
+  let _ = stdout.println("depth ${f(5000000)}");
+  .Ok(())
+}
+"#;
+    let binary = build_with("carrier-runaway", source, Some(CARRIER_PROBE));
+    let out = Command::new(&binary).output().unwrap();
+    assert!(
+        out.status.signal().is_some(),
+        "a five-million-deep recursion on a carrier exited {:?} instead of faulting: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// **The door is in every unit that has a root, and each container strips it
+/// as far as it can.**
+///
+/// Two halves. The first is the same on every target: the symbol is *defined*
+/// in the object next to `main`, so a carrier outside the artifact can find it.
+/// The second is what the link then does with a door nobody references, and it
+/// is **not the same on every target** — which is what this test used to get
+/// wrong.
+///
+/// # What each container can strip, and why they differ
+///
+/// * **Mach-O.** `build/link.rs` passes `-dead_strip` and `object.rs` sets
+///   `MH_SUBSECTIONS_VIA_SYMBOLS`, so `ld64` divides one `__text` into atoms at
+///   symbol boundaries and deletes the atoms nothing relocates to. The
+///   unreferenced door is one of those atoms, and it goes. A single-threaded
+///   artifact carries no door, no `mmap` and no bytes.
+/// * **ELF.** `--gc-sections` collects whole *sections*, and a stencil unit
+///   emits exactly one `.text` (`elf.rs`'s header, and `jit.rs::resolve` bakes
+///   intra-unit branches on the strength of it). The door is appended to that
+///   `.text` beside `main`, `main` is the program's root, so the section is
+///   live and the door rides with it. **No link flag moves this**: it would
+///   take a section per shim in the emitter, which is a change to what the
+///   backend writes and not to how it is linked.
+///
+/// The first version of this test asserted absence on both, from the machine
+/// that wrote it — `aarch64-apple-darwin`, where it is true. All five Linux
+/// jobs of CI run 33339023888 answered with the door still in the image, and
+/// the numbers below are theirs (`nm`, on a harness that did not yet pass
+/// `--gc-sections`) beside this host's:
+///
+/// ```text
+///                                the door in the linked image        span
+/// aarch64-apple-darwin           absent — dead-stripped                 —
+/// aarch64-unknown-linux-gnu      000000000000c768 T buri$carrier$main   84
+/// x86_64-unknown-linux-gnu       000000000000d68c T buri$carrier$main  132
+/// ```
+///
+/// The span is the distance to whatever the linker placed next, which is an
+/// upper bound on the door's own bytes: 84 and 132, against a `main` shim of
+/// 144 and 80 in the same two images. That is the honest statement of the
+/// cost — an ELF artifact that never opens a carrier pays a couple of dozen
+/// instructions for the door, not a runtime.
+///
+/// The harness was also missing `--gc-sections`, which `build/link.rs` passes
+/// on every Linux link; it passes it now. That the missing flag was not the
+/// cause is measured rather than argued: the cross-link tests below link the
+/// same emitter's ELF objects with `ld.lld --gc-sections` *from this Mach-O
+/// host*, and the door survives there too — 84 bytes on aarch64 and 128 on
+/// x86-64, the same door with a different neighbour after it.
+///
+/// # What is asserted now
+///
+/// Per target, and neither half is weaker than the old one:
+///
+/// * on Mach-O, the door is **gone** — the claim the old test made, kept where
+///   it is true, and the one that catches a lost `MH_SUBSECTIONS_VIA_SYMBOLS`
+///   or a dropped `-dead_strip`;
+/// * on ELF, the door is **there and small** — under [`DOOR_SPAN_CEILING`],
+///   which catches the door growing from a shim into a subsystem, and catches
+///   the symbol being renamed or lost in the link exactly as the absence
+///   assertion would have.
+///
+/// `linux_*_objects_link_and_every_relocation_resolves` makes the ELF half of
+/// this claim from *any* host, under a real `ld.lld --gc-sections`, which is
+/// how this file stopped having to write ELF behaviour from a Mach-O machine.
+///
+/// **When the ELF half fails because the door vanished**, that is good news
+/// rather than a regression: the emitter will have gained a section per shim,
+/// and this test should then assert absence on both containers.
+#[test]
+fn the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows() {
+    if !supported() {
+        return;
+    }
+    let source = "export fn main(): Result<(), Str> { .Ok(()) }";
+    let units = emitted("carrier-door", source);
+    let (_, bytes) = units.first().expect("no unit was emitted");
+    let door = buri::compiler::backend::carrier::MAIN_ENTRY;
+    let needle = door.as_bytes();
+    assert!(bytes.windows(needle.len()).any(|w| w == needle), "no unit names {door}");
+
+    // And what the link does with it, which is the half that is per-target.
+    let binary = build_with("carrier-door-link", source, None);
+    let nm = Command::new("nm").arg(&binary).output().unwrap();
+    if !nm.status.success() {
+        eprintln!("no `nm` on this host: the linked half was not checked");
+        return;
+    }
+    let listed = String::from_utf8_lossy(&nm.stdout);
+    if cfg!(target_os = "macos") {
+        assert!(
+            !listed.contains(door),
+            "an unreferenced carrier door survived a `-dead_strip` link:\n{}",
+            rows_naming(&listed, door)
+        );
+    } else {
+        let span = symbol_span(&listed, door).unwrap_or_else(|| {
+            panic!(
+                "the linked image defines no {door}, though the object names it: the link \
+                 dropped it or the emitter renamed it"
+            )
+        });
+        eprintln!("the carrier door rides with `main` in one .text: {span} bytes of it");
+        assert!(
+            span <= DOOR_SPAN_CEILING,
+            "the carrier door spans {span} bytes, over the {DOOR_SPAN_CEILING} a shim is \
+             allowed: it has stopped being a wrapper over the root"
+        );
+    }
+}
+
+/// The most an unreferenced carrier door is allowed to span in a linked image.
+///
+/// Measured, in the images the doc comment above tabulates: 84 bytes on
+/// aarch64 and 132 on x86-64, and 84 and 128 for the same two under
+/// `ld.lld --gc-sections`. The ceiling is four times the largest, because what
+/// it bounds is a distance to the next symbol and therefore carries whatever
+/// alignment padding the linker left — a bound a padded shim trips is a bound
+/// that reports the linker rather than the emitter.
+const DOOR_SPAN_CEILING: u64 = 512;
+
+/// The distance from `symbol` to whatever the linker placed after it, or `None`
+/// where the listing defines no such symbol.
+///
+/// `nm` sorts by name and this sorts by address, which is what turns the
+/// difference between two consecutive entries into a length. It is an *upper*
+/// bound on the symbol's own bytes: alignment padding to the next thing is
+/// counted with it, and `elf.rs` writes `st_size` as zero rather than a guess,
+/// so there is no exact size in the file to read instead.
+fn symbol_span(listing: &str, symbol: &str) -> Option<u64> {
+    let mut rows: Vec<(u64, bool)> = Vec::new();
+    for line in listing.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(addr), Some(_kind), Some(name)) = (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        // An undefined symbol has no address column, so its first field is the
+        // kind letter, and parsing it as hex is what rejects the row.
+        let Ok(at) = u64::from_str_radix(addr, 16) else {
+            continue;
+        };
+        rows.push((at, name == symbol));
+    }
+    rows.sort_unstable();
+    let at = rows.iter().find(|(_, is_it)| *is_it).map(|(at, _)| *at)?;
+    rows.iter().find(|(a, _)| *a > at).map(|(next, _)| next.saturating_sub(at))
+}
+
+/// The rows of an `nm` listing that name `symbol`, for a failure message.
+///
+/// A linked artifact's listing is fifteen hundred lines of runtime and `std`,
+/// and printing all of it is what made the old failure of the test above three
+/// screens of `GCC_except_table` in front of the one line that mattered.
+fn rows_naming(listing: &str, symbol: &str) -> String {
+    let rows: Vec<&str> = listing.lines().filter(|l| l.contains(symbol)).collect();
+    if rows.is_empty() { String::from("(no row names it)") } else { rows.join("\n") }
+}
+
 /// A `.buri` snippet with `test` blocks, compiled as a test binary and linked.
 fn build_tests(name: &str, source: &str) -> PathBuf {
     let mut map = SourceMap::new();
@@ -1845,9 +2250,13 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
         cc.arg(o);
     }
     cc.arg(archive());
-    // `build/link.rs`'s macOS flags, for `build_with`'s reason.
+    // `build/link.rs`'s platform flags, for `build_with`'s reason. The Linux
+    // three carry `-lm` because the archive's `tokio` worker reaches `pow`.
     if cfg!(target_os = "macos") {
         cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
+    }
+    if cfg!(target_os = "linux") {
+        cc.args(["-Wl,--gc-sections", "-lpthread", "-ldl", "-lm"]);
     }
     let out = cc.output().unwrap();
     assert!(out.status.success(), "the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
@@ -2013,6 +2422,26 @@ fn objects_link_and_every_relocation_resolves(
     let dis = tool("llvm-objdump", &["-d", &exe.display().to_string()]);
     assert!(!dis.contains("<unknown>"), "the linked image does not disassemble cleanly");
     assert!(dis.contains("<main>"), "the linked image has no main:\n{}", &dis[..dis.len().min(400)]);
+
+    // (4) The carrier door nothing references is *still there*, and small. This
+    // is the ELF half of
+    // `the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows`,
+    // made here because `--gc-sections` is on the command line above and this
+    // test runs on the Mach-O host too: the section granularity ELF collects at
+    // is a fact about the container, and a suite that could only observe it on
+    // a Linux runner is how the assertion came to be written from `ld64`'s
+    // behaviour in the first place.
+    let door = buri::compiler::backend::carrier::MAIN_ENTRY;
+    let listed = tool("llvm-nm", &["--defined-only", &exe.display().to_string()]);
+    let span = symbol_span(&listed, door).unwrap_or_else(|| {
+        panic!("{triple}: --gc-sections collected {door}, which one .text per unit cannot do")
+    });
+    eprintln!("{triple}: the unreferenced door survives --gc-sections, {span} bytes of it");
+    assert!(
+        span <= DOOR_SPAN_CEILING,
+        "{triple}: the carrier door spans {span} bytes, over the {DOOR_SPAN_CEILING} a shim is \
+         allowed"
+    );
 }
 
 /// **Two emissions of one program are the same bytes, for every target.**
@@ -2034,6 +2463,61 @@ fn a_cross_emission_is_reproducible() {
             assert_eq!(x.bytes, y.bytes, "{} is not reproducible for {arch:?}", x.name);
         }
     }
+}
+
+/// **The carrier door is emitted for every `StencilTarget`, and names the two
+/// runtime entries on each.**
+///
+/// A cross-emission test rather than a run, for this section's reason: this
+/// host is macOS/arm64 and the two Linux artifacts cannot be executed here.
+/// What *is* checkable is the part a container port gets wrong — that the door
+/// exists at all on the target whose whole emission is a different instruction
+/// set, and that it reaches the runtime by name rather than by an address only
+/// the host's linker could resolve.
+///
+/// The three references are the three the door has, in the order it makes
+/// them: acquire, the root, release. The pair of relocation tests above then
+/// answer whether a real linker can satisfy them.
+#[test]
+fn the_carrier_door_is_emitted_for_every_target() {
+    let source = "export fn main(): Result<(), Str> { .Ok(()) }";
+    let (program, tables) = lowered(source);
+    let mut seen = 0;
+    for (stencil_target, target) in [
+        (
+            stencil_abi::StencilTarget::MacosArm64,
+            Target { platform: Platform::Macos, arch: Some(Arch::Arm64) },
+        ),
+        (
+            stencil_abi::StencilTarget::LinuxArm64,
+            Target { platform: Platform::Linux, arch: Some(Arch::Arm64) },
+        ),
+        (
+            stencil_abi::StencilTarget::LinuxX86_64,
+            Target { platform: Platform::Linux, arch: Some(Arch::X86_64) },
+        ),
+    ] {
+        if !buri::compiler::backend::stencil::available_for(stencil_target) {
+            eprintln!("this toolchain has no {} stencils", stencil_target.slug());
+            continue;
+        }
+        let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+        let units = Stencil
+            .emit(&program, &tables, &opts)
+            .unwrap_or_else(|d| panic!("{} refused: {:?}", stencil_target.slug(), messages(&d)));
+        let bytes = units.first().map(|u| u.bytes.clone()).unwrap_or_default();
+        let names = |needle: &str| {
+            let n = needle.as_bytes();
+            bytes.windows(n.len()).any(|w| w == n)
+        };
+        use buri::compiler::backend::carrier;
+        assert!(names(carrier::MAIN_ENTRY), "{}: no door", stencil_target.slug());
+        assert!(names(carrier::STACK_ACQUIRE), "{}: the door takes no stack", stencil_target.slug());
+        assert!(names(carrier::STACK_RELEASE), "{}: the door keeps its stack", stencil_target.slug());
+        seen += 1;
+    }
+    assert!(seen > 0, "no target's stencils were available: nothing was checked");
+    eprintln!("the carrier door was checked on {seen} of the three targets");
 }
 
 /// **A target this toolchain cannot emit for says which one and why.**

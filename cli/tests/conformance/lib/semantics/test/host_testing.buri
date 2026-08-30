@@ -1524,16 +1524,53 @@ test "a plan whose entries all fire leaves the block passing" {
 // and the choice: the **result** is in the items' order, and `calls()` is the
 // order the work actually happened in.
 //
-// The closures here read their index and their item and never their first
-// parameter. A step is handed the caller's context there and what reaches it is
-// the receiver's — `host.HostTasks.parallel` has the same shape and the same
-// gap, which the `Self`-substitution fix owns — so a corpus that leaned on it
-// would be pinning a bug rather than a promise.
+// Most closures here read their index and their item and never their first
+// parameter, because what those blocks are about is the *order*. The block
+// "a task run by the double is handed the caller's context" below is the one
+// that reads it, and it is there because the double reaches its steps through
+// the same trampoline `host.HostTasks.parallel` does: a promise the shipping
+// implementation keeps and the double did not would make every test written
+// against this one a test of something else.
 
 /// Every item labelled with its own index, one task each — a fan-out whose
 /// answer says which index each task was handed.
 fn labelled<C: Tasks>(ctx: C, items: [Int]): [Int] {
-  ctx.parallel(items, fn(_c, i, item) => i * 100 + item)
+  ctx.parallel(ctx, items, fn(_c, i, item) => i * 100 + item)
+}
+
+/// The same fan-out, with each task **reading the clock out of the context it
+/// was handed** — so the answer says which value arrived and not only that one
+/// did.
+fn stamped<C: Alloc + Clock + Tasks>(ctx: C, items: [Int]): [Str] {
+  ctx.parallel(ctx, items, fn(c, i, item) => str.format(c, "${c.nowMillis()}:${i}:${item}"))
+}
+
+test "a task run by the double is handed the caller's context" {
+  // `TestTasks` is a handle — a live index into the runtime's scheduler table —
+  // so a step handed it in place of the context reads that index as whatever
+  // effect it asks for. Natively the clock answered `0`; on JavaScript the same
+  // step threw. This block is the pair of them, and it is asserted through the
+  // double rather than only through `host.tasks` because a test's `parallel`
+  // and a program's are the same boundary.
+  let scheduler = tasks();
+  let ctx = context { Alloc: alloc(), Clock: clock().at(5), Tasks: scheduler };
+  assert.eq(stamped(ctx, [7, 8]), ["5:0:7", "5:1:8"]);
+  assert.eq(scheduler.calls(), [task(0), task(1)]);
+}
+
+test "the context survives a nested parallel through the double" {
+  // The inner call's receiver is the context the outer step was handed, so the
+  // scheduler's log counts both fan-outs and the clock is still readable at the
+  // second boundary.
+  let scheduler = tasks();
+  let ctx = context { Alloc: alloc(), Clock: clock().at(2), Tasks: scheduler };
+  let out = ctx.parallel(ctx, [10], fn(c, i, x) =>
+    c.parallel(c, [x, x], fn(d, j, y) => d.nowMillis() + y + j).fold(fn(a, m) => a + m, 0));
+  assert.eq(out, [25]);
+  // The inner fan-out's two tasks both finish before the outer one does, and a
+  // call is logged when its step *returns* — so the outer task's own entry is
+  // last rather than first.
+  assert.eq(scheduler.calls(), [task(0), task(1), task(0)]);
 }
 
 test "tasks() runs its tasks in program order" {

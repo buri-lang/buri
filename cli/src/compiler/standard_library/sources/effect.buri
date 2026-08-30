@@ -153,10 +153,29 @@ export effect Proc {
 /// depended on which task won is a program no test can pin, and this language
 /// has no way to say "assert one of these six outputs".
 ///
-/// The closure takes `Self` rather than capturing it, for the reason
-/// `ui/effect`'s `Fetch` does — an effect-carrying value may arrive only as
-/// `self` or `ctx` (SPEC 10.6), so a task receives the full context as a
-/// parameter and captures nothing effectful.
+/// **The context is a parameter of its own, and the closure names it.** A task
+/// receives the caller's *whole* context — that is the promise, and `C` is how
+/// it is spelled. It arrives as a parameter rather than by capture because an
+/// effect-carrying value may be passed only as `self` or `ctx` (SPEC 10.6), so
+/// a task is *handed* what it needs and captures nothing effectful.
+///
+/// It is deliberately **not** spelled `Self`. `Self` is the type implementing
+/// this effect — `HostTasks`, or a fake a test wrote — and that is a different
+/// value from the context the call came through, granting only this one effect
+/// where the caller's context grants everything the caller had. A step handed
+/// `Self` could not read a clock, print a line or allocate. The two are told
+/// apart by naming the one that is meant, which is the rule SPEC 10.6 states.
+///
+/// Naming it is also what keeps an effect an *ordinary interface*: `C` is a
+/// type a hand-written implementation can name and a value it is given, so
+/// anyone may write a type satisfying `Tasks` (SPEC 10.9) and have its steps
+/// receive what this promises. A callback whose parameter no implementation
+/// could name would be implementable only by the compiler.
+///
+/// The receiver and `ctx` are the same value at every call site the standard
+/// library has — `core/tasks`'s `parallel` writes `ctx.parallel(ctx, …)` — and
+/// they are still two parameters, because the effect is dispatched on the
+/// first and the work is done with the second.
 ///
 /// **Granted on LINUX, MACOS and JS**, and withheld from WEB, which is the same
 /// three as `Fs` and `Net` and for a reason of the same kind: `parallel` returns
@@ -164,14 +183,16 @@ export effect Proc {
 /// freezing is visible in. A page's concurrency is its event loop.
 ///
 /// How much of it runs at once is a property of the platform and not of this
-/// signature. JavaScript starts the tasks together and awaits them together;
-/// the native runtime runs them in index order on the calling carrier today and
-/// fans them out onto its carrier pool in the slice after this one. Every one of
+/// signature. JavaScript starts the tasks together and awaits them together; the
+/// native runtime fans them out onto its carrier pool, except where a program
+/// has a single Buri stack to hold their frames in — the development backend —
+/// and there it runs them in index order on the calling carrier. Every one of
 /// those answers the same list, because the order promise above is what the
-/// signature commits to and the overlap is not.
+/// signature commits to and the overlap is not. `core/tasks` has the table.
 export effect Tasks {
-  /// Runs `f` over every item and answers the results in the items' order.
-  fn parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B];
+  /// Runs `f` over every item and answers the results in the items' order,
+  /// handing every step `ctx` — the caller's whole context.
+  fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
 }
 
 /// Accepting connections.
@@ -198,11 +219,27 @@ export effect Tasks {
 /// The handler arrives as a parameter rather than as a capture, for
 /// `Tasks.parallel`'s reason: an effect-carrying value may be passed only as
 /// `self` or `ctx` (SPEC 10.6), so a request handler is *handed* what it needs
-/// and captures nothing effectful. What it is handed is `Self` — the type
-/// implementing this effect, which is the acceptor itself and not the context
-/// the call came through; those are two different types wherever the call goes
-/// through a `context` value, and telling them apart is what
-/// `semantics/expressions.rs`'s `implementing_ty` is for.
+/// and captures nothing effectful.
+///
+/// **What it is handed here is `Self`** — the type implementing this effect,
+/// which is the acceptor itself and not the context the call came through;
+/// those are two different types wherever the call goes through a `context`
+/// value, and telling them apart is what `semantics/expressions.rs`'s
+/// `implementing_ty` is for. That is the *other* answer from `Tasks.parallel`'s
+/// and it is deliberate on both sides: `Self` means the implementation
+/// everywhere it is written, and an effect that wants to hand a callback the
+/// caller's context takes that context as a `ctx` parameter and names it, the
+/// way `parallel` does. This one hands the acceptor, so it writes `Self`.
+///
+/// **It will want a `ctx` too**, and that is a signature change rather than a
+/// rule change. `core/net/server`'s hooks — `onRequest`, and the websocket's
+/// `onOpen`/`onMessage`/`onClose` — are written against the caller's `C`: they
+/// start actors, push on sockets and allocate, none of which an acceptor
+/// grants. `serve` cannot bridge a `fn(C, …)` hook to a `fn(Self, …)` handler,
+/// because building one would mean capturing an effect-carrying value. So the
+/// day a platform grants this, `listen` gains `ctx: C` beside `self` and
+/// `onRequest` becomes `fn(C, Request) => Response`; nothing calls it today, so
+/// the change costs one line and no caller.
 ///
 /// **No platform grants this yet.** `core/host` declares `HostListen` and
 /// `listen`, and the grant table gives them no platform at all, so every

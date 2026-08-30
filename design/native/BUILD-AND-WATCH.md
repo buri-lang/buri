@@ -127,11 +127,13 @@ to change. The refusal landed **before any of those keys existed**, on purpose,
 so that the day one arrived it arrived with its diagnostic already written
 rather than as an unresolved `buri_rt_*` symbol from `cc`. The first one is
 `host.HostTasks.parallel`, and it is answered by `cli/runtime/rt.rs` — behind
-`net`, beside the carrier pool it will fan out onto — so on a
-`BURI_RUNTIME_NET=0` toolchain a program that calls `core/tasks` is refused by
-name before code generation. That is what was designed, and it is now exercised
-rather than only argued for. `host.HostListen.*` and `host.HostSockets.*` are
-still ahead of their first key.
+`net`, beside the carrier pool it fans out onto — so on a `BURI_RUNTIME_NET=0`
+toolchain a program that calls `core/tasks` is refused by name before code
+generation. That is what was designed, and it is now exercised rather than only
+argued for. `host.HostListen.*` and `host.HostSockets.*` are still ahead of
+their first key: both effects are declared in `core/effect` and granted by no
+platform, so the host values their operations hang off cannot be constructed,
+and what exists for them is the refusal alone.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 

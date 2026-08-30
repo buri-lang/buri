@@ -789,7 +789,7 @@ reports them in the order they finished:
 # from "core/host/testing/lib.buri" import { task, tasks };
 # from "core/testing/assert/lib.buri" import * as assert;
 # fn doubled<C: Tasks>(ctx: C, items: [Int]): [Int] {
-#   ctx.parallel(items, fn(_c, _i, item) => item * 2)
+#   ctx.parallel(ctx, items, fn(_c, _i, item) => item * 2)
 # }
 test "the answer does not depend on the order the work finished in" {
   let scheduler = tasks().anyOrder();

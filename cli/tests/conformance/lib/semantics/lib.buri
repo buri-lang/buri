@@ -29,7 +29,7 @@ from "//lib/semantics/shapes.buri" export {
   loadText, saveText, roundTrip, greet, shout, stamp, elapsed, fetchBody,
   // fakes
   StaticFs, FrozenClock, EchoEnv, TeapotNet, OneShotListen, QuietSockets, serveOnce,
-  SerialTasks, runInOrder,
+  SerialTasks, runInOrder, runInOrderNamed,
   pushedWith, repeatedWith, joinedWith, stampedWith, ReadOnly, Logged, loggedWith, Ticking,
   ticking,
   Guarded, guarded,

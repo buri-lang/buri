@@ -409,16 +409,25 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostProc.exitWith", "buri_rt_host_proc_exit_with", Ret::NoReturn),
     // -- Tasks --------------------------------------------------------------
     //
-    // `parallel(self, items, f)`. `self` is `HostTasks`, an empty struct, so it
-    // flattens to nothing; `items` is the `[A]` the runtime walks, which is what
-    // the strides of [`Extra::Step`] describe; `f` crosses as the entry thunk
-    // and the state record rather than as `{ code, env }`.
+    // `parallel(self, ctx, items, f)`. `self` is `HostTasks`, an empty struct,
+    // so it flattens to nothing; `ctx` is the caller's whole context and is the
+    // one this row's fourth column names, because it is dropped from the C call
+    // and read into the step's state record instead; `items` is the `[A]` the
+    // runtime walks, which is what the strides of [`Extra::Step`] describe; `f`
+    // crosses as the entry thunk and the state record rather than as
+    // `{ code, env }`.
+    //
+    // Two of the four arguments carry no bytes across and they are dropped for
+    // different reasons: `self` because it is empty, `ctx` because the runtime
+    // reads no capability. Only the second is a rule — a `TestTasks` receiver is
+    // a live handle and crosses — which is why the column names an index rather
+    // than a width.
     //
     // The body is in `cli/runtime/rt.rs` behind feature `net`, which is why
     // `runtime_native::net_intrinsic` names the `host.HostTasks.*` family: a
     // toolchain built without the reactor refuses this key with a sentence
     // before code generation rather than with a missing symbol from `cc`.
-    es("host.HostTasks.parallel", "buri_rt_host_tasks_parallel", Ret::Out),
+    cx(es("host.HostTasks.parallel", "buri_rt_host_tasks_parallel", Ret::Out), 1),
     // -- core/alloc's counters ----------------------------------------------
     //
     // Four scalars in, one scalar out, and no context anywhere in them: the
@@ -726,7 +735,10 @@ pub const ENTRIES: &[Entry] = &[
     // `Arg::Dropped` — the runtime has to be able to ask which order this run
     // schedules in. The other rows are the ordering builders, the log, and the
     // plan's two halves.
-    es("host_testing.TestTasks.parallel", "buri_rt_host_testing_test_tasks_parallel", Ret::Out),
+    cx(
+        es("host_testing.TestTasks.parallel", "buri_rt_host_testing_test_tasks_parallel", Ret::Out),
+        1,
+    ),
     e("host_testing.tasks", "buri_rt_host_testing_tasks", Ret::Out),
     e(
         "host_testing.TestTasks.anyOrder",
@@ -1043,7 +1055,7 @@ mod tests {
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(checked > 180, "only {checked} rows were read against a declaration");
-        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 27);
+        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 29);
     }
 
     /// The two shapes the column takes, by example, so that the indices are

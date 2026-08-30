@@ -72,6 +72,7 @@ use inkwell::{FloatPredicate, IntPredicate};
 use crate::compiler::backend::intrinsic_keys::{
     bits_op, derive_key, list_call, list_closure_key, step_call, Step,
 };
+use crate::compiler::backend::carrier;
 use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::rc::{self, Counted as _};
@@ -339,6 +340,25 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             None => self.ctx.void_type().fn_type(params, false),
         };
         let f = self.module.add_function(symbol, ty, Some(Linkage::External));
+        self.platform_abi(f);
+        self.runtime.insert(symbol.to_string(), f);
+        f
+    }
+
+    /// Marks a function as carrying the **platform** calling convention:
+    /// `ccc`, `nounwind`.
+    ///
+    /// Extracted from [`Unit::declare_rt`] rather than copied beside it,
+    /// because that function's header is the claim *"this is the single place
+    /// in a Buri artifact where a platform ABI appears"* and the carrier door
+    /// ([`Unit::carrier_door`]) is the second thing that needs it. Two callers
+    /// of one function keep the claim true; two copies of four lines would
+    /// have made it false the moment one of them gained an attribute.
+    ///
+    /// `nounwind` on both sides for the same reason: the runtime is Rust
+    /// compiled with `panic = "abort"` and it installs a hook that exits, and
+    /// a Buri body has no unwinding of its own to let out.
+    fn platform_abi(&self, f: FunctionValue<'ctx>) {
         attrs::set_convention(f, attrs::C);
         let kind = inkwell::attributes::Attribute::get_named_enum_kind_id("nounwind");
         if kind != 0 {
@@ -347,8 +367,26 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.ctx.create_enum_attribute(kind, 0),
             );
         }
-        self.runtime.insert(symbol.to_string(), f);
-        f
+    }
+
+    /// The carrier entry signature as an LLVM function type, built from
+    /// `backend/carrier.rs` rather than spelled here.
+    ///
+    /// Every word of that ABI is a pointer today; the `match` is what makes a
+    /// widening a compile error in this function instead of a silently wrong
+    /// type.
+    fn carrier_fn_type(&self) -> inkwell::types::FunctionType<'ctx> {
+        let params: Vec<BasicMetadataTypeEnum<'ctx>> = carrier::ENTRY
+            .params
+            .iter()
+            .map(|w| match w {
+                carrier::Word::Ptr => self.ptr_ty().into(),
+            })
+            .collect();
+        match carrier::ENTRY.ret {
+            None => self.ctx.void_type().fn_type(&params, false),
+            Some(carrier::Word::Ptr) => self.ptr_ty().fn_type(&params, false),
+        }
     }
 
     fn ptr_ty(&self) -> inkwell::types::PointerType<'ctx> {
@@ -7779,13 +7817,70 @@ pub fn numeric_op(key: &str) -> bool {
 // The emitted entry point
 // ---------------------------------------------------------------------------
 
+/// The carrier entry signature **as this backend actually emits it**, read
+/// back out of an LLVM module.
+///
+/// Not the shared constant restated: a throwaway context and module are made,
+/// a door type is built the way [`Unit::carrier_fn_type`] builds one, and its
+/// LLVM type is *printed* and translated into `backend/carrier.rs`'s canonical
+/// spelling. So the bytes this answers come from LLVM's own idea of the
+/// function type — which is what a linker and a caller will see — rather than
+/// from the table the type was meant to be built from.
+///
+/// `stencil::asm::carrier_signature` is the other side, and
+/// `the_two_carrier_doors_have_one_signature` diffs the two.
+pub fn carrier_signature() -> Vec<u8> {
+    let ctx = inkwell::context::Context::create();
+    let module = ctx.create_module("carrier.signature");
+    let ptr = ctx.ptr_type(inkwell::AddressSpace::default());
+    let params: Vec<BasicMetadataTypeEnum<'_>> = carrier::ENTRY
+        .params
+        .iter()
+        .map(|w| match w {
+            carrier::Word::Ptr => ptr.into(),
+        })
+        .collect();
+    let ty = match carrier::ENTRY.ret {
+        None => ctx.void_type().fn_type(&params, false),
+        Some(carrier::Word::Ptr) => ptr.fn_type(&params, false),
+    };
+    let f = module.add_function(carrier::MAIN_ENTRY, ty, Some(Linkage::External));
+    // `void (ptr, ptr)`, as LLVM prints it. The translation to the canonical
+    // spelling is whitespace and nothing else, which is the point: a third
+    // parameter or an `i32` return would come through this untouched and would
+    // not match.
+    let printed = f.get_type().print_to_string().to_string();
+    printed.split_whitespace().collect::<String>().into_bytes()
+}
+
 impl<'ctx, 'a> Unit<'ctx, 'a> {
-    /// `int main(int, char**)`, the two calls `cli/runtime/lib.rs` §6 requires,
-    /// and SPEC's `Result<(), Str>` contract.
+    /// `buri_rt_frames_are_per_carrier()`, in both emitted entry points.
+    ///
+    /// A Buri frame here is a machine frame — `middle::layout`'s locals area
+    /// becomes `alloca`s in an ordinary LLVM function — so a carrier that
+    /// enters Buri code brings its own, and `Tasks.parallel` may run two steps
+    /// at once. The frame-threaded backend emits no such call and must not
+    /// until each carrier owns a Buri stack: `runtime::FRAMES_PER_CARRIER` is
+    /// where the difference is argued, and `cli/runtime/lib.rs` §6 is the
+    /// contract.
+    ///
+    /// It is the one call in §6's list that is *optional*, so an entry point
+    /// that lost it would be a program whose tasks stopped overlapping — slow,
+    /// never wrong.
+    fn declare_frames_are_per_carrier(&mut self) {
+        let f = self.declare_rt(runtime::FRAMES_PER_CARRIER, &[], None);
+        if let Ok(call) = self.builder.build_call(f, &[], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
+    }
+
+    /// `int main(int, char**)`, the calls `cli/runtime/lib.rs` §6 names, and
+    /// SPEC's `Result<(), Str>` contract.
     ///
     /// ```c
     /// int main(int argc, char** argv) {
     ///     buri_rt_argv_init(argc, argv);
+    ///     buri_rt_frames_are_per_carrier();
     ///     r = buri_main();
     ///     buri_rt_flush();
     ///     if (tag(r) != Ok) { eprintln(payload(r)); buri_rt_flush(); return 1; }
@@ -7797,6 +7892,82 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// 1 — byte for byte what the JavaScript backend does
     /// (`js/generate.rs:300-310`), because a program's exit status must not
     /// depend on which backend built it.
+    /// **`void buri$carrier$main(void *state, void *out)`** — the C door into
+    /// one root, for a caller that is not this artifact's own `main`.
+    ///
+    /// `backend/carrier.rs` is the signature and the argument order; this is
+    /// the LLVM half of it, and it is a `ccc` wrapper in front of the `fastcc`
+    /// body and nothing else. What the stencil door spends nine instructions
+    /// on — asking `buri_rt_stack_acquire` for a Buri data stack no kernel
+    /// guards — has no counterpart here, and should not: a frame in this
+    /// backend *is* the machine's, and a carrier thread's machine stack is the
+    /// OS's and already guarded on the side it grows towards.
+    ///
+    /// That asymmetry is the reason the signature is written down in a third
+    /// file. The two doors are two different programs behind one C type, and
+    /// the only thing that keeps them substitutable is that neither one spells
+    /// the type itself.
+    ///
+    /// **External linkage**, unlike [`Unit::entry_thunk`]'s private one: this
+    /// is a name something outside the artifact looks up. `-dead_strip` deletes
+    /// it from a Mach-O program that never references it, so a single-threaded
+    /// artifact pays nothing for it there. On ELF that depends on the door
+    /// having a section of its own to be collected — `--gc-sections` collects
+    /// sections, not symbols — and neither backend asks for one today, which
+    /// `tests/native/stencil.rs`'s carrier-door test measures at 84 and 128
+    /// bytes for the stencil emitter rather than assuming either way.
+    ///
+    /// `state` is passed and not read — `carrier.rs` says why the parameter is
+    /// fixed before the caller that fills it exists — and a root with
+    /// parameters gets no door at all, for the reason `stencil/mod.rs`'s
+    /// `carrier_door` gives: the record's layout is the *call site's*
+    /// decision, and there is no call site yet to make it.
+    pub fn carrier_door(&mut self, root: FuncIdx, symbol: &str) {
+        let Some(func) = self.program.funcs.get(root.index()) else { return };
+        if !func.sig.params.is_empty() {
+            return;
+        }
+        let sig = ir::Signature { params: Vec::new(), rets: func.sig.rets.clone() };
+        let Some(callee) = self.declare(root) else { return };
+        let door = self.module.add_function(symbol, self.carrier_fn_type(), Some(Linkage::External));
+        self.platform_abi(door);
+        let block = self.ctx.append_basic_block(door, "entry");
+        self.builder.position_at_end(block);
+
+        let Ok(call) = self.builder.build_call(callee, &[], "r") else {
+            let _ = self.builder.build_return(None);
+            return;
+        };
+        attrs::set_call_convention(call, attrs::FAST);
+
+        // The return area goes through `out`, in the slots this backend
+        // returns it in — the same `store_slots` the step entry thunk writes
+        // its answer with, because it is the same question.
+        let (_, rets) = self.slots_of_sig(&sig);
+        let out = door.get_nth_param(carrier::OUT as u32).and_then(|p| p.try_into().ok());
+        if let (Some(out), Some(answer)) = (out, call.try_as_basic_value().basic()) {
+            let out: PointerValue<'ctx> = out;
+            if !rets.is_empty() {
+                let align = self.ret_align(&sig);
+                let pieces = repr::disassemble(&self.builder, &rets, answer);
+                self.store_slots(out, &rets, align, &pieces);
+            }
+        }
+        let _ = self.builder.build_return(None);
+    }
+
+    /// The alignment a signature's return area wants, for the one store that
+    /// needs to know.
+    ///
+    /// An aggregate's is `middle::layout`'s; anything else is a word, which is
+    /// the widest a scalar slot in a return position is.
+    fn ret_align(&mut self, sig: &ir::Signature) -> u32 {
+        match sig.rets.first().copied() {
+            Some(ir::Type::Agg(id)) => self.reprs.of(self.program, id).layout.align,
+            _ => 8,
+        }
+    }
+
     pub fn entry_point(&mut self, main: FuncIdx) {
         let Some(func) = self.program.funcs.get(main.index()) else { return };
         let Some(callee) = self.declare(main) else { return };
@@ -7814,6 +7985,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 attrs::set_call_convention(call, attrs::C);
             }
         }
+        self.declare_frames_are_per_carrier();
 
         let Ok(call) = self.builder.build_call(callee, &[], "r") else { return };
         attrs::set_call_convention(call, attrs::FAST);
@@ -7933,6 +8105,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 attrs::set_call_convention(call, attrs::C);
             }
         }
+        self.declare_frames_are_per_carrier();
         let word = self.ctx.i64_type();
         for (i, test) in tests.iter().enumerate() {
             let Some(callee) = self.declare(*test) else { continue };
@@ -8440,6 +8613,72 @@ fn float_predicate(op: ir::BinOp) -> FloatPredicate {
         ir::BinOp::Le => FloatPredicate::OLE,
         ir::BinOp::Gt => FloatPredicate::OGT,
         _ => FloatPredicate::OGE,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **The two carrier doors have one signature, byte for byte.**
+    ///
+    /// The acceptance test of slices B7 and B8 together. Two backends emit a
+    /// function under the same name for the same caller to call, and nothing
+    /// links them: `stencil/asm.rs` writes machine code and this file writes
+    /// LLVM IR, in two modules that never meet. A disagreement would not be a
+    /// compile error or a link error — it would be a `ccc` call made with the
+    /// wrong number of arguments at run time, in whichever profile the user
+    /// happened to build, which is `cli/runtime/lib.rs` §1's *"a wrong answer
+    /// at run time"* exactly.
+    ///
+    /// The two sides are derived rather than restated. The stencil side is the
+    /// table its emitter reads its argument registers out of; this side is an
+    /// LLVM `FunctionType`, built and then **printed**, so what is compared is
+    /// LLVM's own idea of the type a caller will see.
+    #[cfg(feature = "backend-stencil")]
+    #[test]
+    fn the_two_carrier_doors_have_one_signature() {
+        let stencil = crate::compiler::backend::stencil::asm::carrier_signature();
+        let llvm = carrier_signature();
+        assert_eq!(
+            String::from_utf8_lossy(&stencil),
+            String::from_utf8_lossy(&llvm),
+            "the two backends' carrier doors do not have the same C signature"
+        );
+        assert_eq!(stencil, llvm);
+        assert_eq!(llvm, b"void(ptr,ptr)".to_vec());
+    }
+
+    /// The LLVM side is read out of a module and not out of the constant, so a
+    /// type built with a different arity or a different answer is a different
+    /// string. This is what makes the comparison above worth making.
+    #[test]
+    fn the_printed_signature_is_llvms_own() {
+        let ctx = inkwell::context::Context::create();
+        let module = ctx.create_module("carrier.signature.control");
+        let ptr = ctx.ptr_type(inkwell::AddressSpace::default());
+        let render = |f: FunctionValue<'_>| {
+            f.get_type().print_to_string().to_string().split_whitespace().collect::<String>()
+        };
+        let three = module.add_function(
+            "three",
+            ctx.void_type().fn_type(&[ptr.into(), ptr.into(), ptr.into()], false),
+            None,
+        );
+        let answering =
+            module.add_function("answering", ptr.fn_type(&[ptr.into(), ptr.into()], false), None);
+        assert_eq!(render(three), "void(ptr,ptr,ptr)");
+        assert_eq!(render(answering), "ptr(ptr,ptr)");
+        assert_ne!(render(three).into_bytes(), carrier_signature());
+        assert_ne!(render(answering).into_bytes(), carrier_signature());
+    }
+
+    /// The signature is the shared table's, not a copy of it: the type is
+    /// built by walking `carrier::ENTRY`, so an entry added there appears here
+    /// without this file being edited.
+    #[test]
+    fn the_door_type_is_built_from_the_shared_table() {
+        assert_eq!(carrier_signature(), carrier::ENTRY.render());
     }
 }
 
