@@ -1,0 +1,42 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a function that declares a `ctx` and never reads it: unused-context, one finding beside the three ways of using one, and the fix that deletes the parameter and the argument together"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//...", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# The whole of the fix is bytes: the parameter, and the argument at the one
+# call site. Two edits in one file, from one finding.
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 0
+  golden: "fix.txt"
+}
+
+file {
+  path: "cmd/app/main.buri"
+  golden: "main.buri"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# The property a rewriting tool has to earn: what it wrote is still a program.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "build.txt"
+}
