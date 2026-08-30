@@ -3328,7 +3328,7 @@ mod tests {
         ok("effect Fs { fn readFile(self, path: Str): Result<Str, IoError>; }");
         ok("impl Ord for Version { fn compare(self, other: Version): Order { .Equal } }");
         ok("derive Eq, Ord, Show for Playlist;");
-        ok("context Hermetic { Alloc: alloc(), Fs: data() }");
+        ok("context Fixture { Alloc: alloc(), Fs: fs() }");
         ok(r#"test "pads the cents place" { let x = 1; }"#);
     }
 

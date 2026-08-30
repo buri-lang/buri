@@ -40,6 +40,16 @@
 //! name from the old module. [`Plan::old_names_kept`] is what works out which
 //! names those are, and it reads them off the surviving *references* rather
 //! than off the import line.
+//!
+//! A second kind of hole is not about a missing constructor but about a
+//! *package*: `Hermetic`'s `Fs` is `data()`, which the runner seeds from the
+//! suite's `test { data: [...] }`, and `core/host/testing`'s `fs()` is empty.
+//! The two are the same filesystem only where that declaration is empty too,
+//! so a suite that declares one cannot take the `data() -> fs()` row until E13
+//! retires `test { data }`. The compiler cannot see that — an empty filesystem
+//! type-checks — so it is [`migrate`]'s `blocked` argument, answered per file
+//! by the caller that knows where the build files are, and a site it blocks is
+//! reported exactly like one waiting on a constructor.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -1058,11 +1068,24 @@ struct Reported {
 /// `(relative path, text)` per file, and answers the diagnostics. Keeping the
 /// compiler behind a closure is what lets the unit tests exercise the fixpoint
 /// without a repository on disk.
+///
+/// `blocked` is the other half of what the compiler cannot answer: per file,
+/// the effects this package cannot have built for it *even though a
+/// constructor exists*, each with the reason. A site that draws one is left
+/// spelled `Hermetic()` and counted in [`Report::unmigrated`], exactly like a
+/// site waiting on `net()`. [`effects_the_build_file_blocks`] is the answer for
+/// a run over a repository; [`nothing_blocked`] is the answer for a run with no
+/// packages behind it.
 pub fn migrate(
     files: &[(String, String)],
+    blocked: &dyn Fn(&str) -> BTreeMap<&'static str, String>,
     mut run: impl FnMut(&[(String, String)]) -> String,
 ) -> Report {
     let mut plans: Vec<Plan> = files.iter().map(|(rel, text)| plan(rel, text)).collect();
+    // Asked once per file, before a round runs: what a package cannot have
+    // built for it does not change while the fixpoint does.
+    let held: Vec<BTreeMap<&'static str, String>> =
+        files.iter().map(|(rel, _)| blocked(rel)).collect();
 
     // Round zero: every context empty, every name imported, every context on
     // one line. The item ranges come from this rendering and stay true for
@@ -1143,18 +1166,27 @@ pub fn migrate(
                      any context declaration that one names",
                     d.file, d.line, d.message
                 )),
-                ([one], Some(effect)) if constructor_for(effect).is_some() => {
+                ([one], Some(effect))
+                    if constructor_for(effect).is_some()
+                        && !held[index].contains_key(effect) =>
+                {
                     learned |= plans[index].sites[*one].effects.insert(effect);
                 }
                 ([one], Some(effect)) => {
-                    // An effect `core/host/testing` cannot build yet. The site
+                    // An effect `core/host/testing` cannot build here — either
+                    // it has no constructor at all yet, or this package is one
+                    // the caller says cannot take the one there is. The site
                     // stays spelled `Hermetic()` and the report names it.
-                    let site = &mut plans[index].sites[*one];
-                    if site.blocked.is_none() {
-                        site.blocked = Some(format!(
+                    let why = match held[index].get(effect) {
+                        Some(why) => why.clone(),
+                        None => format!(
                             "needs `{effect}`, which `core/host/testing` has no constructor for \
                              yet"
-                        ));
+                        ),
+                    };
+                    let site = &mut plans[index].sites[*one];
+                    if site.blocked.is_none() {
+                        site.blocked = Some(why);
                         learned = true;
                     }
                 }
@@ -1270,6 +1302,51 @@ fn parse_diagnostics(output: &str) -> Vec<Reported> {
 // ---------------------------------------------------------------------------
 // Driving it over a repository on disk
 // ---------------------------------------------------------------------------
+
+/// A [`migrate`] `blocked` argument for a run with no packages behind it: the
+/// unit cases, which drive the fixpoint over synthetic sources.
+pub fn nothing_blocked(_rel: &str) -> BTreeMap<&'static str, String> {
+    BTreeMap::new()
+}
+
+/// What the package a source belongs to cannot have built for it, read off its
+/// build file.
+///
+/// One entry, and it is `Fs`. `Hermetic`'s filesystem is `data()`, which the
+/// runner seeds from the suite's `test { data: [...] }`; `fs()` is empty. Where
+/// the declaration is empty the two are the same filesystem and the table's
+/// `data() -> fs()` row holds, which is why every package migrated so far took
+/// it without anybody noticing. Where it is not, taking the row would leave a
+/// suite reading files that are no longer there — a green compile and a red
+/// run — so the site is left alone and named instead. E13 is the slice that
+/// retires `test { data }`, and it is what makes this function return nothing.
+///
+/// The build file is the nearest `BUILD.buri` at or above the source, which is
+/// what a package *is*.
+pub fn effects_the_build_file_blocks(
+    repo: &Path,
+    rel: &str,
+) -> BTreeMap<&'static str, String> {
+    let mut out = BTreeMap::new();
+    let mut dir = repo.join(rel);
+    while dir.pop() && dir.starts_with(repo) {
+        let build = dir.join("BUILD.buri");
+        if !build.is_file() {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&build) else { break };
+        if text.lines().any(|line| line.trim_start().starts_with("data:")) {
+            out.insert(
+                "Fs",
+                "needs `Fs`, and this package declares `test { data }` — which seeds \
+                 `Hermetic`'s `data()` and not `core/host/testing`'s `fs()`; E13 retires it"
+                    .to_string(),
+            );
+        }
+        break;
+    }
+    out
+}
 
 /// The manifests that are `.buri` files without being Buri sources.
 const MANIFESTS: &[&str] = &["BUILD.buri", "REPO.buri"];
