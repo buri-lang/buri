@@ -1,9 +1,0 @@
-error: expected an expression, found `*` [unexpected-token]
- --> lib/recovery_swap_adjacent_brace_cents_be0d91/lib.buri:6:17
-  |
-6 |   let doubled = * n 2;
-  |                 ^
-  |
-  = expected: an expression
-  = actual: `*`
-  = fix: write a value here

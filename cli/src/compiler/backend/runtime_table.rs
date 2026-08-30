@@ -551,8 +551,8 @@ pub const ENTRIES: &[Entry] = &[
         Ret::Opt,
     ),
     e(
-        "testing_context.TestEnv.arguments",
-        "buri_rt_testing_context_test_env_arguments",
+        "testing_context.TestEnv.args",
+        "buri_rt_testing_context_test_env_args",
         Ret::Out,
     ),
     // -- core/host/testing --------------------------------------------------
@@ -565,6 +565,11 @@ pub const ENTRIES: &[Entry] = &[
     // `alloc` and `TestAlloc.allocate` are open-coded, as
     // `testing_context`'s are, and are named in
     // [`the_unimplemented_surface_is_not_claimed`] for the same reason.
+    //
+    // `proc` and `TestProc.exitWith` are absent and are not named there either,
+    // for `TestNet.fetch`'s reason rather than the allocator's: both are Buri
+    // bodies, so no key reaches this table to be missing from it. `TestProc`
+    // records nothing because nothing can read it back.
     e("host_testing.stdout", "buri_rt_host_testing_stdout", Ret::Out),
     e("host_testing.stderr", "buri_rt_host_testing_stderr", Ret::Out),
     e("host_testing.TestStdout.print", "buri_rt_host_testing_test_stdout_print", Ret::Void),
@@ -672,12 +677,9 @@ pub const ENTRIES: &[Entry] = &[
     ),
     e("host_testing.env", "buri_rt_host_testing_env", Ret::Out),
     e("host_testing.TestEnv.variables", "buri_rt_host_testing_test_env_variables", Ret::Out),
-    e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
-    e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
     e("host_testing.TestEnv.arguments", "buri_rt_host_testing_test_env_arguments", Ret::Out),
-    e("host_testing.proc", "buri_rt_host_testing_proc", Ret::Out),
-    e("host_testing.TestProc.exitWith", "buri_rt_host_testing_test_proc_exit_with", Ret::Void),
-    e("host_testing.TestProc.exited", "buri_rt_host_testing_test_proc_exited", Ret::Opt),
+    e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
+    e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.

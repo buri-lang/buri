@@ -64,8 +64,8 @@ use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, IntType};
 use inkwell::values::{
-    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue,
-    PointerValue,
+    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, InstructionValue,
+    IntValue, PointerValue,
 };
 use inkwell::{FloatPredicate, IntPredicate};
 
@@ -76,8 +76,8 @@ use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::middle::layout::{
-    self, EnumRepr, Repr as LayoutRepr, Scalar, CAP_MASK, HEADER_CAP_OFFSET, HEADER_RC_OFFSET,
-    IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
+    self, EnumRepr, Repr as LayoutRepr, Scalar, CAP_MASK, CAP_SHARED_FLAG, HEADER_CAP_OFFSET,
+    HEADER_RC_OFFSET, IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
 };
 use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty};
@@ -379,6 +379,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let p = self.ptr_ty().into();
         self.declare_rt(runtime::FREE, &[p], None)
     }
+
+    // === G2 begin: the two shared arms =====================================
+
+    fn rt_incref(&mut self) -> FunctionValue<'ctx> {
+        let p = self.ptr_ty().into();
+        self.declare_rt(runtime::INCREF, &[p], None)
+    }
+
+    fn rt_decref(&mut self) -> FunctionValue<'ctx> {
+        let p = self.ptr_ty();
+        self.declare_rt(runtime::DECREF, &[p.into(), p.into()], None)
+    }
+
+    // === G2 end ============================================================
 
     // -----------------------------------------------------------------------
     // Constants
@@ -2627,7 +2641,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let word = self.ctx.i64_type();
         let header =
             repr::byte_offset(self.ctx, &self.builder, p, i64::from(HEADER_RC_OFFSET), "rc.p");
+
+        // === G2 begin: the shared fork (MEMORY.md §5.1, VALUE-MODEL.md §2.1) =
+        // `cap`'s bit 63 says the block may be reached from more than one
+        // thread, and it chooses which of the two counts below runs. It is
+        // never set today, so the whole of what the fork costs a shipping
+        // program is itself: one load, from the same 16-byte header line the
+        // count is already in, and one bit test whose answer never changes.
+        let shared = self.fork_on_shared(state, p, "inc");
+        let meet = self.ctx.append_basic_block(state.value, "inc.meet");
+        // === G2 end =========================================================
+
         let Ok(BasicValueEnum::IntValue(rc)) = self.builder.build_load(word, header, "rc") else {
+            let _ = self.builder.build_unconditional_branch(meet);
+            self.builder.position_at_end(meet);
             return;
         };
         if let Some(instr) = rc.as_instruction() {
@@ -2649,11 +2676,120 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Ok(store) = self.builder.build_store(header, next) {
             let _ = store.set_alignment(8);
         }
+        let _ = self.builder.build_unconditional_branch(meet);
+
+        // === G2 begin: the atomic increment =================================
+        // A **call**, where the unshared arm is open-coded, and the asymmetry
+        // is the point. `buri_rt_incref` forks on the same bit and takes the
+        // same atomic arm, so there is one atomic sequence in the tree per
+        // backend rather than two — and the sequence is cold by construction,
+        // because nothing sets the bit.
+        //
+        // It is also **half the price**. Open-coding the saturating
+        // `atomicrmw` here instead puts it in front of `opt` at every
+        // reference operation in the program, and that was measured: the
+        // open-coded form cost a median **+46 %** of native release lowering
+        // where this one costs **+21 %** (design/PERFORMANCE.md §6.6). The
+        // machine code on the arm every program actually takes is the same two
+        // instructions either way.
+        self.builder.position_at_end(shared);
+        let incref = self.rt_incref();
+        if let Ok(call) = self.builder.build_call(incref, &[p.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+            attrs::cold_call(self.ctx, call);
+        }
+        let _ = self.builder.build_unconditional_branch(meet);
+        // === G2 end =========================================================
+
+        self.builder.position_at_end(meet);
         if let (Some(_), Some(join)) = (body, join) {
             let _ = self.builder.build_unconditional_branch(join);
             self.builder.position_at_end(join);
         }
     }
+
+    // === G2 begin: the three pieces both counts share =======================
+
+    /// The fork on `cap`'s bit 63: emit the test, and leave the builder in the
+    /// **unshared** arm.
+    ///
+    /// Returns the block the caller fills with the atomic form; where the two
+    /// arms rejoin is the caller's business, because the increment's arms meet
+    /// and the decrement's do not (its two both run into `dec.free`).
+    ///
+    /// The load is of `cap` at `p - 8`, which shares a cache line with the
+    /// count at `p - 16` by construction (the header is 16 bytes and the
+    /// payload is 16-byte aligned, VALUE-MODEL.md §2), so on a block whose
+    /// count is about to be touched anyway the fork's memory cost is nothing.
+    /// The test is a sign test on a 64-bit word: `tbz`/`tbnz` on aarch64, a
+    /// `js`/`jns` on x86-64.
+    ///
+    /// The unshared arm is the *false* arm, so it is the fallthrough, and the
+    /// branch carries a weight saying so. Today that is exactly right — G1
+    /// reserved the bit and nothing sets it — and after G3 it is still right:
+    /// a value that crosses a task boundary is the exception.
+    fn fork_on_shared(
+        &mut self,
+        state: &mut Function<'ctx>,
+        p: PointerValue<'ctx>,
+        tag: &str,
+    ) -> BasicBlock<'ctx> {
+        let word = self.ctx.i64_type();
+        let plain = self.ctx.append_basic_block(state.value, &format!("{tag}.plain"));
+        let shared = self.ctx.append_basic_block(state.value, &format!("{tag}.shared"));
+        let capp = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            p,
+            i64::from(HEADER_CAP_OFFSET),
+            &format!("{tag}.capp"),
+        );
+        let is_shared = match self.builder.build_load(word, capp, &format!("{tag}.cap")) {
+            Ok(BasicValueEnum::IntValue(cap)) => {
+                if let Some(instr) = cap.as_instruction() {
+                    let _ = instr.set_alignment(8);
+                }
+                let bit = self
+                    .builder
+                    .build_and(cap, word.const_int(CAP_SHARED_FLAG, false), &format!("{tag}.mt"))
+                    .unwrap_or_else(|_| word.const_zero());
+                self.builder
+                    .build_int_compare(
+                        IntPredicate::NE,
+                        bit,
+                        word.const_zero(),
+                        &format!("{tag}.isshared"),
+                    )
+                    .unwrap_or_else(|_| self.ctx.bool_type().const_zero())
+            }
+            // A load that cannot be built leaves the fork unanswerable, and
+            // the unshared arm is the answer that matches every block the
+            // program can produce today.
+            _ => self.ctx.bool_type().const_zero(),
+        };
+        if let Ok(br) = self.builder.build_conditional_branch(is_shared, shared, plain) {
+            self.unlikely(br);
+        }
+        self.builder.position_at_end(plain);
+        shared
+    }
+
+    /// Say that a two-way branch takes its *false* arm.
+    ///
+    /// `!prof` branch weights, which is how to tell LLVM which arm is hot
+    /// without an `llvm.expect` call it then has to fold away. The numbers are
+    /// the ones clang emits for `__builtin_expect`.
+    fn unlikely(&self, br: InstructionValue<'ctx>) {
+        let word = self.ctx.i32_type();
+        let node = self.ctx.metadata_node(&[
+            self.ctx.metadata_string("branch_weights").into(),
+            word.const_int(1, false).into(),
+            word.const_int(2000, false).into(),
+        ]);
+        let _ = br.set_metadata(node, self.ctx.get_kind_id("prof"));
+    }
+
+    // === G2 end ============================================================
 
     /// `decref`: the decrement, with the free on the cold path.
     ///
@@ -2693,6 +2829,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let word = self.ctx.i64_type();
         let header =
             repr::byte_offset(self.ctx, &self.builder, p, i64::from(HEADER_RC_OFFSET), "rc.p");
+
+        // === G2 begin: the shared fork ======================================
+        // The same fork the increment takes, and for the same reason. The two
+        // arms rejoin at `dec.free`, not at `dec.meet`: whichever count found
+        // the block dead, it dies exactly once and through one copy of the
+        // glue call and one copy of `buri_rt_free`.
+        let shared = self.fork_on_shared(state, p, "dec");
+        // === G2 end =========================================================
+
         let Ok(BasicValueEnum::IntValue(rc)) = self.builder.build_load(word, header, "rc") else {
             let _ = self.builder.build_unconditional_branch(join);
             self.builder.position_at_end(join);
@@ -2718,6 +2863,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let free_block = self.ctx.append_basic_block(state.value, "dec.free");
         let live_block = self.ctx.append_basic_block(state.value, "dec.live");
         let _ = self.builder.build_conditional_branch(last, free_block, live_block);
+
+        // === G2 begin: the atomic decrement =================================
+        // A cold call to `buri_rt_decref`, for `incref`'s reasons, and it
+        // carries the glue pointer because the runtime owns the whole of the
+        // dying arm on that side: the `atomicrmw sub` whose *returned* value
+        // decides who frees, the glue call, and the free. Two threads that
+        // each read `1` from a separate load would each free the block, which
+        // is why that decision cannot be split across a call boundary and the
+        // free path here is not reused.
+        //
+        // `glue` is null for a type holding no counted references, which is
+        // the same null `buri_rt_decref` already documents.
+        self.builder.position_at_end(shared);
+        let decref = self.rt_decref();
+        let glue_arg = glue.unwrap_or_else(|| self.ptr_ty().const_null());
+        if let Ok(call) = self.builder.build_call(decref, &[p.into(), glue_arg.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+            attrs::cold_call(self.ctx, call);
+        }
+        let _ = self.builder.build_unconditional_branch(join);
+        // === G2 end =========================================================
 
         self.builder.position_at_end(free_block);
         if let Some(glue) = glue {
@@ -7852,6 +8018,11 @@ pub fn observe(program: &ir::Program, profile: Profile) -> Vec<Observed> {
         })
         .collect();
 
+    // The one bit whose seed is a property of the graph rather than of a body.
+    for (o, cycles) in out.iter_mut().zip(reaches_a_cycle(program)) {
+        o.may_diverge |= cycles;
+    }
+
     let mut changed = true;
     while changed {
         changed = false;
@@ -7883,10 +8054,118 @@ pub fn observe(program: &ir::Program, profile: Profile) -> Vec<Observed> {
     out
 }
 
-/// The six bits, as a tuple, so the fixpoint's "did anything change" is one
+/// The seven bits, as a tuple, so the fixpoint's "did anything change" is one
 /// comparison that a new bit cannot be left out of by accident.
-fn key(o: Observed) -> (bool, bool, bool, bool, bool, bool) {
-    (o.allocates, o.aborts, o.opaque, o.writes_args, o.reads_far, o.writes_far)
+fn key(o: Observed) -> (bool, bool, bool, bool, bool, bool, bool) {
+    (
+        o.allocates,
+        o.aborts,
+        o.opaque,
+        o.writes_args,
+        o.reads_far,
+        o.writes_far,
+        o.may_diverge,
+    )
+}
+
+/// The nodes of a directed graph that can reach a **cycle** — every member of
+/// one, and everything with a path into one.
+///
+/// A peel, which is Kahn's algorithm read from the far end: a node every one of
+/// whose successors has already been peeled off cannot reach a cycle, so peel it
+/// and repeat. What is left when nothing more will peel is exactly the set that
+/// can reach one — a self-edge keeps a node in its own count so it never peels,
+/// the two members of a two-cycle keep each other in, and every predecessor of
+/// either keeps a count above zero. Each edge is walked once.
+///
+/// Repeated edges are one edge: the peel counts *distinct* successors, because
+/// the same edge twice would need two peels and the second never comes. A
+/// successor this graph has no node for is dropped, and both callers say why
+/// that is their conservative direction.
+fn reaches_a_cycle_in(successors: &[Vec<usize>]) -> Vec<bool> {
+    let n = successors.len();
+    let mut out_edges: Vec<Vec<usize>> = Vec::with_capacity(n);
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, succ) in successors.iter().enumerate() {
+        let mut mine: Vec<usize> = succ.iter().copied().filter(|s| *s < n).collect();
+        mine.sort_unstable();
+        mine.dedup();
+        for s in &mine {
+            if let Some(row) = preds.get_mut(*s) {
+                row.push(i);
+            }
+        }
+        out_edges.push(mine);
+    }
+
+    let mut remaining: Vec<usize> = out_edges.iter().map(Vec::len).collect();
+    let mut peeled = vec![false; n];
+    let mut work: Vec<usize> = Vec::new();
+    for (i, left) in remaining.iter().enumerate() {
+        if *left == 0 {
+            if let Some(slot) = peeled.get_mut(i) {
+                *slot = true;
+            }
+            work.push(i);
+        }
+    }
+    while let Some(i) = work.pop() {
+        let Some(predecessors) = preds.get(i) else { continue };
+        for &p in predecessors {
+            if peeled.get(p).copied() == Some(true) {
+                continue;
+            }
+            let Some(left) = remaining.get_mut(p) else { continue };
+            *left = left.saturating_sub(1);
+            if *left == 0 {
+                if let Some(slot) = peeled.get_mut(p) {
+                    *slot = true;
+                }
+                work.push(p);
+            }
+        }
+    }
+    peeled.iter().map(|p| !*p).collect()
+}
+
+/// Which functions can reach a cycle in the **call graph** — the seed of
+/// [`Observed::may_diverge`].
+///
+/// [`observe`]'s fixpoint cannot answer this and must not be asked to. It starts
+/// each function at what a local scan found and joins its callees' answers
+/// upwards, which is a *least* fixpoint: a self-recursive function whose local
+/// scan found nothing would have nothing joined into it and would converge on
+/// "proven to return", which is the miscompile [`Observed::may_diverge`] exists
+/// to stop. So the seeds have to be right before that loop runs, and this is
+/// what makes them right.
+///
+/// The edges are `Inst::Call` — the fixpoint's own edges — plus `DecRef`'s
+/// `drop`, which is a call this backend emits and the fixpoint does not follow.
+/// It does not have to: a `DecRef` sets `opaque`, which already disqualifies the
+/// function. The edge is here so that what the peel walks is the call graph
+/// rather than most of it. An index this program has no function for is dropped,
+/// which costs nothing: `observe` answers `Observed::opaque` for one, and that
+/// carries `may_diverge` anyway.
+fn reaches_a_cycle(program: &ir::Program) -> Vec<bool> {
+    let callees: Vec<Vec<usize>> = program
+        .funcs
+        .iter()
+        .map(|f| {
+            let mut mine: Vec<usize> = Vec::new();
+            let Some(code) = f.code() else { return mine };
+            for block in &code.blocks {
+                for inst in &block.insts {
+                    match inst {
+                        ir::Inst::Call { func, .. } => mine.push(func.index()),
+                        ir::Inst::DecRef { drop: Some(func), .. } => mine.push(func.index()),
+                        _ => {}
+                    }
+                }
+            }
+            mine
+        })
+        .collect();
+    reaches_a_cycle_in(&callees)
 }
 
 /// Which values are *based on* one of this function's parameters, in the sense
@@ -8065,6 +8344,20 @@ fn local(code: &ir::Code, profile: Profile) -> Observed {
             }
         }
     }
+    // A cycle in the control-flow graph is a loop, and nothing in the IR bounds
+    // a loop's trip count — see [`Observed::may_diverge`]. Asked as a *cycle*
+    // and not as a back edge: `lower` emits blocks in whatever order it built
+    // them, and "an edge that points earlier in the list" calls a nested `if`'s
+    // join block a loop — which costs the attribute on every branchy function
+    // in the program.
+    let successors: Vec<Vec<usize>> = code
+        .blocks
+        .iter()
+        .map(|b| b.term.targets().iter().map(|t| t.block.index()).collect())
+        .collect();
+    if reaches_a_cycle_in(&successors).iter().any(|c| *c) {
+        o.may_diverge = true;
+    }
     o
 }
 
@@ -8160,5 +8453,92 @@ fn float_predicate(op: ir::BinOp) -> FloatPredicate {
         ir::BinOp::Le => FloatPredicate::OLE,
         ir::BinOp::Gt => FloatPredicate::OGT,
         _ => FloatPredicate::OGE,
+    }
+}
+
+#[cfg(test)]
+mod cycles {
+    use super::*;
+    use crate::compiler::semantics::types::FuncIdx;
+    use crate::diagnostics::Span;
+
+    /// A program of `edges.len()` functions in which function `i` calls every
+    /// index in `edges[i]` from its one block and does nothing else.
+    /// [`reaches_a_cycle`] reads calls and nothing else, so this is the whole
+    /// of what it needs.
+    fn call_graph(edges: &[&[usize]]) -> ir::Program {
+        let funcs = edges
+            .iter()
+            .enumerate()
+            .map(|(i, callees)| {
+                let mut code = ir::Code::new();
+                code.blocks.push(ir::Block {
+                    params: Vec::new(),
+                    insts: callees
+                        .iter()
+                        .map(|c| ir::Inst::Call {
+                            dests: Vec::new(),
+                            func: FuncIdx(*c as u32),
+                            args: Vec::new(),
+                        })
+                        .collect(),
+                    term: ir::Term::Return(Vec::new()),
+                });
+                ir::Func {
+                    symbol: format!("f{i}"),
+                    debug_name: format!("f{i}"),
+                    sig: ir::Signature { params: Vec::new(), rets: Vec::new() },
+                    facts: ir::Facts {
+                        params: Vec::new(),
+                        purity: ir::Purity::Pure,
+                        can_abort: false,
+                        can_park: false,
+                    },
+                    unit: 0,
+                    body: ir::Body::Code(code),
+                    span: Span::default(),
+                }
+            })
+            .collect();
+        ir::Program { funcs, units: vec![String::from("main")], types: Vec::new() }
+    }
+
+    /// A chain ends. A function that calls itself does not, and neither does
+    /// anything that can reach one that does.
+    #[test]
+    fn a_chain_peels_and_a_cycle_does_not() {
+        assert_eq!(reaches_a_cycle(&call_graph(&[&[1], &[2], &[]])), vec![false, false, false]);
+        assert_eq!(reaches_a_cycle(&call_graph(&[&[0]])), vec![true]);
+        // `0` and `1` are the cycle, `2` calls into it, `3` is off to the side.
+        assert_eq!(
+            reaches_a_cycle(&call_graph(&[&[1], &[0], &[1], &[]])),
+            vec![true, true, true, false]
+        );
+    }
+
+    /// The same edge twice is one edge. Without the dedup, `0` would need two
+    /// peels of `1` and only ever get one, so a straight-line program would
+    /// report a cycle and lose `willreturn` everywhere.
+    #[test]
+    fn a_repeated_call_is_one_edge() {
+        assert_eq!(reaches_a_cycle(&call_graph(&[&[1, 1, 1], &[]])), vec![false, false]);
+    }
+
+    /// The two shapes a **back-edge** rule gets wrong, which is why this is a
+    /// peel and not a comparison of indices. Both are what a control-flow
+    /// graph looks like: [`local`] asks the same question of one, and `lower`
+    /// numbers blocks in the order it built them rather than in any order a
+    /// reader could rely on.
+    #[test]
+    fn an_edge_that_points_backwards_is_not_a_cycle() {
+        // `0 -> 2 -> 1`, and nothing returns. A rule that called every edge
+        // into a lower index a loop would call `0 -> 2`'s sibling one.
+        assert_eq!(reaches_a_cycle_in(&[vec![2], vec![], vec![1]]), vec![false, false, false]);
+        // A diamond — a nested `if` and its join — with the join *before* one
+        // of its predecessors.
+        assert_eq!(
+            reaches_a_cycle_in(&[vec![2, 3], vec![], vec![1], vec![1]]),
+            vec![false, false, false, false]
+        );
     }
 }

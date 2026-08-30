@@ -1,0 +1,2 @@
+# The repository root. One library, in two modules: the one that declares a
+# function with a context it never reads, and the one that calls it.

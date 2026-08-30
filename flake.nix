@@ -32,6 +32,97 @@
         # pointing at the default output fails in a way whose error message
         # does not say so.
         llvm = pkgs.llvmPackages_21.llvm;
+
+        # ---------------------------------------------------------------------
+        # Two lockfiles, one vendor directory.
+        # ---------------------------------------------------------------------
+        #
+        # This repository has **two** cargo dependency trees and a sandboxed
+        # build has to carry both. The toolchain's is `./Cargo.lock`. The
+        # runtime's is `cli/runtime/manifest.lock` — `cli/runtime` is a package
+        # of its own, four crates behind `net`, and `cli/build.rs` runs a
+        # *nested* `cargo` to build it into `libburi_rt.a`, the archive every
+        # native binary this compiler produces is linked against.
+        #
+        # `rustPlatform.importCargoLock` takes one `lockFile`, so vendoring the
+        # toolchain's alone left that nested cargo with no source for the
+        # runtime's tree: it took the degradation path `cli/build.rs`'s header
+        # argues for — an empty archive, a `cargo:warning`,
+        # `runtime_native::AVAILABLE == false` — and `nix build` produced a
+        # green toolchain *less capable* than the one `cargo install buri`
+        # produces. A packaging path that silently drops the native backend is
+        # not a packaging detail; it is a different compiler under the same
+        # version number, and it is what this merge closes.
+        #
+        # **The merge is of the directories, not of the lockfiles**, and that is
+        # a decision rather than a convenience. Cargo's vendored `directory`
+        # source is a flat set of `name-version` directories, so two vendor
+        # directories become one by linking both sets into a third and writing
+        # the source-replacement config once. Merging the lockfiles instead
+        # fails on nixpkgs' own hook: `cargoSetupPostPatchHook` diffs the vendor
+        # directory's `Cargo.lock` against the one in `src` and aborts the build
+        # when they differ, so a merged lockfile would have to be un-merged
+        # again before the build could start. Here `Cargo.lock` stays the
+        # toolchain's, byte for byte.
+        #
+        # Neither `importCargoLock` call takes a hash: both read theirs out of
+        # the lockfile they are given, so there is still no `cargoHash` to keep
+        # in sync by hand and a lockfile edit needs no second edit here.
+        toolchainCrates = pkgs.rustPlatform.importCargoLock { lockFile = ./Cargo.lock; };
+        runtimeCrates = pkgs.rustPlatform.importCargoLock {
+          lockFile = ./cli/runtime/manifest.lock;
+        };
+
+        # **The name is load-bearing.** `cargoSetupHook` copies `$cargoDeps`
+        # into the build root under its own basename with the store hash
+        # stripped, and the `directory =` line below names that basename — so a
+        # derivation called anything else produces a config pointing at a
+        # directory that is not there.
+        cargoVendorDir = pkgs.runCommand "cargo-vendor-dir" { } ''
+          mkdir -p $out/.cargo
+
+          # The toolchain's, unmerged: this is the file the hook diffs against
+          # `src`'s, and the two must be identical.
+          ln -s ${./Cargo.lock} $out/Cargo.lock
+
+          cat > $out/.cargo/config.toml <<'EOF'
+          [source.crates-io]
+          replace-with = "vendored-sources"
+
+          [source.vendored-sources]
+          directory = "cargo-vendor-dir"
+          EOF
+
+          # Deduplicated by `name-version`, and that is exact rather than
+          # hopeful: crates.io fixes the checksum for a name and a version, and
+          # `importCargoLock` fetches by that checksum, so a crate in both trees
+          # is the same bytes from the same store path and the second link would
+          # only fail with "File exists".
+          #
+          # A git dependency's crate directory carries a `.cargo-config` stanza
+          # that has to reach the config file above, keyed by source URL rather
+          # than by crate because one repository can hold several. Neither
+          # lockfile has a git dependency today; the loop carries them anyway,
+          # because the alternative is a trap that springs on whoever adds the
+          # first one and presents as an unresolvable tree rather than as an
+          # error about vendoring.
+          declare -A seen
+          for crate in ${toolchainCrates}/*/ ${runtimeCrates}/*/; do
+            crate=''${crate%/}
+            name=$(basename "$crate")
+            if [ -n "''${seen[crate:$name]:-}" ]; then continue; fi
+            seen[crate:$name]=1
+            ln -s "$crate" "$out/$name"
+
+            if [ -e "$crate/.cargo-config" ]; then
+              key=$(sed 's/\[source\."\(.*\)"\]/\1/; t; d' < "$crate/.cargo-config")
+              if [ -z "''${seen[source:$key]:-}" ]; then
+                seen[source:$key]=1
+                cat "$crate/.cargo-config" >> $out/.cargo/config.toml
+              fi
+            fi
+          done
+        '';
       in
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
@@ -42,30 +133,21 @@
           # build` finds is a file that has not been `git add`ed yet.
           src = self;
 
-          # The toolchain's dependencies are held to the bar stated in the root
-          # `Cargo.toml`: a code generator or a platform interface, behind a
-          # cargo feature the default build can turn off, whose absence degrades
-          # rather than breaks. One crate has cleared it -- `inkwell` behind
-          # `backend-llvm` -- so the lockfile names its closure and vendoring
-          # fetches it. `cargoLock.lockFile` reads the hashes out of the
-          # lockfile, so there is still no `cargoHash` to keep in sync by hand.
+          # The dependencies of both trees are held to the bar stated in the
+          # root `Cargo.toml`: a code generator or a platform interface, behind
+          # a cargo feature the default build can turn off, whose absence
+          # degrades rather than breaks. One crate has cleared it on the
+          # toolchain's side -- `inkwell` behind `backend-llvm` -- and four on
+          # the runtime's, behind `net`; the lockfiles name their closures and
+          # `cargoVendorDir` above fetches both.
           #
-          # **This vendors the toolchain's lockfile and not the runtime's, and
-          # that is a known gap rather than an oversight.** Since 2026-08-30
-          # `cli/runtime` has a dependency tree of its own — four crates behind
-          # `net`, `cli/runtime/manifest.lock` — and `cli/build.rs` runs a
-          # nested `cargo` to build it. In this sandbox that cargo can reach
-          # neither the network nor a vendor directory holding those crates, so
-          # it degrades exactly as it is designed to: an empty archive, a
-          # `cargo:warning` saying so, `runtime_native::AVAILABLE == false`, and
-          # a `buri` that builds and runs the JavaScript backend with no native
-          # one. `nix build` is therefore still green and still produces a
-          # *less capable* toolchain than a `cargo install` does, which wants
-          # closing before the flake is the recommended way to get `buri`.
-          # Closing it means vendoring both lockfiles into one directory the
-          # nested cargo can see through `CARGO_HOME`; `importCargoLock` takes
-          # one `lockFile`, so it is a merge and a piece of work of its own.
-          cargoLock.lockFile = ./Cargo.lock;
+          # `cargoDeps`, not `cargoLock`. `cargoLock` is sugar for one
+          # `importCargoLock` over one lockfile, which is the one thing this
+          # package cannot use: the nested cargo in `cli/build.rs` needs the
+          # runtime's tree in the same vendor directory. Nothing else about the
+          # vendoring changes -- no `cargoHash`, and the sources are still
+          # fetched by the checksums in the lockfiles.
+          cargoDeps = cargoVendorDir;
 
           # Default features, which is `backend-stencil` alone -- and it needs
           # no crate, so the default build fetches nothing.
@@ -83,6 +165,29 @@
           # makes the LLVM backend part of the tracked tree, where `nix build`
           # is a real test of it rather than a claim.
           buildNoDefaultFeatures = false;
+
+          # The archive is real, and this build fails if it is not.
+          #
+          # `.github/scripts/assert-runtime-archive.sh` is the repository's own
+          # liveness gate, run here rather than reimplemented: non-empty, under
+          # the per-OS size budget, and carrying no symbol from any of the
+          # runtime's four networking crates. It runs on the four native CI jobs
+          # already; the reason it also runs *here* is that the failure it
+          # catches is exactly the one this flake had — `cli/build.rs` degrades
+          # to an empty archive rather than breaking, so a vendoring mistake
+          # produces a green `nix build` and a toolchain with no native backend,
+          # which is invisible until a user's `buri build` refuses.
+          #
+          # An assertion and not a degradation, because on **these** hosts there
+          # is nothing to degrade to: `flake-utils.lib.eachDefaultSystem` builds
+          # for aarch64/x86_64 × Darwin/Linux, and `cli/build.rs`'s `supported`
+          # is `-apple-darwin` or `-linux-`, so every system this derivation is
+          # ever instantiated for is one the runtime builds on. The genuinely
+          # unsupported host still gets its empty archive; it just does not get
+          # it from here.
+          postBuild = ''
+            bash .github/scripts/assert-runtime-archive.sh target
+          '';
 
           # `cargo test` compiles and *runs* the examples under `cli/src/docs/`,
           # which means spawning a JavaScript runtime -- a package

@@ -87,14 +87,14 @@ export fn tick<C: Alloc + Ui + Watch>(ctx: C, state: State, memo: Str): () {
 /// very context this call was made with. That is why the callback can write
 /// signals without capturing anything — the authority arrives as its first
 /// parameter, exactly as a press handler's does.
-export fn load<C: Alloc + Fetch + Ui + Watch>(ctx: C, state: State): () {
+export fn load<C: Alloc + Fetch + Ui>(ctx: C, state: State): () {
   let _ = state.notice.set(ctx, "asking the server for its ledger");
   let request = Request { method: "GET", url: LEDGER_URL, headers: [], body: "" };
   fetch(ctx, request, fn(c, result) => received(c, state, result))
 }
 
 /// What to do with a response, or with the reason there was not one.
-fn received<C: Alloc + Ui + Watch>(
+fn received<C: Alloc + Ui>(
   ctx: C,
   state: State,
   result: Result<NetResponse, FetchError>,

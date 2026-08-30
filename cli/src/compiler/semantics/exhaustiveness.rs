@@ -12,6 +12,24 @@
 //! is non-exhaustive when a wildcard row is still useful against all of them.
 //! It is Maranget's, from *Warnings for pattern matching* (JFP 2007), linked
 //! from `reference/README.md`.
+//!
+//! The question is asked of each **alternative** of an or-pattern rather than
+//! of the arm as a whole, which is the refinement §4.2 of that paper calls for.
+//! `A | B` is two rows, and asking only whether *either* is useful lets a dead
+//! `A` ride in on a live `B`:
+//!
+//! ```text
+//! match (h) {
+//!   Hello.Now(_) => "one",
+//!   Hello.Now(_) | Hello.World => "two",   // `Hello.Now(_)` can never run
+//! }
+//! ```
+//!
+//! So each alternative is checked against everything before it — the arms
+//! above, *and* the alternatives to its left in its own arm, which is what
+//! catches `A | A`. An arm all of whose alternatives are dead is still one
+//! `unreachable-arm`: the finer code is for the case the coarser one cannot
+//! see, and the two never fire on the same arm.
 
 use std::borrow::Cow;
 
@@ -386,6 +404,21 @@ impl Matrix {
         }
     }
 
+    /// Drops every row from `len` on.
+    ///
+    /// A guarded arm covers nothing, so its rows come out again once its own
+    /// alternatives have been asked about each other. Rebuilding the index is
+    /// the whole cost, and only a guarded arm with an alternation pays it.
+    fn truncate(&mut self, len: usize) {
+        if len >= self.rows.len() {
+            return;
+        }
+        self.rows.truncate(len);
+        if self.index.is_some() {
+            self.build_index();
+        }
+    }
+
     fn build_index(&mut self) {
         self.index = Some(Index::default());
         for at in 0..self.rows.len() {
@@ -634,6 +667,87 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// Which row of `rows` first made `alt` useless — the last row of the
+    /// shortest prefix that already covers it.
+    ///
+    /// Coverage only grows as rows are added, so "is this still useful against
+    /// the first *k* rows" is monotone in `k` and the boundary is found by
+    /// bisection: `log₂(k)` usefulness runs rather than `k`. It is on the
+    /// error path either way, and it is what lets the diagnostic point at the
+    /// pattern that subsumes this one instead of waving at everything above.
+    ///
+    /// `None` when no prefix covers it, which the caller cannot reach: it asks
+    /// only about an alternative it has already found useless.
+    fn covered_by(
+        &self,
+        rows: &[Vec<Pat>],
+        upto: usize,
+        alt: &[Vec<Pat>],
+        types: &[Ty],
+    ) -> Option<usize> {
+        let live = |k: usize| {
+            let prefix = Matrix::new(rows.get(..k).unwrap_or_default().to_vec());
+            alt.iter().any(|r| self.useful(&prefix, r, types).is_some())
+        };
+        let (mut lo, mut hi) = (0usize, upto);
+        while lo < hi {
+            let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
+            if live(mid) {
+                lo = mid.saturating_add(1);
+            } else {
+                hi = mid;
+            }
+        }
+        lo.checked_sub(1)
+    }
+}
+
+/// The alternatives of an arm's pattern, left to right, each with the span the
+/// diagnostic points at.
+///
+/// A pattern with no `|` at its top is one alternative — and its span is its
+/// own rather than the arm's, because the caller only reaches for it when some
+/// *other* alternative of the same arm is alive. A wholly dead arm is reported
+/// against `Arm::span`, as it always was.
+///
+/// The recursion is through `Or` alone, and it is a recursion because
+/// parentheses can nest one: the parser reads a run of `|` as a single node, so
+/// the only way to get an `Or` inside an `Or` is to write `a | (b | c)`, and
+/// that is three alternatives rather than two.
+///
+/// An alternation *inside a constructor* — `.Some(a | b)` — is not an
+/// alternative of the arm. It stays where it is, counting toward coverage
+/// where `specialize` distributes it, and is not reported branch by branch.
+fn alternatives_of(p: &Pattern, out: &mut Vec<(Span, Pat)>) {
+    match &p.kind {
+        PatKind::Or(alts) if !alts.is_empty() => {
+            for a in alts {
+                alternatives_of(a, out);
+            }
+        }
+        _ => out.push((p.span, lower(p))),
+    }
+}
+
+/// Whether any part of this pattern is one the checker could not build.
+///
+/// `PatKind::Error` lowers to a wildcard, and a wildcard covers everything
+/// after it — so on a file that already has an error, every alternative to the
+/// right of the broken one looks dead. That is the cascade `Ty::Error` exists
+/// to prevent, and the answer here is the same one: ask the finer question only
+/// of a `match` the checker understood.
+fn has_error(p: &Pattern) -> bool {
+    match &p.kind {
+        PatKind::Error => true,
+        PatKind::Bind { sub, .. } => sub.as_ref().is_some_and(|s| has_error(s)),
+        PatKind::Tuple(ps) => ps.iter().any(has_error),
+        PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
+            fields.iter().any(|f| has_error(&f.pattern))
+        }
+        PatKind::Array { elems, .. } => elems.iter().any(has_error),
+        PatKind::Or(alts) => alts.iter().any(has_error),
+        _ => false,
+    }
 }
 
 /// A value the match does not cover, rendered into the diagnostic.
@@ -709,30 +823,89 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
     if scrutinee.is_error() {
         return;
     }
-    let lowered: Vec<Pat> = arms.iter().map(|a| lower(&a.pattern)).collect();
-    let limit = lowered.iter().map(length_limit).max().unwrap_or(0).saturating_add(1);
+    let alternatives: Vec<Vec<(Span, Pat)>> = arms
+        .iter()
+        .map(|a| {
+            let mut out = Vec::new();
+            alternatives_of(&a.pattern, &mut out);
+            out
+        })
+        .collect();
+    let limit = alternatives
+        .iter()
+        .flatten()
+        .map(|(_, p)| length_limit(p))
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
     let ctx = Ctx { tables: &inf.c.tables, limit };
     let types = vec![scrutinee.clone()];
+    let recovered = arms.iter().any(|a| has_error(&a.pattern));
 
     // Arms are tried in order and the first matching arm wins, so an arm is
     // unreachable when the arms before it already cover it. A guarded arm
     // covers nothing, because its guard may fail.
+    //
+    // `origin` runs alongside the matrix's rows: which alternative put each one
+    // there, so that a dead alternative can be shown the pattern that subsumes
+    // it rather than told to go and find it.
     let mut covering = Matrix::default();
+    let mut origin: Vec<Span> = Vec::new();
     let mut reported = Vec::new();
-    for (arm, low) in arms.iter().zip(&lowered) {
-        let rows = expand(vec![expand_lengths(low.clone(), limit)]);
-        let useful = rows.iter().any(|r| ctx.useful(&covering, r, &types).is_some());
-        if !useful {
-            reported.push(arm.span);
-        }
-        if arm.guard.is_none() {
-            for r in rows {
-                covering.push(r);
+    for (arm, alts) in arms.iter().zip(&alternatives) {
+        let base = covering.rows.len();
+        let mut alive = false;
+        let mut dead: Vec<(Span, Vec<Vec<Pat>>, usize)> = Vec::new();
+        // A guarded arm covers nothing below it, so its rows come back out at
+        // the end — they go in first only because they do cover this arm's own
+        // later alternatives. An arm with one alternative has no later one, so
+        // it neither adds nor removes anything and the index is left alone.
+        let hold = arm.guard.is_none() || alts.len() > 1;
+        for (at, low) in alts {
+            let before = covering.rows.len();
+            let rows = expand(vec![expand_lengths(low.clone(), limit)]);
+            if rows.iter().any(|r| ctx.useful(&covering, r, &types).is_some()) {
+                alive = true;
+            } else {
+                dead.push((*at, rows.clone(), before));
+            }
+            // Even a dead alternative goes in — it adds no coverage, and
+            // leaving it out would make the next one's "before" a lie.
+            if hold {
+                for r in rows {
+                    covering.push(r);
+                    origin.push(*at);
+                }
             }
         }
+        if !alive {
+            // Every alternative dead is the arm dead, which is the older and
+            // coarser report. It says the same thing about the same text.
+            reported.push(Diagnostic::templated("unreachable-arm", arm.span));
+        } else if !recovered {
+            for (at, rows, before) in dead {
+                let culprit = ctx.covered_by(&covering.rows, before, &rows, &types);
+                let same_arm = culprit.is_some_and(|i| i >= base);
+                let by = if same_arm {
+                    "an earlier alternative of this arm"
+                } else {
+                    "an arm above"
+                };
+                let mut d = Diagnostic::templated("unreachable-alternative", at)
+                    .with_bind("covered_by", by);
+                if let Some(span) = culprit.and_then(|i| origin.get(i)) {
+                    d = d.with_secondary_span(*span, "already covered here");
+                }
+                reported.push(d);
+            }
+        }
+        if arm.guard.is_some() && hold {
+            covering.truncate(base);
+            origin.truncate(base);
+        }
     }
-    for s in reported {
-        inf.c.diags.push(Diagnostic::templated("unreachable-arm", s));
+    for d in reported {
+        inf.c.diags.push(d);
     }
 
     // A non-exhaustive match is a compile error that names a missing case.
@@ -754,5 +927,217 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
                 .with_fix(format!("add an arm for `{shown}`, or a `_` arm for everything left"));
         }
         inf.c.diags.push(d);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::diagnostics::SourceMap;
+
+    /// Every finding one snippet reports: the code, and the text the caret is
+    /// under.
+    ///
+    /// The span is half the point of this refinement — a diagnostic that says
+    /// an alternative is dead and then underlines the whole arm has not
+    /// answered the question — so it is what the assertions below are written
+    /// against.
+    fn findings(src: &str) -> Vec<(String, String)> {
+        let mut map = SourceMap::new();
+        let analysis = crate::compiler::driver::analyze_snippet(
+            &mut map,
+            "reachability.buri",
+            src,
+            crate::compiler::modules::Role::Source,
+        );
+        let mut out = Vec::new();
+        for d in &analysis.diagnostics.items {
+            let code = d.code.clone().unwrap_or_default();
+            let (start, end) = (d.span.start as usize, d.span.end as usize);
+            let text = src.get(start..end).unwrap_or("").to_string();
+            out.push((code, text));
+        }
+        out
+    }
+
+    /// Codes only, for the cases that are about what is and is not reported.
+    fn codes(src: &str) -> Vec<String> {
+        findings(src).into_iter().map(|(c, _)| c).collect()
+    }
+
+    const HELLO: &str = "enum Hello { World, Now(Bool) }\n";
+
+    /// The report this refinement was written for. The arm is live —
+    /// `Hello.World` reaches it — and the alternative beside it is not.
+    #[test]
+    fn a_dead_alternative_beside_a_live_one_is_reported() {
+        let src = format!(
+            "{HELLO}fn greeting(hi: Hello): Str {{\n  \
+             match (hi) {{\n    \
+             Hello.Now(_) => \"hello world\",\n    \
+             Hello.Now(_) | Hello.World => \"now\",\n  }}\n}}\n"
+        );
+        assert_eq!(
+            findings(&src),
+            vec![("unreachable-alternative".to_string(), "Hello.Now(_)".to_string())],
+            "the second arm's first alternative is dead and the arm is not"
+        );
+    }
+
+    /// The dead one in the middle, so that a report cannot pass by naming the
+    /// first alternative or the last.
+    #[test]
+    fn a_dead_middle_alternative_is_reported() {
+        let src = format!(
+            "{HELLO}fn greeting(hi: Hello): Str {{\n  \
+             match (hi) {{\n    \
+             Hello.Now(true) => \"a\",\n    \
+             Hello.World | Hello.Now(true) | Hello.Now(false) => \"b\",\n  }}\n}}\n"
+        );
+        assert_eq!(
+            findings(&src),
+            vec![("unreachable-alternative".to_string(), "Hello.Now(true)".to_string())]
+        );
+    }
+
+    /// Every alternative dead is the arm dead, and that is the older report,
+    /// against the whole arm. Both would be two names for one mistake.
+    #[test]
+    fn an_arm_whose_alternatives_are_all_dead_is_one_unreachable_arm() {
+        let src = format!(
+            "{HELLO}fn greeting(hi: Hello): Str {{\n  \
+             match (hi) {{\n    \
+             _ => \"a\",\n    \
+             Hello.World | Hello.Now(_) => \"b\",\n  }}\n}}\n"
+        );
+        assert_eq!(
+            findings(&src),
+            vec![(
+                "unreachable-arm".to_string(),
+                "Hello.World | Hello.Now(_) => \"b\"".to_string()
+            )]
+        );
+    }
+
+    /// An alternative may overlap the arms above it and still be worth
+    /// writing. `Hello.Now(_)` covers `Hello.Now(true)`, which is taken, and
+    /// `Hello.Now(false)`, which is not.
+    #[test]
+    fn an_alternative_that_still_adds_coverage_is_left_alone() {
+        let src = format!(
+            "{HELLO}fn greeting(hi: Hello): Str {{\n  \
+             match (hi) {{\n    \
+             Hello.Now(true) => \"a\",\n    \
+             Hello.Now(_) | Hello.World => \"b\",\n  }}\n}}\n"
+        );
+        assert_eq!(codes(&src), Vec::<String>::new());
+    }
+
+    /// The arm's own alternatives are part of the matrix too, so `A | A` is
+    /// caught with nothing above it at all.
+    #[test]
+    fn an_alternative_repeated_within_one_arm_is_reported() {
+        let src = format!(
+            "{HELLO}fn greeting(hi: Hello): Str {{\n  \
+             match (hi) {{\n    \
+             Hello.World | Hello.World | Hello.Now(_) => \"a\",\n  }}\n}}\n"
+        );
+        assert_eq!(
+            findings(&src),
+            vec![("unreachable-alternative".to_string(), "Hello.World".to_string())]
+        );
+    }
+
+    /// `a | (b | c)` is one flat list of three. The parser reads a run of `|`
+    /// as one node, so the only nesting is the parentheses, and a report has to
+    /// reach through them to the alternative that is actually dead.
+    #[test]
+    fn a_parenthesised_alternation_is_flattened() {
+        let src = format!(
+            "{HELLO}fn greeting(hi: Hello): Str {{\n  \
+             match (hi) {{\n    \
+             Hello.Now(true) => \"a\",\n    \
+             Hello.World | (Hello.Now(true) | Hello.Now(false)) => \"b\",\n  }}\n}}\n"
+        );
+        assert_eq!(
+            findings(&src),
+            vec![("unreachable-alternative".to_string(), "Hello.Now(true)".to_string())]
+        );
+    }
+
+    /// An alternation *inside* a constructor is not an alternative of the arm.
+    /// It counts toward coverage — that is what makes this `match` exhaustive
+    /// and its second arm live — and it is not reported one branch at a time.
+    #[test]
+    fn an_alternation_inside_a_constructor_is_not_an_arm_alternative() {
+        let src = format!(
+            "{HELLO}fn greeting(hi: Hello): Str {{\n  \
+             match (hi) {{\n    \
+             Hello.World => \"a\",\n    \
+             Hello.Now(true | false) => \"b\",\n  }}\n}}\n"
+        );
+        assert_eq!(codes(&src), Vec::<String>::new());
+    }
+
+    /// A guarded arm covers nothing below it, so an alternative that repeats
+    /// one of its patterns is live — the guard may have failed.
+    #[test]
+    fn a_guarded_arm_does_not_kill_the_alternatives_below_it() {
+        let src = format!(
+            "{HELLO}fn greeting(hi: Hello, ok: Bool): Str {{\n  \
+             match (hi) {{\n    \
+             Hello.Now(_) if ok => \"a\",\n    \
+             Hello.Now(_) | Hello.World => \"b\",\n  }}\n}}\n"
+        );
+        assert_eq!(codes(&src), Vec::<String>::new());
+    }
+
+    /// The guard does not save an alternative from the one beside it, though:
+    /// both halves of `A | A if g` are behind the same guard, so the second
+    /// still never decides anything.
+    #[test]
+    fn a_guard_does_not_save_an_alternative_from_its_own_arm() {
+        let src = format!(
+            "{HELLO}fn greeting(hi: Hello, ok: Bool): Str {{\n  \
+             match (hi) {{\n    \
+             Hello.World | Hello.World if ok => \"a\",\n    \
+             _ => \"b\",\n  }}\n}}\n"
+        );
+        assert_eq!(
+            findings(&src),
+            vec![("unreachable-alternative".to_string(), "Hello.World".to_string())]
+        );
+    }
+
+    /// A rest pattern is expanded into one row per length it can match, and
+    /// those rows are not alternatives anybody wrote. `[_, ..rest]` covers
+    /// length one, which `[_]` above it already took, and it is still the
+    /// pattern that covers every longer array.
+    #[test]
+    fn a_rest_patterns_expansion_is_not_an_alternative() {
+        let src = "fn n(xs: [Bool]): Int {\n  \
+                   match (xs) {\n    \
+                   [] => 0,\n    \
+                   [_] => 1,\n    \
+                   [_, ..rest] => 2,\n  }\n}\n";
+        assert_eq!(codes(src), Vec::<String>::new());
+    }
+
+    /// A pattern the checker could not build is a wildcard to this pass, and a
+    /// wildcard would make everything after it look dead. The finer question is
+    /// not asked at all of a `match` that already has an error in it.
+    #[test]
+    fn a_broken_pattern_does_not_cascade_into_dead_alternatives() {
+        let src = format!(
+            "{HELLO}fn greeting(hi: Hello): Str {{\n  \
+             match (hi) {{\n    \
+             Hello.Nope => \"a\",\n    \
+             Hello.Now(_) | Hello.World => \"b\",\n    \
+             _ => \"c\",\n  }}\n}}\n"
+        );
+        let reported = codes(&src);
+        assert!(
+            !reported.iter().any(|c| c == "unreachable-alternative"),
+            "an unresolved variant should not make the arms after it look dead: {reported:?}"
+        );
     }
 }
