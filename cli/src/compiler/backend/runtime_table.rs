@@ -538,8 +538,8 @@ pub const ENTRIES: &[Entry] = &[
         Ret::Opt,
     ),
     e(
-        "testing_context.TestEnv.arguments",
-        "buri_rt_testing_context_test_env_arguments",
+        "testing_context.TestEnv.args",
+        "buri_rt_testing_context_test_env_args",
         Ret::Out,
     ),
     // -- core/host/testing --------------------------------------------------
@@ -664,9 +664,9 @@ pub const ENTRIES: &[Entry] = &[
     ),
     e("host_testing.env", "buri_rt_host_testing_env", Ret::Out),
     e("host_testing.TestEnv.variables", "buri_rt_host_testing_test_env_variables", Ret::Out),
-    e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
-    e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
     e("host_testing.TestEnv.arguments", "buri_rt_host_testing_test_env_arguments", Ret::Out),
+    e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
+    e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.

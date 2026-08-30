@@ -739,18 +739,18 @@ test "a seeded generator answers a float in the unit interval" {
 test "a fresh environment has no variables and no arguments" {
   let ctx = context { Alloc: alloc(), Env: env() };
   assert.isTrue(ctx.variable("HOME").isNone());
-  assert.eq(ctx.arguments().len(), 0);
+  assert.eq(ctx.args().len(), 0);
 }
 
 test "the two builders compose in either order" {
-  let one = env().variables([("HOME", "/tmp")]).args(["--verbose"]);
-  let two = env().args(["--verbose"]).variables([("HOME", "/tmp")]);
+  let one = env().variables([("HOME", "/tmp")]).arguments(["--verbose"]);
+  let two = env().arguments(["--verbose"]).variables([("HOME", "/tmp")]);
   let a = context { Alloc: alloc(), Env: one };
   let b = context { Alloc: alloc(), Env: two };
   assert.eq(assert.some(a.variable("HOME")), "/tmp");
   assert.eq(assert.some(b.variable("HOME")), "/tmp");
-  assert.eq(a.arguments().join(a, " "), "--verbose");
-  assert.eq(b.arguments().join(b, " "), "--verbose");
+  assert.eq(a.args().join(a, " "), "--verbose");
+  assert.eq(b.args().join(b, " "), "--verbose");
 }
 
 test "a builder answers a new environment and leaves its receiver empty" {
@@ -765,12 +765,12 @@ test "a builder answers a new environment and leaves its receiver empty" {
 test "an environment holds what it was given and nothing else" {
   let ctx = context {
     Alloc: alloc(),
-    Env: env().variables([("HOME", "/tmp"), ("LANG", "C")]).args(["--verbose", "x"]),
+    Env: env().variables([("HOME", "/tmp"), ("LANG", "C")]).arguments(["--verbose", "x"]),
   };
   assert.eq(assert.some(ctx.variable("HOME")), "/tmp");
   assert.eq(assert.some(ctx.variable("LANG")), "C");
   assert.isTrue(ctx.variable("PATH").isNone());
-  let args = ctx.arguments();
+  let args = ctx.args();
   assert.eq(args.len(), 2);
   assert.eq(args.join(ctx, " "), "--verbose x");
 }

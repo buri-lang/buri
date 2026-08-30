@@ -695,7 +695,7 @@ shape of every function that returns a message — did not verify natively at al
 on a program the JavaScript backend compiles and runs; §3.3 says the two *are*
 one type and the interner now says so too. And `cli/tests/crash/` cannot be run
 through this file as it stands, because every case there makes its divisor opaque
-with `env.args(ctx).len()` and `host.HostEnv.arguments` has no native body; the
+with `env.args(ctx).len()` and `host.HostEnv.args` has no native body; the
 rows here use `"".len()` instead, which is opaque to the folder and reaches no
 capability.
 

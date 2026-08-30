@@ -306,11 +306,11 @@
 //! }
 //! ```
 //!
-//! [`buri_rt_argv_init`] is what makes `env.arguments()` exact — `std::env` in
+//! [`buri_rt_argv_init`] is what makes `env.args(ctx)` exact — `std::env` in
 //! a staticlib depends on a platform-specific startup hook that a linker
 //! `--gc-sections` pass is entitled to have opinions about — and it installs
 //! the panic hook that turns a runtime bug into a message rather than a bare
-//! `SIGABRT`. If it is never called, `env.arguments()` falls back to `std::env`
+//! `SIGABRT`. If it is never called, `env.args(ctx)` falls back to `std::env`
 //! and the fallback is correct on both supported platforms; the call is
 //! preferred, not required.
 //!

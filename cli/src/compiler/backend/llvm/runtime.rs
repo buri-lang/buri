@@ -1004,8 +1004,8 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Sum,
     },
     Entry {
-        key: "testing_context.TestEnv.arguments",
-        symbol: "buri_rt_testing_context_test_env_arguments",
+        key: "testing_context.TestEnv.args",
+        symbol: "buri_rt_testing_context_test_env_args",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
@@ -1016,7 +1016,7 @@ pub const ENTRIES: &[Entry] = &[
     // rows: these carry a handle, and `core/host`'s own implementations are
     // empty structs that do not.
     //
-    // A **builder** — `at`, `seed`, `variables`, `args` — takes its receiver
+    // A **builder** — `at`, `seed`, `variables`, `arguments` — takes its receiver
     // and answers a fresh handle through the out-pointer, so it is
     // `Arg::Scalar` in and `Ret::Out` out. The receiver is passed even where
     // the body ignores it (`at`, `seed`): the C signature is the Buri argument
@@ -1326,8 +1326,8 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestEnv.args",
-        symbol: "buri_rt_host_testing_test_env_args",
+        key: "host_testing.TestEnv.arguments",
+        symbol: "buri_rt_host_testing_test_env_arguments",
         args: &[Arg::Scalar, Arg::List],
         ret: Ret::Out,
     },
@@ -1338,8 +1338,8 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Sum,
     },
     Entry {
-        key: "host_testing.TestEnv.arguments",
-        symbol: "buri_rt_host_testing_test_env_arguments",
+        key: "host_testing.TestEnv.args",
+        symbol: "buri_rt_host_testing_test_env_args",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
