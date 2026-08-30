@@ -494,6 +494,7 @@ pub struct X86 {
 
 /// The integer registers either shim names, in encoding order.
 pub const RAX: u32 = 0;
+pub const RCX: u32 = 1;
 pub const RDX: u32 = 2;
 pub const RSP: u32 = 4;
 pub const RSI: u32 = 6;
@@ -831,6 +832,15 @@ const PROT_NONE: u64 = 0;
 /// first, the root, then the exit convention the JavaScript backend already
 /// has — `.Ok(())` flushes and exits 0, `.Err(msg)` writes `msg` to standard
 /// error, flushes and exits 1.
+///
+/// **One call that entry point makes and this one does not**, and the omission
+/// is the decision: `buri_rt_frames_are_per_carrier`. A program built here has
+/// a single Buri stack — [`STACK_SYMBOL`], guarded by `install_guard` — so a
+/// second carrier entering Buri code has nowhere of its own to put a frame, and
+/// `Tasks.parallel` runs its steps one after another on the calling carrier
+/// instead of fanning them out. `cli/runtime/lib.rs` §6 makes that call the
+/// optional one for exactly this reason: silence is the safe answer. Track B's
+/// per-carrier Buri stack (B7) is what lets this entry point make it too.
 ///
 /// The target picks the machine and nothing else: the two bodies below are the
 /// same program in two instruction sets, and a difference between them that is
@@ -1223,6 +1233,38 @@ mod tests {
                 ("Branch26", String::from("buri_rt_flush")),
             ]
         );
+    }
+
+    /// **No entry point here declares that its carriers have frames of their
+    /// own**, and the omission is the safety property rather than an oversight.
+    ///
+    /// `cli/runtime/lib.rs` §6 makes `buri_rt_frames_are_per_carrier` the one
+    /// optional call, and the LLVM backend makes it. A program built here has a
+    /// single Buri stack — [`STACK_SYMBOL`] — and a runtime-driven step works in
+    /// a frame its *call site* set aside, so two steps of one `Tasks.parallel`
+    /// would share it and one that suspends would still be holding it. Making
+    /// the call would turn that into two carriers writing the same frame; not
+    /// making it is `parallel` running its steps one at a time, which is what
+    /// the four shims above already show and what this asserts on purpose.
+    ///
+    /// The two-directional half is `cli/tests/native/llvm.rs`'s
+    /// `the_attribute_discipline_reaches_the_optimized_ir`, which asserts the
+    /// other backend does make it. B7 is what lets this test be deleted.
+    #[test]
+    fn no_entry_point_here_declares_per_carrier_frames() {
+        let shims = [
+            program_entry(ARM64, "buri$main", None),
+            program_entry(X86_64, "buri$main", None),
+            test_entry(ARM64, &[String::from("t0")]),
+            test_entry(X86_64, &[String::from("t0")]),
+        ];
+        for shim in shims {
+            let called = names(shim);
+            assert!(
+                called.iter().all(|(_, n)| n != "buri_rt_frames_are_per_carrier"),
+                "a shim told the runtime its carriers have frames of their own: {called:?}"
+            );
+        }
     }
 
     /// A `main` answering `()` never inspects the return area, so it calls the

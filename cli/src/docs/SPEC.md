@@ -1519,7 +1519,12 @@ An alternation counts toward coverage wherever it appears, not only at the top
 of a pattern: `.Some(true | false)` covers `.Some` completely, exactly as
 `.Some(true) | .Some(false)` does.
 
-Unreachable arms are a compile error, not a warning.
+Unreachable arms are a compile error, not a warning. So is an unreachable
+*alternative*: reachability is asked of each `|` alternative of an arm against
+the arms above it and the alternatives to its left, so `.Now(_) | .World`
+below an arm that already handles `.Now` reports the `.Now(_)` half rather than
+passing because its other half is live. An arm with no live alternative at all
+is the arm-level error.
 
 ---
 
@@ -1823,18 +1828,33 @@ unresolved-name error at the one line that asked for it. Both halves of a grant
 are withheld together — the implementation struct as well as the value — so
 there is nothing left to construct by name.
 
-**Three effects are granted by nobody.** `Tasks` — "run this over every item at
-once" — and `Listen` and `Sockets` — "I accept connections" and "I can write to
-open sockets" — are declared in `core/effect`, and `core/host` declares a
-`HostTasks`, a `HostListen` and a `HostSockets` with a value apiece, and *no*
-platform grants any of those names. `Tasks: host.tasks` is therefore refused on
-every target, with the reason rather than with "no such name", and so are the
-other two. That is deliberate: a signature is the expensive thing to change once
+`Tasks` — "run this over every item at once" — is granted on `LINUX`, `MACOS`
+and `JS`, and withheld from `WEB`, which is the same three as `Fs` and `Net` and
+is withheld for a reason of the same kind: `parallel` returns only when the last
+task has finished, and a page has an interface that a wait is visible in. A
+page's concurrency is its event loop.
+
+**Two effects are granted by nobody.** `Listen` and `Sockets` — "I accept
+connections" and "I can write to open sockets" — are declared in `core/effect`,
+and `core/host` declares a `HostListen` and a `HostSockets` with a value apiece,
+and *no* platform grants either name. `Listen: host.listen` is therefore refused
+on every target, with the reason rather than with "no such name", and so is its
+pair. That is deliberate: a signature is the expensive thing to change once
 programs are written against it, so it lands, is reviewed and is documented
-ahead of the scheduler and the server that will answer it — and because a
-platform *is* the set of effects its host exports, "declared but unreachable"
-needs no second mechanism to say so. Granting one later is an edit to one row of
-the grant table.
+ahead of the server that will answer it — and because a platform *is* the set of
+effects its host exports, "declared but unreachable" needs no second mechanism
+to say so. Granting one later is an edit to one row of the grant table.
+
+`Tasks` is that same shape seen from the other end, and it is worth knowing how
+its grant arrived, because it is what the grant table is *for*. `Tasks` was
+declared first and granted by nobody either — a row with an empty platform list
+— so its signature could be written, reviewed and documented before there was a
+scheduler to argue with, and every `Tasks: host.tasks` was refused everywhere
+with that reason rather than with "no such name". Granting it was an edit to that
+one row. Nothing about a program that had been written against the signature
+changed, and no second mechanism — no "not implemented" flag, no feature gate —
+was ever involved, because an empty set of platforms is an ordinary value of that
+field.
 
 `Listen` and `Sockets` are also the pair that shows what an empty row is *not*
 saying. They will be granted together, because being a server is one authority
