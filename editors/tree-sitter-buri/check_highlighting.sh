@@ -21,14 +21,18 @@
 #      named in UNCOLOURED — the short list of things a grammar cannot know,
 #      which is a local's use, a parameter's use, and a module alias's use.
 #   3. `buri lsp` answers `textDocument/semanticTokens/full` about the same
-#      file, and every token in SERVER gets the type named there — including
-#      every name on the UNCOLOURED list, which is the point: the layer that
-#      resolves is the layer that colours what the grammar left alone.
+#      file, and every token in SERVER gets the type named there, and the
+#      modifier where one is named — including every name on the UNCOLOURED
+#      list, which is the point: the layer that resolves is the layer that
+#      colours what the grammar left alone.
 #
 # Positions are the ones both layers speak in: a zero-based row. A row and the
 # token's text name a token, rather than a column, so that a line reflowing by
 # a space does not read as a regression — and where one row writes the same
 # word twice in two roles, a fourth column pins which one is meant.
+#
+# In SERVER a fourth column is a *modifier* instead: `readonly` for one the
+# token must carry, `!readonly` for one it must not.
 
 set -eu
 
@@ -139,18 +143,22 @@ SERVER="
 6 list namespace
 7 rounded function
 8 fromInt function
-11 MAX_RETRIES variable
+11 MAX_RETRIES variable readonly
 14 UserId type
 17 id property
 20 passwordHash property
 24 Meters type
+26 A typeParameter
+26 B typeParameter
 29 Source type
 31 Shelf enumMember
 33 page property
 40 describe function
+40 C typeParameter
 40 hash variable
 40 Alloc interface
 41 UserId type
+41 id variable !readonly
 43 hash variable
 44 User type
 44 id property
@@ -164,14 +172,17 @@ SERVER="
 47 rounded function
 49 raw variable
 49 shorthand variable
+50 list namespace
 50 range function
-50 MAX_RETRIES variable
+50 MAX_RETRIES variable readonly
+51 list namespace
 51 empty function
 52 Source type
 52 Catalogue enumMember
 53 u2 variable
 53 counts variable
 53 nothing variable
+53 len method
 55 Shelf enumMember
 56 origin variable
 57 shelf variable
@@ -327,7 +338,7 @@ fi
 # `cli/src/language_server/semantic_tokens.rs` declares.
 printf '%s\n' "$data" | tr ',' '\n' | awk -v src="$copy" '
   BEGIN {
-    split("namespace type interface enumMember property function method variable keyword comment string number operator", kind, " ")
+    split("namespace type interface enumMember property function method variable keyword comment string number operator typeParameter", kind, " ")
     rows = 0
     while ((getline line < src) > 0) { text[rows] = line; rows++ }
   }
@@ -336,7 +347,7 @@ printf '%s\n' "$data" | tr ',' '\n' | awk -v src="$copy" '
     count++
     if (count % 5 != 0) next
     if (field[0] > 0) { row += field[0]; character = field[1] } else { character += field[1] }
-    print row, character, kind[field[3] + 1], substr(text[row], character + 1, field[2])
+    print row, character, kind[field[3] + 1], substr(text[row], character + 1, field[2]), field[4]
   }
 ' >"$work/semantic"
 
@@ -344,10 +355,17 @@ printf '%s\n' "$SERVER" >"$work/expected.server"
 
 failures=$(
   awk '
-    FILENAME == ARGV[1] { got[$1 " " $4] = got[$1 " " $4] " " $3; next }
+    BEGIN { bit["declaration"] = 1; bit["definition"] = 2; bit["readonly"] = 4 }
+
+    FILENAME == ARGV[1] {
+      got[$1 " " $4] = got[$1 " " $4] " " $3
+      mods[$1 " " $4] = mods[$1 " " $4] " " $5
+      next
+    }
     # The excused list only asks that the server say something; the table below
     # it asks for a particular answer, and is read second so it wins.
     FILENAME == ARGV[2] && NF == 2 { want[$1 " " $2] = "*"; next }
+    FILENAME == ARGV[3] && NF == 4 { want[$1 " " $2] = $3; modifier[$1 " " $2] = $4; next }
     FILENAME == ARGV[3] && NF == 3 { want[$1 " " $2] = $3; next }
 
     END {
@@ -362,6 +380,18 @@ failures=$(
         for (i = 1; i <= n; i++) {
           if (kinds[i] != want[key]) {
             print "FAIL  row " key " is " kinds[i] ", expected " want[key]
+            bad++
+          }
+        }
+        if (!(key in modifier)) continue
+        name = modifier[key]
+        wanted = 1
+        if (substr(name, 1, 1) == "!") { wanted = 0; name = substr(name, 2) }
+        n = split(mods[key], sets, " ")
+        for (i = 1; i <= n; i++) {
+          carries = int(int(sets[i]) / bit[name]) % 2
+          if (carries != wanted) {
+            print "FAIL  row " key " " (carries ? "carries" : "is missing") " " name
             bad++
           }
         }

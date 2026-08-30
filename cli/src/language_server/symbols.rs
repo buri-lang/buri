@@ -22,7 +22,7 @@ use crate::compiler::semantics::types::{
 };
 use crate::formatting;
 use crate::diagnostics::{FileId, Span};
-use crate::parsing::flat::{self, Location, TypeId, TypeView};
+use crate::parsing::flat::{self, ExprId, ExprView, Location, TypeId, TypeView};
 use crate::parsing::lexer::TokenKind;
 use crate::parsing::tree::{self, ImportClause, Item};
 use std::path::Path;
@@ -46,6 +46,12 @@ pub enum Symbol {
     /// body rather than in the tables, and there is no id that outlives the
     /// walk that found it.
     Local { name: String, ty: Ty, span: Span },
+    /// A generic parameter — the `T` of `struct Pair<A, B>` or of
+    /// `fn describe<C: Alloc>`. Carried by value for a local's reason: it is
+    /// written in a signature and the tables keep it under the declaration
+    /// that introduced it rather than under an id of its own. `span` is where
+    /// it was declared, at a use as well as at the declaration.
+    Generic { name: String, span: Span },
 }
 
 /// A symbol, and the span of the text that named it.
@@ -93,6 +99,8 @@ pub struct Resolver<'a> {
     written: Vec<(Span, Symbol)>,
     /// The string and character literals, as half-open ranges.
     literals: Vec<(u32, u32)>,
+    /// The leading segment of every qualified name, where it names a module.
+    qualifiers: Vec<(Span, Symbol)>,
 }
 
 impl<'a> Resolver<'a> {
@@ -101,7 +109,9 @@ impl<'a> Resolver<'a> {
         let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
         let mut written = Vec::new();
         written_names(analyzed, module, &mut |span, symbol| written.push((span, symbol)));
-        Some(Self { analyzed, text, file, written, literals: literals(text, file) })
+        let mut qualifiers = Vec::new();
+        qualifier_names(analyzed, module, &mut |span, symbol| qualifiers.push((span, symbol)));
+        Some(Self { analyzed, text, file, written, literals: literals(text, file), qualifiers })
     }
 
     /// The symbol one offset names.
@@ -114,8 +124,25 @@ impl<'a> Resolver<'a> {
         if self.literals.iter().any(|(start, end)| *start < offset && offset < *end) {
             return None;
         }
-        declared_here(self.analyzed, self.file, offset)
-            .or_else(|| in_a_body(self.analyzed, self.file, self.text, offset))
+        let found = declared_here(self.analyzed, self.file, offset)
+            .or_else(|| in_a_body(self.analyzed, self.file, self.text, offset));
+        self.qualifier(offset, found.as_ref()).or(found)
+    }
+
+    /// The module a qualified name's leading segment names.
+    ///
+    /// Asked after the body and only when the body's answer is not the word
+    /// under the cursor: the checked expression covering `list.range(…)`
+    /// answers about the call, and at `list` that answer is the callee. A
+    /// local may shadow an alias, and then the same offset really is the
+    /// local — which is what the name comparison keeps.
+    fn qualifier(&self, offset: u32, found: Option<&Found>) -> Option<Found> {
+        let (span, symbol) = self.qualifiers.iter().find(|(s, _)| covers(*s, offset))?;
+        let written = self.text.get(span.start as usize..span.end as usize)?;
+        if found.and_then(|f| name(self.analyzed, &f.symbol)).as_deref() == Some(written) {
+            return None;
+        }
+        Some(Found { symbol: symbol.clone(), span: *span })
     }
 }
 
@@ -167,7 +194,7 @@ pub fn declaration(analyzed: &Analyzed, symbol: &Symbol) -> Span {
             Some(m) => Span::point(m.file, 0),
             None => Span::NONE,
         },
-        Symbol::Local { span, .. } => *span,
+        Symbol::Local { span, .. } | Symbol::Generic { span, .. } => *span,
     }
 }
 
@@ -260,7 +287,7 @@ pub fn name(analyzed: &Analyzed, symbol: &Symbol) -> Option<String> {
             tables.tycon(*con).variants().get(*index).map(|v| v.name.clone())
         }
         Symbol::Module(_) => None,
-        Symbol::Local { name, .. } => Some(name.clone()),
+        Symbol::Local { name, .. } | Symbol::Generic { name, .. } => Some(name.clone()),
     }
 }
 
@@ -285,9 +312,10 @@ pub fn type_of(analyzed: &Analyzed, symbol: &Symbol) -> Option<TyConId> {
         Symbol::TraitMethod { trait_id, method } => {
             tables.trait_(*trait_id).methods.get(*method)?.ret.head()
         }
-        // A trait is not a type, a context is a value of no nameable type, and
-        // a module is neither.
-        Symbol::Trait(_) | Symbol::Context(_) | Symbol::Module(_) => None,
+        // A trait is not a type, a context is a value of no nameable type, a
+        // module is neither, and a generic parameter stands for whichever type
+        // the caller chose rather than for one of its own.
+        Symbol::Trait(_) | Symbol::Context(_) | Symbol::Module(_) | Symbol::Generic { .. } => None,
     }
 }
 
@@ -425,6 +453,9 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
             format!("{name}: {}", types::show(tables, None, &[], ty)),
             Vec::new(),
         ),
+        // The bounds are written beside it and a reader can see them; the name
+        // is the whole of what this symbol knows.
+        Symbol::Generic { name, .. } => (name.clone(), Vec::new()),
     }
 }
 
@@ -542,6 +573,7 @@ pub fn references(analyzed: &Analyzed, symbol: &Symbol) -> Vec<Span> {
     };
     for module in &analyzed.analysis.loaded.modules {
         written_names(analyzed, module, &mut take);
+        qualifier_names(analyzed, module, &mut take);
     }
     let checked = &analyzed.analysis.checked;
     for body in checked.bodies.values() {
@@ -577,7 +609,8 @@ pub(super) fn same(a: &Symbol, b: &Symbol) -> bool {
             con == c && index == i
         }
         (Symbol::Module(x), Symbol::Module(y)) => x == y,
-        (Symbol::Local { span, .. }, Symbol::Local { span: s, .. }) => span == s,
+        (Symbol::Local { span, .. }, Symbol::Local { span: s, .. })
+        | (Symbol::Generic { span, .. }, Symbol::Generic { span: s, .. }) => span == s,
         _ => false,
     }
 }
@@ -736,7 +769,79 @@ fn written_names(
     out: &mut impl FnMut(Span, Symbol),
 ) {
     import_names(analyzed, module, out);
-    written_type_names(analyzed, module, out);
+    let generics = generic_params(module);
+    for param in &generics {
+        out(param.at, Symbol::Generic { name: param.name.clone(), span: param.at });
+    }
+    written_type_names(analyzed, module, &generics, out);
+}
+
+/// One generic parameter, and the declaration it is in scope for.
+struct GenericParam {
+    /// The whole declaration that introduced it, which is where a use of it
+    /// may be written.
+    scope: Span,
+    name: String,
+    /// The name's own span, at the declaration.
+    at: Span,
+}
+
+/// Every generic parameter a module's declarations write.
+///
+/// A generic is the one written name that is in no scope the checker keeps: it
+/// is not a module name, not a table entry, and the elaborated `Ty::Param(i)`
+/// it becomes has lost the letter it was spelled with. So it is read back off
+/// the syntax, together with the declaration it belongs to — which is what
+/// makes a method's `T` and its `impl` head's `T` two different symbols when
+/// the method declares its own.
+fn generic_params(module: &ModuleData) -> Vec<GenericParam> {
+    let tree = &module.ast.tree;
+    let mut out = Vec::new();
+    let mut take = |scope: Span, params: &[tree::GenericParam]| {
+        for p in params {
+            out.push(GenericParam {
+                scope,
+                name: tree.name(p.name).to_string(),
+                at: p.name.span,
+            });
+        }
+    };
+    for item in &module.ast.items {
+        match item {
+            Item::Fn(d) => take(d.span, &d.generics),
+            Item::Struct(d) => take(d.span, &d.generics),
+            Item::Enum(d) => take(d.span, &d.generics),
+            Item::TypeAlias(d) => take(d.span, &d.generics),
+            Item::Trait(d) => {
+                take(d.span, &d.generics);
+                for m in &d.methods {
+                    take(m.span, &m.generics);
+                }
+            }
+            Item::Impl(d) => {
+                take(d.span, &d.generics);
+                for m in &d.methods {
+                    take(m.span, &m.generics);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The generic parameter a one-segment written type names, if it names one.
+///
+/// The innermost scope wins, so a method's own `T` shadows the `impl` head's.
+fn generic_use<'p>(
+    generics: &'p [GenericParam],
+    name: &str,
+    at: Span,
+) -> Option<&'p GenericParam> {
+    generics
+        .iter()
+        .filter(|g| g.name == name && covers(g.scope, at.start) && g.scope.file == at.file)
+        .min_by_key(|g| g.scope.end.saturating_sub(g.scope.start))
 }
 
 /// The path of an import, and every name in its clause.
@@ -776,17 +881,54 @@ fn import_names(analyzed: &Analyzed, module: &ModuleData, out: &mut impl FnMut(S
 fn written_type_names(
     analyzed: &Analyzed,
     module: &ModuleData,
+    generics: &[GenericParam],
     out: &mut impl FnMut(Span, Symbol),
 ) {
     let tree = &module.ast.tree;
     for index in 0..tree.type_nodes().len() {
         let TypeView::Named { path, .. } = tree.ty(TypeId(index as u32)) else { continue };
         for segment in 0..path.len() {
+            let Some(at) = path.get(segment) else { continue };
+            let span = tree.span_of(*at);
+            // A generic parameter shadows everything the module can see, which
+            // is why it is asked before the scopes are.
+            if path.len() == 1 {
+                if let Some(g) = generic_use(generics, tree.text(*at), span) {
+                    out(span, Symbol::Generic { name: g.name.clone(), span: g.at });
+                    continue;
+                }
+            }
             let Some(symbol) = resolve_path(analyzed, module.id, tree, path, segment) else {
                 continue;
             };
-            let Some(at) = path.get(segment) else { continue };
-            out(tree.span_of(*at), symbol);
+            out(span, symbol);
+        }
+    }
+}
+
+/// The namespace an expression qualifies a name with: the `list` of
+/// `list.range(…)`.
+///
+/// The checker resolves the whole of `list.range` to the function and keeps no
+/// span for the alias, so an offset on the alias got the call's answer. The
+/// syntax still has it, as the `Ident` a field access reads through. Whether
+/// that `Ident` really is the alias — rather than a local shadowing it — is
+/// [`Resolver::qualifier`]'s question, which is where these are read.
+pub(super) fn qualifier_names(
+    analyzed: &Analyzed,
+    module: &ModuleData,
+    out: &mut impl FnMut(Span, Symbol),
+) {
+    let Some(scope) = analyzed.analysis.checked.scopes.get(module.id.index()) else { return };
+    if scope.namespaces.is_empty() {
+        return;
+    }
+    let tree = &module.ast.tree;
+    for index in 0..tree.nodes().len() {
+        let ExprView::Field { base, .. } = tree.expr(ExprId(index as u32)) else { continue };
+        let ExprView::Ident { name, span } = tree.expr(base) else { continue };
+        if let Some(id) = scope.namespaces.get(name) {
+            out(span, Symbol::Module(*id));
         }
     }
 }
@@ -848,6 +990,22 @@ fn builtin_type(tables: &Tables, name: &str) -> Option<TyConId> {
         other => *types::Prim::all().iter().find(|p| p.name() == other)?,
     };
     Some(tables.prim_id(prim))
+}
+
+/// Whether a function belongs to a type — a method, in the protocol's sense of
+/// a member function, rather than a free function.
+///
+/// The tables spell that two ways and neither alone is the whole test.
+/// `FnInfo::self_ty` names the type constructor a method is declared on, but
+/// `impl<T> [T]` has no constructor to name, so `core/list`'s methods carry
+/// `None` and `counts.len()` read as a free function while `name.len()` read
+/// as a method. A `self` parameter is the other half, and it is the one a
+/// static method like `Int.maxValue` — declared on a type, reached through no
+/// value — does not have.
+pub(super) fn is_method(tables: &Tables, id: FnId) -> bool {
+    let info = tables.fn_info(id);
+    info.self_ty.is_some()
+        || info.params.first().is_some_and(|p| p.role == types::ParamRole::SelfParam)
 }
 
 pub(super) fn symbol_of(sym: &Sym) -> Option<Symbol> {

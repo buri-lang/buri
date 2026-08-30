@@ -18,12 +18,18 @@ export fn restock(item: Item, count: I64): Item {
     Item { name: item.name, price: item.price, stock: Stock.OnHand { count: count } }
 }
 
+/// The first of two things, whichever kinds they are.
+fn first<A, B>(pair: (A, B)): A {
+    pair.0
+}
+
 export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Stdout: host.stdout,
     };
-    let apple = restock(listing("apple", 300), 12);
+    let pair = (restock(listing("apple", 300), 12), "shelf");
+    let apple = first(pair);
     let _ = ctx.println(edge(apple));
     .Ok(())
 }
