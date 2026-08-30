@@ -12,9 +12,16 @@
 
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, Net, Proc, Rand, Stderr, Stdin, Stdout,
-  IoError, NetError, NetResponse, Region,
+  IoError, NetError, NetResponse, Region, Request, Response,
 };
-from "ui/effect/lib.buri" import { Fetch, FetchError, Request, Scope, Ui, Watch };
+// `ui/effect` declares a `Request` of its own — the callback-shaped client's,
+// with a `Str` method and a `Str` body. It is aliased rather than the other
+// way round because `core/effect`'s pair is the canonical one now: `Net.fetch`
+// takes it, a server hands it to a handler, and `Fetch` is retired whole in a
+// later slice.
+from "ui/effect/lib.buri" import {
+  Fetch, FetchError, Request as UiRequest, Scope, Ui, Watch,
+};
 
 export struct HostAlloc {}
 impl Alloc for HostAlloc {
@@ -57,7 +64,7 @@ impl Fs for HostFs {
 
 export struct HostNet {}
 impl Net for HostNet {
-  fn fetch(self, method: Str, url: Str, body: Str): Result<NetResponse, NetError>;
+  fn fetch(self, request: Request): Result<Response, NetError>;
 }
 
 export struct HostClock {}
@@ -106,7 +113,7 @@ export struct HostFetch {}
 impl Fetch for HostFetch {
   fn fetch(
     self,
-    request: Request,
+    request: UiRequest,
     done: fn(HostFetch, Result<NetResponse, FetchError>) => (),
   ): ();
 }
