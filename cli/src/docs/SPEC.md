@@ -1976,6 +1976,53 @@ The standard library provides `*Ctx` variants (`list.mapCtx`, `list.filterCtx`,
 combinator does not fit. This is the sharpest trade-off in the language, and
 Section 15 lists it as the first open question.
 
+**A callback declared by an effect is handed a context only if the declaration
+names one, and `Self` never names one.** This is the capture rule read from the
+other end. An effect method may take a callback — `Tasks.parallel` takes the
+step that runs on every item — and that callback cannot close over a context, so
+whatever authority it is to have must arrive as its first parameter. Two
+different values could arrive there, and the declaration says which:
+
+```buri ignore why="not yet converted to a compiled example: it declares an effect, which only a platform module may do"
+export effect Tasks {
+  // `ctx` is the caller's whole context, and the step is handed it.
+  fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
+}
+
+export effect Listen {
+  // `Self` is the acceptor — the type implementing `Listen` — and the handler
+  // is handed that.
+  fn listen(self, address: Str, port: Int, onRequest: fn(Self, Request) => Response): Result<(), NetError>;
+}
+```
+
+`Self` is the **implementing type** everywhere it is written: in an `impl`
+head, in an effect's declaration, and inside a callback's parameter list. It is
+not the receiver. Through a `context { … }` value the two differ — a context
+*names* a value that implements the effect rather than being one — and the
+implementation is what `Self` means at every one of those points (Section 10.1).
+
+So an effect that wants to hand a callback the **caller's** authority takes the
+caller's context as an ordinary `ctx` parameter and spells the callback
+`fn(C, …)`. The caller passes the same value twice, once as the receiver and
+once as `ctx`, and the two parameters mean different things: the receiver
+chooses the implementation, and `ctx` is what the work is done with.
+
+Naming it rather than overloading `Self` is what keeps an effect an ordinary
+interface (Section 10.9). A callback parameter that meant "the caller's context"
+would have a type no implementation could name and no implementation could
+produce a value of, so no `impl` written in Buri could ever call its own
+callback — the effect would be implementable only by the compiler. With `C` in
+the signature, a hand-written implementation has both a name for the type and a
+value of it, and a fake in a test runs its steps exactly as the shipping
+implementation does.
+
+A callback whose first parameter is `Self` receives strictly less than its
+caller had: an acceptor grants `Listen` and nothing else, so a handler handed
+one cannot allocate, print, or start a task. That is the right answer where the
+callback is meant to inspect the implementation, and the wrong one everywhere
+else, which is why the choice is written down per method rather than inferred.
+
 ### 10.7 Calling convention
 
 **receiver first, context second, everything else after** — which is now enforced

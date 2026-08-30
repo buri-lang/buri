@@ -193,6 +193,11 @@ fn squares<C: Alloc + Tasks>(ctx: C, ns: [Int]): [Int] {
 }
 ```
 
+The `c` a task is handed is the **caller's whole context** — every effect `ctx`
+carried, so a task can do anything its caller could and nothing it could not.
+It arrives as a parameter because a lambda may not capture a context
+(Section 10.6).
+
 How much actually runs at once is the platform's business and not the
 signature's: JavaScript starts the tasks together and awaits them together, and
 the native runtime runs them in index order today. Both answer the same list,

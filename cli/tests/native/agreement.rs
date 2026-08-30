@@ -2165,6 +2165,90 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// A task is handed the **caller's context**, and reads a value out of it, on
+/// all three backends.
+///
+/// The test above cannot see this and never could. Every implementation in
+/// `core/host` is an empty struct, so a context built entirely out of them is
+/// zero words wide — and so is any one of its bindings — which makes "the step
+/// was handed the context" and "the step was handed the scheduler" the same
+/// bytes. The step's first parameter was the second of those for as long as
+/// `parallel` spelled it `Self`, and nothing above would have noticed.
+///
+/// So this program binds a `Clock` **it wrote itself**, carrying an `I64`. An
+/// effect is an ordinary interface and anyone may write a type satisfying it
+/// (SPEC 10.9), so a program may, and now the context is a word wide and the
+/// scheduler is not: a step handed the wrong one answers `0` where it should
+/// answer `7`, or reads a pointer that is not one.
+///
+/// Four claims, and each of them fails differently if the wrong value arrives:
+///
+///  * **one effect out of the context** — `c.nowMillis()` inside a step. The
+///    reduced repro: `[7, 9]` where `[12, 14]` was promised.
+///  * **two effects at once** — `str.format` needs the `Alloc` and reads the
+///    `Clock`, so a step handed a value satisfying only `Tasks` could satisfy
+///    neither.
+///  * **nested** — the inner `parallel`'s receiver is the context the outer
+///    step was handed, so the value has to survive going out to a step and
+///    coming back in as a receiver.
+///  * **the same context afterwards** — read once more in the caller's own
+///    frame, so a step that consumed or moved what it was handed shows up
+///    here rather than as a leak nobody looks at.
+#[test]
+fn a_task_is_handed_the_callers_context_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.parallel context",
+        r#"
+from "core/effect/lib.buri" import { Alloc, Clock, Stdout, Tasks };
+from "core/host/lib.buri" import * as host;
+from "core/tasks/lib.buri" import * as tasks;
+from "core/str/lib.buri" import * as str;
+
+/// A `Clock` a program wrote, carrying a word — so the context that binds it is
+/// a word wide and is not the same value as the scheduler beside it.
+struct Ticker {
+  at: I64,
+}
+
+impl Clock for Ticker {
+  fn nowMillis(self): I64 { self.at }
+  fn sleepMillis(self, millis: Int): () { () }
+}
+
+fn show<C: Alloc>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Clock: Ticker { at: 5 },
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+
+  // One effect, read inside the step.
+  let stamped = tasks.parallel(ctx, [7, 9], fn(c, i, x) => c.nowMillis() + x);
+  let _ = ctx.println(show(ctx, stamped.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))));
+
+  // Two effects in one expression: `Alloc` to build the string, `Clock` to
+  // fill it.
+  let both = tasks.parallel(ctx, [7, 9], fn(c, i, x) => str.format(c, "${c.nowMillis()}:${i}:${x}"));
+  let _ = ctx.println(show(ctx, both));
+
+  // The context handed out to a step and back in as a receiver.
+  let nested = tasks.parallel(ctx, [7], fn(c, i, x) =>
+    tasks.parallel(c, [x, x], fn(d, j, y) => d.nowMillis() + y + j).fold(fn(a, m) => a + m, 0));
+  let _ = ctx.println(show(ctx, nested.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))));
+
+  // And the caller's own copy still answers.
+  let _ = ctx.println("${ctx.nowMillis()}");
+  .Ok(())
+}
+"#,
+        concat!("12,14\n", "5:0:7,5:1:9\n", "25\n", "5\n"),
+    );
+}
+
 /// A task that aborts stops the program, with the same message and the same
 /// status on every backend — and with what was printed before it flushed.
 ///
