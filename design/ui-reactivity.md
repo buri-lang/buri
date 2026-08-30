@@ -508,12 +508,20 @@ language one, and the existing machinery covers it:
   Telling the first three apart from each other is a table edit, not new
   machinery, and is deferred (see Open).
 
-  The eleventh non-UI effect, `Tasks`, is granted by **nobody**, and that is the
-  same mechanism read in its third direction. Its row names an empty platform
-  list, so the names exist, the signature is fixed and reviewable, and every
-  `Tasks: host.tasks` is refused with the reason until a scheduler answers
-  `parallel`. A table whose rows can be empty is what lets a declaration land
-  before its runtime without a second "not implemented yet" flag anywhere.
+  Three more non-UI effects — `Tasks`, `Listen` and `Sockets` — are granted by
+  **nobody**, and that is the same mechanism read in its third direction. Each
+  row names an empty platform list, so the names exist, the signatures are
+  fixed and reviewable, and every `Tasks: host.tasks`, `Listen: host.listen`
+  and `Sockets: host.sockets` is refused with the reason until a scheduler
+  answers `parallel` and an acceptor answers `listen`. A table whose rows can
+  be empty is what lets a declaration land before its runtime without a second
+  "not implemented yet" flag anywhere.
+
+  The two server effects also show the limit of what an empty row claims. They
+  are granted **together** — being a server is one authority in two halves —
+  and when they are granted, `JS` and `WEB` still will not have them, because a
+  page does not hold a port open. An empty row says nobody grants this today,
+  never that everybody eventually will.
 - **Email is a different effect grant, not a lesser web.** Its host exports
   rendering but nothing interactive — no `Ui`, no `Fetch`; a `render` evaluates
   the tree once (`Const` and `Computed` props resolve; `Cell` has nothing to
@@ -626,9 +634,10 @@ design is *for*.
   `LINUX`, `MACOS` and `JS` all still grant the same ten effects — so
   `Fs: host.fs` under `platform: JS` compiles, which it should not. Telling them
   apart is a table edit and a reject case.
-- **A scheduler for `Tasks`.** The effect is declared and its row is empty, so
-  no platform grants it. Granting it is a table edit; earning the grant is the
-  runtime work.
+- **A scheduler for `Tasks`, and an acceptor for `Listen`/`Sockets`.** The three
+  effects are declared and their rows are empty, so no platform grants them.
+  Granting one is a table edit; earning the grant is the runtime work. The two
+  server effects move together and never onto `JS` or `WEB`.
 - **A per-target vocabulary check.** A style or widget with no meaning on some
   target — hover in email, a form in a static render. Backend degradation with a
   warning is the answer until real components hit it.
