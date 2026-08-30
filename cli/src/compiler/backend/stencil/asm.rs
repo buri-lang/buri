@@ -79,6 +79,7 @@
 use super::abi::StencilTarget;
 use super::object::RelKind;
 use super::region::Target;
+use crate::compiler::backend::carrier;
 
 /// Whether a `linux-x86_64` build can be made at all.
 ///
@@ -1063,9 +1064,260 @@ fn test_entry_x86_64(tests: &[String]) -> X86 {
     a
 }
 
+// ---------------------------------------------------------------------------
+// The carrier door
+// ---------------------------------------------------------------------------
+
+/// **`void entry(void *state, void *out)`** — the C door into one Buri
+/// function, for a caller that is not this artifact's own `main`.
+///
+/// `backend/carrier.rs` is the signature and the argument order; this is the
+/// stencil half of it, and the whole of what it adds to the shape
+/// [`program_entry`] already has is *where the Buri stack comes from*:
+///
+/// ```text
+///   program_entry   x0 <- buri$stencil$stack        the process's one block
+///   carrier_entry   x0 <- buri_rt_stack_acquire()   this carrier's own
+/// ```
+///
+/// That one line is the slice. `main` keeps the `__bss` block — a program that
+/// never starts a second carrier maps nothing and faults nowhere new — and a
+/// carrier gets 64 MiB with its own 1 MiB `PROT_NONE` guard, so a runaway
+/// recursion on it faults at *its* boundary instead of writing over the frames
+/// of whichever carrier holds the static block.
+///
+/// `ret_bytes` is the callee's return area, which begins at offset 0 of its
+/// frame; it is copied through `out` in whole words, so `out` must have room
+/// for `ret_bytes` rounded up to eight. Zero copies nothing and never reads
+/// `out`, which is what makes a null one legal for a callee that answers
+/// nothing.
+///
+/// `state` is passed and not read — `carrier.rs` says why the parameter exists
+/// before the caller that fills it does.
+pub fn carrier_entry(target: StencilTarget, callee: &str, ret_bytes: u32) -> Shim {
+    if target.is_arm64() {
+        return carrier_entry_arm64(callee, ret_bytes).into_shim();
+    }
+    carrier_entry_x86_64(callee, ret_bytes).into_shim()
+}
+
+/// The words of a return area, which is what the copy below is counted in.
+fn ret_words(ret_bytes: u32) -> u32 {
+    ret_bytes.div_ceil(8)
+}
+
+/// The scratch a door keeps on the **machine** stack across its three calls:
+/// the `out` pointer it was handed, and the stack it acquired.
+///
+/// Sixteen bytes, which is also the alignment both ABIs want at a call — so
+/// the one `sub sp` is the frame and the correction at once.
+const DOOR_FRAME: u32 = 16;
+const DOOR_OUT: u32 = 0;
+const DOOR_BASE: u32 = 8;
+
+fn carrier_entry_arm64(callee: &str, ret_bytes: u32) -> Asm {
+    let mut a = Asm::new();
+    a.stp_fp_lr();
+    a.sub_imm(SP, SP, DOOR_FRAME);
+    // `out` has to outlive `buri_rt_stack_acquire` and the body; `state` does
+    // not, because nothing reads it.
+    a.str_off(arg_reg_a64(carrier::OUT), SP, DOOR_OUT);
+    a.bl_symbol(carrier::STACK_ACQUIRE);
+    // The answer *is* the frame pointer the body wants, so there is no move
+    // between these two instructions — and the body answers the same `x0`,
+    // which is what the copy below reads the return area off.
+    a.str_off(X0, SP, DOOR_BASE);
+    a.bl_symbol(callee);
+
+    if ret_words(ret_bytes) > 0 {
+        a.ldr(X1, SP, DOOR_OUT);
+        for w in 0..ret_words(ret_bytes) {
+            a.ldr(X9, X0, w * 8);
+            a.str_off(X9, X1, w * 8);
+        }
+    }
+
+    a.ldr(X0, SP, DOOR_BASE);
+    a.bl_symbol(carrier::STACK_RELEASE);
+    a.add_imm(SP, SP, DOOR_FRAME);
+    a.ldp_fp_lr();
+    a.ret();
+    a
+}
+
+/// [`carrier_entry`] for SysV x86-64.
+///
+/// The one structural difference is [`program_entry_x86_64`]'s: an emitted
+/// body answers its frame pointer in `rax` rather than in the register it was
+/// handed, so the return area is read off `rax` and the acquired base has to
+/// be kept for the release rather than still being in `rdi`.
+fn carrier_entry_x86_64(callee: &str, ret_bytes: u32) -> X86 {
+    let mut a = X86::new();
+    // `rsp % 16` is 8 on entry; the push makes it 0 and `sub #16` keeps it, so
+    // every `call` below is made on a sixteen-aligned stack.
+    a.push_rbp();
+    a.sub_imm(RSP, DOOR_FRAME);
+    a.str_off(arg_reg_sysv(carrier::OUT), RSP, DOOR_OUT);
+    a.call_symbol(carrier::STACK_ACQUIRE);
+    a.str_off(RAX, RSP, DOOR_BASE);
+    a.mov_reg(RDI, RAX);
+    a.call_symbol(callee);
+
+    if ret_words(ret_bytes) > 0 {
+        a.ldr(RSI, RSP, DOOR_OUT);
+        for w in 0..ret_words(ret_bytes) {
+            a.ldr(RDX, RAX, w * 8);
+            a.str_off(RDX, RSI, w * 8);
+        }
+    }
+
+    a.ldr(RDI, RSP, DOOR_BASE);
+    a.call_symbol(carrier::STACK_RELEASE);
+    a.add_imm(RSP, DOOR_FRAME);
+    a.pop_rbp();
+    a.ret();
+    a
+}
+
+/// Argument register `pos` on A64: `x0`..`x7`, which is the register number.
+///
+/// A function of the *position* rather than a constant at the one use, so that
+/// `carrier::STATE` and `carrier::OUT` are what decide which register the door
+/// reads — moving one of them moves the emitted instruction, which is what
+/// makes the shared table load-bearing rather than decorative.
+fn arg_reg_a64(pos: usize) -> u32 {
+    u32::try_from(pos).unwrap_or(0)
+}
+
+/// Argument register `pos` in the SysV integer sequence.
+///
+/// The first three are all this ABI has words for; a fourth would be `rcx`,
+/// which `X86` has no name for yet and which a widening would have to add.
+fn arg_reg_sysv(pos: usize) -> u32 {
+    match pos {
+        0 => RDI,
+        1 => RSI,
+        _ => RDX,
+    }
+}
+
+/// The carrier entry signature this backend emits its door against, in
+/// `backend/carrier.rs`'s canonical spelling.
+///
+/// This is the *reference* side of the byte-for-byte comparison: the door
+/// above reads its argument registers through [`arg_reg_a64`] /
+/// [`arg_reg_sysv`] at `carrier::OUT`, and copies the return area through a
+/// pointer rather than answering one, so the constant rendered here is the one
+/// the machine code was written from. `llvm::emit::carrier_signature` answers
+/// the same question by reading a real `FunctionValue`'s type back out of a
+/// module, and `the_two_carrier_doors_have_one_signature` diffs them.
+pub fn carrier_signature() -> Vec<u8> {
+    carrier::ENTRY.render()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The carrier stack is the size the runtime maps.**
+    ///
+    /// `cli/runtime/memory.rs` mmaps a carrier's block and this file emits the
+    /// process's own; the two are in two crates that cannot see each other, so
+    /// nothing but a pair of tests naming the same numbers keeps them equal. A
+    /// carrier given less than the process gets would fault at a depth the
+    /// process survives, which reads as a stack bug and is a concurrency one.
+    /// The runtime's half is `memory::tests::a_carrier_stack_is_the_size_the_
+    /// static_block_is`.
+    #[test]
+    fn the_carrier_stack_is_the_size_the_runtime_maps() {
+        assert_eq!(STACK_USABLE, 64 * 1024 * 1024);
+        assert_eq!(GUARD_BYTES, 1024 * 1024);
+        assert_eq!(STACK_BYTES, 65 * 1024 * 1024);
+        assert_eq!(1u64 << STACK_ALIGN, 16 * 1024);
+    }
+
+    /// **The A64 door acquires a stack, calls the body, and gives it back** —
+    /// in that order and with nothing between the acquire and the body.
+    ///
+    /// The relocations are what say so: three symbols, and the middle one is
+    /// the callee. A door that had kept `program_entry`'s `adrp` pair would
+    /// name `buri$stencil$stack` here, which is the mutation this asserts
+    /// against.
+    #[test]
+    fn the_a64_door_takes_its_stack_from_the_runtime() {
+        let door = carrier_entry_arm64("body", 8);
+        let (_, relocs) = door.finish();
+        let named: Vec<String> = relocs
+            .iter()
+            .map(|(_, _, t)| match t {
+                Target::Symbol(s) => s.clone(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(named, vec!["buri_rt_stack_acquire", "body", "buri_rt_stack_release"]);
+    }
+
+    /// The same, for SysV x86-64. One emitter per machine and the same three
+    /// calls in the same order: a difference between the two that the ISA does
+    /// not force is a bug in one of them ([`program_entry`]).
+    #[test]
+    fn the_sysv_door_takes_its_stack_from_the_runtime() {
+        let door = carrier_entry_x86_64("body", 8);
+        let (_, relocs) = door.finish();
+        let named: Vec<String> = relocs
+            .iter()
+            .map(|r| match &r.2 {
+                Target::Symbol(s) => s.clone(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(named, vec!["buri_rt_stack_acquire", "body", "buri_rt_stack_release"]);
+    }
+
+    /// **A wider return area is a longer copy, and no return area is none.**
+    ///
+    /// The copy is the door's only variable part, so its length is the one
+    /// thing about a door that depends on the callee. Zero bytes never reads
+    /// `out`, which is what makes a null one legal.
+    #[test]
+    fn the_return_copy_is_as_wide_as_the_return_area() {
+        assert_eq!(ret_words(0), 0);
+        assert_eq!(ret_words(1), 1);
+        assert_eq!(ret_words(8), 1);
+        assert_eq!(ret_words(9), 2);
+        let empty = words(carrier_entry_arm64("body", 0)).len();
+        let one = words(carrier_entry_arm64("body", 8)).len();
+        let three = words(carrier_entry_arm64("body", 24)).len();
+        // One `ldr` of `out`, then a load and a store per word.
+        assert_eq!(one, empty + 3);
+        assert_eq!(three, empty + 7);
+    }
+
+    /// **The door reads the argument register `carrier::OUT` names.**
+    ///
+    /// The shared table is load-bearing rather than decorative: moving `OUT`
+    /// moves the instruction, on both machines. `x1` is register 1 in the
+    /// `str` encoding's `Rt` field; `rsi` is the SysV second integer argument.
+    #[test]
+    fn the_door_saves_the_argument_register_the_shared_table_names() {
+        assert_eq!(arg_reg_a64(carrier::STATE), X0);
+        assert_eq!(arg_reg_a64(carrier::OUT), X1);
+        assert_eq!(arg_reg_sysv(carrier::STATE), RDI);
+        assert_eq!(arg_reg_sysv(carrier::OUT), RSI);
+        // And it is the register the second instruction after the prologue
+        // stores: `str x1, [sp, #0]`.
+        let got = words(carrier_entry_arm64("body", 0));
+        let store = got.get(3).copied().unwrap_or(0);
+        assert_eq!(store & 31, arg_reg_a64(carrier::OUT), "the door saved the wrong register");
+    }
+
+    /// The signature this backend emits against is the shared one, spelled the
+    /// one canonical way. `llvm::emit::carrier_signature` is compared to this.
+    #[test]
+    fn the_door_signature_is_the_shared_one() {
+        assert_eq!(carrier_signature(), b"void(ptr,ptr)".to_vec());
+        assert_eq!(carrier_signature(), carrier::ENTRY.render());
+    }
 
     fn words(a: Asm) -> Vec<u32> {
         let (bytes, _) = a.finish();

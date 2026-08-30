@@ -1456,6 +1456,34 @@ mod tests {
     use super::*;
     use crate::compiler::backend::runtime_native::symbol_for;
 
+    /// **The two carrier-stack entries are symbols with no row, and that is
+    /// the answer rather than an omission.**
+    ///
+    /// `buri_rt_stack_acquire` and `buri_rt_stack_release` are `buri_rt_*`
+    /// entries this backend never calls, and the reason is the whole shape of
+    /// the B7/B8 pair: a Buri frame here *is* a machine frame, so a carrier
+    /// entering through `carrier.rs`'s door needs no second stack and no guard
+    /// of its own — its thread's is the OS's. The frame-threaded backend calls
+    /// them from `stencil/asm.rs`, by name, out of a hand-written shim rather
+    /// than through any table.
+    ///
+    /// A row here would be worse than useless: [`ENTRIES`] is keyed by
+    /// *intrinsic key*, and these two have none — no Buri expression names
+    /// them and none should. This is the same two-directional test
+    /// `host_net_fetch_has_a_symbol_and_no_row` makes, for the same reason: an
+    /// absence with a reason, asserted, so that adding one is a deliberate act.
+    #[test]
+    fn the_carrier_stack_entries_have_symbols_and_no_row() {
+        use crate::compiler::backend::carrier;
+        for symbol in [carrier::STACK_ACQUIRE, carrier::STACK_RELEASE] {
+            assert!(symbol.starts_with("buri_rt_"), "{symbol} is not a runtime symbol");
+            assert!(
+                !ENTRIES.iter().any(|e| e.symbol == symbol),
+                "{symbol} gained a row: this backend's door takes no Buri stack"
+            );
+        }
+    }
+
     /// Every entry's symbol is the one the contract's rule produces, so the
     /// table is a *subset* of the contract rather than a second opinion about
     /// it. The three examples `cli/runtime/lib.rs` §1 and VALUE-MODEL.md §10
