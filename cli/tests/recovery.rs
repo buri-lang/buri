@@ -270,6 +270,11 @@ impl Tally {
 /// so a regression fails the suite, and it is expressed as a rate so that
 /// `BURI_RECOVERY_PER_KIND` and `BURI_RECOVERY_SEED` widen the corpus without
 /// moving the bar. Lowering one is the point of the next round of work.
+///
+/// The rates are read off the **whole** population, `BURI_RECOVERY_CAP=0`, and
+/// not off the 300-case stride `a syntax error stays a syntax error` runs by
+/// default: that stride is redrawn whenever a source is added to the
+/// repository, so a bound fitted to one draw moves when the corpus grows.
 fn ceiling(invariant: &str, row: &str) -> usize {
     match (invariant, row) {
         ("one mistake is one diagnostic", "delete-closer") => 6,
@@ -289,7 +294,10 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         ("a syntax error stays a syntax error", "delete-closer") => 24,
         // A twenty-three-case row: a rate needs a little room to be stable.
         ("a syntax error stays a syntax error", "delete-separator ()") => 15,
-        ("a syntax error stays a syntax error", "insert-stray") => 17,
+        // The arm before the comma swallows the next arm's pattern, so `2` gets
+        // a field: the same residue this invariant's sibling caps at 7.
+        ("a syntax error stays a syntax error", "delete-separator {}") => 7,
+        ("a syntax error stays a syntax error", "insert-stray") => 22,
         ("a syntax error stays a syntax error", "swap-adjacent") => 27,
 
         // Every row not named above, and every row of an invariant R2 owns.

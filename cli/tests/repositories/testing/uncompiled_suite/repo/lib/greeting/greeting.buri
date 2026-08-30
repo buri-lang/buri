@@ -1,0 +1,1 @@
+export fn greeting(): Str { "hello" }

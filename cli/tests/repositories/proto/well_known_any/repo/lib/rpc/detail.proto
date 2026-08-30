@@ -1,0 +1,11 @@
+// Not vendored: the message this repository packs into an `Any`, so that the
+// unpacking is a program's own decision rather than the toolchain's.
+
+edition = "2026";
+
+package buri.example;
+
+message ErrorInfo {
+  string reason = 1 [features.field_presence = IMPLICIT];
+  string domain = 2 [features.field_presence = IMPLICIT];
+}
