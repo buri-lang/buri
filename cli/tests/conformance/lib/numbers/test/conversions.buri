@@ -187,26 +187,26 @@ test "narrowing from the bigint side to the number side" {
   assert.eq(assert.ok(c.toI16()), num.minValue<I16>());
 }
 
-// A checked conversion promises that its `.Ok` is the value it was given, so
-// its range is the target's own narrowed to what a `number` holds exactly.
-// I64's maximum is far past that, and so is every value near it.
+// A checked conversion promises that its `.Ok` is the value it was given, and
+// the range it answers about is the target's own: SPEC 6.2.1 defines `.Err` as
+// "does not fit `T`", which is a fact about the type and not about a backend.
 test "narrowing from I128 to I64" {
-  let a: I128 = 9007199254740991;
-  assert.eq(assert.ok(a.toI64()), 9007199254740991);
-  let b: I128 = 9007199254740992;
+  let a: I128 = 9007199254740992;
+  assert.eq(assert.ok(a.toI64()), 9007199254740992);
+  let b: I128 = 9223372036854775808;
   assert.eq(assert.err(b.toI64()).target, "I64");
   let c: I128 = -9007199254740991;
   assert.eq(assert.ok(c.toI64()), -9007199254740991);
 }
 
 test "narrowing from U128 to U64" {
-  let a: U128 = 9007199254740991;
-  assert.eq(assert.ok(a.toU64()), 9007199254740991);
-  let b: U128 = 9007199254740992;
+  let a: U128 = 9007199254740992;
+  assert.eq(assert.ok(a.toU64()), 9007199254740992);
+  let b: U128 = 18446744073709551616;
   assert.eq(assert.err(b.toU64()).target, "U64");
 }
 
-test "U64 into I64 fails above what a number holds exactly" {
+test "U64 into I64 fails above I64's maximum" {
   let a: U64 = 9007199254740991;
   assert.eq(assert.ok(a.toI64()), 9007199254740991);
   let b: U64 = 9223372036854775808;

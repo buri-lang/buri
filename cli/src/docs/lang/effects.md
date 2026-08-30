@@ -178,9 +178,9 @@ sentence without it is false:
   Divergence has the same shape. So an implementation may drop a pure call only
   where it can also show the call returns.
 - **In the absence of undefined behaviour.** Overflow is undefined (Section
-  6.2), and on a target where every number is a double, `I64` arithmetic is
-  undefined above 2^53 without overflowing the nominal type. Two evaluations
-  agree only where the program's behaviour is defined at all.
+  6.2), and what it does depends on the target: a width wraps and a `BigInt`
+  does not. Two evaluations agree only where the program's behaviour is defined
+  at all.
 
 Top-level functions capture nothing but other top-level declarations, which are
 themselves effect-free, so for a top-level `fn` the theorem reduces to: *is

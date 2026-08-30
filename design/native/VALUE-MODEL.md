@@ -22,7 +22,7 @@ one implementation and both consume it.
 | `U8 … U128` | `i8 … i128` | same bits, different operations |
 | `F32`, `F64` | `f32`, `f64` | IEEE-754, as SPEC 6.2 already requires |
 | `Char` | `i32` | a Unicode scalar value, not a code unit |
-| `Int` | `i64` | `Int` is `I64` (`runtime.js`), and now it is |
+| `Int` | `i64` | `Int` is `I64` (`runtime.js`), and now it is — a `BigInt` on JavaScript, so it holds its whole range there too |
 | `Template` | `Str` | see §3.3 |
 
 `Int = I64` for real. The consequence is the whole of §7.
@@ -566,11 +566,11 @@ should not be:
 
 - The amendment **does not make the backends agree**, and it is not a plan to.
   It says what each does and declines to promise either, which is what makes
-  §12's divergence list a list rather than a bug queue. In particular the
-  JavaScript backend still has the 2^53 ceiling: `BigInt` everywhere is the only
-  fix and it taxes every loop counter in every program (SPEC §13, open question
-  8, has the trade). `design/TODO.md`'s native-backend section carries that as the
-  follow-up.
+  §12's divergence list a list rather than a bug queue. The 2^53 ceiling it
+  described is gone at `I64` and `U64`, which are `BigInt`s on the JavaScript
+  backend — the fix open question 8 had refused and which buri-lang/buri#8
+  answered it with. What that costs is measured rather than guessed: see the
+  note under the table.
 - Two documents outside §6.2 said the same thing unconditionally and were
   amended with it: `docs/build/proto.md`'s 64-bit caveat, which is now the
   JavaScript backend's rather than the language's, and `core/num`'s own module
@@ -601,9 +601,9 @@ and fails if a row names a test that is not there, so the column cannot rot.
 
 | # | Behaviour | JavaScript | Native | Verdict | Pinned by |
 |---|---|---|---|---|---|
-| 1 | `Int` overflow | precision loss above 2^53 | two's-complement wrap | Undefined on both (SPEC §6.2). **Divergence, listed.** | `row_01_int_overflow`, `row_01_integer_show_at_the_64_bit_extremes` |
-| 2 | `checkedAdd` above 2^53, within `I64` | `.None` | `.Some` | **Divergence, listed** — and settled by a ruling, after a wave in which it was not. `Checked` is bounded by the numbers the *backend* has: `exact_int_range` on JavaScript (`js/intrinsics.rs`), `int_range` natively (each native backend's `checked`, and `buri_rt_i128_checked` at 128). Both are the same promise — `.Some(v)` is the exact true result as that backend represents numbers — kept over different numbers, and SPEC §6.2.2 is the text. The band between the two bounds is the divergence and it lives *only* here: it came out of `conformance/lib/numbers/test/integers.buri`, which `native/conformance.rs` runs natively and which therefore may only assert what both backends answer. `Saturating` was never bounded this way and is unaffected. | `row_02_checked_above_the_exact_range`, `row_02_saturating_is_bounded_by_the_type_on_both_backends` |
-| 3 | `wrappingMul` at 64 bits | exact while the *intermediate* stays inside 2^53 | exact, native | Must agree — and **the row as written was false**. `$wrapTo` wrapped a product that had already been rounded, so `U32.wrappingMul(0xffffffff, 0xffffffff)` answered 0 rather than 1: a wrong answer at 32 bits, where both operands and the answer are exact doubles, not a 2^53 ceiling. `$wrapOp` computes in `BigInt` wherever the type's *whole range* is exact, which is every width up to 32 bits. At 64 and 128 it deliberately does not: the operands there may already be rounded — `maxValue<U64>()` is 2^64 — so exactness downstream is not a repair, and the compensating rounding is what makes `maxValue<U64>().wrappingAdd(1) == 0` on that backend, which the conformance corpus pins. So the true statement of this row is: **agrees at every width up to 32 bits, and above that agrees wherever the intermediate stays inside 2^53**. `(2^62 + 1024).wrappingMul(4)` is 4096 natively and 0 on JavaScript, and that case is row 1. Row 2's ruling does not touch this row: natively `wrapping*` **is** the machine's own add, subtract and multiply (in `llvm/emit.rs` `wrappingAdd` and `add` are the same instruction, because §3.4 emits no `nsw`/`nuw`), so it was exact at the type's width before the ruling and after it. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
+| 1 | `Int` overflow | the exact sum, unbounded | two's-complement wrap | Undefined on both (SPEC §6.2). **Divergence, listed — and a different one than it was.** `I64` and `U64` are `BigInt`s on JavaScript as of buri-lang/buri#8, so the row is no longer about precision: every `I64` a program writes down is that `I64`, `show` prints its digits, and the ceiling that used to sit at 2^53 is gone. What is left is that a `BigInt` has no width to overflow *at*: `maxValue<I64>() + 1` is 9223372036854775808 here and −9223372036854775808 natively. Both are undefined, and a program that wants the defined answer says `wrappingAdd` — which does agree, at every width (row 3). Wrapping every arithmetic result back with `asIntN` would close this row too, and was not done: it is a call on every add in every program to make one undefined answer match another. | `row_01_int_overflow`, `row_01_integer_show_at_the_64_bit_extremes` |
+| 2 | `checkedAdd` above 2^53, within `I64` | `.Some` | `.Some` | ~~Divergence~~ — **must agree, and does.** The row was a band: `Checked` is bounded by the numbers the *backend* has (SPEC §6.2.2), and JavaScript stopped at 2^53 because past it a `number` could not say which integer the answer was. A `BigInt` says it, so `exact_int_range` and `int_range` are the same range at every width and the band is empty. `Saturating` was never bounded this way and is unaffected. | `row_02_checked_above_the_exact_range`, `row_02_saturating_is_bounded_by_the_type_on_both_backends` |
+| 3 | `wrappingMul` at 64 bits | exact | exact, native | Must agree, at every width — and **the row as written was false twice**. `$wrapTo` used to wrap a product that had already been rounded, so `U32.wrappingMul(0xffffffff, 0xffffffff)` answered 0 rather than 1: a wrong answer at 32 bits, where both operands and the answer are exact doubles. `$wrapOp` computes in `BigInt` wherever the operands are `number`s and the intermediate can leave 2^53, which is a product at 32 bits and nothing else. At 64 and 128 the operands are `BigInt`s themselves, so the operation is exact and the wrap is one `asIntN` — `(2^62 + 1024).wrappingMul(4)` is 4096 on both backends now, where it used to be 0 here and that case belonged to row 1. Row 2's ruling does not touch this row: natively `wrapping*` **is** the machine's own add, subtract and multiply (in `llvm/emit.rs` `wrappingAdd` and `add` are the same instruction, because §3.4 emits no `nsw`/`nuw`), so it was exact at the type's width before the ruling and after it. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
 | 4 | `I128`/`U128` arithmetic | inexact above 2^53 | exact | **Divergence, listed.** The native answer is the correct one. | `row_04_wide_integer_arithmetic`, `row_04_integer_show_at_the_128_bit_extremes` |
 | 5 | `Option<Option<T>>` | distinct, via `$some`/`$val`'s `$n` counter | distinct (§6) | ~~Divergence~~ — **must agree, and does.** `.Some(.None)` collided with `.None` before the depth counter landed; it does not now, at any nesting depth, through `match`, `Eq` or `Show`. | `row_05_nested_option_is_distinct` |
 | 6 | `str.len()` | scalar count | scalar count | Must agree, including on astral input. | `row_06_str_len_counts_scalars` |
@@ -616,6 +616,23 @@ and fails if a row names a test that is not there, so the column cannot rot.
 | 13 | Tail calls in constant stack | rewritten to a loop | rewritten to a loop | Must agree. **A merged group's forwarders were labelled `()` until wave 4b**, so a mutually recursive `Bool` came back as nothing: natively `even(3)` printed the empty string, and used as a condition it panicked inside the code generator of the day. | `row_13_tail_calls_run_in_constant_stack` |
 | 14 | Abort message and exit status | stderr, exit 1 (`generate.rs`) | stderr, exit 1 | Must agree. The `.Err` return is the one failure whose whole stream agrees, because nothing was thrown. | `row_14_shift_out_of_range`, `row_14_an_error_return` |
 | 15 | `char.toUpper` / `toLower` where the full case mapping is not one scalar | `"SS"` — a `Char` of two scalars | `'S'` — the **first** scalar of the full mapping | **Divergence, listed**, and the JavaScript side is the one outside the type: `Char` is one Unicode scalar value (`char.buri`), and `"ß".toUpperCase()` is two characters. There is no single scalar equal to `"SS"`, so this could not be transcribed and the choice was measured rather than assumed — the *simple* case mapping (`'ß'` unchanged) was the tidier answer and disagrees with JavaScript at `toU32` as well, where the first scalar agrees. So the divergence is confined to **rendering the whole `Char`**, and every use that reads it as a scalar agrees. `cli/runtime/char.rs` §3. | `row_15_char_case_of_a_multi_scalar_mapping` |
+
+**What the `BigInt` representation costs, measured.** Open question 8 refused
+`BigInt` because it "taxes every loop counter in every program", and the tax is
+real. Bun 1.3, macOS arm64, release builds, mean of the runs named:
+
+| | before | after |
+|---|---|---|
+| the conformance corpus, JavaScript runtime | 359 ms | 378 ms (+5%) |
+| a 20-million-iteration counted loop at `Int` | 94 ms | 684 ms (~7x) |
+| the same loop at `I32` | 124 ms | 124 ms |
+| the golden corpus, bytes emitted | 44 586 | 45 089 (+1%) |
+
+Real code pays about five per cent, because real code spends its time in strings,
+lists and calls rather than in integer addition. A tight counted loop pays
+sevenfold, and that is the number to quote at anyone who says the change is free.
+The `I32` row is the mitigation: the narrow widths keep the `number`
+representation, so a loop counter that does not need the range can say so.
 
 Rows 8, 9 and 10 are the ones that actually cost work, and they are the ones
 worth the cost: a `Show` that differs between backends means every golden test in
