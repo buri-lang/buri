@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_expected_c8dc5e/main.buri:43:20
+   |
+43 |   render(ctx, label@ )
+   |                    ^
+   |
+  --> lib/recovery_insert_stray_brace_expected_c8dc5e/main.buri:43:9
+   |
+43 |   render(ctx, label@ )
+   |         ^ opened here
+   |
+   = fix: write `)` here

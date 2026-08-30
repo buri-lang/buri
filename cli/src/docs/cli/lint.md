@@ -33,6 +33,27 @@ source rather than the tree — parameter counts, nesting depth, function length
 warning comments, test titles, duplicate imports, unused imports — answer the
 same either way.
 
+`unused-context` reads bodies and answers anyway, and what lets it is the one
+thing it has that the four above do not: a context has exactly one spelling.
+There is no alias for `ctx` and no way to reach it under a name of your own, so
+where the typed tree is truncated the rule asks the *text* instead — does this
+declaration write `ctx` anywhere but at the parameter? The lexer answers that
+whether or not the checker could read the expression around it, so a mistake in
+one corner of a function does not take the finding about its signature with it.
+What the error does cost is the fix: the calls the rewrite would have to touch
+are read off the same tree, so a package that did not check whole gets the
+finding with the sentence and no bytes.
+
+`unused-context-bound` is the same rule one level in — which of a context's
+*effects* the body uses — and it goes quiet for a failed body where
+`unused-context` does not. The asymmetry is the spelling: a context has one,
+and a bound has none. A bound is used through the method names it declares and
+through callees whose own bounds name it, and neither is a token the lexer can
+recognise as this bound, so where the typed tree is truncated there is nothing
+to answer with. It is also silent about a `ctx` nothing reads at all, because
+every bound on such a parameter is dead by construction and the edit that
+signature needs is `unused-context`'s: take the parameter out, not trim it.
+
 `dead-code` asks a second question and so has a second reason to go quiet. It
 reads the package's imports and re-exports to decide which exported names
 anything reaches, so an error landing on one of those lines — or a run of
