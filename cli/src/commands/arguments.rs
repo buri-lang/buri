@@ -54,7 +54,6 @@ pub struct Flags {
     /// separate output directories — and compare the artifacts byte for byte.
     /// `buri build` only.
     pub check_reproducible: bool,
-    pub accept: bool,
     pub outputs_only: bool,
     pub output: Option<String>,
     pub filter: Option<String>,
@@ -181,11 +180,11 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
     Ok(Args { command, targets, flags, passthrough })
 }
 
-/// The three things `--watch` will not be combined with.
+/// The two things `--watch` will not be combined with.
 ///
-/// All three at parsing rather than in `command_test`, because none of them is
-/// a question about a repository: each is a way of asking for a loop that would
-/// not be the mode it is named after (BUILD-AND-WATCH.md §4.3).
+/// Both at parsing rather than in `command_test`, because neither is a question
+/// about a repository: each is a way of asking for a loop that would not be the
+/// mode it is named after (BUILD-AND-WATCH.md §4.3).
 ///
 /// The order is deliberate. A flag combination is a mistake in the command
 /// line, and it is the one a person can fix by reading; the terminal check is
@@ -199,14 +198,6 @@ fn refuse_watch(flags: &Flags) -> Result<(), String> {
             "`--watch` and `--force` are exclusive: `--force` turns every cache hit into a run, \
              so every save would re-run every suite in the selection — and the cache is the whole \
              of what makes a watch loop cheap"
-                .into(),
-        );
-    }
-    if flags.accept {
-        return Err(
-            "`--watch` and `--accept` are exclusive: `--accept` is the one mode that writes to \
-             the source tree, and rewriting golden files on a timer accepts a regression while \
-             you are still reading the failure"
                 .into(),
         );
     }
@@ -224,12 +215,28 @@ fn refuse_watch(flags: &Flags) -> Result<(), String> {
 /// An unknown flag, with the nearest real one when there is a plausible
 /// candidate — the same treatment an unknown identifier gets.
 fn unknown_flag(name: &str) -> String {
+    if let Some((_, why)) = RETIRED.iter().find(|(retired, _)| *retired == name) {
+        return format!("`--{name}` is retired: {why}");
+    }
     let known: Vec<&str> = crate::commands::FLAGS.iter().map(|f| f.name).collect();
     match crate::build::buildfile::nearest(name, &known) {
         Some(near) => format!("unknown flag `--{name}`; did you mean `--{near}`?"),
         None => format!("unknown flag `--{name}`"),
     }
 }
+
+/// The flags this binary used to take, and what to do instead.
+///
+/// A retired flag is not an unknown one, and `nearest` would answer it with
+/// whichever surviving flag shares the most letters — which is the one thing
+/// somebody who typed what last release documented does not need to read. The
+/// same distinction `retired-test-data` draws in a build file, drawn here.
+pub const RETIRED: &[(&str, &str)] = &[(
+    "accept",
+    "it rewrote the golden files a suite declared in `test { data }`, and that field is retired \
+     (`buri docs error retired-test-data`). A golden is a value in the suite's own source now, \
+     which an editor rewrites",
+)];
 
 /// Writes to standard output, treating a closed pipe as success.
 ///

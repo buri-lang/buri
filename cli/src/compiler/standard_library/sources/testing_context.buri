@@ -102,7 +102,13 @@ impl Fs for MemFs {
   fn syncFile(self, path: Str): Result<(), IoError>;
 }
 
-/// Rooted at the package directory, containing exactly `test { data: [...] }`.
+/// Rooted at the package directory, and empty.
+///
+/// It was seeded from the suite's `test { data: [...] }`, which only a runner
+/// could read and hand over — so a compiled test binary, which has none,
+/// answered differently. The field is retired and this answers the same on
+/// every backend. `files` below is where a suite says what its filesystem
+/// holds.
 export fn data(): MemFs;
 
 /// Containing exactly these entries.

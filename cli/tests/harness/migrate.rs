@@ -42,14 +42,20 @@
 //! than off the import line.
 //!
 //! A second kind of hole is not about a missing constructor but about a
-//! *package*: `Hermetic`'s `Fs` is `data()`, which the runner seeds from the
-//! suite's `test { data: [...] }`, and `core/host/testing`'s `fs()` is empty.
-//! The two are the same filesystem only where that declaration is empty too,
-//! so a suite that declares one cannot take the `data() -> fs()` row until E13
-//! retires `test { data }`. The compiler cannot see that — an empty filesystem
-//! type-checks — so it is [`migrate`]'s `blocked` argument, answered per file
-//! by the caller that knows where the build files are, and a site it blocks is
-//! reported exactly like one waiting on a constructor.
+//! *package*: an effect a package cannot take, for a reason the compiler
+//! cannot state. That is [`migrate`]'s `blocked` argument, answered per file by
+//! the caller, and a site it blocks is reported exactly like one waiting on a
+//! constructor.
+//!
+//! It has no customer today, and the one it was written for is worth recording.
+//! `Hermetic`'s `Fs` was `data()`, which the runner seeded from the suite's
+//! `test { data: [...] }`, while `core/host/testing`'s `fs()` is empty — so the
+//! `data() -> fs()` row was behaviour-preserving only where that declaration
+//! was, and a suite that named a file in it would have compiled green and run
+//! red. `test { data }` is retired, so every package can now take every row.
+//! The argument stays because the *shape* recurs: the answer to "may this site
+//! move" is sometimes a fact about the build rather than about the source, and
+//! there is nowhere else for such a fact to enter.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -1303,49 +1309,11 @@ fn parse_diagnostics(output: &str) -> Vec<Reported> {
 // Driving it over a repository on disk
 // ---------------------------------------------------------------------------
 
-/// A [`migrate`] `blocked` argument for a run with no packages behind it: the
-/// unit cases, which drive the fixpoint over synthetic sources.
+/// A [`migrate`] `blocked` argument that blocks nothing, which is every run
+/// there is: no build file withholds an effect from a package any more. The
+/// module header says what the one implementation was and why the seam stays.
 pub fn nothing_blocked(_rel: &str) -> BTreeMap<&'static str, String> {
     BTreeMap::new()
-}
-
-/// What the package a source belongs to cannot have built for it, read off its
-/// build file.
-///
-/// One entry, and it is `Fs`. `Hermetic`'s filesystem is `data()`, which the
-/// runner seeds from the suite's `test { data: [...] }`; `fs()` is empty. Where
-/// the declaration is empty the two are the same filesystem and the table's
-/// `data() -> fs()` row holds, which is why every package migrated so far took
-/// it without anybody noticing. Where it is not, taking the row would leave a
-/// suite reading files that are no longer there — a green compile and a red
-/// run — so the site is left alone and named instead. E13 is the slice that
-/// retires `test { data }`, and it is what makes this function return nothing.
-///
-/// The build file is the nearest `BUILD.buri` at or above the source, which is
-/// what a package *is*.
-pub fn effects_the_build_file_blocks(
-    repo: &Path,
-    rel: &str,
-) -> BTreeMap<&'static str, String> {
-    let mut out = BTreeMap::new();
-    let mut dir = repo.join(rel);
-    while dir.pop() && dir.starts_with(repo) {
-        let build = dir.join("BUILD.buri");
-        if !build.is_file() {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(&build) else { break };
-        if text.lines().any(|line| line.trim_start().starts_with("data:")) {
-            out.insert(
-                "Fs",
-                "needs `Fs`, and this package declares `test { data }` — which seeds \
-                 `Hermetic`'s `data()` and not `core/host/testing`'s `fs()`; E13 retires it"
-                    .to_string(),
-            );
-        }
-        break;
-    }
-    out
 }
 
 /// The manifests that are `.buri` files without being Buri sources.

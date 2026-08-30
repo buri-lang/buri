@@ -40,10 +40,10 @@ fn suite(label: &str) -> String {
 /// Two libraries, neither depending on the other, so that "the sibling stayed
 /// cached" is evidence rather than a coincidence of there being nothing else.
 ///
-/// `//lib/b` carries the two declarations `//lib/a` does not — an extra
-/// `sources` entry and a `test { data }` file — because the declared set is a
-/// union over several lists and a repository that exercises one of them proves
-/// nothing about the others.
+/// `//lib/b` carries the declaration `//lib/a` does not — an extra `sources`
+/// entry beside the entry point — because the declared set is a union over
+/// several lists and a repository that exercises one of them proves nothing
+/// about the others.
 fn two_suites(name: &str) -> Scratch {
     let scratch = Scratch::repo(name);
     scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
@@ -53,12 +53,11 @@ fn two_suites(name: &str) -> Scratch {
     scratch.write(
         "lib/b/BUILD.buri",
         "library {\n  sources: [\"extra.buri\"]\n\
-         \n  test {\n    sources: [\"test/b.buri\"]\n    data: [\"test/golden.txt\"]\n  }\n}\n",
+         \n  test {\n    sources: [\"test/b.buri\"]\n  }\n}\n",
     );
     scratch.write("lib/b/lib.buri", &library("21"));
     scratch.write("lib/b/extra.buri", "export fn spare(): Int { 1 }\n");
     scratch.write("lib/b/test/b.buri", &suite("//lib/b"));
-    scratch.write("lib/b/test/golden.txt", "recorded\n");
     scratch
 }
 
@@ -117,7 +116,6 @@ fn the_declared_set_is_the_inputs_and_the_files_that_decide_them() {
         "lib/b/lib.buri",
         "lib/b/extra.buri",
         "lib/b/test/b.buri",
-        "lib/b/test/golden.txt",
     ] {
         assert!(
             listed.iter().any(|p| p == want),

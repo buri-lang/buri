@@ -1,3 +1,0 @@
-coffee 4.50
-books 32.00
-refund 1.00

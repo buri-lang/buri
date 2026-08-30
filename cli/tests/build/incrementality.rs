@@ -394,11 +394,15 @@ fn editing_a_test_only_dependency_re_runs_the_suite() {
     // two enumerations are checked where the enumeration is.
 }
 
-/// `--filter` and `--accept` are the two modes that must not be served from the
-/// cache: one runs a different subset, and the other exists to write to the
-/// source tree. A cache hit in either would be a silent wrong answer.
+/// `--filter` is the mode that must not be served from the cache: it runs a
+/// different subset, and the verdicts of a subset are not the suite's. A cache
+/// hit would be a silent wrong answer.
+///
+/// `--accept` used to be the second half of this. It wrote to the source tree,
+/// which is why it could not be served either; it rewrote the golden files a
+/// suite declared in `test { data }`, and both are retired.
 #[test]
-fn filtering_and_accepting_never_come_from_the_cache() {
+fn a_filtered_run_never_comes_from_the_cache() {
     let example = Scratch::copy_of("explain-test-modes", &example_repo());
     example.run(&["test", "//lib/store", "--explain"]).ok();
     assert_eq!(status(&example.run(&["test", "//lib/store", "--explain"]), "test //lib/store"), "cached");
@@ -410,15 +414,6 @@ fn filtering_and_accepting_never_come_from_the_cache() {
         "run",
         "a filtered run was served from the cache:\n{}",
         indent(&filtered.all())
-    );
-
-    let accepted = example.run(&["test", "//lib/store", "--explain", "--accept"]);
-    accepted.ok();
-    assert_eq!(
-        status(&accepted, "test //lib/store"),
-        "run",
-        "--accept was served from the cache:\n{}",
-        indent(&accepted.all())
     );
 
     // A filtered run must not leave its partial result behind for the next
@@ -664,17 +659,9 @@ fn a_suite_naming_no_platform_runs_natively_or_says_why_not() {
         indent(&js.all())
     );
 
-    // And `--accept` goes there on its own, whatever the default is: the mode
-    // rewrites a golden file from the two sides of a failed comparison, and
-    // only the JavaScript runner reports them.
-    let accepted = scratch.run(&["test", "//lib/n", "--explain", "--accept"]);
-    accepted.ok();
-    assert_eq!(
-        platform_of(&accepted, "test //lib/n"),
-        "js",
-        "--accept ran somewhere it has no diff to accept from:\n{}",
-        indent(&accepted.all())
-    );
+    // And nothing else sends a suite to JavaScript. `test { data }` did — it
+    // was the one build-file field that overruled the invocation — and it is
+    // retired, so what the flags say is the whole of the answer.
 }
 
 /// A suite the native backend cannot compile is **refused**, and naming a

@@ -22,7 +22,7 @@ end is a library, and `driver::analyze` is what the server calls.
 | `implementation` | For a trait, every `impl` and `derive` that conforms to it. For a type, every conformance it was given. For a trait method, the function each `impl` supplied for it. |
 | `typeHierarchy` | Above a type, the traits it implements; below a trait, the types that implement it. The two directions the language has something in. |
 | `callHierarchy` | Who calls a function or a trait method, and what it calls. A `test` is a caller under the sentence it is written with, and a module-level `let` is one too. |
-| `documentLink` | The underlines: the path of every import and re-export, every `http(s)://` address written in a comment, and — in a `BUILD.buri` — every `sources` and `data` entry and every dependency label. |
+| `documentLink` | The underlines: the path of every import and re-export, every `http(s)://` address written in a comment, and — in a `BUILD.buri` — every `sources` entry and every dependency label. |
 | `moniker` | A name for the declaration under the cursor that an index somewhere else could resolve: `//lib/shop:catalog.Item.price`. |
 | `references` | Every place the repository names the symbol under the cursor, asked from the declaration or from any use. The declaration itself is included when the client asks for it. |
 | `documentHighlight` | The same question narrowed to the file you are in, which is the file the highlights are painted on. |
@@ -129,7 +129,7 @@ Inside a `BUILD.buri` or a `REPO.buri` there is no analysis to consult — these
 are textproto, and the front end never reads one — so the build graph answers
 instead. A dependency label opens that package's build file, `//lib/money/testing`
 along with `//lib/money`, because a testing surface is declared in the same file
-its library is. A `sources`, `proto_sources` or `data` entry opens the file
+its library is. A `sources` or `proto_sources` entry opens the file
 itself, beside the build file. A `tags` entry opens that tag's block in
 `REPO.buri`. A string that names none of those — `//visibility:public`, a label
 in no package of this repository — answers with nothing.
@@ -222,7 +222,7 @@ The other two producers are the paths that already resolve. An import's or a
 re-export's path string is underlined to the file it names, by exactly the
 resolution `definition` performs on the one under the cursor — so a `core/…`
 path, which is compiled into the binary, gets no underline. In a `BUILD.buri` a
-`sources` or `data` entry is the file beside it and a dependency label is a
+`sources` entry is the file beside it and a dependency label is a
 package, which is its `BUILD.buri`; `//visibility:public` is in a label field
 and names no package, so it gets nothing. A `tags` entry is deliberately not a
 link: what a tag names is a block inside `REPO.buri`, a line rather than a file,
@@ -798,7 +798,7 @@ that nothing exercises fails that test rather than reading complete.
 | `inlayHint`, `inlayHint/resolve` | served | the inferred type after a binding that wrote none, and a parameter's name before an argument that is a literal or a differently-spelled bare name. The judgement is a rule and not a taste: an annotated binding, an argument spelled like its parameter, and an argument with structure in it all get nothing |
 | `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh`, `workspace/codeLens/refresh`, `workspace/diagnostic/refresh` | served | sent after a save or a watched change that moved the analysis fingerprint, each only to a client whose `initialize` claimed that family's `refreshSupport` — spelled `workspace.diagnostics`, plural, for the last of the four |
 | `prepareCallHierarchy`, `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls` | served | both directions are one scan of the calls each checked body writes; a trait method has no body of its own and answers `[]` outgoing |
-| `documentLink` | served | import and re-export paths, addresses in comments, and a build file's `sources`, `data` and dependency entries |
+| `documentLink` | served | import and re-export paths, addresses in comments, and a build file's `sources` and dependency entries |
 | `codeLens`, `codeLens/resolve` | served | a run command above every `test` and a use count above every export. The full pass is a parse, and the count — which costs a whole-repository analysis — waits for `resolve`, which is what `resolveProvider: true` claims |
 | `workspace/executeCommand` | served | exactly three commands, each a call into an entry point `buri` already has: `buri.runTest`, `buri.regenerateBuildFile`, `buri.showReferences` |
 | `workspace/applyEdit` | served | how a command that edits writes: the server sends the file `buri gen` produced and the command's own answer is what the client says it did with it |

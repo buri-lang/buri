@@ -236,10 +236,9 @@ that owns each decision has the argument.
    ([`tags.md`](./tags.md)). *Costs:* nothing can require a binary to take a
    position, since a `forbids` rule fires only once two tags collide.
    Enforcement is opt-in, traded for there being no resolution algorithm.
-5. **Golden files are updated by `buri test --accept`**
-   ([`testing.md`](./testing.md#test-data-and-golden-files)). *Costs:* a second
-   code path through the runner, and a flag that can overwrite a fixture that
-   was correct.
+5. **Golden values live in the suite's own source**
+   ([`testing.md`](./testing.md#test-data-and-golden-files)). *Costs:* an editor,
+   rather than the runner, is what rewrites one.
 6. **Test-only code is marked by its path, not by a field**
    ([`libraries.md`](./libraries.md#the-testing-surface)). *Costs:* `testing`
    is a reserved directory name, and there is nothing to grep for in a build

@@ -30,7 +30,6 @@ library {
             "test/parse.buri",
         ]
         dependencies: ["//lib/ledger/testing"]
-        data: ["test/golden/statement.txt"]
         timeout_seconds: 30
         platforms: [LINUX, JS]
     }
@@ -108,7 +107,7 @@ pre-assembled world. It is importable only from a test source.
 | `alloc()` | `Alloc` | real, from a per-test arena the runner reclaims |
 | `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | captured and never printed; `captured()` reads it back |
 | `stdin([Str])` | `Stdin` | these lines, then end-of-input |
-| `data()` | `Fs` | in-memory, rooted at the package directory, containing exactly `test { data }` |
+| `data()` | `Fs` | in-memory, rooted at the package directory, and empty |
 | `files([(Str, Str)])` | `Fs` | in-memory, containing exactly these entries |
 | `readOnly(F)` | `Fs` | wraps an `Fs` so every write fails |
 | `noNet()` | `Net` | refuses every connection |
@@ -223,22 +222,28 @@ as soon as a second does — a fixture on a public surface is an API.
 
 ## Golden files
 
-`test { data: [...] }` declares the files the in-memory `Fs` contains, so
-`Hermetic()`'s filesystem already holds them:
+Write a suite's filesystem in the suite, with `fs().files([...])` from
+`core/host/testing`:
 
 ```buri
+from "core/host/testing/lib.buri" import { fs as testFs };
+
 test "renders the statement" {
-    let ctx = Hermetic();
-    let want = assert.ok(fs.readText(ctx, "test/golden/statement.txt"));
+    let ctx = context { ..Hermetic(), Fs: testFs().files([("statement.txt", "coffee")]) };
+    let want = assert.ok(fs.readText(ctx, "statement.txt"));
     assert.eq(render(ctx, sample()), want);
 }
 ```
 
-`buri test --accept` runs the suites outside the cache, collects the actual
-value from every `assert.eq` whose expected side came from a declared `data`
-file, and rewrites those files in the source tree. It never creates a file,
-never touches one not listed in `data`, and prints a diff for each. The
-ordinary `buri test` path stays hermetic and cacheable.
+A golden read straight back out of that filesystem is usually shorter as a
+value in the assertion itself. The filesystem earns its place when the code
+under test is what does the reading.
+
+Both `test { data: [...] }` and `buri test --accept` are retired. The field
+made a suite's filesystem a fact about the build that only the JavaScript
+runner could supply; a linked test binary has no runner, so the backends gave
+different answers. A golden is a value in the suite's own source now, which an
+editor rewrites, and no suite is refused a backend for holding one.
 
 ## Running
 
@@ -247,7 +252,6 @@ buri test //...                      every test in the repository
 buri test //lib/money                one package's suites
 buri test //lib/money --filter=pads  substring match on test names
 buri test //... --output=js          send the suites that name no platform to JS
-buri test //lib/money --accept       update declared golden files
 buri test //... --watch              re-run on every change to a declared input
 buri test //... --explain            one line per action: ran, or served by the cache
 ```
@@ -274,15 +278,15 @@ there is no mutable global state and no observable ordering, the runner may
 shard and reorder freely, and there is no flag to turn that off.
 
 A suite runs natively on the host unless something sends it to JavaScript: its
-own `test { platforms }`, `--output=js`, `--accept`, or the fallback for a
+own `test { platforms }`, `--output=js`, or the fallback for a
 program the native backend cannot yet take, which prints one line on stderr per
 suite. A platform this toolchain cannot build for is an **error** when a suite
 named it and a fallback when nobody did.
 
 Suites that name no platform are compiled into one binary per tag-compatible
 batch and linked once. Verdicts, caching and reports are still per suite; a
-`test { platforms }`, `test { data }`, `timeout_seconds`, `--output=` or
-`--accept` keeps a suite out of a batch.
+`test { platforms }`, `timeout_seconds` or `--output=` keeps a suite out of a
+batch.
 
 ## Lint findings about tests
 

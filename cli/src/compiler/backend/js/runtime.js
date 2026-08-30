@@ -3346,7 +3346,7 @@ function $ui_testing_Rendered_identity(self, name, at) {
 // mutation. Each call to a constructor allocates a fresh one, which is why a
 // named context is called rather than referred to.
 
-const $t = { h: [], data: {}, fail: null };
+const $t = { h: [], fail: null };
 
 function $handle(v) {
   $t.h.push(v);
@@ -3433,15 +3433,19 @@ function $testing_context_CaptureOut_writeBytes(self, b) {
   return 0;
 }
 
-// In-memory, rooted at the package directory, containing exactly test.data.
+// In-memory, rooted at the package directory, and empty.
+//
+// It used to be seeded from the suite's `test { data: [...] }`, which the
+// runner read off disk and spliced in beside this file — so `data()` answered
+// one thing here and another in a linked test binary, which has no runner. The
+// field is retired (`retired-test-data`) and `files([...])` is where a suite
+// says what its filesystem holds, in text both backends read the same way.
 //
 // A slot holds octets per path and the directories `makeDir` has been asked
 // for: a flat map has no empty directory otherwise, and `readDir` after
 // `makeDir` has to see one.
 function $testing_context_data() {
-  const files = {};
-  for (const k of Object.keys($t.data)) files[k] = $bytes_toUtf8(null, $t.data[k]);
-  return $handle({ files, dirs: [] });
+  return $handle({ files: {}, dirs: [] });
 }
 
 function $testing_context_files(entries) {
