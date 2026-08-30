@@ -410,7 +410,10 @@ fn named(analyzed: &Analyzed, symbol: &symbols::Symbol) -> Option<(String, bool)
             let variant = info.variants().get(*index)?;
             (info.module, format!("{}.{}", info.name, variant.name), variant.exported)
         }
-        Symbol::Module(_) | Symbol::Local { .. } => return None,
+        // A module is named by a path and a local or a generic parameter is
+        // named only inside the declaration that binds it, so no index
+        // anywhere else could resolve a moniker for either.
+        Symbol::Module(_) | Symbol::Local { .. } | Symbol::Generic { .. } => return None,
     };
     Some((format!("{}{declared}", reached_by(analyzed, module)?), exported))
 }

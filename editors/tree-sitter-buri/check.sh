@@ -140,6 +140,11 @@ for q in ../zed/languages/buri/*.scm; do
   fi
 done
 
+# A query that compiles can still colour nothing. `check_highlighting.sh` runs
+# the query engine and the language server over one fixture and asserts a named
+# capture and a named token type for each of its tokens.
+"$here/check_highlighting.sh"
+
 failures=0
 count=0
 diverged=0

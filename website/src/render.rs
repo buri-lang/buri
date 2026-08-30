@@ -329,7 +329,8 @@ fn listing(
     out
 }
 
-/// Instant page transitions, and the theme the reader chose.
+/// Instant page transitions, the pages fetched ahead on hover, and the theme
+/// the reader chose.
 ///
 /// It hardens the obvious sketch. A click is intercepted only when the browser
 /// would otherwise do a plain same-origin navigation: a modified click, a
@@ -339,8 +340,17 @@ fn listing(
 /// any reason — offline, a 404, a page opened over `file://`, where `fetch`
 /// cannot read a sibling at all — falls through to a real navigation, so the
 /// worst case is the site without the enhancement rather than a dead link.
+///
+/// Pointing at a link for a moment fetches the page it names into a small,
+/// capped map that the click then reads, so the common navigation costs no
+/// round trip. The map holds the promise rather than the text, which is what
+/// makes a hover and the click after it one request; a reader who asked the
+/// browser to save data is never preloaded for.
 const NAVIGATION_SCRIPT: &str = r#"(function () {
   var KEY = "buri-theme";
+  var PRELOAD_LIMIT = 48;
+  var HOVER_DELAY = 70;
+
   function saved() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
   function apply() {
     var chosen = saved();
@@ -355,37 +365,89 @@ const NAVIGATION_SCRIPT: &str = r#"(function () {
     try { localStorage.setItem(KEY, picker.value); } catch (e) {}
   });
 
+  // The link a plain same-origin navigation would follow, or null for one the
+  // browser should keep: a download, another tab, off-site, an anchor here.
+  function navigable(anchor) {
+    if (!anchor || !anchor.getAttribute || !anchor.getAttribute("href")) { return null; }
+    if (anchor.hasAttribute("download")) { return null; }
+    if (anchor.target && anchor.target !== "" && anchor.target !== "_self") { return null; }
+    var url;
+    try { url = new URL(anchor.href, location.href); } catch (e) { return null; }
+    if (url.origin !== location.origin) { return null; }
+    if (url.pathname === location.pathname && url.search === location.search) { return null; }
+    if (!/(\/|\.html)$/.test(url.pathname)) { return null; }
+    return url;
+  }
+
+  // Pages asked for this session, keyed by path. The value is the promise, so
+  // a hover and the click after it are one request rather than two.
+  var pages = new Map();
+  function request(url) {
+    var key = url.pathname + url.search;
+    var waiting = pages.get(key);
+    if (waiting) { return waiting; }
+    waiting = fetch(url.href, { credentials: "same-origin" }).then(function (response) {
+      if (!response.ok) { throw new Error(String(response.status)); }
+      return response.text();
+    });
+    // A failure leaves nothing behind, so the click retries rather than
+    // inheriting the miss, and the rejection is never unhandled.
+    waiting.catch(function () { pages.delete(key); });
+    pages.set(key, waiting);
+    while (pages.size > PRELOAD_LIMIT) { pages.delete(pages.keys().next().value); }
+    return waiting;
+  }
+
   function scroll(hash) {
     var target = hash ? document.getElementById(hash.slice(1)) : null;
     if (target) { target.scrollIntoView(); } else { window.scrollTo(0, 0); }
   }
   function go(url, push) {
-    fetch(url, { credentials: "same-origin" }).then(function (response) {
-      if (!response.ok) { throw new Error(String(response.status)); }
-      return response.text();
-    }).then(function (html) {
+    var address;
+    try { address = new URL(url, location.href); } catch (e) { location.href = url; return; }
+    request(address).then(function (html) {
       var parsed = new DOMParser().parseFromString(html, "text/html");
       if (!parsed || !parsed.body) { throw new Error("no body"); }
       document.title = parsed.title || document.title;
       document.body.innerHTML = parsed.body.innerHTML;
-      if (push) { history.pushState({}, "", url); }
+      if (push) { history.pushState({}, "", address.href); }
       apply();
-      scroll(new URL(url, location.href).hash);
-    }).catch(function () { location.href = url; });
+      scroll(address.hash);
+    }).catch(function () { location.href = address.href; });
   }
+
+  // A reader on a metered connection asked for less traffic, not more.
+  function savingData() {
+    var connection = navigator.connection;
+    return !!(connection && connection.saveData);
+  }
+
+  // The delay is the difference between meaning to read a link and sweeping
+  // the pointer across the navigation on the way somewhere else.
+  var hoverTimer = null;
+  function preloadOnHover(event) {
+    if (savingData()) { return; }
+    var anchor = event.target && event.target.closest && event.target.closest("a");
+    var url = navigable(anchor);
+    if (!url) { return; }
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(function () { request(url); }, HOVER_DELAY);
+  }
+  document.addEventListener("mouseover", preloadOnHover);
+  document.addEventListener("mouseout", function () { clearTimeout(hoverTimer); });
+  document.addEventListener("touchstart", function (event) {
+    if (savingData()) { return; }
+    var anchor = event.target && event.target.closest && event.target.closest("a");
+    var url = navigable(anchor);
+    if (url) { request(url); }
+  }, { passive: true });
 
   document.addEventListener("click", function (event) {
     if (event.defaultPrevented || event.button !== 0) { return; }
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) { return; }
     var anchor = event.target && event.target.closest && event.target.closest("a");
-    if (!anchor || !anchor.getAttribute("href")) { return; }
-    if (anchor.hasAttribute("download")) { return; }
-    if (anchor.target && anchor.target !== "" && anchor.target !== "_self") { return; }
-    var url;
-    try { url = new URL(anchor.href, location.href); } catch (e) { return; }
-    if (url.origin !== location.origin) { return; }
-    if (url.pathname === location.pathname && url.search === location.search) { return; }
-    if (!/(\/|\.html)$/.test(url.pathname)) { return; }
+    var url = navigable(anchor);
+    if (!url) { return; }
     event.preventDefault();
     go(url.href, true);
   });
@@ -405,5 +467,78 @@ mod tests {
     #[test]
     fn a_summary_becomes_one_line_of_meta_description() {
         assert_eq!(one_line("A `Str`\n  is  text.\n"), "A Str is text.");
+    }
+
+    /// One page, with nothing around it, for the tests that only want the
+    /// chrome a page carries.
+    fn a_page() -> (Site, Page) {
+        let page = Page {
+            route: "guide/installing".to_string(),
+            title: "Installing".to_string(),
+            label: "guide/installing".to_string(),
+            summary: "How to install.".to_string(),
+            source: Source {
+                path: "cli/src/docs/guide/installing.md".to_string(),
+                directory: false,
+            },
+            section: None,
+            content: Content::Prose("Some prose.\n".to_string()),
+            see_also: Vec::new(),
+            facts: Vec::new(),
+            adapted_from: None,
+        };
+        let site = Site {
+            root: std::path::PathBuf::from("/nowhere"),
+            pages: vec![Page {
+                route: page.route.clone(),
+                title: page.title.clone(),
+                label: page.label.clone(),
+                summary: page.summary.clone(),
+                source: page.source.clone(),
+                section: None,
+                content: Content::Prose(String::new()),
+                see_also: Vec::new(),
+                facts: Vec::new(),
+                adapted_from: None,
+            }],
+        };
+        (site, page)
+    }
+
+    /// The browser runs this, not the test suite, so what is pinned here is
+    /// that the handler reaches the page at all.
+    #[test]
+    fn a_rendered_page_carries_the_hover_preload() {
+        let (site, page) = a_page();
+        let (html, _) = document(&site, &page);
+        for marker in ["preloadOnHover", "\"mouseover\"", "\"touchstart\"", "saveData", "passive"] {
+            assert!(html.contains(marker), "the rendered page is missing `{marker}`");
+        }
+        assert!(!html.contains("<script src="), "the page loads an external script");
+    }
+
+    /// A hover and the click after it must be one request, the map must not
+    /// grow without bound, and the swap must still do what it did before.
+    #[test]
+    fn the_preload_shares_one_request_and_bounds_its_map() {
+        assert!(
+            NAVIGATION_SCRIPT.contains("var pages = new Map();"),
+            "the preloaded pages are no longer held in a map"
+        );
+        assert!(
+            NAVIGATION_SCRIPT.contains("pages.set(key, waiting);"),
+            "the map holds the text rather than the promise, so a hover and a click are two fetches"
+        );
+        assert!(
+            NAVIGATION_SCRIPT.contains("pages.delete(pages.keys().next().value);"),
+            "the map no longer evicts its oldest entry"
+        );
+        for kept in ["history.pushState", "document.title = parsed.title", "scroll(address.hash)"] {
+            assert!(NAVIGATION_SCRIPT.contains(kept), "the swap no longer does `{kept}`");
+        }
+        assert!(
+            NAVIGATION_SCRIPT.contains("window.addEventListener(\"popstate\""),
+            "back and forward no longer run the swap"
+        );
     }
 }

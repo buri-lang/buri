@@ -1,0 +1,71 @@
+//! The two sections of the language reference that a screenshot of an editor
+//! is judged on: the structs of `lang/types.md` 5.6, and the import forms of
+//! `lang/modules.md` 4.1. Every construct here is one `check_highlighting.sh`
+//! asserts a colour for, in both layers — the grammar's and the server's.
+
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/math" import { round as rounded };
+from "core/str" import { fromFloat, fromInt };
+
+/// How many times a lookup is retried before it gives up.
+let MAX_RETRIES: Int = 3;
+
+/// A user's identifier, distinct from the string inside it.
+struct UserId(Str);
+
+struct User {
+    export id: UserId,
+    export name: Str,
+    // `passwordHash` is private to this module: no `export`.
+    passwordHash: Str,
+}
+
+// A tuple struct, and a generic one.
+struct Meters(export Float);
+
+struct Pair<A, B>(A, B);
+
+/// Where a shelf edge got its label.
+export enum Source {
+    /// The shelf itself.
+    Shelf,
+    /// A page of the printed catalogue.
+    Catalogue { page: Int },
+}
+
+/* A block comment sits in the gap between two tokens, which is where both
+   layers go looking for one. */
+
+/// Every struct form the reference writes, in one body.
+export fn describe<C: Alloc>(ctx: C, hash: Str): Str {
+    let id = UserId("u1");
+    let name = "Ada";
+    let passwordHash = hash;
+    let u = User { id: UserId("u1"), name: "Ada", passwordHash: hash };
+    let shorthand = User { id, name, passwordHash };
+    let u2 = User { ..u, name: "Ada L." };
+    let d = Meters(rounded(9.8));
+    let raw = d.0;
+    let pair = Pair(raw, shorthand.name);
+    let counts = list.range(ctx, 0, MAX_RETRIES);
+    let nothing = list.empty<Int>();
+    let origin = Source.Catalogue {
+        page: u2.name.len() + counts.len() + nothing.len(),
+    };
+    let shelf: Source = .Shelf;
+    match (origin) {
+        .Catalogue { page } => shelf.label().concat(ctx, fromInt(ctx, page)),
+        other => fromFloat(ctx, pair.0).concat(ctx, other.label()),
+    }
+}
+
+impl Source {
+    /// What the label says, whichever source it came from.
+    fn label(self): Str {
+        match (self) {
+            .Shelf => "shelf",
+            _ => "catalogue",
+        }
+    }
+}
