@@ -1,4 +1,5 @@
-# The old spelling, refused, with the new one named.
+# The old spelling, refused, with the new one named — and then applied by the
+# two tools that carry a diagnostic's own bytes.
 #
 # `//lib/money` used to be how you wrote the library's surface. It names no
 # file, so it is no longer a module path at all, and the toolchain says so with
@@ -6,20 +7,22 @@
 # `fix` edit both carry "//lib/money/lib.buri", derived by resolving the old
 # path the old way rather than by appending a suffix to a string.
 #
-# That matters here in a way a synthetic example cannot show: this repository
+# That matters here in a way a synthetic example cannot show. This repository
 # also has `lib/money/cents.buri`, so "//lib/money/cents" would have to become
-# "//lib/money/cents.buri" and "//lib/money" has to become
-# "//lib/money/lib.buri". One rule cannot produce both from the text; the
-# resolver produces both from the layout.
+# "//lib/money/cents.buri" while "//lib/money" becomes "//lib/money/lib.buri".
+# One rule cannot produce both from the text; the resolver produces both from
+# the layout.
 #
-# The last two steps are the fix applied by hand, and the build going green:
-# what the code action and `buri lint --fix` write is the same string, and a
-# suggestion nobody can act on is not a fix.
+# The last three steps are the fix being *acted on*, because a suggestion
+# nobody can act on is not a fix. `textDocument/codeAction` is what an editor
+# offers — the same `edits` the diagnostic carries, replayed verbatim — and
+# `buri lint --fix` is the terminal's half of it. Then the build goes green
+# without a hand edit anywhere in the case.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "an import that names no file is refused, and the diagnostic names the file it meant"
+doc: "an import that names no file is refused, the diagnostic names the file it meant, and both the editor and lint --fix write it"
 
 run {
   args: ["build", "//cmd/app"]
@@ -33,11 +36,20 @@ run {
   golden: "build.json"
 }
 
-# The fix, applied. `lint --fix` would write exactly this.
-edit {
-  file: "cmd/app/main.buri"
-  replace: "from \"//lib/money\" import { fromCents };"
-  with: "from \"//lib/money/lib.buri\" import { fromCents };"
+# What an editor offers on the line: one quick fix, carrying the exact bytes.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}
+
+# And the terminal's half of the same edit, applied.
+run {
+  args: ["lint", "--fix", "//cmd/app"]
+  exit: 0
+  golden: "fix.txt"
 }
 
 run {

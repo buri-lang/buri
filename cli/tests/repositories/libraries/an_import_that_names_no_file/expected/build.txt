@@ -5,8 +5,7 @@ error: "//lib/money" names no file [import-path-without-a-file]
   |      ^^^^^^^^^^^^^
   |
   = a module is a file, so its path is that file's name — there is one spelling of a module and it is the one you would type into an editor
-  = write "//lib/money/lib.buri"
-  = fix: name the file: `"//lib/money/lib.buri"` for a library's surface, `"//lib/money.buri"` for a module inside one
+  = fix: write "//lib/money/lib.buri"
 
     What to do
     ──────────
