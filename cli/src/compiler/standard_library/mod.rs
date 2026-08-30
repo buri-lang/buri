@@ -138,6 +138,10 @@ pub const MODULES: &[StdModule] = &[
     m("core/date/lib.buri", include_str!("sources/date.buri")),
     m("core/random/lib.buri", include_str!("sources/random.buri")),
     m("core/net/http/lib.buri", include_str!("sources/http.buri")),
+    // Not a platform module: it *names* `Tasks` in its bounds rather than
+    // declaring or implementing it, exactly as `core/fs` names `Fs`. The
+    // authority is still `core/host`'s to hand out.
+    m("core/tasks/lib.buri", include_str!("sources/tasks.buri")),
     StdModule {
         platform: true,
         ..m("core/testing/assert/lib.buri", include_str!("sources/assert.buri"))
@@ -366,17 +370,27 @@ const HOST_GRANTS: &[HostGrant] = &[
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no process to exit; a mounted interface stays live",
     },
-    // Declared, and granted by nobody. `Tasks` has no scheduler behind it on
-    // any platform yet, so the honest row is the empty one: the names exist,
-    // the signature is fixed, and asking for them is refused everywhere with
-    // the reason. Granting it later is an edit to this line and to nothing
-    // else, which is the whole point of landing the declaration first.
+    // Granted wherever a program is a program rather than a page — the same
+    // three as `Fs`, `Net`, `Stdin`, `Env` and `Proc`, and withheld from WEB for
+    // a reason of the same kind.
+    //
+    // WEB is the one platform where `parallel` would be *reachable* from a
+    // running interface rather than from `main`: a page's own concurrency is
+    // its event loop, and every effect a page has is either instantaneous
+    // (`Ui`, `Watch`) or hands its answer back through a callback (`Fetch`,
+    // which exists precisely because `Net.fetch` waits). `parallel` waits by
+    // construction — it returns when the last task has finished — so granting it
+    // there would put the one shape a page's host is built to avoid back into a
+    // page, in the one place a program cannot leave. The note says the same
+    // thing from the other end: tasks are what servers are built out of, and
+    // the browser's story is the one that lands with them.
     HostGrant {
         effect: "Tasks",
         exports: &["HostTasks", "tasks"],
-        platforms: &[],
-        because: "no platform runs tasks yet; `Tasks` is declared so that its signature is \
-                  fixed, and the scheduler that answers `parallel` lands with the servers",
+        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
+        because: "`parallel` returns only when the last task has finished, which freezes a \
+                  page; a page's concurrency is its event loop, and the effect that reaches \
+                  it lands with the servers",
     },
     HostGrant {
         effect: "Ui",
@@ -501,12 +515,13 @@ mod tests {
     /// And the other direction: a row naming an export that is not there would
     /// withhold nothing.
     ///
-    /// A row may name **no platform** — `Tasks` is one — and that is not the
-    /// error it looks like. An effect nothing grants is an effect nothing can
-    /// bind, which is exactly what a declaration landing ahead of its runtime
-    /// wants, and the row is what makes the refusal say why instead of "no
-    /// such name". An empty *exports* list is still an error, because a row
-    /// that names no export withholds nothing on every platform.
+    /// A row may name **no platform**, and that is not the error it looks
+    /// like. An effect nothing grants is an effect nothing can bind, which is
+    /// exactly what a declaration landing ahead of its runtime wants, and the
+    /// row is what makes the refusal say why instead of "no such name". No row
+    /// is empty today — `Tasks` was, for two waves, and now names three
+    /// platforms — so what is asserted here is the *exports*, which a row
+    /// naming none of would withhold nothing on every platform.
     #[test]
     fn every_grant_names_exports_that_exist() {
         let src = source(HOST_MODULE).expect("core/host is a module");
@@ -522,41 +537,72 @@ mod tests {
         }
     }
 
-    /// `Tasks` is granted by no platform, and every platform withholds both of
-    /// its names.
+    /// `Tasks` is granted where a program is a program, and withheld from the
+    /// page — the same three platforms as `Fs`, `Net`, `Stdin`, `Env` and
+    /// `Proc`, and both of its names move together.
     ///
     /// The reject corpus can ask for `JS` and `WEB` and no more — a case's
     /// platform comes from its `// PLATFORM:` line, and the two native ones
     /// would want a linker — so *every* platform is proved here, over
-    /// `Platform::ALL`, and the reject fixtures pin what the refusal reads
-    /// like.
+    /// `Platform::ALL`, and `reject/tasks_not_granted_on_web` pins what the
+    /// refusal reads like.
+    ///
+    /// The assertion is two-sided, which is what makes it able to fail in both
+    /// directions: a platform quietly losing the grant is caught by the first
+    /// half, and WEB quietly gaining it by the second.
     #[test]
-    fn tasks_is_granted_by_no_platform() {
+    fn tasks_is_granted_off_the_page_and_nowhere_else() {
         let grant = host_grant_of("tasks").expect("`tasks` is in the grant table");
         assert_eq!(grant.effect, "Tasks");
-        assert!(grant.platforms.is_empty(), "`Tasks` is granted by {}", grant.platforms_phrase());
+        assert_eq!(grant.platforms_phrase(), "LINUX, MACOS, JS");
         for platform in Platform::ALL {
+            let granted = platform != Platform::Web;
             for name in ["HostTasks", "tasks"] {
-                assert!(
-                    host_withholds(platform, name),
-                    "`{}` grants `{name}`, which no platform implements",
+                assert_eq!(
+                    !host_withholds(platform, name),
+                    granted,
+                    "`{}` and `{name}` disagree about the grant",
                     platform.proto()
                 );
             }
         }
+        // Asserted against `Fs`'s row rather than written out a second time:
+        // the claim is that `Tasks` joined the group that varies with the
+        // platform, so it moves if that group ever splits.
+        let fs = host_grant_of("fs").expect("`fs` is in the grant table");
+        assert_eq!(grant.platforms, fs.platforms, "`Tasks` and `Fs` are granted together");
     }
 
     /// A row with no platform offers no elsewhere, and a row with platforms
     /// offers the sentence it always did.
+    ///
+    /// **No row is empty today.** `Tasks` was the one, and is now granted on
+    /// three platforms, so the empty case is tested against a row written here
+    /// rather than against a row in the table. That is deliberate and is not
+    /// the same as the case being dead: `elsewhere_clause` is what makes *any*
+    /// effect declared ahead of its runtime refuse honestly, `host-not-granted`
+    /// documents the shape, and the next effect to land that way — `Listen` and
+    /// `Sockets` are both coming — gets it for free. Deleting the branch
+    /// because its first user graduated would mean rediscovering the same
+    /// "build this for a platform that grants it:" with nothing after the colon
+    /// on the day the next one lands.
     #[test]
     fn an_ungrantable_effect_is_not_told_to_build_elsewhere() {
-        let tasks = host_grant_of("tasks").expect("`tasks` is in the grant table");
-        assert_eq!(tasks.elsewhere_clause(), "");
+        let ungrantable = HostGrant {
+            effect: "Nothing",
+            exports: &["HostNothing", "nothing"],
+            platforms: &[],
+            because: "nothing implements it",
+        };
+        assert_eq!(ungrantable.elsewhere_clause(), "");
+        assert_eq!(ungrantable.platforms_phrase(), "");
         let net = host_grant_of("net").expect("`net` is in the grant table");
         assert_eq!(
             net.elsewhere_clause(),
             ", or build this target for a platform that grants it: LINUX, MACOS, JS"
         );
+        let tasks = host_grant_of("tasks").expect("`tasks` is in the grant table");
+        assert_eq!(tasks.elsewhere_clause(), net.elsewhere_clause());
     }
 
     /// Every type a primitive can be must have a module that exists.

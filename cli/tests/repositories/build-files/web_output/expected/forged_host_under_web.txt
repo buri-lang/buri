@@ -11,9 +11,9 @@ error: `WEB` does not grant `HostNet` [host-not-granted]
      ──────────
 
      Drop the effect from the context, or build this target for a platform that
-     grants it. Where the fix names no platform to build for, there is none:
-     some effects are declared ahead of the runtime that answers them, and Tasks
-     is one today, so dropping it from the context is the whole of the fix.
+     grants it. Where the fix names no platform to build for, there is none: an
+     effect can be declared ahead of the runtime that answers it, and while it
+     is, dropping it from the context is the whole of the fix.
 
      Why
      ───
@@ -29,6 +29,13 @@ error: `WEB` does not grant `HostNet` [host-not-granted]
      effect an empty list of platforms. No new mechanism, no "not implemented
      yet" flag: it is withheld everywhere, for a stated reason, and granting it
      later is one row.
+
+     Tasks is the worked example, in both directions. It landed declared and
+     granted by nobody, was refused on all four platforms with that reason, and
+     was then granted on three by editing that one row — at which point programs
+     written against the signature it had been reviewed with simply started
+     compiling. No row is empty today; the case above is what the next such
+     effect will use.
 
      A program that provokes it
      ──────────────────────────

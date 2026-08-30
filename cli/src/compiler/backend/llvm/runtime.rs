@@ -78,7 +78,7 @@ pub enum Arg {
     /// argument (`backend/intrinsic_keys.rs`'s `step_call`).
     ///
     /// ```text
-    ///   entry       the generated `ccc` thunk, `void(state, in, out)`
+    ///   entry       the generated `ccc` thunk, `void(state, index, in, out)`
     ///   state       this backend's own record, opaque to the runtime
     ///   in_stride   the source element's stride
     ///   out_stride  the result element's stride
@@ -298,6 +298,24 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_proc_exit_with",
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::NoReturn,
+    },
+    // -- Tasks --------------------------------------------------------------
+    //
+    // `parallel(self, items, f)`, the second key of the closure trampoline and
+    // the one it was built for. `self` is `HostTasks`, an empty struct, so it is
+    // `Arg::Dropped` like every other host receiver; `items` is `Arg::Elems`,
+    // because the source's element type is what the entry thunk is generated at;
+    // `f` is `Arg::Step`, the four words.
+    //
+    // The body is in `cli/runtime/rt.rs` behind feature `net`, which is why
+    // `runtime_native::net_intrinsic` names the `host.HostTasks.*` family: a
+    // toolchain built without the reactor refuses this key with a sentence
+    // before code generation rather than with a missing symbol from `cc`.
+    Entry {
+        key: "host.HostTasks.parallel",
+        symbol: "buri_rt_host_tasks_parallel",
+        args: &[Arg::Dropped, Arg::Elems, Arg::Step],
+        ret: Ret::Out,
     },
     // -- core/alloc's counters ----------------------------------------------
     //
@@ -643,10 +661,10 @@ pub const ENTRIES: &[Entry] = &[
     // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
     // generated `ccc` entry thunk of [`Arg::Step`] instead of through the loop
     // [`super::emit::Unit::list_closure`] emits. It is the *pilot* for that
-    // mechanism and nothing else uses it: `core/list`'s own combinators keep
-    // their loops, which are faster than a call per element can be, and the
-    // operations the trampoline exists for — a task pool, an accepting
-    // socket — are not written yet.
+    // mechanism and nothing in `core/list` uses it: those combinators keep
+    // their loops, which are faster than a call per element can be. The
+    // operation the trampoline exists for is `host.HostTasks.parallel`, whose
+    // row is in the `core/host` block above.
     //
     // `Arg::Elems` and not `Arg::List`, because the source's element type is
     // what `generic_element` answers and what the entry thunk is generated at.
