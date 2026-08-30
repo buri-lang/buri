@@ -26,10 +26,12 @@
 //!
 //! # Which packages are in the native set, and which are not
 //!
-//! [`PACKAGES`] is the list, with the reason beside each exclusion. **Twenty-six
-//! of the thirty-five files are in it** — the number the harness prints, and one
-//! the prose had off by one before `semantics/generics.buri` joined them.
-//! `proto/binary.buri` is the twenty-sixth: it compiled and passed all along and
+//! [`PACKAGES`] is the list, with the reason beside each exclusion.
+//! **Twenty-seven of the thirty-six files are in it** — the number the harness
+//! prints, and one the prose had off by one before `semantics/generics.buri`
+//! joined them. `collections/ordmap.buri` is the twenty-seventh, and needed
+//! nothing the backend did not already have.
+//! `proto/binary.buri` was the twenty-sixth: it compiled and passed all along and
 //! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
 //! `Scan::short_circuit`, which is linear now. What is actually
 //! *refused* is three things:
@@ -220,6 +222,11 @@ const PACKAGES: &[Case] = &[
     //  * `data/patterns.buri` wanted `deriveArrayShow`, which is the element's
     //    generated `show` called once per element plus `buri_rt_show_list`.
     included("collections/map.buri"),
+    // `core/ordmap` and `core/ordset` are ordinary Buri over a recursive enum,
+    // which the backend boxes, and `core/list`'s splicing — so the file that
+    // exercises them reaches nothing the four above do not, and is in the
+    // native set from the day it was written.
+    included("collections/ordmap.buri"),
     included("data/lists.buri"),
     included("data/optionresult.buri"),
     included("data/patterns.buri"),
