@@ -1,0 +1,32 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_swap_adjacent_brace_cents_0f0054/lib.buri:10:38
+   |
+10 | export fn toDollars(c: Cents): I64 { c.0 100 / }
+   |                                      ^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `I64`, not `()` [statement-not-unit]
+  --> lib/recovery_swap_adjacent_brace_cents_0f0054/lib.buri:10:38
+   |
+10 | export fn toDollars(c: Cents): I64 { c.0 100 / }
+   |                                      ^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_swap_adjacent_brace_cents_0f0054/lib.buri:10:41
+   |
+10 | export fn toDollars(c: Cents): I64 { c.0 100 / }
+   |                                         ^
+   |
+   = fix: write `;` here
+error: expected an expression, found `}` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_0f0054/lib.buri:10:48
+   |
+10 | export fn toDollars(c: Cents): I64 { c.0 100 / }
+   |                                                ^
+   |
+   = expected: an expression
+   = actual: `}`
+   = fix: write a value here

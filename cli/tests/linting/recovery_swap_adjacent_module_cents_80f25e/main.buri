@@ -1,0 +1,10 @@
+// `toDollars` is exported, is not on the surface, and is reached by exactly
+// one thing: the import in `routes.buri` that the parser never got to. So
+// `dead-code` has to stay quiet about it — a name nothing in the tree mentions
+// is not a name nothing uses.
+
+export struct Cents(export I64);
+
+fn export describe(c: Cents): I64 { c.0 }
+
+export fn toDollars(c: Cents): I64 { c.0 / 100 }
