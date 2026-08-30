@@ -16,7 +16,10 @@ from "core/testing/context/lib.buri" import {
   Hermetic, alloc, captureOut, captureErr, captured, capturedErr, stdin, stdinBytes, files,
   filesBytes, data, readOnly, noNet, clockAt, advance, randSeed, envOf,
 };
-from "core/effect/lib.buri" import { Alloc, Clock, Env, Fs, IoError, Net, Rand, Stderr, Stdin, Stdout };
+from "core/effect/lib.buri" import {
+  Alloc, Clock, Env, Fs, IoError, Listen, Net, Rand, Request, Response, Sockets, Stderr, Stdin,
+  Stdout,
+};
 
 from "core/bytes/lib.buri" import * as bytes;
 from "core/env/lib.buri" import * as env;
@@ -28,7 +31,7 @@ from "core/time/lib.buri" import * as time;
 
 from "//lib/semantics/lib.buri" import {
   loadText, saveText, roundTrip, greet, shout, stamp, elapsed, fetchBody,
-  StaticFs, FrozenClock, EchoEnv, TeapotNet, guarded,
+  StaticFs, FrozenClock, EchoEnv, TeapotNet, OneShotListen, QuietSockets, serveOnce, guarded,
 };
 
 // -----------------------------------------------------------------------------
@@ -1019,4 +1022,74 @@ test "my own attenuator may wrap the runner's attenuator" {
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   // The outer wrapper decides, so it is mine and not `.ReadOnly`.
   assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
+}
+
+// -----------------------------------------------------------------------------
+// Effects a platform grants together, and the method names they claim
+// -----------------------------------------------------------------------------
+//
+// `Listen` and `Sockets` are granted by no platform, so `host.listen` and
+// `host.sockets` are unreachable from any program (`standard_library/mod.rs`'s
+// grant table, and two reject fixtures). An effect is still an ordinary
+// interface, so a fake satisfies it and the *shape* can be exercised now — and
+// the shape is the thing that is expensive to get wrong.
+//
+// What these blocks are really about is method-name collision. A call through
+// a context searches every effect it binds, and two effects declaring one name
+// make the call ambiguous rather than either declaration wrong; `Ui.read` and
+// `Watch.read` are the shipped example, and there is no way to withdraw a name
+// once programs are written against it. A server binds `Listen`, `Sockets` and
+// `Net` in one context by design, so that trio is where the question had to be
+// answered, and these are the answer as assertions. A *build* error here is
+// the failure — the runtime values are almost beside the point.
+
+test "one context binds Listen, Sockets and Net and every method is callable" {
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "127.0.0.1" },
+    Net: TeapotNet { body: [] },
+    Sockets: QuietSockets {},
+  };
+  // 418 back from the fake network, and positive because the fake server bound
+  // its address — so both effects answered, and neither call was the other.
+  assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
+}
+
+test "the same five methods resolve on the context value itself" {
+  // `serveOnce` reaches them through a *bounded type parameter*; this reaches
+  // them through the context value, which is the other half of the lookup
+  // (`Ty::Param` and `Ty::Ctx` both land in `find_in_bounds`).
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "127.0.0.1" },
+    Net: TeapotNet { body: [] },
+    Sockets: QuietSockets {},
+  };
+  let _ = ctx.socketSendText(1, "hello");
+  let _ = ctx.socketSendBytes(1, []);
+  let _ = ctx.socketClose(1, 1000, "bye");
+  assert.ok(ctx.listen("127.0.0.1", 0, fn(c, request) => Response {
+    status: 200,
+    headers: [],
+    body: [],
+  }));
+  let reply = assert.ok(ctx.fetch(Request {
+    method: .Get,
+    url: "http://example.com/ping",
+    headers: [],
+    body: [],
+  }));
+  assert.eq(reply.status, 418);
+}
+
+test "a server that will not bind is the Listen answer and not the network's" {
+  // The network still answers 418; the negation is `listen`'s refusal, so the
+  // two effects are distinguishable through one context.
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "" },
+    Net: TeapotNet { body: [] },
+    Sockets: QuietSockets {},
+  };
+  assert.eq(serveOnce(ctx, "http://example.com/ping"), 0 - 418);
 }

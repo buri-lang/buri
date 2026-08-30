@@ -28,7 +28,8 @@ from "//lib/semantics/shapes.buri" export {
   // effect users
   loadText, saveText, roundTrip, greet, shout, stamp, elapsed, fetchBody,
   // fakes
-  StaticFs, FrozenClock, EchoEnv, TeapotNet, Guarded, guarded,
+  StaticFs, FrozenClock, EchoEnv, TeapotNet, OneShotListen, QuietSockets, serveOnce,
+  Guarded, guarded,
   // which positions of a type constructor hand a value back
   Widget, render, eachRow, deferred, Cell, cellIndex, Held, heldTwice,
   // fields a literal may leave out
