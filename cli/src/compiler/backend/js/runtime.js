@@ -698,6 +698,18 @@ function $list_mapCtx(xs, c, f) {
   return $own(out);
 }
 
+// `list.mapCtxStep` is `mapCtx` with a runtime-driven step on the native
+// backends, and here it is the same loop as `$list_mapCtx` — deliberately.
+// JavaScript is the reference implementation the two natives are compared
+// against (`cli/tests/native/agreement.rs`), and a reference that shared the
+// mechanism under test would prove nothing about it. This is the same argument
+// `middle/fuse.rs` makes for running the fusion pass on the native branch only.
+function $list_mapCtxStep(xs, c, f) {
+  const out = new Array(xs.length);
+  for (let i = 0; i < xs.length; i++) out[i] = f(c, $share(xs[i]));
+  return $own(out);
+}
+
 function $list_filter(xs, c, p) {
   const out = [];
   for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) out.push(xs[i]);
