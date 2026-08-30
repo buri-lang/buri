@@ -1,0 +1,5 @@
+// EXPECT: expected a type, found `@`
+export struct Point {
+  export x: @,
+  export y: Int,
+}

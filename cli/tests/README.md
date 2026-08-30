@@ -13,7 +13,8 @@ on its own, so a domain is a directory and needs no entry in `Cargo.toml`.
 ```
 cli/tests/
   harness/              shared machinery, not a binary: the CLI runner, the
-                        scratch repository, the bless-or-compare loop
+                        scratch repository, the bless-or-compare loop, and the
+                        seeded single-token mutator `recovery.rs` draws from
 
   language/  main.rs    WHAT THE LANGUAGE DOES, on the reference backend
     conformance.rs        the conformance repository, the reject corpus
@@ -47,6 +48,8 @@ cli/tests/
   failing.rs            A FAILING RUN — the report a user reads, pinned
   fuzz.rs               INPUT NOBODY CHOSE — generated and mutated, against
                         properties, with its findings recorded as it goes
+  recovery.rs           ONE TOKEN WRONG — what the toolchain says about a
+                        mistake, as invariants over the whole corpus
 
   conformance/          a Buri repository: `test/` blocks on language semantics
   reject/               programs that must not compile, with their diagnostics
@@ -58,10 +61,13 @@ cli/tests/
   proto/                vendored schemas, a testee, and the recorded exchanges
   failing/              one directory per failure shape, with its report
   fuzz/                 every finding a search has made, minimised, replayed
+  recovery/             one hand-written case per list context, with the exact
+                        message, span and edit it must produce
+  message-audit/        run.sh: the diagnostics put to a model, one question
 ```
 
-**Nine binaries**, so a full run links nine times: five directories holding a
-`main.rs` and four bare `.rs` files. A corpus is shared — the `conformance/`
+**Ten binaries**, so a full run links ten times: five directories holding a
+`main.rs` and five bare `.rs` files. A corpus is shared — the `conformance/`
 repository is read by `language::conformance` on the JavaScript backend and by
 `native::conformance` and `native::stencil` on the copy-and-patch one, and
 `crash/` by four suites — so corpora sit at the top level rather than inside any
@@ -85,6 +91,7 @@ several sets of assertions.
 | `formatting` | A directory per decision the formatter makes, plus every output being a fixed point, keeping its comments and tokens, and fitting the margin. |
 | `adversarial` | That no input panics the toolchain. Malformed sources, build files, schemas, flags and language-server messages, through the binary, asserting on *how* it stops rather than on what it says. |
 | `fuzz` | That the properties every other suite states over a corpus hold over input nobody chose: no mutation of a checked-in source panics the toolchain, the formatter is a fixed point that keeps its tokens and comments on shapes nobody wrote, the benchmark generator emits programs that compile at points in its parameter space no profile names, the same input twice says the same thing, and a generated program prints the answer the generator computed — under every backend, and with code that cannot run inserted into it. Bounded and seeded in CI; `BURI_FUZZ_SECONDS` soaks. |
+| `recovery` | That one mistake reads as one mistake: every compiling source in the repository with a token deleted, inserted or exchanged, held to invariants — one diagnostic per mistake, its caret at the mistake, its `fix` naming the token, no type error invented downstream, and the file still formatting — plus a hand-written case per list context pinning the exact message, span and edit. **Every test in it is `#[ignore]`d**: they are the specification of behaviour that does not exist yet, so they are red on purpose and `cargo test -p buri` skips them. The `#[ignore]` reason names the wave that deletes the attribute, and deleting it is the whole of turning the test on. |
 | `failing` | That a failing `buri test` fails *well*: the report a user reads — line, expected, got, counts, exit code — pinned byte for byte across every value shape, abort, title edge case and multi-module ordering, so the failure path is held to the same standard as the success path. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
@@ -98,6 +105,7 @@ cargo test -p buri --test language                    # one domain
 cargo test -p buri --test language conformance::      # one suite in it
 cargo test -p buri --test native -- --skip float_parity
 cargo test -p buri --features backend-llvm --test native
+cargo test -p buri --test recovery -- --ignored          # the specification suite
 ```
 
 A merged domain costs nothing in selection: a module is a name prefix, so
