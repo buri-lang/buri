@@ -73,12 +73,37 @@ pub enum Arg {
     /// counted pointers (`cli/runtime/list.rs`'s header). Consumes no Buri
     /// argument.
     Retain,
+    // -- the closure trampoline ---------------------------------------------
+    /// A **runtime-driven step**: four parameters, from one Buri closure
+    /// argument (`backend/intrinsic_keys.rs`'s `step_call`).
+    ///
+    /// ```text
+    ///   entry       the generated `ccc` thunk, `void(state, in, out)`
+    ///   state       this backend's own record, opaque to the runtime
+    ///   in_stride   the source element's stride
+    ///   out_stride  the result element's stride
+    /// ```
+    ///
+    /// It consumes the closure and emits none of its words: `{ code, env }` is
+    /// this backend's business and reaches the runtime inside `state`, which is
+    /// an entry-block `alloca` the call site fills in. What the runtime gets is
+    /// a C function it can call once per element with three pointers, at every
+    /// element type there is — which is [`Arg::Spilled`]'s answer to "the
+    /// runtime cannot name `T`" applied to a *call* rather than to a value.
+    ///
+    /// The strides ride along rather than arriving as [`Arg::Stride`] because a
+    /// step reads one element type and writes another, and `Arg::Stride` names
+    /// exactly one — the element `generic_element` found. Two of them in one
+    /// variant keeps "which stride is which" a property of this table instead
+    /// of an ordering convention between two independent rows.
+    Step,
 }
 
 impl Arg {
     /// How many C parameters this shape emits.
     pub fn leaves(self) -> usize {
         match self {
+            Arg::Step => 4,
             Arg::Str => 3,
             Arg::Bytes | Arg::List | Arg::Elems => 2,
             Arg::Scalar | Arg::Spilled | Arg::Stride | Arg::Retain => 1,
@@ -611,6 +636,26 @@ pub const ENTRIES: &[Entry] = &[
         key: "list.join",
         symbol: "buri_rt_list_join",
         args: &[Arg::List, Arg::Dropped, Arg::Str],
+        ret: Ret::Out,
+    },
+    // -- the closure trampoline, and its one pilot key ----------------------
+    //
+    // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
+    // generated `ccc` entry thunk of [`Arg::Step`] instead of through the loop
+    // [`super::emit::Unit::list_closure`] emits. It is the *pilot* for that
+    // mechanism and nothing else uses it: `core/list`'s own combinators keep
+    // their loops, which are faster than a call per element can be, and the
+    // operations the trampoline exists for — a task pool, an accepting
+    // socket — are not written yet.
+    //
+    // `Arg::Elems` and not `Arg::List`, because the source's element type is
+    // what `generic_element` answers and what the entry thunk is generated at.
+    // `Arg::Dropped` for the `Alloc` context, as every other `core/list` row
+    // has it: the runtime allocates through `buri_rt_alloc`.
+    Entry {
+        key: "list.mapCtxStep",
+        symbol: "buri_rt_list_map_ctx_step",
+        args: &[Arg::Elems, Arg::Dropped, Arg::Step],
         ret: Ret::Out,
     },
     // -- core/testing/context's stateful half ---------------------------------
@@ -1513,7 +1558,16 @@ mod tests {
     /// this invariant.
     #[test]
     fn only_the_generic_extras_consume_no_argument() {
-        for shape in [Arg::Str, Arg::Bytes, Arg::List, Arg::Scalar, Arg::Dropped, Arg::Elems, Arg::Spilled] {
+        for shape in [
+            Arg::Str,
+            Arg::Bytes,
+            Arg::List,
+            Arg::Scalar,
+            Arg::Dropped,
+            Arg::Elems,
+            Arg::Spilled,
+            Arg::Step,
+        ] {
             assert!(shape.consumes(), "{shape:?}");
         }
         for shape in [Arg::Stride, Arg::Retain] {
@@ -1534,7 +1588,33 @@ mod tests {
             assert_eq!(strides, retains, "{}", e.key);
             let generic =
                 e.args.iter().any(|a| matches!(a, Arg::Elems | Arg::Spilled));
-            assert_eq!(strides > 0, generic, "{}", e.key);
+            // [`Arg::Step`] carries **both** of its strides itself, because a
+            // step reads one element type and writes another and `Arg::Stride`
+            // names exactly one. So a row with a step is generic and has no
+            // separate stride, and the equivalence above holds of the rest.
+            let stepped = e.args.contains(&Arg::Step);
+            assert_eq!(strides > 0, generic && !stepped, "{}", e.key);
+        }
+    }
+
+    /// Every row with a step is one `backend/intrinsic_keys.rs` names, its
+    /// `Arg::Step` sits where that table says the closure is, and it is the
+    /// last argument — which is the invariant that lets `runtime_table.rs`,
+    /// which has no per-argument column, describe the same C signature.
+    #[test]
+    fn a_step_is_the_last_argument_of_a_key_the_shared_table_names() {
+        use crate::compiler::backend::intrinsic_keys::step_call;
+        for e in ENTRIES {
+            let at = e.args.iter().position(|a| *a == Arg::Step);
+            match (at, step_call(e.key)) {
+                (None, None) => {}
+                (Some(at), Some(call)) => {
+                    assert_eq!(at, call.func, "{}", e.key);
+                    assert_eq!(at + 1, e.args.len(), "{}", e.key);
+                }
+                (Some(_), None) => panic!("{} has a step and no `step_call` row", e.key),
+                (None, Some(_)) => panic!("{} is runtime-driven and has no `Arg::Step`", e.key),
+            }
         }
     }
 }
