@@ -33,6 +33,17 @@ source rather than the tree — parameter counts, nesting depth, function length
 warning comments, test titles, duplicate imports, unused imports — answer the
 same either way.
 
+`unused-context` reads bodies and answers anyway, and what lets it is the one
+thing it has that the four above do not: a context has exactly one spelling.
+There is no alias for `ctx` and no way to reach it under a name of your own, so
+where the typed tree is truncated the rule asks the *text* instead — does this
+declaration write `ctx` anywhere but at the parameter? The lexer answers that
+whether or not the checker could read the expression around it, so a mistake in
+one corner of a function does not take the finding about its signature with it.
+What the error does cost is the fix: the calls the rewrite would have to touch
+are read off the same tree, so a package that did not check whole gets the
+finding with the sentence and no bytes.
+
 `dead-code` asks a second question and so has a second reason to go quiet. It
 reads the package's imports and re-exports to decide which exported names
 anything reaches, so an error landing on one of those lines — or a run of

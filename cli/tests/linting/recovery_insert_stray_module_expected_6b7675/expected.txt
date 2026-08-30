@@ -1,0 +1,16 @@
+error: expected `:`, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_module_expected_6b7675/main.buri:20:43
+   |
+20 | fn announce<C: Stdout>(ctx: C, label: Str)@ : () {
+   |                                           ^
+   |
+   = expected: `:`
+   = actual: `@`
+   = fix: write `:` here
+error: there is nothing named `announce` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_module_expected_6b7675/main.buri:38:11
+   |
+38 |   let _ = announce(ctx, label);
+   |           ^^^^^^^^
+   |
+   = fix: declare `announce`, or import it — a name is in scope only from this module's own declarations and its imports

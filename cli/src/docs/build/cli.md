@@ -113,6 +113,7 @@ Style and hygiene rules:
 | `oversized-function` | A body more than forty lines from its opening brace to its closing one. |
 | `deep-nesting` | A branch with more than four branches wrapped around it. |
 | `ctx-rebinding` | A `let ctx = ...` where no context may be built, which binds the name a function's context arrives under to something else. |
+| `unused-context` | A `ctx` parameter the body never reads, so the signature claims an authority the code does not use and every caller holds a context for nothing. Carries the edit that deletes the parameter and the argument at every call site. |
 
 Two findings belong to a `buri test` run rather than to the graph, and both are
 about the suite as a whole rather than about one test in it:
