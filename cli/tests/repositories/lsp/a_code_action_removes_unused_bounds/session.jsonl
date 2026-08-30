@@ -1,0 +1,19 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# No `resolveSupport` in the capabilities, so the action carries its edit in
+# the list — which is what puts the whole `WorkspaceEdit` in this golden.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# `unused-context-bound`, on the *second* of the two dead bounds. A bound list
+# is one piece of text with shared separators, so the edit removes both — the
+# ranges that delete `Alloc` and `Clock` on their own would both claim the `+`
+# between them. Both findings carry that same rewrite, and the list holds it
+# **once**: two findings answered by one edit are one entry in the menu.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/announce.buri"}, "range": {"start": {"line": 5, "character": 30}, "end": {"line": 5, "character": 35}}, "context": {"diagnostics": [{"code": "unused-context-bound", "message": "bound `Clock` on `C` is not used by this function", "range": {"start": {"line": 5, "character": 30}, "end": {"line": 5, "character": 35}}}]}}}
+# The client accepts it and writes the file.
+!apply 2
+# The module as the editor now sees it. Neither bound is reported any more —
+# and the two imports that named them have become `unused-import`, which is the
+# honest next thing to remove and the reason this golden is not empty.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/one/announce.buri"}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

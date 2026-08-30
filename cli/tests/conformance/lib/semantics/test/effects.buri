@@ -16,7 +16,10 @@ from "core/testing/context/lib.buri" import {
   Hermetic, alloc, captureOut, captureErr, captured, capturedErr, stdin, stdinBytes, files,
   filesBytes, data, readOnly, noNet, clockAt, advance, randSeed, envOf,
 };
-from "core/effect/lib.buri" import { Alloc, Clock, Env, Fs, IoError, Net, Rand, Stderr, Stdin, Stdout };
+from "core/effect/lib.buri" import {
+  Alloc, Clock, Env, Fs, IoError, Listen, Net, Rand, Request, Response, Sockets, Stderr, Stdin,
+  Stdout, Tasks,
+};
 
 from "core/bytes/lib.buri" import * as bytes;
 from "core/env/lib.buri" import * as env;
@@ -28,7 +31,8 @@ from "core/time/lib.buri" import * as time;
 
 from "//lib/semantics/lib.buri" import {
   loadText, saveText, roundTrip, greet, shout, stamp, elapsed, fetchBody,
-  StaticFs, FrozenClock, EchoEnv, TeapotNet, guarded,
+  StaticFs, FrozenClock, EchoEnv, TeapotNet, OneShotListen, QuietSockets, serveOnce, guarded,
+  SerialTasks, runInOrder,
 };
 
 // -----------------------------------------------------------------------------
@@ -1019,4 +1023,185 @@ test "my own attenuator may wrap the runner's attenuator" {
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   // The outer wrapper decides, so it is mine and not `.ReadOnly`.
   assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
+}
+
+// -----------------------------------------------------------------------------
+// Effects a platform grants together, and the method names they claim
+// -----------------------------------------------------------------------------
+//
+// `Listen` and `Sockets` are granted by no platform, so `host.listen` and
+// `host.sockets` are unreachable from any program (`standard_library/mod.rs`'s
+// grant table, and two reject fixtures). An effect is still an ordinary
+// interface, so a fake satisfies it and the *shape* can be exercised now — and
+// the shape is the thing that is expensive to get wrong.
+//
+// What these blocks are really about is method-name collision. A call through
+// a context searches every effect it binds, and two effects declaring one name
+// make the call ambiguous rather than either declaration wrong; `Ui.read` and
+// `Watch.read` are the shipped example, and there is no way to withdraw a name
+// once programs are written against it. A server binds `Listen`, `Sockets` and
+// `Net` in one context by design, so that trio is where the question had to be
+// answered, and these are the answer as assertions. A *build* error here is
+// the failure — the runtime values are almost beside the point.
+
+test "one context binds Listen, Sockets and Net and every method is callable" {
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "127.0.0.1" },
+    Net: TeapotNet { body: [] },
+    Sockets: QuietSockets {},
+  };
+  // 418 back from the fake network, and positive because the fake server bound
+  // its address — so both effects answered, and neither call was the other.
+  assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
+}
+
+test "the same five methods resolve on the context value itself" {
+  // `serveOnce` reaches them through a *bounded type parameter*; this reaches
+  // them through the context value, which is the other half of the lookup
+  // (`Ty::Param` and `Ty::Ctx` both land in `find_in_bounds`).
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "127.0.0.1" },
+    Net: TeapotNet { body: [] },
+    Sockets: QuietSockets {},
+  };
+  let _ = ctx.socketSendText(1, "hello");
+  let _ = ctx.socketSendBytes(1, []);
+  let _ = ctx.socketClose(1, 1000, "bye");
+  // `c` is the `OneShotListen` the context binds — not the context — so its
+  // field is readable, and reading it is the assertion. `.Ok(())` back means
+  // the handler answered 200, which it can only do off the right bytes.
+  assert.ok(ctx.listen("127.0.0.1", 0, fn(c, request) => Response {
+    status: if (c.bindsTo == "127.0.0.1") { 200 } else { 500 },
+    headers: [],
+    body: [],
+  }));
+  let reply = assert.ok(ctx.fetch(Request {
+    method: .Get,
+    url: "http://example.com/ping",
+    headers: [],
+    body: [],
+  }));
+  assert.eq(reply.status, 418);
+}
+
+test "a server that will not bind is the Listen answer and not the network's" {
+  // The network still answers 418; the negation is `listen`'s refusal, so the
+  // two effects are distinguishable through one context.
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "" },
+    Net: TeapotNet { body: [] },
+    Sockets: QuietSockets {},
+  };
+  assert.eq(serveOnce(ctx, "http://example.com/ping"), 0 - 418);
+}
+
+// -----------------------------------------------------------------------------
+// `Self` in an effect method's signature, called through a context
+// -----------------------------------------------------------------------------
+//
+// `Self` is the **implementing** type: the one whose `impl` supplies the body.
+// A context satisfies an effect without implementing it — it names a value that
+// does — so through a context the two are different types, and a method whose
+// signature spells `Self` is where the difference is observable:
+// `Listen.listen` takes `onRequest: fn(Self, Request) => Response` and
+// `Tasks.parallel` takes `f: fn(Self, Int, A) => B`, and the `impl` body hands
+// that handler *itself*.
+//
+// Substituting the receiver instead gave the handler the context's layout while
+// the implementation's arrived. JavaScript never noticed, because nothing there
+// is laid out; the native backends read the wrong bytes and the process died
+// with no output at all. So these blocks assert two things at once — that a
+// handler may *read a field of the implementation it is handed*, which is a
+// claim about which type arrived, and that the whole file still runs, which is
+// the claim the segfault used to break.
+//
+// Both halves of the question are here. Called on the context value, the front
+// end can see the row and settles `Self` there. Called through a bounded `C`, it
+// cannot: a generic body is checked once for every instantiation at once, so
+// `Self` is `C` until monomorphization knows what `C` became. `serveOnce` and
+// `runInOrder` are the second half.
+
+test "a handler through a context is handed the implementation, not the context" {
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "10.0.0.1" },
+  };
+  // `server.bindsTo` is a field of `OneShotListen`. A context has no fields at
+  // all, so this line does not compile if `Self` is the receiver — and before
+  // it was made to, the same line with the field left out compiled and then
+  // crashed the process.
+  assert.ok(ctx.listen("10.0.0.1", 0, fn(server, request) => Response {
+    status: if (server.bindsTo == request.url) { 200 } else { 500 },
+    headers: [],
+    body: [],
+  }));
+  // The negation: the handler answers 500 when the two disagree, and
+  // `OneShotListen` turns anything but 200 into `.Refused`. So the assertion
+  // above is not passing by answering 200 whatever it was handed.
+  let _ = assert.err(ctx.listen("127.0.0.1", 0, fn(server, request) => Response {
+    status: if (server.bindsTo == request.url) { 200 } else { 500 },
+    headers: [],
+    body: [],
+  }));
+}
+
+test "a generic effect method's fn(Self, ...) parameter is the implementation" {
+  // `Tasks.parallel<A, B>` is the same shape with type parameters of its own:
+  // `A` and `B` are inferred at the call, `Self` is not written at the call at
+  // all, and all three have to arrive at the handler together.
+  let ctx = context { Alloc: alloc(), Tasks: SerialTasks { label: "serial", bias: 7 } };
+  let out = ctx.parallel([1, 2], fn(runner, i, item) => runner.bias + i * 10 + item);
+  assert.eq(out[0] ?? 0, 8);
+  assert.eq(out[1] ?? 0, 19);
+}
+
+test "two effects in one context each resolve Self to their own implementation" {
+  // One context, two rows, two different implementing types — and `Self` is a
+  // different type in each of the two calls below. A fix that carried one type
+  // for the whole context, or the receiver for both, gets exactly one of these
+  // right.
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "127.0.0.1" },
+    Tasks: SerialTasks { label: "serial", bias: 100 },
+  };
+  assert.ok(ctx.listen("127.0.0.1", 0, fn(server, request) => Response {
+    status: if (server.bindsTo == "127.0.0.1") { 200 } else { 500 },
+    headers: [],
+    body: [],
+  }));
+  // Both fields of the runner, an `Int` and a `Str`: a word and a pointer, so
+  // a handler that got the wrong value would have to have been handed
+  // something shaped exactly like a `SerialTasks` to answer this.
+  let out = ctx.parallel([5], fn(runner, i, item) => {
+    if (runner.label == "serial") { runner.bias + item } else { 0 }
+  });
+  assert.eq(out[0] ?? 0, 105);
+}
+
+test "a bounded type parameter instantiated at a context reaches the same answer" {
+  // `runInOrder<C: Tasks>` is checked once, with `Self` still `C`; this call is
+  // what makes `C` a context, and monomorphization is where that is put right.
+  // The handler cannot read a field here — nothing in the body names what
+  // implements `Tasks` for `C` — so what this block asserts is that the call
+  // *happens at all*, which is what the wrong layout took away.
+  let ctx = context { Alloc: alloc(), Tasks: SerialTasks { label: "serial", bias: 0 } };
+  assert.eq(runInOrder(ctx, [3, 4]), 107);
+}
+
+test "a context binding two effects with fn(Self, ...) reaches both through bounds" {
+  // `serveOnce` and `runInOrder` over one context, so the two corrections are
+  // made in the same instantiation and neither overwrites the other.
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "127.0.0.1" },
+    Net: TeapotNet { body: [] },
+    Sockets: QuietSockets {},
+    Tasks: SerialTasks { label: "serial", bias: 0 },
+  };
+  assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
+  assert.eq(runInOrder(ctx, [3, 4]), 107);
 }

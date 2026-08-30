@@ -1,0 +1,16 @@
+error: expected `=>`, found `Str` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_expected_73e1b5/main.buri:42:58
+   |
+42 | fn rendered<C: Alloc + Clock>(ctx: C, render: fn(C, Str) Str =>, label: Str): Str {
+   |                                                          ^^^
+   |
+   = expected: `=>`
+   = actual: `Str`
+   = fix: write `=>` here
+error: there is nothing named `rendered` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_expected_73e1b5/main.buri:56:24
+   |
+56 |   let _ = whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label));
+   |                        ^^^^^^^^
+   |
+   = fix: declare `rendered`, or import it — a name is in scope only from this module's own declarations and its imports

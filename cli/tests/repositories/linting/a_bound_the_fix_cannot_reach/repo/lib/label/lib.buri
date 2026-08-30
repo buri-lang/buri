@@ -1,0 +1,1 @@
+from "//lib/label/stamp.buri" export { note, stamp };

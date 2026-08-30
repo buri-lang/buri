@@ -1,0 +1,30 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_brace_stamp_974a82/lib.buri:18:3
+   |
+18 |   extra io.println(ctx, "-- ${label}")
+   |   ^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_stamp_974a82/lib.buri:18:3
+   |
+18 |   extra io.println(ctx, "-- ${label}")
+   |   ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_brace_stamp_974a82/lib.buri:18:8
+   |
+18 |   extra io.println(ctx, "-- ${label}")
+   |        ^
+   |
+   = fix: write `;` here
+warning: bound `Alloc` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_insert_stray_brace_stamp_974a82/lib.buri:24:19
+   |
+24 | export fn note<C: Alloc // it will allocate once the sink is real
+   |                   ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
