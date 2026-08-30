@@ -98,8 +98,12 @@ const FLOOR: usize = 250;
 /// a ratchet on the recovery, and the number to lower after the next round of
 /// work.
 ///
-/// Measured at 21% (160 of 763) after the formatter style change and the
-/// `circular-type-alias` diagnostic landed — down from 22% (161 of 732),
+/// Measured at 20% (149 of 728) after `ui/effect`'s `Fetch` retired and took
+/// `conformance/lib/ui/test/fetch.buri` with it — the corpus is thirty-five
+/// cases smaller because that file was a seed and no longer is, and the rate
+/// moved by half a point because those cases were drawn like any others. It
+/// was 21% (160 of 763) after the formatter style change and the
+/// `circular-type-alias` diagnostic landed, and 22% (161 of 732) before,
 /// because the cases the style change added to the draw are struct and enum
 /// declarations whose mistakes stay inside the declaration. The ceiling did
 /// not move: it is derived from `recovery.rs`'s population rates above, not

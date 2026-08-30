@@ -137,7 +137,7 @@ links into all four binaries, which is what an untagged library is *for*.
 | [`cmd/basket/main.buri`](./cmd/basket/main.buri) | A page's effect budget, and one theme per package whose tokens the program uses |
 | [`cmd/basket/theme.buri`](./cmd/basket/theme.buri) | The contract between a library's tokens and an app, as a `match` that stops compiling |
 | [`cmd/basket/view.buri`](./cmd/basket/view.buri) | Which of the three reactive constructors to reach for, and what each one re-runs |
-| [`cmd/basket/test/view.buri`](./cmd/basket/test/view.buri) | A page tested with no browser: a `Fetch` written for the test, a keyed row's identity across a change, and a theme switch that moves no element |
+| [`cmd/basket/test/view.buri`](./cmd/basket/test/view.buri) | A page tested with no browser: a `Net` written for the test, a keyed row's identity across a change, and a theme switch that moves no element |
 | [`tools/report/BUILD.buri`](./tools/report/BUILD.buri) | Two rules, one directory, one build file |
 | [`tools/report/main.buri`](./tools/report/main.buri) | A binary reaching its co-located library through `//tools/report` and nothing else |
 
@@ -160,9 +160,12 @@ links into all four binaries, which is what an untagged library is *for*.
   same sources, different platforms and different tags, and every difference
   between the two builds is visible in those two files.
 - **Then compare all three `main.buri`s at once.** `//cmd/server` binds `Fs` and
-  `Env`, `//cmd/web` binds neither, and `//cmd/basket` binds `Ui`, `Watch` and
-  `Fetch` — which `core/host` exports under `platform: WEB` and under no other.
-  None of the three would build for either of the others' outputs, and the error
+  `Env`, `//cmd/web` binds neither, and `//cmd/basket` binds `Ui` and `Watch` —
+  which `core/host` exports under `platform: WEB` and under no other, plus
+  `Net`, which every platform grants. `Net` is the newer half of the same
+  point: it was withheld from a page while a request did not return until the
+  answer arrived, and the reason went away when the wait stopped blocking. None
+  of the three would build for either of the others' outputs, and the error
   lands on the line that asked for the effect.
 - **Follow a token from `lib/kit/tokens.buri` to a colour.** `Token.Surface` is
   a name //lib/kit chose; `cmd/basket/theme.buri` says it is worth this app's

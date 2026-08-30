@@ -1470,45 +1470,143 @@ function $host_HostStderr_eprintln(self, t) {
   return 0;
 }
 
-let $stdinLines = null;
-let $stdinAt = 0;
+// --- Standard input ---------------------------------------------------------
+//
+// Both readers are `async`, and the event loop is what waits: a program
+// blocked on input is a program something else can run inside. What was here
+// before was `readSync` on the descriptor with a `continue` on `EAGAIN` — a
+// non-blocking pipe answers that until it has something to say — which burned
+// a core for the whole of a wait and let nothing else happen during one.
+//
+// `process.stdin` in paused mode is what replaces it: `read()` takes what has
+// already arrived, and `readable`/`end` say when to ask again. Node and Bun
+// both implement it; a browser has no standard input at all, and no platform
+// that grants `Stdin` is a browser (`standard_library`'s grant table), so the
+// failure there is a refusal rather than a wrong answer.
+//
+// The buffer is a queue of chunks rather than one growing `Buffer`, because
+// `readBytes` is a framed protocol's reader: a thousand four-byte headers off
+// the front of one megabyte must not each copy the megabyte.
+const $stdin = { chunks: [], at: 0, size: 0, ended: false };
 
-function $host_HostStdin_readLine(self) {
-  if ($stdinLines === null) {
-    let text = "";
-    try {
-      text = $fs().readFileSync(0, "utf8");
-    } catch {
-      text = "";
-    }
-    $stdinLines = text.length ? text.split("\n") : [];
-    if ($stdinLines.length && $stdinLines[$stdinLines.length - 1] === "") $stdinLines.pop();
+function $stdinStream() {
+  if (typeof process === "undefined" || !process.stdin) {
+    $abort("this platform grants no standard input");
   }
-  return $stdinAt < $stdinLines.length ? $some($stdinLines[$stdinAt++]) : undefined;
+  return process.stdin;
 }
 
-// Exactly `n` octets, blocking until they arrive. `read` on a pipe returns
-// what is available rather than what was asked for, so this loops — and a
-// short read at end of input yields what it got, or nothing at all.
-function $host_HostStdin_readBytes(self, want) {
+// The next chunk, or `null` at end of input.
+//
+// The listeners come off before the promise settles, and the stream is paused
+// with them: a reader that has stopped asking must not hold the event loop
+// open, or a program that read to the end would never exit.
+function $stdinChunk() {
+  const s = $stdinStream();
+  const first = s.read();
+  if (first !== null && first !== undefined) return Promise.resolve(first);
+  if (s.readableEnded) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const settle = (v) => {
+      s.off("readable", onReadable);
+      s.off("end", onDone);
+      s.off("error", onDone);
+      s.pause();
+      resolve(v);
+    };
+    // `readable` fires when there *may* be something; `read()` still answers
+    // null when there is not, and then the next one is waited for.
+    const onReadable = () => {
+      const c = s.read();
+      if (c !== null && c !== undefined) settle(c);
+    };
+    const onDone = () => settle(null);
+    s.on("readable", onReadable);
+    s.on("end", onDone);
+    s.on("error", onDone);
+  });
+}
+
+// One chunk into the queue, or the end of input recorded. Both readers ask
+// `$stdin.ended` afterwards rather than reading an answer from here, because
+// what they do about it differs.
+async function $stdinPull() {
+  const c = await $stdinChunk();
+  if (c === null) {
+    $stdin.ended = true;
+  } else if (c.length) {
+    $stdin.chunks.push(c);
+    $stdin.size += c.length;
+  }
+}
+
+// Exactly `n` octets off the front of the queue, which the caller has already
+// established are there.
+function $stdinTake(n) {
+  const parts = [];
+  let left = n;
+  while (left > 0) {
+    const head = $stdin.chunks[0];
+    const avail = head.length - $stdin.at;
+    if (avail > left) {
+      parts.push(head.subarray($stdin.at, $stdin.at + left));
+      $stdin.at += left;
+      left = 0;
+    } else {
+      parts.push(head.subarray($stdin.at));
+      $stdin.chunks.shift();
+      $stdin.at = 0;
+      left -= avail;
+    }
+  }
+  $stdin.size -= n;
+  return parts.length === 1 ? parts[0] : Buffer.concat(parts);
+}
+
+// The offset of the first newline in the queue, or -1. A line boundary is a
+// byte boundary — no octet of a multi-byte character is 0x0A — so cutting
+// here and decoding after is safe across a chunk that split one.
+function $stdinNewline() {
+  let seen = 0;
+  for (let i = 0; i < $stdin.chunks.length; i++) {
+    const c = $stdin.chunks[i];
+    const from = i === 0 ? $stdin.at : 0;
+    const at = c.indexOf(10, from);
+    if (at >= 0) return seen + (at - from);
+    seen += c.length - from;
+  }
+  return -1;
+}
+
+// A line at a time rather than the whole stream at once, which is the other
+// half of what the spin cost: a reader that has to see end of input before it
+// answers its first line cannot hold up one end of a conversation.
+async function $host_HostStdin_readLine(self) {
+  for (;;) {
+    const at = $stdinNewline();
+    if (at >= 0) {
+      const line = $stdinTake(at).toString("utf8");
+      $stdinTake(1);
+      return $some(line);
+    }
+    // What is left when the stream ends is a last line without one, and
+    // nothing left is end of input.
+    if ($stdin.ended) {
+      return $stdin.size === 0 ? undefined : $some($stdinTake($stdin.size).toString("utf8"));
+    }
+    await $stdinPull();
+  }
+}
+
+// Exactly `n` octets, waiting until they arrive. A short read at end of input
+// yields what it got, or nothing at all.
+async function $host_HostStdin_readBytes(self, want) {
   const n = Number(want);
   if (n <= 0) return [];
-  const buf = Buffer.alloc(n);
-  let got = 0;
-  while (got < n) {
-    let r;
-    try {
-      r = $fs().readSync(0, buf, got, n - got, null);
-    } catch (e) {
-      if (e && e.code === "EAGAIN") continue;
-      if (e && e.code === "EOF") break;
-      throw e;
-    }
-    if (r === 0) break;
-    got += r;
-  }
+  while ($stdin.size < n && !$stdin.ended) await $stdinPull();
+  const got = Math.min(n, $stdin.size);
   if (got === 0) return undefined;
-  return Array.from(buf.subarray(0, got));
+  return Array.from($stdinTake(got));
 }
 
 // `IoError` has a variant with a payload (`Other(Str)`), so every value of it
@@ -1533,57 +1631,76 @@ function $utf8Lossy(b) {
 
 // `require` does not exist in an ES module on node, so the backend emits a
 // `createRequire` prologue when — and only when — a program actually reaches
-// the filesystem. A program whose `main` never binds `Fs` never gets one.
+// one of the two modules below. A program whose `main` binds neither `Fs` nor
+// `Stdout.writeBytes` never gets one.
+//
+// The synchronous half survives for exactly one caller: `$writeRaw`, which
+// answers `Stdout.writeBytes` and does not wait, because a protocol that
+// answers a request has to have answered before it reads the next one.
 function $fs() {
   if (typeof $require === "function") return $require("fs");
   if (typeof require === "function") return require("fs");
   $abort("this platform grants no filesystem");
 }
 
-function $host_HostFs_readFile(self, p) {
+// The filesystem every `Fs` method reaches: `node:fs/promises`, so that a read
+// is a wait rather than a stall. **Node and Bun only.** A browser has no such
+// module and no browser platform grants `Fs` (`standard_library`'s grant
+// table), so the abort below is unreachable from a `WEB` artifact and is what
+// a mis-grant would say out loud rather than silently.
+function $fsp() {
+  if (typeof $require === "function") return $require("node:fs/promises");
+  if (typeof require === "function") return require("node:fs/promises");
+  $abort("this platform grants no filesystem");
+}
+
+async function $host_HostFs_readFile(self, p) {
   try {
-    return $ok($fs().readFileSync(p, "utf8"));
+    return $ok(await $fsp().readFile(p, "utf8"));
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_writeFile(self, p, b) {
+async function $host_HostFs_writeFile(self, p, b) {
   try {
-    $fs().writeFileSync(p, b);
+    await $fsp().writeFile(p, b);
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_fileExists(self, p) {
+// `access` rather than a `stat`: the question is whether the name resolves,
+// and the answer to every failure is the same `false`.
+async function $host_HostFs_fileExists(self, p) {
   try {
-    return $fs().existsSync(p);
+    await $fsp().access(p);
+    return true;
   } catch {
     return false;
   }
 }
 
-function $host_HostFs_readDir(self, p) {
+async function $host_HostFs_readDir(self, p) {
   try {
-    return $ok($fs().readdirSync(p));
+    return $ok(await $fsp().readdir(p));
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_readFileBytes(self, p) {
+async function $host_HostFs_readFileBytes(self, p) {
   try {
-    return $ok(Array.from($fs().readFileSync(p)));
+    return $ok(Array.from(await $fsp().readFile(p)));
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_writeFileBytes(self, p, b) {
+async function $host_HostFs_writeFileBytes(self, p, b) {
   try {
-    $fs().writeFileSync(p, Uint8Array.from(b));
+    await $fsp().writeFile(p, Uint8Array.from(b));
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
@@ -1592,27 +1709,27 @@ function $host_HostFs_writeFileBytes(self, p, b) {
 
 // `"a"` is `O_APPEND | O_CREAT`, so the position is taken and the octets
 // written as one operation and the file appears when it was absent.
-function $host_HostFs_appendFile(self, p, b) {
+async function $host_HostFs_appendFile(self, p, b) {
   try {
-    $fs().appendFileSync(p, Uint8Array.from(b));
+    await $fsp().appendFile(p, Uint8Array.from(b));
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_renameFile(self, from, to) {
+async function $host_HostFs_renameFile(self, from, to) {
   try {
-    $fs().renameSync(from, to);
+    await $fsp().rename(from, to);
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
   }
 }
 
-function $host_HostFs_removeFile(self, p) {
+async function $host_HostFs_removeFile(self, p) {
   try {
-    $fs().unlinkSync(p);
+    await $fsp().unlink(p);
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
@@ -1621,9 +1738,9 @@ function $host_HostFs_removeFile(self, p) {
 
 // `recursive` is what makes the parents and the already-there case both work;
 // a path naming a file is still `EEXIST`, which is `.AlreadyExists`.
-function $host_HostFs_makeDir(self, p) {
+async function $host_HostFs_makeDir(self, p) {
   try {
-    $fs().mkdirSync(p, { recursive: true });
+    await $fsp().mkdir(p, { recursive: true });
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
@@ -1633,18 +1750,18 @@ function $host_HostFs_makeDir(self, p) {
 // `fsync` on a directory flushes its entries, which is what makes a preceding
 // rename durable. Opened read-only: `fsync(2)` needs no write access, and a
 // directory cannot be opened for writing at all.
-function $host_HostFs_syncFile(self, p) {
-  let fd;
+async function $host_HostFs_syncFile(self, p) {
+  let fh;
   try {
-    fd = $fs().openSync(p, "r");
-    $fs().fsyncSync(fd);
+    fh = await $fsp().open(p, "r");
+    await fh.sync();
     return $ok(0);
   } catch (e) {
     return $err($ioErr(e));
   } finally {
-    if (fd !== undefined) {
+    if (fh !== undefined) {
       try {
-        $fs().closeSync(fd);
+        await fh.close();
       } catch {}
     }
   }
@@ -1656,49 +1773,48 @@ function $host_HostFs_syncFile(self, p) {
 // three letters live here and nowhere in Buri.
 const $HTTP_METHOD = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 
-// `getAllResponseHeaders()` is one CRLF-separated block of `name: value` whose
-// names the engine has already lowercased — which is the casing `Header`
-// states, so nothing is normalized twice.
-function $httpResponseHeaders(req) {
-  const raw = req.getAllResponseHeaders ? req.getAllResponseHeaders() || "" : "";
+// `Headers` iterates as `[name, value]` with the names already lowercased —
+// which is the casing `Header` states, so nothing is normalized twice.
+function $httpResponseHeaders(r) {
   const out = [];
-  for (const line of raw.split("\r\n")) {
-    const at = line.indexOf(":");
-    if (at < 0) continue;
-    out.push([line.slice(0, at).trim().toLowerCase(), line.slice(at + 1).trim()]);
-  }
+  r.headers.forEach((value, name) => out.push([String(name).toLowerCase(), String(value)]));
   return out;
 }
 
-function $host_HostNet_fetch(self, request) {
-  // Synchronous by necessity: Buri has no `async` in v0.3, so a request
-  // blocks. Bun exposes a blocking XHR-shaped path; elsewhere this refuses
-  // rather than pretending.
-  //
-  // `Request` is `[method, url, headers, body]` and `Response` is
-  // `[status, headers, body]`: a struct is its fields in order, a `Header` is
-  // `[name, value]`, a payloadless enum is its variant index, and a `[U8]` is
-  // an ordinary array of numbers.
+// The platform's own `fetch`, awaited. What was here was a synchronous
+// `XMLHttpRequest` with an apology attached: Buri had no way to wait, so a
+// request stalled the one thread there was, and off Bun there was no blocking
+// path at all. `fetch` is the opposite of every part of that — it is in node,
+// in Bun and in every browser, and it is the one host call whose asynchrony
+// the language now has a word for.
+//
+// `Request` is `[method, url, headers, body]` and `Response` is
+// `[status, headers, body]`: a struct is its fields in order, a `Header` is
+// `[name, value]`, a payloadless enum is its variant index, and a `[U8]` is
+// an ordinary array of numbers.
+//
+// A `GET` or a `HEAD` may carry no body at all, which `fetch` enforces rather
+// than ignores, so an empty one is left off entirely. The response arrives as
+// an `ArrayBuffer` — every octet unchanged, where `text()` would decode as
+// UTF-8 and hand back replacement characters for anything that is not text,
+// which is what a `[U8]` body exists to avoid.
+async function $host_HostNet_fetch(self, request) {
   const method = $HTTP_METHOD[Number(request[0])] || "GET";
   const url = request[1];
   const headers = request[2];
   const body = request[3];
   try {
-    const req = new XMLHttpRequest();
-    req.open(method, url, false);
-    for (const h of headers) req.setRequestHeader(h[0], h[1]);
-    // Every byte back unchanged. Without this the engine decodes the body as
-    // UTF-8 and anything that is not text arrives as replacement characters —
-    // which is what a `[U8]` body exists to avoid.
-    try {
-      req.overrideMimeType("text/plain; charset=x-user-defined");
-    } catch {}
-    req.send(body.length === 0 ? null : new Uint8Array(body));
-    const text = req.responseText || "";
-    const out = new Array(text.length);
-    for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i) & 0xff;
-    return $ok([BigInt(req.status), $httpResponseHeaders(req), out]);
+    const sends = body.length !== 0 && method !== "GET" && method !== "HEAD";
+    const r = await fetch(url, {
+      method,
+      headers: headers.map((h) => [h[0], h[1]]),
+      body: sends ? new Uint8Array(body) : undefined,
+    });
+    const out = Array.from(new Uint8Array(await r.arrayBuffer()));
+    return $ok([BigInt(r.status), $httpResponseHeaders(r), out]);
   } catch (e) {
+    // `.Transport(Str)`, the fourth variant of `NetError` — a request that did
+    // not reach an answer, whatever stopped it.
     return $err([3, String((e && e.message) || e)]);
   }
 }
@@ -1707,10 +1823,17 @@ function $host_HostClock_nowMillis(self) {
   return BigInt(Date.now());
 }
 
-function $host_HostClock_sleepMillis(self, ms) {
-  const end = Date.now() + Number(ms);
-  if (typeof Bun !== "undefined" && Bun.sleepSync) Bun.sleepSync(Number(ms));
-  else while (Date.now() < end);
+// A timer, waited on. What was here spun on `Date.now()` — or called
+// `Bun.sleepSync`, which is the same stall with the core given back — and
+// either way nothing else in the program could run for the duration. This is
+// the plainest statement of what the whole transform is for: a sleeping
+// program is now a program with a free event loop.
+//
+// `setTimeout` is universal — node, Bun and every browser — so there is
+// nothing to split on here.
+async function $host_HostClock_sleepMillis(self, ms) {
+  const n = Number(ms);
+  await new Promise((wake) => setTimeout(wake, n > 0 ? n : 0));
   return 0;
 }
 
@@ -1950,16 +2073,38 @@ function $ui_write(cell, v) {
   return 0;
 }
 
-// One update transaction. Event handlers and fetch callbacks land inside one,
-// so N writes cause one pass over the watchers.
+// One update transaction: N writes cause one pass over the watchers rather
+// than N.
+//
+// The transaction is the handler's *synchronous* run, and that is the whole of
+// the decision now that a handler can wait. A page grants `Net`, so a press
+// may write "asking the server", suspend on the answer, and write again when
+// it arrives — and those are two transactions, not one held open across the
+// wait. Holding it open would mean the first notice did not reach the document
+// until the request it announced had already finished, which is the opposite
+// of what it is for.
+//
+// What the promise still owes is its failure. A synchronous handler that
+// aborts throws out of the listener; an awaiting one would settle a rejected
+// promise nobody is holding, and the abort would be a line in a console rather
+// than an error. Rethrowing it from a fresh task is what makes the two behave
+// alike.
 function $ui_flush(f) {
   $ui.depth++;
+  let pending;
   try {
-    f();
+    pending = f();
   } finally {
     $ui.depth--;
   }
   if ($ui.depth === 0) $ui_drain();
+  if (pending !== null && typeof pending === "object" && typeof pending.then === "function") {
+    pending.then(undefined, (e) => {
+      setTimeout(() => {
+        throw e;
+      }, 0);
+    });
+  }
   return 0;
 }
 
@@ -1993,26 +2138,6 @@ function $host_HostWatch_read(self, id) {
 
 function $ui_effect_Scope_read(self, id) {
   return $ui_read(id);
-}
-
-// A `Request` is `[method, url, headers, body]` and a `FetchError` is
-// `[tag, ...payload]` with the tag order `ui/effect` declares:
-// Timeout, Refused, BadUrl, Transport, Aborted.
-function $host_HostFetch_fetch(self, request, done) {
-  const settle = (r) => $ui_flush(() => done(self, r));
-  try {
-    const req = new XMLHttpRequest();
-    req.open(request[0], request[1], true);
-    for (const h of request[2]) req.setRequestHeader(h[0], h[1]);
-    req.onload = () => settle($ok([req.status, req.responseText]));
-    req.onerror = () => settle($err([3, "transport"]));
-    req.ontimeout = () => settle($err([0]));
-    req.onabort = () => settle($err([4]));
-    req.send(request[3] === "" ? null : request[3]);
-  } catch (e) {
-    settle($err([3, String((e && e.message) || e)]));
-  }
-  return 0;
 }
 
 // --- The document -----------------------------------------------------------

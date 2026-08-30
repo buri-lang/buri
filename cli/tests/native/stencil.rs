@@ -1188,7 +1188,7 @@ fn corpus_refusal(path: &str) -> Result<String, String> {
 /// thirty-one files that file's native set holds. The six that are not here
 /// are the six it excludes, for the three reasons it records — an inexact
 /// numeric conversion, `json.*`, and `core/math`'s transcendentals — plus the
-/// four `ui/*` files no native backend takes.
+/// three `ui/*` files no native backend takes.
 const CORPUS_COMPILES: &[&str] = &[
     "calendar/date.buri",
     "canary/canary.buri",

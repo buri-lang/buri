@@ -5,8 +5,10 @@ The `ui/*` modules are the reactivity vocabulary: a much larger surface than
 ([the standard library](./standard-library.md)), ship with the toolchain, and
 are never listed in a `dependencies`.
 
-`ui/effect` declares `Watch`, `Ui` and `Fetch`, the `Scope` a reactive closure
-is handed, and the `Event` a handler is handed. `ui/signal` is `Signal<T>` —
+`ui/effect` declares `Watch` and `Ui`, the `Scope` a reactive closure
+is handed, and the `Event` a handler is handed. Requests are not among them: a
+page asks for `core/effect`'s `Net` like every other platform, and writes the
+answer on the line after the question. `ui/signal` is `Signal<T>` —
 `get`, `set`, `update` — plus `signal` and `watch`; `ui/prop` is `Prop<T>` and
 `memo`. `ui/testing` is a headless platform and a renderer to look at what a
 tree became, importable only from a test source.

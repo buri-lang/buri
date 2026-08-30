@@ -4,7 +4,6 @@ library {
     test {
         sources: [
             "test/reactivity.buri",
-            "test/fetch.buri",
             "test/tree.buri",
             "test/theme.buri",
         ]
@@ -13,6 +12,10 @@ library {
         # document under the tree are runtime intrinsics, and no native backend
         # has either. `native::conformance` records all three files as
         # excluded, with that reason.
+        #
+        # There were four. `test/fetch.buri` covered `ui/effect`'s
+        # callback-shaped `Fetch`, which is retired: a page grants `Net` now,
+        # and `semantics/test/http.buri` is where a request is pinned.
         platforms: [JS]
     }
 }
