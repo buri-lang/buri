@@ -1,0 +1,4 @@
+// EXPECT: a lambda parameter ends with `,`
+export fn total(xs: [Int]): Int {
+  xs.fold(fn(acc x) => acc + x, 0)
+}

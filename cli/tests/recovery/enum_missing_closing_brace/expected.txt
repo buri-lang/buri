@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 6:1-6:4
+message: this `enum` is missing its closing `}`
+fix: write `}` here
+related: 2:19-2:20 opened here
+

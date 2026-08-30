@@ -1,38 +1,28 @@
-error: expected `}`, found `.` [unexpected-token]
+error: a `match` is an operand, not the head of a `.` [postfix-on-a-block]
   --> cmd/match_heads_postfix_chain/main.buri:11:4
    |
 11 |   }.x
    |    ^
    |
-   = expected: `}`
-   = actual: `.`
-   = fix: write `}` here
+   = fix: parenthesise it, or bind it with `let` and go on from the name
 
      What to do
      ──────────
 
-     Write what the message names. This is the parser's catch-all, so the useful
-     half of it is always the "expected" part.
-
-error: there is nothing named `xOf` in scope [unresolved-name]
-  --> cmd/match_heads_postfix_chain/main.buri:16:26
-   |
-16 |   let _ = ctx.println("${xOf(.None)}");
-   |                          ^^^
-   |
-   = fix: declare `xOf`, or import it — a name is in scope only from this module's own declarations and its imports
-
-     What to do
-     ──────────
-
-     Correct the spelling, or declare it. The diagnostic offers the nearest name
-     in scope.
+     Put the block-like expression in parentheses, or — usually clearer — give
+     it a name with let and write the field access, call or index against the
+     name.
 
      Why
      ───
 
-     There is no prelude and no ambient scope: the names available in a module
-     are the ones it declares plus the ones its own imports name. That is what
-     makes the suggestion trustworthy — the set it is drawn from is exactly the
-     set the file put there.
+     if, match, context and a bare block are expressions, and they end with }.
+     If a } could be followed by ., ( or [, then if (c) { a } else { b } { x: 1
+     } would have two readings — a struct literal headed by the if, and an if
+     followed by a block — and neither the reader nor the parser could tell
+     which was meant (SPEC 12.13).
+
+     Refusing the chain outright is what keeps the } at the end of a block-like
+     expression from being a place where the meaning of the file depends on the
+     next token.
 
