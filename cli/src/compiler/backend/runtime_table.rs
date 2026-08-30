@@ -23,6 +23,7 @@
 //! ```text
 //!   1. the Buri arguments, flattened into scalar leaves  (lib.rs §2 rule 1)
 //!   2. the element pair — stride, then retain glue       (lib.rs §2 rule 4)
+//!      or a step's four words                            (lib.rs §2 rule 5)
 //!   3. the out-pointer                                   (lib.rs §2 rules 2, 3)
 //! ```
 //!
@@ -57,14 +58,19 @@
 //! * a **runtime descriptor**, for an operation whose subject is the *whole*
 //!   shape of a type rather than its size — `json.decode` and the test
 //!   runner's two, which are `middle::monomorphize`'s `Func::desc` and reach
-//!   no row here.
+//!   no row here;
+//! * the **entry thunk** of [`Extra::Step`] — a function this backend
+//!   generated, which is the same idea as the retain glue of the first bullet
+//!   and answers a harder question with it: not "what does one element hold"
+//!   but "how is one Buri closure called", which is the one thing
+//!   `cli/runtime/list.rs`'s header says C cannot do.
 //!
-//! An intrinsic that is generic and has none of the three is a miscompile with
-//! no diagnostic, so the set of keys allowed to be generic is a written list —
+//! An intrinsic that is generic and has none of these is a miscompile with no
+//! diagnostic, so the set of keys allowed to be generic is a written list —
 //! `GENERIC_INTRINSICS` in `middle/monomorphize.rs` — and a generic intrinsic
 //! outside it is an internal error at monomorphization. **A new row here for a
 //! generic key needs a row there too**, and the question that list is asking is
-//! which of the three above carries the type.
+//! which of the carriers above carries the type.
 //!
 //! # Why a table and not a mangling
 //!
@@ -94,6 +100,37 @@ pub enum Extra {
     /// `[T]` argument and the result's otherwise, which covers `list.repeat`
     /// and `list.empty`, whose only mention of `T` is in the return type.
     Element,
+    // -- the closure trampoline --------------------------------------------
+    /// The four words a **runtime-driven step** crosses on
+    /// (`backend/intrinsic_keys.rs`'s `step_call`):
+    ///
+    /// ```text
+    ///   entry       the generated C-ABI thunk, `void(state, in, out)`
+    ///   state       the backend's own record, opaque to the runtime
+    ///   in_stride   the source element's stride
+    ///   out_stride  the result element's stride
+    /// ```
+    ///
+    /// This is [`Extra::Element`]'s idea with the pair widened, and it carries
+    /// the erased type the same way: a **stride** for what the runtime walks,
+    /// and a **function this backend generated** for what the runtime cannot
+    /// name. There is no retain glue, because there is nothing here for the
+    /// runtime to retain — the entry thunk is handed one element at a time and
+    /// takes its own count on it, which is `middle/rc.rs`'s "a call through a
+    /// function value owns its arguments" answered on the side of the boundary
+    /// that knows the type.
+    ///
+    /// Two strides rather than one because a `map` reads a `[A]` and writes a
+    /// `[B]`, and neither is the other's: [`Extra::Element`]'s single pair is
+    /// wrong for this shape rather than merely narrow.
+    ///
+    /// The closure argument itself is **not** flattened. `{ code, env }` is
+    /// this backend's business and reaches the runtime inside `state`; the
+    /// closure is the last argument at every key `step_call` names, so "skip it
+    /// and append the four" and "write the four where it stood" are the same C
+    /// signature — which is what lets this table, which has no per-argument
+    /// column, describe the same call `llvm/runtime.rs`'s `Arg::Step` does.
+    Step,
 }
 
 /// What comes back.
@@ -176,6 +213,11 @@ const fn er(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) ->
     Entry { key, symbol, extra: Extra::Element, ret, by_ref: Some(by_ref) }
 }
 
+/// A runtime-driven step ([`Extra::Step`]).
+const fn es(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
+    Entry { key, symbol, extra: Extra::Step, ret, by_ref: None }
+}
+
 /// Every key this backend has a runtime body for.
 ///
 /// Grouped by the module the key names, and in each group by the order
@@ -241,6 +283,21 @@ pub const ENTRIES: &[Entry] = &[
     er("list.repeat", "buri_rt_list_repeat", Ret::Out, 1),
     e("list.range", "buri_rt_list_range", Ret::Out),
     e("list.join", "buri_rt_list_join", Ret::Out),
+    // -- the closure trampoline, and its one pilot key ----------------------
+    //
+    // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
+    // C-ABI entry thunk of [`Extra::Step`] instead of through the loop
+    // `stencil/lists.rs` open-codes. It is the *pilot* for that mechanism and
+    // nothing else uses it: `core/list`'s own combinators keep their loops,
+    // which are faster than a call per element can be, and the operations the
+    // trampoline exists for — a task pool, an accepting socket — are not
+    // written yet.
+    //
+    // So this row is here to be *called*, by a conformance fixture and by an
+    // agreement row, before there is anything else to call it with. The
+    // alternative was landing the boundary underneath `Tasks.parallel` and
+    // debugging two new things at once.
+    es("list.mapCtxStep", "buri_rt_list_map_ctx_step", Ret::Out),
     // -- core/bytes ---------------------------------------------------------
     //
     // Six of `bytes.buri`'s surface, and the rest of that module is Buri:

@@ -70,7 +70,7 @@ use inkwell::values::{
 use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::compiler::backend::intrinsic_keys::{
-    bits_op, derive_key, list_call, list_closure_key, Step,
+    bits_op, derive_key, list_call, list_closure_key, step_call, Step,
 };
 use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir;
@@ -149,6 +149,8 @@ pub struct Unit<'ctx, 'a> {
     releases: Map<Ty, FunctionValue<'ctx>>,
     release_elems: Map<Ty, FunctionValue<'ctx>>,
     retains: Map<Ty, FunctionValue<'ctx>>,
+    /// The C-ABI entry thunks of [`Job::Entry`], one per step signature.
+    entries: Map<(Vec<Ty>, Ty), FunctionValue<'ctx>>,
     env_glue: Option<FunctionValue<'ctx>>,
     /// Helper bodies still to be built. Drained by [`Unit::finish`] rather than
     /// built where they are asked for, because a helper is asked for in the
@@ -190,6 +192,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             releases: Map::default(),
             release_elems: Map::default(),
             retains: Map::default(),
+            entries: Map::default(),
             env_glue: None,
             pending: Vec::new(),
             helpers: 0,
@@ -1852,8 +1855,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             );
             return;
         };
-        let element = self.generic_element(code, dests, entry, args);
-        let Some(argv) = self.entry_args(state, code, entry, args, element, span) else {
+        let elements = Elements {
+            source: self.generic_element(code, dests, entry, args),
+            answer: self.answer_element(code, dests),
+        };
+        let Some(argv) = self.entry_args(state, code, entry, args, elements, span) else {
             return;
         };
         self.call_entry(state, code, dests, entry, argv, span);
@@ -1894,6 +1900,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.reprs.element(&out)
     }
 
+    /// The element type of an entry's `[T]` **result**, where it has one.
+    ///
+    /// [`Unit::generic_element`] answers with the destination's element only
+    /// when no argument had one, because a `stride` describes the list the
+    /// runtime *walks*. A step's two lists are different types, so its result's
+    /// element is a second question and is asked separately rather than by
+    /// changing what the first one means.
+    fn answer_element(&mut self, code: &ir::Code, dests: &[ir::ValueId]) -> Option<Ty> {
+        let out = dests.first().copied().and_then(|d| self.type_of(code.ty_of(d)))?;
+        self.reprs.element(&out)
+    }
+
     /// The C parameter list of one runtime entry, from the Buri argument list.
     ///
     /// `cli/runtime/lib.rs` §2 rule 1: every parameter is a scalar leaf,
@@ -1911,9 +1929,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         code: &ir::Code,
         entry: &runtime::Entry,
         args: &[ir::ValueId],
-        element: Option<Ty>,
+        elements: Elements,
         span: Span,
     ) -> Option<Vec<BasicMetadataValueEnum<'ctx>>> {
+        let element = elements.source.clone();
         let key = entry.key;
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
         let mut cursor = 0usize;
@@ -1988,6 +2007,102 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // flatten it into. The copy is at `T`'s *memory* layout, which
                 // is what `stride` describes and what the runtime's
                 // `copy_nonoverlapping` reads.
+                // The trampoline's four words. `{ code, env }` does not cross:
+                // it goes into a two-word `alloca` the entry thunk reads, so
+                // what the runtime holds is a C function pointer and an opaque
+                // record. The two strides are here rather than in an
+                // `Arg::Stride` because a step reads one element type and
+                // writes another, and `element` is only the first.
+                runtime::Arg::Step => {
+                    let step = self.type_of(ir_ty);
+                    let Some(Ty::Fn(ps, r)) = step else {
+                        self.error(
+                            span,
+                            format!("internal error: `{key}`'s step is not a function"),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    };
+                    // A context that owns a reference count would need a
+                    // retain per element rather than a copy, and none does:
+                    // `core/host`'s allocators are empty structs and
+                    // `core/testing/context`'s carry a handle. Refused here,
+                    // where there is a span to hang it on.
+                    if ps
+                        .iter()
+                        .take(ps.len().saturating_sub(1))
+                        .any(|t| self.rc_counted(t))
+                    {
+                        self.error(
+                            span,
+                            format!("`{key}` was given a step whose context owns a count"),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    }
+                    let bytes = self.step_state_bytes(&ps);
+                    let record = self.scratch(state, bytes, 8);
+                    self.store_slots(record, &slots, 8, &pieces);
+                    // The contexts, beside the closure. They are Buri arguments
+                    // this row `Arg::Dropped`s out of the C signature, and this
+                    // is where they go instead — read back by the entry thunk,
+                    // which is the only thing that wants them.
+                    let ctx_at = self.step_ctx_offsets(&ps);
+                    let from: Vec<ir::ValueId> = step_call(key)
+                        .and_then(|c| c.ctx)
+                        .into_iter()
+                        .filter_map(|i| args.get(i).copied())
+                        .collect();
+                    if from.len() != ctx_at.len() {
+                        self.error(
+                            span,
+                            format!(
+                                "internal error: `{key}`'s step takes {} contexts and the                                  call names {}",
+                                ctx_at.len(),
+                                from.len()
+                            ),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    }
+                    for (at, arg) in ctx_at.iter().copied().zip(from) {
+                        let cty = code.ty_of(arg);
+                        let cslots = repr::ir_slots(&mut self.reprs, self.program, cty);
+                        if cslots.is_empty() {
+                            continue;
+                        }
+                        let value = self.get(state, arg);
+                        let cpieces = repr::disassemble(&self.builder, &cslots, value);
+                        let align = match cty {
+                            ir::Type::Agg(id) => self.reprs.of(self.program, id).layout.align,
+                            _ => 8,
+                        };
+                        let into = repr::byte_offset(
+                            self.ctx,
+                            &self.builder,
+                            record,
+                            i64::from(at),
+                            "step.ctx.p",
+                        );
+                        self.store_slots(into, &cslots, align, &cpieces);
+                    }
+                    let thunk = self.entry_thunk(&ps, &r);
+                    let (Some(inn), Some(outn)) = (element.clone(), elements.answer.clone())
+                    else {
+                        self.error(
+                            span,
+                            format!("internal error: `{key}` has a step and no element types"),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    };
+                    let (a, b) = (self.reprs.stride_of(&inn), self.reprs.stride_of(&outn));
+                    let word = self.ctx.i64_type();
+                    argv.push(function_pointer(thunk).into());
+                    argv.push(record.into());
+                    argv.push(word.const_int(u64::from(a), false).into());
+                    argv.push(word.const_int(u64::from(b), false).into());
+                }
                 runtime::Arg::Spilled => {
                     let (size, align) = match &element {
                         Some(t) => {
@@ -2671,7 +2786,36 @@ enum Job<'ctx> {
     /// Read a function pointer out of a block's first word and call it on the
     /// rest: the glue every closure environment shares.
     EnvGlue { value: FunctionValue<'ctx> },
+    /// The C-ABI entry thunk a **runtime-driven step** is reached through:
+    /// `void(state, arg, out)`, which runs one closure once on one element.
+    /// `params` and `ret` are that closure's own signature.
+    Entry { value: FunctionValue<'ctx>, params: Vec<Ty>, ret: Ty },
 }
+
+/// The element types one runtime entry's generic parameters are read at.
+///
+/// `source` is the `[T]` the runtime walks — `cli/runtime/lib.rs` §2 rule 4's
+/// stride — and `answer` is the one it builds. They are the same type at every
+/// entry but a **step**, which reads a `[A]` and writes a `[B]`.
+#[derive(Clone, Default)]
+struct Elements {
+    source: Option<Ty>,
+    answer: Option<Ty>,
+}
+
+/// Where a step's context arguments begin inside its **state record**.
+///
+/// The record is `{ code, env, ctx... }` — the closure's two words, in
+/// `middle::layout`'s order, and then whatever the step's context arguments
+/// weigh. It is written by [`Unit::entry_args`] and read by
+/// [`Unit::build_entry`], and by nothing between them: the runtime is handed
+/// the address and hands it back.
+///
+/// The frame-threaded backend's record (`stencil/glue.rs`) has a third word
+/// this one does not — the Buri frame the thunk is to work in — because a frame
+/// there is a byte offset the call site reserves and here it is the machine's.
+/// Two shapes for one idea is right: nothing reads both.
+const STEP_CTX: u32 = 16;
 
 fn function_pointer<'ctx>(f: FunctionValue<'ctx>) -> PointerValue<'ctx> {
     f.as_global_value().as_pointer_value()
@@ -2759,6 +2903,148 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         Some(f)
     }
 
+    /// The C-ABI entry thunk for one step signature.
+    ///
+    /// `void(ptr state, ptr arg, ptr out)` at `ccc` — the shape
+    /// `cli/runtime/list.rs`'s `StepEntry` declares, and the same three
+    /// pointers the frame-threaded backend's `Helper::Entry` takes. One per
+    /// `(params, ret)`, because that is what the body depends on and a second
+    /// call site at the same element types wants the same function.
+    fn entry_thunk(&mut self, params: &[Ty], ret: &Ty) -> FunctionValue<'ctx> {
+        let key = (params.to_vec(), ret.clone());
+        if let Some(f) = self.entries.get(&key) {
+            return *f;
+        }
+        let p = self.ptr_ty();
+        let ty = self.ctx.void_type().fn_type(&[p.into(), p.into(), p.into()], false);
+        let name = format!("buri.entry.{}", self.helpers);
+        self.helpers = self.helpers.saturating_add(1);
+        let f = self.module.add_function(&name, ty, Some(Linkage::Private));
+        // `ccc`: the runtime holds this as a plain C function pointer. It is
+        // the *only* thing in a Buri artifact the runtime calls into, and it is
+        // one convention for the same reason the glue above is.
+        attrs::set_convention(f, attrs::C);
+        self.entries.insert(key, f);
+        self.pending.push(Job::Entry { value: f, params: params.to_vec(), ret: ret.clone() });
+        f
+    }
+
+    /// [`Unit::entry_thunk`]'s body: three pointers in, one Buri call.
+    ///
+    /// This is [`Unit::build_thunk`]'s problem from the other side. A thunk
+    /// converts a closure's environment for a Buri caller; this converts *C
+    /// pointers* for one, and it is the only place a Buri closure is entered
+    /// from outside the artifact.
+    ///
+    /// The element is loaded, **retained**, and passed. The retain is
+    /// `middle/rc.rs`'s "a call through a function value owns its arguments":
+    /// the runtime lends the element and keeps its own count, so the step's is
+    /// taken here — exactly as [`Unit::list_closure`] takes it before its own
+    /// indirect call.
+    ///
+    /// The **contexts** come out of the record rather than out of `arg`: they
+    /// are the same value at every element, and a C signature has no parameter
+    /// for one. A zero-sized context is no leaves at all; `TestAlloc`'s handle
+    /// is one, and [`STEP_CTX`] is where it was put.
+    fn build_entry(&mut self, state: &mut Function<'ctx>, params: &[Ty], ret: &Ty) {
+        let ptr = self.ptr_ty();
+        let (Some(record), Some(arg), Some(out)) = (
+            state.value.get_nth_param(0).and_then(|p| p.try_into().ok()),
+            state.value.get_nth_param(1).and_then(|p| p.try_into().ok()),
+            state.value.get_nth_param(2).and_then(|p| p.try_into().ok()),
+        ) else {
+            let _ = self.builder.build_unreachable();
+            return;
+        };
+        let record: PointerValue<'ctx> = record;
+        let arg: PointerValue<'ctx> = arg;
+        let out: PointerValue<'ctx> = out;
+        // `{ code, env }`, which is the closure's own two words in the order
+        // `middle::layout` gives them (`CLOSURE_CODE`, `CLOSURE_ENV`).
+        let code = match self.builder.build_load(ptr, record, "step.code") {
+            Ok(BasicValueEnum::PointerValue(v)) => v,
+            _ => ptr.const_null(),
+        };
+        let env_at = repr::byte_offset(self.ctx, &self.builder, record, 8, "step.env.p");
+        let env = match self.builder.build_load(ptr, env_at, "step.env") {
+            Ok(BasicValueEnum::PointerValue(v)) => v,
+            _ => ptr.const_null(),
+        };
+
+        let mut param_slots: Vec<Slot> = Vec::new();
+        for t in params {
+            param_slots.extend(self.reprs.of_ty(t).slots.clone());
+        }
+        let ret_slots: Vec<Slot> = self.reprs.of_ty(ret).slots.clone();
+        let fty = self.closure_fn_type(&param_slots, &ret_slots);
+
+        let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![env.into()];
+        let ctx_at = self.step_ctx_offsets(params);
+        for (t, off) in params.iter().zip(ctx_at) {
+            let r = self.reprs.of_ty(t);
+            let (slots, align) = (r.slots.clone(), r.layout.align);
+            if slots.is_empty() {
+                continue;
+            }
+            let at = repr::byte_offset(self.ctx, &self.builder, record, i64::from(off), "step.ctx");
+            for piece in self.load_slots(at, &slots, align) {
+                argv.push(piece.into());
+            }
+        }
+        if let Some(elem) = params.last() {
+            let r = self.reprs.of_ty(elem);
+            let (slots, align) = (r.slots.clone(), r.layout.align);
+            let pieces = self.load_slots(arg, &slots, align);
+            if self.rc_counted(elem) {
+                let place = Place::Registers { slots, pieces: pieces.clone() };
+                self.walk_rc(state, elem, &place, 0, true, 0);
+            }
+            argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
+        }
+        let Ok(call) = self.builder.build_indirect_call(fty, code, &argv, "") else {
+            let _ = self.builder.build_unreachable();
+            return;
+        };
+        attrs::set_call_convention(call, attrs::FAST);
+        state.observed.opaque = true;
+        if let Some(answer) = call.try_as_basic_value().basic() {
+            let align = self.reprs.of_ty(ret).layout.align;
+            let pieces = repr::disassemble(&self.builder, &ret_slots, answer);
+            self.store_slots(out, &ret_slots, align, &pieces);
+        }
+        let _ = self.builder.build_return(None);
+    }
+
+    /// Where each of a step's context arguments sits inside the state record,
+    /// and how big the record is.
+    ///
+    /// One answer, asked twice: by the call site that writes the record and by
+    /// the entry thunk that reads it. Two computations of one layout is one of
+    /// them being wrong, and nothing would diagnose it — the record is opaque
+    /// to everything between the two.
+    ///
+    /// The last parameter is the element, which travels through `arg`.
+    fn step_ctx_offsets(&mut self, params: &[Ty]) -> Vec<u32> {
+        let mut at = STEP_CTX;
+        let mut out = Vec::new();
+        for t in params.iter().take(params.len().saturating_sub(1)) {
+            out.push(at);
+            let size = self.reprs.of_ty(t).layout.size;
+            at = at.saturating_add(size.next_multiple_of(8));
+        }
+        out
+    }
+
+    /// The size of a step's state record: `{ code, env, ctx... }`.
+    fn step_state_bytes(&mut self, params: &[Ty]) -> u32 {
+        let mut at = STEP_CTX;
+        for t in params.iter().take(params.len().saturating_sub(1)) {
+            let size = self.reprs.of_ty(t).layout.size;
+            at = at.saturating_add(size.next_multiple_of(8));
+        }
+        at
+    }
+
     fn env_glue(&mut self) -> FunctionValue<'ctx> {
         if let Some(f) = self.env_glue {
             return f;
@@ -2835,7 +3121,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             | Job::Release { value, .. }
             | Job::ReleaseElems { value, .. }
             | Job::RetainElem { value, .. }
-            | Job::EnvGlue { value } => *value,
+            | Job::EnvGlue { value }
+            | Job::Entry { value, .. } => *value,
         };
         let entry = self.ctx.append_basic_block(value, "entry");
         self.builder.position_at_end(entry);
@@ -2857,6 +3144,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         match job {
             Job::Thunk { func, env, .. } => {
                 self.build_thunk(&mut state, func, env, first);
+                return;
+            }
+            Job::Entry { params, ret, .. } => {
+                self.build_entry(&mut state, &params, &ret);
                 return;
             }
             Job::Release { ty, .. } => {

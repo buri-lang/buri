@@ -51,6 +51,7 @@
 use super::abi::{MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
 use super::jit::{Fn2, Jit, V};
 use super::runtime::{Entry, Extra, OptRepr, Ret, BURI_OK};
+use crate::compiler::backend::intrinsic_keys::step_call;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 use crate::compiler::semantics::types::{self as types, Ty};
@@ -79,6 +80,21 @@ pub(crate) const SPARE_WORD: u32 = DISC_WORD + 1;
 /// Where a three-way comparison's raw answer waits while the boolean an
 /// ordering operator wants is built out of it.
 pub(crate) const RAW_WORD: u32 = SPARE_WORD + 1;
+
+
+fn round8(n: u32) -> u32 {
+    (n + 7) & !7
+}
+
+/// The element type of a value whose IR type is a `[T]`, and `None` for
+/// anything else.
+fn array_elem(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
+    let ir::Type::Agg(id) = t else { return None };
+    match prog.type_info(id).ty.clone() {
+        Ty::Array(e) => Some(*e),
+        _ => None,
+    }
+}
 
 /// One scalar of a flattened Buri value: where it is in the frame and how wide.
 #[derive(Clone, Copy)]
@@ -139,6 +155,15 @@ impl Jit<'_> {
                 ints.push(Src::Addr(slot));
                 continue;
             }
+            // The **step** is not flattened: `{ code, env }` is this backend's
+            // business and crosses inside the state record below
+            // ([`Extra::Step`]). It is the last argument at every key
+            // `step_call` names, so skipping it here and appending four words
+            // after the loop writes the same C signature the LLVM table
+            // describes with an `Arg::Step` in its place.
+            if entry.extra == Extra::Step && step_call(entry.key).is_some_and(|c| c.func == i) {
+                continue;
+            }
             for leaf in self.leaves(prog, t)? {
                 let at = slot + leaf.offset;
                 if leaf.float {
@@ -166,6 +191,10 @@ impl Jit<'_> {
                 Some(name) => ints.push(Src::Sym(name)),
                 None => ints.push(Src::Imm(0)),
             }
+        }
+
+        if entry.extra == Extra::Step {
+            self.step_extra(prog, st, entry, dest.map(|d| d.1), args, &mut ints)?;
         }
 
         let dslot = dest.map(|d| d.0).unwrap_or(0);
@@ -609,6 +638,98 @@ impl Jit<'_> {
         }
         let here = self.region.code_addr();
         st.place(done, here);
+    }
+
+    /// [`Extra::Step`]'s four words: the generated entry thunk, the state
+    /// record, and the two element strides.
+    ///
+    /// The record's shape is `glue.rs`'s [`super::glue::E_FRAME`] — the
+    /// closure's two words, the frame the entry thunk is to work in, and the
+    /// step's contexts. It is built **past this function's own frame**, which is
+    /// where a Buri callee's frame begins and what `lists.rs` writes into
+    /// before it calls a step, and the entry thunk's frame is put past the
+    /// record in turn. Nothing else is live up there while a call is in
+    /// flight, and putting the record in a scratch word instead would have
+    /// bounded the contexts it can carry by a constant.
+    ///
+    /// The runtime never looks inside any of it: it is handed the address and
+    /// hands it back to the thunk.
+    fn step_extra(
+        &mut self,
+        prog: &ir::Program,
+        st: &mut Fn2,
+        entry: &Entry,
+        dest: Option<ir::Type>,
+        args: &[(u32, ir::Type)],
+        ints: &mut Vec<Src>,
+    ) -> Result<(), String> {
+        let Some(call) = step_call(entry.key) else {
+            return Err(format!("{}: a step row with no `step_call` row", entry.key));
+        };
+        let Some((fslot, fty)) = args.get(call.func).copied() else {
+            return Err(format!("{}: no step argument", entry.key));
+        };
+        let Some(Ty::Fn(params, ret)) = source_ty(prog, fty) else {
+            return Err(format!("{}: a step argument that is not a function", entry.key));
+        };
+        let Some(source) = args.iter().find_map(|(_, t)| array_elem(prog, *t)) else {
+            return Err(format!("{}: no source list", entry.key));
+        };
+        let Some(answer) = dest.and_then(|t| array_elem(prog, t)) else {
+            return Err(format!("{}: no result list", entry.key));
+        };
+        let in_stride = self.layouts_of(source).stride.max(1);
+        let out_stride = self.layouts_of(answer).stride.max(1);
+
+        let widths: Vec<u32> =
+            params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
+        let (ctx_at, bytes) = super::glue::state_shape(&widths);
+        // A context is a *value* here rather than the dropped argument a
+        // runtime entry takes, because what reads it is the step and not the
+        // runtime. One that owned a count would need a retain per element, and
+        // no context does: `core/host`'s are empty structs and
+        // `core/testing/context`'s carry a handle.
+        let supplied: Vec<(u32, ir::Type)> =
+            call.ctx.into_iter().filter_map(|i| args.get(i).copied()).collect();
+        if supplied.len() != ctx_at.len() {
+            return Err(format!(
+                "{}: a step taking {} contexts where the call names {}",
+                entry.key,
+                ctx_at.len(),
+                supplied.len()
+            ));
+        }
+        for (i, (off, (from, t))) in ctx_at.iter().copied().zip(supplied).enumerate() {
+            let w = widths.get(i).copied().unwrap_or(0);
+            if w == 0 {
+                continue;
+            }
+            if let Some(ty) = source_ty(prog, t) {
+                if self.rc_counted(&ty) {
+                    return Err(format!(
+                        "{}: a step whose context owns a reference count",
+                        entry.key
+                    ));
+                }
+            }
+            self.mv(st.frame.size + off, from, round8(w));
+        }
+        let state = st.frame.size;
+        self.mv(state, fslot, 16);
+        self.emit(
+            "lea",
+            &[
+                ("JIT_D", V::I(u64::from(state + super::glue::E_FRAME))),
+                ("JIT_A", V::I(u64::from(state + bytes))),
+                ("JIT_CONT", V::Fall),
+            ],
+        );
+        let thunk = self.helper(super::glue::Helper::Entry { params, ret: *ret });
+        ints.push(Src::Sym(thunk));
+        ints.push(Src::Addr(state));
+        ints.push(Src::Imm(u64::from(in_stride)));
+        ints.push(Src::Imm(u64::from(out_stride)));
+        Ok(())
     }
 
     /// The element type of the `[T]` an `Extra::Element` row operates on: the
