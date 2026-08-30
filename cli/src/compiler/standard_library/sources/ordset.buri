@@ -1,0 +1,131 @@
+//! core/ordset — an ordered set.
+//!
+//! An `OrdMap<T, ()>`, which is what a set is. Everything true of `core/ordmap`
+//! is true here: a persistent B-tree, O(log n) membership and insert, iteration
+//! in order, and `range` and `prefix` that scan rather than filter. It stands to
+//! `core/ordmap` exactly as `core/set` stands to `core/map`.
+//!
+//! It is a wrapper rather than an alias so that `insert` takes one argument
+//! instead of two and `union` can exist — a set has operations a map does not.
+//!
+//! ```buri run
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/ordset" import * as ordset;
+//! from "core/str" import * as str;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+//!   let ids = ordset.of(ctx, [30, 10, 20, 10]);
+//!   // In order, with no sort: that is what this costs a hash set's constant
+//!   // lookup for.
+//!   let shown = ids.toList(ctx).mapCtx(ctx, fn(c, i) => str.fromInt(c, i)).join(ctx, " ");
+//!   let _ = ctx.println("${ids.len()} unique: ${shown}");
+//!   .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! 3 unique: 10 20 30
+//! ```
+
+from "core/effect" import { Alloc };
+from "core/ordmap" import { OrdMap };
+from "core/ordmap" import * as ordmap;
+
+export struct OrdSet<T> {
+  members: OrdMap<T, ()>,
+}
+
+/// The empty set. Pure, for the same reason `ordmap.empty` is.
+export fn empty<T>(): OrdSet<T> {
+  OrdSet { members: ordmap.empty<T, ()>() }
+}
+
+/// A set holding the given items. Duplicates collapse, which is the point.
+export fn of<T: Ord, C: Alloc>(ctx: C, items: [T]): OrdSet<T> {
+  items.foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), empty<T>())
+}
+
+/// The member half of an entry. A free function rather than a lambda body
+/// written out four times.
+fn memberOf<T>(entry: (T, ())): T {
+  let (member, _unit) = entry;
+  member
+}
+
+impl<T: Ord> OrdSet<T> {
+  export fn len(self): Int {
+    self.members.len()
+  }
+
+  export fn isEmpty(self): Bool {
+    self.members.isEmpty()
+  }
+
+  export fn has(self, item: T): Bool {
+    self.members.has(item)
+  }
+
+  export fn insert<C: Alloc>(self, ctx: C, item: T): OrdSet<T> {
+    OrdSet { members: self.members.insert(ctx, item, ()) }
+  }
+
+  export fn remove<C: Alloc>(self, ctx: C, item: T): OrdSet<T> {
+    OrdSet { members: self.members.remove(ctx, item) }
+  }
+
+  /// The smallest member.
+  export fn first(self): Option<T> {
+    self.members.first().map(fn(e) => memberOf(e))
+  }
+
+  /// The largest member.
+  export fn last(self): Option<T> {
+    self.members.last().map(fn(e) => memberOf(e))
+  }
+
+  /// Every member, in order.
+  export fn toList<C: Alloc>(self, ctx: C): [T] {
+    self.members.keys(ctx)
+  }
+
+  /// The members that are at least `start` and less than `end`, in order.
+  /// Half-open, like `ordmap.range`.
+  export fn range<C: Alloc>(self, ctx: C, start: T, end: T): [T] {
+    self.members.range(ctx, start, end).map(ctx, fn(e) => memberOf(e))
+  }
+
+  export fn union<C: Alloc>(self, ctx: C, other: OrdSet<T>): OrdSet<T> {
+    other.toList(ctx).foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), self)
+  }
+
+  export fn intersect<C: Alloc>(self, ctx: C, other: OrdSet<T>): OrdSet<T> {
+    let theirs = other;
+    of(ctx, self.toList(ctx).filterCtx(ctx, fn(_c, x) => theirs.has(x)))
+  }
+
+  /// The members of `self` that are not in `other`.
+  export fn difference<C: Alloc>(self, ctx: C, other: OrdSet<T>): OrdSet<T> {
+    let theirs = other;
+    of(ctx, self.toList(ctx).filterCtx(ctx, fn(_c, x) => !theirs.has(x)))
+  }
+
+  export fn isSubsetOf<C: Alloc>(self, ctx: C, other: OrdSet<T>): Bool {
+    let theirs = other;
+    self.toList(ctx).all(fn(x) => theirs.has(x))
+  }
+
+  /// Same members, whatever order either was built in.
+  export fn equals<C: Alloc>(self, ctx: C, other: OrdSet<T>): Bool {
+    self.len() == other.len() && self.isSubsetOf(ctx, other)
+  }
+}
+
+impl OrdSet<Str> {
+  /// The members beginning with `prefix`, in order. `core/ordmap`'s module
+  /// comment defines what a prefix is and why the matches are one run.
+  export fn prefix<C: Alloc>(self, ctx: C, prefix: Str): [Str] {
+    self.members.prefix(ctx, prefix).map(ctx, fn(e) => memberOf(e))
+  }
+}

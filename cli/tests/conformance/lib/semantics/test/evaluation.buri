@@ -619,6 +619,27 @@ test "result.andThenCtx skips the continuation on Err" {
   assert.eq(sink.captured(), "");
 }
 
+test "result.mapErrCtx runs the mapper on Err only" {
+  let sink = captureOut();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let bad: Result<Int, Str> = .Err("no");
+  let good: Result<Int, Str> = .Ok(1);
+  let out = bad.mapErrCtx(ctx, fn(c, e) => noteInt(c, "e", e.len()));
+  assert.eq(assert.err(out), 2);
+  assert.eq(assert.ok(good.mapErrCtx(ctx, fn(c, e) => noteInt(c, "e", e.len()))), 1);
+  assert.eq(sink.captured(), "e");
+}
+
+test "result.mapCtx runs the function on Ok only" {
+  let sink = captureOut();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let good: Result<Int, Str> = .Ok(3);
+  let bad: Result<Int, Str> = .Err("no");
+  assert.eq(assert.ok(good.mapCtx(ctx, fn(c, v) => noteInt(c, "m", v * 2))), 6);
+  assert.eq(assert.err(bad.mapCtx(ctx, fn(c, v) => noteInt(c, "m", v * 2))), "no");
+  assert.eq(sink.captured(), "m");
+}
+
 // -----------------------------------------------------------------------------
 // 9. `?` and `??` (SPEC 6.8, 6.9)
 // -----------------------------------------------------------------------------

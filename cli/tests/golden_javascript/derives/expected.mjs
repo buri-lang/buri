@@ -1,14 +1,14 @@
-const $k0=[1,'x'];
-const $k1=[1,'y'];
+const $k0=[1n,'x'];
+const $k1=[1n,'y'];
 const $k2=[0];
-const $k3=[1,2];
+const $k3=[1,2n];
 const $k4=[0,0];
 const $D0=[];
 const $D1=[];
 const $D2=[];
 const $D3=[];
 $D0.push(2,'Pair',true,['a','b'],[$D1,$D2]);
-$D1.push(0,'i');
+$D1.push(0,'I');
 $D2.push(0,'s');
 $D3.push(3,'Tag',[['Low',false,[],[]],['High',false,['0'],[$D1]]],false);
 function $eqD0(a,b){

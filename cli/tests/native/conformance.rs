@@ -26,10 +26,12 @@
 //!
 //! # Which packages are in the native set, and which are not
 //!
-//! [`PACKAGES`] is the list, with the reason beside each exclusion. **Twenty-six
-//! of the thirty-five files are in it** — the number the harness prints, and one
-//! the prose had off by one before `semantics/generics.buri` joined them.
-//! `proto/binary.buri` is the twenty-sixth: it compiled and passed all along and
+//! [`PACKAGES`] is the list, with the reason beside each exclusion.
+//! **Twenty-seven of the thirty-six files are in it** — the number the harness
+//! prints, and one the prose had off by one before `semantics/generics.buri`
+//! joined them. `collections/ordmap.buri` is the twenty-seventh, and needed
+//! nothing the backend did not already have.
+//! `proto/binary.buri` was the twenty-sixth: it compiled and passed all along and
 //! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
 //! `Scan::short_circuit`, which is linear now. What is actually
 //! *refused* is three things:
@@ -220,6 +222,11 @@ const PACKAGES: &[Case] = &[
     //  * `data/patterns.buri` wanted `deriveArrayShow`, which is the element's
     //    generated `show` called once per element plus `buri_rt_show_list`.
     included("collections/map.buri"),
+    // `core/ordmap` and `core/ordset` are ordinary Buri over a recursive enum,
+    // which the backend boxes, and `core/list`'s splicing — so the file that
+    // exercises them reaches nothing the four above do not, and is in the
+    // native set from the day it was written.
+    included("collections/ordmap.buri"),
     included("data/lists.buri"),
     included("data/optionresult.buri"),
     included("data/patterns.buri"),
@@ -261,12 +268,13 @@ const PACKAGES: &[Case] = &[
     // checks that the reason is still true.
     excluded(
         "numbers/conversions.buri",
-        "an *inexact* conversion answers `Result<T, E>` (SPEC 6.2.1), and \
-             constructing that needs `core/num`'s `RangeError`, which is a \
-             struct of two `Str`s and not a variant index — so it is a \
-             different shape from the runtime `Result` of §2.1 and not the \
-             same work. The exact ones — every widening, and every `wrapTo*` \
-             — are compiled",
+        "the two inexact conversions whose *source* is not an integer: \
+             `F64 -> I64`, where `NaN` and the infinities are outside every \
+             range rather than at one end of it, and `U32 -> Char`, where the \
+             target is a set of scalar values and not a range at all. The \
+             integer narrowings are compiled — `stencil::emit`'s \
+             `convert_checked` builds the `Result<T, RangeError>` — as are \
+             every widening and every `wrapTo*`",
     ),
     excluded("json/decoding.buri", "`json.decode`, and core/char's classifiers"),
     excluded("json/encoding.buri", "`derivePrimJson` at every primitive"),

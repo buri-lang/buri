@@ -1,0 +1,6 @@
+// EXPECT: a type alias ends with `;`
+export type Meters = Float
+
+export fn zero(): Meters {
+  0.0
+}

@@ -1,0 +1,6 @@
+// EXPECT: an import name ends with `,`
+from "core/str" import { format fromInt };
+
+export fn greet(): Str {
+  "hello"
+}

@@ -38,6 +38,7 @@ use crate::compiler::backend::js::javascript;
 use crate::compiler::modules::Unit;
 use crate::compiler::middle::monomorphize;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -120,8 +121,14 @@ enum Chosen {
 ///
 /// The toolchain's reason is stated once per pass and the suite's once per
 /// suite, for the same reason: "this build has no native backend" is one fact
-/// however many suites meet it, and "this suite reaches something the backend
-/// has no body for" is a different fact about each one.
+/// however many suites meet it, and "this suite declares `test { data }`" is a
+/// different fact about each one.
+///
+/// **A missing intrinsic is not on this list.** It used to be, and rerouting a
+/// suite onto JavaScript because the native backend had no body for something
+/// is how a named gap becomes a wrong answer — the suite passed, on a backend
+/// nobody chose, and the note said so in a line nothing read. It is a refusal
+/// now; see [`gap_refusal`].
 #[derive(Default)]
 struct Notices {
     pass: bool,
@@ -138,7 +145,8 @@ impl Notices {
         eprintln!("note: {reason}, so a suite that names no platform runs on javascript");
     }
 
-    /// This suite reaches something the native backend has no body for.
+    /// A reason that belongs to this suite: what it declares, rather than what
+    /// the toolchain can build.
     fn suite(&mut self, label: &str, reason: &str) {
         eprintln!("note: {label} runs on javascript — {reason}");
     }
@@ -324,6 +332,7 @@ fn one_pass(
     let mut failed = 0usize;
     let mut skipped = 0usize;
     let mut cached = 0usize;
+    let mut uncompiled = 0usize;
     let mut suites = 0usize;
     let mut printed = false;
     let mut hard_error = false;
@@ -352,6 +361,9 @@ fn one_pass(
                 }
             }
             Err(diagnostics) => {
+                // A suite that never compiled produced no cases, so it lands in
+                // no other counter and the summary would say nothing about it.
+                uncompiled += 1;
                 hard_error |= session.print(&diagnostics);
             }
         }
@@ -379,11 +391,21 @@ fn one_pass(
         return watch::Pass { code, inputs, output: out.take(), quiet: false };
     }
     let note = if cached > 0 { format!(", {cached} cached") } else { String::new() };
+    // Elided at zero, the way the cached note is: a clean run says nothing
+    // about a suite that did not fail to compile.
+    let uncompiled_note = if uncompiled > 0 {
+        format!(", {uncompiled} failed to compile")
+    } else {
+        String::new()
+    };
     if printed {
         out.blank();
     }
+    // The diagnostics went to stderr and this line goes to stdout. Flushing
+    // here is what fixes their order when both descriptors are one terminal.
+    let _ = std::io::stderr().flush();
     out.line(&format!(
-        "{passed} passed, {failed} failed, {skipped} skipped ({elapsed:.1}s{note})"
+        "{passed} passed, {failed} failed, {skipped} skipped{uncompiled_note} ({elapsed:.1}s{note})"
     ));
     // Silent only when there was nothing to do: every case came out of the
     // cache, none failed, nothing was accepted, and nothing was asked for by
@@ -538,7 +560,7 @@ fn run_suite(
             );
             continue;
         }
-        match run_on(session, target, platform, chosen, args, out, notices, pre) {
+        match run_on(session, target, platform, chosen, args, out, pre) {
             Ok(one) => {
                 outcome.cases.extend(one.cases);
                 outcome.skipped += one.skipped;
@@ -556,22 +578,21 @@ fn run_suite(
 #[allow(
     clippy::too_many_arguments,
     reason = "the selection is four independent facts — which suite, where it runs, \
-              who asked, and what the invocation said — and the sink and the notice \
-              log are the two places output goes; none is derivable from another"
+              who asked, and what the invocation said — and the sink is where the \
+              report goes; none is derivable from another"
 )]
 fn run_on(
     session: &mut Session,
     target: TargetId,
-    mut platform: Platform,
+    platform: Platform,
     chosen: Chosen,
     args: &arguments::Args,
     sink: &mut Out,
-    notices: &mut Notices,
     pre: &mut Prepass,
 ) -> Result<Outcome, Diagnostics> {
     let mut diagnostics = Diagnostics::new();
 
-    let mut key = test_key_for(session, target, platform, args, pre);
+    let key = test_key_for(session, target, platform, args, pre);
     if let Some(cached) = served(session, target, platform, &key, args) {
         return Ok(cached);
     }
@@ -622,26 +643,20 @@ fn run_on(
         None => 0,
     };
 
-    // The fallback, asked before a second is spent on codegen and asked of the
+    // The gap, asked before a second is spent on codegen and asked of the
     // program rather than of the source: `Backend::missing_intrinsics` is the
     // hook a native build already asks and `native/conformance.rs` already
-    // pins, so a suite falls back here exactly when a native build of it would
+    // pins, so a suite is refused here exactly when a native build of it would
     // be refused there. Nothing is remembered between runs — the answer is a
     // function of the program and of this backend, and the day the backend
-    // grows the body the suite goes native with no cache to clear.
+    // grows the body the suite compiles with no cache to clear.
     //
-    // Only a *defaulted* platform gives way. A suite that named one gets the
-    // refusal it asked for, which is what `platform-not-implemented` and
-    // `repositories/testing/suite_platforms` are for.
+    // Only a *defaulted* platform is asked. A suite that named one is already
+    // past here, on the platform it named.
     if platform.is_native() && chosen == Chosen::Default {
         if let Some(reason) = native_gap(platform, &args.flags, &program, &analysis.checked.tables)
         {
-            notices.suite(&session.workspace.label(target), &reason);
-            platform = Platform::Js;
-            key = test_key_for(session, target, platform, args, pre);
-            if let Some(cached) = served(session, target, platform, &key, args) {
-                return Ok(cached);
-            }
+            return Err(gap_refusal(&session.workspace.label(target), &reason));
         }
     }
 
@@ -660,18 +675,15 @@ fn run_on(
         // cannot see: a `deriveArray*` is an intrinsic *expression* inside a
         // body `middle::derives` generated rather than a function the hook is
         // asked about, so the backend names it while emitting instead of
-        // before. A defaulted run that failed for that reason and only that
-        // reason is a run that should not have been native, so it is taken
-        // again on JavaScript rather than reported.
+        // before. The refusal is the backend's own; what is added to it is the
+        // sentence saying what to do about it.
         return match out {
-            Err(diagnostics) if chosen == Chosen::Default && is_backend_gap(&diagnostics) => {
-                let reason = diagnostics
-                    .items
-                    .first()
-                    .map(|d| d.message.clone())
-                    .unwrap_or_else(|| "the native backend refused it".to_string());
-                notices.suite(&session.workspace.label(target), &reason);
-                run_on(session, target, Platform::Js, Chosen::Default, args, sink, notices, pre)
+            Err(diagnostics) if is_backend_gap(&diagnostics) => {
+                let mut out = Diagnostics::new();
+                for (i, d) in diagnostics.items.into_iter().enumerate() {
+                    out.push(if i == 0 { d.with_fix(GAP_FIX) } else { d });
+                }
+                Err(out)
             }
             out => out,
         };
@@ -896,6 +908,31 @@ fn native_gap(
 /// entry. A failure with anything else among its errors is a failure, and is
 /// reported: falling back on one would turn a toolchain bug into a suite that
 /// quietly passes somewhere else.
+/// What to do about a native gap, in the one sentence a reader needs.
+///
+/// Naming a platform is a statement in the build file rather than a decision
+/// the runner takes on a program's behalf, which is the whole difference
+/// between this and what it replaced.
+const GAP_FIX: &str = "declare `test { platforms: [JS] }` for this suite if it belongs \
+                       on JavaScript, or report the gap: a program the front end \
+                       accepted is one the backend should compile";
+
+/// A native gap, reported rather than routed around.
+///
+/// Rerouting a suite onto JavaScript because the native backend has no body for
+/// an operation is how a *named* gap becomes a wrong answer: the suite passes,
+/// on a backend nobody chose, and what it proves is that the other backend
+/// agrees with itself. `buri build` has always refused this; `buri test` does
+/// now too (buri-lang/buri#4).
+fn gap_refusal(label: &str, reason: &str) -> Diagnostics {
+    let mut diagnostics = Diagnostics::new();
+    diagnostics.push(
+        Diagnostic::error(Span::NONE, format!("{label} cannot run natively: {reason}"))
+            .with_fix(GAP_FIX),
+    );
+    diagnostics
+}
+
 fn is_backend_gap(diagnostics: &Diagnostics) -> bool {
     !diagnostics.items.is_empty()
         && diagnostics.items.iter().all(|d| d.message.contains("has no implementation of"))
@@ -2103,12 +2140,11 @@ mod tests {
     /// Written against the two literal sentences rather than against a
     /// constructed compilation, because what the net is is a claim about those
     /// two strings: `build/actions.rs`'s, from `missing_intrinsics`, and a
-    /// backend's own, from a runtime key with no entry. The
-    /// negative cases are the ones that must never fall back — a failure that
-    /// is not a gap is a toolchain bug, and running the suite somewhere else
-    /// would bury it.
+    /// backend's own, from a runtime key with no entry. What it decides is
+    /// whether the refusal gains the sentence about naming a platform, so a
+    /// failure of another kind is reported as it stands.
     #[test]
-    fn only_a_backend_gap_falls_back() {
+    fn only_a_backend_gap_is_one() {
         let of = |messages: &[&str]| {
             let mut diagnostics = Diagnostics::new();
             for m in messages {
@@ -2122,8 +2158,8 @@ mod tests {
             "the llvm backend has no implementation of testing_assert.report",
             "the native runtime has no implementation of `bytes.toUtf8`",
         ]));
-        // Not a gap, and not a fallback: an empty failure, a failure of another
-        // kind, and a mixture with one of each.
+        // Not a gap: an empty failure, a failure of another kind, and a
+        // mixture with one of each.
         assert!(!of(&[]));
         assert!(!of(&["cannot declare the entry point: duplicate definition"]));
         assert!(!of(&[

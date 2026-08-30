@@ -2,7 +2,7 @@ const $k0=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
   const name_1='world';
-  const n_2=42;
+  const n_2=42n;
   $host_HostStdout_println(ctx_0[1],'hello '+name_1);
   $host_HostStdout_println(ctx_0[1],String(n_2)+' and '+$f64(1.5)+' and '+name_1);
   $host_HostStdout_println(ctx_0[1],'no holes at all');

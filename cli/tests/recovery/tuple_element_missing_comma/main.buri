@@ -1,0 +1,4 @@
+// EXPECT: a tuple element ends with `,`
+export fn origin(): (Int, Int) {
+  (0 1)
+}
