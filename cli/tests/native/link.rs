@@ -20,6 +20,12 @@
 //! - **Incrementality is per unit.** One unit's key moves; the sibling's object
 //!   comes out of the cache, the changed one is re-emitted, and exactly one of
 //!   them says `run` in the manifest.
+//! - **The runtime archive is linked only when referenced.** Two programs that
+//!   differ in one undefined symbol: one is staged and linked with
+//!   `libburi_rt.a` and one is not, and the size difference is measured. This
+//!   suite is where that can be shown at all — every Buri program references
+//!   the runtime through its entry point, so `stencil.rs` pins the other side
+//!   of it.
 //! - **The gate holds.** Nothing above is reachable from `buri build` until a
 //!   native backend is compiled in, which is what keeps
 //!   `repositories/cli/output_selection` pinned.
@@ -300,6 +306,114 @@ fn an_unchanged_object_is_left_where_it_was() {
 }
 
 // ---------------------------------------------------------------------------
+// The runtime archive, linked only when referenced
+// ---------------------------------------------------------------------------
+
+/// The same `main`, with one reference to a runtime entry the archive exports.
+///
+/// The call is behind a test no run takes, so the program's behaviour is
+/// `MAIN`'s exactly — what changes is the object's symbol table, which is the
+/// only thing `link::runtime_archive_for` reads.
+const MAIN_USING_THE_RUNTIME: &str = r#"
+#include <stdio.h>
+int buri_answer(void);
+extern void buri_rt_flush(void);
+int main(int argc, char **argv) {
+  (void)argv;
+  if (argc > 99) { buri_rt_flush(); }
+  printf("answer=%d\n", buri_answer());
+  return 0;
+}
+"#;
+
+/// Objects that name no `buri_rt_*` symbol are linked without the archive, and
+/// objects that name one are linked with it — measured, both ways, on one pair
+/// of programs that differ in nothing else.
+///
+/// This is the size golden the archive decision is worth having. It cannot be
+/// written in Buri: every native entry point calls `buri_rt_argv_init` and
+/// `buri_rt_flush`, so **no** Buri program takes the `Omitted` branch, which is
+/// what `stencil.rs::hello_world_still_links_the_runtime_archive` pins. Here the
+/// objects are made by `cc`, so both branches are reachable and the difference
+/// between them is a number rather than a claim.
+#[test]
+fn the_archive_is_staged_and_linked_only_when_the_objects_name_it() {
+    let Some(target) = linkable() else {
+        eprintln!("no C toolchain on this host: nothing to link with");
+        return;
+    };
+    if !buri::compiler::backend::runtime_native::AVAILABLE {
+        eprintln!("this toolchain carries no runtime archive: the decision is always `Omitted`");
+        return;
+    }
+    let dir = workspace("archive-decision");
+    let mut sizes = Vec::new();
+    for (round, main, want) in [
+        ("without", MAIN, link::RuntimeArchive::Omitted),
+        ("with", MAIN_USING_THE_RUNTIME, link::RuntimeArchive::Linked),
+    ] {
+        let round_dir = dir.join(round);
+        std::fs::create_dir_all(&round_dir).unwrap();
+        let units =
+            vec![emit(&round_dir, "lib_answer", &library(42)), emit(&round_dir, "main", main)];
+        assert_eq!(
+            link::runtime_archive_for(&units),
+            want,
+            "the decision for the `{round}` objects is not what their symbols say"
+        );
+
+        let linker = link::select(target).unwrap().in_dir(round_dir.join("link"));
+        let out = round_dir.join("app");
+        ok(link::run(&units, &rows(&units, &[false, false]), &linker, &out, &options(target)));
+
+        // The file is staged exactly when it is named: six megabytes written
+        // into every link directory of every artifact that has no use for them
+        // is the other half of what this decision saves.
+        assert_eq!(
+            round_dir.join("link/libburi_rt.a").exists(),
+            want == link::RuntimeArchive::Linked,
+            "the staged archive does not match the decision in the `{round}` round"
+        );
+
+        let ran = Command::new(&out).output().unwrap();
+        assert!(ran.status.success(), "the `{round}` program exited {:?}", ran.status.code());
+        assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=42\n");
+        sizes.push(std::fs::metadata(&out).unwrap().len());
+    }
+
+    let (omitted, linked) = (sizes[0], sizes[1]);
+    println!("artifact: {omitted} bytes without the archive, {linked} with it");
+    assert!(
+        omitted < linked,
+        "linking the archive did not cost anything ({omitted} vs {linked}), so either \
+         the decision did not reach the command line or dead-stripping removed the \
+         reference the object makes"
+    );
+}
+
+/// A toolchain with no archive omits it, whatever the objects say.
+///
+/// `AVAILABLE` is the first question `runtime_archive_for` asks, and it is the
+/// one that keeps this the *same* behaviour a host with no runtime always had:
+/// nothing to write, nothing to name.
+#[test]
+fn a_toolchain_with_no_archive_never_names_one() {
+    let Some(target) = linkable() else { return };
+    let dir = workspace("no-archive");
+    let units = vec![emit(&dir, "main", MAIN_USING_THE_RUNTIME)];
+    let decision = link::runtime_archive_for(&units);
+    if buri::compiler::backend::runtime_native::AVAILABLE {
+        assert_eq!(decision, link::RuntimeArchive::Linked);
+    } else {
+        assert_eq!(decision, link::RuntimeArchive::Omitted, "an absent archive was named");
+    }
+    // And the empty set of objects references nothing, which is the degenerate
+    // case `link::run` refuses one step later for a different reason.
+    assert_eq!(link::runtime_archive_for(&[]), link::RuntimeArchive::Omitted);
+    let _ = target;
+}
+
+// ---------------------------------------------------------------------------
 // Per-unit object caching
 // ---------------------------------------------------------------------------
 
@@ -422,7 +536,7 @@ fn the_link_key_is_the_ordered_units_and_the_linker() {
     let linker = link::select(target).unwrap();
     let key = |units: &[&str]| {
         let keys: Vec<ActionKey> = units.iter().map(|u| ActionKey::of(u.as_bytes())).collect();
-        actions::link_key_of(BuildMode::Debug, target, &linker, &keys)
+        actions::link_key_of(BuildMode::Debug, target, &linker, &keys, link::RuntimeArchive::Linked)
     };
     assert_eq!(key(&["a", "b"]), key(&["a", "b"]));
     assert_ne!(key(&["a", "b"]), key(&["b", "a"]), "link order is not in the key");
@@ -449,13 +563,66 @@ fn the_link_key_is_the_ordered_units_and_the_linker() {
         }
     }
     let one = [ActionKey::of(b"a")];
-    let mold = actions::link_key_of(BuildMode::Debug, target, &Named("cc+mold"), &one);
-    let lld = actions::link_key_of(BuildMode::Debug, target, &Named("cc+lld"), &one);
+    let linked = link::RuntimeArchive::Linked;
+    let mold = actions::link_key_of(BuildMode::Debug, target, &Named("cc+mold"), &one, linked);
+    let lld = actions::link_key_of(BuildMode::Debug, target, &Named("cc+lld"), &one, linked);
     assert_ne!(mold, lld, "the linker's identity is not in the link key");
 
     // And the build mode, like everywhere else.
-    let release = actions::link_key_of(BuildMode::Release, target, &Named("cc+lld"), &one);
+    let release = actions::link_key_of(BuildMode::Release, target, &Named("cc+lld"), &one, linked);
     assert_ne!(lld, release, "the build mode is not in the link key");
+}
+
+/// The archive decision moves the `link` key, and moves it **only** when it
+/// moves.
+///
+/// Two claims, and the cache needs both. A link that names the archive and one
+/// that does not are two command lines and therefore two artifacts, so they
+/// cannot share a key — and a key that moved for any other reason would relink
+/// every artifact in the repository on a toolchain where nothing changed.
+///
+/// The second half is what makes the first worth having: with the archive
+/// omitted, the archive's digest is no longer in the key at all, so editing
+/// `cli/runtime` stops invalidating an artifact that never linked it. Today no
+/// Buri program is in that position, and the term is in the key so that the day
+/// one is, the cache is already right about it.
+#[test]
+fn the_link_key_moves_with_the_archive_decision_and_not_otherwise() {
+    let Some(target) = linkable() else { return };
+    let linker = link::select(target).unwrap();
+    let units = [ActionKey::of(b"a"), ActionKey::of(b"b")];
+    let key = |runtime| {
+        actions::link_key_of(BuildMode::Debug, target, &linker, &units, runtime)
+    };
+    let linked = key(link::RuntimeArchive::Linked);
+    let omitted = key(link::RuntimeArchive::Omitted);
+
+    assert_ne!(linked, omitted, "the archive decision is not in the link key");
+    // Stable: the same decision over the same inputs is the same key, so a
+    // rebuild of an unchanged program hits.
+    assert_eq!(
+        linked,
+        key(link::RuntimeArchive::Linked),
+        "the key is not a function of its inputs"
+    );
+    assert_eq!(omitted, key(link::RuntimeArchive::Omitted));
+
+    // And nothing else moved with it: under *both* decisions the key still
+    // answers to the units, the order, the linker and the mode exactly as it
+    // did before the term existed.
+    for runtime in [link::RuntimeArchive::Linked, link::RuntimeArchive::Omitted] {
+        let of = |keys: &[ActionKey]| {
+            actions::link_key_of(BuildMode::Debug, target, &linker, keys, runtime)
+        };
+        let swapped = [ActionKey::of(b"b"), ActionKey::of(b"a")];
+        assert_ne!(of(&units), of(&swapped), "link order left the key");
+        assert_ne!(of(&units), of(&units[..1]), "the unit count left the key");
+        assert_ne!(
+            of(&units),
+            actions::link_key_of(BuildMode::Release, target, &linker, &units, runtime),
+            "the build mode left the key"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
