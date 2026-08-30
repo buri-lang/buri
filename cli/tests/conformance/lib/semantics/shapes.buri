@@ -7,6 +7,7 @@
 
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Request, Response, Sockets, Stdout,
+  Tasks,
 };
 from "core/net/http/lib.buri" import * as http;
 from "core/num/lib.buri" import { Add, Div, Mul, Neg, Rem, Sub };
@@ -909,26 +910,27 @@ impl Net for TeapotNet {
 /// when `bindsTo` names an address and `.Err(.Refused)` when it is empty, so a
 /// test can tell the two returns apart.
 ///
-/// **A recorded compiler bug: this fake does not call `onRequest`, and it
-/// cannot yet.** `Self` in an effect method's signature is substituted with
-/// the *receiver's* type (`call_trait_method`, `semantics/expressions.rs`), so
-/// a call through a `context` value gives the handler's first parameter the
-/// **context's** type while the `impl` body would hand it the implementation —
-/// two different layouts. JavaScript never notices; the stencil backend
-/// segfaults, with no output, the moment such a handler is invoked. Called on
-/// a concrete receiver, or through a bare `C: Listen` bound holding the
-/// implementation itself, the same body is correct on every backend.
+/// **This fake calls `onRequest`, and that used to be a compiler bug.** `Self`
+/// in an effect method's signature was substituted with the *receiver's* type,
+/// so a call through a `context` value gave the handler's first parameter the
+/// **context's** type while the `impl` body hands it the implementation — two
+/// different layouts. JavaScript never noticed; the stencil backend segfaulted,
+/// with no output, the moment such a handler was invoked. `Self` is the
+/// *implementing* type now, read off the context's bindings
+/// (`implementing_ty`, `semantics/expressions.rs`) and, where a bounded type
+/// parameter hid the context from the front end, corrected at instantiation
+/// (`rewrite_call_args`, `middle/monomorphize.rs`).
 ///
 /// The shape is not this file's invention: `Tasks.parallel` takes
 /// `fn(Self, Int, A) => B` and `ui/effect`'s `Fetch.fetch` takes
-/// `fn(Self, …) => ()`, and neither has ever been called through a context on
-/// a native backend — `Tasks` is granted nowhere and `Fetch` only on WEB. So
-/// the bug is older than these effects and is the front end's, not the
-/// declaration's. The server slice that makes `serve` run has to fix it, and
-/// the fix is to carry the implementing type out of the context's bindings
-/// (`Ty::Ctx`'s `bindings` already hold it) instead of substituting the
-/// receiver. Until then, what a fake here may do is *take* a handler and not
-/// run it.
+/// `fn(Self, …) => ()`. `SerialTasks` below is the first of those two as a
+/// fake, so the generic half of the same signature is exercised beside this
+/// one.
+///
+/// The handler is handed `self`, so a test's handler can read `bindsTo` off it
+/// — which is the assertion a wrong `Self` fails rather than refuses: reading a
+/// field of the implementation is a claim about *which type* arrived, not only
+/// about how many bytes it was.
 export struct OneShotListen {
   export bindsTo: Str,
 }
@@ -942,7 +944,16 @@ impl Listen for OneShotListen {
   ): Result<(), NetError> {
     match (self.bindsTo) {
       "" => .Err(.Refused),
-      _ => .Ok(()),
+      _ => {
+        let reply = onRequest(
+          self,
+          Request { method: .Get, url: address, headers: [], body: [] },
+        );
+        match (reply.status) {
+          200 => .Ok(()),
+          _ => .Err(.Refused),
+        }
+      },
     }
   }
 }
@@ -986,10 +997,17 @@ impl Sockets for QuietSockets {
 /// its negation when it refused, so the runtime half sees which effect
 /// answered which call.
 ///
-/// The handler is written and passed and — see `OneShotListen` — deliberately
-/// not run: a handler invoked through a context is a native crash today, for a
-/// reason older than these two effects. Passing one is what this function has
-/// to do; running one is the server slice's.
+/// The handler is written, passed and **run** — `OneShotListen` invokes it —
+/// and the receiver here is a bounded `C`, which is the half the front end
+/// cannot settle on its own: a generic body is checked once for every
+/// instantiation at once, so `Self` is `C` until `C` is known. Calling this
+/// with a `context` value is therefore the monomorphization half of the
+/// `Self` question, and `test/effects.buri` does exactly that.
+///
+/// `c` is unused, and has to be: inside a generic body the handler's `Self` is
+/// whatever implements `Listen` for `C`, which no bound here names. The test
+/// that reads a field off the handler's first parameter calls `listen` on the
+/// context value itself, where the implementing type is in view.
 export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
   let _ = ctx.socketSendText(7, "opened");
   let _ = ctx.socketSendBytes(7, []);
@@ -1002,7 +1020,7 @@ export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
     "127.0.0.1",
     0,
     fn(c, request) => Response {
-      status: if (request.url == url) { 200 } else { 404 },
+      status: if (request.url == "127.0.0.1") { 200 } else { 404 },
       headers: [],
       body: [],
     },
@@ -1011,6 +1029,56 @@ export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
     .Ok(_) => fetched,
     .Err(_) => 0 - fetched,
   }
+}
+
+/// A `Tasks` that runs everything on the calling thread, in order.
+///
+/// `Tasks.parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B]` is
+/// the *generic* member of the `fn(Self, …)` family — a method with type
+/// parameters of its own whose callback names `Self`, which is two questions
+/// at once: the type arguments have to reach `instantiate`, and `Self` has to
+/// be the implementation. It is answered here as a fake because no platform
+/// grants `Tasks` and an effect is an ordinary interface (SPEC 10.9).
+///
+/// It answers up to three items because a `[B]` longer than a literal needs
+/// `Alloc` and `parallel` takes no context — fixed-size construction never
+/// does (SPEC 10.5), which is exactly what an array literal is. Two is what
+/// the tests use; the third arm is there so the `match` is not a two-case
+/// special.
+///
+/// `bias` and `label` are what a handler reads off the runner it is handed, so
+/// a test's assertion is about *which type* arrived and not only about how many
+/// bytes it was — and the two are an `Int` and a `Str`, which are a word and a
+/// pointer, so a handler reading both would not survive being handed a
+/// differently shaped value by luck.
+export struct SerialTasks {
+  export label: Str,
+  export bias: Int,
+}
+
+impl Tasks for SerialTasks {
+  // Written `Self` rather than `SerialTasks`, which `OneShotListen` above
+  // spells the other way: an `impl` may write either and they are the same
+  // type, so the pair keeps the two spellings from drifting.
+  fn parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B] {
+    match (items) {
+      [] => [],
+      [a] => [f(self, 0, a)],
+      [a, b] => [f(self, 0, a), f(self, 1, b)],
+      [a, b, c, ..] => [f(self, 0, a), f(self, 1, b), f(self, 2, c)],
+    }
+  }
+}
+
+/// `parallel` reached through a **bounded type parameter**, which is
+/// `serveOnce`'s question at a generic method.
+///
+/// The handler ignores its runner for `serveOnce`'s reason — inside a generic
+/// body nothing names what implements `Tasks` for `C` — and the answer folds
+/// the first two results so a caller sees one number.
+export fn runInOrder<C: Tasks>(ctx: C, items: [Int]): Int {
+  let out = ctx.parallel(items, fn(runner, i, item) => i * 100 + item);
+  (out[0] ?? 0) + (out[1] ?? 0)
 }
 
 // =============================================================================

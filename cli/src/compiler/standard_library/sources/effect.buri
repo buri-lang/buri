@@ -182,8 +182,12 @@ export effect Tasks {
 ///
 /// The handler arrives as a parameter rather than as a capture, for
 /// `Tasks.parallel`'s reason: an effect-carrying value may be passed only as
-/// `self` or `ctx` (SPEC 10.6), so a request handler is *handed* the context
-/// and captures nothing effectful.
+/// `self` or `ctx` (SPEC 10.6), so a request handler is *handed* what it needs
+/// and captures nothing effectful. What it is handed is `Self` — the type
+/// implementing this effect, which is the acceptor itself and not the context
+/// the call came through; those are two different types wherever the call goes
+/// through a `context` value, and telling them apart is what
+/// `semantics/expressions.rs`'s `implementing_ty` is for.
 ///
 /// **No platform grants this yet.** `core/host` declares `HostListen` and
 /// `listen`, and the grant table gives them no platform at all, so every
