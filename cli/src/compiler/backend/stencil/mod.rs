@@ -121,9 +121,9 @@
 //!  * **Debug information.** Neither DWARF nor `.buri_symbols`, which is the
 //!    same gap `llvm/mod.rs` records for itself.
 //!
-//! What is refused by **every** backend — an inexact numeric conversion,
-//! `json.*`, and `core/math`'s thirteen transcendentals — is refused here for
-//! the reasons `native/conformance.rs`'s `PACKAGES` gives.
+//! What is refused by **every** backend — a conversion out of a float or into
+//! a `Char`, `json.*`, and `core/math`'s thirteen transcendentals — is refused
+//! here for the reasons `native/conformance.rs`'s `PACKAGES` gives.
 
 pub mod abi;
 pub mod asm;

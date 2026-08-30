@@ -1,6 +1,6 @@
-const $k0=[1];
-const $k1=[1,2];
-const $k2=[1,2,3,4];
+const $k0=[1n];
+const $k1=[1n,2n];
+const $k2=[1n,2n,3n,4n];
 const $k3=[0,0];
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];

@@ -1,0 +1,8 @@
+from "core/hash" import { Hash };
+from "core/list" import * as list;
+from "core/option" import { Option }
+from "core/order" import { Ord };
+
+export fn f(x: Int): Int {
+    x
+}

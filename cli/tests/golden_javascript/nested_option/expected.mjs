@@ -1,15 +1,15 @@
-const $k0=[1,void 0,3];
-const $k1=[2];
+const $k0=[1n,void 0,3n];
+const $k1=[2n];
 const $k2=[void 0];
-const $k3=[1];
-const $k4=[9];
+const $k3=[1n];
+const $k4=[9n];
 const $k5=[0,0];
 const $D0=[];
 const $D1=[];
 const $D2=[];
 $D0.push(2,'Holder',true,['inner'],[$D1]);
 $D1.push(7,$D2);
-$D2.push(0,'i');
+$D2.push(0,'I');
 function $eqD0(a,b){
   if(a===b){
     return true;
@@ -18,7 +18,7 @@ function $eqD0(a,b){
 }
 function __cmd_x_main$main(){
   const ctx_0=[[],[]];
-  const ss_1=$some(7);
+  const ss_1=$some(7n);
   const sn_2=$some(void 0);
   const nn_3=void 0;
   let $t1;
@@ -82,60 +82,60 @@ function __cmd_x_main$main(){
   }else{
     $abort('no arm matched');
   }
-  $host_HostStdout_println(ctx_0[1],String($t10!==void 0?$t10:-1)+' '+String($t13!==void 0?$t13:-1)+' '+String($t16!==void 0?$t16:-1));
-  const o_33=$some($some(1));
+  $host_HostStdout_println(ctx_0[1],String($t10!==void 0?$t10:-1n)+' '+String($t13!==void 0?$t13:-1n)+' '+String($t16!==void 0?$t16:-1n));
+  const o_33=$some($some(1n));
   let $t18;
   if(o_33===void 0){
-    $t18=0;
+    $t18=0n;
   }else if(o_33!==void 0&&$val(o_33)===void 0){
-    $t18=1;
+    $t18=1n;
   }else if(o_33!==void 0&&($val(o_33)!==void 0&&$val($val(o_33))===void 0)){
-    $t18=2;
+    $t18=2n;
   }else if(o_33!==void 0&&($val(o_33)!==void 0&&$val($val(o_33))!==void 0)){
-    $t18=3;
+    $t18=3n;
   }else{
     $abort('no arm matched');
   }
   const o_34=$some($some(void 0));
   let $t20;
   if(o_34===void 0){
-    $t20=0;
+    $t20=0n;
   }else if(o_34!==void 0&&$val(o_34)===void 0){
-    $t20=1;
+    $t20=1n;
   }else if(o_34!==void 0&&($val(o_34)!==void 0&&$val($val(o_34))===void 0)){
-    $t20=2;
+    $t20=2n;
   }else if(o_34!==void 0&&($val(o_34)!==void 0&&$val($val(o_34))!==void 0)){
-    $t20=3;
+    $t20=3n;
   }else{
     $abort('no arm matched');
   }
   const o_35=$some(void 0);
   let $t22;
   if(o_35===void 0){
-    $t22=0;
+    $t22=0n;
   }else if(o_35!==void 0&&$val(o_35)===void 0){
-    $t22=1;
+    $t22=1n;
   }else if(o_35!==void 0&&($val(o_35)!==void 0&&$val($val(o_35))===void 0)){
-    $t22=2;
+    $t22=2n;
   }else if(o_35!==void 0&&($val(o_35)!==void 0&&$val($val(o_35))!==void 0)){
-    $t22=3;
+    $t22=3n;
   }else{
     $abort('no arm matched');
   }
   let $t24;
   if(void 0===void 0){
-    $t24=0;
+    $t24=0n;
   }else if(void 0!==void 0&&$val(void 0)===void 0){
-    $t24=1;
+    $t24=1n;
   }else if(void 0!==void 0&&($val(void 0)!==void 0&&$val($val(void 0))===void 0)){
-    $t24=2;
+    $t24=2n;
   }else if(void 0!==void 0&&($val(void 0)!==void 0&&$val($val(void 0))!==void 0)){
-    $t24=3;
+    $t24=3n;
   }else{
     $abort('no arm matched');
   }
   $host_HostStdout_println(ctx_0[1],String($t18)+' '+String($t20)+' '+String($t22)+' '+String($t24));
-  const got_5=$list_get($k0,1);
+  const got_5=$list_get($k0,1n);
   let $t27;
   if(got_5!==void 0&&$val(got_5)!==void 0){
     $val(got_5);
@@ -170,7 +170,7 @@ function __cmd_x_main$main(){
   }
   $host_HostStdout_println(ctx_0[1],$str($t30)+' '+$str($t32));
   const sorted_8=$list_sortBy([$k1,$k2,$k3],ctx_0,(a_30,b_31)=>$cmp(a_30,b_31));
-  const $t35=$list_get(sorted_8,0);
+  const $t35=$list_get(sorted_8,0n);
   $host_HostStdout_println(ctx_0[1],$show($t35!==void 0?$t35:$k1,$D0));
   let $t36;
   const $t37=$cmp($k2,$k1);

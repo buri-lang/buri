@@ -547,9 +547,10 @@ static int mode_text(void) {
 
   printf("toint %d ", buri_rt_str_to_int(S(" 42 "), &n));
   printf("%lld\n", (long long)n);
-  /* At `2^53` a double can no longer say which integer it is, so `$str_toInt`
-   * answers `.None` and so does this. */
-  printf("toint-unsafe %d\n", buri_rt_str_to_int(S("9007199254740992"), &n));
+  /* Past `I64`, which is the only thing either backend refuses now. */
+  printf("toint-wide %d ", buri_rt_str_to_int(S("9223372036854775807"), &n));
+  printf("%lld\n", (long long)n);
+  printf("toint-past %d\n", buri_rt_str_to_int(S("9223372036854775808"), &n));
   printf("tofloat %d %g\n", buri_rt_str_to_float(S("1.5e1"), &d), d);
   printf("tofloat-bad %d\n", buri_rt_str_to_float(S("Infinity"), &d));
 

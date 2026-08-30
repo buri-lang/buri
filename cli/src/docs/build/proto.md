@@ -186,15 +186,13 @@ which a bare `Note` would not, and a `oneof` named `contact` inside
 | `string` | `Str` | UTF-8 on the wire; bytes that are not text are an error |
 | `bytes` | `[U8]` | |
 
-**The 64-bit caveat, on the JavaScript backend.** An `Int` is an `I64` on every
-backend, and on the JavaScript one an `I64` is a double
-([`core/num`](../guide/standard-library.md)), so it holds every integer up to 2^53
-exactly and nothing above it. A `uint64` or `int64` field carrying a larger
-value survives the round trip only to that precision. This is the same caveat
-every double-backed protobuf implementation carries; it is stated here rather
-than discovered, and it does not apply to a native build, where an `I64` is
-sixty-four bits. What *is* true on every backend is that a `uint64` above 2^63
-reads back negative, which is what a signed reading of those bits is.
+**64-bit fields round-trip on every backend.** An `Int` is an `I64` everywhere,
+and on the JavaScript backend an `I64` is a `BigInt`
+([`core/num`](../guide/standard-library.md)) — so a `uint64` or `int64` field
+carrying a value past 2^53 survives with every digit, which is the caveat most
+double-backed protobuf implementations still carry and this one no longer does.
+What *is* true on every backend is that a `uint64` above 2^63 reads back
+negative, which is what a signed reading of those bits is.
 
 Negative numbers cost bytes. A negative `int32` or `int64` is written as the
 ten-byte varint of its 64-bit two's complement, exactly as protoc writes one. A
