@@ -1026,8 +1026,8 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Sum,
     },
     Entry {
-        key: "testing_context.TestEnv.arguments",
-        symbol: "buri_rt_testing_context_test_env_arguments",
+        key: "testing_context.TestEnv.args",
+        symbol: "buri_rt_testing_context_test_env_args",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
@@ -1038,12 +1038,16 @@ pub const ENTRIES: &[Entry] = &[
     // rows: these carry a handle, and `core/host`'s own implementations are
     // empty structs that do not.
     //
-    // A **builder** — `at`, `seed`, `variables`, `args` — takes its receiver
+    // A **builder** — `at`, `seed`, `variables`, `arguments` — takes its receiver
     // and answers a fresh handle through the out-pointer, so it is
     // `Arg::Scalar` in and `Ret::Out` out. The receiver is passed even where
     // the body ignores it (`at`, `seed`): the C signature is the Buri argument
     // list flattened, and dropping a parameter because one implementation has
     // no use for it is exactly the kind of disagreement nothing diagnoses.
+    //
+    // `proc` and `TestProc.exitWith` have no rows, for `TestNet.fetch`'s reason
+    // rather than the allocator's: both are Buri bodies, so no key reaches this
+    // table. `TestProc` records nothing because nothing can read it back.
     //
     // `alloc` and `TestAlloc.allocate` are open-coded (`emit.rs`).
     Entry {
@@ -1480,8 +1484,8 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestEnv.args",
-        symbol: "buri_rt_host_testing_test_env_args",
+        key: "host_testing.TestEnv.arguments",
+        symbol: "buri_rt_host_testing_test_env_arguments",
         args: &[Arg::Scalar, Arg::List],
         ret: Ret::Out,
     },
@@ -1492,28 +1496,10 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Sum,
     },
     Entry {
-        key: "host_testing.TestEnv.arguments",
-        symbol: "buri_rt_host_testing_test_env_arguments",
+        key: "host_testing.TestEnv.args",
+        symbol: "buri_rt_host_testing_test_env_args",
         args: &[Arg::Scalar],
         ret: Ret::Out,
-    },
-    Entry {
-        key: "host_testing.proc",
-        symbol: "buri_rt_host_testing_proc",
-        args: &[],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "host_testing.TestProc.exitWith",
-        symbol: "buri_rt_host_testing_test_proc_exit_with",
-        args: &[Arg::Scalar, Arg::Scalar],
-        ret: Ret::Void,
-    },
-    Entry {
-        key: "host_testing.TestProc.exited",
-        symbol: "buri_rt_host_testing_test_proc_exited",
-        args: &[Arg::Scalar],
-        ret: Ret::Sum,
     },
     // The one key here that no Buri declaration produces: `middle::monomorphize`
     // emits it after every `test` body, so that "a fault whose call never
@@ -1582,10 +1568,36 @@ pub const TEST_FAIL_EXPECTED: &str = "buri_rt_test_fail_expected";
 pub const ALLOC: &str = "buri_rt_alloc";
 /// `buri_rt_free(p)`.
 pub const FREE: &str = "buri_rt_free";
+/// `buri_rt_incref(p)` — the **shared** arm of `incref` (MEMORY.md §5.1).
+///
+/// The unshared arm is open-coded and always will be; this is reached only from
+/// the fork on `cap`'s bit 63, which nothing sets, and it is a call because the
+/// atomic sequence behind it is cold, is written once in the runtime, and is
+/// twelve instructions this backend would otherwise put in front of the
+/// optimizer at every reference operation in the program — measured at a
+/// median +46 % of native release lowering, against +21 % for the call
+/// (`design/PERFORMANCE.md` §6.6).
+pub const INCREF: &str = "buri_rt_incref";
+/// `buri_rt_decref(p, drop_glue)` — the **shared** arm of `decref`, and the
+/// free that follows it. `drop_glue` is null for a type holding no references.
+pub const DECREF: &str = "buri_rt_decref";
 /// `buri_rt_argv_init(argc, argv)` — the emitted `main`'s first statement.
 pub const ARGV_INIT: &str = "buri_rt_argv_init";
 /// `buri_rt_flush()` — required before every return path from `main`.
 pub const FLUSH: &str = "buri_rt_flush";
+/// `buri_rt_frames_are_per_carrier()` — the artifact's one statement about
+/// itself, made once at startup (`cli/runtime/lib.rs` §6).
+///
+/// **This backend makes it and the frame-threaded one does not**, and that is
+/// a fact about where a Buri frame lives rather than a difference of opinion
+/// about scheduling. Here a Buri function is an ordinary LLVM function and its
+/// locals are `alloca`s, so a carrier's 512 KiB thread stack is its own and the
+/// runtime may run two `Tasks.parallel` steps at once. There a program has one
+/// Buri stack — the `buri$stencil$stack` block its `main` guards — and a step
+/// runs in a frame the *call site* set aside, so two of them would share it.
+/// Saying nothing is the safe answer, which is why the call is here and not a
+/// parameter of one over there.
+pub const FRAMES_PER_CARRIER: &str = "buri_rt_frames_are_per_carrier";
 /// `buri_rt_i128_divmod(a_lo, a_hi, b_lo, b_hi, signed, quot, rem)`.
 pub const I128_DIVMOD: &str = "buri_rt_i128_divmod";
 /// `buri_rt_i128_checked(op, a_lo, a_hi, b_lo, b_hi, signed, out) -> i32` and

@@ -127,11 +127,13 @@ to change. The refusal landed **before any of those keys existed**, on purpose,
 so that the day one arrived it arrived with its diagnostic already written
 rather than as an unresolved `buri_rt_*` symbol from `cc`. The first one is
 `host.HostTasks.parallel`, and it is answered by `cli/runtime/rt.rs` — behind
-`net`, beside the carrier pool it will fan out onto — so on a
-`BURI_RUNTIME_NET=0` toolchain a program that calls `core/tasks` is refused by
-name before code generation. That is what was designed, and it is now exercised
-rather than only argued for. `host.HostListen.*` and `host.HostSockets.*` are
-still ahead of their first key.
+`net`, beside the carrier pool it fans out onto — so on a `BURI_RUNTIME_NET=0`
+toolchain a program that calls `core/tasks` is refused by name before code
+generation. That is what was designed, and it is now exercised rather than only
+argued for. `host.HostListen.*` and `host.HostSockets.*` are still ahead of
+their first key: both effects are declared in `core/effect` and granted by no
+platform, so the host values their operations hang off cannot be constructed,
+and what exists for them is the refusal alone.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 
@@ -411,9 +413,28 @@ Four notes, each of which is a mistake someone would otherwise make:
 
 Built **with** `backend-llvm`, because a `nix build` produces the release
 toolchain and a release toolchain must be able to produce release artifacts. That
-means `nativeBuildInputs = [ llvm.dev ]`, `LLVM_SYS_211_PREFIX`, and — the change
-the current flake comment is about — a real `cargoHash`, since vendoring now
-fetches four crates and their closures.
+means `nativeBuildInputs = [ llvm.dev ]` and `LLVM_SYS_211_PREFIX`. The vendoring
+needs nothing: `inkwell`'s closure is named by `./Cargo.lock` and is fetched
+already, whether or not the feature is on.
+
+**Two lockfiles, one vendor directory.** §1.1 and §1.1.1 are two dependency
+trees, and a sandboxed build carries both or it carries neither usefully:
+`cli/build.rs` runs a nested `cargo` for `cli/runtime`, and a vendor directory
+holding only `./Cargo.lock`'s closure sends it down the degradation path of §2.2
+— empty archive, `runtime_native::AVAILABLE == false`, a green `nix build` and a
+toolchain with no native backend. `rustPlatform.importCargoLock` takes one
+`lockFile`, so the flake calls it twice and links both results into a third
+directory, keyed by `name-version`; the merge is of the *directories* rather than
+of the lockfiles because nixpkgs' `cargoSetupPostPatchHook` diffs the vendor
+directory's `Cargo.lock` against the one in `src` and refuses a build where they
+differ. `cargoDeps` takes that directory, so there is still no `cargoHash`.
+
+The flake then runs `.github/scripts/assert-runtime-archive.sh` in its own
+`postBuild`. This is the one place the script is not redundant with §3.3's CI
+jobs: `nix build` is a *packaging* path, its failure mode is a silently less
+capable compiler, and the four systems `eachDefaultSystem` covers are all systems
+`cli/build.rs`'s `supported` accepts — so there is nothing here to degrade to and
+the empty archive is unambiguously a bug.
 
 ### 3.3 CI
 

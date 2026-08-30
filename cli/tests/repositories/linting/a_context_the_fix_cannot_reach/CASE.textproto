@@ -1,0 +1,77 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the two unused-context findings whose call sites the analysis cannot reach — a name the library publishes, and a function handed somewhere as a value — reported in full and left alone by --fix"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//...", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# The half that is easy to get wrong silently: `--fix` writes nothing, and
+# both findings are still there afterwards. A rule that offered half of this
+# edit would leave a repository that does not compile.
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 1
+  golden: "fix.txt"
+}
+
+file {
+  path: "lib/label/stamp.buri"
+  golden: "stamp.buri"
+}
+
+# `plain` cannot lose its parameter, because the parameter is `apply`'s and not
+# its own. So the answer is the other one the page offers: use the context.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "from \"core/host/lib.buri\" import * as host;\n"
+  with: "from \"core/host/lib.buri\" import * as host;\nfrom \"core/str/lib.buri\" import * as str;\n"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "  label.len()\n"
+  with: "  str.format(ctx, \"${label}\").len()\n"
+}
+
+# `stamp` can, once somebody has decided the signature is not part of what the
+# library publishes. That decision is a person's; the two edits it implies are
+# the ones `--fix` would have written had it been allowed to.
+edit {
+  file: "lib/label/stamp.buri"
+  replace: "from \"core/effect/lib.buri\" import { Alloc };\n\n"
+  with: ""
+}
+
+edit {
+  file: "lib/label/stamp.buri"
+  replace: "export fn stamp<C: Alloc>(ctx: C, label: Str): Int {"
+  with: "export fn stamp(label: Str): Int {"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "stamp(ctx, label)"
+  with: "stamp(label)"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "build.txt"
+}

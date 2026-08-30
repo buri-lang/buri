@@ -73,8 +73,8 @@ sequences.
 ### 2.1 Bit 63 of `cap` is reserved for the multi-threaded mark
 
 `cap` holds the usable payload bytes in its **low 63 bits**. **Bit 63 is
-reserved** and **nothing in the tree sets it**. Set will mean *this block may be
-reached from more than one thread*, and it is the bit `incref`/`decref` will
+reserved** and **nothing in the tree sets it**. Set means *this block may be
+reached from more than one thread*, and it is the bit `incref` and `decref`
 branch on to choose an atomic count.
 
 The reservation is recorded — and every reader already masks — before anything
@@ -82,6 +82,16 @@ sets it, so that turning it on later moves no code but the code that turns it
 on. `middle::layout::CAP_SHARED_FLAG` and `CAP_MASK` are the compiler's copy of
 the number; `cli/runtime/memory.rs`'s `BURI_RT_CAP_SHARED` and
 `BURI_RT_CAP_MASK` are the runtime's, spelled twice for the reason `BURI_OK` is.
+
+**The branch is here; the bit is still dark.** Both backends and the runtime
+now fork on it (MEMORY.md §5.1, "The shared fork"), and every arm behind the
+fork is unreachable until a value is marked. What the fork costs a program that
+never takes it is **two instructions** per reference operation — a load of the
+word beside the count, on a cache line the operation was going to touch, and a
+bit test. What it costs the *compiler* is a different number and a larger one:
+a median **+21 %** of native release lowering, which is an amended budget on
+that row rather than a met one. Both numbers, and the amendment, are in
+`design/PERFORMANCE.md` §6.6.
 
 **Why `cap` and not `rc`.** A bit of the count would cost both of the two
 properties §2 just gave the count. `IMMORTAL` is `u64::MAX` and `incref` is a
@@ -713,7 +723,7 @@ shape of every function that returns a message — did not verify natively at al
 on a program the JavaScript backend compiles and runs; §3.3 says the two *are*
 one type and the interner now says so too. And `cli/tests/crash/` cannot be run
 through this file as it stands, because every case there makes its divisor opaque
-with `env.args(ctx).len()` and `host.HostEnv.arguments` has no native body; the
+with `env.args(ctx).len()` and `host.HostEnv.args` has no native body; the
 rows here use `"".len()` instead, which is opaque to the folder and reaches no
 capability.
 

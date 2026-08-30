@@ -544,6 +544,50 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
+/// A **non-tail** recursion: the recursive call's result is added to, so the
+/// frame has to survive the call and `middle::tail_calls` has nothing to
+/// rewrite. Ten thousand real frames, at both profiles.
+///
+/// **This is the shape `default<O2>` miscompiled.** `attrs::decorate` claimed
+/// `willreturn` — and, for an all-scalar signature, `memory(none)` and
+/// `speculatable` — of every function the effect system called pure and
+/// non-aborting, recursive or not. A call LLVM believes returns and touches
+/// nothing may be **hoisted above the branch that guards it**, and that is
+/// what happened: the emitted `main_buri$depth` became an unconditional `bl
+/// main_buri$depth` with the base-case test folded into a `csinc` *after* it,
+/// so the program recursed until the machine stack ran out. `Profile::Debug`
+/// printed the right answer all along, which is the signature of an attribute
+/// that is not true rather than of a body that is wrong.
+///
+/// The bound is a **runtime** value: `repeat` and `len` are runtime calls this
+/// compilation cannot see through, so no amount of constant folding can
+/// pre-compute the recursion away and the base case is reached only by
+/// actually recursing. Both profiles run here, which is
+/// `language::conformance::release_and_debug_agree`'s assertion made for the
+/// one shape that used to break it.
+#[test]
+fn a_pure_non_tail_recursion_returns_at_both_profiles() {
+    skip_unless_executable!();
+    let source = program(
+        r#"
+fn depth(i: Int): Int { if (i <= 0) { 0 } else { 1 + depth(i - 1) } }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let n = "ab".repeat(ctx, 5000).len();
+  let _ = ctx.println("depth ${depth(n)}");
+  .Ok(())
+}
+"#,
+    );
+    for profile in [Profile::Release, Profile::Debug] {
+        let name = format!("nontail-{}", profile.name());
+        let (out, err, code) = build_and_run_at(&name, &source, None, profile);
+        assert_eq!(out, "depth 10000\n", "at {}, stderr was: {err}", profile.name());
+        assert_eq!(code, Some(0), "at {}, stderr was: {err}", profile.name());
+    }
+}
+
 /// Every integer width, including `I128` — whose division and remainder are a
 /// call to `buri_rt_i128_divmod` with the operands split into pairs of `u64`
 /// and the results read back through out-pointers (`cli/runtime/lib.rs`).
@@ -762,6 +806,16 @@ export fn main(): Result<(), Str> {
     assert!(ir.contains("declare void @buri_rt_flush"), "no flush declaration in:\n{ir}");
     assert!(ir.contains("buri_rt_argv_init"), "no argv_init in:\n{ir}");
 
+    // `cli/runtime/lib.rs` §6's optional call, which **this** backend makes and
+    // the frame-threaded one must not. It survives `default<O2>` because the
+    // callee is an opaque declaration; a pipeline that learned to drop it would
+    // be a `Tasks.parallel` that silently stopped overlapping its waits, which
+    // is why the assertion is here rather than on the unoptimized module.
+    assert!(
+        ir.contains("buri_rt_frames_are_per_carrier"),
+        "no frames_are_per_carrier in:\n{ir}"
+    );
+
     // The emitted `main` is `ccc`, because the platform starts it, while every
     // Buri function is `fastcc`. A mismatch between a function and its call
     // sites is a miscompile LLVM will not diagnose, so both halves are here.
@@ -825,6 +879,124 @@ export fn main(): Result<(), Str> {
         ir.contains("noreturn") && ir.contains("cold"),
         "the abort path must be `noreturn` and `cold`:\n{ir}"
     );
+}
+
+/// `willreturn` is a promise that the function **returns**, and the backend
+/// has to be able to point at the proof.
+///
+/// CODEGEN-LLVM.md §3.1's row used to read "a function `middle` proved
+/// terminates". `middle` proves no such thing — it has no termination analysis
+/// at all — so what this backend proves, and what §3.6 now states, is the
+/// weaker fact it can check on the IR it is holding: **no cycle**. A function with no loop in its control-flow graph
+/// that can reach no cycle in the call graph runs a bounded number of
+/// instructions and returns. Anything else is not proven, and an unproven
+/// `willreturn` is the licence LLVM used to speculate a recursive call
+/// (`a_pure_non_tail_recursion_returns_at_both_profiles`).
+///
+/// Eight functions, one per row of that rule, asserted on the IR this backend
+/// **emits** — `default<O2>` infers its own `willreturn` where it can prove
+/// one, and an assertion made after it would be an assertion about LLVM.
+#[test]
+fn willreturn_is_claimed_only_where_nothing_can_cycle() {
+    skip_unless_executable!();
+    let ir = emitted_ir(&program(
+        r#"
+// No call, no loop: the proof is that the body is straight-line. Called
+// twice so `middle::inline` leaves it where it can be read (a single-use
+// callee is moved into its caller).
+fn leaf(x: Int, y: Int): Int { x * x + y * y }
+
+// A leaf's caller is proven too: the callee returns and this adds to it.
+// Two calls and a body above `middle::inline`'s trivial size, or it would be
+// moved into `main` and there would be nothing here to read.
+fn viaLeaf(x: Int): Int { leaf(x, x) + leaf(x, 1) }
+
+// Branches, and still no cycle. This is the row that decided how the
+// question is asked: `lower` numbers blocks in the order it built them, and
+// a nested `if`'s join block comes *before* one of its predecessors — so
+// "an edge that points earlier in the list" reads this function as a loop
+// and takes the attribute off every branchy function in the program. The
+// answer is a real cycle search, and this is what says so.
+fn classify(i: Int): Int { if (i <= 0) { 0 } else { if (i < 10) { 1 } else { 2 } } }
+
+// Self-recursive and *not* a tail call — the shape that was miscompiled.
+fn down(i: Int): Int { if (i <= 0) { 0 } else { 1 + down(i - 1) } }
+
+// The same cycle, two functions long. Neither is self-recursive, and a
+// per-function look at either one sees only a call to a function that is
+// pure and does not abort.
+fn pingA(i: Int): Int { if (i <= 0) { 0 } else { 1 + pingB(i - 1) } }
+fn pingB(i: Int): Int { if (i <= 0) { 0 } else { 1 + pingA(i - 1) } }
+
+// Tail-recursive, so `middle::tail_calls` has already made it a CFG loop
+// (CODEGEN-LLVM.md §2.4). A loop whose trip count nothing bounded is not a
+// proof of termination either — and `mustprogress`, which is the other half
+// of what this rule emits, would let LLVM *delete* a loop that diverges.
+// SPEC 10.4: an implementation may drop a pure call only where it can also
+// show the call returns.
+fn total(n: Int, acc: Int): Int { if (n <= 0) { acc } else { total(n - 1, acc + n) } }
+
+// A caller of an unproven function is unproven: the promise covers the
+// callees too. Two calls and two of them in the body, for the same reason.
+fn viaDown(i: Int): Int { down(i) + down(i + 1) }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${viaLeaf(3)} ${viaLeaf(4)} ${classify(3)} ${classify(30)}");
+  let _ = ctx.println("${down(3)} ${pingA(3)} ${total(3, 0)} ${viaDown(2)} ${viaDown(3)}");
+  .Ok(())
+}
+"#,
+    ));
+
+    let attrs_of = |name: &str| -> String {
+        let full = format!("main_buri${name}");
+        let (head, _) = definitions(&ir)
+            .into_iter()
+            .find(|(head, _)| head.contains(&full))
+            .unwrap_or_else(|| panic!("no `{full}` was emitted; the IR is:\n{ir}"));
+        attribute_group(&ir, head).to_string()
+    };
+
+    for (name, why) in [
+        ("down", "it calls itself, and the call is not a tail call"),
+        ("pingA", "it is one half of a two-function cycle"),
+        ("pingB", "it is the other half of that cycle"),
+        ("total", "its body is a loop with no bound on the trip count"),
+        ("viaDown", "it calls a function that is not proven to return"),
+    ] {
+        let attrs = attrs_of(name);
+        assert!(
+            !attrs.contains("willreturn"),
+            "`{name}` claims `willreturn` and must not — {why}:\n{attrs}"
+        );
+        assert!(
+            !attrs.contains("mustprogress"),
+            "`{name}` claims `mustprogress` and must not — {why}:\n{attrs}"
+        );
+        // The attribute the hoist was actually made of. `speculatable` is
+        // only emitted where `willreturn` is, so this is a second reading of
+        // the same rule rather than a second rule.
+        assert!(
+            !attrs.contains("speculatable"),
+            "`{name}` claims `speculatable` and must not — {why}:\n{attrs}"
+        );
+    }
+
+    // The other direction, which is what keeps the conservatism from being a
+    // blanket: where the proof exists the attribute is still emitted, and with
+    // it `memory(none)` makes the call speculatable.
+    for name in ["leaf", "viaLeaf", "classify"] {
+        let attrs = attrs_of(name);
+        assert!(
+            attrs.contains("willreturn") && attrs.contains("mustprogress"),
+            "`{name}` reaches no cycle and must keep `willreturn`:\n{attrs}"
+        );
+        assert!(
+            attrs.contains("speculatable"),
+            "`{name}` is `memory(none)` and proven to return, so it is speculatable:\n{attrs}"
+        );
+    }
 }
 
 /// `nsw`/`nuw` are never set by this backend — VALUE-MODEL.md §11.1's
@@ -1143,6 +1315,71 @@ export fn main(): Result<(), Str> {
          {:?} against {:?}",
         fast.1,
         plain.1
+    );
+}
+
+/// G2: a reference operation is two counts behind one branch on `cap`'s bit 63.
+///
+/// The assertion is on the *emitted* IR rather than the optimized IR, because
+/// this is a claim about what the emitter writes: `default<O2>` is entitled to
+/// notice that nothing in a single translation unit sets the bit and delete
+/// the atomic arm, and a test that let it would be asserting nothing.
+///
+/// Four things, and the last two are the ones that could quietly go wrong:
+///
+///  * the fork exists on both operations;
+///  * the shared arms are a **cold call** into the runtime, which owns the one
+///    atomic sequence — open-coding it here instead cost a median +46 % of
+///    native release lowering against this form's +21 %, because it is a
+///    saturating `atomicrmw` in front of `opt` at every reference operation in
+///    the program (`design/PERFORMANCE.md` §6.6);
+///  * the **unshared arm is unchanged** — the same load, saturating `select`
+///    and store MEMORY.md §5.1 specifies, not an atomic in disguise;
+///  * the branch says which arm is hot, so the unshared one stays the
+///    fallthrough.
+#[test]
+fn a_reference_operation_forks_on_the_multi_threaded_bit() {
+    skip_unless_executable!();
+    let ir = emitted_ir(&program(
+        r#"
+fn keep(s: Str, n: Int): Str { if (n <= 0) { s } else { keep(s, n - 1) } }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let owned = "ab".repeat(ctx, 3);
+  let echoed = keep(owned, 4);
+  let _ = ctx.println("${owned}|${echoed}");
+  .Ok(())
+}
+"#,
+    ));
+
+    assert!(ir.contains("inc.shared"), "no shared arm on the increment in:\n{ir}");
+    assert!(ir.contains("dec.shared"), "no shared arm on the decrement in:\n{ir}");
+    assert!(
+        ir.contains("call void @buri_rt_incref"),
+        "the increment's shared arm does not reach the runtime in:\n{ir}"
+    );
+    assert!(
+        ir.contains("call void @buri_rt_decref"),
+        "the decrement's shared arm does not reach the runtime in:\n{ir}"
+    );
+    assert!(
+        ir.contains("declare void @buri_rt_incref") && ir.contains("declare void @buri_rt_decref"),
+        "the two shared arms are not declared in:\n{ir}"
+    );
+
+    // The unshared arm, unchanged: MEMORY.md §5.1's load, saturating select
+    // and store. A `%rc.sat` that stopped being stored would mean the fork
+    // replaced the fast path rather than standing beside it.
+    assert!(ir.contains("%rc.sat"), "the saturating select is gone from:\n{ir}");
+    assert!(ir.contains("%rc.inc"), "the non-atomic increment is gone from:\n{ir}");
+    assert!(ir.contains("%rc.dec"), "the non-atomic decrement is gone from:\n{ir}");
+
+    // And the emitter says which arm is hot.
+    assert!(
+        ir.contains("!prof") && ir.contains("branch_weights"),
+        "the fork carries no branch weight in:\n{ir}"
     );
 }
 

@@ -199,9 +199,13 @@ It arrives as a parameter because a lambda may not capture a context
 (Section 10.6).
 
 How much actually runs at once is the platform's business and not the
-signature's: JavaScript starts the tasks together and awaits them together, and
-the native runtime runs them in index order today. Both answer the same list,
-which is the point of fixing the order.
+signature's. JavaScript starts the tasks together and awaits them together; a
+native `--release` build gives each task a carrier of its own, so two that wait
+overlap; `buri run` runs them in index order on one carrier, because a program
+its backend builds has a single Buri stack to hold their frames in. All three
+answer the same list, which is the point of fixing the order. Two tasks that
+*compute* do not yet overlap on either native backend: `parallel` buys
+overlapped waiting rather than more processors.
 
 `core/net/http` is where `Request` and `Response` are documented — the two types
 `Net.fetch` speaks in, re-exported from `core/effect` where the effect's own
@@ -231,7 +235,7 @@ an `impl` block takes `self`), so the constructors are free functions:
 `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `env`,
 `proc` — **called** rather than referred to, so each one is a fresh double, and
 configured by a method that answers a new one (`clock().at(1000)`,
-`rand().seed(7)`, `env().variables([...]).args([...])`,
+`rand().seed(7)`, `env().variables([...]).arguments([...])`,
 `fs().files([...]).readOnly()`). `net()` **refuses** every request until
 `net().respond(fn(request) => ...)` says what to answer, and that responder is a
 pure function of the `Request` — SPEC 10.6 keeps it from capturing a context, so

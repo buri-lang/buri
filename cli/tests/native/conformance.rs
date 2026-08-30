@@ -328,11 +328,12 @@ const PACKAGES: &[Case] = &[
     // by the checker and never reaches a backend — so this file is here to say
     // that out loud on the native one too (SPEC 12.3).
     included("semantics/anonymous.buri"),
-    // The eighth: `core/host/testing`'s seven doubles. Every one of them is a
-    // handle over `cli/runtime/testing.rs`'s table — the same table
-    // `core/testing/context`'s implementations use — plus the two instructions
-    // `TestAlloc` is open-coded as, so the file reaches nothing the archive did
-    // not already have. It is here rather than folded into `effects.buri`
+    // The eighth: `core/host/testing`'s ten doubles. Seven of them are handles
+    // over `cli/runtime/testing.rs`'s table — the same table
+    // `core/testing/context`'s implementations use; `TestAlloc` is the two
+    // instructions both backends open-code, and `TestNet` and `TestProc` are
+    // Buri bodies with no row at all. So the file reaches nothing the archive
+    // did not already have. It is here rather than folded into `effects.buri`
     // because the claim is about the *other* module: the two spellings of the
     // test platform coexist, and this is the one that has to keep agreeing with
     // the JavaScript runner while the migration runs.
@@ -948,7 +949,7 @@ test "an environment holds what it was given and nothing else" {
   assert.eq(assert.some(ctx.variable("HOME")), "/tmp");
   assert.eq(assert.some(ctx.variable("LANG")), "C");
   assert.isTrue(ctx.variable("PATH").isNone());
-  let args = ctx.arguments();
+  let args = ctx.args();
   assert.eq(args.len(), 2);
   assert.eq(args.join(ctx, " "), "--verbose x");
 }
@@ -956,7 +957,7 @@ test "an environment holds what it was given and nothing else" {
 test "an empty environment has no variables and no arguments" {
   let ctx = context { Alloc: alloc(), Env: envOf([], []) };
   assert.isTrue(ctx.variable("HOME").isNone());
-  assert.eq(ctx.arguments().len(), 0);
+  assert.eq(ctx.args().len(), 0);
 }
 
 test "stdin reads its lines, then end of input" {

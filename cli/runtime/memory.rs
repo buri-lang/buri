@@ -69,6 +69,56 @@ unsafe fn cap_of(h: *const Header) -> u64 {
     unsafe { (*h).cap & BURI_RT_CAP_MASK }
 }
 
+/// Whether `h`'s block carries [`BURI_RT_CAP_SHARED`] — the G2 fork.
+///
+/// **It never does today.** G1 reserved the bit and nothing sets it; G3 is
+/// what turns it on. Until then every reference operation below takes the
+/// unshared arm, and the atomic arms are reachable only from this file's own
+/// tests, which force the bit.
+///
+/// # Safety
+/// `h` must point at a live block's header.
+#[inline]
+unsafe fn is_shared(h: *const Header) -> bool {
+    // SAFETY: the caller promises a live header.
+    unsafe { (*h).cap & BURI_RT_CAP_SHARED != 0 }
+}
+
+/// The count word of `h`, as the atomic it is on a shared block.
+///
+/// [`AtomicU64`] has the size and alignment of `u64` and no other
+/// representation, so a header's `rc` field *is* one; naming it through this
+/// rather than storing an `AtomicU64` in [`Header`] keeps the struct a plain
+/// description of the sixteen bytes both backends open-code against.
+///
+/// # Safety
+/// `h` must point at a live block's header, and the reference must not outlive
+/// the block.
+#[inline]
+unsafe fn rc_atomic<'a>(h: *mut Header) -> &'a AtomicU64 {
+    // SAFETY: the caller promises a live header, and `AtomicU64` is
+    // layout-compatible with the `u64` at that address.
+    unsafe { &*std::ptr::addr_of_mut!((*h).rc).cast::<AtomicU64>() }
+}
+
+/// How much an atomic reference operation adds or subtracts: `0` for an
+/// `IMMORTAL` block, `1` for a counted one.
+///
+/// This is MEMORY.md §5.1's *saturation* carried onto the atomic path. A plain
+/// `fetch_add(1)` would take `u64::MAX` to zero and free every string literal
+/// in the program; a plain `fetch_sub(1)` would take it to `u64::MAX - 1` and
+/// free it on the next 2^64 decrements. Both backends open-code the same
+/// expression.
+///
+/// The load is relaxed. It may read a count another thread is in the middle of
+/// changing, and that does not matter, because the only question asked of it
+/// is whether the block is `IMMORTAL` — a property established before a block
+/// is published to a second thread, and never revoked.
+#[inline]
+fn atomic_delta(rc: &AtomicU64) -> u64 {
+    u64::from(rc.load(Ordering::Relaxed) != BURI_RT_IMMORTAL)
+}
+
 // The one place this runtime is atomic, and it is not on the reference-count
 // path: the counts themselves are open-coded plain loads and stores, because
 // the language has no threads (MEMORY.md §1). These four are here so that
@@ -122,6 +172,13 @@ unsafe fn header(p: *mut u8) -> *mut Header {
 /// caller does not write every byte.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc(payload: u64) -> *mut u8 {
+    // G2: this thread's cache first. A hit is a block of exactly `payload`
+    // usable bytes, so `finish` writes the same header it would have written
+    // over a fresh one.
+    if let Some(p) = cache_pop(payload) {
+        // SAFETY: `p` is a payload pointer, so `p - 16` is its block.
+        return finish(unsafe { p.sub(BURI_RT_HEADER) }, payload);
+    }
     let layout = layout_for(payload);
     // SAFETY: `layout` has a non-zero size — the header alone is 16 bytes.
     let raw = unsafe { alloc(layout) };
@@ -131,6 +188,16 @@ pub extern "C" fn buri_rt_alloc(payload: u64) -> *mut u8 {
 /// [`buri_rt_alloc`], with the payload zeroed.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_zeroed(payload: u64) -> *mut u8 {
+    // G2: a cached block holds whatever the last value in it held, so this one
+    // zeroes what `alloc_zeroed` would have got from the allocator.
+    if let Some(p) = cache_pop(payload) {
+        // SAFETY: `p` is a payload pointer to a block with `payload` usable
+        // bytes, which is exactly the range written.
+        unsafe {
+            std::ptr::write_bytes(p, 0, payload as usize);
+            return finish(p.sub(BURI_RT_HEADER), payload);
+        }
+    }
     let layout = layout_for(payload);
     // SAFETY: as above.
     let raw = unsafe { alloc_zeroed(layout) };
@@ -154,6 +221,157 @@ fn finish(raw: *mut u8, payload: u64) -> *mut u8 {
     // start is one-past-the-header and in bounds.
     unsafe { raw.add(BURI_RT_HEADER) }
 }
+
+// ---------------------------------------------------------------------------
+// === G2 begin: the per-thread block caches =================================
+// ---------------------------------------------------------------------------
+//
+// MEMORY.md §5.4 states the cost of threads in two clauses: "reference
+// operations become atomic, and the allocator grows per-thread caches". The
+// first is the fork above. This is the second, and it is the smallest form of
+// it that is correct against the allocator this runtime actually has.
+//
+// **Why exact sizes and not size classes.** A class allocator rounds a request
+// up, so `cap` comes back larger than the payload asked for — which MEMORY.md
+// §5.4 anticipates *and* §5.3 forbids for one case: the release glue of a
+// `[T]` walks `cap / stride` elements, so spare capacity in a block of counted
+// elements is a walk over slots nothing wrote. `buri_rt_grown_capacity` is
+// allowed to overshoot only because the fast paths that use it are restricted
+// to element types holding no references. A cache is under no such
+// restriction — every block in the program passes through it — so it must not
+// change `cap` at all. Keying on the *exact* payload size gives a cache with
+// no semantic footprint whatever: `cap` is what it always was, `layout_for`
+// recovers the layout the block was made with, and the drop walk counts what
+// it always counted.
+//
+// **What it costs, and where it is spent.** A hit is a load, a store and a
+// subtraction instead of a `malloc`; MEMORY.md §5.4 prices those at about five
+// cycles against about twenty. The slots reach 256 bytes because that is where
+// this language's allocation histogram is — a `Str`'s bytes, a fixed-size
+// aggregate, a list below the growth floor's first few doublings — and a block
+// above it is rare enough that a `malloc` per block is the right answer.
+//
+// **What it does not change.** `buri_rt_heap_stats` counts *blocks the program
+// asked for*, not calls this file made to `malloc`, so every number a test can
+// read is the number it read before this cache existed: a hit still increments
+// `LIVE_*` and `TOTAL_*`, and a free still decrements `LIVE_*`. That is what
+// keeps `cli/tests/native`'s allocation-count assertions measuring the
+// compiler's elision rather than this file's hit rate.
+
+/// The largest payload a cached block holds, in bytes.
+const CACHE_MAX_PAYLOAD: u64 = 256;
+
+/// One free-list head per exact payload size, `0..=CACHE_MAX_PAYLOAD`.
+const CACHE_SLOTS: usize = CACHE_MAX_PAYLOAD as usize + 1;
+
+/// The whole process's cache budget in bytes, **before** it is divided between
+/// carriers. Four mebibytes: large enough that a single-threaded program keeps
+/// its whole working set of small blocks, small enough to be invisible beside
+/// the heap of any program that allocates enough to care.
+const CACHE_BYTES: u64 = 4 << 20;
+
+/// The floor a carrier's share does not go under, however many carriers there
+/// are. A cache too small to hold a loop's block is a cache that costs a branch
+/// and buys nothing.
+const CACHE_BYTES_FLOOR: u64 = 64 << 10;
+
+/// One carrier's share of [`CACHE_BYTES`].
+///
+/// **This is the "sized for carrier count" of MEMORY.md §5.4.** The budget is
+/// stated for the process and divided, so that the cache's total footprint is
+/// a property of the program rather than of how wide the carrier pool happens
+/// to be: sixteen carriers get a sixteenth each rather than sixteen times the
+/// memory. `available_parallelism` is the carrier count the pool is built for
+/// (design/native, track B, the `rt.rs` pool) and is asked once.
+fn cache_budget() -> u64 {
+    static BUDGET: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *BUDGET.get_or_init(|| {
+        let carriers = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+        let share = CACHE_BYTES / (carriers as u64).max(1);
+        share.max(CACHE_BYTES_FLOOR)
+    })
+}
+
+/// One carrier's cache: a free-list head per exact payload size, and the bytes
+/// they hold between them.
+///
+/// A dead block's own header carries the link — `rc` holds the next block's
+/// payload pointer, `cap` is left alone — so the lists cost sixteen bytes of
+/// list state per thread and not one byte per block.
+struct Cache {
+    heads: [*mut u8; CACHE_SLOTS],
+    held: u64,
+}
+
+thread_local! {
+    static CACHE: std::cell::UnsafeCell<Cache> = const {
+        std::cell::UnsafeCell::new(Cache { heads: [std::ptr::null_mut(); CACHE_SLOTS], held: 0 })
+    };
+}
+
+/// A dead block of exactly `payload` usable bytes from this thread's cache.
+fn cache_pop(payload: u64) -> Option<*mut u8> {
+    if payload > CACHE_MAX_PAYLOAD {
+        return None;
+    }
+    // `try_with` rather than `with`: a block freed while this thread's
+    // destructors run must not panic, and the answer there is simply "no
+    // cache".
+    CACHE
+        .try_with(|c| {
+            // SAFETY: `c` is this thread's own cell, and no reference derived
+            // from it escapes this closure or crosses a call that could
+            // re-enter.
+            let cache = unsafe { &mut *c.get() };
+            let slot = cache.heads.get_mut(payload as usize)?;
+            let p = *slot;
+            if p.is_null() {
+                return None;
+            }
+            // SAFETY: every pointer in a slot is a block this file freed, of
+            // exactly `payload` usable bytes, whose `rc` holds the next one.
+            *slot = unsafe { (*header(p)).rc as *mut u8 };
+            cache.held = cache.held.saturating_sub(payload.saturating_add(BURI_RT_HEADER as u64));
+            Some(p)
+        })
+        .ok()
+        .flatten()
+}
+
+/// Keep a dead block of `cap` usable bytes in this thread's cache, if there is
+/// room for it. `false` means the caller must return it to the allocator.
+///
+/// # Safety
+/// `p` is a payload pointer whose block is dead, has exactly `cap` usable
+/// bytes, and is not reachable from anywhere else.
+unsafe fn cache_push(p: *mut u8, cap: u64) -> bool {
+    if cap > CACHE_MAX_PAYLOAD {
+        return false;
+    }
+    CACHE
+        .try_with(|c| {
+            // SAFETY: as in `cache_pop`.
+            let cache = unsafe { &mut *c.get() };
+            let bytes = cap.saturating_add(BURI_RT_HEADER as u64);
+            if cache.held.saturating_add(bytes) > cache_budget() {
+                return false;
+            }
+            let Some(slot) = cache.heads.get_mut(cap as usize) else {
+                return false;
+            };
+            // SAFETY: the caller promises a dead block, so its header is this
+            // file's to use as list storage.
+            unsafe {
+                (*header(p)).rc = *slot as u64;
+            }
+            *slot = p;
+            cache.held = cache.held.saturating_add(bytes);
+            true
+        })
+        .unwrap_or(false)
+}
+
+// === G2 end ================================================================
 
 /// Grow or shrink a block in place where the allocator can, preserving `rc`.
 ///
@@ -220,12 +438,27 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     };
     LIVE_BLOCKS.fetch_sub(1, Ordering::Relaxed);
     LIVE_BYTES.fetch_sub(cap, Ordering::Relaxed);
+    // G2: this thread's cache keeps a small block rather than returning it.
+    // The accounting above has already run, so a cached block is not live and
+    // is not a leak — it is memory this runtime holds, exactly as the
+    // allocator holds a free list.
+    //
+    // SAFETY: the block is dead, has `cap` usable bytes, and this is its last
+    // reference.
+    if unsafe { cache_push(p, cap) } {
+        return;
+    }
     // SAFETY: `p - 16` is the allocation, and `layout_for(cap)` is the layout
     // it was created with — `cap` is stored precisely so this is recoverable.
     unsafe { dealloc(p.sub(BURI_RT_HEADER), layout_for(cap)) }
 }
 
 /// The non-inlined `incref`. Saturating, so `IMMORTAL` is a fixed point.
+///
+/// Forks on [`BURI_RT_CAP_SHARED`] exactly as both backends' open-coded copies
+/// do, so a block reached from a generic path is counted the same way as one
+/// reached from emitted code. The unshared arm is the one every program takes
+/// today, and it is untouched.
 ///
 /// # Safety
 /// `p` is null or a live payload pointer.
@@ -237,7 +470,12 @@ pub unsafe extern "C" fn buri_rt_incref(p: *mut u8) {
     // SAFETY: the caller promises a live payload pointer.
     unsafe {
         let h = header(p);
-        (*h).rc = (*h).rc.saturating_add(1);
+        if is_shared(h) {
+            let rc = rc_atomic(h);
+            rc.fetch_add(atomic_delta(rc), Ordering::Relaxed);
+        } else {
+            (*h).rc = (*h).rc.saturating_add(1);
+        }
     }
 }
 
@@ -257,18 +495,31 @@ pub unsafe extern "C" fn buri_rt_decref(p: *mut u8, drop_glue: Option<extern "C"
         return;
     }
     // SAFETY: the caller promises a live payload pointer.
-    let rc = unsafe {
+    let dead = unsafe {
         let h = header(p);
-        let rc = (*h).rc;
-        if rc == BURI_RT_IMMORTAL {
-            return;
+        if is_shared(h) {
+            // The atomic arm answers the count *before* the subtraction, so
+            // the block is this thread's to free when that was `1`. Two
+            // threads each reading `1` from a separate load would each free
+            // it, which is why the test is on what the `fetch_sub` returned.
+            // `AcqRel` publishes this thread's writes to the value to whoever
+            // performs the last decrement, and makes them visible to it before
+            // the glue runs. An `IMMORTAL` block subtracts nothing and answers
+            // `u64::MAX`, so it is never the one.
+            let rc = rc_atomic(h);
+            rc.fetch_sub(atomic_delta(rc), Ordering::AcqRel) == 1
+        } else {
+            let rc = (*h).rc;
+            if rc == BURI_RT_IMMORTAL {
+                return;
+            }
+            if rc > 1 {
+                (*h).rc = rc - 1;
+            }
+            rc <= 1
         }
-        if rc > 1 {
-            (*h).rc = rc - 1;
-        }
-        rc
     };
-    if rc <= 1 {
+    if dead {
         if let Some(glue) = drop_glue {
             glue(p);
         }
@@ -419,8 +670,14 @@ pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
     // SAFETY: the caller promises a live payload pointer, so the header is in
     // bounds and aligned.
     let h = unsafe { header(p.cast_mut()) };
-    // SAFETY: as above.
-    unsafe { ((*h).rc == 1).then(|| cap_of(h)) }
+    // SAFETY: as above. The load is relaxed rather than plain so that the test
+    // is defined on a block carrying [`BURI_RT_CAP_SHARED`], where another
+    // thread's `atomicrmw` may be running on the same word. **The answer does
+    // not change**: `rc == 1` means the caller holds the only reference, and a
+    // thread that holds no reference cannot make a second one, so the count
+    // cannot move under a caller who reads `1`. That is why G2's fork does not
+    // reach this function — there is one test, and it is right on both sides.
+    unsafe { (rc_atomic(h).load(Ordering::Relaxed) == 1).then(|| cap_of(h)) }
 }
 
 // ---------------------------------------------------------------------------
@@ -623,6 +880,141 @@ mod tests {
             }
         }
     }
+
+    // === G2 begin: the atomic arm, and the per-thread cache ================
+
+    /// The atomic increment saturates, exactly as the unshared one does.
+    ///
+    /// This is the property `layout::CAP_SHARED_FLAG`'s doc says the bit was
+    /// put in `cap` to preserve, checked on the side that could lose it: a
+    /// plain `fetch_add(1)` on `u64::MAX` wraps to zero, and the next `decref`
+    /// would free a string literal.
+    #[test]
+    fn the_atomic_increment_keeps_immortal_a_fixed_point() {
+        let p = buri_rt_alloc(32);
+        // SAFETY: `p` is this test's only reference to a live block.
+        unsafe {
+            (*header(p)).cap |= BURI_RT_CAP_SHARED;
+            (*header(p)).rc = BURI_RT_IMMORTAL;
+            buri_rt_incref(p);
+            assert_eq!(buri_rt_rc(p), BURI_RT_IMMORTAL, "the atomic increment wrapped IMMORTAL");
+            // And a decrement of one neither moves it nor frees it.
+            buri_rt_decref(p, None);
+            assert_eq!(buri_rt_rc(p), BURI_RT_IMMORTAL, "the atomic decrement moved IMMORTAL");
+            // Freed by hand: an IMMORTAL block is `buri_rt_free`'s no-op.
+            (*header(p)).rc = 1;
+            buri_rt_free(p);
+        }
+    }
+
+    /// The atomic arm counts: two increments, three decrements, and the block
+    /// dies on the one that took the count to zero — not before, not twice.
+    #[test]
+    fn the_atomic_count_frees_on_the_last_decrement() {
+        static DROPPED: AtomicU64 = AtomicU64::new(0);
+        extern "C" fn glue(_: *mut u8) {
+            DROPPED.fetch_add(1, Ordering::Relaxed);
+        }
+        DROPPED.store(0, Ordering::Relaxed);
+        let p = buri_rt_alloc(48);
+        // SAFETY: `p` is this test's only reference to a live block.
+        unsafe {
+            (*header(p)).cap |= BURI_RT_CAP_SHARED;
+            buri_rt_incref(p);
+            buri_rt_incref(p);
+            assert_eq!(buri_rt_rc(p), 3);
+            buri_rt_decref(p, Some(glue));
+            buri_rt_decref(p, Some(glue));
+            assert_eq!(buri_rt_rc(p), 1, "an atomic decrement did not land");
+            assert_eq!(DROPPED.load(Ordering::Relaxed), 0, "the glue ran while the block lived");
+            buri_rt_decref(p, Some(glue));
+            assert_eq!(DROPPED.load(Ordering::Relaxed), 1, "the glue did not run exactly once");
+        }
+    }
+
+    /// The uniqueness test is not forked, and answers the same on both sides.
+    #[test]
+    fn a_shared_block_is_still_unique_at_a_count_of_one() {
+        let p = buri_rt_alloc(64);
+        // SAFETY: `p` is this test's only reference to a live block.
+        unsafe {
+            (*header(p)).cap |= BURI_RT_CAP_SHARED;
+            assert_eq!(buri_rt_unique_cap(p), Some(64), "a shared unique block failed the test");
+            buri_rt_incref(p);
+            assert_eq!(buri_rt_unique_cap(p), None, "a shared block with two references passed");
+            buri_rt_decref(p, None);
+            assert_eq!(buri_rt_unique_cap(p), Some(64));
+            (*header(p)).cap &= BURI_RT_CAP_MASK;
+            buri_rt_free(p);
+        }
+    }
+
+    /// A freed small block comes back from this thread's cache, with the
+    /// **same capacity** it was asked for.
+    ///
+    /// The capacity is the assertion that matters: a cache that rounded up to
+    /// a size class would hand back a `cap` larger than the payload, and the
+    /// release glue of a `[T]` walks `cap / stride` slots.
+    #[test]
+    fn the_cache_returns_a_block_of_exactly_the_capacity_asked_for() {
+        for payload in [0u64, 1, 24, 64, CACHE_MAX_PAYLOAD] {
+            let first = buri_rt_alloc(payload);
+            // SAFETY: `first` is this test's only reference to a live block.
+            unsafe {
+                assert_eq!(buri_rt_cap(first), payload);
+                buri_rt_free(first);
+            }
+            let second = buri_rt_alloc(payload);
+            // SAFETY: as above.
+            unsafe {
+                assert_eq!(second, first, "the cache did not hand the block back");
+                assert_eq!(buri_rt_cap(second), payload, "the cache changed the capacity");
+                assert_eq!(buri_rt_rc(second), 1, "a recycled block did not start at one");
+                buri_rt_free(second);
+            }
+        }
+    }
+
+    /// A block above the ceiling is returned to the allocator rather than
+    /// cached, and a `alloc_zeroed` over a cached block is still zeroed.
+    #[test]
+    fn the_cache_has_a_ceiling_and_still_zeroes() {
+        let big = buri_rt_alloc(CACHE_MAX_PAYLOAD + 1);
+        // SAFETY: `big` is this test's only reference to a live block.
+        unsafe {
+            buri_rt_free(big);
+        }
+
+        let dirty = buri_rt_alloc(32);
+        // SAFETY: `dirty` is this test's only reference to a live block, with
+        // 32 usable bytes.
+        unsafe {
+            std::ptr::write_bytes(dirty, 0xAB, 32);
+            buri_rt_free(dirty);
+        }
+        let clean = buri_rt_alloc_zeroed(32);
+        // SAFETY: as above.
+        unsafe {
+            assert_eq!(clean, dirty, "the cache did not hand the block back to `alloc_zeroed`");
+            for i in 0..32 {
+                assert_eq!(*clean.add(i), 0, "byte {i} of a recycled block was not zeroed");
+            }
+            buri_rt_free(clean);
+        }
+    }
+
+    /// A carrier's share of the cache is the process budget divided by the
+    /// carriers, with a floor — the "sized for carrier count" of MEMORY.md
+    /// §5.4.
+    #[test]
+    fn the_cache_budget_is_a_share_of_one_process_wide_number() {
+        let b = cache_budget();
+        assert!(b >= CACHE_BYTES_FLOOR, "a carrier's share fell below the floor: {b}");
+        assert!(b <= CACHE_BYTES, "a carrier's share exceeded the whole budget: {b}");
+        assert_eq!(b, cache_budget(), "the budget is not stable across calls");
+    }
+
+    // === G2 end ============================================================
 
     /// `realloc` preserves the reserved bit rather than clearing it, so that
     /// growing a block does not silently un-share it.

@@ -1,0 +1,42 @@
+// `ctx` is the one place a signature says what a function may do to the world,
+// so the only question this rule asks is whether the body ever reads it. Three
+// of the four functions below do, through the three ways there are — a method
+// the context declares, a callee that asks for one of its own, and a
+// function-typed parameter — and the fourth declares a context and never names
+// it, so its callers hold one for arithmetic.
+
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/str/lib.buri" import * as str;
+
+/// The finding. A label's width is its length; nothing here touches the world,
+/// and `--fix` takes the parameter out and the argument at the call site with
+/// it.
+fn width<C: Alloc>(ctx: C, label: Str): Int {
+  label.len()
+}
+
+/// A method the context itself declares. Calling it reads the parameter.
+fn announce<C: Stdout>(ctx: C, label: Str): () {
+  ctx.println("-- ${label}")
+}
+
+/// A callee that asks for a context of its own. Handing it over is a use.
+fn banner<C: Alloc>(ctx: C, label: Str): Str {
+  str.format(ctx, "== ${label} ==")
+}
+
+/// A function-typed parameter. `render` takes the context, so passing it on is
+/// the third use, and the body names nothing else.
+fn rendered<C: Alloc>(ctx: C, render: fn(C, Str) => @ Str, label: Str): Str {
+  render(ctx, label)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let label = "ledger";
+  let _ = announce(ctx, label);
+  let _ = ctx.println("${banner(ctx, label)} is ${width(ctx, label)} wide");
+  let _ = ctx.println(rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label));
+  .Ok(())
+}

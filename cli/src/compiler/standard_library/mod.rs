@@ -687,16 +687,16 @@ mod tests {
     /// A row with no platform offers no elsewhere, and a row with platforms
     /// offers the sentence it always did.
     ///
-    /// **No row is empty today.** `Tasks` was the one, and is now granted on
-    /// three platforms, so the empty case is tested against a row written here
-    /// rather than against a row in the table. That is deliberate and is not
-    /// the same as the case being dead: `elsewhere_clause` is what makes *any*
-    /// effect declared ahead of its runtime refuse honestly, `host-not-granted`
-    /// documents the shape, and the next effect to land that way — `Listen` and
-    /// `Sockets` are both coming — gets it for free. Deleting the branch
-    /// because its first user graduated would mean rediscovering the same
-    /// "build this for a platform that grants it:" with nothing after the colon
-    /// on the day the next one lands.
+    /// **Two rows are empty today**, `Listen` and `Sockets`, and `Tasks` was
+    /// the one before them — declared with an empty list, then granted on three
+    /// platforms by editing that row. The empty case is still tested against a
+    /// row written here rather than against either of the two in the table,
+    /// which is deliberate: `elsewhere_clause` is what makes *any* effect
+    /// declared ahead of its runtime refuse honestly, so the branch has to hold
+    /// when today's empty rows graduate the way `Tasks` did. Deleting it once
+    /// the table happened to have no empty row would mean rediscovering the
+    /// same "build this for a platform that grants it:" with nothing after the
+    /// colon on the day the next one lands.
     #[test]
     fn an_ungrantable_effect_is_not_told_to_build_elsewhere() {
         let ungrantable = HostGrant {

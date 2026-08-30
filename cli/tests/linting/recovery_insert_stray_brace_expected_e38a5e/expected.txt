@@ -1,0 +1,9 @@
+error: expected `=`, found `extra` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_expected_e38a5e/main.buri:40:9
+   |
+40 |   let _ extra = ctx.println(rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label));
+   |         ^^^^^
+   |
+   = expected: `=`
+   = actual: `extra`
+   = fix: write `=` here
