@@ -798,6 +798,7 @@ fn check_hygiene(
         }
     }
     check_dead_code(session, target, analysis, &unchecked, diagnostics);
+    check_unused_declarations(session, target, analysis, &unchecked, diagnostics);
     check_ctx_rebindings(own, analysis, &unchecked, diagnostics);
     check_discarded_results(own, analysis, diagnostics);
     check_unused_variables(own, analysis, &unchecked, diagnostics);
@@ -1185,6 +1186,447 @@ fn check_dead_code(
                     .with_bind("library_file", lib),
             );
         }
+    }
+}
+
+/// `unused-type`, `unused-field` and `unused-variant`: the shapes a package
+/// declares and never uses.
+///
+/// **A type is used two ways, and the union of them is the answer.** It is used
+/// when the package's own code *writes its name down* somewhere that is not its
+/// own declaration or an `impl`/`derive` block written about it, and it is used
+/// when a body *builds or matches a value of it* without naming it at all.
+/// Neither half is enough on its own: the name scan cannot see a `.Variant`
+/// shorthand or an anonymous struct literal, which name nothing, and the typed
+/// tree cannot see a type mentioned only in an alias nobody expands. Their
+/// union over-approximates use, which is the safe direction for a rule nobody
+/// can turn off — the trade [`check_unused_imports`] already makes, and for the
+/// same reason.
+///
+/// A type's own `impl` and `derive` blocks are not uses of it. They describe
+/// the shape rather than reach for it, and without that a dead type with a
+/// method on it would never be reported. The exclusion is by name and by
+/// extent, so the *other* names those blocks mention are ordinary uses.
+///
+/// **A field is used when something reads it**, which is `s.field` or a pattern
+/// that binds it. Filling one in at a literal is a write: a field every literal
+/// supplies and nothing ever consults is the finding, which is why
+/// `Option`-field elision changes nothing here — a field the author no longer
+/// has to write is still a field nobody reads. Two things read every field at
+/// once and leave no projection behind to find, and both count: a `derive`,
+/// which is a fold over the whole type definition (SPEC 5.12.3), and a value
+/// handed to an intrinsic or compared structurally, which is the runtime
+/// reading a value this rule cannot see into. `S { f: _ }` is a mention rather
+/// than a read — that is how a reader says they do not need it, and it is what
+/// `_` says in a `let`.
+///
+/// **A variant is used when something builds it or names it in a pattern.** A
+/// `_` arm names no variant, so an enum matched only by wildcard has nothing
+/// keeping its variants alive; `.Increment` names one without naming its enum,
+/// which is why the evidence is the typed tree rather than the token. A
+/// `derive` does *not* rescue a variant, and the asymmetry with a field is the
+/// question rather than an inconsistency: a derived fold reads every field's
+/// *value*, and it puts a value into no *case*.
+///
+/// **What is exempt is what the repository cannot see the whole of.** A name
+/// `lib.buri` puts on the library's surface is public API — a consumer outside
+/// this repository may name it, build it and read it — so a surfaced type, the
+/// *exported* fields of one, and the variants of one are not reported. That is
+/// the stance [`check_dead_code`] already takes, and it is what makes a
+/// package-local census a complete one: a type the surface does not carry is
+/// visible only inside its own package, and the package is entirely in front of
+/// this analysis. A non-exported field is private to its declaring module even
+/// on a published type, so it is still asked about. A binary has no surface at
+/// all, and nothing in one is exempt.
+///
+/// **One finding per dead shape.** A type nothing uses has no read fields and
+/// no matched variants by construction, so it is reported once rather than once
+/// per member. For the same reason a declaration [`check_dead_code`] has
+/// already reported is left alone: "nothing reaches this export" is the
+/// stronger claim and the one carrying the `lib.buri` fix, and that rule is
+/// asked first so that this one can see what it said.
+///
+/// **What silences it, and how far.** Two different doubts, and each is scoped
+/// to what it actually costs.
+///
+/// A module whose account of what it reaches is short — an [`Unchecked`] module
+/// — puts the library's *surface* in doubt, and the surface is the whole of
+/// what an unresolved `export` line can cost this rule. A name that line may
+/// have published is a name that may be exempt, so nothing is reported about
+/// any **exported** declaration while the doubt stands. It reaches no further
+/// than that, and the reason is worth stating: a declaration the parser skipped
+/// and an import that did not resolve are both still *text*, and this rule's
+/// other half reads text — a use inside either is counted like any other. What
+/// cannot be recovered from the text is which names `lib.buri` meant to
+/// publish, and a name with no `export` on it was never one of them.
+///
+/// A body that did not check is narrower than that, and this is where the rule
+/// parts company with `check_dead_code`. The checker stops where a body stops
+/// making sense, so the reads written under that point are gone from the typed
+/// tree — but they are still *in the file*, and the lexer can see them. So the
+/// doubt is per name rather than per package: an identifier appearing inside a
+/// body that did not check, or in a run of declarations the parser skipped, is
+/// a name that might be used there, and the type, field or variant it could be
+/// naming is left alone. A name that appears nowhere in the unreadable text is
+/// a name that text does not use, and the finding stands.
+///
+/// A type's own name doubts its members too: what a broken region holds might
+/// be the `derive` that reads every field at once, and that line names the type
+/// rather than any field of it.
+fn check_unused_declarations(
+    session: &Session,
+    target: TargetId,
+    analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
+    diagnostics: &mut Diagnostics,
+) {
+    use crate::compiler::semantics::types::{TyConId, TyDef};
+
+    let own = target.package;
+    let mine = modules_of(analysis, own);
+    let tables = &analysis.checked.tables;
+    let surface_in_doubt = mine.iter().any(|m| unchecked.module(*m));
+
+    // What `dead-code` has already said, which is why it is asked first (see
+    // `check_hygiene`). "Nothing reaches this export" is the stronger claim and
+    // it is the one carrying the `lib.buri` fix, so a declaration it has spoken
+    // about is left alone here — a reader meeting two warnings on one `struct`
+    // has to work out that they are the same news.
+    let spoken_for: BTreeSet<(u32, u32, u32)> = diagnostics
+        .items
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("dead-code"))
+        .map(|d| (d.span.file.0, d.span.start, d.span.end))
+        .collect();
+
+    let names = Names::of(session, analysis, &mine, unchecked);
+    let census = Census::of(analysis, &mine);
+    let reportable = editable_modules_of(analysis, own);
+    // A package with no library has no surface, and nothing in it is exempt.
+    let surface = analysis.checked.surfaces.get(&own);
+
+    for (index, con) in tables.tycons.iter().enumerate() {
+        if !reportable.contains(&con.module) || con.span.is_none() {
+            continue;
+        }
+        if spoken_for.contains(&(con.span.file.0, con.span.start, con.span.end))
+            || names.doubted.contains(&con.name)
+        {
+            continue;
+        }
+        let id = TyConId(index as u32);
+        // Published, or possibly published: either way this rule does not ask
+        // about it, and neither does it ask about the exported fields and the
+        // variants underneath, which are the shape a consumer reaches through.
+        let exempt = con.exported
+            && (surface_in_doubt || surface.is_some_and(|s| s.contains(&con.name)));
+        if !census.built.contains(&id) && !names.written.contains(&con.name) {
+            if !exempt {
+                diagnostics.push(
+                    Diagnostic::templated("unused-type", con.span)
+                        .with_bind("name", con.name.as_str()),
+                );
+            }
+            continue;
+        }
+        match &con.def {
+            // A tuple struct's fields have no names to report and no
+            // declarations of their own to point at; `.0` is the whole of what
+            // a reader writes, and the type is the finding.
+            TyDef::Struct { fields, record: true } => {
+                if census.read_whole.contains(&id) {
+                    continue;
+                }
+                for (i, f) in fields.iter().enumerate() {
+                    if (exempt && f.exported)
+                        || census.read.contains(&(id, i))
+                        || names.doubted.contains(&f.name)
+                    {
+                        continue;
+                    }
+                    diagnostics.push(
+                        Diagnostic::templated("unused-field", f.span)
+                            .with_bind("type", con.name.as_str())
+                            .with_bind("name", f.name.as_str()),
+                    );
+                }
+            }
+            TyDef::Enum { variants } if !exempt => {
+                for (i, v) in variants.iter().enumerate() {
+                    if census.variants.contains(&(id, i)) || names.doubted.contains(&v.name) {
+                        continue;
+                    }
+                    diagnostics.push(
+                        Diagnostic::templated("unused-variant", v.span)
+                            .with_bind("type", con.name.as_str())
+                            .with_bind("name", v.name.as_str()),
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// What the package's own text says, in one pass of the lexer over it.
+///
+/// Deliberately syntactic, exactly as [`check_unused_imports`] is. Reading
+/// tokens is what makes it total — there is no type position it can forget —
+/// and a name that happens to be spelled the same as something else silences a
+/// finding rather than producing a wrong one. It is also what survives a
+/// mistake: a declaration the parser skipped and a body the checker stopped
+/// inside are both still text, and the lexer reads them the same as the rest.
+///
+/// A generated module is not scanned. It declares and uses the types of one
+/// schema and nothing else, so there is no hand-written type whose only use
+/// could be inside one, and none of its own declarations is reported.
+struct Names {
+    /// Every name written down somewhere that is not the declaration of a type
+    /// of that name, nor an `impl` or `derive` block about one.
+    written: BTreeSet<String>,
+    /// Every name written down inside text the checker or the parser could not
+    /// read: a body that did not check, or a run of declarations the parser
+    /// skipped. Nothing is reported about one of these, because the use that
+    /// would have answered for it may be exactly what went missing.
+    doubted: BTreeSet<String>,
+}
+
+impl Names {
+    fn of(
+        session: &Session,
+        analysis: &crate::compiler::driver::Analysis,
+        mine: &BTreeSet<ModuleId>,
+        unchecked: &Unchecked,
+    ) -> Names {
+        use crate::parsing::tree::Item;
+        let mut names = Names { written: BTreeSet::new(), doubted: BTreeSet::new() };
+        // The bodies whose typed tree is short, by file. The *expression* and
+        // not [`Unchecked`]'s declaration extent: a signature is text the
+        // parser read whole and it holds no reads, so a type named in the
+        // signature of a function whose body broke is not in doubt — only what
+        // was written inside the body is.
+        let mut broken: std::collections::BTreeMap<crate::diagnostics::FileId, Vec<Span>> =
+            std::collections::BTreeMap::new();
+        for (fid, body) in &analysis.checked.bodies {
+            if unchecked.body(*fid) {
+                broken.entry(body.expr.span.file).or_default().push(body.expr.span);
+            }
+        }
+        for m in &analysis.loaded.modules {
+            if !mine.contains(&m.id) || is_generated(&m.path) {
+                continue;
+            }
+            // What the toolchain could not read: the bodies that did not check,
+            // and the runs of source the parser skipped.
+            let mut unreadable: Vec<Span> = broken.get(&m.file).cloned().unwrap_or_default();
+            unreadable.extend(m.ast.items.iter().filter_map(|i| match i {
+                Item::Error(at) => Some(**at),
+                _ => None,
+            }));
+            let mut owned: Vec<(&str, Span)> = Vec::new();
+            for item in &m.ast.items {
+                match item {
+                    Item::Struct(d) => owned.push((m.ast.tree.name(d.name), d.span)),
+                    Item::Enum(d) => owned.push((m.ast.tree.name(d.name), d.span)),
+                    // The whole block: a type's methods are part of the shape,
+                    // so the constructor an unused type calls inside its own
+                    // `impl` is not a use of it.
+                    Item::Impl(d) => {
+                        if let Some(name) = m.ast.tree.type_head(d.self_ty) {
+                            owned.push((name, d.span));
+                        }
+                    }
+                    // Only the type the `derive` is *for*. The traits it names
+                    // are uses of those traits like any other mention.
+                    Item::Derive(d) => {
+                        if let Some(name) = m.ast.tree.type_head(d.self_ty) {
+                            owned.push((name, m.ast.tree.type_span(d.self_ty)));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let text = session.map.text(m.file);
+            let lexed = crate::parsing::lexer::lex(text, m.file);
+            for i in 0..lexed.tokens.len() {
+                if lexed.tokens.kind(i) != crate::parsing::lexer::TokenKind::Ident {
+                    continue;
+                }
+                let at = lexed.tokens.span(i);
+                let name = lexed.tokens.text(i);
+                if unreadable.iter().any(|r| at.start >= r.start && at.end <= r.end) {
+                    names.doubted.insert(name.to_string());
+                }
+                if owned.iter().any(|(owner, range)| {
+                    *owner == name && at.start >= range.start && at.end <= range.end
+                }) {
+                    continue;
+                }
+                names.written.insert(name.to_string());
+            }
+        }
+        names
+    }
+}
+
+/// What a package's own bodies do with the types the package declares.
+///
+/// Read by [`check_unused_declarations`], and the half of its question the
+/// tokens cannot answer: what is built or matched without being written down,
+/// and which fields are read.
+#[derive(Default)]
+struct Census {
+    /// Types a value of which is built, matched, or held by an expression.
+    built: BTreeSet<crate::compiler::semantics::types::TyConId>,
+    /// `(type, field)` read: projected out, or bound by a pattern.
+    read: BTreeSet<(crate::compiler::semantics::types::TyConId, usize)>,
+    /// Types every field of which is read at once, by something with no
+    /// projection to find: a `derive`, an intrinsic, a structural comparison.
+    read_whole: BTreeSet<crate::compiler::semantics::types::TyConId>,
+    /// `(type, variant)` built or named by a pattern.
+    variants: BTreeSet<(crate::compiler::semantics::types::TyConId, usize)>,
+    /// The type the body being walked belongs to, whose own mentions of itself
+    /// are not uses of it. See [`check_unused_declarations`].
+    owner: Option<crate::compiler::semantics::types::TyConId>,
+    /// Reused across mentions so that walking a body is not one allocation per
+    /// expression.
+    scratch: Vec<crate::compiler::semantics::types::TyConId>,
+}
+
+impl Census {
+    fn of(analysis: &crate::compiler::driver::Analysis, mine: &BTreeSet<ModuleId>) -> Census {
+        let mut census = Census::default();
+        let tables = &analysis.checked.tables;
+        // A `derive` is a fold over one type definition, so a type that derives
+        // anything has every field of it read.
+        for ((_, con), imp) in &tables.impls {
+            if imp.is_derived() {
+                census.read_whole.insert(*con);
+            }
+        }
+        for (fid, body) in &analysis.checked.bodies {
+            let info = tables.fn_info(*fid);
+            if !mine.contains(&info.module) {
+                continue;
+            }
+            census.owner = info.self_ty;
+            census.walk(&body.expr);
+        }
+        census.owner = None;
+        for value in analysis.checked.consts.values() {
+            census.walk(value);
+        }
+        census
+    }
+
+    fn walk(&mut self, root: &typed::Expr) {
+        // `typed::walk` does not descend into patterns, so the arms and the
+        // `let`s are taken here where the expression carrying them is met.
+        typed::walk(root, &mut |e| {
+            self.mention(&e.ty);
+            match &e.kind {
+                typed::ExprKind::StructLit { con, .. }
+                | typed::ExprKind::StructUpdate { con, .. } => self.builds(*con),
+                typed::ExprKind::EnumLit { con, variant, .. } => {
+                    self.builds(*con);
+                    self.variants.insert((*con, *variant));
+                }
+                typed::ExprKind::Field { base, index } => {
+                    if let Some(con) = base.ty.head() {
+                        self.read.insert((con, *index));
+                    }
+                }
+                typed::ExprKind::Intrinsic { args, .. }
+                | typed::ExprKind::StructuralEq { args, .. }
+                | typed::ExprKind::StructuralCmp { args, .. } => {
+                    for a in args {
+                        let mut whole = Vec::new();
+                        cons_in(&a.ty, &mut whole);
+                        self.read_whole.extend(whole);
+                    }
+                }
+                typed::ExprKind::Match { arms, .. } => {
+                    for a in arms {
+                        self.pattern(&a.pattern);
+                    }
+                }
+                typed::ExprKind::Block { stmts, .. } => {
+                    for s in stmts {
+                        if let typed::Stmt::Let { pattern, .. } = s {
+                            self.pattern(pattern);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        });
+    }
+
+    fn pattern(&mut self, p: &typed::Pattern) {
+        self.mention(&p.ty);
+        match &p.kind {
+            typed::PatKind::Struct { con, fields } => {
+                self.builds(*con);
+                for f in fields {
+                    if !matches!(f.pattern.kind, typed::PatKind::Wild) {
+                        self.read.insert((*con, f.index));
+                    }
+                    self.pattern(&f.pattern);
+                }
+            }
+            typed::PatKind::Variant { con, variant, fields } => {
+                self.builds(*con);
+                self.variants.insert((*con, *variant));
+                for f in fields {
+                    self.pattern(&f.pattern);
+                }
+            }
+            typed::PatKind::Tuple(ps) | typed::PatKind::Or(ps) => {
+                ps.iter().for_each(|p| self.pattern(p));
+            }
+            typed::PatKind::Array { elems, .. } => elems.iter().for_each(|p| self.pattern(p)),
+            typed::PatKind::Bind { sub: Some(s), .. } => self.pattern(s),
+            _ => {}
+        }
+    }
+
+    fn builds(&mut self, con: crate::compiler::semantics::types::TyConId) {
+        if self.owner != Some(con) {
+            self.built.insert(con);
+        }
+    }
+
+    fn mention(&mut self, ty: &crate::compiler::semantics::types::Ty) {
+        self.scratch.clear();
+        let mut found = std::mem::take(&mut self.scratch);
+        cons_in(ty, &mut found);
+        for con in &found {
+            if self.owner != Some(*con) {
+                self.built.insert(*con);
+            }
+        }
+        self.scratch = found;
+    }
+}
+
+/// Every type constructor a type is written in terms of, itself included.
+fn cons_in(
+    ty: &crate::compiler::semantics::types::Ty,
+    out: &mut Vec<crate::compiler::semantics::types::TyConId>,
+) {
+    use crate::compiler::semantics::types::Ty;
+    match ty {
+        Ty::Con(id, args) => {
+            out.push(*id);
+            args.iter().for_each(|a| cons_in(a, out));
+        }
+        Ty::Array(elem) => cons_in(elem, out),
+        Ty::Tuple(elems) => elems.iter().for_each(|t| cons_in(t, out)),
+        Ty::Fn(params, ret) => {
+            params.iter().for_each(|t| cons_in(t, out));
+            cons_in(ret, out);
+        }
+        Ty::Var(_) | Ty::Param(_) | Ty::Unit | Ty::Ctx(_) | Ty::SelfTy | Ty::Error => {}
     }
 }
 

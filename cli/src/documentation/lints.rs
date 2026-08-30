@@ -63,13 +63,38 @@ pub const LINTS: &[LintDoc] = &[
     l!("test-without-assertion", "A test asserts something"),
     l!("too-many-parameters", "A function takes few parameters"),
     l!("unsatisfiable-target", "A target admits at least one platform", &["build/tags"]),
+    l!("unused-field", "Every field is read"),
     l!("unused-import", "Every import is used"),
     l!("unused-library", "Every source file belongs to a library or a binary", &[
         "build/build-files"
     ]),
+    l!("unused-type", "Every declared type is used", &["build/libraries"]),
     l!("unused-variable", "Every `let` names something the code below it reads"),
+    l!("unused-variant", "Every variant is constructed or matched"),
     l!("warning-comment", "A marker comment is work that was left behind"),
 ];
+
+/// The findings that are about something the program does not need, rather
+/// than about something it does wrongly.
+///
+/// The list is here rather than at either front end because it is a fact about
+/// the code and not about a surface: `buri lint` renders one as the warning it
+/// already was, and the language server turns it into the LSP's
+/// `DiagnosticTag.Unnecessary`, which is what makes an editor grey the span out
+/// rather than underline it. One list, so the two cannot drift.
+const UNNECESSARY: &[&str] = &[
+    "dead-code",
+    "unused-field",
+    "unused-import",
+    "unused-type",
+    "unused-variable",
+    "unused-variant",
+];
+
+/// Whether a finding says "this is not needed", as opposed to "this is wrong".
+pub fn is_unnecessary(code: &str) -> bool {
+    UNNECESSARY.contains(&code)
+}
 
 pub fn find(code: &str) -> Option<&'static LintDoc> {
     LINTS.iter().find(|l| l.code == code)

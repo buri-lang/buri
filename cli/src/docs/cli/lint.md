@@ -4,7 +4,8 @@ The static checks that are not type errors: sources declared but absent, a
 source on disk that no rule names, a dependency that is declared and unused,
 one that is used and undeclared, a visibility or tag violation, a cycle in the
 package graph, and the hygiene rules — an import nothing uses, an `export`
-nothing reaches, a test that asserts nothing.
+nothing reaches, a type nothing names or builds, a field nothing reads, a
+variant nothing constructs, a test that asserts nothing.
 
 Each finding carries a stable code, so a report can be grepped and a specific
 check can be talked about by name. Every one of them is a warning: there is one
@@ -42,6 +43,29 @@ else is not a reason, however far from a body it sits: an alias that closes a
 cycle, a field whose type did not check, a signature that did not, each is one
 declaration a reader can see is wrong, and none of them says anything about
 what reaches what.
+
+Three rules read the bodies for a different reason, and answer the same
+question a different way. `unused-type`, `unused-field` and `unused-variant`
+ask what the *package* does with a shape it declares, so their evidence is
+spread over every body the package owns rather than sitting in the one that
+holds the finding — going quiet for the failed body would say nothing useful,
+because the read that vanished could have been anywhere. So the doubt is per
+name instead: an identifier written inside a body that did not check, or inside
+a run of declarations the parser skipped, is a name that might be used there,
+and nothing is reported about the type, the field or the variant it could be
+naming. A name that appears nowhere in the unreadable text is a name that text
+does not use, and its finding stands beside the error.
+
+Those three have a second reason of their own, and it is narrower than
+`dead-code`'s. What they never report is what the library *publishes*: a name
+`lib.buri` puts on the surface is public API, and so are the exported fields
+and the variants of a published type. An `export` line that did not resolve is
+therefore a line that may have published anything, and nothing exported is
+reported unused until it is spelled right. It reaches no further. A declaration
+the parser skipped and an import that did not resolve are both still text, and
+what a name is used by is read out of the text; what cannot be recovered from
+the text is which names `lib.buri` meant to publish, and a name with no
+`export` on it was never one of them.
 
 The silence is one-directional: a finding may be missed inside a broken body,
 and none is invented there. Fix the type error and run the linter again to see
