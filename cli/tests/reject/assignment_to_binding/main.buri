@@ -1,4 +1,4 @@
-// EXPECT: expected `}`, found `=`
+// EXPECT: there is no assignment; a binding is given its value once
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 

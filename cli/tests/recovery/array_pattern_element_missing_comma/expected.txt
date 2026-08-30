@@ -1,0 +1,5 @@
+error [missing-separator] 4:7-4:7
+message: an array-pattern element ends with `,`
+fix: write `,` here
+edit: 4:7-4:7 ","
+

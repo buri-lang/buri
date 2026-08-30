@@ -1,0 +1,8 @@
+// EXPECT: this `match` is missing its closing `}`
+export fn pick(n: Int): Int {
+  let r = match (n) {
+    1 => 1,
+    _ => 0,
+  ;
+  r
+}

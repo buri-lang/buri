@@ -75,6 +75,10 @@ pub enum Item {
     Derive(Box<DeriveDecl>),
     Context(Box<ContextDecl>),
     Test(Box<TestDecl>),
+    /// A declaration that did not parse, as the extent recovery skipped over.
+    /// Boxed like every other variant, which is what keeps an `Item` sixteen
+    /// bytes wide.
+    Error(Box<Span>),
 }
 
 const _: () = assert!(std::mem::size_of::<Item>() == 16);
@@ -94,6 +98,7 @@ impl Item {
             Item::Derive(i) => i.span,
             Item::Context(i) => i.span,
             Item::Test(i) => i.span,
+            Item::Error(at) => **at,
         }
     }
 

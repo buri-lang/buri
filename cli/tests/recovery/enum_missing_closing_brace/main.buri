@@ -1,0 +1,6 @@
+// EXPECT: this `enum` is missing its closing `}`
+export enum Shape {
+  Circle,
+  Square
+
+let SIDE: Int = 1;

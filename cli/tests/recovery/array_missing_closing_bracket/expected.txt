@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 4:1-4:2
+message: this array is missing its closing `]`
+fix: write `]` here
+related: 3:3-3:4 opened here
+

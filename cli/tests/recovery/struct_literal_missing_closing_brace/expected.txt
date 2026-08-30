@@ -1,0 +1,5 @@
+error [unclosed-delimiter] 8:29-8:30
+message: this struct literal is missing its closing `}`
+fix: write `}` here
+related: 8:17-8:18 opened here
+

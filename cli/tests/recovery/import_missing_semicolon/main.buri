@@ -1,0 +1,6 @@
+// EXPECT: an import declaration ends with `;`
+from "core/str" import { format }
+
+export fn greet(): Str {
+  "hello"
+}
