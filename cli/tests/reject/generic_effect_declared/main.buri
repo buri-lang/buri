@@ -1,0 +1,13 @@
+// EXPECT: `Store` declares type parameters of its own
+//
+// An `effect` may be declared only by a platform module, and a case here is an
+// ordinary binary package — so the refusal is shown through a `trait`. The two
+// share one declaration and one registration path, and the diagnostic is the
+// same for either word.
+trait Store<T> {
+  fn get(self, key: Str): T;
+}
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}
