@@ -91,7 +91,7 @@ several sets of assertions.
 | `formatting` | A directory per decision the formatter makes, plus every output being a fixed point, keeping its comments and tokens, and fitting the margin. |
 | `adversarial` | That no input panics the toolchain. Malformed sources, build files, schemas, flags and language-server messages, through the binary, asserting on *how* it stops rather than on what it says. |
 | `fuzz` | That the properties every other suite states over a corpus hold over input nobody chose: no mutation of a checked-in source panics the toolchain, the formatter is a fixed point that keeps its tokens and comments on shapes nobody wrote, the benchmark generator emits programs that compile at points in its parameter space no profile names, the same input twice says the same thing, and a generated program prints the answer the generator computed — under every backend, and with code that cannot run inserted into it. Bounded and seeded in CI; `BURI_FUZZ_SECONDS` soaks. |
-| `recovery` | That one mistake reads as one mistake: every compiling source in the repository with a token deleted, inserted or exchanged, held to invariants — one diagnostic per mistake, its caret at the mistake, its `fix` naming the token, no type error invented downstream, and the file still formatting — plus a hand-written case per list context pinning the exact message, span and edit. **Every test in it is `#[ignore]`d**: they are the specification of behaviour that does not exist yet, so they are red on purpose and `cargo test -p buri` skips them. The `#[ignore]` reason names the wave that deletes the attribute, and deleting it is the whole of turning the test on. |
+| `recovery` | That one mistake reads as one mistake: every compiling source in the repository with a token deleted, inserted or exchanged, held to invariants — one diagnostic per mistake, its caret at the mistake, its `fix` naming the token, no type error invented downstream, and the file still formatting — plus a hand-written case per list context pinning the exact message, span and edit. The four the parser owns run by default; the two the formatter owns are still `#[ignore]`d, and their reason names the wave that deletes the attribute. An invariant is held per mutation shape, against a ceiling rather than against zero where the mutated text has a second reading the grammar accepts — `ceiling()` states which rows those are and what each residue is. |
 | `failing` | That a failing `buri test` fails *well*: the report a user reads — line, expected, got, counts, exit code — pinned byte for byte across every value shape, abort, title edge case and multi-module ordering, so the failure path is held to the same standard as the success path. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
@@ -105,7 +105,7 @@ cargo test -p buri --test language                    # one domain
 cargo test -p buri --test language conformance::      # one suite in it
 cargo test -p buri --test native -- --skip float_parity
 cargo test -p buri --features backend-llvm --test native
-cargo test -p buri --test recovery -- --ignored          # the specification suite
+cargo test -p buri --test recovery -- --ignored          # the formatter's two as well
 ```
 
 A merged domain costs nothing in selection: a module is a name prefix, so
