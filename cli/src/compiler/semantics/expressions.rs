@@ -1072,6 +1072,51 @@ impl<'a, 'b> Infer<'a, 'b> {
         Some(targs)
     }
 
+    /// What `Self` stands for in a call to one of `tid`'s methods on `recv`.
+    ///
+    /// `Self` is the **implementing** type — the one whose `impl` supplies the
+    /// body — and for every receiver but one that is the receiver itself. The
+    /// exception is a `context` value: a context satisfies an effect without
+    /// implementing it, by naming a value that does, and `CtxType.bindings`
+    /// records which. Monomorphization already reads that row to dispatch
+    /// (`resolve_trait_call`, `middle/monomorphize.rs`, which rewrites the
+    /// receiver into a `CtxGet` of exactly this type), so substituting the
+    /// receiver here left a method whose signature names `Self` — `Tasks`'
+    /// `f: fn(Self, Int, A) => B`, `Listen`'s `onRequest: fn(Self, Request) =>
+    /// Response` — handing the caller's handler the **context's** layout while
+    /// the `impl` body hands it the implementation's. Two different types, and
+    /// nothing between here and the machine to notice: the front end had
+    /// agreed with itself, so it typechecked, and the native backends read the
+    /// wrong bytes and crashed with no output at all.
+    ///
+    /// This is the same answer A1 gives a written `Self` in an `impl`
+    /// signature (the head's type) and A3 gives an impl head matched against a
+    /// receiver — one rule, read at three points.
+    ///
+    /// A bounded type parameter is the half this cannot settle: a generic body
+    /// is checked once for every instantiation at once (SPEC 13.5), so `Self`
+    /// there is the parameter, which is right until the parameter turns out to
+    /// be a context. `rewrite_call_args` in `middle/monomorphize.rs` is that
+    /// correction, made where the instantiation is known.
+    ///
+    /// A row's value is a value, so it is not itself a context; the loop is
+    /// belt and braces against a shape that cannot be written, and it stops
+    /// rather than spinning if one ever can be.
+    fn implementing_ty(&self, recv: &Ty, tid: TraitId) -> Ty {
+        let mut ty = recv.clone();
+        for _ in 0..8 {
+            let Ty::Ctx(id) = &ty else { return ty };
+            // An unbound effect is diagnosed at monomorphization, where the
+            // whole context is known; there is nothing better to say here than
+            // the receiver.
+            let Some(next) = self.c.tables.ctx_type(*id).get(tid).cloned() else {
+                return ty;
+            };
+            ty = next;
+        }
+        ty
+    }
+
     /// `bound` is the trait and the position in its method list — one argument
     /// because `resolve_method` answers with the pair, and neither half means
     /// anything without the other.
@@ -1094,16 +1139,18 @@ impl<'a, 'b> Infer<'a, 'b> {
             .or_ice("the index is a position in this same trait's method list")
             .clone();
         let recv_ty = self.resolve(&recv.ty);
-        // A trait method's own generics come after the trait's; the receiver
-        // supplies `Self`.
+        // A trait method's own generics come after the trait's; the
+        // *implementing* type supplies `Self`, which is the receiver everywhere
+        // except through a context.
+        let self_ty = self.implementing_ty(&recv_ty, tid);
         let explicit = self.trait_method_targs(tid, &method.generics, explicit, span);
         let targs = self.instantiate(&method.generics, explicit, span);
         let params: Vec<Ty> = method
             .params
             .iter()
-            .map(|p| substitute(&p.ty, &targs, Some(&recv_ty)))
+            .map(|p| substitute(&p.ty, &targs, Some(&self_ty)))
             .collect();
-        let ret = substitute(&method.ret, &targs, Some(&recv_ty));
+        let ret = substitute(&method.ret, &targs, Some(&self_ty));
         if let Some(exp) = expected {
             let _ = self.subst.unify(&self.c.tables, &ret, exp);
         }
@@ -2780,3 +2827,124 @@ fn collect_locals(e: &typed::Expr, out: &mut Vec<LocalId>) {
     });
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::diagnostics::SourceMap;
+
+    /// Every error one snippet reports, through the real front end.
+    ///
+    /// `analyze_snippet` loads the whole standard library, which is where
+    /// `Listen` and `Net` come from: an `effect` may be declared only by a
+    /// platform module, so a snippet cannot mint one, and these two are
+    /// granted by no platform — which does not stop an ordinary type from
+    /// satisfying them (SPEC 10.9) or a `context` from binding one.
+    fn errors_of(src: &str) -> Vec<String> {
+        let mut map = SourceMap::new();
+        let analysis = crate::compiler::driver::analyze_snippet(
+            &mut map,
+            "self_through_a_context.buri",
+            src,
+            crate::compiler::modules::Role::Entry,
+        );
+        analysis
+            .diagnostics
+            .items
+            .iter()
+            .filter(|d| d.is_error())
+            .map(|d| d.message.clone())
+            .collect()
+    }
+
+    /// A `Listen` and a `Net`, each an ordinary struct, and a context binding
+    /// both. `{handler}` is the `status` of the handler's `Response`, which is
+    /// the one thing the tests below disagree about.
+    ///
+    /// The context is built in `main` because that is one of the three places
+    /// authority may enter (`context-not-allowed`), and a snippet is a whole
+    /// module rather than a body.
+    fn snippet(handler: &str) -> String {
+        format!(
+            r#"
+from "core/effect/lib.buri" import {{ Listen, Net, NetError, Request, Response }};
+
+struct Server {{ mark: Int }}
+
+impl Listen for Server {{
+  fn listen(
+    self,
+    address: Str,
+    port: Int,
+    onRequest: fn(Self, Request) => Response,
+  ): Result<(), NetError> {{
+    .Ok(())
+  }}
+}}
+
+struct Caller {{}}
+
+impl Net for Caller {{
+  fn fetch(self, request: Request): Result<Response, NetError> {{
+    .Err(.Refused)
+  }}
+}}
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{ Listen: Server {{ mark: 7 }}, Net: Caller {{}} }};
+  match (ctx.listen("a", 0, fn(server, request) => Response {{
+    status: {handler},
+    headers: [],
+    body: [],
+  }})) {{
+    .Ok(_) => .Ok(()),
+    .Err(_) => .Err("refused"),
+  }}
+}}
+"#
+        )
+    }
+
+    /// The handler's first parameter is the **implementation**, so a field of
+    /// it is readable.
+    ///
+    /// A context has no fields at all, so this is the whole claim in one line:
+    /// before `implementing_ty`, `Self` was the receiver and `server.mark`
+    /// reported `no-field` on a type with no name to print.
+    #[test]
+    fn a_self_parameter_through_a_context_is_the_implementing_type() {
+        let errors = errors_of(&snippet("server.mark"));
+        assert!(errors.is_empty(), "the snippet did not compile: {errors:?}");
+    }
+
+    /// And it is **not** the context, which is the same claim from the other
+    /// side.
+    ///
+    /// `fetch` is `Net`'s, the context binds `Net`, and `Server` — which is
+    /// what implements `Listen` — does not. So a `Self` that was still the
+    /// receiver would resolve this call and hand the handler a context at
+    /// runtime; the implementation arrives instead, and the front end says so.
+    #[test]
+    fn a_self_parameter_through_a_context_is_not_the_context() {
+        let errors = errors_of(&snippet(
+            "match (server.fetch(request)) { .Ok(r) => r.status, .Err(_) => 0 }",
+        ));
+        assert!(
+            errors.iter().any(|m| m.contains("fetch")),
+            "expected the handler's parameter to have no `fetch`, got {errors:?}"
+        );
+    }
+
+    /// A written `Self` in the `impl` head's own signature and the one the
+    /// call site substitutes are the same type — A1 fixed the first, and this
+    /// is the pair agreeing.
+    ///
+    /// The `impl` above writes `fn(Self, Request) => Response` rather than
+    /// `fn(Server, Request) => Response`, so the passing test above is already
+    /// that agreement; this is the other spelling, which must compile too.
+    #[test]
+    fn the_impl_may_spell_the_handler_with_the_concrete_type_instead() {
+        let src = snippet("server.mark")
+            .replace("onRequest: fn(Self, Request) => Response", "onRequest: fn(Server, Request) => Response");
+        let errors = errors_of(&src);
+        assert!(errors.is_empty(), "the snippet did not compile: {errors:?}");
+    }
+}
