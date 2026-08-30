@@ -1,0 +1,4 @@
+// EXPECT: a function parameter ends with `,`
+export fn add(a: Int b: Int): Int {
+  a + b
+}

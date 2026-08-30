@@ -1,0 +1,11 @@
+// EXPECT: the mistake is one error, and the return type is not reported as `()`
+export struct Route {
+  export name: Str,
+}
+
+export fn route(path: Str): Route {
+  match (path) {
+    "/health" => Route { name: "health" }
+    _ => Route { name: "fallback" },
+  }
+}

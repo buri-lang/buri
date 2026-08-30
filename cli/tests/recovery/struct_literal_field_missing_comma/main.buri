@@ -1,0 +1,9 @@
+// EXPECT: a struct-literal field ends with `,`
+export struct Point {
+  export x: Int,
+  export y: Int,
+}
+
+export fn origin(): Point {
+  Point { x: 0 y: 0 }
+}
