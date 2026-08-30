@@ -160,6 +160,13 @@ const INVENTED_CEILING: usize = 2;
 /// toolchain's own answer restated in the test — so the residue is described
 /// here instead, and the ceiling sits above it.
 ///
+/// `Option`-field elision, merged in from main after the measurement above,
+/// moves none of it. The lint fixtures under `cli/tests/repositories/linting`
+/// are this corpus's whole seed set, and not one of them — nor any page it
+/// records — mentions `Option` or `missing-field-value`, so neither the
+/// desugar nor its reworded fix has anything here to change. Re-measured
+/// after the merge: **47 of 2,000 and 6 of 545, to the case.**
+///
 /// Three points, against 2.35% measured: the ratchet is one point of headroom,
 /// which is what makes it a bound and not a description. It is not zero and
 /// cannot be while the proxy is a byte offset.
