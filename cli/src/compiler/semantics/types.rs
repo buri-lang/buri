@@ -475,6 +475,15 @@ pub enum ImplBody {
 pub struct ImplInfo {
     pub trait_id: TraitId,
     pub self_con: TyConId,
+    /// The type written after `for`, elaborated in the `impl`'s own generic
+    /// scope: `ReadOnly<C>` is `Con(ReadOnly, [Param(0)])`, `Pair<Int, Str>` is
+    /// `Con(Pair, [Int, Str])`. `self_con` is only its head, which is all
+    /// method lookup needs — but monomorphization has to read the `impl`'s
+    /// generics *back off* a concrete receiver, and matching this against that
+    /// receiver is the only thing that says which argument stands for which
+    /// parameter. Without it the recovery is positional arithmetic that is
+    /// right by coincidence.
+    pub head: Ty,
     pub body: ImplBody,
     pub span: Span,
 }
@@ -770,6 +779,15 @@ impl Tables {
             Some(map) => map.get(name).copied(),
             None => self.tycon(id).field_index(name),
         }
+    }
+
+    /// `con` applied to its own parameters — `Option<T>` for `Option`. This is
+    /// the `impl` head of a `derive`, which names a type constructor rather
+    /// than an instantiation of one, and of a builtin conformance, which is
+    /// registered against a primitive that takes no arguments at all.
+    pub fn generic_head(&self, con: TyConId) -> Ty {
+        let arity = self.tycon(con).generics.len();
+        Ty::Con(con, (0..arity).map(|i| Ty::Param(i as u32)).collect())
     }
 
     /// Records a conformance, unless there is one already. Returns whether it
