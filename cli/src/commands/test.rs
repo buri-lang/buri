@@ -712,8 +712,12 @@ fn run_on(
         .as_ref()
         .map(|f| javascript::quote(f))
         .unwrap_or_else(|| "null".into());
+    // `$run` is an `async` function — a test that waits on the host is
+    // printed `async` and is awaited case by case — so the driver's result is
+    // a promise. This is module top level of an `.mjs` file, where `await` is
+    // available, and the process stays alive until the module settles.
     source.push_str(&format!(
-        "$write(1,JSON.stringify($run({filter})));\n"
+        "$write(1,JSON.stringify(await $run({filter})));\n"
     ));
 
     let dir =

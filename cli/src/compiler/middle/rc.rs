@@ -1159,7 +1159,7 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
 /// costs correctness rather than performance. That is why the whole
 /// `host.HostFs` surface is in by prefix rather than method by method, and why
 /// a new blocking host operation belongs here on the day it is added.
-fn suspends(key: &str) -> bool {
+pub fn suspends(key: &str) -> bool {
     key.starts_with("host.HostFs.")
         || matches!(
             key,
