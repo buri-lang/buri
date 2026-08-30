@@ -299,6 +299,25 @@
 //! macOS and Linux, by `cfg(unix)` plus `std`. There is no Windows support and
 //! no cross-compilation: the archive is built for the host by `cli/build.rs`
 //! and for nothing else (ARCHITECTURE.md §9).
+//!
+//! ## 8. Features, and the manifest that is not called `Cargo.toml`
+//!
+//! One feature, `net`, on by default: `tokio`, `hyper`, `rustls` and
+//! `tungstenite`, which is the runtime's whole admitted dependency set and is
+//! closed by an exact list rather than by a habit (`manifest.toml` argues each
+//! entry, the root `Cargo.toml` states the bar, and
+//! `dependencies_stay_behind_the_bar` asserts the equality). As of this slice
+//! **nothing references any of them** — `net.rs` names one type from each and
+//! stops — so the archive is twenty-four bytes larger with the feature than
+//! without it, and neither backend has a symbol to emit a call to.
+//!
+//! The package's manifest is `manifest.toml` and its lockfile is
+//! `manifest.lock`, neither named the way Cargo would name it, because a
+//! `Cargo.toml` in this directory would delete the directory from the
+//! published `buri` crate: `cargo package` skips a nested package
+//! unconditionally, ahead of `include`. `cli/build.rs` assembles the real
+//! package in `OUT_DIR` and builds it there; that file's header is the
+//! workflow, including how the lockfile is regenerated.
 
 #![allow(clippy::missing_safety_doc)]
 
@@ -312,6 +331,7 @@ mod http;
 mod list;
 mod math;
 mod memory;
+mod net;
 mod rng;
 mod testing;
 mod text;
@@ -326,6 +346,7 @@ pub use host::*;
 pub use list::*;
 pub use math::*;
 pub use memory::*;
+pub use net::*;
 pub use testing::*;
 pub use text::*;
 pub use value::*;
