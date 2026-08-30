@@ -1,0 +1,16 @@
+// EXPECT: this is a test-only module
+//
+// `core/host/testing` is `core/host`'s surface for a test source, and the two
+// restrictions are separate rules. This file *may* import `core/host`, because
+// it is the module that exports `main` — and that earns it nothing on the line
+// below, where the `testing` segment in the path is the whole of the second
+// rule.
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/host/testing/lib.buri" import * as testing;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}

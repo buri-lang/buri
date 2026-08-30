@@ -115,6 +115,16 @@ pub const MODULES: &[StdModule] = &[
     m("core/bits/lib.buri", include_str!("sources/bits.buri")),
     StdModule { platform: true, ..m("core/effect/lib.buri", include_str!("sources/effect.buri")) },
     StdModule { platform: true, ..m("core/host/lib.buri", include_str!("sources/host.buri")) },
+    // `core/host`'s surface for a test source: the same names, called rather
+    // than referred to, so each call is a fresh runner-side handle. It is a
+    // *different path* rather than a second export list on `core/host`, and
+    // that is what carries its import rule — `is_test_only_path` sees the
+    // `testing` segment, and `HOST_MODULE`'s `Role::Entry` gate keys on the
+    // exact path `core/host/lib.buri` and so does not catch this one.
+    StdModule {
+        platform: true,
+        ..m("core/host/testing/lib.buri", include_str!("sources/host_testing.buri"))
+    },
     // Not a platform module, deliberately. It *implements* `Alloc` rather than
     // declaring it, and `Alloc` is the one effect whose implementation carries
     // no authority — a `Region` is a number, so a library that builds its own

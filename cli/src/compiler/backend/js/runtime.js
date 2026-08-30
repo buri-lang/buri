@@ -3422,6 +3422,154 @@ function $testing_context_TestEnv_arguments(self) {
   return $slot(self).args.slice();
 }
 
+// --- core/host/testing --------------------------------------------------------------
+//
+// `core/host`'s names, called rather than referred to, over the same `$t.h`
+// table: one handle store, because two would be two allocators for one array
+// and no program can tell the two families of handle apart anyway — the Buri
+// type of the value carrying a handle says which slot shape made it.
+//
+// Configuration answers a *new* handle rather than editing the one it was
+// called on, so `clock()` and `clock().at(1000)` are two clocks and a test
+// holding both holds two.
+
+function $host_testing_alloc() {
+  return $handle({});
+}
+
+// `Region` is a newtype over `I64`, so the charge stays a `BigInt`: the count
+// is handed straight back, which is what both native backends open-code and
+// what makes `ctx.allocate(64) == Region(64)` true on every backend.
+function $host_testing_TestAlloc_allocate(self, n) {
+  return [n];
+}
+
+function $host_testing_stdout() {
+  return $handle({ text: "" });
+}
+
+function $host_testing_stderr() {
+  return $handle({ text: "" });
+}
+
+function $host_testing_TestStdout_print(self, t) {
+  $slot(self).text += t;
+  return 0;
+}
+
+function $host_testing_TestStdout_println(self, t) {
+  $slot(self).text += t + "\n";
+  return 0;
+}
+
+// Captured as the text the octets spell, so `captured` answers one question
+// rather than two — `$testing_context_CaptureOut_writeBytes` exactly.
+function $host_testing_TestStdout_writeBytes(self, b) {
+  const r = $bytes_fromUtf8(null, b);
+  $slot(self).text += r[0] === 0 ? r[1] : String.fromCharCode.apply(null, b);
+  return 0;
+}
+
+function $host_testing_TestStdout_captured(self) {
+  return $slot(self).text;
+}
+
+function $host_testing_TestStderr_eprint(self, t) {
+  $slot(self).text += t;
+  return 0;
+}
+
+function $host_testing_TestStderr_eprintln(self, t) {
+  $slot(self).text += t + "\n";
+  return 0;
+}
+
+function $host_testing_TestStderr_captured(self) {
+  return $slot(self).text;
+}
+
+// Millis in and millis out are both `I64`, so this one counts in `BigInt`.
+function $host_testing_clock() {
+  return $handle({ now: 0n });
+}
+
+function $host_testing_TestClock_at(self, ms) {
+  return $handle({ now: ms });
+}
+
+function $host_testing_TestClock_nowMillis(self) {
+  return $slot(self).now;
+}
+
+// Moves the clock without sleeping, which is the whole point of a test clock.
+function $host_testing_TestClock_sleepMillis(self, ms) {
+  $slot(self).now += ms;
+  return 0;
+}
+
+// The same xorshift32 `$nextRand` steps, so a seeded sequence is the *same*
+// sequence here, in `core/testing/context`, and in `cli/runtime/testing.rs`.
+function $host_testing_rand() {
+  return $handle({ s: 1 });
+}
+
+function $host_testing_TestRand_seed(self, n) {
+  return $handle({ s: Number(BigInt.asUintN(32, n)) || 1 });
+}
+
+function $host_testing_TestRand_nextInt(self, lo, hi) {
+  if (hi <= lo) $abort("random range is empty");
+  return lo + (BigInt($nextRand($slot(self))) % (hi - lo));
+}
+
+function $host_testing_TestRand_nextFloat(self) {
+  return $nextRand($slot(self)) / 4294967296;
+}
+
+function $host_testing_env() {
+  return $handle({ vars: {}, args: [] });
+}
+
+// Each builder keeps the other half, so the two compose in either order. The
+// last binding of a name wins, because each assignment overwrites the one
+// before it.
+function $host_testing_TestEnv_variables(self, vars) {
+  const v = {};
+  for (const e of vars) v[e[0]] = e[1];
+  return $handle({ vars: v, args: $slot(self).args.slice() });
+}
+
+function $host_testing_TestEnv_args(self, args) {
+  return $handle({ vars: Object.assign({}, $slot(self).vars), args: args.slice() });
+}
+
+function $host_testing_TestEnv_variable(self, name) {
+  const v = $slot(self).vars;
+  return name in v ? $some(v[name]) : undefined;
+}
+
+function $host_testing_TestEnv_arguments(self) {
+  return $slot(self).args.slice();
+}
+
+// Records the exit rather than taking it: a test that ended the process would
+// take every block after it with it. The *first* code is kept, because a
+// program that exits does not carry on.
+function $host_testing_proc() {
+  return $handle({ code: undefined });
+}
+
+function $host_testing_TestProc_exitWith(self, code) {
+  const s = $slot(self);
+  if (s.code === undefined) s.code = code;
+  return 0;
+}
+
+function $host_testing_TestProc_exited(self) {
+  const c = $slot(self).code;
+  return c === undefined ? undefined : $some(c);
+}
+
 // --- core/testing/assert ------------------------------------------------------------
 //
 // A failure ends that test and no other, the way `crash` ends a program.
