@@ -1,10 +1,11 @@
-error: `Str` has no method `nonexistentMethod` [no-such-method]
- --> cmd/unknown_method/main.buri:6:5
+error: `Result<I64, Str>` has no method `mapErrContext` [no-such-method]
+ --> cmd/method_on_a_standard_library_type/main.buri:8:9
   |
-6 |   s.nonexistentMethod()
-  |     ^^^^^^^^^^^^^^^^^
+8 |   value.mapErrContext(fn(e) => e)
+  |         ^^^^^^^^^^^^^
   |
-  = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+  = did you mean `mapErrCtx`?
+  = fix: check the spelling — `buri docs core/result` lists every method `Result<I64, Str>` has, and one may not be added to it from outside `core/result`
 
     What to do
     ──────────

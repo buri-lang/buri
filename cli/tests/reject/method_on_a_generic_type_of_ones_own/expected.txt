@@ -1,11 +1,10 @@
-error: `State` has no method `show` [no-such-method]
-  --> cmd/method_from_a_trait_that_is_not_derived/main.buri:12:25
+error: `Pair<Int, Int>` has no method `second` [no-such-method]
+  --> cmd/method_on_a_generic_type_of_ones_own/main.buri:12:28
    |
-12 |   let _ = ctx.println(s.show(ctx));
-   |                         ^^^^
+12 |   let _ = ctx.println("${p.second()}");
+   |                            ^^^^^^
    |
-   = `show` comes from `Show`, which `State` does not implement; `derive Show for State;` generates it
-   = fix: check the spelling, or declare it in `impl State { ... }` in `//cmd/method_from_a_trait_that_is_not_derived/main`, where the type is declared — a method may not be added from anywhere else
+   = fix: check the spelling, or declare it in `impl<A, B> Pair<A, B> { ... }` in `//cmd/method_on_a_generic_type_of_ones_own/main`, where the type is declared — a method may not be added from anywhere else
 
      What to do
      ──────────
