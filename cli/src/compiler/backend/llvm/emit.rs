@@ -7899,9 +7899,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// the type itself.
     ///
     /// **External linkage**, unlike [`Unit::entry_thunk`]'s private one: this
-    /// is a name something outside the artifact looks up. `--gc-sections` and
-    /// `-dead_strip` delete it from a program that never references it, so a
-    /// single-threaded artifact pays nothing for it.
+    /// is a name something outside the artifact looks up. `-dead_strip` deletes
+    /// it from a Mach-O program that never references it, so a single-threaded
+    /// artifact pays nothing for it there. On ELF that depends on the door
+    /// having a section of its own to be collected — `--gc-sections` collects
+    /// sections, not symbols — and neither backend asks for one today, which
+    /// `tests/native/stencil.rs`'s carrier-door test measures at 84 and 128
+    /// bytes for the stencil emitter rather than assuming either way.
     ///
     /// `state` is passed and not read — `carrier.rs` says why the parameter is
     /// fixed before the caller that fills it exists — and a root with
