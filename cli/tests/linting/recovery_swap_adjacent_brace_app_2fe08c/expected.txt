@@ -1,0 +1,17 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_swap_adjacent_brace_app_2fe08c/main.buri:15:20
+   |
+15 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: expected `=`, found `ctx` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_2fe08c/main.buri:39:9
+   |
+39 |   let _ ctx =.println("${banner(ctx, label)} is ${width(ctx, label)} wide");
+   |         ^^^
+   |
+   = expected: `=`
+   = actual: `ctx`
+   = fix: write `=` here

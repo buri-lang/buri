@@ -14,7 +14,8 @@
 //! That is the whole reason these are functions and `core/host`'s are `let`s.
 //!
 //! Configuration is a **method on the value that answers a new handle**:
-//! `clock().at(1000)`, `rand().seed(7)`, `env().variables([...]).args([...])`.
+//! `clock().at(1000)`, `rand().seed(7)`,
+//! `env().variables([...]).arguments([...])`.
 //! There are no free `clockAt`/`randSeed`/`envOf` constructors, because a
 //! reader who knows `clock()` should not have to learn a second name to start
 //! it somewhere else, and because a chain reads in the order it is applied.
@@ -46,13 +47,28 @@
 //! constructor named after the method it records, compared by `Eq` and printed
 //! by `Show`.
 //!
-//! ## `args`, and the one name that could not be the spelling it wants
+//! `TestProc` is the other type with no state, for the plainer reason: it has
+//! nothing to read back. `exitWith` absorbs the call so that a test which
+//! exits keeps running, and what a test asserts is what it does *after* the
+//! exit — so there is nothing left for the runner to hold, and no row either.
 //!
-//! `Env` declares `arguments(self): [Str]` — the reader — and a type has one
-//! method of each name (`duplicate-method`), so the *builder* beside it cannot
-//! also be `arguments`. It is `args`, and it is the only place in this module
-//! where the name is not the one the design note asks for. Every other builder
-//! — `at`, `seed`, `variables`, `captured` — is spelled exactly as written.
+//! ## `arguments`, and the name that had to move to make room for it
+//!
+//! Every builder here is spelled exactly as the design note writes it, and
+//! `arguments` is the one that cost something. A type's methods are one map
+//! keyed by name — an `impl Env for TestEnv` method registers into it through
+//! the same call an inherent one does — so the arity and the return type
+//! separate nothing, and `Env`'s reader and this builder cannot both be
+//! `arguments`. Behind that they would mangle to one intrinsic key and one C
+//! symbol in each of the two runtime tables.
+//!
+//! So **the reader moved**: `core/effect`'s `Env` declares `args(self): [Str]`
+//! now, which is the name a program already used — `core/env` has always
+//! exported `args(ctx)` and was the only caller of the method — and
+//! `TestEnv.arguments([Str])` is the builder. The reader is on the effect and
+//! the builder is on the double, so the two never meet on one type anyway;
+//! what they were competing for was the name, and the name went to the surface
+//! a test writes.
 
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, Header, IoError, Method, Net, NetError, Proc, Rand,
@@ -396,7 +412,7 @@ impl TestRand {
 export struct TestEnv(I64);
 impl Env for TestEnv {
   fn variable(self, name: Str): Option<Str>;
-  fn arguments(self): [Str];
+  fn args(self): [Str];
 }
 export fn env(): TestEnv;
 
@@ -406,29 +422,37 @@ impl TestEnv {
   /// wins.
   export fn variables(self, vars: [(Str, Str)]): TestEnv;
   /// A **new** environment with these arguments and this one's variables.
-  ///
-  /// `args` rather than `arguments`: `Env.arguments` is the reader, and a type
-  /// has one method of each name.
-  export fn args(self, arguments: [Str]): TestEnv;
+  export fn arguments(self, args: [Str]): TestEnv;
 }
 
 // --- Process ------------------------------------------------------------------
 
-/// Records the exit rather than taking it. A test that ended the process would
+/// Absorbs the exit rather than taking it. A test that ended the process would
 /// take every block after it with it, and the runner would report a suite that
 /// stopped rather than a function that exited.
+///
+/// ## The double with nothing to read back
+///
+/// `proc()` has no readers, and that is the whole of it: what a test asserts
+/// about a function that exits is that the *test* carried on — which the
+/// assertions after the call say, and which no method on this type could say
+/// better. An exit code kept where nothing can read it would be state held for
+/// its own sake, so it is not held: `exitWith` absorbs the call and answers
+/// `()`.
+///
+/// That makes this the second double with no runner-side state and no row in
+/// either runtime table, for the plainer of `TestNet`'s two reasons. The handle
+/// names nothing, the way `TestAlloc`'s does — and, as both native backends say
+/// where they open-code that one, zero is as good a name as any.
 export struct TestProc(I64);
 impl Proc for TestProc {
-  fn exitWith(self, code: Int): ();
+  fn exitWith(self, code: Int): () {
+    let _ = code;
+  }
 }
-export fn proc(): TestProc;
 
-impl TestProc {
-  /// The code the first `exitWith` asked for, or `.None` where nothing exited.
-  ///
-  /// The first, not the last: a program that exits does not carry on, so a
-  /// second call is one a real process could never have made.
-  export fn exited(self): Option<Int>;
+export fn proc(): TestProc {
+  TestProc(0)
 }
 
 // --- The call log -------------------------------------------------------------

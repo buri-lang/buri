@@ -1,9 +1,0 @@
-error: expected a function body, found `,` [unexpected-token]
- --> lib/recovery_insert_stray_module_cents_bddfe7/lib.buri:1:40
-  |
-1 | export fn markupCents(cents: I64): I64 , { cents + 5 }
-  |                                        ^
-  |
-  = expected: a function body
-  = actual: `,`
-  = fix: write `{ ... }` after the return type
