@@ -25,11 +25,48 @@ pub const BURI_RT_HEADER: usize = 16;
 /// The alignment every payload is guaranteed. VALUE-MODEL.md §2.
 pub const BURI_RT_ALIGN: usize = 16;
 
-/// `{ rc, cap }`, immediately before the payload.
+/// Bit 63 of `cap`: **reserved** for the multi-threaded mark, and never set.
+///
+/// Set will mean "this block may be reached from more than one thread" — the
+/// question `incref`/`decref` will branch on to choose an atomic count.
+/// Nothing sets it yet. It is reserved here, and every reader masks, so that
+/// turning it on later moves no code but the code that turns it on.
+///
+/// **Why `cap` and not `rc`.** A tag bit in the count breaks the two things the
+/// count does. [`BURI_RT_IMMORTAL`] is `u64::MAX` and `incref` is a saturating
+/// add exactly so the sentinel is a fixed point with no branch on the hot side;
+/// a tag bit makes that add wrong. And MEMORY.md §5.3's licence for in-place
+/// reuse is the literal `rc == 1` of [`buri_rt_unique_cap`], which a tagged
+/// count fails for a block that is genuinely unique. `cap` has neither problem,
+/// and a capacity runs out of address space long before bit 63. It follows the
+/// `Str::len` ASCII flag, which spends the same bit position in the word next
+/// door (VALUE-MODEL.md §3.1); `middle::layout::CAP_SHARED_FLAG` is the
+/// compiler's copy of this number.
+pub const BURI_RT_CAP_SHARED: u64 = 1 << 63;
+
+/// The usable payload bytes of a block, once [`BURI_RT_CAP_SHARED`] is off.
+pub const BURI_RT_CAP_MASK: u64 = !BURI_RT_CAP_SHARED;
+
+/// `{ rc, cap }`, immediately before the payload. `cap` carries
+/// [`BURI_RT_CAP_SHARED`] in its top bit, so it is read through [`cap_of`].
 #[repr(C)]
 struct Header {
     rc: u64,
     cap: u64,
+}
+
+/// The usable payload bytes `h` records, with the reserved bit masked off.
+///
+/// Every read of the capacity goes through here: the free path's layout, the
+/// growth decision, the accounting, and the uniqueness test all want a byte
+/// count, and none of them wants a flag.
+///
+/// # Safety
+/// `h` must point at a live block's header.
+#[inline]
+unsafe fn cap_of(h: *const Header) -> u64 {
+    // SAFETY: the caller promises a live header.
+    unsafe { (*h).cap & BURI_RT_CAP_MASK }
 }
 
 // The one place this runtime is atomic, and it is not on the reference-count
@@ -136,9 +173,9 @@ pub unsafe extern "C" fn buri_rt_realloc(p: *mut u8, payload: u64) -> *mut u8 {
         return buri_rt_alloc(payload);
     }
     // SAFETY: the caller promises a live payload pointer.
-    let (old_cap, rc) = unsafe {
+    let (old_cap, rc, flags) = unsafe {
         let h = header(p);
-        ((*h).cap, (*h).rc)
+        (cap_of(h), (*h).rc, (*h).cap & BURI_RT_CAP_SHARED)
     };
     let old = layout_for(old_cap);
     let new = layout_for(payload);
@@ -150,7 +187,7 @@ pub unsafe extern "C" fn buri_rt_realloc(p: *mut u8, payload: u64) -> *mut u8 {
     }
     // SAFETY: `raw` is a live allocation of at least the header's size.
     unsafe {
-        raw.cast::<Header>().write(Header { rc, cap: payload });
+        raw.cast::<Header>().write(Header { rc, cap: payload | flags });
     }
     LIVE_BYTES.fetch_add(payload.wrapping_sub(old_cap), Ordering::Relaxed);
     TOTAL_BYTES.fetch_add(payload.saturating_sub(old_cap), Ordering::Relaxed);
@@ -179,7 +216,7 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
         if (*h).rc == BURI_RT_IMMORTAL {
             return;
         }
-        (*h).cap
+        cap_of(h)
     };
     LIVE_BLOCKS.fetch_sub(1, Ordering::Relaxed);
     LIVE_BYTES.fetch_sub(cap, Ordering::Relaxed);
@@ -266,7 +303,7 @@ pub unsafe extern "C" fn buri_rt_make_immortal(p: *mut u8) {
             return;
         }
         LIVE_BLOCKS.fetch_sub(1, Ordering::Relaxed);
-        LIVE_BYTES.fetch_sub((*h).cap, Ordering::Relaxed);
+        LIVE_BYTES.fetch_sub(cap_of(h), Ordering::Relaxed);
         (*h).rc = BURI_RT_IMMORTAL;
     }
 }
@@ -288,7 +325,7 @@ pub unsafe extern "C" fn buri_rt_rc(p: *mut u8) -> u64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_cap(p: *mut u8) -> u64 {
     // SAFETY: the caller promises a live payload pointer.
-    unsafe { (*header(p)).cap }
+    unsafe { cap_of(header(p)) }
 }
 
 /// Heap accounting, for `cli/tests/native/memory.rs` and for `--explain`.
@@ -338,12 +375,20 @@ pub const BURI_RT_GROWTH_FLOOR: u64 = 64;
 /// Saturating rather than checked: a capacity that overflows a `u64` is a
 /// request `layout_for` will refuse, and refusing it there keeps the arithmetic
 /// here total.
+///
+/// `old_cap` is masked with [`BURI_RT_CAP_MASK`] first — a header word is a
+/// capacity plus [`BURI_RT_CAP_SHARED`], and doubling the flag would ask for
+/// the whole address space.
 #[must_use]
 pub fn buri_rt_grown_capacity(needed: u64, old_cap: u64) -> u64 {
+    let old_cap = old_cap & BURI_RT_CAP_MASK;
     needed.max(old_cap.saturating_mul(2)).max(BURI_RT_GROWTH_FLOOR)
 }
 
 /// `Some(cap)` when `p` is a live block that **nothing else references**.
+///
+/// The capacity comes back masked ([`BURI_RT_CAP_MASK`]): callers spend it as a
+/// byte count, and the reserved bit is not part of one.
 ///
 /// This is MEMORY.md §5.3's test, and it is the whole licence for the in-place
 /// writes in `list.rs` and `text.rs`. The reasoning it rests on, stated once
@@ -373,8 +418,9 @@ pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
     }
     // SAFETY: the caller promises a live payload pointer, so the header is in
     // bounds and aligned.
-    let h = unsafe { &*header(p.cast_mut()) };
-    (h.rc == 1).then_some(h.cap)
+    let h = unsafe { header(p.cast_mut()) };
+    // SAFETY: as above.
+    unsafe { ((*h).rc == 1).then(|| cap_of(h)) }
 }
 
 // ---------------------------------------------------------------------------
@@ -510,4 +556,89 @@ pub extern "C" fn buri_rt_alloc_total(handle: i64) -> i64 {
 /// cannot exist.
 fn index(handle: i64) -> Option<usize> {
     usize::try_from(handle).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The reserved bit is bit 63, the mask is its complement, and neither
+    /// touches a capacity a block can have.
+    #[test]
+    fn the_shared_bit_is_the_top_bit_of_the_capacity() {
+        assert_eq!(BURI_RT_CAP_SHARED, 1 << 63);
+        assert_eq!(BURI_RT_CAP_MASK, u64::MAX >> 1);
+        assert_eq!(BURI_RT_CAP_SHARED & BURI_RT_CAP_MASK, 0);
+    }
+
+    /// A real block's capacity round-trips through the header at the three
+    /// boundaries — empty, the largest capacity the low 63 bits can spell, and
+    /// that capacity with the reserved bit forced on — and the readers answer
+    /// the byte count in every case.
+    ///
+    /// The largest capacity is written into the header directly rather than
+    /// allocated: the point of the test is the *encoding*, and asking `malloc`
+    /// for 2^63 - 1 bytes is a different question.
+    #[test]
+    fn a_masked_capacity_round_trips_at_the_boundaries() {
+        for cap in [0u64, 1, BURI_RT_GROWTH_FLOOR, BURI_RT_CAP_MASK] {
+            for flag in [0u64, BURI_RT_CAP_SHARED] {
+                let word = cap | flag;
+                assert_eq!(word & BURI_RT_CAP_MASK, cap);
+                // The growth policy reads a header word and must not double a
+                // flag: `2 * (2^63 - 1)` saturates, `2 * flag` would too.
+                assert_eq!(
+                    buri_rt_grown_capacity(1, word),
+                    buri_rt_grown_capacity(1, cap),
+                    "the growth policy read the reserved bit",
+                );
+            }
+        }
+    }
+
+    /// The same, through an allocated block: `buri_rt_cap` and
+    /// `buri_rt_unique_cap` both answer the byte count with the bit on, and the
+    /// free path hands the allocator the layout it was given.
+    #[test]
+    fn the_readers_mask_a_live_block() {
+        for payload in [0u64, 1, BURI_RT_GROWTH_FLOOR] {
+            let p = buri_rt_alloc(payload);
+            // SAFETY: `p` is a fresh live payload pointer from this crate.
+            unsafe {
+                assert_eq!(buri_rt_cap(p), payload);
+                assert_eq!(buri_rt_unique_cap(p), Some(payload));
+                // Force the reserved bit on, as G3 one day will, and read again.
+                (*header(p)).cap |= BURI_RT_CAP_SHARED;
+                assert_eq!(buri_rt_cap(p), payload, "buri_rt_cap read the reserved bit");
+                assert_eq!(
+                    buri_rt_unique_cap(p),
+                    Some(payload),
+                    "the uniqueness test read the reserved bit",
+                );
+                // `buri_rt_free` recovers `layout_for(cap)`, so a block freed
+                // with the bit on must reach the allocator with the same layout
+                // it was created with. Miri and the system allocator both
+                // notice if it does not.
+                buri_rt_free(p);
+            }
+        }
+    }
+
+    /// `realloc` preserves the reserved bit rather than clearing it, so that
+    /// growing a block does not silently un-share it.
+    #[test]
+    fn realloc_preserves_the_reserved_bit() {
+        let p = buri_rt_alloc(16);
+        // SAFETY: `p` is this test's only reference to a live block.
+        let p = unsafe {
+            (*header(p)).cap |= BURI_RT_CAP_SHARED;
+            buri_rt_realloc(p, 64)
+        };
+        // SAFETY: `p` is the live block `realloc` answered.
+        unsafe {
+            assert_eq!((*header(p)).cap & BURI_RT_CAP_SHARED, BURI_RT_CAP_SHARED);
+            assert_eq!(buri_rt_cap(p), 64);
+            buri_rt_free(p);
+        }
+    }
 }

@@ -14,7 +14,7 @@
 
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdin, Stdout,
-  IoError, NetError, NetResponse, Region,
+  IoError, NetError, Region, Request, Response,
 };
 
 // --- Alloc --------------------------------------------------------------------
@@ -167,7 +167,7 @@ impl<C: Fs> Fs for ReadOnly<C> {
 /// Refuses every connection. A fake goes in `test.dependencies`.
 export struct NoNet {}
 impl Net for NoNet {
-  fn fetch(self, method: Str, url: Str, body: Str): Result<NetResponse, NetError> {
+  fn fetch(self, request: Request): Result<Response, NetError> {
     .Err(.Refused)
   }
 }

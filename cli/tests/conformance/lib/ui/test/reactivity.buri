@@ -379,6 +379,43 @@ test "an explicit type argument on an effect method pins the type" {
     assert.eq(log.recorded(), ["yes", "no"]);
 }
 
+// --- a generic effect method through a `..spread` ------------------------------------
+
+// The two questions above, asked of a binding that arrived through a spread
+// rather than being written out. A spread carries the implementing type its
+// base recorded, and a generic method needs that type *and* the arguments the
+// call writes: `Headless` is what dispatch lands on, `Int` is what `memo`
+// instantiates at. Both halves have to survive the copy.
+
+/// The two reactive effects, so a spread has something to inherit.
+context Reactive {
+    Ui: headless(),
+    Watch: observer(),
+}
+
+test "a generic effect method is callable through a binding a spread supplied" {
+    let ctx = context { ..Reactive() };
+    let log = recorder();
+    let n = signal(ctx, 4);
+    let doubled = ctx.memo<Int>(fn(s) => n.get(s) * 2);
+    let _ = watch(ctx, fn(s) => ignore(log.note(readInt(s, doubled))));
+    assert.eq(log.noted(), [8]);
+    let _ = n.set(ctx, 5);
+    assert.eq(log.noted(), [8, 10]);
+}
+
+test "a spread may replace one reactive effect and inherit the other" {
+    // `Watch` is written here; `Ui` — and so `memo<Str>` — is inherited.
+    let ctx = context { ..Reactive(), Watch: observer() };
+    let log = recorder();
+    let flag = signal(ctx, true);
+    let label = ctx.memo<Str>(fn(s) => yesNo(flag.get(s)));
+    let _ = watch(ctx, fn(s) => noteStr(log, readStr(s, label)));
+    assert.eq(log.recorded(), ["yes"]);
+    let _ = flag.set(ctx, false);
+    assert.eq(log.recorded(), ["yes", "no"]);
+}
+
 // --- the design's example ------------------------------------------------------------
 
 // design/ui-reactivity.md, "Example". Everything reactive about the counter is

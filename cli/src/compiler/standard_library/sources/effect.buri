@@ -101,7 +101,11 @@ export effect Fs {
 }
 
 export effect Net {
-  fn fetch(self, method: Str, url: Str, body: Str): Result<NetResponse, NetError>;
+  /// One request, one response. `Request` and `Response` are declared below,
+  /// and they are the *same* two types `core/net/http` re-exports and a server
+  /// hands its handler — there is one shape for an HTTP message in this
+  /// language, not one per direction.
+  fn fetch(self, request: Request): Result<Response, NetError>;
 }
 
 export effect Clock {
@@ -144,8 +148,173 @@ export enum NetError {
   Refused,
   BadUrl(Str),
   Transport(Str),
+  /// The request was called off before an answer arrived — a cancelled task,
+  /// a closed connection, a deadline the caller set. Distinct from `Timeout`,
+  /// which is the *transport* giving up: this one is the program's own doing,
+  /// and a caller that retries a `Timeout` should not retry this.
+  Aborted,
 }
 
+/// The request method.
+///
+/// Its **wire spelling never appears in Buri code**: `GET` is written `.Get`,
+/// and the three letters are the platform's business, exactly as a WebSocket
+/// close code is. That is what makes the set closed — a method a program
+/// cannot name is a method it cannot send — and what keeps a typo a compile
+/// error instead of a 501 from a server three timezones away.
+///
+/// The **declaration order is the ABI**: the variant index is what crosses to
+/// the runtime, so a variant may be appended and never reordered.
+export enum Method {
+  Get,
+  Head,
+  Post,
+  Put,
+  Patch,
+  Delete,
+  Options,
+}
+
+/// One header field.
+///
+/// **Names are lowercase.** HTTP/2 and HTTP/3 require it on the wire, every
+/// platform here lowercases what it receives, and `withHeader` lowercases what
+/// it is given — so `header` is an exact comparison rather than a
+/// case-insensitive scan, and a program never has to guess which casing a
+/// server chose. A name written any other way is not an error; it is
+/// lowercased on the way in.
+export struct Header {
+  export name: Str,
+  export value: Str,
+}
+
+/// An HTTP request: what `Net.fetch` takes, and what a server's handler is
+/// given.
+///
+/// The body is octets rather than text because a request body is not
+/// necessarily text — a decoded `Str` would have to be lossy or fallible, and
+/// both are wrong for a byte range or a protobuf. `core/net/http` has the
+/// text-shaped constructors and `core/bytes` the conversions.
+export struct Request {
+  export method: Method,
+  export url: Str,
+  export headers: [Header],
+  export body: [U8],
+}
+
+/// An HTTP response: what `Net.fetch` answers, and what a server's handler
+/// returns. The body is octets, for `Request`'s reason.
+export struct Response {
+  export status: Int,
+  export headers: [Header],
+  export body: [U8],
+}
+
+impl Request {
+  /// The path component of `url`, always beginning with `/` and carrying
+  /// neither query nor fragment. `"/"` when the URL names no path.
+  ///
+  /// Pure: every step is a view (`splitOnce`, `slice`), so asking a request
+  /// where it is going costs no allocation and needs no context.
+  export fn path(self): Str {
+    let after = match (self.url.splitOnce("://")) {
+      .Some((_scheme, rest)) => rest,
+      .None => self.url,
+    };
+    let rooted = match (after.indexOf("/")) {
+      .Some(at) => after.slice(at, after.len()),
+      .None => "/",
+    };
+    let noQuery = match (rooted.splitOnce("?")) {
+      .Some((only, _query)) => only,
+      .None => rooted,
+    };
+    match (noQuery.splitOnce("#")) {
+      .Some((only, _fragment)) => only,
+      .None => noQuery,
+    }
+  }
+
+  /// Everything after the first `?` and before any `#`, without the `?`
+  /// itself; the empty string when there is no query.
+  export fn query(self): Str {
+    let noFragment = match (self.url.splitOnce("#")) {
+      .Some((only, _fragment)) => only,
+      .None => self.url,
+    };
+    match (noFragment.splitOnce("?")) {
+      .Some((_before, q)) => q,
+      .None => "",
+    }
+  }
+
+  /// The value of the first header with this name, which must be lowercase.
+  export fn header(self, name: Str): Option<Str> {
+    match (self.headers.find(fn(h) => h.name == name)) {
+      .Some(found) => .Some(found.value),
+      .None => .None,
+    }
+  }
+
+  /// The same request with one more header. Appends rather than replaces:
+  /// `set-cookie` legitimately repeats, and a builder that silently dropped
+  /// the earlier one would make that unsayable.
+  export fn withHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Request {
+    Request {
+      method: self.method,
+      url: self.url,
+      headers: self.headers.push(ctx, Header { name: name.toLower(ctx), value: value }),
+      body: self.body,
+    }
+  }
+
+  export fn withMethod(self, method: Method): Request {
+    Request { method: method, url: self.url, headers: self.headers, body: self.body }
+  }
+
+  export fn withBody(self, body: [U8]): Request {
+    Request { method: self.method, url: self.url, headers: self.headers, body: body }
+  }
+}
+
+impl Response {
+  /// `2xx`. Nothing else: a redirect is not a success, and a caller that
+  /// wanted to follow one has to say so.
+  export fn isOk(self): Bool {
+    self.status >= 200 && self.status < 300
+  }
+
+  /// The value of the first header with this name, which must be lowercase.
+  export fn header(self, name: Str): Option<Str> {
+    match (self.headers.find(fn(h) => h.name == name)) {
+      .Some(found) => .Some(found.value),
+      .None => .None,
+    }
+  }
+
+  /// The same response with one more header. Appends, for `Request`'s reason.
+  export fn withHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Response {
+    Response {
+      status: self.status,
+      headers: self.headers.push(ctx, Header { name: name.toLower(ctx), value: value }),
+      body: self.body,
+    }
+  }
+
+  export fn withStatus(self, status: Int): Response {
+    Response { status: status, headers: self.headers, body: self.body }
+  }
+
+  export fn withBody(self, body: [U8]): Response {
+    Response { status: self.status, headers: self.headers, body: body }
+  }
+}
+
+/// What `Fetch` — the UI backend's non-blocking client — answers.
+///
+/// Not `Response`: `Fetch` is `core/ui`'s callback-shaped effect and is retired
+/// whole in a later slice, and widening its payload in the meantime would move
+/// a hundred fixtures for a type that is about to go away.
 export struct NetResponse {
   export status: Int,
   export body: Str,
@@ -154,4 +323,8 @@ export struct NetResponse {
 derive Eq, Show for IoError;
 derive Eq, Show for NetError;
 derive Eq, Show for NetResponse;
+derive Eq, Show for Method;
+derive Eq, Show for Header;
+derive Eq, Show for Request;
+derive Eq, Show for Response;
 derive Eq, Show for Region;

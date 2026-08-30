@@ -1767,20 +1767,52 @@ async function $host_HostFs_syncFile(self, p) {
   }
 }
 
+// The wire spellings of `Method`, in the enum's declaration order
+// (`effect.buri`). A payloadless enum is its variant index in generated code,
+// so the index *is* the row, and this array is the whole of the mapping: the
+// three letters live here and nowhere in Buri.
+const $HTTP_METHOD = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+
+// A `Headers` iterates `[name, value]` pairs whose names the engine has already
+// lowercased — which is the casing `Header` states, so nothing is normalized
+// twice. The iterator is also where a repeated field is settled: `set-cookie`
+// arrives one entry per cookie and every other repeat arrives joined, which is
+// what the platform guarantees and not something to redo here.
+function $httpResponseHeaders(response) {
+  const out = [];
+  for (const [name, value] of response.headers) out.push([name, value]);
+  return out;
+}
+
 // The platform's own `fetch`, awaited. What was here was a synchronous
 // `XMLHttpRequest` with an apology attached: Buri had no way to wait, so a
 // request stalled the one thread there was, and off Bun there was no blocking
 // path at all. `fetch` is the opposite of every part of that — it is in node,
-// in Bun and in every browser, and it is the one host call whose asynchrony
-// the language now has a word for.
+// in Bun and in every browser, and it is the one host call whose asynchrony the
+// language now has a word for. What crosses is unchanged: a `Request` in, a
+// `Response` out, octets both ways.
 //
-// A `GET` or a `HEAD` may carry no body at all, which `fetch` enforces rather
-// than ignores, so an empty one is left off entirely.
-async function $host_HostNet_fetch(self, method, url, body) {
+// `Request` is `[method, url, headers, body]` and `Response` is
+// `[status, headers, body]`: a struct is its fields in order, a `Header` is
+// `[name, value]`, a payloadless enum is its variant index, and a `[U8]` is an
+// ordinary array of numbers.
+async function $host_HostNet_fetch(self, request) {
+  const method = $HTTP_METHOD[Number(request[0])] || "GET";
+  const url = request[1];
+  const headers = request[2];
+  const body = request[3];
   try {
-    const sends = body !== "" && method !== "GET" && method !== "HEAD";
-    const r = await fetch(url, { method, body: sends ? body : undefined });
-    return $ok([BigInt(r.status), await r.text()]);
+    // A `GET` or a `HEAD` may carry no body at all, which `fetch` enforces
+    // rather than ignores, so an empty one is left off entirely.
+    const sends = body.length !== 0 && method !== "GET" && method !== "HEAD";
+    const init = { method, headers: Array.from(headers, (h) => [h[0], h[1]]) };
+    if (sends) init.body = new Uint8Array(body);
+    const r = await fetch(url, init);
+    // Every byte back unchanged, which is what the `overrideMimeType` trick was
+    // standing in for: a response that is not text used to arrive as
+    // replacement characters, and a `[U8]` body exists to avoid exactly that.
+    const octets = new Uint8Array(await r.arrayBuffer());
+    return $ok([BigInt(r.status), $httpResponseHeaders(r), Array.from(octets)]);
   } catch (e) {
     // `.Transport(Str)`, the fourth variant of `NetError` — a request that did
     // not reach an answer, whatever stopped it.
