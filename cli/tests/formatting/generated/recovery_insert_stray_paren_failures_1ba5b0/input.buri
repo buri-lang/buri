@@ -14,7 +14,7 @@ from "core/list/lib.buri" import * as list;
 from "//lib/proto/lib.buri" import { Everything, defaultEverything, decodeEverything };
 
 fn raw<C: Alloc>(ctx: C, text: Str): [U8] {
-  match (bytes.fromHex(ctx, text)) {
+  match (bytes.fromHex(ctx, text@ )) {
     .Ok(b) => b,
     .Err(_e) => list.empty<U8>(),
   }

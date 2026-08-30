@@ -59,7 +59,7 @@ test "a row closure returning a tree over the bounded context is a parameter" {
 test "the row closure sees the context and the index it was handed" {
   let ctx = context { Alloc: alloc() };
   assert.eq(
-    eachRow(ctx, ["x", "y"], fn(c, item, count) => .Press(item, fn(h, n) => str.format(h, "${count}"))),
+    eachRow(ctx[ ,"x", "y"], fn(c, item, count) => .Press(item, fn(h, n) => str.format(h, "${count}"))),
     "2,2",
   );
 }

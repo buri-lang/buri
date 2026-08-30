@@ -5,16 +5,15 @@
 // it stopped at — and every one of those is asserted here rather than left to
 // be trusted.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
 from "core/bytes/lib.buri" import * as bytes;
+from "core/effect/lib.buri" import { Alloc };
+from "core/host/testing/lib.buri" import { alloc };
 from "core/list/lib.buri" import * as list;
-
-from "//lib/proto/lib.buri" import { Everything, defaultEverything, decodeEverything };
+from "core/testing/assert/lib.buri" import * as assert;
+from "//lib/proto/lib.buri" import { decodeEverything, defaultEverything, Everything };
 
 fn raw<C: Alloc>(ctx: C, text: Str): [U8] {
-  match (bytes.fromHex(ctx, text)) {
+  match (bytes.fromHex(ctx, text) {
     .Ok(b) => b,
     .Err(_e) => list.empty<U8>(),
   }
