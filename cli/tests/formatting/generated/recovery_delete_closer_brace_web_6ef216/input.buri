@@ -1,0 +1,24 @@
+// The JS entry point. The only difference from a native `main` is the bounds it
+// asks for: no `Fs`, because the browser platform has none to grant. The
+// libraries below are compiled from the same sources the server binary uses.
+
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+from "//lib/ledger" import { entry, total };
+from "//lib/money" import { fromCents };
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc:  host.alloc,
+    Stdout: host.stdout,
+  };
+
+  let basket = [
+    entry("coffee", fromCents(450)),
+    entry("books", fromCents(3200)),
+  ];
+  // `total` is a free function; `format` is a method on the `Cents` it returns.
+  let _ = ctx.println("basket total: ${total(basket).format(ctx)}";
+  .Ok(())
+}

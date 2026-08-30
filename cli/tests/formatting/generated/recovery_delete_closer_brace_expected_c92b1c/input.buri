@@ -1,0 +1,9 @@
+export fn f(o: Option<Int>): Int {
+    match (o) {
+        .Some(n) if n > 100 => {
+            someRatherLongFunctionName(ctx, n, "with a string long enough to wrap"
+        },
+        .Some(0) | .Some(1) | .None => 0,
+        .Some(n) => n,
+    }
+}

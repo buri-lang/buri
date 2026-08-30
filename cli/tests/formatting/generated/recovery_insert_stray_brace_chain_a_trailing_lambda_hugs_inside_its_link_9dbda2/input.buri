@@ -1,0 +1,3 @@
+export fn toHex<C: Alloc>(ctx: C, b: [U8]): Str {
+  b.mapCtx(ctx, fn(c, x) => { let n = x.toI64, (); str.fromChars(c, [HEX.charAt(n / 16).withDefault('0'), HEX.charAt(n % 16).withDefault('0')]) }).join(ctx, "")
+}
