@@ -153,6 +153,31 @@
 //!    will want, exercised against an answer that is already known
 //!    (`list.rs`'s `StepEntry`).
 //!
+//! ## 2.2 The one entry that goes the other way
+//!
+//! Every rule above describes a call **into** this crate. There is now one
+//! symbol that describes a call **out of** it, and it is not in this file at
+//! all: `backend/carrier.rs` fixes
+//!
+//! ```text
+//!   void entry(void *state, void *out);
+//! ```
+//!
+//! as the C door by which a carrier enters Buri code. Both native backends
+//! emit one in front of a program's root. It is stated *there* rather than
+//! here because the shape of the thing behind the door is the backend's: the
+//! frame-threaded one takes a Buri data stack from
+//! [`memory::buri_rt_stack_acquire`] and puts it in the frame-pointer
+//! register, and the LLVM one is a `ccc` wrapper over a `fastcc` body and
+//! needs none. What is *shared* is only the two words, which is why they are
+//! written down in one file and diffed byte for byte by a test.
+//!
+//! [`memory::buri_rt_stack_acquire`] and [`memory::buri_rt_stack_release`] are
+//! the two entries that pair with it, and they are the first `buri_rt_*`
+//! symbols nothing in a Buri *program* names: no intrinsic key produces them,
+//! neither runtime table has a row, and the only caller is a shim the stencil
+//! backend hand-writes.
+//!
 //! ## 2.1 `Result<T, E>`, and the one thing rule 3 leaves open
 //!
 //! Rule 3 says "`0 ..= n` is the error variant's index", and for a long time

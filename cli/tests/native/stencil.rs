@@ -1553,6 +1553,206 @@ fn a_deep_recursion_inside_the_stack_still_answers() {
     assert_eq!(ran.status, 0, "{}", ran.stderr);
 }
 
+// ---------------------------------------------------------------------------
+// The carrier door, and the second stack behind it
+// ---------------------------------------------------------------------------
+
+/// A probe that **enters Buri code from a second carrier** and reports what
+/// the first carrier's stack looked like afterwards.
+///
+/// Three questions in one C file, and each is a thing the door can get wrong:
+///
+///  1. does `buri$carrier$main` run the root at all, on a thread that is not
+///     the process's own;
+///  2. did it use a **different** Buri stack — the sentinel is written over
+///     the low megabytes of `buri$stencil$stack`, which is exactly where a
+///     door that had kept `program_entry`'s `adrp` would have put its frames;
+///  3. is the block it used outside the static one, by address.
+///
+/// A **constructor** rather than a wrapper around `main`, for [`ALLOC_PROBE`]'s
+/// reason: the emitted entry point is the one `cli/runtime/lib.rs` §6
+/// describes, and replacing it would be measuring a different program. It runs
+/// before `main`, so the sentinel is intact when it is written and the static
+/// stack is untouched when it is read — and `main` runs the same root
+/// afterwards on the static block, which is what makes the expected output two
+/// lines rather than one.
+///
+/// `base_seen` is taken **after** the door returns: the block goes back on this
+/// carrier's free list, so the next acquire on this thread is the very block
+/// the door just ran on (`memory.rs`'s
+/// `a_carrier_stack_is_writable_up_to_its_guard_and_comes_back`).
+const CARRIER_PROBE: &str = r#"
+#include <pthread.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+extern void buri$carrier$main(void *state, void *out);
+extern unsigned char buri$stencil$stack[];
+extern void *buri_rt_stack_acquire(void);
+extern void buri_rt_stack_release(void *base);
+
+#define SENTINEL 0x5a
+#define WATCHED (8u * 1024u * 1024u)
+
+static unsigned char answer[4096];
+static void *base_seen;
+
+static void *carrier(void *unused) {
+  (void)unused;
+  buri$carrier$main(0, answer);
+  base_seen = buri_rt_stack_acquire();
+  buri_rt_stack_release(base_seen);
+  return 0;
+}
+
+__attribute__((constructor)) static void buri_carrier_probe(void) {
+  memset(buri$stencil$stack, SENTINEL, WATCHED);
+  pthread_t t;
+  if (pthread_create(&t, 0, carrier, 0) != 0) { fprintf(stderr, "carrier: no thread\n"); return; }
+  pthread_join(t, 0);
+  unsigned long clobbered = 0;
+  for (unsigned i = 0; i < WATCHED; i++) if (buri$stencil$stack[i] != SENTINEL) clobbered++;
+  unsigned char *lo = buri$stencil$stack;
+  unsigned char *hi = lo + 65u * 1024u * 1024u;
+  int inside = ((unsigned char *)base_seen >= lo && (unsigned char *)base_seen < hi);
+  fprintf(stderr, "carrier: clobbered=%lu inside=%d\n", clobbered, inside);
+}
+"#;
+
+/// `(bytes of the static stack the carrier clobbered, whether its block was
+/// inside the static one)` from a [`CARRIER_PROBE`]-linked run.
+fn carrier_probed(stderr: &str) -> (u64, bool) {
+    let line = stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("carrier: "))
+        .unwrap_or_else(|| panic!("the carrier probe printed nothing: {stderr:?}"));
+    let (clobbered, rest) = line
+        .strip_prefix("clobbered=")
+        .and_then(|l| l.split_once(" inside="))
+        .unwrap_or_else(|| panic!("the carrier probe said {line:?}"));
+    (clobbered.trim().parse().unwrap(), rest.trim() == "1")
+}
+
+/// **A second carrier enters Buri code on its own stack, and recurses ten
+/// thousand frames inside it.**
+///
+/// This is the whole of slice B7 in one assertion. Before it there was one
+/// Buri stack — a `__bss` block `main` guards once — and a second carrier
+/// entering Buri code would have written its frames *into the first carrier's*,
+/// past nothing, with the guard belonging to somebody else's recursion.
+///
+/// Ten thousand non-tail frames, for `recursion`'s reason: a tail call runs in
+/// constant stack space (SPEC §8.3) and would say nothing about a stack at all.
+/// They are deep enough to reach megabytes into a block and shallow enough to
+/// fit one, so a door that had kept the static block would clobber the
+/// sentinel by a wide margin rather than by a byte.
+///
+/// Two lines of output, not one: the constructor's carrier runs the root and
+/// then `main` runs it again on the static block. A door that never entered
+/// prints one line; a door that entered and faulted prints none.
+#[test]
+fn a_second_carrier_recurses_ten_thousand_frames_on_its_own_stack() {
+    if !supported() {
+        return;
+    }
+    let source = r#"
+from "core/host/lib.buri" import { stdout };
+fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }
+export fn main(): Result<(), Str> {
+  let _ = stdout.println("depth ${f(10000)}");
+  .Ok(())
+}
+"#;
+    let ran = run_with("carrier-entry", source, Some(CARRIER_PROBE));
+    assert_eq!(ran.status, 0, "{}", ran.stderr);
+    assert_eq!(
+        ran.stdout, "depth 10000\ndepth 10000\n",
+        "the root ran {} time(s), not twice: {:?}",
+        ran.stdout.lines().count(),
+        ran.stdout
+    );
+    let (clobbered, inside) = carrier_probed(&ran.stderr);
+    assert_eq!(
+        clobbered, 0,
+        "the carrier wrote {clobbered} bytes into the process's own Buri stack: it \
+         is running on the static block, not on one of its own"
+    );
+    assert!(!inside, "the block the carrier acquired is inside `buri$stencil$stack`");
+}
+
+/// **A runaway recursion on a carrier faults at the carrier's own guard.**
+///
+/// The counterpart to `a_runaway_recursion_faults_at_the_guard`, on the stack
+/// that slice B7 added. Its whole content is that the fault happens *at all*:
+/// a per-carrier block with no guard would run five million frames past 64 MiB
+/// and into whatever `mmap` had placed after it, and a block that was really
+/// the static one would fault at the old guard — which the test above rules
+/// out on the same door, on the same machine, in the same file.
+///
+/// The process is killed rather than exiting, which is what the machine stack
+/// does when it is exhausted and what `asm::install_guard`'s counterpart
+/// asserts. Which signal is the kernel's business.
+#[test]
+fn a_runaway_recursion_on_a_carrier_faults_at_its_own_guard() {
+    if !supported() {
+        return;
+    }
+    use std::os::unix::process::ExitStatusExt;
+    let source = r#"
+from "core/host/lib.buri" import { stdout };
+fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }
+export fn main(): Result<(), Str> {
+  let _ = stdout.println("depth ${f(5000000)}");
+  .Ok(())
+}
+"#;
+    let binary = build_with("carrier-runaway", source, Some(CARRIER_PROBE));
+    let out = Command::new(&binary).output().unwrap();
+    assert!(
+        out.status.signal().is_some(),
+        "a five-million-deep recursion on a carrier exited {:?} instead of faulting: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// **The door is in every unit that has a root, and costs nothing when nobody
+/// opens it.**
+///
+/// Two halves, and the second is the one that keeps this cheap: the symbol is
+/// *defined* in the object next to `main`, and the product's own link flags
+/// (`-dead_strip` with `MH_SUBSECTIONS_VIA_SYMBOLS`, `--gc-sections` on ELF)
+/// delete it from a program that never references it. So a single-threaded
+/// artifact carries no door, no `mmap`, and no bytes.
+#[test]
+fn the_carrier_door_is_emitted_and_dead_strips_when_unused() {
+    if !supported() {
+        return;
+    }
+    let source = "export fn main(): Result<(), Str> { .Ok(()) }";
+    let units = emitted("carrier-door", source);
+    let (_, bytes) = units.first().expect("no unit was emitted");
+    let needle = buri::compiler::backend::carrier::MAIN_ENTRY.as_bytes();
+    assert!(
+        bytes.windows(needle.len()).any(|w| w == needle),
+        "no unit names {}",
+        buri::compiler::backend::carrier::MAIN_ENTRY
+    );
+
+    // And it is gone from the linked artifact, which is where a symbol nobody
+    // calls would otherwise be paid for.
+    let binary = build_with("carrier-door-link", source, None);
+    let nm = Command::new("nm").arg(&binary).output().unwrap();
+    let listed = String::from_utf8_lossy(&nm.stdout);
+    if nm.status.success() {
+        assert!(
+            !listed.contains(buri::compiler::backend::carrier::MAIN_ENTRY),
+            "an unreferenced carrier door survived the link:\n{listed}"
+        );
+    }
+}
+
 /// A `.buri` snippet with `test` blocks, compiled as a test binary and linked.
 fn build_tests(name: &str, source: &str) -> PathBuf {
     let mut map = SourceMap::new();
@@ -1778,6 +1978,61 @@ fn a_cross_emission_is_reproducible() {
             assert_eq!(x.bytes, y.bytes, "{} is not reproducible for {arch:?}", x.name);
         }
     }
+}
+
+/// **The carrier door is emitted for every `StencilTarget`, and names the two
+/// runtime entries on each.**
+///
+/// A cross-emission test rather than a run, for this section's reason: this
+/// host is macOS/arm64 and the two Linux artifacts cannot be executed here.
+/// What *is* checkable is the part a container port gets wrong — that the door
+/// exists at all on the target whose whole emission is a different instruction
+/// set, and that it reaches the runtime by name rather than by an address only
+/// the host's linker could resolve.
+///
+/// The three references are the three the door has, in the order it makes
+/// them: acquire, the root, release. The pair of relocation tests above then
+/// answer whether a real linker can satisfy them.
+#[test]
+fn the_carrier_door_is_emitted_for_every_target() {
+    let source = "export fn main(): Result<(), Str> { .Ok(()) }";
+    let (program, tables) = lowered(source);
+    let mut seen = 0;
+    for (stencil_target, target) in [
+        (
+            stencil_abi::StencilTarget::MacosArm64,
+            Target { platform: Platform::Macos, arch: Some(Arch::Arm64) },
+        ),
+        (
+            stencil_abi::StencilTarget::LinuxArm64,
+            Target { platform: Platform::Linux, arch: Some(Arch::Arm64) },
+        ),
+        (
+            stencil_abi::StencilTarget::LinuxX86_64,
+            Target { platform: Platform::Linux, arch: Some(Arch::X86_64) },
+        ),
+    ] {
+        if !buri::compiler::backend::stencil::available_for(stencil_target) {
+            eprintln!("this toolchain has no {} stencils", stencil_target.slug());
+            continue;
+        }
+        let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+        let units = Stencil
+            .emit(&program, &tables, &opts)
+            .unwrap_or_else(|d| panic!("{} refused: {:?}", stencil_target.slug(), messages(&d)));
+        let bytes = units.first().map(|u| u.bytes.clone()).unwrap_or_default();
+        let names = |needle: &str| {
+            let n = needle.as_bytes();
+            bytes.windows(n.len()).any(|w| w == n)
+        };
+        use buri::compiler::backend::carrier;
+        assert!(names(carrier::MAIN_ENTRY), "{}: no door", stencil_target.slug());
+        assert!(names(carrier::STACK_ACQUIRE), "{}: the door takes no stack", stencil_target.slug());
+        assert!(names(carrier::STACK_RELEASE), "{}: the door keeps its stack", stencil_target.slug());
+        seen += 1;
+    }
+    assert!(seen > 0, "no target's stencils were available: nothing was checked");
+    eprintln!("the carrier door was checked on {seen} of the three targets");
 }
 
 /// **A target this toolchain cannot emit for says which one and why.**
