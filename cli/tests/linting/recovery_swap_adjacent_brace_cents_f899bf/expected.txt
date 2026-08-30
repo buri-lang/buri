@@ -1,9 +1,0 @@
-error: expected an expression, found `}` [unexpected-token]
-  --> lib/recovery_swap_adjacent_brace_cents_f899bf/lib.buri:17:27
-   |
-17 |   Ledger { entries, seal: } ""
-   |                           ^
-   |
-   = expected: an expression
-   = actual: `}`
-   = fix: write a value here

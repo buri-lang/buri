@@ -162,14 +162,17 @@ pub fn net() -> bool {
 /// covered the day it is added rather than the day somebody remembers this
 /// list.
 ///
-/// **`host.HostTasks.parallel` is the first of these keys that exists**, and it
-/// is answered by `cli/runtime/rt.rs` — behind `net`, beside the carrier pool
-/// D4 fans it out onto — which is what keeps this rule honest for it. `Listen`
-/// and `Sockets` are still ahead of their first key; what exists for them is
-/// the refusal, so that the day one lands it lands with the diagnostic already
-/// written. A key this returns true for and the archive answers anyway is not a
-/// problem — the gap is only ever consulted when [`net`] is false, and with
-/// `net` off the archive answers none of them.
+/// **`host.HostTasks.parallel` is the first of these keys a program reaches**,
+/// and it is answered by `cli/runtime/rt.rs` — behind `net`, beside the carrier
+/// pool D4 fans it out onto — which is what keeps this rule honest for it.
+/// `Listen` and `Sockets` are declared and no further: `core/effect` has them
+/// and `core/host` implements them, but the grant table gives both an empty
+/// platform list, so nothing can construct the host value that would reach an
+/// operation. What exists for those two is the refusal, so that the day a
+/// platform grants one it lands with the diagnostic already written. A key this
+/// returns true for and the archive answers anyway is not a problem — the gap is
+/// only ever consulted when [`net`] is false, and with `net` off the archive
+/// answers none of them.
 ///
 /// `host.HostNet.fetch` is deliberately **not** here: `cli/runtime/http.rs`
 /// writes its own cleartext client and reaches none of the four crates. The day

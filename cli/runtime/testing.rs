@@ -160,14 +160,6 @@ enum Slot {
     /// call replaces the plan, and a promise nothing can keep any more is not
     /// one to report.
     Plan { entries: Vec<PlanEntry>, retired: bool },
-    /// `core/host/testing`'s `TestProc` — the code the first `exitWith` asked
-    /// for, and `None` where nothing exited.
-    ///
-    /// The one shape `core/testing/context` has no counterpart for, because it
-    /// has no `Proc` double at all. Everything else `core/host/testing` needs is
-    /// one of the variants above: a captured stream is a transcript whichever
-    /// module minted it, and one table with one shape per *state* beats one
-    /// table with one shape per module.
     /// `core/host/testing`'s `TestTasks` — the order it schedules its tasks
     /// in, the plan it fails them through, and the tasks that have completed.
     ///
@@ -183,7 +175,6 @@ enum Slot {
     /// needs it. `plan` still names the [`Slot::Plan`] holding the *promise*,
     /// entry for entry with this list.
     Tasks { mode: i64, seed: i64, plan: i64, log: Vec<i64>, faults: Vec<TaskFault> },
-    Proc { code: Option<i64> },
 }
 
 /// One call to a `TestFs`, as `core/host/testing`'s `FsCall` records it: the
@@ -1212,12 +1203,12 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_env_variable(
     BURI_OK
 }
 
-/// `TestEnv::arguments`.
+/// `TestEnv::args`.
 ///
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_test_env_arguments(
+pub unsafe extern "C" fn buri_rt_testing_context_test_env_args(
     handle: i64,
     out: *mut BuriList,
 ) {
@@ -1245,11 +1236,11 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_env_arguments(
 //   * **Every constructor takes no arguments.** `clock()` is at zero and
 //     `rand()` is at seed zero; a test that wants another says so with a
 //     builder.
-//   * **A builder answers a new handle.** `at`, `seed`, `variables` and `args`
-//     each `install` rather than editing the slot they were called on, so the
-//     value a test already holds is unchanged and two clocks built from one
-//     are two clocks. That is what makes `let base = env(); base.args([..])`
-//     safe to write twice.
+//   * **A builder answers a new handle.** `at`, `seed`, `variables` and
+//     `arguments` each `install` rather than editing the slot they were called
+//     on, so the value a test already holds is unchanged and two clocks built
+//     from one are two clocks. That is what makes
+//     `let base = env(); base.arguments([..])` safe to write twice.
 //
 // `alloc()` and `TestAlloc::allocate` are absent for the reason the module
 // header gives about `core/testing/context`'s: both native backends open-code
@@ -2196,18 +2187,18 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_variables(
     unsafe { out.write(fresh) }
 }
 
-/// `TestEnv::args` — a **new** environment with these arguments and this one's
-/// variables.
+/// `TestEnv::arguments` — a **new** environment with these arguments and this
+/// one's variables.
 ///
-/// `args` rather than `arguments` because `Env` already declares the reader of
-/// that name and a Buri type has one method of each name; the module header
-/// says so where a reader of the source will meet it.
+/// The name the design note asks for, which it can have because `Env`'s reader
+/// moved to `args`; the module header says why where a reader of the source
+/// will meet it.
 ///
 /// # Safety
 /// `xs` points at `count` [`BuriStr`]s; `out` is writable and aligned for an
 /// `i64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_args(
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
     handle: i64,
     xs: *const u8,
     count: u64,
@@ -2240,12 +2231,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_variable(
     unsafe { buri_rt_testing_context_test_env_variable(handle, base, ptr, len, out) }
 }
 
-/// `TestEnv::arguments`.
+/// `TestEnv::args`.
 ///
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_args(
     handle: i64,
     out: *mut BuriList,
 ) {
@@ -2254,52 +2245,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
     unsafe { out.write(value) }
 }
 
-/// `proc()` — nothing has exited.
-///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_proc(out: *mut i64) {
-    let handle = install(Slot::Proc { code: None });
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
-
-/// `TestProc::exitWith` — **records** the exit rather than taking it.
-///
-/// A test that ended the process would take every block after it with it, and
-/// the runner would report a suite that stopped rather than a function that
-/// exited. The *first* code is kept, because a program that exits does not
-/// carry on and a second call is one a real process could never have made.
-#[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_testing_test_proc_exit_with(handle: i64, code: i64) {
-    with(handle, (), |slot| {
-        if let Slot::Proc { code: recorded } = slot {
-            if recorded.is_none() {
-                *recorded = Some(code);
-            }
-        }
-    });
-}
-
-/// `TestProc::exited` — `.Some(code)` or `.None`.
-///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_proc_exited(
-    handle: i64,
-    out: *mut i64,
-) -> i32 {
-    let code = with(handle, None, |slot| match slot {
-        Slot::Proc { code } => *code,
-        _ => None,
-    });
-    let Some(code) = code else { return 0 };
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(code) };
-    BURI_OK
-}
+// `core/host/testing`'s `proc()` has no entries here, and that is the whole of
+// the double: `TestProc` records nothing, because nothing can read it back.
+// `proc()` is `TestProc(0)` and `exitWith` is an empty body, both written in
+// `host_testing.buri` — the same shape `TestNet` has, reached for the plainer
+// reason.
 
 // -- `core/host/testing`'s call log -----------------------------------------
 //

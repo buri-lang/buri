@@ -118,9 +118,19 @@ export effect Rand {
   fn nextFloat(self): Float;
 }
 
+/// The process's environment: its variables and the arguments it was started
+/// with.
+///
+/// `args` and not `arguments`, which is the name a program has always written
+/// — `core/env` exports `args(ctx)`, and it is the only caller of this method.
+/// The spelling is load-bearing rather than a preference: a type's methods are
+/// one map keyed by name, so an implementation of this effect cannot also
+/// carry a *builder* called `arguments`, and `core/host/testing`'s `TestEnv`
+/// is exactly that — `env().arguments([...])` is how a test says what the
+/// arguments are. The reader is the one that gave way.
 export effect Env {
   fn variable(self, name: Str): Option<Str>;
-  fn arguments(self): [Str];
+  fn args(self): [Str];
 }
 
 export effect Proc {
@@ -173,11 +183,12 @@ export effect Proc {
 /// freezing is visible in. A page's concurrency is its event loop.
 ///
 /// How much of it runs at once is a property of the platform and not of this
-/// signature. JavaScript starts the tasks together and awaits them together;
-/// the native runtime runs them in index order on the calling carrier today and
-/// fans them out onto its carrier pool in the slice after this one. Every one of
+/// signature. JavaScript starts the tasks together and awaits them together; the
+/// native runtime fans them out onto its carrier pool, except where a program
+/// has a single Buri stack to hold their frames in — the development backend —
+/// and there it runs them in index order on the calling carrier. Every one of
 /// those answers the same list, because the order promise above is what the
-/// signature commits to and the overlap is not.
+/// signature commits to and the overlap is not. `core/tasks` has the table.
 export effect Tasks {
   /// Runs `f` over every item and answers the results in the items' order,
   /// handing every step `ctx` — the caller's whole context.
