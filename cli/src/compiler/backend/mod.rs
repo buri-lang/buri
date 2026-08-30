@@ -47,7 +47,7 @@ use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::ActionKey;
 use crate::compiler::middle::monomorphize::Program;
 use crate::compiler::semantics::types::Tables;
-use crate::diagnostics::Diagnostics;
+use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use std::path::Path;
 
 /// Which build this run is for.
@@ -257,6 +257,76 @@ pub trait Backend {
     }
 }
 
+/// The intrinsic keys this toolchain cannot answer because its runtime archive
+/// was built without networking.
+///
+/// A second source of "missing intrinsic", beside the one every backend already
+/// answers from its own surface, and a different sentence: a key the backend has
+/// no body for is a toolchain bug to report, and a key the *archive* has no
+/// symbol for is a toolchain built without a capability. Both native backends
+/// fold this into [`Backend::missing_intrinsics`], so a program reaching
+/// networking on a runtime that has none is refused before codegen rather than
+/// at `cc` time with a symbol nobody outside this repository can read.
+///
+/// It answers nothing on an ordinary toolchain: `net` is the runtime's default
+/// feature.
+pub fn networking_gap(program: &Program) -> Vec<String> {
+    networking_gap_when(program, runtime_native::net())
+}
+
+/// [`networking_gap`], with the toolchain's answer as a parameter.
+///
+/// [`runtime_native::net()`] is read from a file baked into this binary, so a
+/// test on a toolchain that *has* networking has no way to ask what one without
+/// it would say. This is that seam, and `networking_gap` is the one line that
+/// binds it to the constant.
+fn networking_gap_when(program: &Program, net: bool) -> Vec<String> {
+    if net {
+        return Vec::new();
+    }
+    let mut keys: Vec<String> = program
+        .funcs
+        .iter()
+        .filter_map(|f| f.intrinsic_key())
+        .filter(|key| runtime_native::net_intrinsic(key))
+        .map(String::from)
+        .collect();
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+/// What [`Backend::missing_intrinsics`] answered, split by what to say about it.
+///
+/// Two causes, and they ask the reader for different things. The first list is
+/// the operations *no* backend can answer because this toolchain's runtime
+/// archive was built without networking — [`no_networking`] is their sentence,
+/// and the way out of it is a different toolchain. The second is everything
+/// else: a key the backend has no body for, which is a toolchain bug, and which
+/// each emission site already has its own sentence for.
+///
+/// Splitting here rather than at each site is what keeps the two sites from
+/// disagreeing about which half a key is in.
+pub fn split_networking(missing: &[String]) -> (Vec<String>, Vec<String>) {
+    split_networking_when(missing, runtime_native::net())
+}
+
+/// [`split_networking`], with the toolchain's answer as a parameter, for the
+/// reason [`networking_gap_when`] takes one.
+fn split_networking_when(missing: &[String], net: bool) -> (Vec<String>, Vec<String>) {
+    missing.iter().cloned().partition(|key| !net && runtime_native::net_intrinsic(key))
+}
+
+/// The refusal for operations this toolchain's runtime has no networking for.
+///
+/// Templated, because the wording is the page's: a reader who meets this has a
+/// toolchain to replace rather than a program to fix, and "report it" — the
+/// fix every other missing intrinsic carries — would be the wrong instruction.
+pub fn no_networking(operations: &[String], span: Span) -> Diagnostic {
+    Diagnostic::templated("networking-not-available", span)
+        .with_bind("operations", crate::diagnostics::names(operations))
+}
+
 /// Combining units into the final artifact.
 ///
 /// Separate from [`Backend`] because the two vary independently: `stencil`
@@ -457,6 +527,162 @@ mod tests {
             unqualified.map(|b| b.name()).unwrap_or("<refused>"),
             qualified.map(|b| b.name()).unwrap_or("<refused>")
         );
+    }
+
+    // -- the networking gap -------------------------------------------------
+    //
+    // None of the keys below exists yet: `host.HostListen.*`,
+    // `host.HostSockets.*` and `host.HostTasks.*` arrive with `core/tasks` and
+    // the server surface. What is being tested is the refusal, which has to be
+    // in place *before* the keys are, or the first toolchain built without
+    // networking meets them as an unresolved symbol from `cc`. A hand-built
+    // program is the honest seam for that: there is no source to compile that
+    // reaches these keys, and writing one that pretended to would be a fixture
+    // asserting a language feature this repository does not have.
+
+    /// A program holding one intrinsic key, and nothing else.
+    fn program_using(keys: &[&str]) -> Program {
+        use crate::compiler::middle::monomorphize::{Func, FuncKind, ProgramRoots};
+        use crate::compiler::semantics::types::Ty;
+        use crate::diagnostics::Span;
+        let funcs = keys
+            .iter()
+            .map(|key| Func {
+                symbol: key.to_string(),
+                debug_name: key.to_string(),
+                params: Vec::new(),
+                locals: Vec::new(),
+                kind: FuncKind::Intrinsic(key.to_string()),
+                ret: Ty::Unit,
+                desc: None,
+                span: Span::default(),
+            })
+            .collect();
+        Program {
+            funcs,
+            roots: ProgramRoots::Main(crate::compiler::semantics::types::FuncIdx(0)),
+            descriptors: Vec::new(),
+            desc_modules: Vec::new(),
+            desc_index: Default::default(),
+            ctx_layouts: Default::default(),
+            shapes: Default::default(),
+            stylesheet: String::new(),
+            inline_styles: false,
+            themes: false,
+        }
+    }
+
+    /// A toolchain whose runtime has no networking cannot answer the family,
+    /// whatever else is in the program.
+    #[test]
+    fn a_runtime_without_networking_reports_the_family() {
+        let program = program_using(&[
+            "host.HostListen.listen",
+            "host.HostSockets.read",
+            "host.HostTasks.parallel",
+            "host.HostFs.readFile",
+            "list.map",
+        ]);
+        assert_eq!(
+            networking_gap_when(&program, false),
+            vec![
+                "host.HostListen.listen".to_string(),
+                "host.HostSockets.read".to_string(),
+                "host.HostTasks.parallel".to_string(),
+            ],
+            "the gap claimed something outside the family, or missed part of it"
+        );
+    }
+
+    /// And a toolchain whose runtime has it reports nothing at all, so the
+    /// ordinary build pays a walk of the function list and no diagnostic.
+    #[test]
+    fn a_runtime_with_networking_reports_nothing() {
+        let program = program_using(&["host.HostListen.listen", "host.HostTasks.parallel"]);
+        assert!(networking_gap_when(&program, true).is_empty());
+    }
+
+    /// The wiring: what the backends call is the parameterised answer at this
+    /// toolchain's own feature state, and not a second reading of it.
+    #[test]
+    fn the_gap_is_the_toolchain_s_answer() {
+        let program = program_using(&["host.HostListen.listen", "host.HostFs.readFile"]);
+        assert_eq!(
+            networking_gap(&program),
+            networking_gap_when(&program, runtime_native::net())
+        );
+        assert_eq!(
+            networking_gap(&program).is_empty(),
+            runtime_native::net(),
+            "an ordinary toolchain has networking and reports no gap"
+        );
+    }
+
+    /// The two causes are two sentences, and the networking one does not say
+    /// "report it": nothing about the program is wrong.
+    #[test]
+    fn a_networking_gap_is_its_own_refusal() {
+        let missing = vec![
+            "host.HostListen.listen".to_string(),
+            "json.encode".to_string(),
+            "host.HostTasks.parallel".to_string(),
+        ];
+        let (networking, rest) = split_networking_when(&missing, false);
+        assert_eq!(networking, vec!["host.HostListen.listen", "host.HostTasks.parallel"]);
+        assert_eq!(rest, vec!["json.encode"]);
+
+        let refusal = no_networking(&networking, Span::NONE);
+        assert_eq!(refusal.code.as_deref(), Some("networking-not-available"));
+        assert!(
+            refusal.message.contains("`host.HostListen.listen`")
+                && refusal.message.contains("`host.HostTasks.parallel`"),
+            "the refusal names neither operation: {}",
+            refusal.message
+        );
+        assert!(refusal.message.contains("without networking"), "{}", refusal.message);
+        let fix = refusal.fix.clone().expect("the page carries a fix");
+        assert!(fix.contains("net"), "the fix does not name the feature: {fix}");
+        assert!(!fix.contains("report it"), "a missing capability is not a bug report: {fix}");
+    }
+
+    /// With networking present, every missing key is the backend's own gap —
+    /// the split is not a reclassification of keys a toolchain can answer.
+    #[test]
+    fn networking_present_leaves_every_key_where_it_was() {
+        let missing = vec!["host.HostListen.listen".to_string(), "json.encode".to_string()];
+        let (networking, rest) = split_networking_when(&missing, true);
+        assert!(networking.is_empty());
+        assert_eq!(rest, missing);
+        assert_eq!(
+            split_networking(&missing),
+            split_networking_when(&missing, runtime_native::net())
+        );
+    }
+
+    /// Both native backends consult it, rather than one of them.
+    ///
+    /// Asserted through `Backend::missing_intrinsics` — the trait method the
+    /// build system and `buri test` actually ask — so a backend that stopped
+    /// folding the gap in fails here rather than at somebody's link step.
+    #[test]
+    fn both_native_backends_report_a_networking_key() {
+        let key = "host.HostListen.listen";
+        let program = program_using(&[key]);
+        let tables = Tables::default();
+        let reports = |missing: Vec<String>| missing.iter().any(|k| k == key);
+        #[cfg(feature = "backend-stencil")]
+        assert!(
+            reports(stencil::Stencil.missing_intrinsics(&program, &tables)),
+            "the stencil backend claimed a key no runtime answers"
+        );
+        #[cfg(feature = "backend-llvm")]
+        assert!(
+            reports(llvm::Llvm.missing_intrinsics(&program, &tables)),
+            "the llvm backend claimed a key no runtime answers"
+        );
+        // A toolchain with neither native backend has nothing to ask, and the
+        // bindings above are then unused rather than wrong.
+        let _ = (&program, &tables, reports);
     }
 
     /// The release path is unchanged by the development backend's arrival: a

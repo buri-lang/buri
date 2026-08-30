@@ -98,6 +98,16 @@
 //!   rustc` cannot tell the two failures apart, and "the archive quietly went
 //!   empty because a crate failed to compile" is precisely the silent green
 //!   that `.github/scripts/assert-runtime-archive.sh` exists to refuse.
+//!
+//! * **The archive says which features it was built with.** `libburi_rt.a.features`
+//!   is written beside the archive and beside its digest, holding the feature
+//!   names one to a line — `net`, today — and empty when there is no archive at
+//!   all. `runtime_native::net()` reads it, and `Backend::missing_intrinsics`
+//!   turns it into a diagnostic naming the effect rather than a link error
+//!   naming a symbol. A file rather than a `cargo:rustc-env` for the reason
+//!   `digest_beside` already gives: the bytes, their digest and their feature
+//!   list are written by one run of this script into one `OUT_DIR`, so a stale
+//!   directory cannot pair one build's archive with another's answer.
 
 #![allow(
     clippy::print_stderr,
@@ -189,6 +199,27 @@ fn digest_beside(out: &Path) {
         out.file_name().and_then(|n| n.to_str()).unwrap_or_default()
     ));
     if let Err(e) = std::fs::write(&path, sha256::hash_bytes(&bytes)) {
+        fail(&format!("could not write {}: {e}", path.display()));
+    }
+}
+
+/// Writes `<out>.features` beside the runtime archive: the Cargo features it
+/// was built with, one per line, and empty when there is no archive.
+///
+/// The toolchain reads it with `include_str!` of the same shape
+/// [`digest_beside`]'s output is read with, and for the same reason — one
+/// `OUT_DIR`, one run of this script, so the answer cannot be paired with
+/// another build's bytes.
+///
+/// A list rather than a bool because `net-h3` is already planned: a second
+/// feature is a second line here and a second `runtime_native::declares` call
+/// there, and nothing about the file's shape has to change.
+fn features_beside(out: &Path, features: &[&str]) {
+    let path = out.with_file_name(format!(
+        "{}.features",
+        out.file_name().and_then(|n| n.to_str()).unwrap_or_default()
+    ));
+    if let Err(e) = std::fs::write(&path, features.join("\n")) {
         fail(&format!("could not write {}: {e}", path.display()));
     }
 }
@@ -388,6 +419,9 @@ fn runtime_archive(manifest: &Path) {
         // signal, `runtime_native::AVAILABLE` reads it, and there is no
         // conditional compilation for a `check-cfg` list to have to know about.
         write_empty(&out);
+        // No archive is no features, and the file exists on every path because
+        // the toolchain `include_str!`s it unconditionally.
+        features_beside(&out, &[]);
         return;
     }
 
@@ -437,6 +471,7 @@ fn runtime_archive(manifest: &Path) {
                      `BURI_RUNTIME_NET=0` builds the runtime without the networking crates."
                 );
                 write_empty(&out);
+                features_beside(&out, &[]);
                 return;
             }
         },
@@ -489,6 +524,11 @@ fn runtime_archive(manifest: &Path) {
         ));
     }
     digest_beside(&out);
+    // What the build asked for and got: `--no-default-features` above is the
+    // only way `net` is off, and a tree that resolved and compiled is one whose
+    // features are the ones named on the command line.
+    let features: &[&str] = if net { &["net"] } else { &[] };
+    features_beside(&out, features);
 }
 
 // ---------------------------------------------------------------------------

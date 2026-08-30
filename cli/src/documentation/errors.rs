@@ -155,6 +155,10 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("module-doc-not-first", "`//!` documents the module, so it comes first"),
     e!("module-not-found", "A module path names exactly one file"),
     e!("module-outside-repository", "A `//` path needs a repository to be relative to"),
+    e!(
+        "networking-not-available",
+        "A program that uses the network needs a toolchain built with networking"
+    ),
     e!("no-assignment", "A binding is given its value once"),
     e!("no-main", "A binary is entered through `main`", &["build/build-files"]),
     e!("no-structural-derive", "Only some traits have a structural derivation"),
@@ -217,6 +221,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("self-outside-a-method", "`self` is legal only in a method body"),
     e!("self-type-outside-impl", "`Self` names the implementing type"),
     e!("self-with-a-type", "`self` is written without a type", &["lang/expressions"]),
+    e!("signature-mismatch", "An `impl` supplies the signature its trait declares"),
     e!("statement-not-unit", "A statement's value is used or bound"),
     e!("struct-literal-head", "A struct literal is headed by a type"),
     e!(
