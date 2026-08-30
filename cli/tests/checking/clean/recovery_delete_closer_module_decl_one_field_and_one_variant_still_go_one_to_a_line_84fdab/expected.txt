@@ -1,0 +1,16 @@
+error: a record field ends with `,` [missing-separator]
+ --> main.buri:3:37
+  |
+3 | export struct Point { x: Int, y: Int 
+  |                                     ^
+  |
+  = fix: write `,` here
+error: expected an identifier, found `struct` [unexpected-token]
+ --> main.buri:5:8
+  |
+5 | export struct One { only: Int }
+  |        ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `struct`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

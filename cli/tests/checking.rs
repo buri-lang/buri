@@ -90,10 +90,21 @@ const FLOOR: usize = 250;
 
 /// What share of the corpus may be a cascade, as a percentage.
 ///
-/// `recovery.rs` measures the honest residue at 12% to 22% per mutation shape
-/// over the whole population, and this corpus is drawn flat across those
-/// shapes. Twenty-eight is that, rounded up with margin: it is a ratchet on
-/// the recovery, and the number to lower after the next round of work.
+/// `recovery.rs` measures the honest residue of `a syntax error stays a syntax
+/// error` at 12.2%, 1.9%, 5.2%, 17.7% and 22.4% per mutation shape over the
+/// whole population, and caps its widest row at 24. This corpus is drawn flat
+/// across those shapes, so its rate is a blend of them and cannot exceed the
+/// widest. Twenty-eight is that row's own ceiling with margin over the blend:
+/// a ratchet on the recovery, and the number to lower after the next round of
+/// work.
+///
+/// Measured at 21% (160 of 763) after the formatter style change and the
+/// `circular-type-alias` diagnostic landed — down from 22% (161 of 732),
+/// because the cases the style change added to the draw are struct and enum
+/// declarations whose mistakes stay inside the declaration. The ceiling did
+/// not move: it is derived from `recovery.rs`'s population rates above, not
+/// fitted to this corpus's draw, which is the whole point of stating it as a
+/// rate.
 const CASCADE_CEILING: usize = 28;
 
 fn corpus_dir() -> PathBuf {

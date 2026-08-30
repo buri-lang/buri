@@ -12,7 +12,7 @@ error: this statement has type `Str`, not `()` [statement-not-unit]
 7 |   if (n == 0) { "zero" } else { } "some"
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
-  = only a call whose type is `()` may stand alone; bind anything else
+  = only an expression whose type is `()` may stand alone; bind anything else
   = fix: bind it with `let _ = ...;`
 error: expected `Str`, found `()` [type-mismatch]
  --> lib/recovery_swap_adjacent_brace_cents_67ca05/lib.buri:7:31
@@ -23,7 +23,7 @@ error: expected `Str`, found `()` [type-mismatch]
   = expected: `Str`
   = actual: `()`
   = fix: produce a `Str` here, or change what surrounds it to accept a `()`
-error: a statement ends with `;` [missing-terminator]
+error: an `if` used as a statement ends with `;` [missing-terminator]
  --> lib/recovery_swap_adjacent_brace_cents_67ca05/lib.buri:7:34
   |
 7 |   if (n == 0) { "zero" } else { } "some"

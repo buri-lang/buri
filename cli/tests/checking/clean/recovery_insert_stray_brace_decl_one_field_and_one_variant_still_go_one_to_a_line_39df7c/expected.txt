@@ -1,0 +1,9 @@
+error: expected `:`, found `@` [unexpected-token]
+ --> main.buri:3:24
+  |
+3 | export struct Point { x@ : Int, y: Int }
+  |                        ^
+  |
+  = expected: `:`
+  = actual: `@`
+  = fix: write `:` here

@@ -19,9 +19,17 @@ let SEED: [U32 = [
 ];
 
 derive Eq, Ord for Working;
-export struct Working { export a: U32, export b: U32, export h: U32 }
+export struct Working {
+    export a: U32,
+    export b: U32,
+    export h: U32,
+}
 
-export enum Shape { Circle(Float), Rect { width: Float, height: Float }, Empty }
+export enum Shape {
+    Circle(Float),
+    Rect { width: Float, height: Float },
+    Empty,
+}
 
 export trait Weigh {
     fn grams<C: Alloc + Stdout>(self, ctx: C, scale: Str): Float;

@@ -1,4 +1,0 @@
-// the repository
-from "//lib/z" import { Zed };
-// the standard library
-extra from "core/str" import * as str;

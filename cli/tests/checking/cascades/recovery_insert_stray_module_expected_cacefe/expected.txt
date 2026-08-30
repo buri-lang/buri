@@ -12,4 +12,4 @@ error: "core/list" does not export `extra` [no-such-export]
   |                                     ^^^^^
   |
   = a re-export may name only what its module path exports
-  = fix: add `export` to `extra`'s declaration in "core/list", or drop it from this list
+  = fix: check the spelling, or drop `extra` from this list

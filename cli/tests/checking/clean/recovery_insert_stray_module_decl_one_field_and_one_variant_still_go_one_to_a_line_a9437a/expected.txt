@@ -1,0 +1,7 @@
+error: an enum variant ends with `,` [missing-separator]
+ --> main.buri:9:24
+  |
+9 | export enum Just { Here extra }
+  |                        ^
+  |
+  = fix: write `,` here

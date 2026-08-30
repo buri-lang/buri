@@ -14,7 +14,10 @@ let MAX_CENTS: I64 = 100_000_000;
 // `assert.eq` needs `Eq` to compare and `Show` to render a failure, so an error
 // type a test asserts on derives both.
 derive Eq, Show for ParseError;
-export enum ParseError { NotANumber { text: Str }, TooLarge }
+export enum ParseError {
+    NotANumber { text: Str },
+    TooLarge,
+}
 
 /// Pure: no `ctx` parameter, so it cannot allocate, and the compiler holds that.
 /// Parsing stays pure; only the caller that read the string did any I/O.

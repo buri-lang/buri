@@ -6,7 +6,9 @@ from "//lib/store/codec" import { encode };
 
 // `assert.ok` renders the error when it fails, so this needs `Show`.
 derive Show for StoreError;
-export enum StoreError { Io(IoError) }
+export enum StoreError {
+    Io(IoError),
+}
 
 /// Every function here names `Fs` in its bounds, so the disk is visible in the
 /// signature. The tag on this library is the second line of defence, not the

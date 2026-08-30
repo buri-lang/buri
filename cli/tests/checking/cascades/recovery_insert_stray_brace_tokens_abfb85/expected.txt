@@ -12,9 +12,9 @@ error: this statement has type `Color`, not `()` [statement-not-unit]
 38 |     match (self) {
    |     ^^^^^^^^^^^^^^
    |
-   = only a call whose type is `()` may stand alone; bind anything else
+   = only an expression whose type is `()` may stand alone; bind anything else
    = fix: bind it with `let _ = ...;`
-error: a statement ends with `;` [missing-terminator]
+error: a `match` used as a statement ends with `;` [missing-terminator]
   --> main.buri:43:6
    |
 43 |     }

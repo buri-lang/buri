@@ -12,7 +12,7 @@ error: this statement has type `Str`, not `()` [statement-not-unit]
 7 |   if (n == 0) { "zero" } else { "some" extra }
   |                                 ^^^^^^
   |
-  = only a call whose type is `()` may stand alone; bind anything else
+  = only an expression whose type is `()` may stand alone; bind anything else
   = fix: bind it with `let _ = ...;`
 error: a statement ends with `;` [missing-terminator]
  --> lib/recovery_insert_stray_brace_cents_e7b9fc/lib.buri:7:39
