@@ -26,14 +26,15 @@
 {"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n    Cents(c)\n}\n\nexport fn double(c: Cents): Cents {\n    fromCents(c.0 + c.0)\n}\n\nexport fn triple(c: Cents): Cents {\n    fromCents(c.0 + c.0 + c.0)\n}\n"}]}}
 {"jsonrpc": "2.0", "id": 7, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "options": {"tabSize": 4, "insertSpaces": true}}}
 {"jsonrpc": "2.0", "id": 8, "method": "textDocument/rangeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 14, "character": 0}}, "options": {"tabSize": 4, "insertSpaces": true}}}
-# And a buffer mid-edit, which does not parse. The formatter refuses to emit
-# anything it cannot re-read, so a range of it is left alone rather than
-# mangled — the same rule the whole-file answer follows.
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 3}, "contentChanges": [{"text": "derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n"}]}}
+# And a buffer mid-edit: `fromCents` has been opened and not closed, so the
+# file does not parse. The struct above it is un-formatted, and the point of
+# the two requests below is that it still gets laid out — the declaration the
+# parser could not read is what is left alone, not the file around it.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 3}, "contentChanges": [{"text": "derive Eq, Show for Cents;\nexport struct Cents(  export I64 );\n\nexport fn fromCents(c: I64): Cents {\n"}]}}
 {"jsonrpc": "2.0", "id": 9, "method": "textDocument/rangeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 3, "character": 0}}, "options": {"tabSize": 4, "insertSpaces": true}}}
-# The whole file, on the same buffer that does not parse. The formatter
-# refuses to print what it could not read, so the answer is no edits and
-# the text is left exactly as the person typing it left it.
+# The whole file, on the same buffer that does not parse. The struct is
+# rewritten and the half-typed function comes back byte for byte, which is
+# the same answer the range above gave for the lines it covered.
 {"jsonrpc": "2.0", "id": 10, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "options": {"tabSize": 4, "insertSpaces": true}}}
 {"jsonrpc": "2.0", "id": 11, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

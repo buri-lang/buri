@@ -7,7 +7,7 @@
 {"id":6,"jsonrpc":"2.0","result":[{"newText":"export fn fromCents(c: I64): Cents {\n","range":{"end":{"character":0,"line":4},"start":{"character":0,"line":3}}},{"newText":"export fn triple(c: Cents): Cents {\n    fromCents(c.0 + c.0 + c.0)\n","range":{"end":{"character":0,"line":13},"start":{"character":0,"line":11}}}]}
 {"id":7,"jsonrpc":"2.0","result":[]}
 {"id":8,"jsonrpc":"2.0","result":[]}
-{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[{"code":"unexpected-token","message":"expected `}`, found end of file","range":{"end":{"character":0,"line":4},"start":{"character":0,"line":4}},"relatedInformation":[{"location":{"range":{"end":{"character":0,"line":4},"start":{"character":0,"line":4}},"uri":"file://<scratch>/lib/money/cents.buri"},"message":"fix: write `}` here"}],"severity":1,"source":"buri"}],"uri":"file://<scratch>/lib/money/cents.buri"}}
-{"id":9,"jsonrpc":"2.0","result":[]}
-{"id":10,"jsonrpc":"2.0","result":[]}
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[{"code":"unclosed-delimiter","message":"this function body is missing its closing `}`","range":{"end":{"character":0,"line":4},"start":{"character":0,"line":4}},"relatedInformation":[{"location":{"range":{"end":{"character":0,"line":4},"start":{"character":0,"line":4}},"uri":"file://<scratch>/lib/money/cents.buri"},"message":"fix: write `}` here"},{"location":{"range":{"end":{"character":36,"line":3},"start":{"character":35,"line":3}},"uri":"file://<scratch>/lib/money/cents.buri"},"message":"opened here"}],"severity":1,"source":"buri"}],"uri":"file://<scratch>/lib/money/cents.buri"}}
+{"id":9,"jsonrpc":"2.0","result":[{"newText":"export struct Cents(export I64);\n","range":{"end":{"character":0,"line":2},"start":{"character":0,"line":1}}}]}
+{"id":10,"jsonrpc":"2.0","result":[{"newText":"derive Eq, Show for Cents;\nexport struct Cents(export I64);\n\nexport fn fromCents(c: I64): Cents {\n","range":{"end":{"character":0,"line":4},"start":{"character":0,"line":0}}}]}
 {"id":11,"jsonrpc":"2.0","result":null}

@@ -1,0 +1,8 @@
+export struct Route { export name: Str }
+
+export fn route(path: Str): Route {
+  match (path) {
+    "/entries" => Route { name: "entries" }
+    _ => Route { name: "fallback" },
+  }
+}

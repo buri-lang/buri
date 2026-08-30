@@ -1,0 +1,5 @@
+error [missing-separator] 9:12-9:12
+message: a variant-pattern field ends with `,`
+fix: write `,` here
+edit: 9:12-9:12 ","
+

@@ -19,19 +19,3 @@ error: a rest pattern must come last [rest-pattern-not-last]
     rest in the middle would make matching a search rather than a walk, and the
     cost would be paid on every array pattern in the language.
 
-error: expected a pattern, found `..` [unexpected-token]
- --> cmd/array_two_rest_patterns/main.buri:7:14
-  |
-7 |     [..a, m, ..b] => m,
-  |              ^^
-  |
-  = expected: a pattern
-  = actual: `..`
-  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
-
-    What to do
-    ──────────
-
-    Write what the message names. This is the parser's catch-all, so the useful
-    half of it is always the "expected" part.
-

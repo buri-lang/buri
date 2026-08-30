@@ -189,7 +189,7 @@ fn item_symbol(text: &str, module: &Module, item: &Item) -> Option<Value> {
         Item::Test(d) => {
             Some(symbol(text, &d.name, kind::FUNCTION, d.span, d.name_span, Vec::new()))
         }
-        Item::Import(_) | Item::ReExport(_) | Item::Derive(_) => None,
+        Item::Import(_) | Item::ReExport(_) | Item::Derive(_) | Item::Error(_) => None,
     }
 }
 

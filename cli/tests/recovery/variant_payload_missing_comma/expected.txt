@@ -1,0 +1,5 @@
+error [missing-separator] 3:13-3:13
+message: a variant payload field ends with `,`
+fix: write `,` here
+edit: 3:13-3:13 ","
+

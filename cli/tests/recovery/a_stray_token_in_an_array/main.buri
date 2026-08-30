@@ -1,0 +1,4 @@
+// EXPECT: expected an expression, found `@`
+export fn seeds(): [Int] {
+  [1, @, 3]
+}
