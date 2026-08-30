@@ -1472,6 +1472,15 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "list.len",
     "list.map",
     "list.mapCtx",
+    // The closure trampoline's pilot (`backend/intrinsic_keys.rs`'s
+    // `step_call`). Its erasure is sound for the same reason every row above it
+    // is, and the carrier is the same one: a **stride**, and a function this
+    // backend generated. `Extra::Step` carries two strides — the source
+    // element's and the result's, because a `map` reads a `[A]` and writes a
+    // `[B]` — and the **entry thunk**, which is generated at the call site
+    // where `A` and `B` are known and is the only thing that ever calls the
+    // step. Nothing about either type reaches `cli/runtime/list.rs`.
+    "list.mapCtxStep",
     "list.push",
     "list.range",
     "list.repeat",
@@ -1791,7 +1800,8 @@ mod tests {
         list.all list.any list.concat list.count list.drop list.empty \
         list.filter list.filterCtx list.find list.findIndex list.flatten \
         list.fold list.foldCtx list.foldResult list.foldResultCtx list.get \
-        list.join list.len list.map list.mapCtx list.push list.range \
+        list.join list.len list.map list.mapCtx list.mapCtxStep list.push \
+        list.range \
         list.repeat list.reverse list.slice list.sortBy list.take list.zip \
         num.maxValue num.minValue \
         str.chars str.concat str.format str.fromChars str.fromFloat \
