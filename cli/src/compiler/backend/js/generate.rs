@@ -123,6 +123,10 @@ pub struct Gen<'a> {
     /// `middle::rc` run with `Options::sharing`. Empty for a `Gen` that is only
     /// being asked which intrinsics exist.
     sharing: rc::Plan,
+    /// One row per `Program::funcs` slot: whether it is printed `async`. See
+    /// [`waiting_functions`]. Empty for a `Gen` that is only being asked which
+    /// intrinsics exist, where nothing is emitted and so nothing is awaited.
+    waits: Vec<bool>,
 }
 
 /// The runtime's exports, so a missing one is a build error rather than a
@@ -180,7 +184,18 @@ impl<'a> Gen<'a> {
             const_index: HashMap::default(),
             in_context: false,
             sharing: rc::Plan::default(),
+            waits: Vec::new(),
         }
+    }
+
+    /// Whether the function in slot `index` is one this backend prints
+    /// `async`, and so whether a call to it has to be awaited.
+    ///
+    /// "Is this printed `async`" and "is this call awaited" are the same
+    /// question asked at the two ends of one call, so both read this. See
+    /// [`waiting_functions`] for where the answer comes from.
+    fn parks(&self, index: usize) -> bool {
+        self.waits.get(index).copied().unwrap_or(false)
     }
 
     /// The marks for one body, from the plan's node numbers and one pre-order
@@ -258,6 +273,7 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     // The ownership half of `middle::rc`, which this branch of the pipeline
     // runs for its increments alone. MEMORY.md §5.5.
     g.sharing = rc::sharing(program);
+    g.waits = waiting_functions(program);
 
     let mut stmts = Vec::new();
     // A program that reaches the filesystem or standard input needs node's
@@ -358,6 +374,18 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
 
     for (fi, f) in program.funcs.iter().enumerate() {
         g.func = FnState::for_locals(&f.locals);
+        // `async` iff this instantiation waits. A suspending intrinsic's own
+        // wrapper is included: no `await` lands in it, but it returns what
+        // the host hands back, and an `async` function returns that through
+        // the promise its caller is already awaiting.
+        let is_async = g.parks(fi);
+        debug_assert!(
+            !is_async || g.sharing.funcs.get(fi).is_none_or(|p| p.can_park),
+            "{} is printed `async` but `rc`'s `can_park` column says it cannot \
+             park; the column is the over-approximation and this set is inside \
+             it, never the other way round",
+            f.debug_name
+        );
         if let Some(marks) = g.sharing.funcs.get(fi).map(|plan| g.marks_for(f, plan)) {
             g.func.marks = marks;
         }
@@ -402,7 +430,7 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
                 vec![Expr::Str(format!("{} was never built", f.debug_name))],
             ))],
         };
-        stmts.push(Stmt::Func { name: f.symbol.clone(), params, body });
+        stmts.push(Stmt::Func { name: f.symbol.clone(), params, body, is_async });
     }
 
     // The shared constants the bodies above reached for, spliced in ahead of
@@ -432,8 +460,13 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
             .symbol
             .clone();
         roots.push(sym.clone());
+        // Awaited only when the entry itself parks, so an artifact whose
+        // `main` never waits is the same bytes it was before this transform.
+        // The epilogue is module top level, where `await` is available
+        // because every artifact this backend writes is an ES module.
+        let wait = if g.parks(entry) { "await " } else { "" };
         stmts.push(Stmt::Raw(format!(
-            "try{{const r={sym}();$host.flush();\
+            "try{{const r={wait}{sym}();$host.flush();\
              if(r[0]!==0){{$write(2,$str(r[1])+\"\\n\");\
              if(typeof process!==\"undefined\")process.exit(1);}}}}\
              catch(e){{$host.flush();\
@@ -455,6 +488,86 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     }
 
     Output { stmts, roots, missing_intrinsics: g.missing }
+}
+
+/// The functions this backend prints `async`: those that reach a host call
+/// that blocks, through calls it can name.
+///
+/// `middle::rc`'s `can_park` column asks a neighbouring question — *may this
+/// function wait* — and answers `true` at an indirect call, because a code
+/// pointer has no name and the conservative direction is the safe one. That
+/// direction is free on the native backends, where the column decides how
+/// much stack a call may need. It is not free here. `async` is not a property
+/// a caller may ignore: an `async` function returns a promise whether or not
+/// it ever waits, and this artifact hands function values to JavaScript that
+/// cannot await one — a `view` given to `mount`, the row callbacks inside
+/// `ui.each`, the callback of `$list_mapCtx`, a sort comparator. Printing
+/// `Prop.read` `async` because one of its three arms calls a function value
+/// is what turns `ui.each`'s row count into a promise and its duplicate-key
+/// check into a no-op.
+///
+/// So the set is computed over the same call graph, from the same seed —
+/// `rc::suspends`, the one list of blocking host keys — with the one arm that
+/// cannot be honoured left out: an indirect call contributes nothing.
+///
+/// What that gives up is a *function value* that parks, called through a
+/// position this pass cannot resolve. Nothing in the language builds one
+/// today: a lambda may not capture a context (`middle::closures`), so it can
+/// park only through a context *parameter*, which only the `*Ctx` combinators
+/// supply, and no callback handed to one in this tree reaches a host call
+/// that waits. Track B's precision slice is where `can_park` learns to name
+/// the targets a `Ty::Fn` position can hold; on the day it lands, the column
+/// *is* this set, and this walk goes away in favour of reading it.
+///
+/// The two are checked against each other where the flag is used: this set is
+/// inside `can_park`, always.
+fn waiting_functions(program: &Program) -> Vec<bool> {
+    let mut waits: Vec<bool> = program
+        .funcs
+        .iter()
+        .map(|f| match &f.kind {
+            FuncKind::Intrinsic(key) => rc::suspends(key),
+            // An unbuilt body is lowered to a throw, which is the one thing
+            // that certainly does not wait.
+            FuncKind::Unbuilt | FuncKind::Body(_) => false,
+        })
+        .collect();
+    // The same fixpoint `rc::infer_effects` runs, over the same arms, minus
+    // the indirect ones. Monotone — a row only ever climbs — so a row already
+    // `true` is skipped and the loop terminates in at most one pass per edge.
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (i, f) in program.funcs.iter().enumerate() {
+            if waits.get(i).copied() != Some(false) {
+                continue;
+            }
+            let Some(body) = f.body() else { continue };
+            let mut k = false;
+            typed::walk(body, &mut |e| match &e.kind {
+                ExprKind::CallFn { func, .. } => {
+                    if let Some(c) = func.func() {
+                        k = k || waits.get(c.index()).copied().unwrap_or(false);
+                    }
+                }
+                // A jump into another function's loop is a call.
+                ExprKind::Continue { func: Some(c), .. } => {
+                    k = k || waits.get(c.index()).copied().unwrap_or(false);
+                }
+                // A host call spelled as an inline node rather than reached
+                // through an intrinsic *function*; the same seed answers both.
+                ExprKind::Intrinsic { name, .. } => k = k || rc::suspends(name),
+                _ => {}
+            });
+            if k {
+                if let Some(slot) = waits.get_mut(i) {
+                    *slot = true;
+                }
+                changed = true;
+            }
+        }
+    }
+    waits
 }
 
 /// Whether any reachable intrinsic touches the host filesystem.
@@ -842,6 +955,7 @@ fn survey_args(e: &Expr, under_cond: bool, out: &mut ArgUse) {
         }
         Expr::Arrow { body, .. } => survey_args(body, true, out),
         Expr::ArrowBlock { .. } => {}
+        Expr::Await(x) => survey_args(x, under_cond, out),
         Expr::Spread(x) => survey_args(x, under_cond, out),
         _ => {}
     }
@@ -972,6 +1086,7 @@ fn reads_ident(e: &Expr, name: &str) -> bool {
         // A closure body is not walked, so a capture is assumed to read
         // everything: the conservative answer is the safe one here.
         Expr::ArrowBlock { .. } => true,
+        Expr::Await(x) => reads_ident(x, name),
         Expr::Spread(x) => reads_ident(x, name),
         _ => false,
     }
@@ -992,6 +1107,7 @@ fn js_size(e: &Expr) -> usize {
         Expr::Cond { test, cons, alt } => js_size(test) + js_size(cons) + js_size(alt),
         Expr::Assign { target, value } => js_size(target) + js_size(value),
         Expr::Arrow { body, .. } => js_size(body),
+        Expr::Await(x) => js_size(x),
         Expr::Spread(x) => js_size(x),
         _ => 0,
     }
@@ -1821,11 +1937,18 @@ impl<'a> Gen<'a> {
                     return self.abort_unmonomorphized();
                 };
                 let args = self.exprs(args, out);
-                if let Some(x) = self.inline_intrinsic(idx.index(), &args) {
-                    return x;
-                }
-                Expr::call(Expr::ident(self.symbol(idx.index())), args)
+                let parks = self.parks(idx.index());
+                let call = match self.inline_intrinsic(idx.index(), &args) {
+                    // An inlined intrinsic is the same callee spelled at the
+                    // call site, so it is awaited on the same answer.
+                    Some(x) => x,
+                    None => Expr::call(Expr::ident(self.symbol(idx.index())), args),
+                };
+                if parks { Expr::awaited(call) } else { call }
             }
+            // Not awaited: the callee is a function value, and
+            // [`waiting_functions`] is the argument for why no function value
+            // this backend emits is `async`.
             ExprKind::CallValue { callee, args } => {
                 let c = self.expr(callee, out);
                 let args = self.exprs(args, out);
@@ -1972,12 +2095,24 @@ impl<'a> Gen<'a> {
                 out.extend(body);
                 Expr::ident(name)
             }
+            // A lambda is not a `Program::funcs` slot on this branch — it is
+            // an arrow printed where it stands — so it has no row in
+            // [`waiting_functions`], and the emitted body is asked instead:
+            // `async` exactly when an `await` landed in it.
+            //
+            // The function *holding* the lambda is `async` either way: that
+            // walk descends into a lambda body, so a call that puts an
+            // `await` here has already marked the function the lambda sits
+            // in. And an arrow printed `async` is a promise handed to
+            // whoever calls it — see [`waiting_functions`] for why no
+            // program in this tree builds one.
             ExprKind::Lambda { params, body, .. } => {
                 let names: Vec<String> =
                     params.iter().map(|p| self.local_name_of(p)).collect();
                 let mut inner = Vec::new();
                 self.tail(body, &mut inner);
-                Expr::ArrowBlock { params: names, body: inner }
+                let is_async = javascript::has_await(&inner);
+                Expr::ArrowBlock { params: names, body: inner, is_async }
             }
             // Entering the function a mutually tail-recursive group was merged
             // into: an ordinary call, plus the entry, which is what the
@@ -1986,7 +2121,8 @@ impl<'a> Gen<'a> {
                 let args = std::iter::once(Expr::Num(*entry as f64))
                     .chain(self.exprs(args, out))
                     .collect();
-                Expr::call(Expr::ident(self.symbol(target.index())), args)
+                let call = Expr::call(Expr::ident(self.symbol(target.index())), args);
+                if self.parks(target.index()) { Expr::awaited(call) } else { call }
             }
             // A jump back to the top of a loop is statements, and `tail` is
             // the only place they can go; a loop is a whole function body, and
@@ -2164,7 +2300,7 @@ impl<'a> Gen<'a> {
             ExprKind::CtxCall { .. } => Expr::Num(0.0),
             ExprKind::Intrinsic { name, args, .. } => {
                 let a = self.exprs(args, out);
-                match name.as_str() {
+                let e = match name.as_str() {
                     "structuralEq" => {
                         // The last argument is the type descriptor, which the
                         // generic walker would have to interpret at run time
@@ -2207,7 +2343,12 @@ impl<'a> Gen<'a> {
                         self.missing.push(other.to_string());
                         Expr::Num(0.0)
                     }
-                }
+                };
+                // A host call spelled as an inline node rather than reached
+                // through an intrinsic *function*. `rc::suspends` is the seed
+                // list the column itself is built from, so the two spellings
+                // cannot disagree about which of them waits.
+                if rc::suspends(name) { Expr::awaited(e) } else { e }
             }
             ExprKind::Error => Expr::Num(0.0),
         }
@@ -2627,6 +2768,9 @@ impl<'a> Gen<'a> {
             name: eq_name(i),
             params: vec!["a".into(), "b".into()],
             body,
+            // Structural equality is a walk over values the program already
+            // holds; nothing in one waits.
+            is_async: false,
         })
     }
 
@@ -2653,10 +2797,16 @@ impl<'a> Gen<'a> {
             name: "$cases".into(),
             init: Some(Expr::Array(cases)),
         });
+        // `async`, and each case awaited, because a test that reaches a
+        // suspending host call is printed `async` and hands back a promise —
+        // one that would otherwise be recorded as a pass before the test had
+        // run. Awaiting a case that is not `async` costs a microtask and
+        // changes nothing, which is why this is unconditional: the driver is
+        // one function shared by every case in the artifact.
         Stmt::Raw(format!(
-            "{}function $run(filter){{const out=[];for(const[n,m,f]of $cases){{\
+            "{}async function $run(filter){{const out=[];for(const[n,m,f]of $cases){{\
              if(filter&&!n.includes(filter))continue;\
-             const started=Date.now();try{{f();out.push({{name:n,module:m,ok:true,ms:Date.now()-started}});}}\
+             const started=Date.now();try{{await f();out.push({{name:n,module:m,ok:true,ms:Date.now()-started}});}}\
              catch(e){{out.push({{name:n,module:m,ok:false,ms:Date.now()-started,\
              error:e&&e.$assert?e.$assert:{{message:String(e&&e.message||e)}},\
              stack:e&&e.stack||\"\"}});}}}}\

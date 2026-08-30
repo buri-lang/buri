@@ -31,7 +31,10 @@ pub enum VarKind {
 #[derive(Clone, Debug)]
 pub enum Stmt {
     Var { kind: VarKind, name: String, init: Option<Expr> },
-    Func { name: String, params: Vec<String>, body: Vec<Stmt> },
+    /// A function declaration. `is_async` is the `async` keyword, printed
+    /// when the middle end says this instantiation can park; see
+    /// [`Expr::Await`].
+    Func { name: String, params: Vec<String>, body: Vec<Stmt>, is_async: bool },
     Return(Option<Expr>),
     If { cond: Expr, then: Vec<Stmt>, else_: Vec<Stmt> },
     While { cond: Expr, body: Vec<Stmt> },
@@ -165,9 +168,17 @@ pub enum Expr {
     Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr> },
     Cond { test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr> },
     Assign { target: Box<Expr>, value: Box<Expr> },
-    Arrow { params: Vec<String>, body: Box<Expr> },
+    Arrow { params: Vec<String>, body: Box<Expr>, is_async: bool },
     /// An arrow whose body is a block, for anything that needs statements.
-    ArrowBlock { params: Vec<String>, body: Vec<Stmt> },
+    ArrowBlock { params: Vec<String>, body: Vec<Stmt>, is_async: bool },
+    /// `await e`.
+    ///
+    /// A function this backend prints `async` returns a promise whether or
+    /// not its body ever waits, so every call to one is awaited. On a value
+    /// that is not a promise `await` resolves in a microtask and observes
+    /// nothing, which is what makes the transform inert until the host bodies
+    /// underneath it become asynchronous.
+    Await(Box<Expr>),
     /// An immediately-invoked arrow, which is how a block-valued expression is
     /// spelled where JavaScript wants an expression.
     Seq(Vec<Expr>),
@@ -205,13 +216,23 @@ impl Expr {
         Expr::Ident(name.into())
     }
 
+    /// `await e`, folded through a nested `await` so the printer never emits
+    /// `await await`.
+    pub fn awaited(e: Expr) -> Expr {
+        match e {
+            Expr::Await(_) => e,
+            _ => Expr::Await(Box::new(e)),
+        }
+    }
+
     fn prec(&self) -> u8 {
         match self {
             Expr::Seq(_) => 0,
             Expr::Arrow { .. } | Expr::ArrowBlock { .. } | Expr::Assign { .. } => 1,
             Expr::Cond { .. } => 2,
             Expr::Binary { op, .. } => op.prec(),
-            Expr::Unary { .. } => 13,
+            // `await` is a unary operator and binds exactly as tightly.
+            Expr::Unary { .. } | Expr::Await(_) => 13,
             Expr::New { .. } => 15,
             Expr::Call { .. } | Expr::Member { .. } | Expr::Index { .. } => 16,
             Expr::Spread(_) => 1,
@@ -252,6 +273,9 @@ impl Expr {
     pub fn is_pure(&self) -> bool {
         match self {
             Expr::Call { .. } | Expr::New { .. } | Expr::Assign { .. } => false,
+            // Not for the call it usually wraps, but for the suspension
+            // point: skipping one changes when the rest of the function runs.
+            Expr::Await(_) => false,
             // A block-bodied arrow is a value, not the work inside it, but
             // treating one as pure invites hoisting it somewhere it would run
             // a different number of times. Only the value form is claimed.
@@ -625,8 +649,11 @@ impl Printer {
                 }
                 self.out.push(';');
             }
-            Stmt::Func { name, params, body } => {
+            Stmt::Func { name, params, body, is_async } => {
                 self.nl();
+                if *is_async {
+                    self.out.push_str("async ");
+                }
                 self.out.push_str("function ");
                 self.out.push_str(name);
                 self.out.push('(');
@@ -870,6 +897,10 @@ impl Printer {
                 // Left-associative, so the right operand binds one tighter.
                 self.expr(rhs, p + 1);
             }
+            Expr::Await(e) => {
+                self.out.push_str("await ");
+                self.expr(e, 13);
+            }
             Expr::Cond { test, cons, alt } => {
                 self.expr(test, 3);
                 self.out.push('?');
@@ -882,7 +913,10 @@ impl Printer {
                 self.out.push('=');
                 self.expr(value, 1);
             }
-            Expr::Arrow { params, body } => {
+            Expr::Arrow { params, body, is_async } => {
+                if *is_async {
+                    self.out.push_str("async ");
+                }
                 self.arrow_params(params);
                 self.out.push_str("=>");
                 // An arrow body that is an object literal needs parentheses.
@@ -894,7 +928,10 @@ impl Printer {
                     self.expr(body, 1);
                 }
             }
-            Expr::ArrowBlock { params, body } => {
+            Expr::ArrowBlock { params, body, is_async } => {
+                if *is_async {
+                    self.out.push_str("async ");
+                }
                 self.arrow_params(params);
                 self.out.push_str("=>{");
                 self.depth += 1;
@@ -1092,8 +1129,8 @@ fn always_exits(body: &[Stmt]) -> bool {
 fn fold_stmt(s: Stmt) -> Stmt {
     match s {
         Stmt::Var { kind, name, init } => Stmt::Var { kind, name, init: init.map(fold) },
-        Stmt::Func { name, params, body } => {
-            Stmt::Func { name, params, body: fold_block(body) }
+        Stmt::Func { name, params, body, is_async } => {
+            Stmt::Func { name, params, body: fold_block(body), is_async }
         }
         Stmt::Return(e) => Stmt::Return(e.map(fold)),
         Stmt::If { cond, then, else_ } => {
@@ -1261,16 +1298,19 @@ fn fold(e: Expr) -> Expr {
         Expr::Assign { target, value } => {
             Expr::Assign { target: Box::new(fold(*target)), value: Box::new(fold(*value)) }
         }
-        Expr::Arrow { params, body } => Expr::Arrow { params, body: Box::new(fold(*body)) },
-        Expr::ArrowBlock { params, body } => {
+        Expr::Arrow { params, body, is_async } => {
+            Expr::Arrow { params, body: Box::new(fold(*body)), is_async }
+        }
+        Expr::ArrowBlock { params, body, is_async } => {
             let body = fold_block(body);
             // An arrow whose body is a single `return e` is just `=> e`.
             if let [Stmt::Return(Some(e))] = body.as_slice() {
-                return Expr::Arrow { params, body: Box::new(e.clone()) };
+                return Expr::Arrow { params, body: Box::new(e.clone()), is_async };
             }
-            Expr::ArrowBlock { params, body }
+            Expr::ArrowBlock { params, body, is_async }
         }
         Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(fold).collect()),
+        Expr::Await(x) => Expr::awaited(fold(*x)),
         Expr::Spread(x) => Expr::Spread(Box::new(fold(*x))),
         other => other,
     }
@@ -1305,10 +1345,11 @@ fn read_through_stmt(s: Stmt, table: &HashMap<String, Vec<Expr>>) -> Stmt {
         Stmt::Var { kind, name, init } => {
             Stmt::Var { kind, name, init: init.map(|e| read_through_expr(e, table)) }
         }
-        Stmt::Func { name, params, body } => Stmt::Func {
+        Stmt::Func { name, params, body, is_async } => Stmt::Func {
             name,
             params,
             body: body.into_iter().map(|s| read_through_stmt(s, table)).collect(),
+            is_async,
         },
         Stmt::Return(e) => Stmt::Return(e.map(|e| read_through_expr(e, table))),
         Stmt::If { cond, then, else_ } => Stmt::If {
@@ -1397,13 +1438,15 @@ fn read_through_expr(e: Expr, table: &HashMap<String, Vec<Expr>>) -> Expr {
             target: Box::new(read_through_expr(*target, table)),
             value: Box::new(read_through_expr(*value, table)),
         },
-        Expr::Arrow { params, body } => {
-            Expr::Arrow { params, body: Box::new(read_through_expr(*body, table)) }
+        Expr::Arrow { params, body, is_async } => {
+            Expr::Arrow { params, body: Box::new(read_through_expr(*body, table)), is_async }
         }
-        Expr::ArrowBlock { params, body } => Expr::ArrowBlock {
+        Expr::ArrowBlock { params, body, is_async } => Expr::ArrowBlock {
             params,
             body: body.into_iter().map(|s| read_through_stmt(s, table)).collect(),
+            is_async,
         },
+        Expr::Await(x) => Expr::awaited(read_through_expr(*x, table)),
         Expr::Spread(x) => Expr::Spread(Box::new(read_through_expr(*x, table))),
         other => other,
     }
@@ -1633,8 +1676,8 @@ fn switches(body: Vec<Stmt>) -> Vec<Stmt> {
             }
             Stmt::While { cond, body } => Stmt::While { cond, body: switches(body) },
             Stmt::Block(b) => Stmt::Block(switches(b)),
-            Stmt::Func { name, params, body } => {
-                Stmt::Func { name, params, body: switches(body) }
+            Stmt::Func { name, params, body, is_async } => {
+                Stmt::Func { name, params, body: switches(body), is_async }
             }
             Stmt::Switch { disc, cases } => Stmt::Switch {
                 disc,
@@ -1789,18 +1832,19 @@ fn count_expr(e: &Expr, f: &mut LocalFacts) {
         }
         // A closure body runs an unknown number of times, so anything read
         // inside it counts as read deeper than the enclosing code.
-        Expr::Arrow { params, body } => {
+        Expr::Arrow { params, body, .. } => {
             params.iter().for_each(|p| f.declare(p));
             f.depth += 1;
             count_expr(body, f);
             f.depth -= 1;
         }
-        Expr::ArrowBlock { params, body } => {
+        Expr::ArrowBlock { params, body, .. } => {
             params.iter().for_each(|p| f.declare(p));
             f.depth += 1;
             body.iter().for_each(|s| count_stmt(s, f));
             f.depth -= 1;
         }
+        Expr::Await(x) => count_expr(x, f),
         Expr::Spread(x) => count_expr(x, f),
         _ => {}
     }
@@ -1814,7 +1858,7 @@ fn count_stmt(s: &Stmt, f: &mut LocalFacts) {
                 count_expr(e, f);
             }
         }
-        Stmt::Func { name, params, body } => {
+        Stmt::Func { name, params, body, .. } => {
             f.declare(name);
             params.iter().for_each(|p| f.declare(p));
             body.iter().for_each(|s| count_stmt(s, f));
@@ -1927,18 +1971,19 @@ fn subst_expr_with(e: Expr, map: &mut Subst) -> Expr {
             subst_expr_with(*cons, map),
             subst_expr_with(*alt, map),
         ),
-        Expr::Arrow { params, body } => {
-            Expr::Arrow { params, body: Box::new(subst_expr_with(*body, map)) }
+        Expr::Arrow { params, body, is_async } => {
+            Expr::Arrow { params, body: Box::new(subst_expr_with(*body, map)), is_async }
         }
-        Expr::ArrowBlock { params, body } => {
+        Expr::ArrowBlock { params, body, is_async } => {
             let body: Vec<Stmt> = body.into_iter().map(|s| subst_stmt_with(s, map)).collect();
             // Rebuilding may leave a body that is one `return`, which is the
             // concise form.
             if let [Stmt::Return(Some(e))] = &body[..] {
-                return Expr::Arrow { params, body: Box::new(e.clone()) };
+                return Expr::Arrow { params, body: Box::new(e.clone()), is_async };
             }
-            Expr::ArrowBlock { params, body }
+            Expr::ArrowBlock { params, body, is_async }
         }
+        Expr::Await(x) => Expr::awaited(subst_expr_with(*x, map)),
         Expr::Spread(x) => Expr::Spread(Box::new(subst_expr_with(*x, map))),
         other => other,
     }
@@ -1949,10 +1994,11 @@ fn subst_stmt_with(s: Stmt, map: &mut Subst) -> Stmt {
         Stmt::Var { kind, name, init } => {
             Stmt::Var { kind, name, init: init.map(|e| subst_expr_with(e, map)) }
         }
-        Stmt::Func { name, params, body } => Stmt::Func {
+        Stmt::Func { name, params, body, is_async } => Stmt::Func {
             name,
             params,
             body: body.into_iter().map(|s| subst_stmt_with(s, map)).collect(),
+            is_async,
         },
         Stmt::Return(e) => Stmt::Return(e.map(|e| subst_expr_with(e, map))),
         Stmt::If { cond, then, else_ } => Stmt::If {
@@ -2011,8 +2057,8 @@ fn drop_bindings(body: Vec<Stmt>, drop: &HashSet<String>) -> Vec<Stmt> {
                 cases: cases.into_iter().map(|(t, b)| (t, drop_bindings(b, drop))).collect(),
             },
             Stmt::Block(b) => Stmt::Block(drop_bindings(b, drop)),
-            Stmt::Func { name, params, body } => {
-                Stmt::Func { name, params, body: drop_bindings(body, drop) }
+            Stmt::Func { name, params, body, is_async } => {
+                Stmt::Func { name, params, body: drop_bindings(body, drop), is_async }
             }
             Stmt::Return(e) => Stmt::Return(e.map(|e| drop_in_expr(e, drop))),
             Stmt::Expr(e) => Stmt::Expr(drop_in_expr(e, drop)),
@@ -2031,16 +2077,18 @@ fn drop_bindings(body: Vec<Stmt>, drop: &HashSet<String>) -> Vec<Stmt> {
 fn drop_in_expr(e: Expr, drop: &HashSet<String>) -> Expr {
     let go = |x: Box<Expr>| Box::new(drop_in_expr(*x, drop));
     match e {
-        Expr::ArrowBlock { params, body } => {
+        Expr::ArrowBlock { params, body, is_async } => {
             let body = drop_bindings(body, drop);
             // Rebuilding may leave a body that is one `return`, which is the
             // concise form — the same collapse `subst_expr` makes.
             if let [Stmt::Return(Some(x))] = &body[..] {
-                return Expr::Arrow { params, body: Box::new(x.clone()) };
+                return Expr::Arrow { params, body: Box::new(x.clone()), is_async };
             }
-            Expr::ArrowBlock { params, body }
+            Expr::ArrowBlock { params, body, is_async }
         }
-        Expr::Arrow { params, body } => Expr::Arrow { params, body: go(body) },
+        Expr::Arrow { params, body, is_async } => {
+            Expr::Arrow { params, body: go(body), is_async }
+        }
         Expr::Array(xs) => Expr::Array(xs.into_iter().map(|x| drop_in_expr(x, drop)).collect()),
         Expr::Seq(xs) => Expr::Seq(xs.into_iter().map(|x| drop_in_expr(x, drop)).collect()),
         Expr::Object(fs) => {
@@ -2062,6 +2110,7 @@ fn drop_in_expr(e: Expr, drop: &HashSet<String>) -> Expr {
             Expr::Cond { test: go(test), cons: go(cons), alt: go(alt) }
         }
         Expr::Assign { target, value } => Expr::Assign { target, value: go(value) },
+        Expr::Await(x) => Expr::Await(go(x)),
         Expr::Spread(x) => Expr::Spread(go(x)),
         other => other,
     }
@@ -2205,6 +2254,7 @@ fn expr_cleanup(
             expr_cleanup(target, facts, map, dead);
             expr_cleanup(value, facts, map, dead);
         }
+        Expr::Await(x) => go(x),
         Expr::Spread(x) => go(x),
         _ => {}
     }
@@ -2849,6 +2899,7 @@ fn survey_aggregate_expr(e: &Expr, out: &mut HashMap<String, AggregateUse>) {
         }
         Expr::Arrow { body, .. } => go(body),
         Expr::ArrowBlock { body, .. } => survey_aggregates(body, out),
+        Expr::Await(x) => go(x),
         Expr::Spread(x) => go(x),
         _ => {}
     }
@@ -2862,10 +2913,11 @@ fn extract_stmt(s: Stmt, table: &HashMap<String, Vec<Expr>>) -> Stmt {
         Stmt::Var { kind, name, init } => {
             Stmt::Var { kind, name, init: init.map(|e| extract_expr(e, table)) }
         }
-        Stmt::Func { name, params, body } => Stmt::Func {
+        Stmt::Func { name, params, body, is_async } => Stmt::Func {
             name,
             params,
             body: body.into_iter().map(|s| extract_stmt(s, table)).collect(),
+            is_async,
         },
         Stmt::Return(e) => Stmt::Return(e.map(|e| extract_expr(e, table))),
         Stmt::If { cond, then, else_ } => Stmt::If {
@@ -2940,13 +2992,15 @@ fn extract_expr(e: Expr, table: &HashMap<String, Vec<Expr>>) -> Expr {
         Expr::Assign { target, value } => {
             Expr::Assign { target, value: Box::new(extract_expr(*value, table)) }
         }
-        Expr::Arrow { params, body } => {
-            Expr::Arrow { params, body: Box::new(extract_expr(*body, table)) }
+        Expr::Arrow { params, body, is_async } => {
+            Expr::Arrow { params, body: Box::new(extract_expr(*body, table)), is_async }
         }
-        Expr::ArrowBlock { params, body } => Expr::ArrowBlock {
+        Expr::ArrowBlock { params, body, is_async } => Expr::ArrowBlock {
             params,
             body: body.into_iter().map(|s| extract_stmt(s, table)).collect(),
+            is_async,
         },
+        Expr::Await(x) => Expr::awaited(extract_expr(*x, table)),
         Expr::Spread(x) => Expr::Spread(Box::new(extract_expr(*x, table))),
         other => other,
     }
@@ -2964,7 +3018,7 @@ fn clean_locals(stmts: Vec<Stmt>, table: &HashMap<String, Vec<Expr>>) -> Vec<Stm
     stmts
         .into_iter()
         .map(|s| match s {
-            Stmt::Func { name, params, mut body } => {
+            Stmt::Func { name, params, mut body, is_async } => {
                 for _ in 0..CLEANUP_ROUNDS {
                     if !table.is_empty() {
                         body =
@@ -2977,7 +3031,7 @@ fn clean_locals(stmts: Vec<Stmt>, table: &HashMap<String, Vec<Expr>>) -> Vec<Stm
                 }
                 // Last, so the chains it looks for have already been folded
                 // and their discriminants have already settled.
-                Stmt::Func { name, params, body: switches(body) }
+                Stmt::Func { name, params, body: switches(body), is_async }
             }
             other => other,
         })
@@ -3014,12 +3068,19 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     let mut first: HashMap<String, String> = HashMap::default();
     let mut alias: HashMap<String, Expr> = HashMap::default();
     for s in &stmts {
-        let Stmt::Func { name, params, body } = s else { continue };
+        let Stmt::Func { name, params, body, is_async } = s else { continue };
         if pinned.contains(name) {
             continue;
         }
         let key = print(
-            &[Stmt::Func { name: String::new(), params: params.clone(), body: body.clone() }],
+            &[Stmt::Func {
+                name: String::new(),
+                params: params.clone(),
+                body: body.clone(),
+                // Part of the key: two bodies that print the same are the same
+                // function only if they suspend the same way.
+                is_async: *is_async,
+            }],
             false,
         );
         match first.get(&key) {
@@ -3047,7 +3108,7 @@ fn eliminate_dead(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     let mut declared: HashMap<String, usize> = HashMap::default();
     for (i, s) in stmts.iter().enumerate() {
         match s {
-            Stmt::Func { name, body, params } => {
+            Stmt::Func { name, body, params, .. } => {
                 let mut used = HashSet::default();
                 for st in body {
                     collect_idents_stmt(st, &mut used);
@@ -3204,6 +3265,7 @@ fn collect_idents(e: &Expr, out: &mut HashSet<String>) {
         }
         Expr::Arrow { body, .. } => collect_idents(body, out),
         Expr::ArrowBlock { body, .. } => body.iter().for_each(|s| collect_idents_stmt(s, out)),
+        Expr::Await(x) => collect_idents(x, out),
         Expr::Spread(x) => collect_idents(x, out),
         _ => {}
     }
@@ -3412,7 +3474,7 @@ fn rename_stmt(s: Stmt, scope: &Scope, pool: &mut Pool) -> Stmt {
             name: scope.get(&name).cloned().unwrap_or(name),
             init: init.map(|e| rename(e, scope, pool)),
         },
-        Stmt::Func { name, params, body } => {
+        Stmt::Func { name, params, body, is_async } => {
             // Parameters and locals get their own short names, reused across
             // functions because each is a fresh scope.
             let mut local = scope.nested();
@@ -3422,7 +3484,12 @@ fn rename_stmt(s: Stmt, scope: &Scope, pool: &mut Pool) -> Stmt {
                 .map(|p| fresh_local(&p, &mut local, &mut counter, pool))
                 .collect();
             let body = rename_scope(body, &mut local, &mut counter, pool);
-            Stmt::Func { name: scope.get(&name).cloned().unwrap_or(name), params, body }
+            Stmt::Func {
+                name: scope.get(&name).cloned().unwrap_or(name),
+                params,
+                body,
+                is_async,
+            }
         }
         Stmt::Return(e) => Stmt::Return(e.map(|x| rename(x, scope, pool))),
         Stmt::If { cond, then, else_ } => Stmt::If {
@@ -3583,16 +3650,16 @@ fn rename(e: Expr, scope: &Scope, pool: &mut Pool) -> Expr {
             cons: Box::new(rename(*cons, scope, pool)),
             alt: Box::new(rename(*alt, scope, pool)),
         },
-        Expr::Arrow { params, body } => {
+        Expr::Arrow { params, body, is_async } => {
             let mut local = scope.nested();
             let mut counter = Counter::default();
             let params: Vec<String> = params
                 .into_iter()
                 .map(|p| fresh_local(&p, &mut local, &mut counter, pool))
                 .collect();
-            Expr::Arrow { params, body: Box::new(rename(*body, &local, pool)) }
+            Expr::Arrow { params, body: Box::new(rename(*body, &local, pool)), is_async }
         }
-        Expr::ArrowBlock { params, body } => {
+        Expr::ArrowBlock { params, body, is_async } => {
             let mut local = scope.nested();
             let mut counter = Counter::default();
             let params: Vec<String> = params
@@ -3602,8 +3669,10 @@ fn rename(e: Expr, scope: &Scope, pool: &mut Pool) -> Expr {
             Expr::ArrowBlock {
                 params,
                 body: rename_scope(body, &mut local, &mut counter, pool),
+                is_async,
             }
         }
+        Expr::Await(x) => Expr::awaited(rename(*x, scope, pool)),
         Expr::Spread(x) => Expr::Spread(Box::new(rename(*x, scope, pool))),
         other => other,
     }
@@ -3705,6 +3774,57 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
         i += 1;
     }
     out
+}
+
+/// Whether these statements hold an `await` of their own.
+///
+/// "Of their own" is the whole of it: a nested function or arrow carries its
+/// own `async`, and an `await` inside one says nothing about the body this is
+/// asked about. Used to decide whether a lambda is printed `async`, which is
+/// the one function this backend emits that `middle::rc` has no row for.
+pub fn has_await(stmts: &[Stmt]) -> bool {
+    fn in_expr(e: &Expr) -> bool {
+        match e {
+            Expr::Await(_) => true,
+            // A nested function body is not this one.
+            Expr::Arrow { .. } | Expr::ArrowBlock { .. } => false,
+            Expr::Member { obj, .. } => in_expr(obj),
+            Expr::Index { obj, index } => in_expr(obj) || in_expr(index),
+            Expr::Call { callee, args } | Expr::New { callee, args } => {
+                in_expr(callee) || args.iter().any(in_expr)
+            }
+            Expr::Unary { operand, .. } => in_expr(operand),
+            Expr::Binary { lhs, rhs, .. } => in_expr(lhs) || in_expr(rhs),
+            Expr::Cond { test, cons, alt } => in_expr(test) || in_expr(cons) || in_expr(alt),
+            Expr::Assign { target, value } => in_expr(target) || in_expr(value),
+            Expr::Array(xs) | Expr::Seq(xs) => xs.iter().any(in_expr),
+            Expr::Object(fs) => fs.iter().any(|(_, v)| in_expr(v)),
+            Expr::Spread(x) => in_expr(x),
+            _ => false,
+        }
+    }
+    fn in_stmt(s: &Stmt) -> bool {
+        match s {
+            Stmt::Var { init, .. } => init.as_ref().is_some_and(in_expr),
+            // Same reason as the arrow above.
+            Stmt::Func { .. } => false,
+            Stmt::Return(e) => e.as_ref().is_some_and(in_expr),
+            Stmt::If { cond, then, else_ } => {
+                in_expr(cond) || then.iter().any(in_stmt) || else_.iter().any(in_stmt)
+            }
+            Stmt::While { cond, body } => in_expr(cond) || body.iter().any(in_stmt),
+            Stmt::Switch { disc, cases } => {
+                in_expr(disc)
+                    || cases.iter().any(|(t, b)| {
+                        t.as_ref().is_some_and(in_expr) || b.iter().any(in_stmt)
+                    })
+            }
+            Stmt::Expr(e) | Stmt::Throw(e) | Stmt::ExportDefault(e) => in_expr(e),
+            Stmt::Block(b) => b.iter().any(in_stmt),
+            Stmt::Break | Stmt::Continue | Stmt::Raw(_) | Stmt::RawDecl { .. } => false,
+        }
+    }
+    stmts.iter().any(in_stmt)
 }
 
 /// Removes comments and unnecessary whitespace from JavaScript source, with a
@@ -4009,12 +4129,18 @@ mod tests {
     #[test]
     fn dead_code_elimination_keeps_only_what_is_reachable() {
         let stmts = vec![
-            Stmt::Func { name: "used".into(), params: vec![], body: vec![] },
-            Stmt::Func { name: "unused".into(), params: vec![], body: vec![] },
+            Stmt::Func { name: "used".into(), params: vec![], body: vec![], is_async: false },
+            Stmt::Func {
+                name: "unused".into(),
+                params: vec![],
+                body: vec![],
+                is_async: false,
+            },
             Stmt::Func {
                 name: "main".into(),
                 params: vec![],
                 body: vec![Stmt::Expr(Expr::call(Expr::ident("used"), vec![]))],
+                is_async: false,
             },
         ];
         let kept = eliminate_dead(stmts, &["main".to_string()]);
@@ -4034,6 +4160,7 @@ mod tests {
             name: "someLongName".into(),
             params: vec!["parameterOne".into()],
             body: vec![Stmt::Return(Some(Expr::ident("parameterOne")))],
+            is_async: false,
         }];
         let out = print(&minify(stmts, &[], true), false);
         assert!(!out.contains("someLongName"), "{out}");
@@ -4042,7 +4169,8 @@ mod tests {
 
     #[test]
     fn roots_are_never_renamed() {
-        let stmts = vec![Stmt::Func { name: "main".into(), params: vec![], body: vec![] }];
+        let stmts =
+            vec![Stmt::Func { name: "main".into(), params: vec![], body: vec![], is_async: false }];
         let out = print(&minify(stmts, &["main".to_string()], true), false);
         assert!(out.contains("function main("), "{out}");
     }
@@ -4084,6 +4212,7 @@ mod shared_constant_tests {
                     Expr::ident("$k0"),
                     Expr::Num(0.0),
                 )))],
+                is_async: false,
             },
         ];
         let table = constant_table(&stmts);
