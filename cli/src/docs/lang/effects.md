@@ -49,7 +49,8 @@ export effect Net {
 ```
 
 `core/effect` declares `Alloc`, `Fs`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`,
-`Stdout`, `Stderr`, and `Proc`. **Only platform modules may declare effects**;
+`Stdout`, `Stderr`, `Proc`, and `Tasks`. **Only platform modules may declare
+effects**;
 `effect` in ordinary code is a compile error, so the set of things a Buri program
 can do to the world is fixed by its platform rather than open-ended.
 
@@ -181,6 +182,17 @@ not grant an effect simply does not export it, so requesting one is an ordinary
 unresolved-name error at the one line that asked for it. Both halves of a grant
 are withheld together — the implementation struct as well as the value — so
 there is nothing left to construct by name.
+
+**One effect is granted by nobody.** `Tasks` — "run this over every item at
+once" — is declared in `core/effect`, and `core/host` declares `HostTasks` and
+`host.tasks` for it, and *no* platform grants either name. `Tasks: host.tasks`
+is therefore refused on every target, with the reason rather than with "no such
+name". That is deliberate: a signature is the expensive thing to change once
+programs are written against it, so it lands, is reviewed and is documented
+ahead of the scheduler that will answer it — and because a platform *is* the
+set of effects its host exports, "declared but unreachable" needs no second
+mechanism to say so. Granting it later is an edit to one row of the grant
+table.
 
 Note what is *not* claimed: an effect is an ordinary interface, so anyone may
 write a type that satisfies it (Section 10.9 does). That is not a forgery hole —

@@ -53,9 +53,12 @@ pub const FIXED_CLOCK_JS: &str = concat!(
     "try{Date.now=function(){return 0;};}catch(e){}\n",
     "try{if(typeof $host_HostClock_nowMillis===\"function\")",
     "$host_HostClock_nowMillis=function(){return 0;};}catch(e){}\n",
-    // Replaced rather than left alone: the runtime's fallback spins until
-    // `Date.now()` passes a deadline, and a frozen clock never passes one.
-    // Where no time elapses, sleeping for it takes no time.
+    // Replaced rather than left alone: the runtime's own `sleepMillis` waits
+    // on a real timer, which a frozen `Date.now` does not shorten by a
+    // millisecond. Where no time elapses, sleeping for it takes no time.
+    //
+    // The replacement is not `async`, and does not need to be: its callers
+    // `await` it, and `await 0` is `0`.
     "try{if(typeof $host_HostClock_sleepMillis===\"function\")",
     "$host_HostClock_sleepMillis=function(){return 0;};}catch(e){}\n",
     "try{var $r=1;Math.random=function(){",
