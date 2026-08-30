@@ -494,6 +494,7 @@ pub struct X86 {
 
 /// The integer registers either shim names, in encoding order.
 pub const RAX: u32 = 0;
+pub const RCX: u32 = 1;
 pub const RDX: u32 = 2;
 pub const RSP: u32 = 4;
 pub const RSI: u32 = 6;

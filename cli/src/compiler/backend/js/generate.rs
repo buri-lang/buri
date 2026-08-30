@@ -2356,6 +2356,20 @@ impl<'a> Gen<'a> {
                             if name == "structuralShow" { "$show" } else { "$json_of" };
                         Expr::call(Expr::ident(helper), vec![value, d])
                     }
+                    // The runner's end-of-block hook, which
+                    // `middle::monomorphize` emits after every `test` body so
+                    // that one implementation serves all three backends. It is
+                    // an inline node rather than an intrinsic *function*
+                    // because no Buri declaration produces it, and it is here
+                    // rather than in `$run` because `$run` is handed a compiled
+                    // body and would not know the block's index.
+                    "test.leave" => Expr::call(Expr::ident("$test_leave"), a),
+                    // The other half of the same lowering: whether to run this
+                    // body again, which is `TestTasks.everyOrder`'s "once per
+                    // completion order". The body calls itself when this
+                    // answers true, so the reruns are the same tree on all
+                    // three backends.
+                    "test.replay" => Expr::call(Expr::ident("$test_replay"), a),
                     other => {
                         self.missing.push(other.to_string());
                         Expr::Num(0.0)
@@ -2820,9 +2834,16 @@ impl<'a> Gen<'a> {
         // run. Awaiting a case that is not `async` costs a microtask and
         // changes nothing, which is why this is unconditional: the driver is
         // one function shared by every case in the artifact.
+        //
+        // `$t.from` is the handle table's length as the block starts, which is
+        // what makes `$test_leave` a question about *this* block's doubles: the
+        // table grows for the life of the process. `buri_rt_test_enter` marks
+        // the same watermark natively, and this is the line that has to do it
+        // here because JavaScript has no `enter`.
         Stmt::Raw(format!(
             "{}async function $run(filter){{const out=[];for(const[n,m,f]of $cases){{\
              if(filter&&!n.includes(filter))continue;\
+             $t.from=$t.h.length;$t.pass=0n;$t.total=1n;$t.note=null;\
              const started=Date.now();try{{await f();out.push({{name:n,module:m,ok:true,ms:Date.now()-started}});}}\
              catch(e){{out.push({{name:n,module:m,ok:false,ms:Date.now()-started,\
              error:e&&e.$assert?e.$assert:{{message:String(e&&e.message||e)}},\
