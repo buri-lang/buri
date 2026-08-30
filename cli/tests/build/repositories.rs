@@ -41,11 +41,11 @@ fn tag_policy() {
 
 /// CLI.md: the exit codes, and the commands whose contract is about what they
 /// leave on disk rather than what they compute — `gen`, `run`, `clean`,
-/// `version`, the `out/` symlink, and the no-argument forms that mean the whole
-/// repository from wherever they are run.
+/// `version`, `add skills`, the `out/` symlink, and the no-argument forms that
+/// mean the whole repository from wherever they are run.
 #[test]
 fn cli_contract() {
-    run_corpus(&tests_dir().join("repositories/cli"), "cli", 12);
+    run_corpus(&tests_dir().join("repositories/cli"), "cli", 13);
 }
 
 /// CLI.md's `query`: what the graph says, asked without building anything.

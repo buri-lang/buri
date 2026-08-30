@@ -78,9 +78,16 @@ fn run() -> ExitCode {
 
     let Some(command) = commands::find(&args.command) else {
         eprintln!("error: there is no command `{}`", args.command);
-        let names: Vec<&str> = commands::COMMANDS.iter().map(|c| c.name).collect();
-        if let Some(near) = buri::build::buildfile::nearest(&args.command, &names) {
-            eprintln!("  = did you mean `buri {near}`?");
+        // A command this toolchain used to have is answered by name rather
+        // than by distance: `add-skills` is nowhere near `add`, and somebody
+        // typing it is holding a script from the release before this one.
+        if let Some(now) = commands::renamed(&args.command) {
+            eprintln!("  = `buri {}` is now `buri {now}`", args.command);
+        } else {
+            let names: Vec<&str> = commands::COMMANDS.iter().map(|c| c.name).collect();
+            if let Some(near) = buri::build::buildfile::nearest(&args.command, &names) {
+                eprintln!("  = did you mean `buri {near}`?");
+            }
         }
         eprintln!();
         eprint!("{}", commands::usage());

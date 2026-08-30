@@ -1,4 +1,5 @@
-error: `buri build` does not take `--watch`; `buri test` does
+error: there is no command `add-skills`
+  = `buri add-skills` is now `buri add skills`
 
 buri — the toolchain for the Buri language
 
