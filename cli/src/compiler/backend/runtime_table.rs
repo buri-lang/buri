@@ -37,6 +37,35 @@
 //! frame-threaded, so a leaf is a byte offset copied into a scratch area
 //! (`stencil/rtcall.rs`).
 //!
+//! # A key carries no type arguments
+//!
+//! `middle::monomorphize` builds an intrinsic key out of the module, the type
+//! and the name, and out of nothing else. One key is one row here and one
+//! `buri_rt_*` symbol, so **every instantiation of a generic intrinsic reaches
+//! the same body**: `list.map` at `[Int]` and at `[Point]` are one call, and
+//! the element type does not cross. It cannot — this archive is compiled once,
+//! against no Buri type at all.
+//!
+//! That is what steps 2 and 3 above are for. Everything the runtime has to
+//! know about an erased type arrives as a value:
+//!
+//! * the element **stride and retain glue** of [`Extra::Element`] — the shape
+//!   of a `[T]`, which is why `core/list`'s rows carry it and `core/bytes`'s
+//!   do not (their element type is fixed at `U8`);
+//! * an **address**, through [`Entry::by_ref`], for an argument whose type is
+//!   a bare `T` and so has no leaf list a C signature could name;
+//! * a **runtime descriptor**, for an operation whose subject is the *whole*
+//!   shape of a type rather than its size — `json.decode` and the test
+//!   runner's two, which are `middle::monomorphize`'s `Func::desc` and reach
+//!   no row here.
+//!
+//! An intrinsic that is generic and has none of the three is a miscompile with
+//! no diagnostic, so the set of keys allowed to be generic is a written list —
+//! `GENERIC_INTRINSICS` in `middle/monomorphize.rs` — and a generic intrinsic
+//! outside it is an internal error at monomorphization. **A new row here for a
+//! generic key needs a row there too**, and the question that list is asking is
+//! which of the three above carries the type.
+//!
 //! # Why a table and not a mangling
 //!
 //! The rule in `lib.rs` §1 would happily produce `buri_rt_list_map` for
@@ -456,6 +485,57 @@ pub const ENTRIES: &[Entry] = &[
         "buri_rt_testing_context_test_env_arguments",
         Ret::Out,
     ),
+    // -- core/host/testing --------------------------------------------------
+    //
+    // `core/host`'s names for a test source, over the same handle table. The
+    // shapes are `testing_context`'s shapes: the difference between the two
+    // modules is in the *Buri* surface — a constructor takes no arguments and a
+    // builder answers a new handle — and a shape column cannot see that.
+    //
+    // `alloc` and `TestAlloc.allocate` are open-coded, as
+    // `testing_context`'s are, and are named in
+    // [`the_unimplemented_surface_is_not_claimed`] for the same reason.
+    e("host_testing.stdout", "buri_rt_host_testing_stdout", Ret::Out),
+    e("host_testing.stderr", "buri_rt_host_testing_stderr", Ret::Out),
+    e("host_testing.TestStdout.print", "buri_rt_host_testing_test_stdout_print", Ret::Void),
+    e("host_testing.TestStdout.println", "buri_rt_host_testing_test_stdout_println", Ret::Void),
+    e(
+        "host_testing.TestStdout.writeBytes",
+        "buri_rt_host_testing_test_stdout_write_bytes",
+        Ret::Void,
+    ),
+    e("host_testing.TestStdout.captured", "buri_rt_host_testing_test_stdout_captured", Ret::Out),
+    e("host_testing.TestStderr.eprint", "buri_rt_host_testing_test_stderr_eprint", Ret::Void),
+    e("host_testing.TestStderr.eprintln", "buri_rt_host_testing_test_stderr_eprintln", Ret::Void),
+    e("host_testing.TestStderr.captured", "buri_rt_host_testing_test_stderr_captured", Ret::Out),
+    e("host_testing.clock", "buri_rt_host_testing_clock", Ret::Out),
+    e("host_testing.TestClock.at", "buri_rt_host_testing_test_clock_at", Ret::Out),
+    e(
+        "host_testing.TestClock.nowMillis",
+        "buri_rt_host_testing_test_clock_now_millis",
+        Ret::Scalar,
+    ),
+    e(
+        "host_testing.TestClock.sleepMillis",
+        "buri_rt_host_testing_test_clock_sleep_millis",
+        Ret::Void,
+    ),
+    e("host_testing.rand", "buri_rt_host_testing_rand", Ret::Out),
+    e("host_testing.TestRand.seed", "buri_rt_host_testing_test_rand_seed", Ret::Out),
+    e("host_testing.TestRand.nextInt", "buri_rt_host_testing_test_rand_next_int", Ret::Scalar),
+    e(
+        "host_testing.TestRand.nextFloat",
+        "buri_rt_host_testing_test_rand_next_float",
+        Ret::Scalar,
+    ),
+    e("host_testing.env", "buri_rt_host_testing_env", Ret::Out),
+    e("host_testing.TestEnv.variables", "buri_rt_host_testing_test_env_variables", Ret::Out),
+    e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
+    e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
+    e("host_testing.TestEnv.arguments", "buri_rt_host_testing_test_env_arguments", Ret::Out),
+    e("host_testing.proc", "buri_rt_host_testing_proc", Ret::Out),
+    e("host_testing.TestProc.exitWith", "buri_rt_host_testing_test_proc_exit_with", Ret::Void),
+    e("host_testing.TestProc.exited", "buri_rt_host_testing_test_proc_exited", Ret::Opt),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.
@@ -512,6 +592,10 @@ mod tests {
             // backend cannot compile it" stay two different statements.
             "testing_context.alloc",
             "testing_context.TestAlloc.allocate",
+            // `core/host/testing`'s allocator is the same two instructions and
+            // is open-coded the same way.
+            "host_testing.alloc",
+            "host_testing.TestAlloc.allocate",
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }
