@@ -498,6 +498,24 @@ struct of exactly those non-empty implementations, laid out by §5, and passed b
 §5.1. So the cost is proportional to the state a capability actually holds, which
 is zero for the platform's own.
 
+**At the archive boundary the rule is not about size at all**, and the two read
+the same only by accident. A `buri_rt_*` call drops its context argument
+*whatever it weighs*, because `cli/runtime` allocates through `buri_rt_alloc`
+and reads no capability — so the C signature has no parameter for one, and a
+context that carries state has nothing to put there either. Which argument that
+is is a fact about the **declaration**: `list.push(self, ctx, item)` names its
+second, `list.repeat(ctx, item, times)` its first. Both native backends read it
+off their runtime tables (`backend/runtime_table.rs`'s `Entry::ctx`,
+`backend/llvm/runtime.rs`'s `Arg::Dropped`).
+
+Asking the *argument's type* instead — "is it a `Ty::Ctx`?" — is the same
+question only while every `C: Alloc` is instantiated at a `context { … }`
+record, and it is not. `<C: Alloc>` and `<T: Ord>` are one feature (SPEC 10.1):
+anything that **implements** `Alloc` satisfies the bound, and SPEC 10.8's
+attenuation exists so that programs do exactly that. Such a value spread to a
+leaf the C signature had no parameter for and shifted every argument after it
+one register down — a link, a run, and a fault in `memmove`.
+
 A mixed context keeps **one offset per binding**, in binding order, including the
 ones that occupy nothing: a zero-sized binding gets the offset of whatever
 follows it, which costs no bytes and means a `CtxGet` indexes by the binding

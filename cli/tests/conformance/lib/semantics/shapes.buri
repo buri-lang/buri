@@ -6,8 +6,8 @@
 // prove its own implementation is the one that ran.
 
 from "core/effect/lib.buri" import {
-  Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Request, Response, Sockets, Stdout,
-  Tasks,
+  Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Region, Request, Response, Sockets,
+  Stdout, Tasks,
 };
 from "core/net/http/lib.buri" import * as http;
 from "core/num/lib.buri" import { Add, Div, Mul, Neg, Rem, Sub };
@@ -1079,6 +1079,112 @@ impl Tasks for SerialTasks {
 export fn runInOrder<C: Tasks>(ctx: C, items: [Int]): Int {
   let out = ctx.parallel(items, fn(runner, i, item) => i * 100 + item);
   (out[0] ?? 0) + (out[1] ?? 0)
+}
+
+// =============================================================================
+// 11.4 A context-bounded parameter is an ordinary bound (SPEC 10.1, 10.8)
+// =============================================================================
+//
+// `<C: Alloc>` and `<T: Ord>` are one feature — "a list of interfaces a type
+// parameter must satisfy" — so the argument at `C` need not be a
+// `context { … }` record. Anything that *implements* `Alloc` satisfies it, and
+// SPEC 10.8's attenuation is the reason the language wants that: `ReadOnly<C>`
+// below is a value that genuinely lacks the effects it does not forward, which
+// is the trust-boundary answer confinement cannot give.
+//
+// The functions here are the plainest calls that reach the runtime through a
+// `C`, one per shape the native ABI has: a table row whose context is its
+// **second** argument, one whose context is its **first**, and `str.concat`,
+// which has no row at all. Each of them dropped that argument by asking whether
+// its type was a context, which is the right answer only while every `C` is one
+// — so a bare implementing value spread to a leaf the C signature has no
+// parameter for and shifted every argument after it one register down.
+
+/// `list.push` — a table row whose context is its second argument.
+export fn pushedWith<C: Alloc>(ctx: C, item: Int, into: [Int]): [Int] {
+  into.push(ctx, item)
+}
+
+/// `list.repeat` — a table row whose context is its **first**, so the two
+/// indices the column can take are both exercised.
+export fn repeatedWith<C: Alloc>(ctx: C, item: Int): [Int] {
+  list.repeat(ctx, item, 2)
+}
+
+/// `str.concat` — the one allocating operation with no table row, whose
+/// argument list is narrowed at the call site instead.
+export fn joinedWith<C: Alloc>(ctx: C, a: Str, b: Str): Str {
+  a.concat(ctx, b)
+}
+
+/// SPEC 10.8's attenuating wrapper: a plain struct that satisfies `Alloc` by
+/// forwarding to whatever it holds.
+///
+/// It is *not* a context, and that is the whole point of it — a callee handed
+/// one holds a value that lacks every effect this type does not forward,
+/// whatever the caller's own context could do.
+export struct ReadOnly<C> {
+  export inner: C,
+}
+
+impl<C: Alloc> Alloc for ReadOnly<C> {
+  fn allocate(self, bytes: Int): Region {
+    self.inner.allocate(bytes)
+  }
+}
+
+/// An implementor carrying a **counted pointer**, so that the argument the C
+/// signature drops is one reference counting still has to balance — and two
+/// leaves rather than one, which is the width `ReadOnly` above does not reach.
+export struct Logged<C> {
+  export inner: C,
+  export prefix: Str,
+}
+
+impl<C: Alloc> Alloc for Logged<C> {
+  fn allocate(self, bytes: Int): Region {
+    self.inner.allocate(bytes)
+  }
+}
+
+/// Builds one and uses it, so the wrapper is allocated *through* the very
+/// context it wraps and then stands in for it.
+export fn loggedWith<C: Alloc>(ctx: C, into: [Int]): [Int] {
+  let wrapped = Logged { inner: ctx, prefix: "ab".concat(ctx, "cd") };
+  into.push(wrapped, wrapped.prefix.len())
+}
+
+/// One value satisfying **two** effects, which is what makes `C: Alloc + Clock`
+/// a different question from `C: Alloc`: the bound is a list, and a single
+/// implementing value discharges all of it.
+export struct Ticking<C> {
+  export inner: C,
+}
+
+impl<C: Alloc> Alloc for Ticking<C> {
+  fn allocate(self, bytes: Int): Region {
+    self.inner.allocate(bytes)
+  }
+}
+
+impl<C: Clock> Clock for Ticking<C> {
+  fn nowMillis(self): Int {
+    self.inner.nowMillis()
+  }
+  fn sleepMillis(self, millis: Int): () {
+    self.inner.sleepMillis(millis)
+  }
+}
+
+/// A `Ticking`, built where the two bounds are in view.
+export fn ticking<C: Alloc + Clock>(ctx: C): Ticking<C> {
+  Ticking { inner: ctx }
+}
+
+/// Both bounds used through one parameter: the clock's answer, appended with
+/// the allocator's.
+export fn stampedWith<C: Alloc + Clock>(ctx: C, into: [Int]): [Int] {
+  into.push(ctx, ctx.nowMillis())
 }
 
 // =============================================================================

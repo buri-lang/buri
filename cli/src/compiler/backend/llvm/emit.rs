@@ -3961,14 +3961,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
-    /// Whether an argument is a context, and therefore not the runtime's
-    /// business (VALUE-MODEL.md §8).
+    /// Which argument of `str.concat` is the context, at the arity this call
+    /// arrived with — the one the C signature has no parameter for.
     ///
-    /// `Ty::Ctx` and not "spreads to no leaves": `core/testing/context`'s
-    /// implementations carry an `I64` handle each, because Buri has no mutation
-    /// and a captured stdout's state lives on the runner's side.
-    fn is_context(&self, ty: ir::Type) -> bool {
-        matches!(self.type_of(ty), Some(Ty::Ctx(_)))
+    /// `str.concat` has no [`runtime::ENTRIES`] row, so the `Arg::Dropped` that
+    /// answers this for every other key is spelled here instead, off the same
+    /// source: the **declaration**. `Str.concat<C: Alloc>(self, ctx: C, other:
+    /// Str)` is three arguments and the middle one is the context;
+    /// `lower::template`'s `str.concat(a, b)` is two and never had one.
+    ///
+    /// By position rather than by type. This asked `Ty::Ctx` once, which is the
+    /// same question only while every `C: Alloc` is instantiated at a `context
+    /// { … }` record — and `C` is an ordinary type parameter with an ordinary
+    /// bound (SPEC 10.1), so a value that merely *implements* `Alloc` satisfies
+    /// it. `core/host/testing`'s `alloc()` is `struct TestAlloc(I64)` and
+    /// carries a handle; one of those in this position spread to a leaf and
+    /// `pieces` was read off by one from there on.
+    const fn concat_ctx(argc: usize) -> Option<usize> {
+        if argc == 3 { Some(1) } else { None }
     }
 
     /// The source type behind an [`ir::Type`], where there is one.
@@ -4896,18 +4906,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         args: &[ir::ValueId],
     ) -> bool {
         // Two shapes reach this key: `str.concat(self, ctx, other)` from a
-        // method call, whose context is zero-sized and contributes no leaf, and
-        // `str.concat(a, b)` from `lower::template`, which never had one. Both
-        // flatten to the same six words, so the flattening is the check.
+        // method call, and `str.concat(a, b)` from `lower::template`, which
+        // never had a context. Both flatten to the same six words, so the
+        // flattening is the check.
+        let drop = Self::concat_ctx(args.len());
         let mut pieces: Vec<BasicValueEnum<'ctx>> = Vec::new();
-        for a in args {
+        for (i, a) in args.iter().enumerate() {
             // A context contributes nothing, whatever it weighs — the same rule
             // `entry_args` applies to `Arg::Dropped`, and for the same reason.
-            // Here it is read off the *source* type rather than from a table,
-            // because this key arrives in two shapes: `str.concat(self, ctx,
-            // other)` from a method call and `str.concat(a, b)` from
-            // `lower::template`, which never had one.
-            if self.is_context(code.ty_of(*a)) {
+            // Which argument it is comes from the arity rather than from the
+            // type, because this key has no table row to name it; see
+            // `concat_ctx`.
+            if drop == Some(i) {
                 continue;
             }
             let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*a));
