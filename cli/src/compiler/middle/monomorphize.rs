@@ -522,13 +522,55 @@ impl<'a> Monomorphizer<'a> {
                     .func;
                 let Some(body) = self.checked.bodies.get(&fid) else { return };
                 let mut b = body.clone();
-                b.expr = self.rewrite(b.expr, &[]);
+                let rewritten = self.rewrite(b.expr, &[]);
+                b.expr = self.leaving(i, rewritten);
                 let f = self.func_mut(slot);
                 f.params = b.params;
                 f.locals = b.locals;
                 f.set_body(b.expr);
             }
         }
+    }
+
+    /// A `test` body, with the runner's end-of-block hook after it.
+    ///
+    /// `buri_rt_test_leave(index)` is the other half of `core/host/testing`'s
+    /// fault plan: *a fault whose call never happens fails the test*, which is a
+    /// claim only something that outlives the block can check. Its twin
+    /// `buri_rt_test_enter` is emitted by the two native test entry points
+    /// instead, and the asymmetry is the difference between the two questions —
+    /// `enter` answers *whether to run this block*, which is the runner's
+    /// protocol and belongs where the blocks are called from, and this is the
+    /// *program's* rule about what the block promised, which belongs to the
+    /// block. Putting it here is also what gives all three backends one
+    /// implementation: the JavaScript generator reads the same tree.
+    ///
+    /// A block that aborts never reaches the hook, which is the order a reader
+    /// wants: the failed assertion is the failure, and an unused plan is a
+    /// consequence of stopping early rather than a second complaint.
+    fn leaving(&self, index: usize, body: typed::Expr) -> typed::Expr {
+        let span = body.span;
+        let leave = typed::Expr::new(
+            ExprKind::Intrinsic {
+                name: String::from("test.leave"),
+                targs: Vec::new(),
+                args: vec![typed::Expr::new(
+                    ExprKind::Int(index as u128, false),
+                    self.tables().prim(Prim::I64),
+                    span,
+                )],
+            },
+            Ty::Unit,
+            span,
+        );
+        typed::Expr::new(
+            ExprKind::Block {
+                stmts: vec![typed::Stmt::Expr(body), typed::Stmt::Expr(leave)],
+                tail: None,
+            },
+            Ty::Unit,
+            span,
+        )
     }
 
     fn build_fn(&mut self, f: FnId, targs: Vec<Ty>, slot: usize) {

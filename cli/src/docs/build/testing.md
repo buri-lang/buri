@@ -408,6 +408,10 @@ has two of its own:
 | `snapshot()` | `[(Str, Str)]` — every file, as text, **sorted by path** |
 | `calls()` | `[FsCall]` — every call made through this handle, **in the order they completed** |
 
+`faults([...])` is the other half of a fixture and has its own section below:
+what a call finds comes from `files`, and what a call fails with comes from
+there.
+
 Neither needs the `Fs` effect bound: asserting on what a function wrote is
 reading an environment back rather than performing an effect. `snapshot()` is
 sorted rather than in write order so that a function which reorders two writes
@@ -654,29 +658,91 @@ is there for `snapshot()`'s reason: `writeFileBytes("b", [104, 105])` reads back
 as a call whose body is `"hi"`, and `writeFileBytes(path, body)` is the
 constructor that writes it down.
 
-### Making the Nth call fail
+### What breaks: the fault plan
 
-That boundary is where deterministic simulation meets it. "The third write
-fails" wants a counter, and a counter is the state a fake cannot hold — so the
-fault is expressed as a value the test chooses rather than a moment the fake has
-to recognise.
+`files` and `respond` say what a call *finds*. `faults` says what a call
+**fails with** — and those are the only two sources: success comes from the
+environment and failure comes from the plan, so a reader of a test knows which
+half of it to look in.
+
+A fault is one of the `Call` constructors above and an error. `fails(e)` fails
+every matching call; `failsOnCall(n, e)` fails the `n`th of them, counted from
+one over the *matching* calls, so a read between two writes does not move the
+number. Matching is the `Eq` those records derive, which is what makes a fault
+readable: it is spelled exactly as `calls()` reports the call it names.
+
+```buri role=test
+# from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing/lib.buri" import { alloc, appendFile, fs, readFile };
+from "core/effect/lib.buri" import { Alloc, Fs, IoError };
+# fn commit<C: Alloc + Fs>(ctx: C, entries: [[U8]], i: Int): Result<(), IoError> {
+#   match (entries.get(i)) {
+#     .None => .Ok(()),
+#     .Some(entry) => match (ctx.appendFile("wal", entry)) {
+#       .Err(e) => .Err(e),
+#       .Ok(_written) => commit(ctx, entries, i + 1),
+#     },
+#   }
+# }
+
+test "the third append fails and nothing after it is written" {
+  let wal = fs().faults([appendFile("wal", [99]).failsOnCall(1, .Other("disk full"))]);
+  let ctx = context { Alloc: alloc(), Fs: wal };
+  assert.eq(assert.err(commit(ctx, [[97], [98], [99]], 0)), .Other("disk full"));
+  assert.eq(assert.ok(wal.read("wal")), "ab");
+}
+
+test "a file that cannot be read is reported rather than skipped" {
+  let files = fs()
+    .files([("config.toml", "name = \"demo\"")])
+    .faults([readFile("config.toml").fails(.PermissionDenied)]);
+  let ctx = context { Alloc: alloc(), Fs: files };
+  assert.eq(assert.err(ctx.readFile("config.toml")), .PermissionDenied);
+}
+```
+
+Three things follow from a fault being a value rather than a moment.
+
+**A call the plan fails is not performed, and is still a call.** Nothing is
+written and nothing is removed, and `calls()` has it — because the code under
+test asked the filesystem for something and was answered.
+
+**The error is the value the test wrote.** `.Other("disk full")` arrives with its
+text, and so do `NetError`'s `.BadUrl` and `.Transport`. The plan travels in the
+program rather than in the runner for exactly that reason.
+
+**A fault whose call never happens fails the test.** A plan is a claim about what
+the code under test does, and a claim nothing exercised is one the next change to
+that code will quietly stop being true. The runner checks it at the end of every
+block, so an unused fault is a failure naming itself:
+
+```text
+FAIL //lib/journal  test/journal.buri  "a fault whose call never happens fails the test"
+  a fault was planned and never happened: readFile("log") fails .NotFound
+```
+
+`faults` is a builder like every other one here: it answers a **new** double,
+with a log of its own, over the same files. It **replaces** rather than
+composing, as `respond` does — two plans for one call have no answer to which of
+them wins — and the plan it replaced is retired, promise and all.
+
+### The step boundary, which the plan does not replace
+
+A fault fails a *call*. It says nothing about the state a program is left in
+between two of them, and that is the other half of testing durable code.
 
 Split each durable operation into three: a pure `prepare` that decides what to
 write, one effectful `persist` that writes it, and a pure `publish` that folds
 the outcome back into the state. `prepare` and `publish` take no context, so a
 test calls them directly and reads what they answer; `persist` is the only step
-that reaches the `Fs`, and it is called once per step, so a test that wants the
-third one to fail runs the first two and hands the third an `.Err` of its own.
-The recovery path — the state after a write that did not happen — is then
-reached with ordinary values through the real code, and the crash between a
-log append and the sequence advance that follows it is a step boundary rather
-than something to interrupt mid-call.
+that reaches the `Fs`. The recovery path — the state after a write that did not
+happen — is then reached with ordinary values through the real code, and the
+crash between a log append and the sequence advance that follows it is a step
+boundary rather than something to interrupt mid-call.
 
-What this does not cover is a failure *inside* one effectful step: if `persist`
-makes three `fs.writeText` calls, a test can fail all three or none of them.
-Keeping `persist` to a single call is what makes that distinction go away, and
-it is worth the split on its own — a step that writes once is a step whose
-failure has one meaning.
+Keeping `persist` to a single call is what makes a fault plan say exactly what it
+looks like it says: a step that writes once is a step whose failure has one
+meaning, and one fault names it.
 
 This is defence in depth rather than the primary mechanism. The primary
 mechanism is that a test whose call never passed a `Net`-bounded context cannot
