@@ -13,11 +13,13 @@
 
 from "core/testing/assert/lib.buri" import * as assert;
 from "core/host/testing/lib.buri" import {
-  alloc, stdout, stderr, stdin, fs, clock, rand, env, proc,
+  alloc, stdout, stderr, stdin, fs, net, clock, rand, env, proc,
 };
 from "core/effect/lib.buri" import {
-  Alloc, Clock, Env, Fs, IoError, Proc, Rand, Region, Stderr, Stdin, Stdout,
+  Alloc, Clock, Env, Fs, IoError, Net, NetError, Proc, Rand, Region, Request,
+  Response, Stderr, Stdin, Stdout,
 };
+from "core/net/http/lib.buri" import * as http;
 
 // Ordinary functions over the effects, so what the doubles are asked is what a
 // program would ask them rather than what a test can reach directly.
@@ -45,6 +47,21 @@ fn stop<C: Proc>(ctx: C, code: Int): () {
 
 fn loadText<C: Fs>(ctx: C, path: Str): Result<Str, IoError> {
   ctx.readFile(path)
+}
+
+/// One request out and the status back — a function that reaches the network
+/// and reports only what its caller cares about.
+fn statusOf<C: Net>(ctx: C, request: Request): Result<Int, NetError> {
+  match (ctx.fetch(request)) {
+    .Ok(response) => .Ok(response.status),
+    .Err(e) => .Err(e),
+  }
+}
+
+/// The same over `core/net/http`'s free function, so the double is reached the
+/// way a program reaches it rather than through `fetch` directly.
+fn ping<C: Alloc + Net>(ctx: C, url: Str): Result<Response, NetError> {
+  http.get(ctx, url)
 }
 
 fn saveText<C: Fs>(ctx: C, path: Str, body: Str): Result<(), IoError> {
@@ -445,6 +462,213 @@ test "a function that merges two files is asserted through the environment" {
   assert.eq(
     store.snapshot(),
     [("app/a.txt", "one"), ("app/b.txt", "two"), ("app/merged.txt", "onetwo")],
+  );
+}
+
+// -----------------------------------------------------------------------------
+// net() — the default refusal
+// -----------------------------------------------------------------------------
+
+test "a fresh network refuses every request" {
+  let ctx = context { Alloc: alloc(), Net: net() };
+  assert.eq(assert.err(ping(ctx, "https://example.test/a")), .Refused);
+  assert.eq(assert.err(ping(ctx, "https://example.test/b")), .Refused);
+}
+
+test "the refusal is Refused, and it is an error rather than a stub answer" {
+  let ctx = context { Net: net() };
+  assert.eq(http.send(ctx, http.request(.Get, "https://example.test/")), .Err(.Refused));
+  assert.eq(http.send(ctx, http.request(.Post, "https://example.test/")), .Err(.Refused));
+}
+
+test "each call to net is a network of its own" {
+  let answered = net().respond(fn(_request) => .Ok(http.status(204)));
+  let refusing = net();
+  assert.eq(assert.ok(http.send(context { Net: answered }, http.request(.Get, "/"))).status, 204);
+  assert.eq(
+    http.send(context { Net: refusing }, http.request(.Get, "/")),
+    .Err(.Refused),
+  );
+}
+
+// -----------------------------------------------------------------------------
+// respond() — the responder is a function of the request
+// -----------------------------------------------------------------------------
+
+test "a responder answers every request with what it returns" {
+  let ctx = context { Alloc: alloc(), Net: net().respond(fn(_request) => .Ok(http.status(204))) };
+  assert.eq(assert.ok(ping(ctx, "https://example.test/a")).status, 204);
+  assert.eq(assert.ok(ping(ctx, "https://example.test/b")).status, 204);
+}
+
+test "a responder reads the request's method enum" {
+  let server = net().respond(fn(request) => match (request.method) {
+    .Get => .Ok(http.status(200)),
+    .Post => .Ok(http.status(201)),
+    .Delete => .Ok(http.status(204)),
+    _ => .Ok(http.status(405)),
+  });
+  let ctx = context { Net: server };
+  assert.eq(assert.ok(statusOf(ctx, http.request(.Get, "/r"))), 200);
+  assert.eq(assert.ok(statusOf(ctx, http.request(.Post, "/r"))), 201);
+  assert.eq(assert.ok(statusOf(ctx, http.request(.Delete, "/r"))), 204);
+  assert.eq(assert.ok(statusOf(ctx, http.request(.Patch, "/r"))), 405);
+}
+
+test "a responder reads the request's headers" {
+  let server = net().respond(fn(request) => match (request.header("x-api-key")) {
+    .Some("secret") => .Ok(http.status(200)),
+    .Some(_other) => .Ok(http.status(403)),
+    .None => .Ok(http.status(401)),
+  });
+  let ctx = context { Alloc: alloc(), Net: server };
+  let bare = http.request(.Get, "/r");
+  assert.eq(assert.ok(statusOf(ctx, bare)), 401);
+  assert.eq(assert.ok(statusOf(ctx, bare.withHeader(ctx, "X-API-Key", "secret"))), 200);
+  assert.eq(assert.ok(statusOf(ctx, bare.withHeader(ctx, "x-api-key", "guess"))), 403);
+}
+
+/// The two questions at once, which is what a fake of a real endpoint asks:
+/// the method decides what the request *is* and the header decides whether it
+/// is allowed.
+test "a responder inspects the method and a header together" {
+  let server = net().respond(fn(request) => {
+    let authorized = request.header("authorization") == .Some("Bearer t0ken");
+    match ((request.method, authorized)) {
+      (.Get, true) => .Ok(http.status(200)),
+      (.Delete, true) => .Ok(http.status(204)),
+      (_any, false) => .Ok(http.status(401)),
+      (_method, true) => .Ok(http.status(405)),
+    }
+  });
+  let ctx = context { Alloc: alloc(), Net: server };
+  let signed = http.request(.Get, "/thing").withHeader(ctx, "authorization", "Bearer t0ken");
+  assert.eq(assert.ok(statusOf(ctx, signed)), 200);
+  assert.eq(assert.ok(statusOf(ctx, signed.withMethod(.Delete))), 204);
+  assert.eq(assert.ok(statusOf(ctx, signed.withMethod(.Put))), 405);
+  assert.eq(assert.ok(statusOf(ctx, http.request(.Get, "/thing"))), 401);
+}
+
+test "a responder routes on the path and ignores the rest of the URL" {
+  let server = net().respond(fn(request) => match (request.path()) {
+    "/health" => .Ok(http.status(200)),
+    "/gone" => .Ok(http.status(410)),
+    _ => .Ok(http.status(404)),
+  });
+  let ctx = context { Net: server };
+  assert.eq(assert.ok(statusOf(ctx, http.request(.Get, "https://a.test/health?deep=1"))), 200);
+  assert.eq(assert.ok(statusOf(ctx, http.request(.Get, "https://b.test:8443/gone#x"))), 410);
+  assert.eq(assert.ok(statusOf(ctx, http.request(.Get, "https://a.test/other"))), 404);
+}
+
+test "a responder sees the request body as the octets it was sent" {
+  let server = net().respond(fn(request) => .Ok(http.status(request.body.len())));
+  let ctx = context { Alloc: alloc(), Net: server };
+  assert.eq(assert.ok(statusOf(ctx, http.request(.Post, "/u"))), 0);
+  assert.eq(
+    assert.ok(statusOf(ctx, http.textRequest(ctx, .Post, "/u", "hello"))),
+    5,
+  );
+}
+
+// -----------------------------------------------------------------------------
+// respond() — failing, and the builder's own rules
+// -----------------------------------------------------------------------------
+
+/// A responder answers `Result`, so a test can make the *transport* fail rather
+/// than the server — and the payload-carrying variants cross unchanged, which
+/// no runtime-table row could have carried (`Ret::Res` names an error by index
+/// and §2.1 gives it no fields).
+test "a responder may answer .Err, payload and all" {
+  let ctx = context { Net: net().respond(fn(_request) => .Err(.Transport("socket closed"))) };
+  let failed = http.send(ctx, http.request(.Get, "/x"));
+  assert.eq(failed, .Err(.Transport("socket closed")));
+  assert.notEq(failed, .Err(.Transport("socket open")));
+  assert.eq(http.errorText(assert.err(failed)), "the transport failed");
+}
+
+test "a responder may fail one request and answer another" {
+  let server = net().respond(fn(request) => match (request.path()) {
+    "/slow" => .Err(.Timeout),
+    "/bad" => .Err(.BadUrl("no scheme")),
+    _ => .Ok(http.status(200)),
+  });
+  let ctx = context { Net: server };
+  assert.eq(http.send(ctx, http.request(.Get, "/slow")), .Err(.Timeout));
+  assert.eq(http.send(ctx, http.request(.Get, "/bad")), .Err(.BadUrl("no scheme")));
+  assert.eq(assert.ok(statusOf(ctx, http.request(.Get, "/ok"))), 200);
+}
+
+/// One responder, five answers, chosen by the URL — a context may not be built
+/// inside a lambda (`context-not-allowed`), so the sweep is one network asked
+/// five times rather than five networks asked once.
+test "every NetError variant a responder can name crosses unchanged" {
+  let server = net().respond(fn(request) => match (request.path()) {
+    "/timeout" => .Err(.Timeout),
+    "/refused" => .Err(.Refused),
+    "/badurl" => .Err(.BadUrl("u")),
+    "/transport" => .Err(.Transport("t")),
+    _ => .Err(.Aborted),
+  });
+  let ctx = context { Net: server };
+  assert.eq(http.send(ctx, http.request(.Get, "/timeout")), .Err(.Timeout));
+  assert.eq(http.send(ctx, http.request(.Get, "/refused")), .Err(.Refused));
+  assert.eq(http.send(ctx, http.request(.Get, "/badurl")), .Err(.BadUrl("u")));
+  assert.eq(http.send(ctx, http.request(.Get, "/transport")), .Err(.Transport("t")));
+  assert.eq(http.send(ctx, http.request(.Get, "/aborted")), .Err(.Aborted));
+}
+
+test "respond answers a new network and leaves its receiver refusing" {
+  let refusing = net();
+  let answering = refusing.respond(fn(_request) => .Ok(http.status(200)));
+  assert.eq(
+    http.send(context { Net: refusing }, http.request(.Get, "/")),
+    .Err(.Refused),
+  );
+  assert.eq(assert.ok(statusOf(context { Net: answering }, http.request(.Get, "/"))), 200);
+}
+
+test "the last respond in the chain is the responder" {
+  let server = net()
+    .respond(fn(_request) => .Ok(http.status(500)))
+    .respond(fn(_request) => .Ok(http.status(200)));
+  assert.eq(assert.ok(statusOf(context { Net: server }, http.request(.Get, "/"))), 200);
+}
+
+/// SPEC 10.6 keeps a responder from capturing a context, so it cannot call
+/// `http.text(ctx, ...)` inside itself. It can capture the `Response` — a
+/// response is plain data — which is how a test answers with a body.
+test "a responder answers with a body the test built beforehand" {
+  let ctx = context { Alloc: alloc(), Net: net() };
+  let pong = http.text(ctx, "pong");
+  let server = net().respond(fn(_request) => .Ok(pong));
+  let live = context { Alloc: alloc(), Net: server };
+  let answer = assert.ok(ping(live, "https://example.test/ping"));
+  assert.eq(answer.status, 200);
+  assert.eq(answer.header("content-type"), .Some("text/plain; charset=utf-8"));
+  assert.eq(assert.ok(http.bodyText(live, answer.body)), "pong");
+  assert.isTrue(answer.isOk());
+}
+
+/// The shape the design note is for, on this double: an environment declared, a
+/// function run, and the outcome asserted as the function's return value.
+test "a function under test is asserted through the network it was given" {
+  let ctx = context { Alloc: alloc() };
+  let payload = http.json(ctx, "{\"ok\":true}");
+  let server = net().respond(fn(request) => match ((request.method, request.path())) {
+    (.Get, "/v1/status") => .Ok(payload),
+    (.Get, _other) => .Ok(http.status(404)),
+    (_method, _path) => .Ok(http.status(405)),
+  });
+  let live = context { Alloc: alloc(), Net: server };
+  let good = assert.ok(ping(live, "https://api.test/v1/status"));
+  assert.eq(good.status, 200);
+  assert.eq(good.header("content-type"), .Some("application/json"));
+  assert.eq(assert.ok(http.bodyText(live, good.body)), "{\"ok\":true}");
+  assert.eq(assert.ok(ping(live, "https://api.test/v1/other")).status, 404);
+  assert.eq(
+    assert.ok(statusOf(live, http.request(.Post, "https://api.test/v1/status"))),
+    405,
   );
 }
 
