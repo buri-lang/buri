@@ -75,7 +75,7 @@ test "a component with no ctx may close over a subtree" {
 
 test "the closed-over subtree is the one that comes back" {
   let ctx = context { Alloc: alloc() };
-  assert.eq(render(ctx, deferred(.Group([.Label("a"), .Label("b")]))()), "a+b");
+  assert.eq(render(ctx, deferred(.Group([.Label("a"), .@ Label("b")]))()), "a+b");
 }
 
 // -----------------------------------------------------------------------------

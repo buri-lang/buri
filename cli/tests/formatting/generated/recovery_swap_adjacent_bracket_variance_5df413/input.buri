@@ -28,7 +28,7 @@ test "a tree over the context it is rendered with is data, not a second context"
 
 test "the recursive arm resolves to the same answer" {
   let ctx = context { Alloc: alloc() };
-  assert.eq(render(ctx, .Group([.Label("a"), .Label("b"), .Label("c")])), "a+b+c");
+  assert.eq(render(ctx, .Group([.Label("a"). ,Label("b"), .Label("c")])), "a+b+c");
 }
 
 test "a nested group is still data" {

@@ -78,18 +78,30 @@
 //! `cli/tests/migrate.rs` is now replacing it, package by package, with a
 //! context that names only what the function under test needs. The first batch
 //! is `lib/data` and `lib/collections`: two hundred and sixty-four sites, of
-//! which two hundred and sixty bind `Alloc` and four bind nothing at all.
+//! which two hundred and sixty bind `Alloc` and four bind nothing at all. The
+//! second is `lib/semantics`, `lib/json` and `lib/proto`: a hundred and
+//! forty-nine more, of which a hundred and forty-seven bind `Alloc` and the
+//! last two bind `Clock` as well or instead.
 //!
-//! **All eight of those files were already in the native set**, so the table
-//! below is unchanged and the census is the same thirty files and 1,393
-//! blocks it was before. That is the honest report: the migration removed the
-//! pressure the exclusions named, and no file was waiting on it. The
-//! historical reasons are left where they are — what a ledger records is why a
-//! file *was* out — with a note beside the ones the migration has overtaken.
-//! The batches that follow (`lib/semantics`, `lib/json`, `lib/proto`, then the
-//! rest) reach files that *are* excluded, and each of them should re-run
-//! [`the_excluded_packages_are_excluded_for_the_stated_reason`] and move any
-//! row the narrowing lets in.
+//! **Neither batch moved a row of the table below.** The first batch's eight
+//! files were already in the native set. The second reaches three that are
+//! *out* — `json/decoding.buri`, `json/encoding.buri` and `proto/json.buri` —
+//! and not one of them was excluded for a context: the reasons are
+//! `json.decode`, `derivePrimJson` and an inexact `F64 -> I64`, and
+//! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run on
+//! the migrated corpus and still reports each of them. So the census is the
+//! same thirty files and 1,393 blocks it was before.
+//!
+//! That is the honest report: the migration removed the pressure the
+//! exclusions named, and no excluded file was waiting on it. The historical
+//! reasons are left where they are — what a ledger records is why a file *was*
+//! out — with a note beside the ones the migration has overtaken. The batches
+//! that follow should re-run that test and move any row the narrowing lets in.
+//!
+//! Two files in `lib/semantics` are not migrated, and both say so in
+//! `cli/tests/migrate.rs`: `effects.buri` is `core/testing/context`'s own
+//! conformance file and moves with the module in E12, and `http.buri` keeps
+//! `noNet()`, which has no twin until `net()` lands.
 //!
 //! # The harness used to be the biggest exclusion, and it was never about the
 //! backend

@@ -63,7 +63,7 @@ test "a string field whose bytes are not UTF-8 is an error, not a replacement" {
   // two types. field 13, wire 2.
   assert.eq(
     decodeEverything(ctx, raw(ctx, "6a01ff")),
-    .Ok(Everything { ..defaultEverything(), blob: .Some([255.wrapToU8()]) }),
+    .Ok(Everything { ..defaultEverything(), blob: .Some([255.wrapToU8()]) },
   );
 }
 

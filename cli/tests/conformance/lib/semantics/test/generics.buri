@@ -2,7 +2,8 @@
 // monomorphization.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 from "core/list/lib.buri" import * as list;
 from "core/num/lib.buri" import * as num;
 
@@ -131,17 +132,17 @@ test "an Ord bound used twice in one expression" {
 }
 
 test "two bounds joined with + are both usable" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(sortedShow(ctx, [3, 1, 2]), "1,2,3");
 }
 
 test "an Alloc bound alongside a value bound" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(showAll(ctx, [1, 2, 3]), "1,2,3");
 }
 
 test "a Show bound at a type with a hand-written show" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(showAll(ctx, [Backwards(1), Backwards(2)]), "Backwards(1),Backwards(2)");
 }
 
@@ -288,12 +289,12 @@ test "depth follows the shape the inserts produced" {
 }
 
 test "an in-order walk of a search tree is sorted" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(treeOf([5, 3, 8, 1, 4, 7, 9]).inOrder(ctx), [1, 3, 4, 5, 7, 8, 9]);
 }
 
 test "the same recursion at a second element type" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     treeOf(["pear", "apple", "fig"]).inOrder(ctx),
     ["apple", "fig", "pear"],
@@ -301,7 +302,7 @@ test "the same recursion at a second element type" {
 }
 
 test "the same recursion at a struct with a derived Ord" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     treeOf([version(2, 0, 0), version(1, 0, 0), version(1, 5, 0)]).inOrder(ctx),
     [version(1, 0, 0), version(1, 5, 0), version(2, 0, 0)],
@@ -309,7 +310,7 @@ test "the same recursion at a struct with a derived Ord" {
 }
 
 test "the tree's Ord is the element type's own" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // Backwards reverses, so the in-order walk comes out descending by payload.
   assert.eq(
     treeOf([Backwards(1), Backwards(3), Backwards(2)]).inOrder(ctx),
@@ -324,7 +325,7 @@ test "a derived Eq on a recursive generic enum compares the whole shape" {
 }
 
 test "mapping a tree keeps its shape and changes its elements" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let t = treeOf([2, 1, 3]);
   let doubled = t.mapTree(ctx, fn(x) => x * 2);
   assert.eq(doubled.size(), 3);
@@ -333,7 +334,7 @@ test "mapping a tree keeps its shape and changes its elements" {
 }
 
 test "mapping a tree may change its element type" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let t = treeOf([2, 1, 3]);
   let flags = t.mapTree(ctx, fn(x) => x > 1);
   assert.eq(flags.inOrder(ctx), [false, true, true]);
@@ -346,14 +347,14 @@ test "a generic enum whose parameter is a recursive generic enum" {
 }
 
 test "a generic struct whose fields are trees of different element types" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let p = pair(treeOf([2, 1]), treeOf(["b", "a"]));
   assert.eq(p.first.inOrder(ctx), [1, 2]);
   assert.eq(p.second.inOrder(ctx), ["a", "b"]);
 }
 
 test "recursion over a large tree stays correct" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = list.range(ctx, 0, 200);
   let t = treeOf(xs);
   assert.eq(t.size(), 200);
@@ -372,7 +373,7 @@ test "a derived Eq on a generic struct works at two instantiations" {
 }
 
 test "a derived Show on a generic struct renders both fields" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let shown = pair(7, "seven").show(ctx);
   assert.isTrue(shown.contains("7"));
   assert.isTrue(shown.contains("seven"));
@@ -380,14 +381,14 @@ test "a derived Show on a generic struct renders both fields" {
 }
 
 test "a derived Show on a generic enum names the variant" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.isTrue(Slot.Filled(1).show(ctx).contains("Filled"));
   assert.isTrue(Slot.Vacant.show(ctx).contains("Vacant"));
   assert.isTrue(Either.Left("x").show(ctx).contains("Left"));
 }
 
 test "a derived Show on a recursive generic enum recurses" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let shown = treeOf([1, 2]).show(ctx);
   assert.isTrue(shown.contains("Node"));
   assert.isTrue(shown.contains("Leaf"));
@@ -396,7 +397,7 @@ test "a derived Show on a recursive generic enum recurses" {
 }
 
 test "Option is comparable and showable like any other enum" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let some: Option<Int> = .Some(1);
   let none: Option<Int> = .None;
   assert.eq(some, Option.Some(1));
@@ -406,7 +407,7 @@ test "Option is comparable and showable like any other enum" {
 }
 
 test "Result is comparable and showable like any other enum" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let ok: Result<Int, Str> = .Ok(1);
   let err: Result<Int, Str> = .Err("bad");
   assert.eq(ok, Result.Ok(1));

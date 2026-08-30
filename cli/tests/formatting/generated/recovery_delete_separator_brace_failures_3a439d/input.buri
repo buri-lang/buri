@@ -32,7 +32,7 @@ test "a varint that never ends is truncated, at the byte it began" {
 }
 
 test "a length that runs past the end is truncated" {
-  let ctx = context { Alloc: alloc() };
+  let ctx = context { Alloc: alloc() }
   // field 1, wire 2, length 5, one byte of body.
   assert.eq(decodeEverything(ctx, raw(ctx, "0a0541")), .Err(.Truncated(1)));
   // And so is a fixed-width field with too few bytes: field 9, wire 1.
