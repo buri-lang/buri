@@ -1345,6 +1345,18 @@ fn run_corpus(path: &str, source: &str) -> Ran {
         cc.arg(o);
     }
     cc.arg(archive());
+    // `build/link.rs::platform_flags`, for `build_with`'s reason: a harness
+    // that links more permissively than the product cannot see the product's
+    // bugs, and one that links *less* completely than it invents failures the
+    // product does not have. The Linux three are not optional — the runtime
+    // archive's `tokio` multi-thread worker reaches libm's `pow`, and libm is
+    // its own library there where macOS folds it into libSystem.
+    if cfg!(target_os = "macos") {
+        cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
+    }
+    if cfg!(target_os = "linux") {
+        cc.args(["-lpthread", "-ldl", "-lm"]);
+    }
     let out = cc.output().unwrap();
     assert!(out.status.success(), "`{path}`: the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
     let out = Command::new(&binary).output().unwrap();
@@ -1845,9 +1857,13 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
         cc.arg(o);
     }
     cc.arg(archive());
-    // `build/link.rs`'s macOS flags, for `build_with`'s reason.
+    // `build/link.rs`'s platform flags, for `build_with`'s reason. The Linux
+    // three carry `-lm` because the archive's `tokio` worker reaches `pow`.
     if cfg!(target_os = "macos") {
         cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
+    }
+    if cfg!(target_os = "linux") {
+        cc.args(["-lpthread", "-ldl", "-lm"]);
     }
     let out = cc.output().unwrap();
     assert!(out.status.success(), "the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
