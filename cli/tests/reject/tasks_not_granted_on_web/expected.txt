@@ -11,9 +11,10 @@ error: `WEB` does not grant `HostTasks` [host-not-granted]
      ──────────
 
      Drop the effect from the context, or build this target for a platform that
-     grants it. Where the fix names no platform to build for, there is none: an
-     effect can be declared ahead of the runtime that answers it, and while it
-     is, dropping it from the context is the whole of the fix.
+     grants it. Where the fix names no platform to build for, there is none:
+     some effects are declared ahead of the runtime that answers them — Listen
+     and Sockets are those today — so dropping it from the context is the whole
+     of the fix.
 
      Why
      ───
@@ -34,8 +35,12 @@ error: `WEB` does not grant `HostTasks` [host-not-granted]
      granted by nobody, was refused on all four platforms with that reason, and
      was then granted on three by editing that one row — at which point programs
      written against the signature it had been reviewed with simply started
-     compiling. No row is empty today; the case above is what the next such
-     effect will use.
+     compiling.
+
+     An empty list is still not a promise that the list will fill. Listen and
+     Sockets have one today because no platform serves yet; when one does, JS
+     and WEB still will not, because a page does not hold a port open. The row
+     says who grants the effect now, and the reason says why — nothing more.
 
      A program that provokes it
      ──────────────────────────

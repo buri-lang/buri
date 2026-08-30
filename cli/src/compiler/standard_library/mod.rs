@@ -392,6 +392,26 @@ const HOST_GRANTS: &[HostGrant] = &[
                   page; a page's concurrency is its event loop, and the effect that reaches \
                   it lands with the servers",
     },
+    // The two halves of being a server, on the same empty-row terms as `Tasks`
+    // and with one difference worth stating: these two are granted *together*
+    // or not at all, and never on `JS` or `WEB`. Nothing enforces the pairing
+    // beyond the two rows below being edited in one commit, which is the same
+    // thing that keeps every other row honest.
+    HostGrant {
+        effect: "Listen",
+        exports: &["HostListen", "listen"],
+        platforms: &[],
+        because: "no platform accepts connections yet; `Listen` is declared so that the \
+                  authority is split from `Net` before there is a server, and the acceptor \
+                  that answers it lands with `core/net/server`",
+    },
+    HostGrant {
+        effect: "Sockets",
+        exports: &["HostSockets", "sockets"],
+        platforms: &[],
+        because: "writing to an open socket is granted with `Listen`, which no platform \
+                  grants yet; a page neither accepts connections nor holds one to push on",
+    },
     HostGrant {
         effect: "Ui",
         exports: &["HostUi", "ui"],
@@ -573,19 +593,110 @@ mod tests {
         assert_eq!(grant.platforms, fs.platforms, "`Tasks` and `Fs` are granted together");
     }
 
+    /// `Listen` and `Sockets` are granted by no platform either, and — the
+    /// part that is theirs rather than `Tasks`' — they are granted by *the
+    /// same* set of platforms as each other.
+    ///
+    /// The pairing is the invariant worth asserting. "I accept connections"
+    /// and "I can write to open sockets" are the two halves of being a server:
+    /// a platform granting only the first could accept a websocket upgrade and
+    /// then never answer on it, and one granting only the second would hand
+    /// out an authority over sockets nothing there can produce. Today both
+    /// lists are empty and the assertion is nearly free; the day
+    /// `core/net/server` fills one in, it is what catches the other having
+    /// been forgotten.
+    #[test]
+    fn the_server_effects_are_granted_by_no_platform_and_always_together() {
+        let listen = host_grant_of("listen").expect("`listen` is in the grant table");
+        let sockets = host_grant_of("sockets").expect("`sockets` is in the grant table");
+        assert_eq!(listen.effect, "Listen");
+        assert_eq!(sockets.effect, "Sockets");
+        assert_eq!(
+            listen.platforms, sockets.platforms,
+            "`Listen` is granted by [{}] and `Sockets` by [{}]; being a server is one \
+             authority in two halves and a platform has both or neither",
+            listen.platforms_phrase(),
+            sockets.platforms_phrase()
+        );
+        assert!(listen.platforms.is_empty(), "granted by {}", listen.platforms_phrase());
+        for platform in Platform::ALL {
+            for name in ["HostListen", "listen", "HostSockets", "sockets"] {
+                assert!(
+                    host_withholds(platform, name),
+                    "`{}` grants `{name}`, which no platform implements",
+                    platform.proto()
+                );
+            }
+        }
+    }
+
+    /// No method `Listen` or `Sockets` declares is declared by any other
+    /// effect.
+    ///
+    /// This is the `find_in_bounds` hazard written down (`semantics/
+    /// expressions.rs`): a call through a context searches *every* bound
+    /// effect, and two matches are `ambiguous-trait-method` at the call site
+    /// rather than at either declaration. So a method name is not local to the
+    /// effect that declares it — it is claimed out of a namespace shared by
+    /// everything a program might bind beside it, and the claim cannot be
+    /// withdrawn once programs are written.
+    ///
+    /// The tree already carries the lesson twice. `Ui.read` and `Watch.read`
+    /// are designed to be bound together and `ctx.read(id)` is ambiguous for
+    /// everybody who does; `Net.fetch` and `Fetch.fetch` are the same word for
+    /// nearly the same thing, saved only by no platform granting both. Neither
+    /// can be fixed now, so neither is asserted about here — what is asserted
+    /// is that the two effects landing today do not add a third, which is the
+    /// only moment the question is cheap to answer.
+    #[test]
+    fn the_server_effects_claim_no_method_name_another_effect_claims() {
+        let mut mine: Vec<(&str, String)> = Vec::new();
+        let mut theirs: Vec<(String, String)> = Vec::new();
+        for path in ["core/effect/lib.buri", "ui/effect/lib.buri"] {
+            let src = source(path).expect("a platform module");
+            let mut effect: Option<String> = None;
+            for line in src.lines() {
+                if let Some(rest) = line.strip_prefix("export effect ") {
+                    effect = Some(rest.trim_end_matches(" {").trim().to_string());
+                } else if line == "}" {
+                    effect = None;
+                } else if let (Some(owner), Some(rest)) =
+                    (effect.as_ref(), line.trim_start().strip_prefix("fn "))
+                {
+                    let method = rest.split(['(', '<']).next().unwrap_or("").to_string();
+                    match owner.as_str() {
+                        "Listen" => mine.push(("Listen", method)),
+                        "Sockets" => mine.push(("Sockets", method)),
+                        _ => theirs.push((owner.clone(), method)),
+                    }
+                }
+            }
+        }
+        assert_eq!(mine.len(), 4, "the two effects declare four methods between them: {mine:?}");
+        for (owner, method) in &mine {
+            for (other, name) in &theirs {
+                assert!(
+                    name != method,
+                    "`{owner}.{method}` collides with `{other}.{name}`: a context binding both \
+                     cannot call either by name"
+                );
+            }
+        }
+    }
+
     /// A row with no platform offers no elsewhere, and a row with platforms
     /// offers the sentence it always did.
     ///
-    /// **No row is empty today.** `Tasks` was the one, and is now granted on
-    /// three platforms, so the empty case is tested against a row written here
-    /// rather than against a row in the table. That is deliberate and is not
-    /// the same as the case being dead: `elsewhere_clause` is what makes *any*
-    /// effect declared ahead of its runtime refuse honestly, `host-not-granted`
-    /// documents the shape, and the next effect to land that way — `Listen` and
-    /// `Sockets` are both coming — gets it for free. Deleting the branch
-    /// because its first user graduated would mean rediscovering the same
-    /// "build this for a platform that grants it:" with nothing after the colon
-    /// on the day the next one lands.
+    /// **Two rows are empty today**, `Listen` and `Sockets`, and `Tasks` was
+    /// the one before them — declared with an empty list, then granted on three
+    /// platforms by editing that row. The empty case is still tested against a
+    /// row written here rather than against either of the two in the table,
+    /// which is deliberate: `elsewhere_clause` is what makes *any* effect
+    /// declared ahead of its runtime refuse honestly, so the branch has to hold
+    /// when today's empty rows graduate the way `Tasks` did. Deleting it once
+    /// the table happened to have no empty row would mean rediscovering the
+    /// same "build this for a platform that grants it:" with nothing after the
+    /// colon on the day the next one lands.
     #[test]
     fn an_ungrantable_effect_is_not_told_to_build_elsewhere() {
         let ungrantable = HostGrant {
