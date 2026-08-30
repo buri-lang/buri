@@ -8,6 +8,7 @@ library {
             "test/effects.buri",
             "test/evaluation.buri",
             "test/variance.buri",
+            "test/elision.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`
