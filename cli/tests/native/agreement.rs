@@ -669,8 +669,13 @@ fn gap(row: &str, source: &str, wanted: &[&str]) {
 // Row 1 — `Int` overflow
 // -------------------------------------------------------------------
 
-/// Undefined on both, and the two implementations differ: JavaScript loses
-/// precision above 2^53, a native backend wraps.
+/// Undefined on both, and the two implementations differ: a `BigInt` has no
+/// width to overflow, so JavaScript answers the exact sum, and a native
+/// backend wraps.
+///
+/// This is what is *left* of row 1 now that `I64` is a `BigInt`. The old
+/// divergence was that neither answer was the sum; the remaining one is that
+/// both are exact and only one of them is an `I64`.
 ///
 /// Both answers are pinned rather than compared, which is §11.1's own
 /// position — "descriptions of two implementations rather than a
@@ -691,17 +696,18 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 "#,
-        "9223372036854776000\n",
+        "9223372036854775808\n",
         "-9223372036854775808\n",
     );
 }
 
-/// The same ceiling seen through `show` rather than through arithmetic: the
-/// extremes of `I64` and `U64` are not integers a double can name.
+/// The old ceiling seen through `show` rather than through arithmetic — and
+/// it is gone: a `BigInt` names every `I64` and every `U64`, so the extremes
+/// print the same digits on both backends.
 #[test]
 fn row_01_integer_show_at_the_64_bit_extremes() {
     rows_or_skip!();
-    diverge(
+    agree(
         "row 1 show",
         r#"
 from "core/host" import { stdout };
@@ -715,7 +721,6 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 "#,
-        "-9223372036854776000 9223372036854776000 18446744073709552000\n",
         "-9223372036854775808 9223372036854775807 18446744073709551615\n",
     );
 }
@@ -724,34 +729,26 @@ export fn main(): Result<(), Str> {
 // Row 2 — `Checked` above the exact range
 // -------------------------------------------------------------------
 
-/// §12 row 2 and SPEC §6.2.2: `(1 << 60).checkedAdd(1)` is `.Some`
-/// natively and `.None` on JavaScript, and this test pins both.
+/// §12 row 2 and SPEC §6.2.2. `Checked` is bounded by the numbers the
+/// **backend** has, and both backends now have the same ones: `.Some(v)`
+/// means `v` is the exact true result, over the type's own range, on either.
 ///
-/// `Checked` is bounded by the numbers the **backend** has. `.Some(v)`
-/// means `v` is the exact true result as that backend represents numbers,
-/// so the JavaScript backend stops promising at `2^53 - 1` — past it a
-/// `number` cannot say which integer it is — and a native backend stops at
-/// the type's own range, where two's-complement overflow is the only thing
-/// that could make the answer not the answer. Both keep the same promise;
-/// they keep it over different numbers.
+/// The row was a band — above `2^53` and inside `I64`, where JavaScript said
+/// `.None` because a `number` could not say which integer the answer was.
+/// A `BigInt` says it, so the band is empty and the row is an agreement row.
+/// Every case that used to sit in the band is asserted here: `1 << 60` plus
+/// one, and `maxValue<I64>()` unchanged. Either side of the old band is
+/// asserted too — `100 + 20` is `.Some`, a division by zero and
+/// `maxValue<I64>() + 1` are `.None` — so a change that moved the bound in
+/// one direction cannot pass by moving the whole row.
 ///
-/// The band between the two bounds is what diverges, and it is the whole
-/// row: `1 << 60` plus one, and `maxValue<I64>()` unchanged, are values an
-/// `I64` holds exactly and a `number` cannot name. Either side of the band
-/// agrees, and both sides are asserted here too — `100 + 20` is `.Some` on
-/// both, a division by zero and `maxValue<I64>() + 1` are `.None` on both —
-/// so a change that collapsed the divergence in *one* direction cannot pass
-/// by moving the whole row.
-///
-/// The agreeing cases are also the only ones the shared conformance corpus
-/// is allowed to hold: `conformance/lib/numbers/test/integers.buri` states
-/// the rule and stays on one side of both bounds, because
-/// `native/conformance.rs` runs that file natively and a divergent
-/// assertion there would be asserting one backend against the other.
+/// `conformance/lib/numbers/test/integers.buri` may now assert the band
+/// itself, and does: `native/conformance.rs` runs that file natively, and
+/// what both backends answer is what belongs there.
 #[test]
 fn row_02_checked_above_the_exact_range() {
     rows_or_skip!();
-    diverge(
+    agree(
         "row 2",
         r#"
 from "core/host" import { stdout, alloc };
@@ -777,7 +774,6 @@ export fn main(): Result<(), Str> {
   .Ok(())
 }
 "#,
-        "None None Some 120 None None\n",
         "Some 1152921504606846977 Some 9223372036854775807 Some 120 None None\n",
     );
 }
@@ -791,9 +787,8 @@ export fn main(): Result<(), Str> {
 /// stated because "unaffected" is the claim a change like that quietly
 /// breaks.
 ///
-/// Every value here is inside 2^53 on purpose: `maxValue<U64>()` clamps to
-/// the same *number* on both backends and then prints two different strings,
-/// which is row 1 and not this row.
+/// Every value here is inside 2^53 for the same reason it always was, which
+/// is that the row is about the bound and not about the width.
 #[test]
 fn row_02_saturating_is_bounded_by_the_type_on_both_backends() {
     rows_or_skip!();

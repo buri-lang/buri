@@ -56,18 +56,19 @@ depends on the backend.
 
 On a **native** backend every integer type is its own width and integer
 arithmetic is two's complement, so the observable consequence of overflow is a
-wrapped value. On the **JavaScript** backend every integer type compiles to a
-`number`, which represents every integer up to 2^53 - 1 exactly and no integer
-above it, so the observable consequence is lost precision. Neither is promised
-and neither is a definition — a program that overflows is wrong, and these are
-descriptions of two implementations rather than a specification of one.
+wrapped value. On the **JavaScript** backend a width up to 32 bits compiles to a
+`number` and `I64` and `U64` compile to a `BigInt`, so those types hold their own
+range exactly — and a `BigInt` has no width to overflow at, so the observable
+consequence of overflow there is an answer larger than the type. Neither is promised and neither is a definition — a program that overflows
+is wrong, and these are descriptions of two implementations rather than a
+specification of one.
 
 That the two differ is the reason overflow is undefined rather than
 implementation-defined: a language that pinned one of them would be pinning a
-backend. Code that needs an exact answer above 2^53 has two ways to ask for one
-that are defined on every backend: the `Checked` methods, which answer `.None`
-rather than a value they cannot hold, and `core/bits`, which computes on the bit
-pattern.
+backend. Code that needs a defined answer at the boundary says which one it
+wants: `Checked` answers `.None`, `Wrapping` answers the low bits, and
+`Saturating` answers the bound. Each of those means the same thing on every
+backend.
 
 Floating point follows IEEE-754, with one deliberate exception: **`==` is an
 equivalence relation**. It compares numerically, so `-0.0 == 0.0` is true and
@@ -121,8 +122,7 @@ but converting a count to a float is too common to route through a `Result`, so
 rounds beyond that, documented as such. This is the one place the language
 prefers ergonomics to ceremony, and it is called out rather than hidden. That
 bound is the float's rather than the backend's, so `toF64` rounds identically
-everywhere: on JavaScript the *source* is a double already, and the loss simply
-happened earlier.
+everywhere.
 
 Earlier drafts used three cast operators (`as`, `as?`, `as%`). They are gone,
 because a method resolved by its receiver's type is the same lookup for none of
@@ -177,21 +177,12 @@ Every built-in integer type satisfies all four; the float types satisfy
 `Bounded` only.
 
 A `Checked` method answers `.None` whenever it cannot hand back the true result:
-outside the type's range, or above what the backend represents exactly. Natively
-there is no second bound, so `checkedAdd` on `I64` reports two's-complement
-overflow and nothing more; on JavaScript the second bound is 2^53 - 1, well below
-`maxValue<I64>()`, because past it a `number` can no longer say which integer it
-is. So `bits.shl(1, 60).checkedAdd(1)` is `.Some` natively and `.None` on
-JavaScript, and both keep one promise over different numbers: `.Some(v)` means
-`v` is the exact true result as that backend represents numbers, and `.None`
-means that backend will not name a value it cannot hold. A program whose
-behaviour depends on which of those it gets is relying on a `Checked` method to
-*fail*, which is not what the trait is for.
+outside the type's range, or above what the backend represents exactly. Every
+backend now represents every integer type's whole range exactly, so the two
+bounds coincide and `.None` means two's-complement overflow and nothing else.
+`.Some(v)` means `v` is the exact true result.
 
-`Bounded` and `Saturating` report the type's own bounds on every backend, which
-at 64 bits and above are themselves rounded to the nearest representable value
-on JavaScript. Where the difference matters, `Checked` is the one that will tell
-you.
+`Bounded` and `Saturating` report the type's own bounds on every backend.
 
 ### 6.3 Blocks
 

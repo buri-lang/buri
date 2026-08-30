@@ -6,18 +6,18 @@ function __cmd_x_main$main(){
 function __cmd_x_main$code(name_0){
   switch(name_0){
     case 'get':
-      return 1;
+      return 1n;
     case 'put':
-      return 2;
+      return 2n;
     case 'post':
-      return 3;
+      return 3n;
     case 'patch':
-      return 4;
+      return 4n;
     case 'delete':
-      return 5;
+      return 5n;
     case 'head':
-      return 6;
+      return 6n;
     default:
-      return 0;
+      return 0n;
   }
 }

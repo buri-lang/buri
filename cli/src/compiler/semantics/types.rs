@@ -124,13 +124,15 @@ impl Prim {
         }
     }
 
-    /// Every numeric type is a JavaScript `number`. `Int` is `I64`, and a
-    /// double holds every integer up to 2^53 exactly; past that, precision is
-    /// lost. Overflow and underflow are undefined, so that loss is within what
-    /// the language permits, and it is what keeps ordinary integer code as
-    /// fast as ordinary JavaScript (SPEC 15, open question 8).
+    /// Whether this type is a JavaScript `BigInt` rather than a `number`.
+    ///
+    /// A double holds every integer up to 2^53 exactly, so every width up to
+    /// 32 bits is a `number` and loses nothing. `I64` is not one of them —
+    /// `Int` is `I64`, and a nanosecond timestamp is past 2^53 today — so it
+    /// is a `BigInt`, which is exact at the type's own width (SPEC 15, open
+    /// question 8).
     pub fn is_bigint(self) -> bool {
-        false
+        matches!(self, Prim::I64 | Prim::U64)
     }
 
     /// The largest integer a `number` represents unambiguously: 2^53 itself is
@@ -144,17 +146,19 @@ impl Prim {
     const EXACT_INTEGER_FLOOR: i128 = -((1_i128 << 53) - 1);
 
     /// The range `Checked` answers about **on the JavaScript backend**: the
-    /// type's own range, narrowed to what a double still represents exactly. A
+    /// type's own range, narrowed to what its representation holds exactly. A
     /// `Checked` operation that said `.Some` outside this would be reporting a
     /// value it cannot actually hold, which is the one thing `Checked` exists to
     /// rule out.
     ///
-    /// A native backend uses [`Prim::int_range`] instead, because there the
-    /// value does not have to survive being a double. `Checked` is bounded by
-    /// the numbers the platform has, and the band between the two bounds is
-    /// `design/native/VALUE-MODEL.md` §12 row 2's documented divergence.
+    /// A `BigInt` type holds its whole range, so for those this *is*
+    /// [`Prim::int_range`] and the backends agree. The narrowing bites only
+    /// where a value has to survive being a double.
     pub fn exact_int_range(self) -> Option<(i128, u128)> {
         let (lo, hi) = self.int_range()?;
+        if self.is_bigint() {
+            return Some((lo, hi));
+        }
         Some((lo.max(Prim::EXACT_INTEGER_FLOOR), hi.min(Prim::EXACT_INTEGER_LIMIT)))
     }
 
@@ -1767,8 +1771,17 @@ mod tests {
     }
 
     #[test]
-    fn no_numeric_type_is_a_bigint() {
-        // Every one of them compiles to a JavaScript `number`.
-        assert!(Prim::all().iter().all(|p| !p.is_bigint()));
+    fn the_wide_integers_are_bigints_and_nothing_else_is() {
+        // The line is the width a double still holds every integer of.
+        assert!([Prim::I64, Prim::U64].iter().all(|p| p.is_bigint()));
+        let narrow = [Prim::I8, Prim::I16, Prim::I32, Prim::U8, Prim::U16, Prim::U32];
+        assert!(narrow.iter().all(|p| !p.is_bigint()));
+        assert!([Prim::F32, Prim::F64, Prim::Bool, Prim::Str].iter().all(|p| !p.is_bigint()));
+    }
+
+    #[test]
+    fn a_bigint_type_is_checked_against_its_own_range() {
+        assert_eq!(Prim::I64.exact_int_range(), Prim::I64.int_range());
+        assert_eq!(Prim::I32.exact_int_range(), Prim::I32.int_range());
     }
 }

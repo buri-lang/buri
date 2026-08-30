@@ -218,14 +218,12 @@ fn inAlphabet(ch: Char, i: Int): Bool {
 // as bytes, it has exactly one definition, and `core/proto` and anything else
 // that speaks a length-prefixed wire format needs the same one.
 //
-// **Sixty-four bits, on a sixty-four bit type that is a double.** An `Int` is
-// exact to 2^53 (see `core/num`), and a varint carries 64. So the arithmetic
-// below is done on two 32-bit halves rather than on the value: `toVarint` of a
-// negative number writes the ten bytes of its two's complement, which is what a
-// protobuf `int64` field holds, and `readVarint` reads all ten back. Values
-// whose magnitude exceeds 2^53 survive the round trip only to the precision an
-// `Int` has, which is the same caveat every double-backed implementation
-// carries and is stated here rather than discovered.
+// **Sixty-four bits, in two halves.** A varint carries 64 bits and the
+// arithmetic below is done on two 32-bit halves rather than on the value, so
+// `toVarint` of a negative number writes the ten bytes of its two's complement
+// — what a protobuf `int64` field holds — and `readVarint` reads all ten back.
+// The halves were once also a way around a 2^53 ceiling; they are not any more
+// (`core/num`), and every digit round-trips on every backend.
 
 let TWO32: Int = 4294967296;
 
