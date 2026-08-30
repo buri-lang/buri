@@ -964,6 +964,166 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
+    // -- core/host/testing --------------------------------------------------
+    //
+    // `core/host`'s names for a test source, over the same handle table. Every
+    // receiver is `Arg::Scalar` for the reason stated above `testing_context`'s
+    // rows: these carry a handle, and `core/host`'s own implementations are
+    // empty structs that do not.
+    //
+    // A **builder** — `at`, `seed`, `variables`, `args` — takes its receiver
+    // and answers a fresh handle through the out-pointer, so it is
+    // `Arg::Scalar` in and `Ret::Out` out. The receiver is passed even where
+    // the body ignores it (`at`, `seed`): the C signature is the Buri argument
+    // list flattened, and dropping a parameter because one implementation has
+    // no use for it is exactly the kind of disagreement nothing diagnoses.
+    //
+    // `alloc` and `TestAlloc.allocate` are open-coded (`emit.rs`).
+    Entry {
+        key: "host_testing.stdout",
+        symbol: "buri_rt_host_testing_stdout",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.stderr",
+        symbol: "buri_rt_host_testing_stderr",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestStdout.print",
+        symbol: "buri_rt_host_testing_test_stdout_print",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestStdout.println",
+        symbol: "buri_rt_host_testing_test_stdout_println",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestStdout.writeBytes",
+        symbol: "buri_rt_host_testing_test_stdout_write_bytes",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestStdout.captured",
+        symbol: "buri_rt_host_testing_test_stdout_captured",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestStderr.eprint",
+        symbol: "buri_rt_host_testing_test_stderr_eprint",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestStderr.eprintln",
+        symbol: "buri_rt_host_testing_test_stderr_eprintln",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestStderr.captured",
+        symbol: "buri_rt_host_testing_test_stderr_captured",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.clock",
+        symbol: "buri_rt_host_testing_clock",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestClock.at",
+        symbol: "buri_rt_host_testing_test_clock_at",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestClock.nowMillis",
+        symbol: "buri_rt_host_testing_test_clock_now_millis",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.TestClock.sleepMillis",
+        symbol: "buri_rt_host_testing_test_clock_sleep_millis",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.rand",
+        symbol: "buri_rt_host_testing_rand",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestRand.seed",
+        symbol: "buri_rt_host_testing_test_rand_seed",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestRand.nextInt",
+        symbol: "buri_rt_host_testing_test_rand_next_int",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.TestRand.nextFloat",
+        symbol: "buri_rt_host_testing_test_rand_next_float",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry { key: "host_testing.env", symbol: "buri_rt_host_testing_env", args: &[], ret: Ret::Out },
+    Entry {
+        key: "host_testing.TestEnv.variables",
+        symbol: "buri_rt_host_testing_test_env_variables",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestEnv.args",
+        symbol: "buri_rt_host_testing_test_env_args",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestEnv.variable",
+        symbol: "buri_rt_host_testing_test_env_variable",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "host_testing.TestEnv.arguments",
+        symbol: "buri_rt_host_testing_test_env_arguments",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.proc",
+        symbol: "buri_rt_host_testing_proc",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestProc.exitWith",
+        symbol: "buri_rt_host_testing_test_proc_exit_with",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestProc.exited",
+        symbol: "buri_rt_host_testing_test_proc_exited",
+        args: &[Arg::Scalar],
+        ret: Ret::Sum,
+    },
 ];
 
 pub fn entry(key: &str) -> Option<&'static Entry> {
@@ -1161,6 +1321,10 @@ mod tests {
             // backend cannot compile it" stay two different statements.
             "testing_context.alloc",
             "testing_context.TestAlloc.allocate",
+            // `core/host/testing`'s allocator is the same two instructions and
+            // is open-coded the same way.
+            "host_testing.alloc",
+            "host_testing.TestAlloc.allocate",
             // The archive has no body for `core/fs`'s real filesystem past
             // `fileExists` (`cli/runtime/host.rs`). Not a missing *shape*:
             // `MemFs`'s three are the same `Result<T, IoError>` and are in the

@@ -1,0 +1,212 @@
+// SPEC 10, 11.2, 11.3 — `core/host/testing`, the doubles a test source binds.
+//
+// `core/host` is the platform's implementations and is importable only from the
+// module that exports `main`; this is the same surface for a test source, and
+// the `testing` segment in the path is the whole of that rule. The names are
+// `core/host`'s names — `alloc`, `stdout`, `stderr`, `clock`, `rand`, `env`,
+// `proc` — but they are **called**, so each one is a fresh runner-side handle
+// and no two tests share a clock.
+//
+// Every assertion here is a literal written into the file, so the two backends
+// either both pass it or disagree about the language. `cli/tests/native/
+// conformance.rs` runs this same file through the copy-and-patch backend.
+
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing/lib.buri" import {
+  alloc, stdout, stderr, clock, rand, env, proc,
+};
+from "core/effect/lib.buri" import { Alloc, Clock, Env, Proc, Rand, Region, Stderr, Stdout };
+
+// Ordinary functions over the effects, so what the doubles are asked is what a
+// program would ask them rather than what a test can reach directly.
+
+fn speak<C: Stdout>(ctx: C, what: Str): () {
+  let _ = ctx.print("[");
+  let _ = ctx.print(what);
+  let _ = ctx.println("]");
+}
+
+fn shout<C: Stderr>(ctx: C, what: Str): () {
+  let _ = ctx.eprint("<");
+  let _ = ctx.eprintln(what);
+}
+
+fn elapsed<C: Clock>(ctx: C, waiting: Int): I64 {
+  let before = ctx.nowMillis();
+  let _ = ctx.sleepMillis(waiting);
+  ctx.nowMillis() - before
+}
+
+fn stop<C: Proc>(ctx: C, code: Int): () {
+  ctx.exitWith(code)
+}
+
+// -----------------------------------------------------------------------------
+// alloc
+// -----------------------------------------------------------------------------
+
+test "the test allocator answers the count it was asked for" {
+  let ctx = context { Alloc: alloc() };
+  assert.eq(ctx.allocate(64), Region(64));
+  assert.eq(ctx.allocate(0), Region(0));
+}
+
+// -----------------------------------------------------------------------------
+// stdout and stderr
+// -----------------------------------------------------------------------------
+
+test "captured reads back what a function printed" {
+  let sink = stdout();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  speak(ctx, "hello");
+  assert.eq(sink.captured(), "[hello]\n");
+}
+
+test "each call to stdout is a stream of its own" {
+  let first = stdout();
+  let second = stdout();
+  let ctx = context { Alloc: alloc(), Stdout: first };
+  speak(ctx, "one");
+  assert.eq(second.captured(), "");
+  assert.eq(first.captured(), "[one]\n");
+}
+
+test "writeBytes is captured as the text the octets spell" {
+  let sink = stdout();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let _ = ctx.writeBytes([104, 105]);
+  assert.eq(sink.captured(), "hi");
+}
+
+test "standard error is its own transcript, under the same method name" {
+  let out = stdout();
+  let err = stderr();
+  let ctx = context { Alloc: alloc(), Stdout: out, Stderr: err };
+  shout(ctx, "bad");
+  assert.eq(err.captured(), "<bad\n");
+  assert.eq(out.captured(), "");
+}
+
+// -----------------------------------------------------------------------------
+// clock
+// -----------------------------------------------------------------------------
+
+test "a test clock starts at zero and moves only when it is moved" {
+  let ctx = context { Alloc: alloc(), Clock: clock() };
+  assert.eq(ctx.nowMillis(), 0);
+  assert.eq(ctx.nowMillis(), 0);
+  assert.eq(elapsed(ctx, 5), 5);
+  assert.eq(ctx.nowMillis(), 5);
+}
+
+test "at answers a new clock and leaves the one it was called on alone" {
+  let origin = clock();
+  let later = origin.at(1000);
+  let a = context { Alloc: alloc(), Clock: origin };
+  let b = context { Alloc: alloc(), Clock: later };
+  let _ = b.sleepMillis(7);
+  assert.eq(b.nowMillis(), 1007);
+  assert.eq(a.nowMillis(), 0);
+}
+
+// -----------------------------------------------------------------------------
+// rand
+// -----------------------------------------------------------------------------
+
+test "an unseeded generator is the same sequence on every backend" {
+  let ctx = context { Alloc: alloc(), Rand: rand() };
+  assert.eq(ctx.nextInt(0, 100), 69);
+  assert.eq(ctx.nextInt(0, 100), 89);
+  assert.eq(ctx.nextInt(10, 11), 10);
+}
+
+test "seed answers a new generator at the start of its sequence" {
+  let base = rand();
+  let seeded = base.seed(7);
+  let ctx = context { Alloc: alloc(), Rand: seeded };
+  assert.eq(ctx.nextInt(0, 1000), 583);
+  let other = context { Alloc: alloc(), Rand: base };
+  assert.eq(other.nextInt(0, 100), 69);
+}
+
+test "two generators at the same seed agree with each other" {
+  let a = context { Alloc: alloc(), Rand: rand().seed(42) };
+  let b = context { Alloc: alloc(), Rand: rand().seed(42) };
+  assert.eq(a.nextInt(0, 1000000), b.nextInt(0, 1000000));
+}
+
+test "a seeded generator answers a float in the unit interval" {
+  let ctx = context { Alloc: alloc(), Rand: rand().seed(1) };
+  let x = ctx.nextFloat();
+  assert.isTrue(x >= 0.0);
+  assert.isTrue(x < 1.0);
+}
+
+// -----------------------------------------------------------------------------
+// env
+// -----------------------------------------------------------------------------
+
+test "a fresh environment has no variables and no arguments" {
+  let ctx = context { Alloc: alloc(), Env: env() };
+  assert.isTrue(ctx.variable("HOME").isNone());
+  assert.eq(ctx.arguments().len(), 0);
+}
+
+test "the two builders compose in either order" {
+  let one = env().variables([("HOME", "/tmp")]).args(["--verbose"]);
+  let two = env().args(["--verbose"]).variables([("HOME", "/tmp")]);
+  let a = context { Alloc: alloc(), Env: one };
+  let b = context { Alloc: alloc(), Env: two };
+  assert.eq(assert.some(a.variable("HOME")), "/tmp");
+  assert.eq(assert.some(b.variable("HOME")), "/tmp");
+  assert.eq(a.arguments().join(a, " "), "--verbose");
+  assert.eq(b.arguments().join(b, " "), "--verbose");
+}
+
+test "a builder answers a new environment and leaves its receiver empty" {
+  let empty = env();
+  let filled = empty.variables([("LANG", "C")]);
+  let a = context { Alloc: alloc(), Env: empty };
+  let b = context { Alloc: alloc(), Env: filled };
+  assert.isTrue(a.variable("LANG").isNone());
+  assert.eq(assert.some(b.variable("LANG")), "C");
+}
+
+test "an environment holds what it was given and nothing else" {
+  let ctx = context {
+    Alloc: alloc(),
+    Env: env().variables([("HOME", "/tmp"), ("LANG", "C")]).args(["--verbose", "x"]),
+  };
+  assert.eq(assert.some(ctx.variable("HOME")), "/tmp");
+  assert.eq(assert.some(ctx.variable("LANG")), "C");
+  assert.isTrue(ctx.variable("PATH").isNone());
+  let args = ctx.arguments();
+  assert.eq(args.len(), 2);
+  assert.eq(args.join(ctx, " "), "--verbose x");
+}
+
+// -----------------------------------------------------------------------------
+// proc
+// -----------------------------------------------------------------------------
+
+test "nothing has exited a fresh process" {
+  let p = proc();
+  assert.none(p.exited());
+}
+
+test "an exit is recorded rather than taken" {
+  let p = proc();
+  let ctx = context { Alloc: alloc(), Proc: p };
+  stop(ctx, 2);
+  // The block is still running, which is the claim: a test that ended the
+  // process would have taken every block after this one with it.
+  assert.eq(assert.some(p.exited()), 2);
+}
+
+test "the first exit is the one that happened" {
+  let p = proc();
+  let ctx = context { Alloc: alloc(), Proc: p };
+  stop(ctx, 3);
+  stop(ctx, 4);
+  assert.eq(assert.some(p.exited()), 3);
+}
