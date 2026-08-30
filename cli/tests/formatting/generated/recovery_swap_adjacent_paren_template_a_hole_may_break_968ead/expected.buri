@@ -1,3 +1,0 @@
-export fn f(s: Working, ctxCtx :): Str {
-  "the first is ${s.aFieldName} and the second is ${aFunction(ctx, s.other, "a literal", 3)}"
-}

@@ -494,6 +494,7 @@ UnaryExpr       ::= ("-" | "!" | "~") UnaryExpr
 
    @hidden *)
 BlockLikeExpr   ::= Block
+                  | AnonymousStructLit
                   | IfExpr
                   | MatchExpr
                   | ContextExpr
@@ -537,13 +538,44 @@ TryExpr         ::= PostfixExpr "?"                          (* try-propagate   
 GenericExpr     ::= PostfixExpr TypeArgs                     (* type arguments          *)
 StructLit       ::= type=PostfixExpr StructLitBody           (* struct literal          *)
 
-(* With records gone, a `{` that opens an expression is ALWAYS a block, and a
-   `{` following a path is ALWAYS a struct literal. Nothing competes, so field
-   shorthand is unambiguous here. *)
+(* A `{` following a path is ALWAYS a struct literal; nothing competes, so
+   field shorthand is unambiguous here. *)
 StructLitBody   ::= "{" Spread? FieldInits? "}"
 Spread          ::= ".." Expr ","?
-FieldInits      ::= FieldInit ("," FieldInit)* ","?
-FieldInit       ::= name=IDENT (":" value=Expr)?
+FieldInits      ::= AnyFieldInit ("," AnyFieldInit)* ","?
+
+(* Two productions rather than one with an optional value, because
+   AnonymousStructLit below has to say "a keyed field, or a shorthand field
+   that is not the only thing in the braces", and one production cannot be
+   quantified that way. The split is worth having on its own: a shorthand field
+   names a value in scope as well as a field.
+
+   @hidden *)
+AnyFieldInit    ::= FieldInit | FieldShorthand
+FieldInit       ::= name=IDENT ":" value=Expr
+FieldShorthand  ::= name=IDENT
+
+(* A literal with no head at all. Its type is the one the expression is checked
+   against, so it is settled by the checker (SPEC 14.1) and not here: no
+   production below consults a type, and none needs to.
+
+   A bare `{` otherwise opens a Block, and a Block is `{ Stmt* Expr? }`. So the
+   rule is the two tokens after the `{`: a `..`, or a `name ":"`. Neither can
+   begin a Stmt or an Expr, so nothing competes for them, and every other `{`
+   is a block -- `{ }`, `{ name }` and `{ name "," ... }` included. Two tokens
+   of lookahead decide, so the grammar stays LR(1) and this declares no
+   conflict.
+
+   The first field carries the whole decision, which is why FieldShorthand is
+   not among the openers: admitting it would make `{ name }` and `{ name "," }`
+   two different constructs a comma apart. Shorthand after the first field is
+   free, because by then the `{` is settled: `{ hi: hi, hello }` is a literal. *)
+AnonymousStructLit
+                ::= "{" AnonymousFields "}"
+
+(* @hidden *)
+AnonymousFields ::= Spread FieldInits?
+                  | FieldInit ("," FieldInits?)?
 
 Args            ::= Expr ("," Expr)* ","?
 

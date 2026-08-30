@@ -1,0 +1,4 @@
+export fn f(): World {
+    let world: World = { hi: "hi" hello: .None };
+    world
+}

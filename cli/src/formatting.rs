@@ -2030,9 +2030,15 @@ impl<'t> Build<'t> {
                 cat(vec![b, text(format!(".{index}"))])
             }
             ExprView::StructLit { head, spread, fields, .. } => {
-                let h = self.operand(head);
+                // An anonymous literal is the same body with nothing in front
+                // of it, so the space that parts a head from its `{` belongs to
+                // the head rather than to the brace.
+                let h = match head {
+                    Some(h) => cat(vec![self.operand(h), text(" ")]),
+                    None => Doc::Nil,
+                };
                 if spread.is_none() && fields.is_empty() {
-                    return cat(vec![h, text(" { }")]);
+                    return cat(vec![h, text("{ }")]);
                 }
                 let mut items = Vec::new();
                 if let Some(s) = spread {
@@ -2051,7 +2057,7 @@ impl<'t> Build<'t> {
                 }
                 group(cat(vec![
                     h,
-                    text(" {"),
+                    text("{"),
                     nest(cat(vec![
                         Doc::Line,
                         join(cat(vec![text(","), Doc::Line]), items),

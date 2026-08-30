@@ -6,7 +6,10 @@ the index, not the explanation.
 
 1. The head of a struct literal (`Expr { ... }`) must be a type path — optionally
    with type arguments, or the inferred-type dot form `.Variant` — not an
-   arbitrary expression.
+   arbitrary expression. It may also be absent, where the grammar reads the
+   braces as an anonymous literal (Section 12.3); the expected type is then read
+   from above, and must be a struct with no unsettled type argument
+   (Section 5.6).
 2. `let` patterns must be irrefutable (Section 6.3).
 3. `match` must be exhaustive, and no arm may be unreachable (Section 7.3).
 4. Or-pattern alternatives must bind identical names at identical types

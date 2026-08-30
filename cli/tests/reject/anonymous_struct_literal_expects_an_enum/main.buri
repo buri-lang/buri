@@ -1,0 +1,23 @@
+// EXPECT: write `Shape.Variant { ... }`
+//
+// The expected type is known and is an enum, so the literal is refused for a
+// different reason than a missing one: a type alone does not say which variant
+// is being built. The dot form names it, and the fix points at it rather than
+// at the type name (SPEC 12.3).
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Shape {
+  Rect { width: Int, height: Int },
+  Dot,
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let s: Shape = { width: 2, height: 3 };
+  let _ = match (s) {
+    .Rect { width, height } => ctx.println("${width} ${height}"),
+    .Dot => ctx.println("dot"),
+  };
+  .Ok(())
+}

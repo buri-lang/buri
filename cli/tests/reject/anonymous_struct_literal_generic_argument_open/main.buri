@@ -1,0 +1,19 @@
+// EXPECT: still has a type argument
+//
+// The struct is known — the parameter says `Holder` — and only its argument is
+// open. That is still refused: `Holder<Int>` is a type a reader can see and
+// `Holder<?>` is one the fields would have to decide, and this feature reads a
+// type rather than deciding one (SPEC 12.3).
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct Holder<T> { export only: T, export slot: Option<T> }
+
+fn first<T>(h: Holder<T>): T { h.only }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let n = first({ only: 1 });
+  let _ = ctx.println("${n}");
+  .Ok(())
+}

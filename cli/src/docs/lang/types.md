@@ -212,6 +212,34 @@ Elision fills only what neither an initializer nor a spread provides, and a
 spread provides every field the literal does not write — so `World { ..base }`
 takes `hello` from `base` rather than resetting it to `.None`.
 
+The type name may itself be left out where the surroundings already give it.
+The braces then build whatever the expression is checked against:
+
+```buri
+struct World { export hi: Str, export hello: Option<Str> }
+
+fn takes(w: World): Str { w.hi }
+
+fn annotated(): World { let w: World = { hi: "hi", hello: .None }; w }
+fn argument(): Str { takes({ hi: "hi" }) }
+fn result(): World { { hi: "hi" } }
+```
+
+The type is **read** from above and never solved for. It reaches a literal in a
+`let` with an annotation, an argument of a call, the value of a field, a match
+arm and a function's result — the places a type is already written down. A
+literal with nothing above it to name its type is `struct-literal-type`, and so
+is one whose expected type is an enum, a primitive, or a generic struct with a
+type argument nothing has settled: `Holder<Int>` is a type a reader can see,
+`Holder<?>` is one the fields would have to decide, and deciding it here would
+be inference rather than a lookup.
+
+The braces are read as a literal when what follows the `{` is a `..` or a
+`name :`, and as a block otherwise (Section 12.3). So a literal whose *first*
+field is shorthand keeps its type name — `World { hi }`, `World { hi, hello }` —
+while shorthand after a first keyed field does not: `{ hi: hi, hello }` is a
+literal. `{}` keeps its type name too.
+
 Outside the declaring module, a private field cannot be read, written in a
 literal, or matched. A struct with any private field therefore cannot be
 constructed from scratch elsewhere — but functional update still works, because

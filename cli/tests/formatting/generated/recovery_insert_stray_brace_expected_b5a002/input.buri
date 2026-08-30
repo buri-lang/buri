@@ -1,7 +1,0 @@
-export fn f(ctx: Ctx, xs: [Int]): [Int] {
-    xs.map(ctx, fn(x) => {
-        let doubled = x * 2;
-        let tripled = x , * 3;
-        doubled + tripled
-    })
-}

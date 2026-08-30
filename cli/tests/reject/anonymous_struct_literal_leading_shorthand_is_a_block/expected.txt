@@ -1,0 +1,32 @@
+error: this block is missing its closing `}` [unclosed-delimiter]
+  --> cmd/anonymous_struct_literal_leading_shorthand_is_a_block/main.buri:20:7
+   |
+20 |   { hi, hello }
+   |       ^
+   |
+  --> cmd/anonymous_struct_literal_leading_shorthand_is_a_block/main.buri:20:3
+   |
+20 |   { hi, hello }
+   |   ^ opened here
+   |
+   = fix: write `}` here
+
+     What to do
+     ──────────
+
+     Close the construct the second caret points at. The diagnostic carries two
+     spans: the token that is not the closer, and the delimiter that opened and
+     was never matched. There is deliberately no edit, because where the closer
+     belongs is exactly what a compiler cannot know — it is the one thing only
+     the person who wrote the construct can say.
+
+     Why
+     ───
+
+     A construct that is abandoned takes the rest of the file with it: whatever
+     closer comes next is read as this construct's, the count is off by one from
+     there on, and the errors that follow are about the miscount rather than
+     about the program. Naming the opener is what stops that. The parser reads
+     on as though the closer had been written, so the declarations after the
+     mistake are still checked and still reported on their own terms.
+

@@ -496,6 +496,14 @@ fn literal_at(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Opti
     let ExprView::StructLit { head, spread, fields, .. } = tree.expr(best?.1) else {
         return None;
     };
+    // The anonymous `{ … }` has no head to read a type off, and the only
+    // thing that says what it builds is the type it is being checked
+    // against — which, in a literal being typed into, is the type of an
+    // expression the checker has already replaced with an error. That is the
+    // same reason `head_type` does not answer for a bare `.OnHand { … }`, and
+    // an anonymous literal is the case where it is the whole head rather than
+    // half of it. The cursor falls through to ordinary code completion.
+    let head = head?;
     let (con, variant) = head_type(analyzed, path, tree, head)?;
 
     // The head names the type, and the cursor on it is completing a type name

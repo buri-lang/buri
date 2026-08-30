@@ -1,5 +1,0 @@
-export fn f(
-  // about the first parameter
-  a: Int,
-  b: Int,
-): Int { a + } b
