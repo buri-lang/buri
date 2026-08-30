@@ -377,6 +377,15 @@ Everyday code writes `Int` and `Float` and never thinks about widths. Code that
 cares writes `U8` or `I32` or `F32` and gets exactly that. There is no third
 category and no numeric tower.
 
+**Every integer type holds its whole range on every backend.** An `I64` is an
+`I64` whether the program runs natively or on JavaScript, so a nanosecond
+timestamp keeps its last three digits either way. That costs something on
+JavaScript, where a double holds every integer only up to 2^53: the widths up to
+32 bits compile to a `number` and the widths at 64 bits and above compile to a
+`BigInt`, which is a heap value rather than an immediate. Code on a hot path
+that does not need the range can say `I32` and get the faster representation;
+code that needs the range gets the right answer without asking.
+
 #### Literals are polymorphic until they are pinned
 
 A numeric literal does not have a type on sight. It gets a fresh type variable
@@ -921,18 +930,20 @@ depends on the backend.
 
 On a **native** backend every integer type is its own width and integer
 arithmetic is two's complement, so the observable consequence of overflow is a
-wrapped value. On the **JavaScript** backend every integer type compiles to a
-`number`, which represents every integer up to 2^53 - 1 exactly and no integer
-above it, so the observable consequence is lost precision. Neither is promised
-and neither is a definition — a program that overflows is wrong, and these are
-descriptions of two implementations rather than a specification of one.
+wrapped value. On the **JavaScript** backend a width up to 32 bits compiles to a
+`number` and one at 64 bits or above compiles to a `BigInt`, so every integer
+type holds its own range exactly — and a `BigInt` has no width to overflow at,
+so the observable consequence of overflow there is an answer larger than the
+type. Neither is promised and neither is a definition — a program that overflows
+is wrong, and these are descriptions of two implementations rather than a
+specification of one.
 
 That the two differ is the reason overflow is undefined rather than
 implementation-defined: a language that pinned one of them would be pinning a
-backend. Code that needs an exact answer above 2^53 has two ways to ask for one
-that are defined on every backend: the `Checked` methods, which answer `.None`
-rather than a value they cannot hold, and `core/bits`, which computes on the bit
-pattern.
+backend. Code that needs a defined answer at the boundary says which one it
+wants: `Checked` answers `.None`, `Wrapping` answers the low bits, and
+`Saturating` answers the bound. Each of those means the same thing on every
+backend.
 
 Floating point follows IEEE-754, with one deliberate exception: **`==` is an
 equivalence relation**. It compares numerically, so `-0.0 == 0.0` is true and
@@ -992,8 +1003,7 @@ but converting a count to a float is too common to route through a `Result`, so
 rounds beyond that, documented as such. This is the one place the language
 prefers ergonomics to ceremony, and it is called out rather than hidden. That
 bound is the float's rather than the backend's, so `toF64` rounds identically
-everywhere: on JavaScript the *source* is a double already, and the loss simply
-happened earlier.
+everywhere.
 
 Earlier drafts used three cast operators (`as`, `as?`, `as%`). They are gone,
 because a method resolved by its receiver's type is the same lookup for none of
@@ -1048,21 +1058,12 @@ Every built-in integer type satisfies all four; the float types satisfy
 `Bounded` only.
 
 A `Checked` method answers `.None` whenever it cannot hand back the true result:
-outside the type's range, or above what the backend represents exactly. Natively
-there is no second bound, so `checkedAdd` on `I64` reports two's-complement
-overflow and nothing more; on JavaScript the second bound is 2^53 - 1, well below
-`maxValue<I64>()`, because past it a `number` can no longer say which integer it
-is. So `bits.shl(1, 60).checkedAdd(1)` is `.Some` natively and `.None` on
-JavaScript, and both keep one promise over different numbers: `.Some(v)` means
-`v` is the exact true result as that backend represents numbers, and `.None`
-means that backend will not name a value it cannot hold. A program whose
-behaviour depends on which of those it gets is relying on a `Checked` method to
-*fail*, which is not what the trait is for.
+outside the type's range, or above what the backend represents exactly. Every
+backend now represents every integer type's whole range exactly, so the two
+bounds coincide and `.None` means two's-complement overflow and nothing else.
+`.Some(v)` means `v` is the exact true result.
 
-`Bounded` and `Saturating` report the type's own bounds on every backend, which
-at 64 bits and above are themselves rounded to the nearest representable value
-on JavaScript. Where the difference matters, `Checked` is the one that will tell
-you.
+`Bounded` and `Saturating` report the type's own bounds on every backend.
 
 ### 6.3 Blocks
 
@@ -1705,9 +1706,9 @@ sentence without it is false:
   Divergence has the same shape. So an implementation may drop a pure call only
   where it can also show the call returns.
 - **In the absence of undefined behaviour.** Overflow is undefined (Section
-  6.2), and on a target where every number is a double, `I64` arithmetic is
-  undefined above 2^53 without overflowing the nominal type. Two evaluations
-  agree only where the program's behaviour is defined at all.
+  6.2), and what it does depends on the target: a width wraps and a `BigInt`
+  does not. Two evaluations agree only where the program's behaviour is defined
+  at all.
 
 Top-level functions capture nothing but other top-level declarations, which are
 themselves effect-free, so for a top-level `fn` the theorem reduces to: *is
@@ -2609,17 +2610,20 @@ alike.
    collectively turns the lookup into a search. By then the compiler's
    architecture will assume constant-time resolution. The risk is not the cost of
    what was built; it is the difficulty of refusing the next request.
-8. *`I64` on a JavaScript target.* `Int` is `I64` on every target, which is the
-   right call for portability, and it is defensible only because overflow is
-   undefined behaviour — Section 6.2 states what that means on a backend where
-   every integer is a `number`. The two alternatives are worse in different
-   directions: `BigInt` everywhere taxes every loop counter in every program for
-   a case most never reach, and a target-dependent `Int` width trades a
-   performance problem for a portability one. What remains open is whether
-   "undefined above 2^53" is a rule programmers internalize, or one they
-   discover. The mitigations are that `Checked` answers `.None` rather than a
-   wrong value, `str.toInt` refuses a string it cannot parse exactly, and
-   `core/bits` computes on the bit pattern.
+8. *`I64` on a JavaScript target.* **Answered, and not the way this entry
+   expected.** `Int` is `I64` on every target, and the question was whether
+   "undefined above 2^53" is a rule programmers internalize or one they
+   discover. It is one they discover: buri-lang/buri#8 and #4 are the same
+   person finding it twice, from two directions, porting nanosecond timestamps.
+   So `I64`, `U64`, `I128` and `U128` are `BigInt`s on that backend now. The
+   objection this entry raised to that — it taxes every loop counter for a case
+   most never reach — is real and was paid rather than argued away: the
+   narrow widths keep the `number` representation, and a loop counter that does
+   not need the range can say `I32`. What the tax actually is, measured on the
+   conformance corpus rather than guessed, is in
+   `design/native/VALUE-MODEL.md` §12. The alternative that stays refused is a
+   target-dependent `Int` width, which trades a performance problem for a
+   portability one.
 9. *Must-use is hard-coded to `Result` (5.7.1).* A general `@mustUse` marker on
    user types would be more honest than a compiler that knows one type by name,
    but it is the first piece of attribute syntax in a language with none, and
