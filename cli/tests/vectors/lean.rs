@@ -174,6 +174,22 @@ fn check_batch(prelude: &[String], batch: &[Vector]) -> Vec<(u32, Observed)> {
                     .unwrap_or_else(|| panic!("an `unreachable-arm` at byte {at} belongs to no arm"));
                 observed[i].1.unreachable.push(arm);
             }
+            // The Rust checker asks about each `|` alternative of an arm; the
+            // Lean model asks about the arm. That is a difference in
+            // *granularity* and not in verdict: an arm is unreachable exactly
+            // when every one of its alternatives is, and when that happens the
+            // checker reports `unreachable-arm` and not this one. So a
+            // vector's recorded arm list stays comparable, and this code is
+            // attributed to its vector and then dropped rather than counting
+            // as the drift the arm below is looking for.
+            //
+            // Teaching the model alternative granularity would let this be
+            // compared too, which is why the attribution is still asserted.
+            Some("unreachable-alternative") => {
+                which.unwrap_or_else(|| {
+                    panic!("an `unreachable-alternative` at byte {at} belongs to no vector")
+                });
+            }
             other => panic!(
                 "unexpected diagnostic {:?} while compiling the vector corpus: {}\n\
                  this means the Lean pattern pool and the Buri surface syntax have drifted.\n\
