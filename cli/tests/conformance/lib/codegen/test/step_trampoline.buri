@@ -1,0 +1,96 @@
+// The closure trampoline: `list.mapCtxStep` is `list.mapCtx` with its step run
+// by the runtime rather than by a loop the backend writes, and the two must
+// answer the same thing.
+//
+// Every combinator in `core/list` is open-coded by every backend, so until this
+// key existed there was nowhere to exercise the other direction through the C
+// boundary — the *runtime* calling back into Buri code, through a generated
+// entry thunk, at an element type it cannot name. `mapCtxStep` is that one
+// operation, and it exists to be compared: its answer is already known, so a
+// disagreement here is the boundary and never the operation.
+//
+// The cases are the ones where the boundary has something to get wrong:
+//
+//   * a scalar answer at the source's own stride;
+//   * a **counted** answer at a different stride, so the step's result is a
+//     block the new list has to own;
+//   * a counted *source*, so the count the entry thunk takes before entering
+//     Buri code is what keeps the source list readable afterwards;
+//   * an aggregate answer, which crosses through the out-pointer;
+//   * the empty list, which allocates nothing and enters nothing;
+//   * one inside another, because the frame the entry thunk works in is the
+//     call site's, and a call site inside a running step is where two of them
+//     would meet.
+//
+// `cli/tests/native/agreement.rs` runs the same shapes through both native
+// backends *and* JavaScript and compares the bytes; this file is the assertion
+// half, and it runs wherever the corpus runs.
+
+from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
+from "core/str/lib.buri" import * as str;
+from "core/list/lib.buri" import * as list;
+
+test "a scalar step answers what the open-coded loop answers" {
+  let ctx = context { Alloc: alloc() };
+  let ns = [1, 2, 3, 4];
+  let stepped = ns.mapCtxStep(ctx, fn(c, n) => n * 2);
+  let looped = ns.mapCtx(ctx, fn(c, n) => n * 2);
+  assert.eq(stepped.len(), looped.len());
+  assert.eq(stepped.get(0), looped.get(0));
+  assert.eq(stepped.get(3), looped.get(3));
+  assert.eq(stepped.fold(fn(a, n) => a + n, 0), 20);
+}
+
+test "a step reaches every element in index order" {
+  let ctx = context { Alloc: alloc() };
+  let indexed = list.range(ctx, 0, 6).mapCtxStep(ctx, fn(c, i) => i * i);
+  assert.eq(indexed.len(), 6);
+  assert.eq(indexed.get(0), .Some(0));
+  assert.eq(indexed.get(3), .Some(9));
+  assert.eq(indexed.get(5), .Some(25));
+}
+
+test "a counted answer at a stride the source does not have" {
+  let ctx = context { Alloc: alloc() };
+  let named = [1, 2, 3].mapCtxStep(ctx, fn(c, n) => "n".repeat(c, n));
+  assert.eq(named.len(), 3);
+  assert.eq(named.join(ctx, ","), "n,nn,nnn");
+}
+
+test "a counted source is still readable after the step" {
+  let ctx = context { Alloc: alloc() };
+  let names = [1, 2, 3].mapCtx(ctx, fn(c, n) => "n".repeat(c, n));
+  let louder = names.mapCtxStep(ctx, fn(c, s) => str.format(c, "<${s}>"));
+  assert.eq(louder.join(ctx, ","), "<n>,<nn>,<nnn>");
+  // The step was handed a count of its own, so the source still holds every
+  // block it held before.
+  assert.eq(names.join(ctx, ","), "n,nn,nnn");
+}
+
+test "an aggregate answer crosses through the out-pointer" {
+  let ctx = context { Alloc: alloc() };
+  let pairs = [1, 2, 3].mapCtxStep(ctx, fn(c, n) => (n, n * n));
+  assert.eq(pairs.len(), 3);
+  let shown = pairs.mapCtx(ctx, fn(c, p) => str.format(c, "${p.0}^${p.1}"));
+  assert.eq(shown.join(ctx, " "), "1^1 2^4 3^9");
+}
+
+test "an empty list never enters the step" {
+  let ctx = context { Alloc: alloc() };
+  let empty: [Int] = [];
+  assert.eq(empty.mapCtxStep(ctx, fn(c, n) => n + 1).len(), 0);
+  assert.isTrue(empty.mapCtxStep(ctx, fn(c, n) => "x".repeat(c, n)).isEmpty());
+}
+
+test "a step may itself be a call site" {
+  let ctx = context { Alloc: alloc() };
+  let nested = [1, 2, 3].mapCtx(
+    ctx,
+    fn(c, n) => [n, n, n].mapCtxStep(c, fn(d, m) => m + 1).fold(fn(a, m) => a + m, 0),
+  );
+  assert.eq(nested.len(), 3);
+  assert.eq(nested.get(0), .Some(6));
+  assert.eq(nested.get(2), .Some(12));
+}

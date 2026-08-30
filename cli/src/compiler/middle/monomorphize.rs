@@ -315,6 +315,14 @@ pub struct Monomorphizer<'a> {
     desc_index: HashMap<Ty, usize>,
     ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
     module_paths: Vec<String>,
+    /// The locals of the body being rewritten, parked here so that
+    /// [`Monomorphizer::rewrite`] can retype the ones a corrected `Self`
+    /// reaches. See [`Monomorphizer::rewrite_call_args`].
+    locals: Vec<typed::Local>,
+    /// `Some((context, implementation))` while the arguments of one trait call
+    /// are being rewritten, and `None` everywhere else. See
+    /// [`Monomorphizer::rewrite_call_args`].
+    self_fix: Option<(Ty, Ty)>,
 }
 
 pub fn run(
@@ -334,6 +342,8 @@ pub fn run(
         desc_index: HashMap::default(),
         ctx_layouts: HashMap::default(),
         module_paths,
+        locals: Vec::new(),
+        self_fix: None,
     };
 
     let program_roots = match roots {
@@ -507,7 +517,9 @@ impl<'a> Monomorphizer<'a> {
                 let ctor = checked.ctor;
                 let Some(body) = self.checked.bodies.get(&ctor) else { return };
                 let mut b = body.clone();
+                self.locals = std::mem::take(&mut b.locals);
                 b.expr = self.rewrite(b.expr, &[]);
+                b.locals = std::mem::take(&mut self.locals);
                 let f = self.func_mut(slot);
                 f.params = b.params;
                 f.locals = b.locals;
@@ -522,7 +534,9 @@ impl<'a> Monomorphizer<'a> {
                     .func;
                 let Some(body) = self.checked.bodies.get(&fid) else { return };
                 let mut b = body.clone();
+                self.locals = std::mem::take(&mut b.locals);
                 b.expr = self.rewrite(b.expr, &[]);
+                b.locals = std::mem::take(&mut self.locals);
                 let f = self.func_mut(slot);
                 f.params = b.params;
                 f.locals = b.locals;
@@ -582,7 +596,12 @@ impl<'a> Monomorphizer<'a> {
         for l in &mut b.locals {
             l.ty = substitute(&l.ty, &targs, None);
         }
+        // Parked so that `rewrite` can retype the ones a corrected `Self`
+        // reaches — a lambda's parameter is a local of the function it is
+        // written in, and that is where the wrong layout was recorded.
+        self.locals = std::mem::take(&mut b.locals);
         b.expr = self.rewrite(b.expr, &targs);
+        b.locals = std::mem::take(&mut self.locals);
         let f = self.func_mut(slot);
         f.params = b.params;
         f.locals = b.locals;
@@ -654,8 +673,116 @@ impl<'a> Monomorphizer<'a> {
     // Rewriting
     // -----------------------------------------------------------------------
 
+    /// One substitution, with the `Self` correction below applied after it.
+    ///
+    /// Every type this pass writes goes through here, so a correction that is
+    /// active covers the whole subtree it is active over — expression types,
+    /// pattern types, and the type arguments a nested call carries — rather
+    /// than the one type somebody remembered.
+    fn sub(&self, ty: &Ty, targs: &[Ty]) -> Ty {
+        let out = substitute(ty, targs, None);
+        match &self.self_fix {
+            Some((from, to)) => replace_ty(&out, from, to),
+            None => out,
+        }
+    }
+
+    /// Applies the active `Self` correction to the locals a binder introduces.
+    ///
+    /// A lambda's parameters and a pattern's bindings are locals of the
+    /// *enclosing* function, whose table was substituted before this pass
+    /// walked the body; a correction made here has to reach them, or the
+    /// closure keeps the layout the correction just disowned.
+    fn retype_locals(&mut self, ids: &[LocalId]) {
+        let Some((from, to)) = self.self_fix.clone() else { return };
+        for id in ids {
+            // `get_mut`, because a module-level `let` is inlined by rewriting
+            // its body against whatever table is parked, and its local ids are
+            // not this function's.
+            if let Some(l) = self.locals.get_mut(id.index()) {
+                l.ty = replace_ty(&l.ty, &from, &to);
+            }
+        }
+    }
+
+    /// The arguments of a trait or effect call, with `Self` corrected where
+    /// *this instantiation* is what moved it.
+    ///
+    /// `Self` is the implementing type, and `semantics/expressions.rs`'s
+    /// `implementing_ty` reads it off the context's bindings wherever the front
+    /// end can see a context. It cannot see one through a bounded type
+    /// parameter: `fn serveOnce<C: Listen + …>(ctx: C, …)` is checked once for
+    /// every instantiation at once (SPEC 13.5), so `Self` there is `C` — right
+    /// when `C` is the implementation, and wrong when `C` turns out to be a
+    /// context, which satisfies an effect by *naming* an implementation rather
+    /// than by being one. Here `C` is known, so here is where that is put
+    /// right: a method whose signature names `Self` — `Tasks`'
+    /// `f: fn(Self, Int, A) => B`, `Listen`'s
+    /// `onRequest: fn(Self, Request) => Response` — otherwise hands the
+    /// caller's handler the context's layout while the `impl` body hands it the
+    /// implementation's, which typechecks and then reads the wrong bytes.
+    ///
+    /// **Only the arguments the declaration spells with `Self`.** A trait
+    /// method's other parameters cannot be a context — an effect-carrying
+    /// parameter must be named `ctx` (SPEC 10.6, `effect-param-not-ctx`) — but
+    /// a *method-generic* one instantiated at this same context would be an
+    /// ordinary use of that type and not a `Self` at all, so the declaration
+    /// says which arguments are in scope rather than the shape of a type.
+    ///
+    /// The receiver is left alone: [`Monomorphizer::resolve_trait_call`] reads
+    /// the implementation out of it with a `CtxGet`, which is what makes the
+    /// context the right type there.
+    ///
+    /// A `Self` **result** is not corrected, and no effect declares one: only
+    /// an effect can be a context binding (`context-binding-not-an-effect`),
+    /// only a platform module can declare an effect (`effect-outside-platform`),
+    /// and none of the standard library's returns `Self`. A result escapes into
+    /// the caller's own locals, which is a wider correction than this one and
+    /// worth writing the day such an effect exists.
+    fn rewrite_call_args(
+        &mut self,
+        trait_id: TraitId,
+        method: usize,
+        recv: &Ty,
+        recv_at: &Ty,
+        args: Vec<typed::Expr>,
+        targs: &[Ty],
+    ) -> Vec<typed::Expr> {
+        let fix = match (recv, recv_at) {
+            // The front end had the row in hand and used it.
+            (Ty::Ctx(_), _) => None,
+            (_, Ty::Ctx(id)) => self
+                .tables()
+                .ctx_type(*id)
+                .get(trait_id)
+                .cloned()
+                .filter(|imp| imp != recv_at)
+                .map(|imp| (recv_at.clone(), imp)),
+            _ => None,
+        };
+        let Some(fix) = fix else { return self.rewrite_all(args, targs) };
+        let spelled: Vec<bool> = self
+            .tables()
+            .trait_(trait_id)
+            .methods
+            .get(method)
+            .map(|m| m.params.iter().map(|p| mentions_self(&p.ty)).collect())
+            .unwrap_or_default();
+        let mut out = Vec::with_capacity(args.len());
+        for (i, a) in args.into_iter().enumerate() {
+            if i == 0 || !spelled.get(i).copied().unwrap_or(false) {
+                out.push(self.rewrite(a, targs));
+                continue;
+            }
+            let saved = self.self_fix.replace(fix.clone());
+            out.push(self.rewrite(a, targs));
+            self.self_fix = saved;
+        }
+        out
+    }
+
     fn rewrite(&mut self, mut e: typed::Expr, targs: &[Ty]) -> typed::Expr {
-        e.ty = substitute(&e.ty, targs, None);
+        e.ty = self.sub(&e.ty, targs);
         e.kind = match e.kind {
             ExprKind::CallFn { func, args } => {
                 // The one place the two index spaces meet: a declaration and
@@ -663,23 +790,22 @@ impl<'a> Monomorphizer<'a> {
                 let typed::Callee::Decl { id, targs: call_targs } = func else {
                     return typed::Expr::new(ExprKind::Error, e.ty, e.span);
                 };
-                let resolved: Vec<Ty> =
-                    call_targs.iter().map(|t| substitute(t, targs, None)).collect();
+                let resolved: Vec<Ty> = call_targs.iter().map(|t| self.sub(t, targs)).collect();
                 let args = self.rewrite_all(args, targs);
                 let slot = self.request(Key::Fn(id, resolved));
                 ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args }
             }
             ExprKind::CallTrait { trait_id, method, recv, targs: mt, args } => {
-                let recv = substitute(&recv, targs, None);
-                let mt: Vec<Ty> = mt.iter().map(|t| substitute(t, targs, None)).collect();
-                let args = self.rewrite_all(args, targs);
-                self.resolve_trait_call(trait_id, method, recv, mt, args, e.span)
+                let recv_at = self.sub(&recv, targs);
+                let mt: Vec<Ty> = mt.iter().map(|t| self.sub(t, targs)).collect();
+                let args = self.rewrite_call_args(trait_id, method, &recv, &recv_at, args, targs);
+                self.resolve_trait_call(trait_id, method, recv_at, mt, args, e.span)
             }
             ExprKind::FnRef(callee) => {
                 let typed::Callee::Decl { id, targs: ft } = callee else {
                     return typed::Expr::new(ExprKind::Error, e.ty, e.span);
                 };
-                let resolved: Vec<Ty> = ft.iter().map(|t| substitute(t, targs, None)).collect();
+                let resolved: Vec<Ty> = ft.iter().map(|t| self.sub(t, targs)).collect();
                 let slot = self.request(Key::Fn(id, resolved));
                 ExprKind::FnRef(typed::Callee::Func(FuncIdx(slot as u32)))
             }
@@ -723,7 +849,7 @@ impl<'a> Monomorphizer<'a> {
             },
             ExprKind::StructLit { con, targs: st, fields } => ExprKind::StructLit {
                 con,
-                targs: st.iter().map(|t| substitute(t, targs, None)).collect(),
+                targs: st.iter().map(|t| self.sub(t, targs)).collect(),
                 fields: self.rewrite_all(fields, targs),
             },
             ExprKind::StructUpdate { con, base, updates } => ExprKind::StructUpdate {
@@ -736,7 +862,7 @@ impl<'a> Monomorphizer<'a> {
             },
             ExprKind::EnumLit { con, targs: et, variant, args } => ExprKind::EnumLit {
                 con,
-                targs: et.iter().map(|t| substitute(t, targs, None)).collect(),
+                targs: et.iter().map(|t| self.sub(t, targs)).collect(),
                 variant,
                 args: self.rewrite_all(args, targs),
             },
@@ -751,7 +877,7 @@ impl<'a> Monomorphizer<'a> {
             ExprKind::Index { base, index, elem } => ExprKind::Index {
                 base: Box::new(self.rewrite(*base, targs)),
                 index: Box::new(self.rewrite(*index, targs)),
-                elem: substitute(&elem, targs, None),
+                elem: self.sub(&elem, targs),
             },
             ExprKind::Block { stmts, tail } => ExprKind::Block {
                 stmts: stmts
@@ -784,11 +910,14 @@ impl<'a> Monomorphizer<'a> {
                     })
                     .collect(),
             },
-            ExprKind::Lambda { params, body, captures } => ExprKind::Lambda {
-                params,
-                body: Box::new(self.rewrite(*body, targs)),
-                captures,
-            },
+            ExprKind::Lambda { params, body, captures } => {
+                self.retype_locals(&params);
+                ExprKind::Lambda {
+                    params,
+                    body: Box::new(self.rewrite(*body, targs)),
+                    captures,
+                }
+            }
             ExprKind::And { lhs, rhs } => ExprKind::And {
                 lhs: Box::new(self.rewrite(*lhs, targs)),
                 rhs: Box::new(self.rewrite(*rhs, targs)),
@@ -836,7 +965,7 @@ impl<'a> Monomorphizer<'a> {
             },
             ExprKind::Intrinsic { name, targs: it, args } => ExprKind::Intrinsic {
                 name,
-                targs: it.iter().map(|t| substitute(t, targs, None)).collect(),
+                targs: it.iter().map(|t| self.sub(t, targs)).collect(),
                 args: self.rewrite_all(args, targs),
             },
             other => other,
@@ -849,12 +978,15 @@ impl<'a> Monomorphizer<'a> {
     }
 
     fn rewrite_pattern(&mut self, mut p: typed::Pattern, targs: &[Ty]) -> typed::Pattern {
-        p.ty = substitute(&p.ty, targs, None);
+        p.ty = self.sub(&p.ty, targs);
         p.kind = match p.kind {
-            PatKind::Bind { local, sub } => PatKind::Bind {
-                local,
-                sub: sub.map(|s| Box::new(self.rewrite_pattern(*s, targs))),
-            },
+            PatKind::Bind { local, sub } => {
+                self.retype_locals(std::slice::from_ref(&local));
+                PatKind::Bind {
+                    local,
+                    sub: sub.map(|s| Box::new(self.rewrite_pattern(*s, targs))),
+                }
+            }
             PatKind::Tuple(ps) => {
                 PatKind::Tuple(ps.into_iter().map(|x| self.rewrite_pattern(x, targs)).collect())
             }
@@ -1202,6 +1334,43 @@ impl<'a> Monomorphizer<'a> {
 }
 
 // ---------------------------------------------------------------------------
+// Correcting `Self` where an instantiation moved it
+// ---------------------------------------------------------------------------
+
+/// Whether a declaration spells `Self` anywhere in a type.
+///
+/// Read off the **trait's** declaration, which still holds `Ty::SelfTy`: by the
+/// time a call reaches this pass its own types have had `Self` substituted
+/// away, so the declaration is the only place left that says which positions
+/// were `Self` to begin with.
+fn mentions_self(ty: &Ty) -> bool {
+    match ty {
+        Ty::SelfTy => true,
+        Ty::Con(_, xs) | Ty::Tuple(xs) => xs.iter().any(mentions_self),
+        Ty::Array(e) => mentions_self(e),
+        Ty::Fn(ps, r) => ps.iter().any(mentions_self) || mentions_self(r),
+        _ => false,
+    }
+}
+
+/// Every occurrence of `from` in `ty`, replaced by `to`.
+fn replace_ty(ty: &Ty, from: &Ty, to: &Ty) -> Ty {
+    if ty == from {
+        return to.clone();
+    }
+    match ty {
+        Ty::Con(id, xs) => Ty::Con(*id, xs.iter().map(|x| replace_ty(x, from, to)).collect()),
+        Ty::Array(e) => Ty::Array(Box::new(replace_ty(e, from, to))),
+        Ty::Tuple(es) => Ty::Tuple(es.iter().map(|e| replace_ty(e, from, to)).collect()),
+        Ty::Fn(ps, r) => Ty::Fn(
+            ps.iter().map(|p| replace_ty(p, from, to)).collect(),
+            Box::new(replace_ty(r, from, to)),
+        ),
+        other => other.clone(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Rebuilding an implementation's type arguments
 // ---------------------------------------------------------------------------
 //
@@ -1472,6 +1641,15 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "list.len",
     "list.map",
     "list.mapCtx",
+    // The closure trampoline's pilot (`backend/intrinsic_keys.rs`'s
+    // `step_call`). Its erasure is sound for the same reason every row above it
+    // is, and the carrier is the same one: a **stride**, and a function this
+    // backend generated. `Extra::Step` carries two strides — the source
+    // element's and the result's, because a `map` reads a `[A]` and writes a
+    // `[B]` — and the **entry thunk**, which is generated at the call site
+    // where `A` and `B` are known and is the only thing that ever calls the
+    // step. Nothing about either type reaches `cli/runtime/list.rs`.
+    "list.mapCtxStep",
     "list.push",
     "list.range",
     "list.repeat",
@@ -1791,7 +1969,8 @@ mod tests {
         list.all list.any list.concat list.count list.drop list.empty \
         list.filter list.filterCtx list.find list.findIndex list.flatten \
         list.fold list.foldCtx list.foldResult list.foldResultCtx list.get \
-        list.join list.len list.map list.mapCtx list.push list.range \
+        list.join list.len list.map list.mapCtx list.mapCtxStep list.push \
+        list.range \
         list.repeat list.reverse list.slice list.sortBy list.take list.zip \
         num.maxValue num.minValue \
         str.chars str.concat str.format str.fromChars str.fromFloat \
@@ -1886,6 +2065,74 @@ mod tests {
         // And the prefix alone is not enough.
         assert!(!generic_intrinsic_allowed("num.show"));
         assert!(!generic_intrinsic_allowed("numeric.I64.show"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Correcting `Self` where an instantiation moved it
+    // -----------------------------------------------------------------------
+    //
+    // The two halves of the correction are pure and are tested as such: which
+    // parameters of a declaration are in scope for it, and what it does to a
+    // type. Whether it *fires* is a property of a whole program, and
+    // `cli/tests/native/conformance.rs`'s
+    // `self_through_a_context_is_the_implementing_type` is that half — the one
+    // that used to exit with no output at all.
+
+    /// A declaration is in scope exactly where it wrote `Self`, at any depth.
+    #[test]
+    fn a_declaration_that_spells_self_is_the_one_in_scope() {
+        // `Listen.listen`'s handler, and `Tasks.parallel`'s.
+        assert!(mentions_self(&Ty::Fn(vec![Ty::SelfTy, int()], Box::new(string()))));
+        assert!(mentions_self(&Ty::Fn(
+            vec![Ty::SelfTy, int(), P0],
+            Box::new(P1)
+        )));
+        // The receiver itself, and a `Self` under a constructor or a list.
+        assert!(mentions_self(&Ty::SelfTy));
+        assert!(mentions_self(&con(3, vec![Ty::SelfTy])));
+        assert!(mentions_self(&Ty::Array(Box::new(Ty::SelfTy))));
+        assert!(mentions_self(&Ty::Tuple(vec![int(), Ty::SelfTy])));
+        // And a `Self` in a function type's *result*, which a handler that
+        // answers one would be.
+        assert!(mentions_self(&Ty::Fn(vec![int()], Box::new(Ty::SelfTy))));
+    }
+
+    /// Everything else is out of scope, including the method's own generics.
+    ///
+    /// This is what keeps the correction from touching an argument that is
+    /// genuinely at the context's type: `Tasks.parallel<A, B>`'s `items: [A]`
+    /// is an ordinary use of `A`, whatever `A` was instantiated at.
+    #[test]
+    fn a_declaration_without_self_is_out_of_scope() {
+        assert!(!mentions_self(&int()));
+        assert!(!mentions_self(&Ty::Array(Box::new(P0))));
+        assert!(!mentions_self(&Ty::Fn(vec![P0, int()], Box::new(P1))));
+        assert!(!mentions_self(&Ty::Unit));
+        assert!(!mentions_self(&Ty::Ctx(CtxTypeId(0))));
+    }
+
+    /// The correction is a whole-type replacement, at every depth, and leaves
+    /// everything else alone.
+    #[test]
+    fn the_correction_replaces_the_context_wherever_it_stands() {
+        let ctx = Ty::Ctx(CtxTypeId(4));
+        let imp = con(10, vec![]);
+        // The shape that crashed: a handler's first parameter.
+        assert_eq!(
+            replace_ty(&Ty::Fn(vec![ctx.clone(), int()], Box::new(string())), &ctx, &imp),
+            Ty::Fn(vec![imp.clone(), int()], Box::new(string()))
+        );
+        // Nested, and under every constructor the walk knows.
+        assert_eq!(
+            replace_ty(&Ty::Array(Box::new(Ty::Tuple(vec![ctx.clone(), int()]))), &ctx, &imp),
+            Ty::Array(Box::new(Ty::Tuple(vec![imp.clone(), int()])))
+        );
+        assert_eq!(replace_ty(&con(5, vec![ctx.clone()]), &ctx, &imp), con(5, vec![imp.clone()]));
+        // A different context is a different type and is not touched.
+        let other = Ty::Ctx(CtxTypeId(5));
+        assert_eq!(replace_ty(&other, &ctx, &imp), other);
+        // And a type that never mentions it comes back unchanged.
+        assert_eq!(replace_ty(&Ty::Fn(vec![int()], Box::new(P0)), &ctx, &imp), Ty::Fn(vec![int()], Box::new(P0)));
     }
 
     /// Every rejection says something specific enough to act on.

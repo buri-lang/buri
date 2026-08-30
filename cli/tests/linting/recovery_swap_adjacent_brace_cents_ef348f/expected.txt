@@ -1,9 +1,0 @@
-error: expected an identifier, found `/` [unexpected-token]
-  --> lib/recovery_swap_adjacent_brace_cents_ef348f/lib.buri:10:40
-   |
-10 | export fn toDollars(c: Cents): I64 { c./ 0 100 }
-   |                                        ^
-   |
-   = expected: an identifier
-   = actual: `/`
-   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

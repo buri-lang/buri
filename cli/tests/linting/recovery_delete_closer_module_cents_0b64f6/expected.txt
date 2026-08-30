@@ -1,9 +1,0 @@
-error: expected an identifier, found `fn` [unexpected-token]
-  --> lib/recovery_delete_closer_module_cents_0b64f6/lib.buri:16:8
-   |
-16 | export fn ledger(entries: I64): Ledger {
-   |        ^^
-   |
-   = expected: an identifier
-   = actual: `fn`
-   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -1797,6 +1797,16 @@ enum Execution {
 /// thread because the suite is the only child and there is nothing else for
 /// this process to do while it runs.
 ///
+/// **The clock starts here, at the spawn.** Compiling and linking the suite
+/// happened before this call and are not on the budget, which is what makes
+/// `timeout_seconds` a bound on the run rather than on the build — a suite's
+/// budget does not have to be re-argued because a machine got slower at
+/// compiling. What the budget does cover, besides the tests, is what the
+/// machine charges to start a process: a fork, an exec, and on macOS the
+/// validation of a binary that was just written. That is hundreds of
+/// milliseconds on a loaded machine, so a declared budget is a bound with room
+/// in it rather than a measurement of the work.
+///
 /// The command comes from `build/spawn.rs` rather than from
 /// `Command::new(js_runtime())`, which is the whole of what distinguishes an
 /// action's process from any other: an explicit environment and a frozen clock,

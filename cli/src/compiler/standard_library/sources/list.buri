@@ -88,6 +88,21 @@ impl<A> [A] {
   export fn map<B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B];
 
   export fn mapCtx<B, C: Alloc>(self, ctx: C, f: fn(C, A) => B): [B];
+
+  /// `mapCtx`, with the step run by the runtime rather than by a loop the
+  /// backend writes. The answer is `mapCtx`'s answer, element for element.
+  ///
+  /// It exists to be *compared*. Every combinator above is open-coded by every
+  /// backend, so a whole mechanism the language will need — the runtime calling
+  /// back into Buri code, through a generated entry thunk, at an element type
+  /// it cannot name — has nowhere to be exercised until something uses it. This
+  /// is that something: one operation whose answer is already known, so that
+  /// the boundary can be landed and proved on its own rather than underneath
+  /// the first scheduler that needs it.
+  ///
+  /// Prefer `mapCtx`. This is slower by an indirect call per element and there
+  /// is no case where it is the better tool.
+  export fn mapCtxStep<B, C: Alloc>(self, ctx: C, f: fn(C, A) => B): [B];
 }
 
 impl<T> [T] {
