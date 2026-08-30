@@ -1,0 +1,5 @@
+library {
+    sources: ["cents.buri"]
+    dependencies: ["//lib/routes"]
+    visibility: ["//visibility:public"]
+}

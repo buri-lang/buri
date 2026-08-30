@@ -1,0 +1,22 @@
+error: an expression statement is legal only in a test source [expression-statement]
+ --> lib/recovery_insert_stray_brace_cents_404280/lib.buri:1:42
+  |
+1 | export fn markupCents(cents: I64): I64 { extra cents + 5 }
+  |                                          ^^^^^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `extra` in scope [unresolved-name]
+ --> lib/recovery_insert_stray_brace_cents_404280/lib.buri:1:42
+  |
+1 | export fn markupCents(cents: I64): I64 { extra cents + 5 }
+  |                                          ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-terminator]
+ --> lib/recovery_insert_stray_brace_cents_404280/lib.buri:1:47
+  |
+1 | export fn markupCents(cents: I64): I64 { extra cents + 5 }
+  |                                               ^
+  |
+  = fix: write `;` here

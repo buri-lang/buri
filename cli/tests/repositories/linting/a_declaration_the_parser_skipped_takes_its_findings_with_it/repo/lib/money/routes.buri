@@ -1,0 +1,15 @@
+// The struct's `{` is never closed, so the parser gives up on the declaration
+// and skips to the end of the file. Everything below is a run of source the
+// tree does not account for: the import, the function, and the binding inside
+// it. Nothing is reported about any of them, and nothing is reported about
+// what they would have reached — that is the whole of what a half-read module
+// costs, and it is the only thing it costs.
+
+struct Route {
+
+from "//lib/money/cents" import { Cents, toDollars };
+
+fn route(n: I64): Route {
+  let spare = 7;
+  Route { id: toDollars(Cents(n)) }
+}

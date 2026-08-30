@@ -1,0 +1,43 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a match arm without its comma in one function and an unused binding in the next: the broken body's own binding is not reported and its neighbour's is, because a body that did not check is the unit of silence"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The comma is the whole mistake. With it written `hidden` comes into view
+# beside `showing`, which is what says the first report was silent about one
+# body rather than about the file.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "    1 => fromInt(ctx, 1)\n"
+  with: "    1 => fromInt(ctx, 1),\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "in_view.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  let hidden = 7;\n"
+  with: ""
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "  let showing = 7;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

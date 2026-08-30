@@ -2,7 +2,7 @@
 
 Writes a working repository into an empty directory: a `REPO.buri` root, one
 library, one binary that depends on it, one test suite, a `.gitignore`, and the
-agent skills `buri add-skills` installs. With no argument it writes into the
+agent skills `buri add skills` installs. With no argument it writes into the
 working directory; with one it writes into the directory you name, creating it
 if it is not there.
 
@@ -67,7 +67,7 @@ been there is a year of findings nobody was shown
 A `REPO.buri` at the target means the directory is already a repository, and
 the command stops with exit 2 rather than refreshing it — there is no upgrade
 path here, because a scaffold is a starting point and not something a release
-keeps in step. That is the difference from `buri add-skills`, where re-running
+keeps in step. That is the difference from `buri add skills`, where re-running
 *is* the upgrade.
 
 A `REPO.buri` *above* the target stops it as well, and for a sharper reason.
@@ -79,5 +79,5 @@ repository therefore says so and stops.
 
 Any other collision stops it too, and stops it before the first byte is
 written, so a refusal never leaves half a repository behind. The one namespace
-the command shares is `.claude/skills/buri-*`, which belongs to `add-skills`
+the command shares is `.claude/skills/buri-*`, which belongs to `add skills`
 and follows its rules.

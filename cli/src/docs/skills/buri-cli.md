@@ -27,7 +27,7 @@ so a page cannot describe a flag the binary does not accept.
 | `buri gen [targets]` | regenerate the fields of a `BUILD.buri` that restate the sources |
 | `buri query <expr>` | ask about the build graph |
 | `buri docs [topic]` | the language, the build system, and this CLI |
-| `buri add-skills [directory]` | write these agent skills into `.claude/skills` |
+| `buri add skills [directory]` | write these agent skills into `.claude/skills` |
 | `buri lsp` | language server, over stdio |
 | `buri clean` | drop the local cache |
 | `buri version` | toolchain version; `--verbose` adds the executable's hash |
@@ -256,7 +256,7 @@ lints and formats clean immediately. It never writes over a file: a `REPO.buri`
 already at the target, or any other collision, stops it with exit 2 before the
 first byte.
 
-### `add-skills`
+### `add skills`
 
 Writes the toolchain's agent skills into `.claude/skills/<name>/SKILL.md` under
 the working directory, or under a directory you name. Re-running refreshes
