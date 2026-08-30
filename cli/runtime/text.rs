@@ -510,15 +510,14 @@ pub unsafe extern "C" fn buri_rt_str_eq(
     u8::from(a == b)
 }
 
-/// `str.toInt(self) -> Option<Int>` — `$str_toInt` (`runtime.js:759-773`).
+/// `str.toInt(self) -> Option<Int>` — `$str_toInt`.
 ///
-/// Three refusals, and the third is the one that looks arbitrary: the text must
-/// be `[+-]?\d+` after trimming, `\d` is ASCII, **and the value must be a safe
-/// integer**. `Int` is `I64` but a JavaScript `Int` is a double, so anything at
-/// or beyond `2^53` has no exact representation there and `$str_toInt` answers
-/// `.None` rather than a value that is quietly not the one written. A native
-/// backend that parsed it into an `i64` would answer `.Some` where JavaScript
-/// answers `.None`, and the conformance suite asserts on the latter.
+/// Two refusals: the text must be `[+-]?\d+` after trimming, `\d` is ASCII, and
+/// the value must be an `I64`. There used to be a third — the value also had to
+/// be a *safe* integer, because `Int` was a double on JavaScript and this
+/// backend was made to refuse what that one could not represent. `Int` is a
+/// `BigInt` there now (buri-lang/buri#8), so both parse the same range: the
+/// type's own.
 ///
 /// # Safety
 /// `ptr` covers `len` bytes; `out` is writable and aligned for an `i64`.
@@ -537,15 +536,11 @@ pub unsafe extern "C" fn buri_rt_str_to_int(
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return BURI_ABSENT;
     }
-    // The rounded double, exactly as `Number(t)` produces it, then
-    // `Number.isSafeInteger`. `2^53` is `9007199254740992`, and a *safe*
-    // integer is strictly below it in magnitude.
-    let Ok(v) = t.parse::<f64>() else { return BURI_ABSENT };
-    if !v.is_finite() || v.abs() > 9_007_199_254_740_991.0 {
-        return BURI_ABSENT;
-    }
+    // Rust's own parser takes it from here: it accepts the same optional sign
+    // and refuses anything outside `i64`, which is the whole of the range.
+    let Ok(v) = t.parse::<i64>() else { return BURI_ABSENT };
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(v as i64) };
+    unsafe { out.write(v) };
     BURI_OK
 }
 
@@ -1227,9 +1222,15 @@ mod tests {
         assert_eq!(check("4.5", &mut out), BURI_ABSENT);
         assert_eq!(check("", &mut out), BURI_ABSENT);
         assert_eq!(check("+", &mut out), BURI_ABSENT);
-        // `2^53` and beyond: no exact double, so JavaScript answers `.None`.
-        assert_eq!(check("9007199254740991", &mut out), BURI_OK);
-        assert_eq!(check("9007199254740992", &mut out), BURI_ABSENT);
+        // Every `I64`, and nothing wider.
+        assert_eq!(check("9007199254740992", &mut out), BURI_OK);
+        assert_eq!(out, 9_007_199_254_740_992);
+        assert_eq!(check("9223372036854775807", &mut out), BURI_OK);
+        assert_eq!(out, i64::MAX);
+        assert_eq!(check("-9223372036854775808", &mut out), BURI_OK);
+        assert_eq!(out, i64::MIN);
+        assert_eq!(check("9223372036854775808", &mut out), BURI_ABSENT);
+        assert_eq!(check("99999999999999999999", &mut out), BURI_ABSENT);
     }
 
     #[test]

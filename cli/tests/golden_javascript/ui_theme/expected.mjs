@@ -1,27 +1,27 @@
-const $k0=[930,'bg-t_app_bg'];
-const $k1=[960,'fg-t_app_fg'];
+const $k0=[930n,'bg-t_app_bg'];
+const $k1=[960n,'fg-t_app_fg'];
 const $k2=[$k0,$k1];
 const $k3=[$k2];
 const $k4=[5,$k3];
 const $k5=[$k4];
-const $k6=[630,'px-r0_5'];
-const $k7=[1080,'r-6'];
-const $k8=[930,'bg-t_cardlib_surface'];
-const $k9=[960,'fg-t_cardlib_onSurface'];
-const $k10=[935,'hover_bg-t_cardlib_danger'];
+const $k6=[630n,'px-r0_5'];
+const $k7=[1080n,'r-6'];
+const $k8=[930n,'bg-t_cardlib_surface'];
+const $k9=[960n,'fg-t_cardlib_onSurface'];
+const $k10=[935n,'hover_bg-t_cardlib_danger'];
 const $k11=[$k6,$k7,$k8,$k9,$k10];
 const $k12=[$k11];
 const $k13=[5,$k12];
 const $k14=[$k13];
-const $k15=[180,'lay-row'];
+const $k15=[180n,'lay-row'];
 const $k16=[$k15];
 const $k17=[$k16];
 const $k18=[5,$k17];
-const $k19=[0,220,38,38];
-const $k20=[0,24,24,27];
-const $k21=[0,240,240,245];
-const $k22=[0,255,255,255];
-const $k23=[180,'lay-col'];
+const $k19=[0,220n,38n,38n];
+const $k20=[0,24n,24n,27n];
+const $k21=[0,240n,240n,245n];
+const $k22=[0,255n,255n,255n];
+const $k23=[180n,'lay-col'];
 const $k24=[$k23];
 const $k25=[$k24];
 const $k26=[5,$k25];
@@ -32,7 +32,7 @@ function __cmd_x_main$main(){
   const dark_1=[$host_HostUi_signal(ctx_0[2],false)];
   $host_HostStdout_println(ctx_0[1],'mounted');
   const label_7='clicks';
-  const count_8=[$host_HostUi_signal(ctx_0[2],0)];
+  const count_8=[$host_HostUi_signal(ctx_0[2],0n)];
   const count_24=[1,count_8];
   const content_32=[2,c_25=>{
     let $t1;
@@ -47,7 +47,7 @@ function __cmd_x_main$main(){
     }
     return String($t1);
   }];
-  const $t6=ui_node$column$u3rqgv($k5,[[[5,[0,label_7],(c_9,e_10)=>$host_HostUi_write(c_9[2],count_8[0],(n_11=>n_11+1)($host_HostUi_read(c_9[2],count_8[0])))]],[[3,[$k18,[0,$k14]],[[[1,[0,label_7]]],[[1,content_32]]]]]]);
+  const $t6=ui_node$column$u3rqgv($k5,[[[5,[0,label_7],(c_9,e_10)=>$host_HostUi_write(c_9[2],count_8[0],(n_11=>n_11+1n)($host_HostUi_read(c_9[2],count_8[0])))]],[[3,[$k18,[0,$k14]],[[[1,[0,label_7]]],[[1,content_32]]]]]]);
   const $t5=ui_theme$themed([[__cmd_x_main$Card_color(0),__cmd_x_main$cardTheme(0)],[__cmd_x_main$Card_color(1),__cmd_x_main$cardTheme(1)],[__cmd_x_main$Card_color(2),__cmd_x_main$cardTheme(2)]]);
   const whenTrue_14=__cmd_x_main$appThemed(__cmd_x_main$night);
   const whenFalse_15=__cmd_x_main$appThemed(__cmd_x_main$day);
