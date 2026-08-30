@@ -28,11 +28,17 @@
 //! it was handed and reads no state at all, so both backends open-code it and
 //! the handle names nothing.
 //!
-//! ## `MemFs`'s four methods, and the one divergence they make readable
+//! ## `MemFs`'s eleven methods, and the one divergence they make readable
 //!
-//! Three of them answer a `Result<T, IoError>`, which was the shape neither
-//! native backend had a `Ret` for and the reason all four were held back. It
-//! has one now — `lib.rs` §2.1 — and the four are here.
+//! Most answer a `Result<T, IoError>`, which was the shape neither native
+//! backend had a `Ret` for and the reason the original four were held back. It
+//! has one now — `lib.rs` §2.1 — and all eleven are here.
+//!
+//! The slot holds **octets**, not text, so `writeFileBytes` reads back through
+//! `readFileBytes` unchanged; and it holds the directories `makeDir` was asked
+//! for separately, because a flat map has no empty directory otherwise. Both
+//! are `$t.h`'s shape written for a language that has statics, and `runtime.js`
+//! stores exactly the same two things.
 //!
 //! `fileExists` was never the hard one; it was held back *with* the other three
 //! on purpose, and the reason it was held back is still true and is now a
@@ -76,13 +82,20 @@ enum Slot {
     /// `TestStdin` — the lines, how many have been read, and the octets where
     /// it was built by `stdinBytes` rather than by `stdin`.
     Stdin { lines: Vec<String>, at: usize, bytes: Option<Vec<u8>> },
-    /// `MemFs` — the entries, in insertion order.
+    /// `MemFs` — the files, in insertion order, and the directories `makeDir`
+    /// has been asked for.
     ///
     /// A `Vec` of pairs rather than a map, because the JavaScript side is an
     /// object and `readDir` reads its keys: a map would be a second ordering to
     /// reconcile, and there is no fixture large enough for the lookup cost to
     /// be the interesting number.
-    Files(Vec<(String, String)>),
+    ///
+    /// **Octets**, not text: `writeFileBytes` must read back through
+    /// `readFileBytes` unchanged, and a `String` cannot hold what is not UTF-8.
+    /// `readFile` decodes lossily on the way out, which is what a real
+    /// filesystem's does. The directories are separate because a flat map has
+    /// no empty one otherwise, and `readDir` after `makeDir` has to see one.
+    Files { entries: Vec<(String, Vec<u8>)>, dirs: Vec<String> },
     /// `TestClock` — the current instant, in milliseconds.
     Clock(i64),
     /// `TestRand` — the xorshift32 state.
@@ -168,6 +181,36 @@ unsafe fn strings(xs: *const u8, count: u64) -> Vec<String> {
 struct BuriPair {
     key: BuriStr,
     value: BuriStr,
+}
+
+/// `(Str, [U8])` — a 24-byte `Str` and a 16-byte list, both 8-aligned.
+#[repr(C)]
+struct BuriBytePair {
+    key: BuriStr,
+    value: BuriList,
+}
+
+/// A `[(Str, [U8])]` argument, as pairs.
+///
+/// # Safety
+/// `xs` points at `count` [`BuriBytePair`]s, or is null with a zero count.
+unsafe fn byte_pairs(xs: *const u8, count: u64) -> Vec<(String, Vec<u8>)> {
+    let stride = size_of::<BuriBytePair>();
+    let mut out = Vec::new();
+    if xs.is_null() {
+        return out;
+    }
+    for i in 0..count {
+        // SAFETY: the caller promises `count` elements at `xs`.
+        let element =
+            unsafe { &*xs.add((i as usize).saturating_mul(stride)).cast::<BuriBytePair>() };
+        // SAFETY: both halves of a live element are live.
+        let key = unsafe { element.key.as_str() }.into_owned();
+        // SAFETY: a `[U8]` element's payload is `len` readable bytes at `ptr`.
+        let value = unsafe { view(element.value.ptr, element.value.len) }.to_vec();
+        out.push((key, value));
+    }
+    out
 }
 
 /// A `[(Str, Str)]` argument, as pairs.
@@ -417,29 +460,51 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_stdin_read_bytes(
 // Filesystem
 // ---------------------------------------------------------------------------
 
-/// `IoError.NotFound` — variant `0` of the enum `core/effect` declares, which is
-/// the only error any of the four below produces.
+/// `IoError`'s variant indices, in declaration order in `core/effect`, for the
+/// two errors this filesystem produces.
 ///
-/// `runtime.js`'s `$testing_context_MemFs_readFile` answers `$err([0])` and
-/// nothing else; `writeFile` and `readDir` never fail at all. Named here rather
-/// than written as a literal `0` because the number is `lib.rs` §2.1's "the
-/// error variant's index in declaration order" and not an ordinary constant —
-/// a reader who reorders `IoError` has to find this line.
+/// Named rather than written as literals because the numbers are `lib.rs`
+/// §2.1's "the error variant's index in declaration order" and not ordinary
+/// constants — a reader who reorders `IoError` has to find these lines.
 const IO_NOT_FOUND: i32 = 0;
+const IO_ALREADY_EXISTS: i32 = 3;
 
-/// The entries a `MemFs` handle names, or an empty filesystem where the handle
-/// names something else.
+/// The bytes a `MemFs` handle holds at `path`, or `None` where there is no file
+/// there.
 ///
-/// A handle that names no `Files` slot cannot arise from a program — `data()`
-/// and `files()` are the only two constructors of the type — so the fallback is
-/// "empty" rather than an abort, per [`with`]'s rule.
-fn fs_read(handle: i64, path: &str) -> Option<String> {
+/// A handle that names no `Files` slot cannot arise from a program — `data()`,
+/// `files()` and `filesBytes()` are the only constructors of the type — so the
+/// fallback is "empty" rather than an abort, per [`with`]'s rule.
+fn fs_read(handle: i64, path: &str) -> Option<Vec<u8>> {
     with(handle, None, |slot| match slot {
-        Slot::Files(entries) => {
+        Slot::Files { entries, .. } => {
             entries.iter().find(|(k, _)| k == path).map(|(_, v)| v.clone())
         }
         _ => None,
     })
+}
+
+/// A path with its trailing slashes removed, which is how a directory is
+/// recorded and compared. `""` and `"."` both name the root.
+fn fs_clean(path: &str) -> &str {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed == "." {
+        ""
+    } else {
+        trimmed
+    }
+}
+
+/// Replace the file at `path`, or add it.
+fn fs_put(handle: i64, path: String, body: Vec<u8>) {
+    with(handle, (), |slot| {
+        if let Slot::Files { entries, .. } = slot {
+            match entries.iter_mut().find(|(k, _)| *k == path) {
+                Some(entry) => entry.1 = body,
+                None => entries.push((path, body)),
+            }
+        }
+    });
 }
 
 /// `data()` — in-memory, and **empty**, because a compiled test binary has no
@@ -458,12 +523,13 @@ fn fs_read(handle: i64, path: &str) -> Option<String> {
 /// `out` must be writable and aligned for an `i64`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_testing_context_data(out: *mut i64) {
-    let handle = install(Slot::Files(Vec::new()));
+    let handle = install(Slot::Files { entries: Vec::new(), dirs: Vec::new() });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) }
 }
 
-/// `files(entries)` — in-memory, containing exactly these.
+/// `files(entries)` — in-memory, containing exactly these, as the UTF-8 the
+/// text spells.
 ///
 /// # Safety
 /// `xs` points at `count` `(Str, Str)` elements; `out` is writable and aligned
@@ -476,7 +542,26 @@ pub unsafe extern "C" fn buri_rt_testing_context_files(
 ) {
     // SAFETY: forwarded to the caller.
     let entries = unsafe { pairs(xs, count) };
-    let handle = install(Slot::Files(entries));
+    let entries = entries.into_iter().map(|(k, v)| (k, v.into_bytes())).collect();
+    let handle = install(Slot::Files { entries, dirs: Vec::new() });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `filesBytes(entries)` — the byte twin, for a fixture that is not text.
+///
+/// # Safety
+/// `xs` points at `count` `(Str, [U8])` elements; `out` is writable and aligned
+/// for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_testing_context_files_bytes(
+    xs: *const u8,
+    count: u64,
+    out: *mut i64,
+) {
+    // SAFETY: forwarded to the caller.
+    let entries = unsafe { byte_pairs(xs, count) };
+    let handle = install(Slot::Files { entries, dirs: Vec::new() });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) }
 }
@@ -484,10 +569,13 @@ pub unsafe extern "C" fn buri_rt_testing_context_files(
 /// `MemFs.readFile(self, path) -> Result<Str, IoError>` — `lib.rs` §2.1's
 /// shape, and the first entry in this archive to use it.
 ///
-/// `$testing_context_MemFs_readFile` is `p in f ? $ok(f[p]) : $err([0])`, so
+/// `$testing_context_MemFs_readFile` is `p in f ? $ok(...) : $err([0])`, so
 /// there is exactly one failure and it is `NotFound`. No path normalisation:
 /// the key is the string a fixture wrote, compared as bytes, which is what
 /// `p in f` is.
+///
+/// The stored octets are decoded lossily, as a real filesystem's `readFile`
+/// decodes them — a file that is not text is `readFileBytes`'s business.
 ///
 /// # Safety
 /// `ptr`/`len` describe a readable range; `out` is writable and aligned for a
@@ -503,7 +591,7 @@ pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_read_file(
     // SAFETY: the caller promises the range.
     let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     let Some(body) = fs_read(handle, &path) else { return IO_NOT_FOUND };
-    let value = str_of(&body);
+    let value = str_of(&String::from_utf8_lossy(&body));
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) };
     BURI_OK
@@ -534,24 +622,18 @@ pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_write_file(
 ) -> i32 {
     // SAFETY: the caller promises both ranges.
     let (path, body) = unsafe {
-        (
-            String::from_utf8_lossy(view(pptr, plen)).into_owned(),
-            String::from_utf8_lossy(view(bptr, blen)).into_owned(),
-        )
+        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
     };
-    with(handle, (), |slot| {
-        if let Slot::Files(entries) = slot {
-            match entries.iter_mut().find(|(k, _)| *k == path) {
-                Some(entry) => entry.1 = body,
-                None => entries.push((path, body)),
-            }
-        }
-    });
+    fs_put(handle, path, body);
     BURI_OK
 }
 
 /// `MemFs.fileExists(self, path) -> Bool` — a plain scalar, and the one of the
 /// four that was never about `Result`.
+///
+/// True for a file, and for a directory `makeDir` recorded: `existsSync`
+/// answers both, and a `makeDir` a test could not then see would be a fake
+/// diverging from what it stands in for.
 ///
 /// # Safety
 /// The range is readable.
@@ -564,7 +646,13 @@ pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_file_exists(
 ) -> u8 {
     // SAFETY: the caller promises the range.
     let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
-    u8::from(fs_read(handle, &path).is_some())
+    let found = with(handle, false, |slot| match slot {
+        Slot::Files { entries, dirs } => {
+            entries.iter().any(|(k, _)| *k == path) || dirs.contains(&path)
+        }
+        _ => false,
+    });
+    u8::from(found)
 }
 
 /// `MemFs.readDir(self, path) -> Result<[Str], IoError>`.
@@ -579,6 +667,9 @@ pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_file_exists(
 ///   * **One entry per immediate child, deduplicated**, so `a/b/c` under `a`
 ///     lists `b` and not `b/c`. `""` and `"."` are the root; any other path
 ///     loses one trailing slash and gains one.
+///
+/// The directories `makeDir` recorded are listed alongside the files, so an
+/// empty directory a test created is visible.
 ///
 /// The order is `sort()`'s, which on JavaScript is **UTF-16 code-unit** order —
 /// the same comparison [`crate::buri_rt_str_compare`] makes, and not byte
@@ -604,8 +695,9 @@ pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_read_dir(
     };
     let mut names: Vec<String> = Vec::new();
     with(handle, (), |slot| {
-        if let Slot::Files(entries) = slot {
-            for (key, _) in entries.iter() {
+        if let Slot::Files { entries, dirs } = slot {
+            let keys = entries.iter().map(|(k, _)| k).chain(dirs.iter());
+            for key in keys {
                 let Some(rest) = key.strip_prefix(prefix.as_str()) else { continue };
                 let Some(first) = rest.split('/').next().filter(|s| !s.is_empty()) else {
                     continue;
@@ -621,6 +713,214 @@ pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_read_dir(
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) };
     BURI_OK
+}
+
+/// `MemFs.readFileBytes(self, path) -> Result<[U8], IoError>` — the octets as
+/// they were stored.
+///
+/// # Safety
+/// The range is readable; `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_read_file_bytes(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriList,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let Some(body) = fs_read(handle, &path) else { return IO_NOT_FOUND };
+    let value = list_of_bytes(&body);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) };
+    BURI_OK
+}
+
+/// `MemFs.writeFileBytes(self, path, body) -> Result<(), IoError>` — replaces
+/// the file, or creates it. Cannot fail.
+///
+/// # Safety
+/// Both ranges are readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_write_file_bytes(
+    handle: i64,
+    _pbase: *mut u8,
+    pptr: *const u8,
+    plen: u64,
+    bptr: *const u8,
+    blen: u64,
+) -> i32 {
+    // SAFETY: the caller promises both ranges.
+    let (path, body) = unsafe {
+        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
+    };
+    fs_put(handle, path, body);
+    BURI_OK
+}
+
+/// `MemFs.appendFile(self, path, body) -> Result<(), IoError>` — adds the
+/// octets to the end, creating the file when it is absent. Cannot fail.
+///
+/// # Safety
+/// Both ranges are readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_append_file(
+    handle: i64,
+    _pbase: *mut u8,
+    pptr: *const u8,
+    plen: u64,
+    bptr: *const u8,
+    blen: u64,
+) -> i32 {
+    // SAFETY: the caller promises both ranges.
+    let (path, body) = unsafe {
+        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
+    };
+    with(handle, (), |slot| {
+        if let Slot::Files { entries, .. } = slot {
+            match entries.iter_mut().find(|(k, _)| *k == path) {
+                Some(entry) => entry.1.extend_from_slice(&body),
+                None => entries.push((path, body)),
+            }
+        }
+    });
+    BURI_OK
+}
+
+/// `MemFs.renameFile(self, from, to) -> Result<(), IoError>` — replaces `to`.
+///
+/// `.Err(.NotFound)` where `from` names nothing, which is what `rename(2)`
+/// answers. A move within one map is atomic for free, so the guarantee a real
+/// filesystem works for is the one this gets by construction.
+///
+/// # Safety
+/// Both ranges are readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_rename_file(
+    handle: i64,
+    _fbase: *mut u8,
+    fptr: *const u8,
+    flen: u64,
+    _tbase: *mut u8,
+    tptr: *const u8,
+    tlen: u64,
+) -> i32 {
+    // SAFETY: the caller promises both ranges.
+    let (from, to) = unsafe {
+        (
+            String::from_utf8_lossy(view(fptr, flen)).into_owned(),
+            String::from_utf8_lossy(view(tptr, tlen)).into_owned(),
+        )
+    };
+    with(handle, IO_NOT_FOUND, |slot| {
+        let Slot::Files { entries, .. } = slot else { return IO_NOT_FOUND };
+        let Some(at) = entries.iter().position(|(k, _)| *k == from) else {
+            return IO_NOT_FOUND;
+        };
+        let (_, body) = entries.remove(at);
+        match entries.iter_mut().find(|(k, _)| *k == to) {
+            Some(entry) => entry.1 = body,
+            None => entries.push((to, body)),
+        }
+        BURI_OK
+    })
+}
+
+/// `MemFs.removeFile(self, path) -> Result<(), IoError>`.
+///
+/// `.Err(.NotFound)` where the path names nothing, as `unlink(2)` answers:
+/// `core/fs`'s `remove` says why that is not `.Ok`.
+///
+/// # Safety
+/// The range is readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_remove_file(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    with(handle, IO_NOT_FOUND, |slot| {
+        let Slot::Files { entries, .. } = slot else { return IO_NOT_FOUND };
+        let Some(at) = entries.iter().position(|(k, _)| *k == path) else {
+            return IO_NOT_FOUND;
+        };
+        entries.remove(at);
+        BURI_OK
+    })
+}
+
+/// `MemFs.makeDir(self, path) -> Result<(), IoError>` — parents included, an
+/// existing directory `.Ok`, and a path already naming a file
+/// `.Err(.AlreadyExists)`.
+///
+/// # Safety
+/// The range is readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_make_dir(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let clean = fs_clean(&path).to_string();
+    if clean.is_empty() {
+        return BURI_OK;
+    }
+    with(handle, BURI_OK, |slot| {
+        let Slot::Files { entries, dirs } = slot else { return BURI_OK };
+        if entries.iter().any(|(k, _)| *k == clean) {
+            return IO_ALREADY_EXISTS;
+        }
+        let parts: Vec<&str> = clean.split('/').collect();
+        for i in 0..parts.len() {
+            let at = parts.get(..=i).unwrap_or(&[]).join("/");
+            if !at.is_empty() && !dirs.contains(&at) {
+                dirs.push(at);
+            }
+        }
+        BURI_OK
+    })
+}
+
+/// `MemFs.syncFile(self, path) -> Result<(), IoError>` — nothing to flush.
+///
+/// So it answers whether there was anything to have flushed: `.Ok` for a file
+/// or a directory this filesystem holds, `.Err(.NotFound)` otherwise, which is
+/// what opening the path on a real one would say.
+///
+/// # Safety
+/// The range is readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_sync_file(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let clean = fs_clean(&path).to_string();
+    if clean.is_empty() {
+        return BURI_OK;
+    }
+    with(handle, IO_NOT_FOUND, |slot| match slot {
+        Slot::Files { entries, dirs } => {
+            let held =
+                entries.iter().any(|(k, _)| *k == path) || dirs.contains(&clean);
+            if held {
+                BURI_OK
+            } else {
+                IO_NOT_FOUND
+            }
+        }
+        _ => IO_NOT_FOUND,
+    })
 }
 
 // ---------------------------------------------------------------------------

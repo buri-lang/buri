@@ -46,6 +46,13 @@ impl Fs for HostFs {
   fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
   fn fileExists(self, path: Str): Bool;
   fn readDir(self, path: Str): Result<[Str], IoError>;
+  fn readFileBytes(self, path: Str): Result<[U8], IoError>;
+  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
+  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
+  fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
+  fn removeFile(self, path: Str): Result<(), IoError>;
+  fn makeDir(self, path: Str): Result<(), IoError>;
+  fn syncFile(self, path: Str): Result<(), IoError>;
 }
 
 export struct HostNet {}

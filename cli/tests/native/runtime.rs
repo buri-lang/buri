@@ -22,8 +22,9 @@
 //! 3. **The abort messages match JavaScript byte for byte**, which
 //!    `cli/tests/crash/` pins for the JavaScript backend and nothing pinned for
 //!    the native one until now (VALUE-MODEL.md §12 row 14).
-//! 4. **The host capabilities work**, including the byte forms and the write
-//!    ordering between the buffered text stream and `writeBytes`.
+//! 4. **The host capabilities work**, including the byte forms, the write
+//!    ordering between the buffered text stream and `writeBytes`, and the
+//!    append/rename/sync sequence a write-ahead log commits through.
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -387,6 +388,33 @@ fn the_filesystem_effect_works() {
         stdout(&out).trim_end(),
         "write=ok exists=1 read=hello utf8=héllo \
          readdir=2 missing=0 notdir=4 exists-missing=0",
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// The write-ahead log the seven new `Fs` operations exist for, against a real
+/// filesystem.
+///
+/// `conformance/lib/semantics/test/effects.buri` runs the same sequence against
+/// `MemFs` on both backends. Two implementations of one story is the whole
+/// argument for a fake: a divergence is a failure in one of them rather than a
+/// difference between two sets of assertions.
+#[test]
+fn a_write_ahead_log_commits_through_append_sync_and_rename() {
+    if skip() {
+        return;
+    }
+    let dir = workspace().join("wal");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = run(&["wal", dir.to_str().unwrap()]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "mkdir=ok,ok append=ok,ok sync=ok,ok log=1.10.2.20 \
+         write=ok synctmp=ok rename=ok syncdir=ok tmp-gone=1 checkpoint=30 \
+         remove=ok remove-again=0 sync-missing=0",
         "stderr:\n{}",
         stderr(&out)
     );

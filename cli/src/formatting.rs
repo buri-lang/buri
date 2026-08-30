@@ -59,7 +59,7 @@
 //! layout pass. `IfBreak` propagates neither branch, because both of them are
 //! conditional on the answer the propagation is trying to compute.
 
-use crate::diagnostics::{FileId, Span};
+use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
     ArmData, BlockId, CtxBodyId, ExprId, ExprView, Kind, LambdaParamData, PartView, PatId,
     PatView, StmtKind, Tree, TypeId, TypeView,
@@ -74,41 +74,167 @@ const WIDTH: usize = 88;
 /// and nothing else in this file knows a number of spaces.
 const INDENT: usize = 4;
 
+/// One file's canonical form, and what the parser could not read in it.
+pub struct Formatted {
+    /// The text `buri format` would write.
+    pub text: String,
+    /// The declarations that did not parse, as byte ranges into [`text`], each
+    /// printed exactly as it was written.
+    ///
+    /// [`text`]: Formatted::text
+    pub regions: Vec<(usize, usize)>,
+}
+
+/// The declarations of `text` the parser could not read, as byte ranges.
+///
+/// A declaration holding a parse error is the unit the formatter refuses at:
+/// what it understood it lays out, and the rest it prints as it was written.
+/// The range is the whole declaration rather than the token that went wrong,
+/// because a recovered tree says where a mistake was and not what the author
+/// meant by the text around it.
+pub fn broken_regions(text: &str) -> Vec<(usize, usize)> {
+    let parsed = crate::parsing::parser::parse(text, FileId(0));
+    regions(&parsed).into_iter().map(|s| (s.start as usize, s.end as usize)).collect()
+}
+
+/// The same, over a parse already in hand.
+fn regions(parsed: &crate::parsing::parser::Parsed) -> Vec<Span> {
+    if parsed.errors.is_empty() {
+        return Vec::new();
+    }
+    let (items, skipped) = shape(parsed);
+    let mut broken = skipped.clone();
+    for e in &parsed.errors {
+        if let Some(b) = holder(&items, &skipped, e).and_then(|i| broken.get_mut(i)) {
+            *b = true;
+        }
+    }
+    items.iter().zip(&broken).filter(|(_, b)| **b).map(|(s, _)| *s).collect()
+}
+
+/// Every declaration's span, and whether the recovery skipped over it.
+fn shape(parsed: &crate::parsing::parser::Parsed) -> (Vec<Span>, Vec<bool>) {
+    parsed.module.items.iter().map(|i| (i.span(), matches!(i, Item::Error(_)))).unzip()
+}
+
+/// The declaration a diagnostic is about.
+///
+/// A diagnostic that names a token nobody wrote is about the construct
+/// *before* the point it names: that is where the token belongs, and the
+/// construct that wanted it ends there. Every other diagnostic is about what
+/// it points at.
+///
+/// The distinction only matters on a boundary, and on a boundary it decides
+/// everything: a declaration the recovery skipped over begins at the very byte
+/// the truncated declaration before it ends at, so both readings are available.
+/// Only one of them survives the next run — once the two are printed with a
+/// blank line between them the offsets no longer coincide — and a rule that
+/// picked the other one would make the formatter disagree with itself.
+fn holder(items: &[Span], skipped: &[bool], d: &Diagnostic) -> Option<usize> {
+    let at = d.span.start;
+    if names_a_missing_token(d.code.as_deref()) {
+        return items
+            .iter()
+            .position(|s| at > s.start && at <= s.end)
+            .or_else(|| items.iter().rposition(|s| s.end < at))
+            .or_else(|| items.iter().position(|s| s.start == at));
+    }
+    items
+        .iter()
+        .zip(skipped)
+        .position(|(s, u)| *u && s.start == at)
+        .or_else(|| items.iter().position(|s| at >= s.start && at <= s.end))
+        .or_else(|| items.iter().rposition(|s| s.end < at))
+}
+
+/// Whether a diagnostic names a token that is missing rather than one that is
+/// there.
+fn names_a_missing_token(code: Option<&str>) -> bool {
+    matches!(
+        code,
+        Some("missing-arrow" | "missing-separator" | "missing-terminator" | "unclosed-delimiter")
+    )
+}
+
+/// Whether every parse error is about a declaration.
+///
+/// An error that is not is one nothing on the page accounts for, and a file
+/// whose shape is unknown at the top level is one the formatter has nothing to
+/// be sure of. It is refused whole, as before.
+fn placed(parsed: &crate::parsing::parser::Parsed) -> bool {
+    let (items, skipped) = shape(parsed);
+    parsed.errors.iter().all(|e| holder(&items, &skipped, e).is_some())
+}
+
+/// What each region says, line by line with trailing spaces off — the form the
+/// printer re-emits, so that comparing the two is comparing like with like.
+fn region_text(text: &str, regions: &[Span]) -> Vec<String> {
+    regions
+        .iter()
+        .map(|s| {
+            let slice = text.get(s.start as usize..s.end as usize).unwrap_or("");
+            slice.lines().map(str::trim_end).collect::<Vec<_>>().join("\n")
+        })
+        .collect()
+}
+
 /// The formatter without its safety check, for the toolchain's own tests.
 pub fn source_unchecked(text: &str) -> String {
     let parsed = crate::parsing::parser::parse(text, FileId(0));
+    let broken = regions(&parsed);
     let mut tv = Comments::read(text);
-    render(&Build { tv: &mut tv, t: &parsed.module.tree, src: text }.module(&parsed.module))
+    render(
+        &Build { tv: &mut tv, t: &parsed.module.tree, src: text, broken: &broken }
+            .module(&parsed.module),
+    )
 }
 
-/// Returns `None` when the file does not parse, in which case it is left
-/// exactly as it is.
+/// The canonical form of `text`, or `None` when there is none.
+///
+/// A declaration that did not parse is printed as it was written, so a file
+/// being edited is still laid out — everything around the mistake is
+/// formatted, and the mistake itself is left alone. `None` is left for the
+/// file the formatter cannot vouch for at all: one whose errors it could not
+/// attribute to a declaration, or whose own output failed the check below.
 pub fn source(text: &str) -> Option<String> {
+    source_with_regions(text).map(|f| f.text)
+}
+
+/// The same, and which declarations came back verbatim.
+pub fn source_with_regions(text: &str) -> Option<Formatted> {
     let parsed = crate::parsing::parser::parse(text, FileId(0));
-    if !parsed.errors.is_empty() {
+    let broken = regions(&parsed);
+    if !placed(&parsed) {
         return None;
     }
     let mut tv = Comments::read(text);
-    let out =
-        render(&Build { tv: &mut tv, t: &parsed.module.tree, src: text }.module(&parsed.module));
+    let out = render(
+        &Build { tv: &mut tv, t: &parsed.module.tree, src: text, broken: &broken }
+            .module(&parsed.module),
+    );
 
     // A formatter that produces something that does not parse is worse than no
-    // formatter, so the output is checked before it is offered.
+    // formatter, so the output is checked before it is offered. With a region
+    // in it the output does not parse by construction, so the claim is the
+    // stronger and honest one: it parses outside every region, and every
+    // region is byte for byte what was written.
     let check = crate::parsing::parser::parse(&out, FileId(0));
-    if !check.errors.is_empty() {
+    let after = regions(&check);
+    if !placed(&check) || region_text(text, &broken) != region_text(&out, &after) {
         return None;
     }
     // A formatter that drops a comment is worse still: the loss is invisible
     // in the output, which is the one place somebody might have looked. The
     // set is compared rather than the sequence, because the leading import run
     // is sorted and a comment travels with the import it sits above.
-    let (mut before, mut after) = (comment_shape(text), comment_shape(&out));
+    let (mut before, mut afterwards) = (comment_shape(text), comment_shape(&out));
     before.sort();
-    after.sort();
-    if before != after {
+    afterwards.sort();
+    if before != afterwards {
         return None;
     }
-    Some(out)
+    let regions = after.iter().map(|s| (s.start as usize, s.end as usize)).collect();
+    Some(Formatted { text: out, regions })
 }
 
 // -- the document ----------------------------------------------------------
@@ -951,6 +1077,13 @@ struct Build<'t> {
     /// which a printer that binds a child list and then calls `&mut self` may
     /// not do.
     t: &'t Tree,
+    /// The declarations that did not parse, by span, in source order.
+    ///
+    /// A declaration on this list is printed as it was written rather than
+    /// laid out: a recovered tree says where a mistake was and not what the
+    /// author meant by the text around it, so the honest thing to do with it
+    /// is nothing. See [`regions`].
+    broken: &'t [Span],
 }
 
 /// Which half of the run an import belongs to. The standard library comes
@@ -1332,6 +1465,11 @@ impl<'t> Build<'t> {
     // -- declarations ------------------------------------------------------
 
     fn item(&mut self, item: &Item) -> Doc {
+        // What the parser could not read, it did not understand, and what it
+        // did not understand it does not lay out.
+        if self.broken.iter().any(|s| *s == item.span()) {
+            return self.verbatim(item.span());
+        }
         match item {
             Item::Import(i) => {
                 let path = self.path_literal(i.path_span, &i.path);
@@ -1441,17 +1579,35 @@ impl<'t> Build<'t> {
                 let body = self.block_lines(d.body);
                 braced(&format!("test {} {{", quote(&d.name)), body)
             }
-            // A region that did not parse is printed as it was written. The
-            // formatter refuses a file with a parse error today, so only
-            // `source_unchecked` reaches this.
-            Item::Error(at) => text(self.verbatim(**at)),
+            // A declaration the recovery skipped over. Every other broken
+            // declaration is caught above, by span; this one has no other
+            // form to print.
+            Item::Error(at) => self.verbatim(**at),
         }
     }
 
-    /// The source under a span, as one `Text` per line, so that a region the
-    /// parser could not read keeps its own layout.
-    fn verbatim(&self, span: Span) -> String {
-        self.src.get(span.start as usize..span.end as usize).unwrap_or("").to_string()
+    /// The source under `at`, one `Text` per line, so that a region the parser
+    /// could not read keeps the layout it was written with.
+    ///
+    /// The region's comments are claimed and dropped: their bytes are already
+    /// inside it, and an unclaimed entry comes back at the end of the file,
+    /// which would print them twice. A comment written *above* the region sits
+    /// above its first token, so it is left to the gap printer — the span
+    /// starts one byte later to say so.
+    fn verbatim(&mut self, at: Span) -> Doc {
+        self.tv.drain(at.start.saturating_add(1), at.end);
+        let src = self.src.get(at.start as usize..at.end as usize).unwrap_or("");
+        // A declaration begins at column zero, so its lines go back as they
+        // are. `HardBreak` rather than `HardLine` because a blank line inside
+        // the region is a line the author wrote.
+        let mut lines = vec![Doc::BreakParent];
+        for (i, line) in src.lines().enumerate() {
+            if i > 0 {
+                lines.push(Doc::HardBreak);
+            }
+            lines.push(text(line.trim_end().to_string()));
+        }
+        cat(lines)
     }
 
     /// A module path, as the quoted literal it was written as.
@@ -1745,7 +1901,11 @@ impl<'t> Build<'t> {
             ExprView::Char { value, .. } => text(quote_char(value)),
             ExprView::Bool { value, .. } => text(value.to_string()),
             ExprView::Unit { .. } => text("()"),
-            ExprView::Error { span } => text(self.verbatim(span)),
+            // Unreachable through `source`: the declaration around a broken
+            // expression is printed verbatim whole, so no printer descends
+            // into one. It is here so that a caller that built a `Build` by
+            // hand still prints the text rather than nothing.
+            ExprView::Error { span } => self.verbatim(span),
             ExprView::Ident { name, .. } => text(name),
             ExprView::SelfValue { .. } => text("self"),
             ExprView::Ctx { .. } => text("ctx"),

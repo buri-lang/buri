@@ -19,10 +19,10 @@
 //!
 //! ## Errors
 //!
-//! `IoError`'s variants, in declaration order in `effect.buri:82-89`, are the
+//! `IoError`'s variants, in declaration order in `core/effect`, are the
 //! integers this file returns: `NotFound` 0, `PermissionDenied` 1, `ReadOnly` 2,
-//! `AlreadyExists` 3, `NotADirectory` 4, `Other(Str)` 5. `NetError`'s are in
-//! `http.rs`. [`crate::BURI_OK`] is the success arm.
+//! `AlreadyExists` 3, `NotADirectory` 4, `CrossDevice` 5, `Other(Str)` 6.
+//! `NetError`'s are in `http.rs`. [`crate::BURI_OK`] is the success arm.
 //!
 //! The one place the two backends' *text* differs is `Other(Str)`: node spells
 //! a stray errno `"ENOENT: no such file or directory, open 'x'"` and Rust
@@ -302,7 +302,8 @@ fn io_error(e: &std::io::Error) -> (i32, String) {
         std::io::ErrorKind::ReadOnlyFilesystem => (2, String::new()),
         std::io::ErrorKind::AlreadyExists => (3, String::new()),
         std::io::ErrorKind::NotADirectory => (4, String::new()),
-        _ => (5, e.to_string()),
+        std::io::ErrorKind::CrossesDevices => (5, String::new()),
+        _ => (6, e.to_string()),
     }
 }
 
@@ -424,6 +425,201 @@ pub unsafe extern "C" fn buri_rt_host_fs_read_dir(
     // SAFETY: the caller promises a writable destination.
     unsafe { out_ok.write(value) };
     BURI_OK
+}
+
+/// `Fs::readFileBytes` — `Result<[U8], IoError>`, the octets unchanged.
+///
+/// The difference from [`buri_rt_host_fs_read_file`] is the decoding step it
+/// does not do: a file that is not text comes back as it is on disk.
+///
+/// # Safety
+/// The path must be a live `Str` view; both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_read_file_bytes(
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out_ok: *mut BuriList,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let path = unsafe { text(ptr, len) };
+    match std::fs::read(&path) {
+        Ok(bytes) => {
+            let value = list_of_bytes(&bytes);
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out_ok.write(value) };
+            BURI_OK
+        }
+        // SAFETY: as above.
+        Err(e) => unsafe { fail(&e, out_err) },
+    }
+}
+
+/// `Fs::writeFileBytes` — `Result<(), IoError>`. Truncates, or creates.
+///
+/// # Safety
+/// The path must be a live `Str` view and `bptr`/`blen` a readable range;
+/// `out_err` writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_write_file_bytes(
+    _pbase: *mut u8,
+    pptr: *const u8,
+    plen: u64,
+    bptr: *const u8,
+    blen: u64,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let path = unsafe { text(pptr, plen) };
+    // SAFETY: forwarded.
+    let body = unsafe { view(bptr, blen) };
+    match std::fs::write(&path, body) {
+        Ok(()) => BURI_OK,
+        // SAFETY: the caller promises a writable destination.
+        Err(e) => unsafe { fail(&e, out_err) },
+    }
+}
+
+/// `Fs::appendFile` — `Result<(), IoError>`. Creates the file when it is absent.
+///
+/// `O_APPEND`, so the position is taken and the octets written as one
+/// operation: two writers appending to one log interleave records rather than
+/// overwriting each other's. `appendFileSync` opens with the same flag.
+///
+/// # Safety
+/// As [`buri_rt_host_fs_write_file_bytes`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_append_file(
+    _pbase: *mut u8,
+    pptr: *const u8,
+    plen: u64,
+    bptr: *const u8,
+    blen: u64,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let path = unsafe { text(pptr, plen) };
+    // SAFETY: forwarded.
+    let body = unsafe { view(bptr, blen) };
+    let opened = std::fs::OpenOptions::new().create(true).append(true).open(&path);
+    let mut file = match opened {
+        Ok(file) => file,
+        // SAFETY: the caller promises a writable destination.
+        Err(e) => return unsafe { fail(&e, out_err) },
+    };
+    match file.write_all(body) {
+        Ok(()) => BURI_OK,
+        // SAFETY: as above.
+        Err(e) => unsafe { fail(&e, out_err) },
+    }
+}
+
+/// `Fs::renameFile` — `Result<(), IoError>`, replacing `to` atomically.
+///
+/// `rename(2)`, whose atomicity is the whole reason "write a temporary, then
+/// rename it over the real one" is a crash-safe checkpoint. Across two
+/// filesystems there is no such operation and the kernel says `EXDEV`, which
+/// [`io_error`] names `CrossDevice` rather than folding into `Other`.
+///
+/// # Safety
+/// Both paths must be live `Str` views; `out_err` writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_rename_file(
+    _fbase: *mut u8,
+    fptr: *const u8,
+    flen: u64,
+    _tbase: *mut u8,
+    tptr: *const u8,
+    tlen: u64,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let (from, to) = unsafe { (text(fptr, flen), text(tptr, tlen)) };
+    match std::fs::rename(&from, &to) {
+        Ok(()) => BURI_OK,
+        // SAFETY: the caller promises a writable destination.
+        Err(e) => unsafe { fail(&e, out_err) },
+    }
+}
+
+/// `Fs::removeFile` — `Result<(), IoError>`. `.Err(.NotFound)` where the path
+/// names nothing, which is what `unlink(2)` and `unlinkSync` both answer.
+///
+/// # Safety
+/// The path must be a live `Str` view; `out_err` writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_remove_file(
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let path = unsafe { text(ptr, len) };
+    match std::fs::remove_file(&path) {
+        Ok(()) => BURI_OK,
+        // SAFETY: the caller promises a writable destination.
+        Err(e) => unsafe { fail(&e, out_err) },
+    }
+}
+
+/// `Fs::makeDir` — `Result<(), IoError>`, parents included.
+///
+/// An existing directory is `.Ok`, and a path already naming a file is
+/// `.Err(.AlreadyExists)` — the same three answers `mkdirSync(p, {recursive:
+/// true})` gives.
+///
+/// # Safety
+/// The path must be a live `Str` view; `out_err` writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_make_dir(
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let path = unsafe { text(ptr, len) };
+    match std::fs::create_dir_all(&path) {
+        Ok(()) => BURI_OK,
+        // SAFETY: the caller promises a writable destination.
+        Err(e) => unsafe { fail(&e, out_err) },
+    }
+}
+
+/// `Fs::syncFile` — `Result<(), IoError>`, the commit point.
+///
+/// `File::sync_all`, which is `fsync(2)` on Linux and **`fcntl(F_FULLFSYNC)`**
+/// on macOS — so the native backend waits for the drive's own cache there,
+/// which node's `fsyncSync` does not. `core/fs`'s module header is where that
+/// difference is stated for a program that has to choose.
+///
+/// Opened read-only: `fsync(2)` needs no write access, and a directory — whose
+/// entry is what makes a preceding rename durable — cannot be opened for
+/// writing at all.
+///
+/// # Safety
+/// The path must be a live `Str` view; `out_err` writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_sync_file(
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let path = unsafe { text(ptr, len) };
+    let file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        // SAFETY: the caller promises a writable destination.
+        Err(e) => return unsafe { fail(&e, out_err) },
+    };
+    match file.sync_all() {
+        Ok(()) => BURI_OK,
+        // SAFETY: as above.
+        Err(e) => unsafe { fail(&e, out_err) },
+    }
 }
 
 // ---------------------------------------------------------------------------

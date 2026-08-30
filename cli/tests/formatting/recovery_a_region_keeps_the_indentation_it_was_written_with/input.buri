@@ -1,0 +1,13 @@
+export fn f(x: Option<Int>): Int {
+  match (x) {
+      .None => 0
+      .Some(n) => n,
+  }
+}
+
+export fn g(x: Option<Int>): Int {
+  match (x) {
+      .None => 0,
+      .Some(n) => n,
+  }
+}

@@ -152,8 +152,9 @@
 //! deliberate: it would need an out-pointer whose offset depends on which
 //! variant `n` turned out to be, which is a switch the backend would generate
 //! per entry rather than the two stores it generates now. Nothing in the archive
-//! needs one — `IoError`'s six variants are reached as `NotFound` alone, exactly
-//! as `runtime.js`'s `$testing_context_MemFs_readFile` returns `$err([0])`.
+//! needs one — `IoError`'s seven variants are reached as `NotFound` and
+//! `AlreadyExists`, both payload-less, exactly as `runtime.js`'s
+//! `$testing_context_MemFs_readFile` returns `$err([0])`.
 //!
 //! **An error type that is not an enum at all is the other half, and it is
 //! not the same problem.** `bytes.fromUtf8` answers `Result<Str, Utf8Error>`

@@ -164,6 +164,22 @@ fn strided(all: &[Mutation], cap: usize) -> Vec<&Mutation> {
 // The report
 // ---------------------------------------------------------------------------
 
+/// How a row's cases were chosen, which is what decides whether its ceiling
+/// needs room for sampling noise.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Sample {
+    /// Every case in the corpus. The rate a row shows *is* the rate, so the
+    /// ceiling is the rate and nothing more.
+    Whole,
+    /// A stride through the corpus, taken because the invariant is too
+    /// expensive to run on all of it. A hundred cases drawn from fifteen
+    /// hundred land a few points either side of the true rate, and a source
+    /// landing in the repository redraws them — so the bound has to carry that
+    /// swing, or a row tips for a reason that has nothing to do with the
+    /// toolchain. See [`sampling_allowance`].
+    Strided,
+}
+
 #[derive(Default)]
 struct Row {
     cases: usize,
@@ -211,14 +227,14 @@ impl Tally {
     }
 
     /// Prints the table, then fails if any row is over its ceiling.
-    fn finish(self, invariant: &str) {
+    fn finish(self, invariant: &str, sample: Sample) {
         let (mut cases, mut violated) = (0, 0);
         let mut table = String::new();
         let mut over = Vec::new();
         for (key, row) in &self.rows {
             cases += row.cases;
             violated += row.violated;
-            let allowed = row.cases.saturating_mul(ceiling(invariant, key)) / 100;
+            let allowed = allowed(invariant, key, row.cases, sample);
             if row.violated > allowed {
                 over.push(format!("{key}: {} violated, and {allowed} allowed", row.violated));
             }
@@ -271,10 +287,18 @@ impl Tally {
 /// `BURI_RECOVERY_PER_KIND` and `BURI_RECOVERY_SEED` widen the corpus without
 /// moving the bar. Lowering one is the point of the next round of work.
 ///
-/// The rates are read off the **whole** population, `BURI_RECOVERY_CAP=0`, and
-/// not off the 300-case stride `a syntax error stays a syntax error` runs by
-/// default: that stride is redrawn whenever a source is added to the
-/// repository, so a bound fitted to one draw moves when the corpus grows.
+/// **Every number below is a percentage of that row's population**, read off a
+/// `BURI_RECOVERY_CAP=0` run over all 5,201 cases and rounded up to the next
+/// whole point plus one of margin. It is deliberately not fitted to what a draw
+/// happened to show: the 300-case stride `a syntax error stays a syntax error`
+/// runs by default is redrawn whenever a source is added to the repository, so
+/// a bound fitted to one draw goes red on the next merge for a reason that has
+/// nothing to do with the toolchain. That is exactly what happened to two rows
+/// of that invariant when the standard library grew.
+///
+/// The rate is the whole of the bound for an invariant that runs on every case.
+/// For a strided one, [`sampling_allowance`] is added on top, because a
+/// hundred-case row is a sample and a sample has a spread.
 fn ceiling(invariant: &str, row: &str) -> usize {
     match (invariant, row) {
         ("one mistake is one diagnostic", "delete-closer") => 6,
@@ -291,18 +315,97 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         ("the fix names the missing token", "delete-separator ()") => 5,
         ("the fix names the missing token", "delete-separator {}") => 7,
 
-        ("a syntax error stays a syntax error", "delete-closer") => 24,
-        // A twenty-three-case row: a rate needs a little room to be stable.
-        ("a syntax error stays a syntax error", "delete-separator ()") => 15,
+        // 12.0%, 1.9%, 5.8%, 17.9% and 22.3% over the population.
+        ("a syntax error stays a syntax error", "delete-closer") => 13,
+        ("a syntax error stays a syntax error", "delete-separator ()") => 3,
         // The arm before the comma swallows the next arm's pattern, so `2` gets
         // a field: the same residue this invariant's sibling caps at 7.
         ("a syntax error stays a syntax error", "delete-separator {}") => 7,
-        ("a syntax error stays a syntax error", "insert-stray") => 22,
-        ("a syntax error stays a syntax error", "swap-adjacent") => 27,
+        ("a syntax error stays a syntax error", "insert-stray") => 19,
+        ("a syntax error stays a syntax error", "swap-adjacent") => 24,
 
         // Every row not named above, and every row of an invariant R2 owns.
         (_, _) => 0,
     }
+}
+
+/// How many violations one row of `cases` may hold: its rate, plus the swing a
+/// sample of that size has in it.
+fn allowed(invariant: &str, row: &str, cases: usize, sample: Sample) -> usize {
+    let rate = ceiling(invariant, row);
+    cases.saturating_mul(rate) / 100 + sampling_allowance(cases, rate, sample)
+}
+
+/// How far above the rate a *sampled* row may land before the suite calls it a
+/// regression.
+///
+/// Two and a half standard deviations of a binomial with the row's size and
+/// rate, rounded up: the width of the swing a redrawn stride produces on its
+/// own. A row of 105 cases at 19% swings by eleven either way, which covers the
+/// jump that failed this suite the last time the standard library grew — the
+/// parser had not changed, and the sample had.
+///
+/// Two and a half rather than two because the stride is not a random sample: it
+/// steps through the corpus in file order, so a row's cases come from a handful
+/// of neighbouring files and swing wider than an independent draw would. The
+/// observed draws bear that out — the same parser has shown this row at 19.0%,
+/// 21.0% and 25.6% against a population rate of 17.9%.
+///
+/// Zero for a whole-corpus row, which has no sampling in it, and zero for a
+/// rate of zero, which is a claim of exactness and stays one.
+///
+/// Integer throughout: `cases * rate * (100 - rate)` is `n·p·(1−p)` scaled by
+/// ten thousand, so its square root is the standard deviation scaled by a
+/// hundred, and dividing that back out with a round-up is the whole sum.
+fn sampling_allowance(cases: usize, rate: usize, sample: Sample) -> usize {
+    if sample == Sample::Whole || rate == 0 {
+        return 0;
+    }
+    let spread = cases.saturating_mul(rate).saturating_mul(100usize.saturating_sub(rate));
+    5usize.saturating_mul(spread.isqrt()).div_ceil(200)
+}
+
+/// **A ceiling moves with the row and not with the corpus.**
+///
+/// The property the rates exist for, asserted rather than argued: a row whose
+/// per-case behaviour has not changed stays under its ceiling at every size the
+/// corpus could grow to, and a row whose behaviour really did get worse is over
+/// it at every size the stride actually draws.
+///
+/// The row is the one that has twice made this suite go red for the wrong
+/// reason — `insert-stray` of `a syntax error stays a syntax error`, whose
+/// honest residue over the whole population is 17.9%.
+#[test]
+fn a_ceiling_moves_with_the_row_and_not_with_the_corpus() {
+    const INVARIANT: &str = "a syntax error stays a syntax error";
+    const ROW: &str = "insert-stray";
+    /// The measured residue, per thousand, so the arithmetic stays integer.
+    const HONEST: usize = 179;
+    /// A per-case regression: nearly twice as many cascades per mistake.
+    const REGRESSED: usize = 330;
+
+    for cases in [50, 90, 105, 300, 800, 1572, 5000] {
+        let seen = cases * HONEST / 1000;
+        let allowed = allowed(INVARIANT, ROW, cases, Sample::Strided);
+        assert!(
+            seen <= allowed,
+            "a row of {cases} cases behaving exactly as it does today ({seen}              violations) is over its ceiling of {allowed}. Growing the corpus              would fail the suite without the toolchain changing."
+        );
+    }
+    // Every size the 300-case stride has drawn this row at, and then some.
+    for cases in [90, 105, 120, 300, 1572] {
+        let seen = cases * REGRESSED / 1000;
+        let allowed = allowed(INVARIANT, ROW, cases, Sample::Strided);
+        assert!(
+            seen > allowed,
+            "a row of {cases} cases at nearly twice the residue ({seen}              violations) is inside its ceiling of {allowed}. A real regression              would pass the suite."
+        );
+    }
+    // And a whole-corpus row is held to the rate exactly: no sample, no swing.
+    assert_eq!(
+        allowed("the caret is on the mistake", "delete-closer", 1123, Sample::Whole),
+        1123 * 30 / 100
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -398,7 +501,7 @@ fn a_missing_token_is_one_diagnostic() {
             tally.violation(m, why);
         }
     }
-    tally.finish("one mistake is one diagnostic");
+    tally.finish("one mistake is one diagnostic", Sample::Whole);
 }
 
 // ---------------------------------------------------------------------------
@@ -433,7 +536,7 @@ fn the_first_diagnostic_lands_at_the_mutation() {
             tally.violation(m, why);
         }
     }
-    tally.finish("the caret is on the mistake");
+    tally.finish("the caret is on the mistake", Sample::Whole);
 }
 
 // ---------------------------------------------------------------------------
@@ -467,7 +570,7 @@ fn the_fix_names_the_missing_token() {
             tally.violation(m, why);
         }
     }
-    tally.finish("the fix names the missing token");
+    tally.finish("the fix names the missing token", Sample::Whole);
 }
 
 // ---------------------------------------------------------------------------
@@ -534,7 +637,7 @@ fn a_syntax_error_does_not_become_a_type_error() {
             tally.violation(m, why);
         }
     }
-    tally.finish("a syntax error stays a syntax error");
+    tally.finish("a syntax error stays a syntax error", Sample::Strided);
 }
 
 // ---------------------------------------------------------------------------
@@ -552,7 +655,6 @@ fn a_syntax_error_does_not_become_a_type_error() {
 /// `formatting.rs` makes, because a region that reappeared in the wrong place
 /// would pass a set comparison.
 #[test]
-#[ignore = "R2 gives the formatter a verbatim region; R2 deletes this attribute"]
 fn a_broken_file_still_formats() {
     let all = cases();
     let sample = strided(&all, CI_FORMATTED);
@@ -582,21 +684,71 @@ fn a_broken_file_still_formats() {
                     indent(&format!("{after:?}"))
                 ),
             );
+            continue;
+        }
+        let (was, now) = (regions_kept(&m.source), regions_kept(&out));
+        if was != now {
+            tally.violation(
+                m,
+                format!(
+                    "a region the formatter did not read came back changed.\n  in:\n{}\n  out:\n{}",
+                    indent(&was.join("\n---\n")),
+                    indent(&now.join("\n---\n"))
+                ),
+            );
         }
     }
-    tally.finish("a broken file still formats");
+    tally.finish("a broken file still formats", Sample::Strided);
 }
 
-/// Every token, in source order, with the ones layout is allowed to add and
-/// drop taken out. `formatting.rs`'s `tokens`, unsorted.
+/// Every token with the ones layout is allowed to add and drop taken out, as
+/// a set: `formatting.rs`'s `tokens`.
+///
+/// The set and not the sequence, because two of the formatter's documented
+/// moves are reorderings — the leading import run is sorted, and a `derive` is
+/// carried onto the declaration it is about. What the sequence was reaching
+/// for is asserted directly instead, and more sharply, by comparing the
+/// regions themselves: see [`regions_kept`].
 fn kept(text: &str) -> Vec<String> {
     const LAYOUT: &[&str] = &["`,`", "`(`", "`)`", "`{`", "`}`"];
-    token_shape(text)
+    let mut out: Vec<String> = drop_empty_type_arguments(token_shape(text))
         .into_iter()
         .filter_map(|s| match s {
             Shape::Token(t) if !LAYOUT.contains(&t.as_str()) => Some(t),
             _ => None,
         })
+        .collect();
+    out.sort();
+    out
+}
+
+/// Every `<` immediately followed by `>` removed, in source order.
+///
+/// `t<>` prints as `t`, because they are the same type and only one of them is
+/// how a reader writes it. The pair goes as a pair rather than by filtering
+/// both tokens everywhere: a generic list the formatter really did lose would
+/// then be invisible.
+fn drop_empty_type_arguments(shapes: Vec<Shape>) -> Vec<Shape> {
+    let mut out: Vec<Shape> = Vec::with_capacity(shapes.len());
+    for s in shapes {
+        if matches!(&s, Shape::Token(t) if t == "`>`")
+            && matches!(out.last(), Some(Shape::Token(t)) if t == "`<`")
+        {
+            out.pop();
+            continue;
+        }
+        out.push(s);
+    }
+    out
+}
+
+/// What each region the formatter left alone says, line by line with trailing
+/// spaces off — the one whitespace the formatter never keeps.
+fn regions_kept(text: &str) -> Vec<String> {
+    buri::formatting::broken_regions(text)
+        .into_iter()
+        .filter_map(|(lo, hi)| text.get(lo..hi))
+        .map(|slice| slice.lines().map(str::trim_end).collect::<Vec<_>>().join("\n"))
         .collect()
 }
 
@@ -615,7 +767,6 @@ fn kept(text: &str) -> Vec<String> {
 /// test can fail in both directions; the broken file is named; and the exit
 /// code says something went wrong.
 #[test]
-#[ignore = "R2.0 makes the source path speak; R2 deletes this attribute"]
 fn format_check_refuses_an_unparseable_file() {
     let repo = Scratch::repo("recovery-format-check");
     repo.binary_package("cmd/clean", CLEAN);

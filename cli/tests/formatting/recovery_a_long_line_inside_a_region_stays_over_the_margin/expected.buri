@@ -1,0 +1,8 @@
+export fn f(path: Str): Str {
+  let joined = path.concat("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+  joined
+}
+
+export fn g(a: Str): Str {
+    a
+}

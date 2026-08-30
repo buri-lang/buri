@@ -692,8 +692,14 @@ export fn fetchBody<C: Alloc + Net>(ctx: C, url: Str): Result<Str, NetError> {
 // 11. Fakes — my own implementations of the platform's effects
 // =============================================================================
 
-/// A filesystem with exactly one readable path and no writes at all. Binding
-/// this in a context proves the code under test calls *this* `readFile`.
+/// A filesystem with exactly one readable *text* path and no writes at all.
+/// Binding this in a context proves the code under test calls *this*
+/// `readFile`.
+///
+/// The octet half is refused rather than answered: turning `body` into UTF-8
+/// would need `Alloc`, and an effect method takes only `self`. A hand-written
+/// fake refusing what it does not implement is the ordinary case, and the
+/// refusal is a value the caller can match on.
 export struct StaticFs {
   export only: Str,
   export body: Str,
@@ -711,6 +717,28 @@ impl Fs for StaticFs {
   }
   fn readDir(self, path: Str): Result<[Str], IoError> {
     .Ok([self.only])
+  }
+  fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+    .Err(.PermissionDenied)
+  }
+  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+    .Err(.PermissionDenied)
+  }
+  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+    .Err(.PermissionDenied)
+  }
+  fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+    .Err(.PermissionDenied)
+  }
+  fn removeFile(self, path: Str): Result<(), IoError> {
+    .Err(.PermissionDenied)
+  }
+  fn makeDir(self, path: Str): Result<(), IoError> {
+    .Err(.PermissionDenied)
+  }
+  /// Nothing is ever written, so the one path this holds is durable already.
+  fn syncFile(self, path: Str): Result<(), IoError> {
+    if (path == self.only) { .Ok(()) } else { .Err(.NotFound) }
   }
 }
 
@@ -737,6 +765,27 @@ impl<C: Fs> Fs for Guarded<C> {
   }
   fn readDir(self, path: Str): Result<[Str], IoError> {
     self.0.readDir(path)
+  }
+  fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+    self.0.readFileBytes(path)
+  }
+  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+    .Err(.Other("guarded"))
+  }
+  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+    .Err(.Other("guarded"))
+  }
+  fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+    .Err(.Other("guarded"))
+  }
+  fn removeFile(self, path: Str): Result<(), IoError> {
+    .Err(.Other("guarded"))
+  }
+  fn makeDir(self, path: Str): Result<(), IoError> {
+    .Err(.Other("guarded"))
+  }
+  fn syncFile(self, path: Str): Result<(), IoError> {
+    self.0.syncFile(path)
   }
 }
 
