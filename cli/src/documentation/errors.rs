@@ -73,6 +73,11 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("chained-comparison", "Comparison operators do not chain"),
     e!("character-literal-length", "A character literal holds one scalar value"),
     e!("circular-import", "Modules form a graph with no cycles"),
+    e!(
+        "circular-type-alias",
+        "A type alias expands to a type, not back to itself",
+        &["lang/types"]
+    ),
     e!("coalesce-operand", "`??` supplies a default for an absent or failed value"),
     e!("colon-colon-not-an-operator", "A module's members are reached with `.`"),
     e!("const-declaration", "A module-level binding is written with `let`", &["lang/lexical"]),
