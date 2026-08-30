@@ -12,11 +12,17 @@ A block is `let`s followed by a result expression. Nothing can sit next to a
 `{`-initial expression and compete with it. *Cost:* a call performed only for its
 effect must be bound: `let _ = io.println(ctx, "hi");`.
 
-A **test source** may use one, restricted to calls whose type is `()`
-(Section 11.2). The grammar admits `Expr ";"` as a statement, which stays LR(1)
-— after an expression, a `;` means statement and a `}` means result — and the
-property this rule is protecting is unharmed, since `Result` is not `()`. Every
-other module still has `let` as its only statement.
+A **test source** may use one, restricted to expressions whose type is `()`
+(Section 11.2) — a call, and equally a `match`, an `if` or a block that produces
+`()`. The grammar admits `Expr ";"` as a statement, which stays LR(1) — after an
+expression, a `;` means statement and a `}` means result — and the property this
+rule is protecting is unharmed, since `Result` is not `()`. Every other module
+still has `let` as its only statement.
+
+The `;` is required of a `{`-initial expression too, and that is the whole of
+what keeps this rule from costing the section its title: a block-like statement
+that could omit it would compete with the result expression at the one place a
+block ends, and `{ match (c) { … } }` would have two readings.
 
 **12.3 There are no records, so `{` at the start of an expression is always a
 block.**

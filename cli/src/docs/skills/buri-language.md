@@ -148,7 +148,9 @@ derive Eq, Ord, Show for Meters;
 ## Expressions
 
 Everything produces a value — `if`, `match`, blocks. `let` is the only
-statement, and there are no expression statements outside a test source.
+statement, and there are no expression statements outside a test source. Inside
+one, any expression of type `()` is a statement — a call, a `match`, an `if`, a
+block — and each ends with `;`.
 
 ```buri
 let hypotenuse = {

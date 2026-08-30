@@ -81,8 +81,10 @@ test "addition composes" {
 
 The first five return `()`, so they stand alone as statements — a test source
 is the one place the language admits an expression statement, and only when the
-type is `()`. The last three return a value, and are how a `Result` is consumed
-in a test, since `Result` is still must-use here.
+type is `()`. Any expression of that type qualifies, not only a call: a `match`
+whose arms all assert is a statement too, terminated by `;` like the rest. The
+last three return a value, and are how a `Result` is consumed in a test, since
+`Result` is still must-use here.
 
 ```buri
 test "reads the config it wrote" {

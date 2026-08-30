@@ -43,6 +43,14 @@ derive Eq, Show for Tree;
 enum Colour { Red, Green, Blue }
 derive Eq, Ord, Show for Colour;
 
+// Two record variants carrying a field of the same name and type, which is what
+// an or-pattern written with field shorthand alternates over.
+enum Event {
+  Opened { value: Str, at: Int },
+  Closed { value: Str },
+}
+derive Eq, Show for Event;
+
 // --- literal patterns ---------------------------------------------------------
 
 test "integer literal patterns match by value" {
@@ -260,6 +268,45 @@ test "a binding or-pattern across a tuple-struct and a record variant" {
   assert.eq(sizeOf(Shape.Square(22)), 22);
   assert.eq(sizeOf(Shape.Rect { width: 33, height: 44 }), 33);
   assert.eq(sizeOf(Shape.Empty), -1);
+}
+
+// Field shorthand binds through the same slot the explicit form does. It did
+// not: each alternative minted a local of its own, the arm read the first
+// alternative's, and the second alternative reached it from a block that does
+// not dominate the read — malformed IR natively, an undefined name on
+// JavaScript. Both backends run these, so a divergence is the guard.
+test "a field-shorthand or-pattern over two record variants" {
+  let valueOf = fn(e: Event): Str => match (e) {
+    .Opened { value, at: _ } | .Closed { value } => value,
+  };
+  assert.eq(valueOf(Event.Opened { value: "first", at: 1 }), "first");
+  assert.eq(valueOf(Event.Closed { value: "second" }), "second");
+}
+
+test "a field shorthand and an explicit field pattern bind one slot" {
+  let valueOf = fn(e: Event): Str => match (e) {
+    .Opened { value: value, .. } | .Closed { value } => value,
+  };
+  assert.eq(valueOf(Event.Opened { value: "left", at: 7 }), "left");
+  assert.eq(valueOf(Event.Closed { value: "right" }), "right");
+}
+
+test "a field-shorthand or-pattern with a binding beside it" {
+  let out = match ((Event.Closed { value: "x" }, 2)) {
+    (.Opened { value, at: _ } | .Closed { value }, n) => (value, n),
+  };
+  assert.eq(out.0, "x");
+  assert.eq(out.1, 2);
+}
+
+test "an array rest binds in every alternative of an or-pattern" {
+  let tailOf = fn(xs: [Int]): [Int] => match (xs) {
+    [1, ..rest] | [2, 3, ..rest] => rest,
+    _ => [],
+  };
+  assert.eq(tailOf([1, 8, 9]), [8, 9]);
+  assert.eq(tailOf([2, 3, 8]), [8]);
+  assert.eq(tailOf([4]), []);
 }
 
 test "a binding or-pattern inside a tuple pattern" {

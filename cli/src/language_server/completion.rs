@@ -717,6 +717,9 @@ fn exported_names(
                     (None, Some(Sym::Method(receiver))) => {
                         (2, '1', format!("method on {receiver}"))
                     }
+                    // A transparent alias has no table entry to describe, and
+                    // it sorts with the types it stands in for. 22 is struct.
+                    (None, Some(Sym::Alias(..))) => (22, '0', "type alias".to_string()),
                     // 6 variable — the protocol has no "exported name".
                     _ => (6, '3', String::new()),
                 };

@@ -500,7 +500,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 ));
                 self.error_expr(span)
             }
-            Some(Sym::Ty(_)) | Some(Sym::Trait(_)) | Some(Sym::Namespace(_)) => {
+            Some(Sym::Ty(_))
+            | Some(Sym::Trait(_))
+            | Some(Sym::Namespace(_))
+            | Some(Sym::Alias(..)) => {
                 self.templated("type-not-a-value", span).bind("name", name);
                 self.error_expr(span)
             }
@@ -891,6 +894,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         let V::Field { base, name, name_span, .. } = self.tree().expr(field) else {
             crate::ice!("a method call is a field access, which is what the caller matched on")
         };
+        // `fs.appendBytes(...)` — the base is a namespace, so what is missing
+        // is the member. Asked before the receiver, which has no value to check.
+        if self.namespace_member_missing(base, name, name_span) {
+            return self.error_expr(span);
+        }
         let recv = self.check_expr(base, None);
         // A literal that reaches a method call with nothing else constraining
         // it takes its default — `Int` for an integer literal, `Float` for a
@@ -1306,12 +1314,12 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
         }
 
-        // `host.ui` where this output's platform grants no `Ui`. Asked here,
-        // between "is it a namespace member" and "is it a field", because by
-        // here the name is known not to be a member and the base is still a
-        // namespace rather than a value — which is the one moment both halves
-        // of the answer are in hand.
-        if self.host_grant_refused(base, name, name_span) {
+        // `fs.appendBytes`, or `host.ui` where this output's platform grants
+        // no `Ui`. Asked here, between "is it a namespace member" and "is it a
+        // field", because by here the name is known not to be a member and the
+        // base is still a namespace rather than a value — which is the one
+        // moment both halves of the answer are in hand.
+        if self.namespace_member_missing(base, name, name_span) {
             return self.error_expr(span);
         }
 
@@ -1354,6 +1362,51 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// Without this the refusal reads "there is nothing named `host` in
     /// scope", pointing at the namespace rather than at the effect and telling
     /// a reader to check a spelling that is correct.
+    /// Reports naming a member the namespace's module does not export,
+    /// answering whether it did.
+    ///
+    /// Asked before the receiver is checked, because a namespace is not a
+    /// value: checking it reports the base as an unresolved name and never
+    /// says which member was missing, which is the whole of the question.
+    fn namespace_member_missing(&mut self, base: ExprId, name: &str, name_span: Span) -> bool {
+        let V::Ident { name: head, .. } = self.tree().expr(base) else { return false };
+        let head = head.to_string();
+        if self.lookup_local(&head).is_some() {
+            return false;
+        }
+        let Some(ns) = self.c.scope(self.module).namespaces.get(&head).copied() else {
+            return false;
+        };
+        if self.c.lookup_export(ns, name).is_some() {
+            return false;
+        }
+        // A `core/host` name this platform withholds is missing on purpose,
+        // and a list of what is left would not say why.
+        if self.host_grant_refused(base, name, name_span) {
+            return true;
+        }
+        let path = self.c.loaded.module(ns).path.clone();
+        let mut exports: Vec<String> = self.c.scope(ns).exports.keys().cloned().collect();
+        exports.sort();
+        // A surface of a dozen names is worth reading here; `core/list`'s is
+        // not, and the fix already points at the page that lists it.
+        let listed = match exports.len() {
+            0 => "nothing".to_string(),
+            1..=12 => diagnostics::names(&exports),
+            n => format!("{n} names"),
+        };
+        let near = self.c.nearest_export(ns, name);
+        let d = self
+            .templated("no-such-member", name_span)
+            .bind("path", path)
+            .bind("name", name)
+            .bind("exports", listed);
+        if let Some(n) = near {
+            d.notes.push(format!("did you mean `{n}`?"));
+        }
+        true
+    }
+
     fn host_grant_refused(&mut self, base: ExprId, name: &str, name_span: Span) -> bool {
         let V::Ident { name: head, .. } = self.tree().expr(base) else { return false };
         let head = head.to_string();
