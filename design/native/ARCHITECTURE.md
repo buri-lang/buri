@@ -601,11 +601,16 @@ build is the half the key is protecting.
 link_key = H(Link, toolchain, mode, platform, arch,
              linker.name(), linker.version(),
              [codegen_key(u) for u in units],   // ordered
-             runtime_archive_hash)
+             runtime_archive_hash | "omitted")
 ```
 
 Ordered, because link order determines symbol resolution order and therefore
-determines the bytes. Both keys are built with the existing `KeyBuilder`, which
+determines the bytes. The last term is the archive's **decision** rather than
+its digest: since 2026-08-30 the link names `libburi_rt.a` only when the objects
+carry a `buri_rt_*` symbol (BUILD-AND-WATCH.md §2.2), and a link that does not
+name it does not depend on it. Two decisions are two command lines and therefore
+two keys; one term either way, because an omitted archive has no digest to
+state. Both keys are built with the existing `KeyBuilder`, which
 already length-prefixes every field (`cache.rs`, `Sha256::field`) so two different
 field decompositions cannot collide.
 
