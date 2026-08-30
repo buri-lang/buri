@@ -20,12 +20,12 @@ from "core/str" import * as str;
 
 /// The key half of an entry, for asserting on order.
 fn keyOf<V>(entry: (Int, V)): Int {
-  let (k, _v) = entry;
+  let (k, _) = entry;
   k
 }
 
 fn textOf<V>(entry: (Str, V)): Str {
-  let (k, _v) = entry;
+  let (k, _) = entry;
   k
 }
 
@@ -289,7 +289,7 @@ test "a thousand mixed operations agree with a sorted list" {
   let ctx = Hermetic();
   let start = (ordmap.empty<Int, Int>(), list.empty<Int>(), 7);
   let run = fn(c, acc: (OrdMap<Int, Int>, [Int], Int), i) => step(c, acc, i);
-  let (m, model, _seed) = list.range(ctx, 0, 1000).foldCtx(ctx, run, start);
+  let (m, model, _) = list.range(ctx, 0, 1000).foldCtx(ctx, run, start);
   // The comparison is worth making only if the run built a tree several levels
   // deep, so the size it settles at is asserted rather than assumed.
   assert.eq(model.len(), 246);
