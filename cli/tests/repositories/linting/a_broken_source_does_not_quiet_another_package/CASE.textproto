@@ -1,0 +1,36 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "one package does not parse and the one beside it has a finding: `lint //...` reports both, so recovery is per file rather than per run"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# Each half on its own, so that the report above is two answers rather than
+# one answer printed twice.
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "money.txt"
+}
+
+edit {
+  file: "lib/routes/routes.buri"
+  replace: "Route { name: \"health\" }\n"
+  with: "Route { name: \"health\" },\n"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "from \"core/str\" import * as str;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

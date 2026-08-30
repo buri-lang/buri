@@ -1,0 +1,28 @@
+error: //lib/money declares neither a library nor a binary [package-without-a-rule]
+ --> lib/money/BUILD.buri:1:1
+  |
+1 | library {
+  | ^
+  |
+  = fix: add a `library { }` or `binary { }` rule, or delete the build file
+error: unterminated message [build-file-syntax]
+ --> lib/money/BUILD.buri:1:9
+  |
+1 | library {
+  |         ^
+  |
+  = fix: close it with `}`
+error: unterminated list [build-file-syntax]
+ --> lib/money/BUILD.buri:3:17
+  |
+3 |     visibility: ["//visibility:public"
+  |                 ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: close it with `]`
+error: expected a value, found `}` [build-file-syntax]
+ --> lib/money/BUILD.buri:4:1
+  |
+4 | }
+  | ^
+  |
+  = fix: write a string, a number, a bare word, a `[list]`, or a `{{ block }}`
