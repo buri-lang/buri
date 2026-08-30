@@ -46,7 +46,7 @@
 use super::asm::{Asm, RDI, RSI, RSP, SP, X86};
 use super::jit::{Fn2, FrameSig, Jit, V};
 use crate::compiler::middle::ir;
-use crate::compiler::middle::layout::CLOSURE_ENV;
+use crate::compiler::middle::layout::{CAP_MASK, CLOSURE_ENV};
 use crate::compiler::semantics::types::Ty;
 
 /// One generated function.
@@ -247,6 +247,11 @@ impl Jit<'_> {
     /// (VALUE-MODEL.md §2) — which is what makes a drop glue taking only a
     /// pointer enough for a whole list. `llvm/emit.rs::release_elems_glue`
     /// reads the same word and divides by the same stride.
+    ///
+    /// Bit 63 of the word is the reserved multi-threaded mark
+    /// (`layout::CAP_SHARED_FLAG`), so the load is masked with [`CAP_MASK`]
+    /// before the divide — a set bit would turn this loop into a walk over
+    /// 2^60 elements of a block that holds a handful.
     fn elems_glue(&mut self, ty: Ty) {
         let l = self.layouts_of(ty.clone());
         let (size, stride) = (l.size.max(1), l.stride.max(1));
@@ -268,6 +273,15 @@ impl Jit<'_> {
         );
         self.imm_to(G_INDEX, 0);
         self.elem_load(G_COUNT, G_SPARE, G_INDEX, 8, 8);
+        self.emit(
+            "bin/and/u64/fi/f",
+            &[
+                ("JIT_D", V::I(u64::from(G_COUNT))),
+                ("JIT_A", V::I(u64::from(G_COUNT))),
+                ("JIT_K", V::I(CAP_MASK)),
+                ("JIT_CONT", V::Fall),
+            ],
+        );
         self.emit(
             "bin/div/u64/fi/f",
             &[
