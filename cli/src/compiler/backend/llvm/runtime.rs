@@ -1474,9 +1474,29 @@ mod tests {
             "host.HostFs.removeFile",
             "host.HostFs.makeDir",
             "host.HostFs.syncFile",
+            // `host.HostNet.fetch` has a body in the archive and no row, and
+            // not because nobody got to it: `Ret::Res` names the error variant
+            // by index and `lib.rs` §2.1 restricts that variant to carrying no
+            // fields, while `NetError` carries a `Str` on `BadUrl` and on
+            // `Transport`. The row waits on §2.1, not on a table edit — the
+            // same statement `runtime_table.rs`'s list makes.
+            "host.HostNet.fetch",
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }
+    }
+
+    /// `host.HostNet.fetch`, in both directions.
+    ///
+    /// The archive exports exactly the symbol the mangling rule produces — so
+    /// a row added later needs no invention — and this table has no row for
+    /// it, because `NetError`'s two payload-carrying variants put it outside
+    /// `cli/runtime/lib.rs` §2.1's `Result` shape. The pair keeps "the body
+    /// exists" and "this backend can call it" two separate claims.
+    #[test]
+    fn host_net_fetch_has_a_symbol_and_no_row() {
+        assert_eq!(symbol_for("host.HostNet.fetch"), "buri_rt_host_net_fetch");
+        assert!(entry("host.HostNet.fetch").is_none());
     }
 
     /// The two shapes the backend supplies for itself emit a parameter and

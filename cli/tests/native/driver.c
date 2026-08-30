@@ -109,10 +109,13 @@ extern int32_t buri_rt_host_fs_make_dir(uint8_t *base, const uint8_t *ptr, uint6
                                         BuriStr *out_err);
 extern int32_t buri_rt_host_fs_sync_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                          BuriStr *out_err);
-extern int32_t buri_rt_host_net_fetch(uint8_t *mbase, const uint8_t *mptr, uint64_t mlen,
-                                      uint8_t *ubase, const uint8_t *uptr, uint64_t ulen,
-                                      uint8_t *bbase, const uint8_t *bptr, uint64_t blen,
-                                      int64_t *out_status, BuriStr *out_body);
+/* `Request` flattened: the method's variant index, the URL's three `Str`
+ * leaves, then the `(ptr, len)` of a `[Header]` and of a `[U8]`. */
+extern int32_t buri_rt_host_net_fetch(int32_t method, uint8_t *ubase, const uint8_t *uptr,
+                                      uint64_t ulen, const uint8_t *hptr, uint64_t hlen,
+                                      const uint8_t *bptr, uint64_t blen, int64_t *out_status,
+                                      BuriList *out_headers, BuriList *out_body,
+                                      BuriStr *out_err);
 extern int64_t buri_rt_host_clock_now_millis(void);
 extern void buri_rt_host_clock_sleep_millis(int64_t millis);
 extern int64_t buri_rt_host_rand_next_int(int64_t lo, int64_t hi);
@@ -533,14 +536,46 @@ static int mode_stdin_bytes(void) {
   return 0;
 }
 
+/* One `Header`: two `Str`s back to back, which is what the layout gives
+ * `struct Header { name: Str, value: Str }` and what the runtime reads. */
+typedef struct {
+  BuriStr name;
+  BuriStr value;
+} BuriHeader;
+
+static BuriStr borrowed(const char *cstr) {
+  BuriStr s;
+  s.base = NULL;
+  s.ptr = (const uint8_t *)cstr;
+  s.len = (uint64_t)strlen(cstr) |
+          buri_rt_str_ascii_flag((const uint8_t *)cstr, (uint64_t)strlen(cstr));
+  return s;
+}
+
+/* `GET` with one header the test asserts arrives, and a body of octets. The
+ * method is `Method`'s variant index — 0 is `.Get` — because the wire spelling
+ * is the runtime's and never the caller's. */
 static int mode_net(const char *url) {
   int64_t status = 0;
-  BuriStr body;
-  int32_t result = buri_rt_host_net_fetch(S("GET"), S(url), S(""), &status, &body);
+  BuriList out_headers, out_body;
+  BuriStr err;
+  BuriHeader sent[1];
+  sent[0].name = borrowed("x-probe");
+  sent[0].value = borrowed("buri");
+  static const uint8_t payload[] = {0xf0, 0x9f, 0x91, 0x8b};
+  int32_t result = buri_rt_host_net_fetch(0, S(url), (const uint8_t *)sent, 1, payload,
+                                          sizeof payload, &status, &out_headers, &out_body, &err);
   if (result == BURI_OK) {
-    printf("status=%lld body=%.*s\n", (long long)status, bytes_of(body), chars_of(body));
+    const BuriHeader *got = (const BuriHeader *)out_headers.ptr;
+    printf("status=%lld headers=%llu body=%.*s", (long long)status,
+           (unsigned long long)out_headers.len, (int)out_body.len, (const char *)out_body.ptr);
+    for (uint64_t i = 0; i < out_headers.len; i++) {
+      printf(" %.*s=%.*s", bytes_of(got[i].name), chars_of(got[i].name), bytes_of(got[i].value),
+             chars_of(got[i].value));
+    }
+    printf("\n");
   } else {
-    printf("err=%d message=%.*s\n", result, bytes_of(body), chars_of(body));
+    printf("err=%d message=%.*s\n", result, bytes_of(err), chars_of(err));
   }
   return 0;
 }
