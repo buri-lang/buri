@@ -190,7 +190,7 @@ impl<'a> Loader<'a> {
             RuleKind::Library => {
                 let Some(lib) = &pkg.build.library else { return };
                 self.check_testing_surface_declared(target);
-                self.load_path(&format!("{}/lib.buri", pkg.label()), Role::Source, Span::NONE);
+                self.load_path(&pkg.module_path("lib.buri"), Role::Source, Span::NONE);
                 for src in &lib.proto_sources {
                     self.load_declared_proto(target, &src.value, src.span);
                 }
@@ -198,11 +198,7 @@ impl<'a> Loader<'a> {
                     self.load_package_source(target, &src.value, Role::Source, src.span);
                 }
                 if let Some(testing) = &lib.testing {
-                    self.load_path(
-                        &format!("{}/testing/lib.buri", pkg.label()),
-                        Role::TestOnly,
-                        Span::NONE,
-                    );
+                    self.load_path(&pkg.module_path("testing/lib.buri"), Role::TestOnly, Span::NONE);
                     for src in &testing.sources {
                         self.load_package_source(target, &src.value, Role::TestOnly, src.span);
                     }
@@ -230,7 +226,7 @@ impl<'a> Loader<'a> {
                 for src in &bin.proto_sources {
                     self.load_declared_proto(target, &src.value, src.span);
                 }
-                self.load_path(&format!("{}/main.buri", pkg.label()), Role::Entry, Span::NONE);
+                self.load_path(&pkg.module_path("main.buri"), Role::Entry, Span::NONE);
                 for src in &bin.sources {
                     self.load_package_source(target, &src.value, Role::Source, src.span);
                 }
@@ -410,11 +406,7 @@ impl<'a> Loader<'a> {
         }
         // The path *is* the file, so nothing is stripped: what a rule listed
         // in `sources` and what an import writes are one string.
-        let path = if pkg.path.is_empty() {
-            format!("//{rel}")
-        } else {
-            format!("//{}/{rel}", pkg.path)
-        };
+        let path = pkg.module_path(rel);
         self.load_file(&path, disk, role, span)
     }
 
@@ -437,11 +429,7 @@ impl<'a> Loader<'a> {
             );
             return None;
         }
-        let path = if pkg.path.is_empty() {
-            format!("//{rel}")
-        } else {
-            format!("//{}/{rel}", pkg.path)
-        };
+        let path = pkg.module_path(rel);
         self.load_proto(&path, disk, Role::Source, span)
     }
 

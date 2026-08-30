@@ -1270,8 +1270,8 @@ mod tests {
     fn hidden_lines_are_compiled_but_not_shown() {
         let body = "# from \"core/str/lib.buri\" import * as str;\nlet s = str.trim(\"  x  \");\n";
         let (source, _, _) = strip_annotations(body);
-        assert!(source.starts_with("from \"core/str\""));
-        assert!(!rendered(body).contains("core/str"));
+        assert!(source.starts_with("from \"core/str/lib.buri\""));
+        assert!(!rendered(body).contains("core/str/lib.buri"));
         assert!(rendered(body).contains("str.trim"));
     }
 }

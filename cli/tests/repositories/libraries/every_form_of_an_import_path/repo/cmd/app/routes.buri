@@ -1,0 +1,8 @@
+from "//lib/money/lib.buri" import { Cents, fromCents };
+from "//lib/wire/lib.buri" import { Point, defaultPoint };
+
+export fn total(): I64 {
+  let p: Point = defaultPoint();
+  let c: Cents = fromCents(1905);
+  c.0
+}

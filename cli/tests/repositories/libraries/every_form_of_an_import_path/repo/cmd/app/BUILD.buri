@@ -1,0 +1,12 @@
+binary {
+    sources: ["routes.buri"]
+    dependencies: ["//lib/money", "//lib/wire"]
+
+    outputs: [
+        { platform: JS },
+    ]
+
+    test {
+        sources: ["test/main.buri"]
+    }
+}

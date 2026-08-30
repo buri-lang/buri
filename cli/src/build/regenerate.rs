@@ -112,7 +112,7 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     }
 
     for f in &files {
-        if f == "lib.buri" || f == "main.buri" || f == "testing/lib.buri" {
+        if is_entry_point(f) {
             continue;
         }
         if f.starts_with("test/") {
@@ -495,6 +495,14 @@ fn resolved_by_role(
     }
 }
 
+/// The three package-relative names a rule names by its kind rather than by
+/// listing: a library's surface, a binary's entry point, and the `testing`
+/// block's surface. None of them is ever written in a `sources`, and none of
+/// them is a file another rule's entry point reaches — it is that rule.
+fn is_entry_point(rel: &str) -> bool {
+    matches!(rel, "lib.buri" | "main.buri" | "testing/lib.buri")
+}
+
 /// The files one entry point reaches by imports, transitively.
 ///
 /// Only modules inside this package count: `//pkg/x.buri` names one, and
@@ -513,6 +521,17 @@ fn reachable(dir: &Path, package_path: &str, entry: &str) -> BTreeSet<String> {
             // The path is the file, so there is nothing to derive: what
             // the import wrote is what to look for on disk.
             let file = rel.to_string();
+            // Another rule's surface is a target boundary, not a file this
+            // entry point reaches. A binary that writes `//pkg/lib.buri`
+            // depends on the library beside it, and the library's files belong
+            // to the library — following the import would make every one of
+            // them reachable from both rules, which is rule 4's error. Under
+            // the old spelling `//pkg` produced no file name at all and this
+            // fell out; now the path names a real file, so the boundary has to
+            // be said.
+            if file != entry && is_entry_point(&file) {
+                continue;
+            }
             if dir.join(&file).is_file() && seen.insert(file.clone()) {
                 queue.push(file);
             }

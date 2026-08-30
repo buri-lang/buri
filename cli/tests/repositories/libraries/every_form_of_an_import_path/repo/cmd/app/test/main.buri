@@ -1,0 +1,9 @@
+//! A binary's entry point is importable from its own suite and nowhere else,
+//! and the path names the file: `//cmd/app/main.buri`.
+
+from "//cmd/app/main.buri" import { main };
+from "core/testing/assert/lib.buri" import * as assert;
+
+test "main is reachable from its own suite" {
+  assert.isTrue(main() == .Ok(()));
+}

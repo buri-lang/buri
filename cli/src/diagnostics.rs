@@ -8,7 +8,7 @@
 //!   --> cmd/server/routes.buri:3:6
 //!    |
 //!  3 | from "//lib/money/lib.buri" import { Cents, format };
-//!    |      ^^^^^^^^^^^^^
+//!    |      ^^^^^^^^^^^^^^^^^^^^^^
 //!    |
 //!    = expected: a module path this target may see
 //!    = actual: //lib/money, which is not among cmd/server's dependencies

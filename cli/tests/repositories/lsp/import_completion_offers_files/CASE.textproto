@@ -1,0 +1,31 @@
+# What an editor offers while a `//...` import path is being typed.
+#
+# A module path names a file, so the list is files. Three sources, and the
+# difference between them is a rule rather than a convenience:
+#
+#   * this package, offered as every file it owns — inside a package every
+#     module is reachable, and the file being typed is as likely to be the one
+#     next door as the surface;
+#   * a declared dependency, offered as its *surface* and nothing else — its
+#     inner modules are an `internal-import`, so offering one would be offering
+#     an error;
+#   * the standard library, whose table already spells each module as a file
+#     (`import_completion` covers that half).
+#
+# And two things deliberately absent: a test source, which is a module nobody
+# may name, and the file doing the typing, which cannot import itself. A
+# completion list is a claim about what would compile, so a row that would not
+# is worse than a row that is missing.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the files an editor offers while a //... import path is being typed: this package's, and a dependency's surface"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

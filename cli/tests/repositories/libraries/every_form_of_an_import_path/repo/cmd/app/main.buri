@@ -1,0 +1,10 @@
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+
+from "//cmd/app/routes.buri" import { total };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("${total()}");
+  .Ok(())
+}

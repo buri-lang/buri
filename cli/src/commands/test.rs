@@ -1471,19 +1471,8 @@ fn batches_of(session: &Session, candidates: &[TargetId]) -> Vec<Vec<TargetId>> 
 /// is named by its package-relative path from the repository root.
 fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
     let Some(suite) = suite(session, target) else { return Vec::new() };
-    let path = session.workspace.package(target.package).path.clone();
-    suite
-        .sources
-        .iter()
-        .map(|src| {
-            let rel = &src.value;
-            if path.is_empty() {
-                format!("//{rel}")
-            } else {
-                format!("//{path}/{rel}")
-            }
-        })
-        .collect()
+    let pkg = session.workspace.package(target.package);
+    suite.sources.iter().map(|src| pkg.module_path(&src.value)).collect()
 }
 
 /// One batch: one front end, one link, one binary, one verdict per member.

@@ -1,4 +1,4 @@
-// EXPECT: "core/fs" has no member `copy`
+// EXPECT: "core/fs/lib.buri" has no member `copy`
 // Not `appendBytes`: `core/fs` now exports `append` and `readBytes`, so that
 // name draws a did-you-mean and stops pinning the no-suggestion branch.
 from "core/effect/lib.buri" import { Alloc, Fs, Stdout };

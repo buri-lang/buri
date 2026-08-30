@@ -1,0 +1,4 @@
+//! A module in a subdirectory that is not a package: `notes/` has no
+//! BUILD.buri, so its files belong to //lib/money and its path says so.
+
+export fn round(c: I64): I64 { c }
