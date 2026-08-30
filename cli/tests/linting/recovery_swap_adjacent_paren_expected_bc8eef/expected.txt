@@ -1,0 +1,54 @@
+error: `rendered` takes 3 arguments, but 2 were given [wrong-argument-count]
+  --> lib/recovery_swap_adjacent_paren_expected_bc8eef/main.buri:40:23
+   |
+40 |   let _ = ctx.println(rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label));
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 2
+   = fix: pass the context: the convention is receiver first, context second, everything else after
+error: there is nothing named `ctxfn` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_expected_bc8eef/main.buri:40:32
+   |
+40 |   let _ = ctx.println(rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label));
+   |                                ^^^^^
+   |
+   = did you mean `ctx`?
+   = fix: correct the spelling, or declare it
+error: expected `fn(_3, Str) => Str`, found `(<error>, <error>)` [type-mismatch]
+  --> lib/recovery_swap_adjacent_paren_expected_bc8eef/main.buri:40:39
+   |
+40 |   let _ = ctx.println(rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label));
+   |                                       ^^^^^^ the parameter type is `fn(_3, Str) => Str`
+   |
+   = expected: `fn(_3, Str) => Str`
+   = actual: `(<error>, <error>)`
+   = fix: produce a `fn(_3, Str) => Str` here, or change what surrounds it to accept a `(<error>, <error>)`
+error: there is nothing named `c` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_expected_bc8eef/main.buri:40:40
+   |
+40 |   let _ = ctx.println(rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label));
+   |                                        ^
+   |
+   = did you mean `Eq`?
+   = fix: correct the spelling, or declare it
+error: there is nothing named `l` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_expected_bc8eef/main.buri:40:43
+   |
+40 |   let _ = ctx.println(rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label));
+   |                                           ^
+   |
+   = did you mean `Eq`?
+   = fix: correct the spelling, or declare it
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_paren_expected_bc8eef/main.buri:40:46
+   |
+40 |   let _ = ctx.println(rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label));
+   |                                              ^^
+   |
+  --> lib/recovery_swap_adjacent_paren_expected_bc8eef/main.buri:40:31
+   |
+40 |   let _ = ctx.println(rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label));
+   |                               ^ opened here
+   |
+   = fix: write `)` here

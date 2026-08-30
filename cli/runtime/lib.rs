@@ -42,9 +42,8 @@
 //!     digits of it;
 //!   * **the stateful half of `core/testing/context` and of
 //!     `core/host/testing`** ([`testing`]) — a captured stdout, a seeded
-//!     generator, a test clock, a fixture environment, a stdin that was handed
-//!     its lines, and a process that records its exit rather than taking it.
-//!     Every one of them is mutable process state outliving the expression
+//!     generator, a test clock, a fixture environment, and a stdin that was
+//!     handed its lines. Every one of them is mutable process state outliving the expression
 //!     that made it, which is why each implementation carries an `I64` handle
 //!     and puts the state on the runner's side; on JavaScript that side is
 //!     `runtime.js`'s `$t.h`, and here it is one table — one, not two, because
@@ -314,11 +313,11 @@
 //! }
 //! ```
 //!
-//! [`buri_rt_argv_init`] is what makes `env.arguments()` exact — `std::env` in
+//! [`buri_rt_argv_init`] is what makes `env.args(ctx)` exact — `std::env` in
 //! a staticlib depends on a platform-specific startup hook that a linker
 //! `--gc-sections` pass is entitled to have opinions about — and it installs
 //! the panic hook that turns a runtime bug into a message rather than a bare
-//! `SIGABRT`. If it is never called, `env.arguments()` falls back to `std::env`
+//! `SIGABRT`. If it is never called, `env.args(ctx)` falls back to `std::env`
 //! and the fallback is correct on both supported platforms; the call is
 //! preferred, not required.
 //!
