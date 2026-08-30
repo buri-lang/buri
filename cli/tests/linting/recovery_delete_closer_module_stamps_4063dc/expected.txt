@@ -1,0 +1,9 @@
+error: expected an identifier, found `struct` [unexpected-token]
+  --> lib/recovery_delete_closer_module_stamps_4063dc/lib.buri:18:1
+   |
+18 | struct Ghost {
+   | ^^^^^^
+   |
+   = expected: an identifier
+   = actual: `struct`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

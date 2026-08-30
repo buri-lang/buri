@@ -1,9 +1,0 @@
-error: expected `=`, found `,` [unexpected-token]
- --> lib/recovery_insert_stray_brace_cents_0c0ccb/lib.buri:6:15
-  |
-6 |   let doubled , = n * 2;
-  |               ^
-  |
-  = expected: `=`
-  = actual: `,`
-  = fix: write `=` here
