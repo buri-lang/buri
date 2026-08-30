@@ -14,7 +14,8 @@
 //! That is the whole reason these are functions and `core/host`'s are `let`s.
 //!
 //! Configuration is a **method on the value that answers a new handle**:
-//! `clock().at(1000)`, `rand().seed(7)`, `env().variables([...]).args([...])`.
+//! `clock().at(1000)`, `rand().seed(7)`,
+//! `env().variables([...]).arguments([...])`.
 //! There are no free `clockAt`/`randSeed`/`envOf` constructors, because a
 //! reader who knows `clock()` should not have to learn a second name to start
 //! it somewhere else, and because a chain reads in the order it is applied.
@@ -51,24 +52,23 @@
 //! exits keeps running, and what a test asserts is what it does *after* the
 //! exit — so there is nothing left for the runner to hold, and no row either.
 //!
-//! ## `args`, and the one name that could not be the spelling it wants
+//! ## `arguments`, and the name that had to move to make room for it
 //!
-//! `Env` declares `arguments(self): [Str]` — the reader — and a type has one
-//! method of each name (`duplicate-method`), so the *builder* beside it cannot
-//! also be `arguments`. It is `args`, and it is the only place in this module
-//! where the name is not the one the design note asks for. Every other builder
-//! — `at`, `seed`, `variables`, `captured` — is spelled exactly as written.
+//! Every builder here is spelled exactly as the design note writes it, and
+//! `arguments` is the one that cost something. A type's methods are one map
+//! keyed by name — an `impl Env for TestEnv` method registers into it through
+//! the same call an inherent one does — so the arity and the return type
+//! separate nothing, and `Env`'s reader and this builder cannot both be
+//! `arguments`. Behind that they would mangle to one intrinsic key and one C
+//! symbol in each of the two runtime tables.
 //!
-//! The method table is one map per type keyed by name alone
-//! (`semantics/types.rs`'s `methods`), and an `impl Env for TestEnv` method
-//! registers into it through the same call an inherent one does, so neither
-//! the arity nor the return type nor the `impl` it was written in separates
-//! the two. Behind that there is a second wall: both would mangle to the one
-//! key `host_testing.TestEnv.arguments`, and so to one C symbol, in each of the
-//! two runtime tables. **The reader is what would have to move** — `core/env`
-//! already spells it `args(ctx)` for a program, and `Env.arguments` is called
-//! nowhere else — and that is a rename of the effect surface rather than of
-//! this module.
+//! So **the reader moved**: `core/effect`'s `Env` declares `args(self): [Str]`
+//! now, which is the name a program already used — `core/env` has always
+//! exported `args(ctx)` and was the only caller of the method — and
+//! `TestEnv.arguments([Str])` is the builder. The reader is on the effect and
+//! the builder is on the double, so the two never meet on one type anyway;
+//! what they were competing for was the name, and the name went to the surface
+//! a test writes.
 
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, Header, IoError, Method, Net, NetError, Proc, Rand,
@@ -412,7 +412,7 @@ impl TestRand {
 export struct TestEnv(I64);
 impl Env for TestEnv {
   fn variable(self, name: Str): Option<Str>;
-  fn arguments(self): [Str];
+  fn args(self): [Str];
 }
 export fn env(): TestEnv;
 
@@ -422,10 +422,7 @@ impl TestEnv {
   /// wins.
   export fn variables(self, vars: [(Str, Str)]): TestEnv;
   /// A **new** environment with these arguments and this one's variables.
-  ///
-  /// `args` rather than `arguments`: `Env.arguments` is the reader, and a type
-  /// has one method of each name.
-  export fn args(self, arguments: [Str]): TestEnv;
+  export fn arguments(self, args: [Str]): TestEnv;
 }
 
 // --- Process ------------------------------------------------------------------

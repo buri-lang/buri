@@ -877,7 +877,7 @@ impl Env for EchoEnv {
   fn variable(self, name: Str): Option<Str> {
     .Some(self.always)
   }
-  fn arguments(self): [Str] {
+  fn args(self): [Str] {
     [self.always]
   }
 }

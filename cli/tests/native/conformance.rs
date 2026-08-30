@@ -949,7 +949,7 @@ test "an environment holds what it was given and nothing else" {
   assert.eq(assert.some(ctx.variable("HOME")), "/tmp");
   assert.eq(assert.some(ctx.variable("LANG")), "C");
   assert.isTrue(ctx.variable("PATH").isNone());
-  let args = ctx.arguments();
+  let args = ctx.args();
   assert.eq(args.len(), 2);
   assert.eq(args.join(ctx, " "), "--verbose x");
 }
@@ -957,7 +957,7 @@ test "an environment holds what it was given and nothing else" {
 test "an empty environment has no variables and no arguments" {
   let ctx = context { Alloc: alloc(), Env: envOf([], []) };
   assert.isTrue(ctx.variable("HOME").isNone());
-  assert.eq(ctx.arguments().len(), 0);
+  assert.eq(ctx.args().len(), 0);
 }
 
 test "stdin reads its lines, then end of input" {

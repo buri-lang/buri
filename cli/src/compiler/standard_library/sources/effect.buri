@@ -118,9 +118,19 @@ export effect Rand {
   fn nextFloat(self): Float;
 }
 
+/// The process's environment: its variables and the arguments it was started
+/// with.
+///
+/// `args` and not `arguments`, which is the name a program has always written
+/// — `core/env` exports `args(ctx)`, and it is the only caller of this method.
+/// The spelling is load-bearing rather than a preference: a type's methods are
+/// one map keyed by name, so an implementation of this effect cannot also
+/// carry a *builder* called `arguments`, and `core/host/testing`'s `TestEnv`
+/// is exactly that — `env().arguments([...])` is how a test says what the
+/// arguments are. The reader is the one that gave way.
 export effect Env {
   fn variable(self, name: Str): Option<Str>;
-  fn arguments(self): [Str];
+  fn args(self): [Str];
 }
 
 export effect Proc {

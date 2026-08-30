@@ -1154,12 +1154,12 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_env_variable(
     BURI_OK
 }
 
-/// `TestEnv::arguments`.
+/// `TestEnv::args`.
 ///
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_test_env_arguments(
+pub unsafe extern "C" fn buri_rt_testing_context_test_env_args(
     handle: i64,
     out: *mut BuriList,
 ) {
@@ -1187,11 +1187,11 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_env_arguments(
 //   * **Every constructor takes no arguments.** `clock()` is at zero and
 //     `rand()` is at seed zero; a test that wants another says so with a
 //     builder.
-//   * **A builder answers a new handle.** `at`, `seed`, `variables` and `args`
-//     each `install` rather than editing the slot they were called on, so the
-//     value a test already holds is unchanged and two clocks built from one
-//     are two clocks. That is what makes `let base = env(); base.args([..])`
-//     safe to write twice.
+//   * **A builder answers a new handle.** `at`, `seed`, `variables` and
+//     `arguments` each `install` rather than editing the slot they were called
+//     on, so the value a test already holds is unchanged and two clocks built
+//     from one are two clocks. That is what makes
+//     `let base = env(); base.arguments([..])` safe to write twice.
 //
 // `alloc()` and `TestAlloc::allocate` are absent for the reason the module
 // header gives about `core/testing/context`'s: both native backends open-code
@@ -2106,18 +2106,18 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_variables(
     unsafe { out.write(fresh) }
 }
 
-/// `TestEnv::args` — a **new** environment with these arguments and this one's
-/// variables.
+/// `TestEnv::arguments` — a **new** environment with these arguments and this
+/// one's variables.
 ///
-/// `args` rather than `arguments` because `Env` already declares the reader of
-/// that name and a Buri type has one method of each name; the module header
-/// says so where a reader of the source will meet it.
+/// The name the design note asks for, which it can have because `Env`'s reader
+/// moved to `args`; the module header says why where a reader of the source
+/// will meet it.
 ///
 /// # Safety
 /// `xs` points at `count` [`BuriStr`]s; `out` is writable and aligned for an
 /// `i64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_args(
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
     handle: i64,
     xs: *const u8,
     count: u64,
@@ -2150,12 +2150,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_variable(
     unsafe { buri_rt_testing_context_test_env_variable(handle, base, ptr, len, out) }
 }
 
-/// `TestEnv::arguments`.
+/// `TestEnv::args`.
 ///
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_args(
     handle: i64,
     out: *mut BuriList,
 ) {

@@ -82,7 +82,7 @@ impl Rand for HostRand {
 export struct HostEnv {}
 impl Env for HostEnv {
   fn variable(self, name: Str): Option<Str>;
-  fn arguments(self): [Str];
+  fn args(self): [Str];
 }
 
 export struct HostProc {}
