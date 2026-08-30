@@ -9,9 +9,9 @@
 //    recursive function, so the failure is a crash, not a slow test.
 
 from "core/effect/lib.buri" import { Alloc };
+from "core/host/testing/lib.buri" import { alloc };
 from "core/list/lib.buri" import * as list;
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { alloc };
 from "//lib/codegen/lib.buri" import {
     adders, addersEven, allBelow, countDownAnd, countDownCoalesce, countDownOr, evenAnd,
     firstOr, pairs, scalers,
@@ -22,27 +22,27 @@ from "//lib/codegen/lib.buri" import {
 // -----------------------------------------------------------------------------
 
 test "each iteration's closure captures that iteration's parameter" {
-  let ctx = context { Alloc: alloc() };
-  let fs = adders(ctx, 0[ ,]);
-  assert.eq(fs.len(), 4);
-  // Not `100 100 100 100`, which is what capturing the loop's slot gives.
-  assert.eq(fs.get(0).map(fn(f) => f(100)) ?? -1, 100);
-  assert.eq(fs.get(1).map(fn(f) => f(100)) ?? -1, 101);
-  assert.eq(fs.get(2).map(fn(f) => f(100)) ?? -1, 102);
-  assert.eq(fs.get(3).map(fn(f) => f(100)) ?? -1, 103);
-}
-
-test "the same holds across a merged mutually recursive loop" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let fs = addersEven(ctx, 0, []);
+    let fs = adders(ctx, 0, []);
     assert.eq(fs.len(), 4);
-    // `+0`, `*1`, `+2`, `*3` — alternating, because the two members alternate.
+    // Not `100 100 100 100`, which is what capturing the loop's slot gives.
     assert.eq(fs.get(0).map(fn(f) => f(100)) ?? -1, 100);
-    assert.eq(fs.get(1).map(fn(f) => f(100)) ?? -1, 100);
+    assert.eq(fs.get(1).map(fn(f) => f(100)) ?? -1, 101);
     assert.eq(fs.get(2).map(fn(f) => f(100)) ?? -1, 102);
-    assert.eq(fs.get(3).map(fn(f) => f(100)) ?? -1, 300);
+    assert.eq(fs.get(3).map(fn(f) => f(100)) ?? -1, 103);
+}
+
+test "the same holds across a merged mutually recursive loop" {
+  let ctx = context { Alloc: alloc() };
+  let fs = addersEven(ctx, 0, []);
+  assert.eq(fs.len(), 4);
+  // `+0`, `*1`, `+2`, `*3` — alternating, because the two members alternate.
+  assert.eq(fs.get(0).map(fn(f) => f(100)) ?? -1, 100);
+  assert.eq(fs.get(1).map(fn(f) => f(100)) ?? -1, 100);
+  assert.eq(fs.get(2).map(fn(f) => f(100)) ?? -1, 102);
+  assert.eq(fs.get(3).map(fn(f) => f(100) ?? -1, 300);
 }
 
 test "a parameter the loop never rebinds is captured unchanged" {

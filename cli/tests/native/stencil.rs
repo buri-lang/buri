@@ -1194,6 +1194,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "canary/canary.buri",
     "codegen/bitwise.buri",
     "codegen/equality.buri",
+    "codegen/step_trampoline.buri",
     "codegen/strings.buri",
     "codegen/tail_calls.buri",
     "collections/bitset.buri",
@@ -1487,6 +1488,262 @@ export fn main(): Result<(), Str> {
         "a unit reached the link with no key"
     );
     println!("linked with {} ({})", linker.name(), linker.version());
+}
+
+/// **hello world still links the runtime archive, and the answer is honest.**
+///
+/// The size golden for `link::runtime_archive_for`, and the measurement the
+/// slice that added it was asked to take rather than to hope for. There is no
+/// shrink and there was never going to be one: both native entry points call
+/// `buri_rt_argv_init` and `buri_rt_flush` on every path (`stencil/asm.rs`,
+/// `llvm/emit.rs::entry_point`), so the emptiest program the language can
+/// express — `export fn main(): Result<(), Str> { .Ok(()) }` — already names
+/// three runtime symbols, and hello world names six. What decides the
+/// artifact's size is still `-dead_strip` on macOS and `--gc-sections` on
+/// Linux, exactly as BUILD-AND-WATCH.md §2.2 says, and this slice does not
+/// improve on it.
+///
+/// **The linked file's size is not the measurement, and the first version of
+/// this test believed it was.** It asserted one machine's ratio — artifact
+/// times four under the archive, 6.2% measured on `aarch64-apple-darwin` — and
+/// x86-64 Linux answered 25.1% and turned CI red. The 25% is not a link that
+/// stopped stripping. It is debug information, and the two platforms disagree
+/// about where debug information lives rather than about how much of the
+/// runtime survives:
+///
+/// ```text
+///                            aarch64-apple-darwin   x86_64-unknown-linux-gnu
+/// libburi_rt.a                        6 052 488                  8 727 562
+/// bare, as linked                       370 288                  2 173 168
+/// hello, as linked                      374 640                  2 190 488
+/// bare, debug stripped                  353 136                    383 368
+/// hello, debug stripped                 356 464                    400 688
+/// ```
+///
+/// The macOS column is this tree on the machine that wrote this. The Linux
+/// column is not runnable here and is not guessed: the first two rows are the
+/// lines this test printed in CI run 33322552387, job `test (x86_64,
+/// ubuntu-24.04)`, and the rest was measured on that job's own uploaded
+/// artifacts — `scratch-linux-x86_64` carries the archive, the objects and both
+/// linked programs.
+///
+/// Read across the bottom two rows and the platforms agree to within 13%. Of
+/// the 2 190 488-byte Linux artifact, 1 801 007 bytes are `.debug_*` sections
+/// and 236 713 are `.text`: an ELF link copies the archive members' DWARF into
+/// the executable, and `ld64` leaves it in the members and records an `N_OSO`
+/// stab pointing at them. Neither linker drops the debug information for code
+/// it dead-strips, so on ELF the *file* is mostly a constant that stripping
+/// cannot move — which is exactly why a ratio measured on Mach-O said nothing
+/// true about it.
+///
+/// So what is asserted is the stripped size, which is the same quantity on both
+/// platforms, and it is asserted against numbers that were measured on both:
+///
+/// * **The debug-stripped artifact is under its target's ceiling** — 512 KiB on
+///   macOS against 348 KiB measured, 576 KiB on Linux against 391 KiB. What
+///   that catches is the regression this test exists for, and the size of the
+///   catch was measured rather than assumed: relinking the x86-64 Linux job's
+///   own objects and archive with `rust-lld -nostdlib`, once with
+///   `--gc-sections` and once without, gives 373 936 and 673 440 bytes
+///   stripped. A link that stopped stripping pays about 300 KB, and every
+///   ceiling above sits below where that lands.
+/// * **The linked artifact is under a coarser per-target ceiling** — 1 MiB on
+///   macOS, 3 MiB on Linux, 4 MiB anywhere else. This is the one that still
+///   runs on a host with no `strip`, and the one that catches the gross
+///   failure — the archive linked whole rather than trimmed — on a target no
+///   row above covers.
+/// * **hello costs bare plus a rounding error**: 4 352 bytes on macOS, 17 320
+///   on x86-64 Linux, and the assertion is 256 KiB. Printing a line is allowed
+///   to cost kilobytes; it is not allowed to drag a megabyte of runtime in
+///   behind it.
+///
+/// The arm64 Linux row is the one number no measurement here covers: that job
+/// is green, so its linked artifact is under a quarter of its archive, and its
+/// stripped size is *estimated* under the Linux ceiling rather than measured
+/// under it. If it is the row that fails, the sizes this test prints are the
+/// measurement, and this table is where they go.
+///
+/// The 8.7 MB Linux archive against 6.05 MB for the same runtime is per-target
+/// section layout, and it needs no action: the x86-64 LTO member carries 2 731
+/// sections — a section per function, each with its own header, relocation
+/// section and symbols, which is what makes `--gc-sections` able to drop a
+/// function at all — where the arm64 Mach-O member carries 25 and lets `ld64`
+/// divide one `__text` into atoms. That metadata is the archive's, never the
+/// artifact's.
+///
+/// The 353 KB the empty program pays stripped is the runtime's floor rather
+/// than the language's. `link.rs` measures that floor directly, on a C program
+/// with *one* reference to `buri_rt_flush`: 33 520 bytes without the archive
+/// against 351 856 with it. That is what the decision is worth to anything that
+/// can take the `Omitted` branch, and no Buri program can.
+///
+/// **When this test fails**, it may be because an entry point stopped needing
+/// the runtime, and that is good news: `runtime_archive_for` will then answer
+/// `Omitted` for a program that prints nothing, the `link` key will stop
+/// carrying the archive's digest for it, and this test should be rewritten to
+/// pin the new pair of numbers rather than deleted.
+#[test]
+fn hello_world_still_links_the_runtime_archive() {
+    if !supported() {
+        return;
+    }
+    let Some(platform) = link::host_platform() else {
+        eprintln!("no linkable host platform");
+        return;
+    };
+    let target = Target { platform, arch: link::host_arch() };
+    if link::select(target).is_err() {
+        eprintln!("no linker driver on this host");
+        return;
+    }
+
+    let programs = [
+        (
+            "bare",
+            r#"
+export fn main(): Result<(), Str> { .Ok(()) }
+"#,
+        ),
+        (
+            "hello",
+            r#"
+from "core/host/lib.buri" import { stdout };
+export fn main(): Result<(), Str> {
+  let _ = stdout.println("hello, world");
+  .Ok(())
+}
+"#,
+        ),
+    ];
+
+    let mut linked: Vec<(&str, u64)> = Vec::new();
+    for (name, source) in programs {
+        let (program, tables) = lowered(source);
+        let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+        let units = Stencil
+            .emit(&program, &tables, &opts)
+            .unwrap_or_else(|d| panic!("the backend refused {name}: {:?}", messages(&d)));
+
+        assert_eq!(
+            link::runtime_archive_for(&units),
+            link::RuntimeArchive::Linked,
+            "`{name}` was judged not to reference the runtime, but every native entry point \
+             calls buri_rt_argv_init and buri_rt_flush — read this test's doc comment"
+        );
+
+        let dir = workspace(&format!("archive-size-{name}"));
+        let linker = link::select(target).unwrap().in_dir(dir.join("link"));
+        let rows: Vec<Row> = units
+            .iter()
+            .map(|u| Row {
+                unit: u.name.trim_end_matches(".o").to_string(),
+                key: u.key.as_str().to_string(),
+                cached: false,
+            })
+            .collect();
+        let out = dir.join("app");
+        let options = LinkOptions { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+        if let Err(d) = link::run(&units, &rows, &linker, &out, &options) {
+            panic!("the product's link failed for {name}: {:?}", messages(&d));
+        }
+
+        // The decision reached the command line, both halves of it.
+        assert!(
+            dir.join("link").join(ARCHIVE_NAME).exists(),
+            "`{name}` linked the archive and the archive was not staged"
+        );
+        let size = std::fs::metadata(&out).unwrap().len();
+        let archive = ARCHIVE.len() as u64;
+        let stripped = debug_stripped_size(&out, &dir.join("app-stripped"));
+        let (linked_ceiling, stripped_ceiling) = size_ceilings(target);
+        println!(
+            "{name}: {size} bytes linked ({:.1}% of the {archive}-byte archive), {} stripped",
+            (size as f64 / archive as f64) * 100.0,
+            match stripped {
+                Some(bytes) => format!("{bytes} bytes"),
+                None => "no `strip` on this host, nothing".to_string(),
+            }
+        );
+        assert!(
+            size < linked_ceiling,
+            "`{name}` came out at {size} bytes against a {linked_ceiling}-byte ceiling for this \
+             target: the runtime archive is being linked rather than trimmed — read this test's \
+             doc comment for the sizes the ceiling is drawn from"
+        );
+        if let Some(bytes) = stripped {
+            assert!(
+                bytes < stripped_ceiling,
+                "`{name}` is {bytes} bytes with its debug information removed, against a \
+                 {stripped_ceiling}-byte ceiling for this target: the artifact is no longer \
+                 being dead-stripped down to the part of the runtime it uses — a link that \
+                 stopped stripping measured about 300 KB more than one that did"
+            );
+        }
+        linked.push((name, size));
+        // And it is a program, not an empty file the linker was talked into.
+        let ran = Command::new(&out).output().unwrap();
+        assert_eq!(
+            ran.status.code(),
+            Some(0),
+            "{name} exited: {}",
+            String::from_utf8_lossy(&ran.stderr)
+        );
+    }
+
+    // And printing a line costs a rounding error on top of the program that
+    // prints nothing, rather than a second copy of the runtime: 4 352 bytes
+    // measured on macOS, 17 320 on x86-64 Linux. This is the half of the
+    // measurement that a stripped-size ceiling cannot make — both programs
+    // would grow together — and it is the one that catches `stdout` starting
+    // to pull the archive in behind it.
+    let [(_, bare), (_, hello)] = linked[..] else {
+        panic!("the loop above links exactly the two programs it was given")
+    };
+    let grew = hello.saturating_sub(bare);
+    assert!(
+        grew < 256 * 1024,
+        "hello world is {hello} bytes against {bare} for a program that prints nothing, \
+         {grew} bytes more: printing a line is costing what the runtime costs"
+    );
+}
+
+/// The size of `artifact` with its debug information removed, written to `to`,
+/// or `None` where this host has no `strip`.
+///
+/// The one measurement that means the same thing on both platforms. An ELF link
+/// copies its inputs' DWARF into the executable and `ld64` leaves it in the
+/// object files, so the *linked* sizes of the same program on the two platforms
+/// differ by six times and the stripped sizes differ by 13% — and it is the
+/// stripped size that moves when a link stops dead-stripping.
+///
+/// `-S` is the one spelling both accept: `--strip-debug` to GNU `strip`, "remove
+/// debugging symbols" to the macOS one. A host with neither is not a failure —
+/// the linked-size ceiling above is what still runs there — so this answers
+/// `None` and says so on the line the test prints.
+fn debug_stripped_size(artifact: &Path, to: &Path) -> Option<u64> {
+    std::fs::copy(artifact, to).ok()?;
+    let ran = Command::new("strip").arg("-S").arg(to).output().ok()?;
+    if !ran.status.success() {
+        eprintln!("`strip -S` refused {}: {}", to.display(), String::from_utf8_lossy(&ran.stderr));
+        return None;
+    }
+    std::fs::metadata(to).ok().map(|m| m.len())
+}
+
+/// What an artifact for `target` may weigh, linked and debug-stripped, in
+/// bytes.
+///
+/// Both numbers are per target because both floors are: the measured sizes and
+/// the arithmetic behind every ceiling here are in this test's doc comment. The
+/// fallback row is for a target this repository has never measured — it holds
+/// only the gross failure, which is the most an unmeasured target can honestly
+/// be asked to hold.
+fn size_ceilings(target: Target) -> (u64, u64) {
+    match target.platform {
+        Platform::Macos => (1024 * 1024, 512 * 1024),
+        Platform::Linux => (3 * 1024 * 1024, 576 * 1024),
+        _ => (4 * 1024 * 1024, 1024 * 1024),
+    }
 }
 
 /// One non-tail recursion, at a depth the caller chooses.
