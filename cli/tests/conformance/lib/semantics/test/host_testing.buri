@@ -12,8 +12,13 @@
 // conformance.rs` runs this same file through the copy-and-patch backend.
 
 from "core/testing/assert/lib.buri" import * as assert;
+// The doubles, and the call log's constructors: one per method, ordinary
+// functions of the same module, so a test writes the call it expects the way
+// the code under test made it.
 from "core/host/testing/lib.buri" import {
-  alloc, stdout, stderr, stdin, fs, net, clock, rand, env, proc,
+  alloc, appendFile, clock, env, fetch, fileExists, fs, makeDir, net, proc,
+  rand, readBytes, readDir, readFile, readFileBytes, readLine, removeFile,
+  renameFile, stderr, stdin, stdout, syncFile, writeFile, writeFileBytes,
 };
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, IoError, Net, NetError, Proc, Rand, Region, Request,
@@ -787,4 +792,306 @@ test "an exit is absorbed rather than taken" {
   // the exit code is nowhere to be asserted on — carrying on *is* the claim,
   // and two exits later this is still the block making it.
   assert.eq(out.captured(), "[after the first]\n[after the second]\n");
+}
+
+// -----------------------------------------------------------------------------
+// calls() — the call log
+// -----------------------------------------------------------------------------
+//
+// What a double *answers* is the fixture's business and what it was *asked* is
+// this. Every block asserts a whole list against a literal, so an extra call, a
+// missing one and a reordering are three different failures.
+
+test "a double that was never asked anything has an empty log" {
+  assert.eq(fs().calls(), []);
+  assert.eq(net().calls(), []);
+  assert.eq(stdin().calls(), []);
+}
+
+test "the log is the calls that were made, in the order they were made" {
+  let store = fs().files([("a", "A")]);
+  let ctx = context { Alloc: alloc(), Fs: store };
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+  assert.ok(saveText(ctx, "b", "B"));
+  assert.eq(assert.ok(loadText(ctx, "b")), "B");
+  assert.eq(
+    store.calls(),
+    [readFile("a"), writeFile("b", "B"), readFile("b")],
+  );
+}
+
+test "a call that failed is a call: the log is not the successes" {
+  let store = fs();
+  let ctx = context { Alloc: alloc(), Fs: store };
+  assert.isTrue(loadText(ctx, "missing").isErr());
+  assert.eq(store.calls(), [readFile("missing")]);
+}
+
+test "a write refused through readOnly is still something that was asked" {
+  let attenuated = fs().files([("a", "A")]).readOnly();
+  let ctx = context { Alloc: alloc(), Fs: attenuated };
+  assert.eq(which(saveText(ctx, "a", "B")), "ReadOnly");
+  assert.eq(attenuated.calls(), [writeFile("a", "B")]);
+}
+
+test "every method of Fs is logged under its own name" {
+  let store = fs().files([("a", "A"), ("b", "B")]);
+  let ctx = context { Alloc: alloc(), Fs: store };
+  let raw: [U8] = [104, 105];
+  let _ = assert.ok(ctx.readFile("a"));
+  assert.ok(ctx.writeFile("a", "A2"));
+  assert.isTrue(ctx.fileExists("a"));
+  let _ = assert.ok(ctx.readDir(""));
+  let _ = assert.ok(ctx.readFileBytes("a"));
+  assert.ok(ctx.writeFileBytes("c", raw));
+  assert.ok(ctx.appendFile("c", raw));
+  assert.ok(ctx.renameFile("b", "d"));
+  assert.ok(ctx.removeFile("d"));
+  assert.ok(ctx.makeDir("dir"));
+  assert.ok(ctx.syncFile("a"));
+  assert.eq(
+    store.calls(),
+    [
+      readFile("a"),
+      writeFile("a", "A2"),
+      fileExists("a"),
+      readDir(""),
+      readFileBytes("a"),
+      writeFileBytes("c", raw),
+      appendFile("c", raw),
+      renameFile("b", "d"),
+      removeFile("d"),
+      makeDir("dir"),
+      syncFile("a"),
+    ],
+  );
+}
+
+test "octets are logged as the text they spell, as snapshot reads them back" {
+  let store = fs();
+  let ctx = context { Alloc: alloc(), Fs: store };
+  let hi: [U8] = [104, 105];
+  let raw: [U8] = [104, 255];
+  assert.ok(ctx.writeFileBytes("b", hi));
+  assert.ok(ctx.writeFileBytes("c", raw));
+  // The constructor spells the octets exactly as the log does, so a fixture
+  // that is not text is still a call a test can write down.
+  assert.eq(store.calls(), [writeFileBytes("b", hi), writeFileBytes("c", raw)]);
+  // And what it spells is the text `writeFile` would have been given, so the
+  // two methods stay two calls rather than one written twice.
+  assert.notEq(writeFileBytes("b", hi), writeFile("b", "hi"));
+}
+
+test "reading the environment back is not a call" {
+  // `read`, `snapshot` and `calls` answer questions about the filesystem
+  // rather than asking it anything, so none of the three is in the log.
+  let store = fs().files([("a", "A")]);
+  let _ = assert.ok(store.read("a"));
+  assert.eq(store.snapshot().len(), 1);
+  assert.eq(store.calls(), []);
+  assert.eq(store.calls().len(), 0);
+}
+
+test "a builder answers a new filesystem with a log of its own" {
+  let empty = fs();
+  let ctx = context { Alloc: alloc(), Fs: empty };
+  assert.isTrue(loadText(ctx, "a").isErr());
+  let filled = empty.files([("a", "A")]);
+  assert.eq(empty.calls(), [readFile("a")]);
+  assert.eq(filled.calls(), []);
+}
+
+test "readOnly answers a new view with a log of its own" {
+  // The two views share their files — that is what an attenuation is — and
+  // they do not share what was asked of them, because `calls()` is per handle.
+  let writable = fs().files([("a", "A")]);
+  let attenuated = writable.readOnly();
+  let one = context { Alloc: alloc(), Fs: writable };
+  let two = context { Alloc: alloc(), Fs: attenuated };
+  let _ = assert.ok(loadText(one, "a"));
+  assert.isTrue(loadText(two, "missing").isErr());
+  assert.eq(writable.calls(), [readFile("a")]);
+  assert.eq(attenuated.calls(), [readFile("missing")]);
+}
+
+test "each filesystem logs only what was asked of it" {
+  let mine = fs();
+  let yours = fs();
+  let ctx = context { Alloc: alloc(), Fs: mine };
+  assert.ok(saveText(ctx, "a", "A"));
+  assert.eq(mine.calls(), [writeFile("a", "A")]);
+  assert.eq(yours.calls(), []);
+}
+
+test "a function under test is asserted through what it asked for" {
+  let store = fs().files([("app/a.txt", "one")]);
+  let ctx = context { Alloc: alloc(), Fs: store };
+  assert.ok(copyInto(ctx, "app/a.txt", "app/merged.txt"));
+  let one: [U8] = [111, 110, 101];
+  assert.eq(
+    store.calls(),
+    [readFileBytes("app/a.txt"), appendFile("app/merged.txt", one)],
+  );
+}
+
+// -----------------------------------------------------------------------------
+// calls() — the network's log
+// -----------------------------------------------------------------------------
+
+test "a network logs the requests it was given, in the order it answered them" {
+  let upstream = net().respond(fn(_request) => .Ok(http.status(204)));
+  let ctx = context { Alloc: alloc(), Net: upstream };
+  let _ = assert.ok(ping(ctx, "https://example.test/a"));
+  let _ = assert.ok(ping(ctx, "https://example.test/b"));
+  assert.eq(
+    upstream.calls(),
+    [
+      fetch(http.request(.Get, "https://example.test/a")),
+      fetch(http.request(.Get, "https://example.test/b")),
+    ],
+  );
+}
+
+test "a refused request is a request that was made" {
+  let refusing = net();
+  let ctx = context { Alloc: alloc(), Net: refusing };
+  assert.eq(assert.err(ping(ctx, "https://example.test/")), .Refused);
+  assert.eq(refusing.calls(), [fetch(http.request(.Get, "https://example.test/"))]);
+}
+
+test "the whole request crosses: method, url, headers and body" {
+  let upstream = net().respond(fn(_request) => .Ok(http.status(200)));
+  let ctx = context { Alloc: alloc(), Net: upstream };
+  let sent = http
+    .textRequest(ctx, .Post, "https://example.test/things", "{}")
+    .withHeader(ctx, "x-api-key", "secret");
+  let _ = assert.ok(http.send(ctx, sent));
+  assert.eq(upstream.calls(), [fetch(sent)]);
+}
+
+test "two requests that differ only in a header are two different calls" {
+  let upstream = net().respond(fn(_request) => .Ok(http.status(200)));
+  let ctx = context { Alloc: alloc(), Net: upstream };
+  let plain = http.request(.Get, "https://example.test/");
+  let signed = plain.withHeader(ctx, "x-api-key", "secret");
+  let _ = assert.ok(http.send(ctx, signed));
+  assert.eq(upstream.calls(), [fetch(signed)]);
+  assert.notEq(upstream.calls(), [fetch(plain)]);
+}
+
+test "every Method variant crosses the log unchanged" {
+  let upstream = net().respond(fn(_request) => .Ok(http.status(200)));
+  let ctx = context { Alloc: alloc(), Net: upstream };
+  let _ = assert.ok(http.send(ctx, http.request(.Get, "/a")));
+  let _ = assert.ok(http.send(ctx, http.request(.Head, "/a")));
+  let _ = assert.ok(http.send(ctx, http.request(.Post, "/a")));
+  let _ = assert.ok(http.send(ctx, http.request(.Put, "/a")));
+  let _ = assert.ok(http.send(ctx, http.request(.Patch, "/a")));
+  let _ = assert.ok(http.send(ctx, http.request(.Delete, "/a")));
+  let _ = assert.ok(http.send(ctx, http.request(.Options, "/a")));
+  assert.eq(
+    upstream.calls(),
+    [
+      fetch(http.request(.Get, "/a")),
+      fetch(http.request(.Head, "/a")),
+      fetch(http.request(.Post, "/a")),
+      fetch(http.request(.Put, "/a")),
+      fetch(http.request(.Patch, "/a")),
+      fetch(http.request(.Delete, "/a")),
+      fetch(http.request(.Options, "/a")),
+    ],
+  );
+}
+
+test "respond answers a new network with a log of its own" {
+  let refusing = net();
+  let answering = refusing.respond(fn(_request) => .Ok(http.status(200)));
+  let one = context { Alloc: alloc(), Net: refusing };
+  let two = context { Alloc: alloc(), Net: answering };
+  assert.isTrue(ping(one, "https://example.test/refused").isErr());
+  let _ = assert.ok(ping(two, "https://example.test/answered"));
+  assert.eq(refusing.calls(), [fetch(http.request(.Get, "https://example.test/refused"))]);
+  assert.eq(answering.calls(), [fetch(http.request(.Get, "https://example.test/answered"))]);
+}
+
+test "a retry is two calls to the same url, and the log says so" {
+  let upstream = net().respond(fn(_request) => .Ok(http.status(200)));
+  let ctx = context { Alloc: alloc(), Net: upstream };
+  let _ = assert.ok(ping(ctx, "https://example.test/config"));
+  let _ = assert.ok(ping(ctx, "https://example.test/config"));
+  let once = http.request(.Get, "https://example.test/config");
+  assert.eq(upstream.calls(), [fetch(once), fetch(once)]);
+  assert.eq(upstream.calls().len(), 2);
+}
+
+// -----------------------------------------------------------------------------
+// calls() — the input stream's log
+// -----------------------------------------------------------------------------
+
+test "a stream logs the reads it was asked for, with what they asked for" {
+  let input = stdin().bytes([1, 2, 3, 4]);
+  let ctx = context { Alloc: alloc(), Stdin: input };
+  let _ = assert.some(ctx.readBytes(3));
+  let _ = assert.some(ctx.readBytes(3));
+  assert.eq(input.calls(), [readBytes(3), readBytes(3)]);
+}
+
+test "a read that found nothing is still a read that was made" {
+  let input = stdin();
+  let ctx = context { Alloc: alloc(), Stdin: input };
+  assert.none(ctx.readLine());
+  assert.none(ctx.readBytes(8));
+  assert.eq(input.calls(), [readLine(), readBytes(8)]);
+}
+
+test "a stdin builder answers a new stream with a log of its own" {
+  let empty = stdin();
+  let filled = empty.lines(["x"]);
+  let a = context { Alloc: alloc(), Stdin: empty };
+  let b = context { Alloc: alloc(), Stdin: filled };
+  assert.none(a.readLine());
+  assert.eq(assert.some(b.readLine()), "x");
+  assert.none(b.readLine());
+  assert.eq(empty.calls(), [readLine()]);
+  assert.eq(filled.calls(), [readLine(), readLine()]);
+}
+
+// -----------------------------------------------------------------------------
+// A Call is its arguments
+// -----------------------------------------------------------------------------
+
+test "two calls to one method with different arguments are DIFFERENT" {
+  assert.notEq(readFile("a"), readFile("b"));
+  assert.notEq(writeFile("a", "one"), writeFile("a", "two"));
+  assert.notEq(renameFile("a", "b"), renameFile("b", "a"));
+  assert.notEq(readBytes(1), readBytes(2));
+  assert.notEq(
+    fetch(http.request(.Get, "/a")),
+    fetch(http.request(.Get, "/b")),
+  );
+}
+
+test "two calls to one method with the same arguments are the same call" {
+  assert.eq(readFile("a"), readFile("a"));
+  assert.eq(writeFile("a", "one"), writeFile("a", "one"));
+  assert.eq(readLine(), readLine());
+  assert.eq(fetch(http.request(.Get, "/a")), fetch(http.request(.Get, "/a")));
+}
+
+test "two methods over the same path are different calls" {
+  // The name is part of the call: a program that asked for octets asked
+  // something different from one that asked for text.
+  assert.notEq(readFile("a"), readFileBytes("a"));
+  assert.notEq(removeFile("a"), syncFile("a"));
+  assert.notEq(readLine(), readBytes(0));
+}
+
+test "a call is compared by its arguments and not by where it came from" {
+  // The log's `readFile("a")` and the one this block writes down are the same
+  // value, which is the whole of what `calls()` is for.
+  let store = fs().files([("a", "A")]);
+  let ctx = context { Alloc: alloc(), Fs: store };
+  let _ = assert.ok(loadText(ctx, "a"));
+  assert.eq(store.calls(), [readFile("a")]);
+  assert.notEq(store.calls(), [readFile("b")]);
 }
