@@ -1472,6 +1472,15 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "list.len",
     "list.map",
     "list.mapCtx",
+    // The closure trampoline's pilot (`backend/intrinsic_keys.rs`'s
+    // `step_call`). Its erasure is sound for the same reason every row above it
+    // is, and the carrier is the same one: a **stride**, and a function this
+    // backend generated. `Extra::Step` carries two strides — the source
+    // element's and the result's, because a `map` reads a `[A]` and writes a
+    // `[B]` — and the **entry thunk**, which is generated at the call site
+    // where `A` and `B` are known and is the only thing that ever calls the
+    // step. Nothing about either type reaches `cli/runtime/list.rs`.
+    "list.mapCtxStep",
     "list.push",
     "list.range",
     "list.repeat",
@@ -1791,7 +1800,8 @@ mod tests {
         list.all list.any list.concat list.count list.drop list.empty \
         list.filter list.filterCtx list.find list.findIndex list.flatten \
         list.fold list.foldCtx list.foldResult list.foldResultCtx list.get \
-        list.join list.len list.map list.mapCtx list.push list.range \
+        list.join list.len list.map list.mapCtx list.mapCtxStep list.push \
+        list.range \
         list.repeat list.reverse list.slice list.sortBy list.take list.zip \
         num.maxValue num.minValue \
         str.chars str.concat str.format str.fromChars str.fromFloat \
@@ -1825,11 +1835,23 @@ mod tests {
     /// — `core/list` gaining a `chunk`, `core/tasks` gaining the `parallel`
     /// the concurrency work wants — and each would be type-erased at the
     /// boundary with nothing carrying the element type across.
+    ///
+    /// **`host.HostTasks.parallel` is refused on purpose, and it exists.**
+    /// `core/host` declares `impl Tasks for HostTasks` today, and the method is
+    /// generic in `A` and `B`. It stays off the list because none of the three
+    /// carriers has been chosen for it: there is no runtime body, no stride and
+    /// no descriptor, so an entry here would be this file asserting an erasure
+    /// is sound when nobody has yet made it sound. Nothing reaches the key —
+    /// no platform grants `Tasks`, so no program can construct a `HostTasks` —
+    /// and the day one does, the ice names the exact question to answer. The
+    /// entry lands in the same commit as the carrier, which is the discipline
+    /// the whole list exists for.
     #[test]
     fn a_generic_intrinsic_outside_the_list_is_refused() {
         for key in [
             "list.chunk",
             "tasks.parallel",
+            "host.HostTasks.parallel",
             "str.splitInto",
             "host.HostUi.observe",
             "json.encodeAs",

@@ -100,7 +100,7 @@
 //! platform ABI appears, and it is why the runtime is Rust with `#[repr(C)]`
 //! types rather than anything cleverer.
 //!
-//! Three rules make every signature below mechanical from the Buri one:
+//! Five rules make every signature below mechanical from the Buri one:
 //!
 //! 1. **Every parameter is a scalar leaf.** An aggregate parameter is
 //!    flattened into its leaves, in declaration order, exactly as VALUE-MODEL
@@ -128,6 +128,30 @@
 //!    written, or `0` and the out-pointer untouched. Both backends translate
 //!    that into whatever `middle::layout` chose — a tag, or a niche — and the
 //!    runtime never learns which.
+//!
+//! 4. **A generic parameter arrives as a stride, and as glue.** One key is one
+//!    body (`backend/runtime_table.rs`), so `list.map` at `[Int]` and at
+//!    `[Point]` reach the same symbol and the element type does not cross.
+//!    Everything the runtime needs to know about it arrives as a value: the
+//!    element's **stride**, which `middle::layout` computed and which is an
+//!    immediate at every call site, and a per-element **retain** function the
+//!    backend generated, or null where the element holds no counted pointer
+//!    ([`list`]'s header). A bare `T` — one with no leaf list a C signature
+//!    could name — goes by address, at that same stride.
+//!
+//! 5. **A closure parameter arrives as an entry thunk and an opaque state.**
+//!    Rule 4 answers "the runtime cannot name `T`" for a value; this answers it
+//!    for a *call*. Four words: a `void(state, in, out)` the backend generated
+//!    at the call site, where the element types are known; the backend's own
+//!    record, which the runtime passes back untouched and never looks inside;
+//!    and the two element strides, because an operation with a step reads one
+//!    element type and writes another.
+//!
+//!    §0 says a closure "cannot be called from C", and it still cannot: what
+//!    the runtime calls is the thunk, which is C. `list.mapCtxStep` is the one
+//!    entry that uses this today and it is a pilot — the mechanism a scheduler
+//!    will want, exercised against an answer that is already known
+//!    (`list.rs`'s `StepEntry`).
 //!
 //! ## 2.1 `Result<T, E>`, and the one thing rule 3 leaves open
 //!
@@ -313,6 +337,17 @@
 //! **nothing references any of them** — `net.rs` names one type from each and
 //! stops — so the archive is twenty-four bytes larger with the feature than
 //! without it, and neither backend has a symbol to emit a call to.
+//!
+//! **What a toolchain built without it owes the user.** `net` off is a
+//! *language capability* missing, not a code generator missing, so the
+//! compiler is told rather than left to find out: `cli/build.rs` writes the
+//! feature list to `libburi_rt.a.features` beside the archive,
+//! `runtime_native::net()` reads it, and `Backend::missing_intrinsics` refuses a
+//! program reaching `host.HostListen.*`, `host.HostSockets.*` or
+//! `host.HostTasks.*` with a diagnostic naming the operations
+//! (`networking-not-available`) before code generation starts. None of those
+//! keys exists yet; the refusal is in place first so that the day one lands it
+//! is not an unresolved `buri_rt_*` symbol from the system linker.
 //!
 //! The package's manifest is `manifest.toml` and its lockfile is
 //! `manifest.lock`, neither named the way Cargo would name it, because a

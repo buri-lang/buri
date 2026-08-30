@@ -6,7 +6,8 @@
 // what a self-contained conformance test wants.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 from "core/list/lib.buri" import * as list;
 
 // --- the types under test -----------------------------------------------------
@@ -726,7 +727,7 @@ test "a rest pattern over strings" {
 }
 
 test "a rest pattern binding is a real list usable by list functions" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let rest = match ([1, 2, 3, 4]) {
     [_, ..tail] => tail,
     [] => list.empty<Int>(),
@@ -1071,7 +1072,7 @@ test "tuples of structs compare structurally" {
 }
 
 test "a value built by a list operation equals a literal one" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let built = [1, 2, 3].map(ctx, fn(n) => Point { x: n, y: n });
   assert.eq(built, [
     Point { x: 1, y: 1 },
@@ -1121,7 +1122,7 @@ test "derived Ord on a tuple struct delegates to the field" {
 }
 
 test "derived Ord sorts a list of user structs" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = [Point { x: 2, y: 0 }, Point { x: 1, y: 5 }, Point { x: 1, y: 1 }];
   assert.eq(
     xs.sort(ctx),
@@ -1130,7 +1131,7 @@ test "derived Ord sorts a list of user structs" {
 }
 
 test "derived Ord sorts a list of user enums by variant order" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = [Colour.Blue, Colour.Red, Colour.Green];
   assert.eq(xs.sort(ctx), [Colour.Red, Colour.Green, Colour.Blue]);
 }
@@ -1144,12 +1145,12 @@ test "maximum and minimum use the derived Ord" {
 // --- derive Show --------------------------------------------------------------
 
 test "derived Show renders a struct with its field names" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(Point { x: 1, y: 2 }.show(ctx), "Point { x: 1, y: 2 }");
 }
 
 test "derived Show renders a nested struct" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     Wrapper { inner: Point { x: 1, y: 2 }, label: "w" }.show(ctx),
     // A `Str` nested inside a derived `Show` is quoted, though `"w".show(ctx)`
@@ -1159,22 +1160,22 @@ test "derived Show renders a nested struct" {
 }
 
 test "derived Show renders a tuple struct" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(Meters(9).show(ctx), "Meters(9)");
 }
 
 test "derived Show renders a nullary variant" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(Shape.Empty.show(ctx), ".Empty");
 }
 
 test "derived Show renders a tuple variant" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(Shape.Circle(4).show(ctx), ".Circle(4)");
 }
 
 test "derived Show renders a record variant" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     Shape.Rect { width: 1, height: 2 }.show(ctx),
     ".Rect { width: 1, height: 2 }",
@@ -1182,14 +1183,14 @@ test "derived Show renders a record variant" {
 }
 
 test "derived Show is deterministic for equal values" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let a = Point { x: 1, y: 2 };
   let b = Point { x: 1, y: 2 };
   assert.eq(a.show(ctx), b.show(ctx));
 }
 
 test "derived Show distinguishes unequal values" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.notEq(
     Point { x: 1, y: 2 }.show(ctx),
     Point { x: 2, y: 1 }.show(ctx),
@@ -1197,7 +1198,7 @@ test "derived Show distinguishes unequal values" {
 }
 
 test "derived Show recurses into a nested enum" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     Tree.Node(Shape.Circle(1), Shape.Empty).show(ctx),
     ".Node(.Circle(1), .Empty)",

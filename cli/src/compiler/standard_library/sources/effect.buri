@@ -127,6 +127,38 @@ export effect Proc {
   fn exitWith(self, code: Int): ();
 }
 
+/// Running a piece of a program more than once at a time.
+///
+/// `parallel` is the whole of it, and the shape is deliberate. There is no
+/// detached spawn and no handle to join: a task is handed the caller's
+/// context, runs while the caller waits, and has finished before `parallel`
+/// returns. A task that outlived the call would outlive the context that
+/// granted it, and then "a program that never names `host.fs` cannot read a
+/// file" would stop being true of the program's *lifetime* rather than only of
+/// its call graph.
+///
+/// **Results are in the order the items were given**, whatever order the tasks
+/// finished in, and the `Int` is the item's own index. That is a promise, not
+/// an implementation detail waiting to be relaxed: a program whose answer
+/// depended on which task won is a program no test can pin, and this language
+/// has no way to say "assert one of these six outputs".
+///
+/// The closure takes `Self` rather than capturing it, for the reason
+/// `ui/effect`'s `Fetch` does — an effect-carrying value may arrive only as
+/// `self` or `ctx` (SPEC 10.6), so a task receives the full context as a
+/// parameter and captures nothing effectful.
+///
+/// **No platform grants this yet.** `core/host` declares `HostTasks` and
+/// `tasks`, and the grant table gives them no platform at all, so every
+/// `Tasks: host.tasks` is refused today with the reason. The declaration lands
+/// ahead of the scheduler on purpose: the signature is the part that is
+/// expensive to change once programs are written against it, and it can be
+/// reviewed, documented and pinned before there is a runtime to argue with.
+export effect Tasks {
+  /// Runs `f` over every item and answers the results in the items' order.
+  fn parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B];
+}
+
 /// Declared here rather than in `core/fs` so that the effect signature above
 /// can name it without `core/effect` depending on a module that depends on it.
 export enum IoError {
