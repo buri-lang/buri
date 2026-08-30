@@ -1113,6 +1113,71 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// G2: a reference operation is two counts behind one branch on `cap`'s bit 63.
+///
+/// The assertion is on the *emitted* IR rather than the optimized IR, because
+/// this is a claim about what the emitter writes: `default<O2>` is entitled to
+/// notice that nothing in a single translation unit sets the bit and delete
+/// the atomic arm, and a test that let it would be asserting nothing.
+///
+/// Four things, and the last two are the ones that could quietly go wrong:
+///
+///  * the fork exists on both operations;
+///  * the shared arms are a **cold call** into the runtime, which owns the one
+///    atomic sequence — open-coding it here instead cost a median +46 % of
+///    native release lowering against this form's +21 %, because it is a
+///    saturating `atomicrmw` in front of `opt` at every reference operation in
+///    the program (`design/PERFORMANCE.md` §6.6);
+///  * the **unshared arm is unchanged** — the same load, saturating `select`
+///    and store MEMORY.md §5.1 specifies, not an atomic in disguise;
+///  * the branch says which arm is hot, so the unshared one stays the
+///    fallthrough.
+#[test]
+fn a_reference_operation_forks_on_the_multi_threaded_bit() {
+    skip_unless_executable!();
+    let ir = emitted_ir(&program(
+        r#"
+fn keep(s: Str, n: Int): Str { if (n <= 0) { s } else { keep(s, n - 1) } }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let owned = "ab".repeat(ctx, 3);
+  let echoed = keep(owned, 4);
+  let _ = ctx.println("${owned}|${echoed}");
+  .Ok(())
+}
+"#,
+    ));
+
+    assert!(ir.contains("inc.shared"), "no shared arm on the increment in:\n{ir}");
+    assert!(ir.contains("dec.shared"), "no shared arm on the decrement in:\n{ir}");
+    assert!(
+        ir.contains("call void @buri_rt_incref"),
+        "the increment's shared arm does not reach the runtime in:\n{ir}"
+    );
+    assert!(
+        ir.contains("call void @buri_rt_decref"),
+        "the decrement's shared arm does not reach the runtime in:\n{ir}"
+    );
+    assert!(
+        ir.contains("declare void @buri_rt_incref") && ir.contains("declare void @buri_rt_decref"),
+        "the two shared arms are not declared in:\n{ir}"
+    );
+
+    // The unshared arm, unchanged: MEMORY.md §5.1's load, saturating select
+    // and store. A `%rc.sat` that stopped being stored would mean the fork
+    // replaced the fast path rather than standing beside it.
+    assert!(ir.contains("%rc.sat"), "the saturating select is gone from:\n{ir}");
+    assert!(ir.contains("%rc.inc"), "the non-atomic increment is gone from:\n{ir}");
+    assert!(ir.contains("%rc.dec"), "the non-atomic decrement is gone from:\n{ir}");
+
+    // And the emitter says which arm is hot.
+    assert!(
+        ir.contains("!prof") && ir.contains("branch_weights"),
+        "the fork carries no branch weight in:\n{ir}"
+    );
+}
+
 /// CODEGEN-LLVM.md §2.2, as a test: nothing in the lowering emits an `alloca`
 /// for a local, a parameter, a temporary, a match binding or a loop variable,
 /// so a function built out of exactly those has none.

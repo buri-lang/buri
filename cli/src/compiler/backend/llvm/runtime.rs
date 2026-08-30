@@ -1304,6 +1304,19 @@ pub const TEST_FAIL_EXPECTED: &str = "buri_rt_test_fail_expected";
 pub const ALLOC: &str = "buri_rt_alloc";
 /// `buri_rt_free(p)`.
 pub const FREE: &str = "buri_rt_free";
+/// `buri_rt_incref(p)` — the **shared** arm of `incref` (MEMORY.md §5.1).
+///
+/// The unshared arm is open-coded and always will be; this is reached only from
+/// the fork on `cap`'s bit 63, which nothing sets, and it is a call because the
+/// atomic sequence behind it is cold, is written once in the runtime, and is
+/// twelve instructions this backend would otherwise put in front of the
+/// optimizer at every reference operation in the program — measured at a
+/// median +46 % of native release lowering, against +21 % for the call
+/// (`design/PERFORMANCE.md` §6.6).
+pub const INCREF: &str = "buri_rt_incref";
+/// `buri_rt_decref(p, drop_glue)` — the **shared** arm of `decref`, and the
+/// free that follows it. `drop_glue` is null for a type holding no references.
+pub const DECREF: &str = "buri_rt_decref";
 /// `buri_rt_argv_init(argc, argv)` — the emitted `main`'s first statement.
 pub const ARGV_INIT: &str = "buri_rt_argv_init";
 /// `buri_rt_flush()` — required before every return path from `main`.
