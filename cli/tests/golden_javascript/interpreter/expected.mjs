@@ -22,6 +22,7 @@ function __cmd_x_main$main(){
   let $t1;
   if(parsed_2[0]===0){
     const pair_3=parsed_2[1];
+    $share(pair_3);
     const $t4=__cmd_x_main$eval(pair_3[0]);
     if($t4[0]===0){
       $t1='value '+String($t4[1])+' depth '+String(__cmd_x_main$depth(pair_3[0]));
@@ -44,7 +45,7 @@ function __cmd_x_main$parseSum(c_0){
     return $t1;
   }
   const first_1=$t1[1];
-  return __cmd_x_main$parseSumFrom(first_1[0],first_1[1]);
+  return __cmd_x_main$parseSumFrom(first_1[0],$fromShared(first_1,first_1[1]));
 }
 function __cmd_x_main$eval(e_0){
   switch(e_0[0]){
@@ -164,7 +165,7 @@ function __cmd_x_main$parseProduct(c_0){
     return $t1;
   }
   const first_1=$t1[1];
-  return __cmd_x_main$parseProductFrom(first_1[0],first_1[1]);
+  return __cmd_x_main$parseProductFrom(first_1[0],$fromShared(first_1,first_1[1]));
 }
 function __cmd_x_main$parseSumFrom(left_0,c_1){
   while(true){
@@ -176,7 +177,7 @@ function __cmd_x_main$parseSumFrom(left_0,c_1){
       }
       const rhs_2=$t2[1];
       left_0=[1,left_0,rhs_2[0]];
-      c_1=rhs_2[1];
+      c_1=$fromShared(rhs_2,rhs_2[1]);
       continue;
     }else if($t1[0]===2){
       const $t3=__cmd_x_main$parseProduct(__cmd_x_main$advance(c_1));
@@ -185,7 +186,7 @@ function __cmd_x_main$parseSumFrom(left_0,c_1){
       }
       const rhs_3=$t3[1];
       left_0=[2,left_0,rhs_3[0]];
-      c_1=rhs_3[1];
+      c_1=$fromShared(rhs_3,rhs_3[1]);
       continue;
     }else{
       return [0,[left_0,c_1]];
@@ -220,7 +221,7 @@ function __cmd_x_main$parsePrimary(c_0){
         }
         const inner_2=$t2[1];
         const $t3=__cmd_x_main$peek(inner_2[1]);
-        return $t3[0]===6?[0,[inner_2[0],__cmd_x_main$advance(inner_2[1])]]:$k16;
+        return $t3[0]===6?[0,[inner_2[0],__cmd_x_main$advance($fromShared(inner_2,inner_2[1]))]]:$k16;
       }
     case 2:
       {
@@ -229,7 +230,7 @@ function __cmd_x_main$parsePrimary(c_0){
           return $t4;
         }
         const inner_3=$t4[1];
-        return [0,[[2,$k12,inner_3[0]],inner_3[1]]];
+        return [0,[[2,$k12,inner_3[0]],$fromShared(inner_3,inner_3[1])]];
       }
     default:
       {
@@ -247,7 +248,7 @@ function __cmd_x_main$parseProductFrom(left_0,c_1){
       }
       const rhs_2=$t2[1];
       left_0=[3,left_0,rhs_2[0]];
-      c_1=rhs_2[1];
+      c_1=$fromShared(rhs_2,rhs_2[1]);
       continue;
     }else if($t1[0]===4){
       const $t3=__cmd_x_main$parsePrimary(__cmd_x_main$advance(c_1));
@@ -256,7 +257,7 @@ function __cmd_x_main$parseProductFrom(left_0,c_1){
       }
       const rhs_3=$t3[1];
       left_0=[4,left_0,rhs_3[0]];
-      c_1=rhs_3[1];
+      c_1=$fromShared(rhs_3,rhs_3[1]);
       continue;
     }else{
       return [0,[left_0,c_1]];
