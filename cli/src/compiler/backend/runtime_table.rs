@@ -23,6 +23,7 @@
 //! ```text
 //!   1. the Buri arguments, flattened into scalar leaves  (lib.rs §2 rule 1)
 //!   2. the element pair — stride, then retain glue       (lib.rs §2 rule 4)
+//!      or a step's four words                            (lib.rs §2 rule 5)
 //!   3. the out-pointer                                   (lib.rs §2 rules 2, 3)
 //! ```
 //!
@@ -57,14 +58,19 @@
 //! * a **runtime descriptor**, for an operation whose subject is the *whole*
 //!   shape of a type rather than its size — `json.decode` and the test
 //!   runner's two, which are `middle::monomorphize`'s `Func::desc` and reach
-//!   no row here.
+//!   no row here;
+//! * the **entry thunk** of [`Extra::Step`] — a function this backend
+//!   generated, which is the same idea as the retain glue of the first bullet
+//!   and answers a harder question with it: not "what does one element hold"
+//!   but "how is one Buri closure called", which is the one thing
+//!   `cli/runtime/list.rs`'s header says C cannot do.
 //!
-//! An intrinsic that is generic and has none of the three is a miscompile with
-//! no diagnostic, so the set of keys allowed to be generic is a written list —
+//! An intrinsic that is generic and has none of these is a miscompile with no
+//! diagnostic, so the set of keys allowed to be generic is a written list —
 //! `GENERIC_INTRINSICS` in `middle/monomorphize.rs` — and a generic intrinsic
 //! outside it is an internal error at monomorphization. **A new row here for a
 //! generic key needs a row there too**, and the question that list is asking is
-//! which of the three above carries the type.
+//! which of the carriers above carries the type.
 //!
 //! # Why a table and not a mangling
 //!
@@ -94,6 +100,37 @@ pub enum Extra {
     /// `[T]` argument and the result's otherwise, which covers `list.repeat`
     /// and `list.empty`, whose only mention of `T` is in the return type.
     Element,
+    // -- the closure trampoline --------------------------------------------
+    /// The four words a **runtime-driven step** crosses on
+    /// (`backend/intrinsic_keys.rs`'s `step_call`):
+    ///
+    /// ```text
+    ///   entry       the generated C-ABI thunk, `void(state, in, out)`
+    ///   state       the backend's own record, opaque to the runtime
+    ///   in_stride   the source element's stride
+    ///   out_stride  the result element's stride
+    /// ```
+    ///
+    /// This is [`Extra::Element`]'s idea with the pair widened, and it carries
+    /// the erased type the same way: a **stride** for what the runtime walks,
+    /// and a **function this backend generated** for what the runtime cannot
+    /// name. There is no retain glue, because there is nothing here for the
+    /// runtime to retain — the entry thunk is handed one element at a time and
+    /// takes its own count on it, which is `middle/rc.rs`'s "a call through a
+    /// function value owns its arguments" answered on the side of the boundary
+    /// that knows the type.
+    ///
+    /// Two strides rather than one because a `map` reads a `[A]` and writes a
+    /// `[B]`, and neither is the other's: [`Extra::Element`]'s single pair is
+    /// wrong for this shape rather than merely narrow.
+    ///
+    /// The closure argument itself is **not** flattened. `{ code, env }` is
+    /// this backend's business and reaches the runtime inside `state`; the
+    /// closure is the last argument at every key `step_call` names, so "skip it
+    /// and append the four" and "write the four where it stood" are the same C
+    /// signature — which is what lets this table, which has no per-argument
+    /// column, describe the same call `llvm/runtime.rs`'s `Arg::Step` does.
+    Step,
 }
 
 /// What comes back.
@@ -176,6 +213,11 @@ const fn er(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) ->
     Entry { key, symbol, extra: Extra::Element, ret, by_ref: Some(by_ref) }
 }
 
+/// A runtime-driven step ([`Extra::Step`]).
+const fn es(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
+    Entry { key, symbol, extra: Extra::Step, ret, by_ref: None }
+}
+
 /// Every key this backend has a runtime body for.
 ///
 /// Grouped by the module the key names, and in each group by the order
@@ -241,6 +283,21 @@ pub const ENTRIES: &[Entry] = &[
     er("list.repeat", "buri_rt_list_repeat", Ret::Out, 1),
     e("list.range", "buri_rt_list_range", Ret::Out),
     e("list.join", "buri_rt_list_join", Ret::Out),
+    // -- the closure trampoline, and its one pilot key ----------------------
+    //
+    // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
+    // C-ABI entry thunk of [`Extra::Step`] instead of through the loop
+    // `stencil/lists.rs` open-codes. It is the *pilot* for that mechanism and
+    // nothing else uses it: `core/list`'s own combinators keep their loops,
+    // which are faster than a call per element can be, and the operations the
+    // trampoline exists for — a task pool, an accepting socket — are not
+    // written yet.
+    //
+    // So this row is here to be *called*, by a conformance fixture and by an
+    // agreement row, before there is anything else to call it with. The
+    // alternative was landing the boundary underneath `Tasks.parallel` and
+    // debugging two new things at once.
+    es("list.mapCtxStep", "buri_rt_list_map_ctx_step", Ret::Out),
     // -- core/bytes ---------------------------------------------------------
     //
     // Six of `bytes.buri`'s surface, and the rest of that module is Buri:
@@ -521,9 +578,12 @@ pub const ENTRIES: &[Entry] = &[
         "buri_rt_host_testing_test_stdin_read_bytes",
         Ret::Opt,
     ),
-    // `TestFs`'s sixteen. The eleven the `Fs` effect declares are `MemFs`'s
-    // shapes, and the five above them are this module's: two builders, the
-    // attenuator, and the two read-backs a test asserts through.
+    // The stream's log, read back. A log is state the runner keeps, so it is
+    // here for the reason the handle table itself is.
+    e("host_testing.TestStdin.calls", "buri_rt_host_testing_test_stdin_calls", Ret::Out),
+    // `TestFs`'s seventeen. The eleven the `Fs` effect declares are `MemFs`'s
+    // shapes, and the six above them are this module's: two builders, the
+    // attenuator, and the three read-backs a test asserts through.
     //
     // `snapshot` is `Ret::Out` over a `[(Str, Str)]` — one block of two-`Str`
     // elements, which is the layout `str.splitOnce` already writes through an
@@ -534,6 +594,7 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.TestFs.readOnly", "buri_rt_host_testing_test_fs_read_only", Ret::Out),
     e("host_testing.TestFs.read", "buri_rt_host_testing_test_fs_read", Ret::Res),
     e("host_testing.TestFs.snapshot", "buri_rt_host_testing_test_fs_snapshot", Ret::Out),
+    e("host_testing.TestFs.calls", "buri_rt_host_testing_test_fs_calls", Ret::Out),
     e("host_testing.TestFs.readFile", "buri_rt_host_testing_test_fs_read_file", Ret::Res),
     e("host_testing.TestFs.writeFile", "buri_rt_host_testing_test_fs_write_file", Ret::Res),
     e(
@@ -557,6 +618,25 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.TestFs.removeFile", "buri_rt_host_testing_test_fs_remove_file", Ret::Res),
     e("host_testing.TestFs.makeDir", "buri_rt_host_testing_test_fs_make_dir", Ret::Res),
     e("host_testing.TestFs.syncFile", "buri_rt_host_testing_test_fs_sync_file", Ret::Res),
+    // -- the call log's remaining four --------------------------------------
+    //
+    // `spelled` is an `FsCall` constructor's decode and not a filesystem
+    // operation at all: a test writing a call down performs no effect, so it
+    // has no context to reach `bytes.fromUtf8` with.
+    //
+    // The other three are `TestNet`'s. `net()` and `TestNet.fetch` are Buri
+    // bodies and have no row — the absent-key list below says why — but the
+    // *log* is state, so the handle naming it is minted here
+    // (`alloc.newCounter`'s shape), written by `recordFetch` once the responder
+    // has answered, and read back by `netCalls`. `recordFetch` takes `Request`
+    // flattened by §2 rule 1, which is `buri_rt_host_net_fetch`'s argument list
+    // without its answer; `netCalls` takes the handle rather than the `TestNet`,
+    // because that value carries the responder too and an argument crosses as
+    // its leaves.
+    e("host_testing.spelled", "buri_rt_host_testing_spelled", Ret::Out),
+    e("host_testing.newNet", "buri_rt_host_testing_new_net", Ret::Scalar),
+    e("host_testing.recordFetch", "buri_rt_host_testing_record_fetch", Ret::Void),
+    e("host_testing.netCalls", "buri_rt_host_testing_net_calls", Ret::Out),
     e("host_testing.clock", "buri_rt_host_testing_clock", Ret::Out),
     e("host_testing.TestClock.at", "buri_rt_host_testing_test_clock_at", Ret::Out),
     e(
@@ -653,7 +733,9 @@ mod tests {
             // side — a responder is a `{ code, env }` pair the archive has no
             // way to invoke, and its answer is the `Result<Response, NetError>`
             // §2.1 cannot name — and it is why widening §2.1 later changes
-            // nothing about the double.
+            // nothing about the double. Its *log* is a different question and
+            // has three rows above: `newNet`, `recordFetch` and
+            // `netCalls` cross nothing §2.1 restricts.
             // Open-coded, and named here so that "it has no symbol" and "the
             // backend cannot compile it" stay two different statements.
             "testing_context.alloc",
