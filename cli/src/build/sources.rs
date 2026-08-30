@@ -419,7 +419,7 @@ mod tests {
         );
         let _ = std::fs::write(
             dir.join("lib/shop/lib.buri"),
-            "from \"//lib/shop/cart\" export { two };\n\npub fn one(): I64 {\n  1\n}\n",
+            "from \"//lib/shop/cart.buri\" export { two };\n\npub fn one(): I64 {\n  1\n}\n",
         );
         let _ = std::fs::write(dir.join("lib/shop/cart.buri"), "pub fn two(): I64 {\n  2\n}\n");
         dir

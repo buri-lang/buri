@@ -16,7 +16,7 @@
 //! module is the boundary with the runtime, which holds one graph of untyped
 //! cells. The typed handle is built on top, in ordinary Buri.
 
-from "core/effect" import { NetResponse };
+from "core/effect/lib.buri" import { NetResponse };
 
 /// Reading signals, alone.
 ///

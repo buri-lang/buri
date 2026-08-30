@@ -10,11 +10,11 @@
 //! it, so requesting one is an ordinary unresolved-name error at the one line
 //! that asked for it.
 
-from "core/effect" import {
+from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, Net, Proc, Rand, Stderr, Stdin, Stdout,
   IoError, NetError, NetResponse, Region,
 };
-from "ui/effect" import { Fetch, FetchError, Request, Scope, Ui, Watch };
+from "ui/effect/lib.buri" import { Fetch, FetchError, Request, Scope, Ui, Watch };
 
 export struct HostAlloc {}
 impl Alloc for HostAlloc {

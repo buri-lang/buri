@@ -262,9 +262,9 @@ pub fn load(dir: &Path) -> Result<(Manifest, Program), String> {
 
     let mut modules = Vec::new();
     for f in &files {
-        let stem = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = f.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let text = std::fs::read_to_string(f).map_err(|e| format!("{}: {e}", f.display()))?;
-        modules.push(Module { path: format!("//bench/{stem}"), text });
+        modules.push(Module { path: format!("//bench/{name}"), text });
     }
     let program = Program { modules };
 
@@ -357,8 +357,10 @@ pub fn record(
     }
     std::fs::create_dir_all(&src).map_err(|e| format!("{}: {e}", src.display()))?;
     for m in &program.modules {
-        let stem = m.path.rsplit('/').next().unwrap_or("module");
-        let path = src.join(format!("{stem}.buri"));
+        // A module path ends in the name of its file, so the file to write is
+        // the last segment of the path and nothing has to be appended.
+        let name = m.path.rsplit('/').next().unwrap_or("module.buri");
+        let path = src.join(name);
         std::fs::write(&path, &m.text).map_err(|e| format!("{}: {e}", path.display()))?;
     }
 

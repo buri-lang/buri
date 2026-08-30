@@ -4,12 +4,12 @@
 //! monomorphization reaches the whole program from `main` and the
 //! lowering benchmark is not measuring dead-code elimination.
 
-from "core/effect" import { Alloc };
-from "core/host" import * as host;
-from "//bench/m0000" import { blend0, reach0 };
-from "//bench/m0001" import { blend1, reach1 };
-from "//bench/m0002" import { blend2, reach2 };
-from "//bench/m0003" import { blend3, reach3 };
+from "core/effect/lib.buri" import { Alloc };
+from "core/host/lib.buri" import * as host;
+from "//bench/m0000.buri" import { blend0, reach0 };
+from "//bench/m0001.buri" import { blend1, reach1 };
+from "//bench/m0002.buri" import { blend2, reach2 };
+from "//bench/m0003.buri" import { blend3, reach3 };
 
 /// The entry point. `main` is the only module that may import
 /// `core/host`, so it is the only place the context can be built.

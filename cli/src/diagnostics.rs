@@ -7,7 +7,7 @@
 //! error: cmd/server/routes.buri imports //lib/money, which is not in deps
 //!   --> cmd/server/routes.buri:3:6
 //!    |
-//!  3 | from "//lib/money" import { Cents, format };
+//!  3 | from "//lib/money/lib.buri" import { Cents, format };
 //!    |      ^^^^^^^^^^^^^
 //!    |
 //!    = expected: a module path this target may see
@@ -166,6 +166,28 @@ impl Span {
             return self;
         }
         Span { file: self.file, start: self.start.min(other.start), end: self.end.max(other.end) }
+    }
+
+    /// The same span with the quotes taken off, when it covers a string
+    /// literal.
+    ///
+    /// An import's `path_span` is the literal including its quotes, because
+    /// that is what every import diagnostic is anchored on — and a textproto
+    /// entry's is the same. An *edit*, though, replaces the address rather than
+    /// the punctuation holding it, so it needs the inside. `text` is the whole
+    /// file, and a span that is not a quoted run comes back unchanged.
+    pub fn inside_quotes(self, text: &str) -> Span {
+        let quoted = text
+            .get(self.start as usize..self.end as usize)
+            .is_some_and(|s| s.len() >= 2 && s.starts_with('"') && s.ends_with('"'));
+        match quoted {
+            true => Span {
+                file: self.file,
+                start: self.start.saturating_add(1),
+                end: self.end.saturating_sub(1),
+            },
+            false => self,
+        }
     }
 }
 

@@ -831,13 +831,25 @@ fn lexical(text: &str, prefix: &str, replacing: (u32, u32), uri: &str) -> Vec<Va
 // Imports
 // ---------------------------------------------------------------------------
 
-/// Every module the file could legally import: the standard library, and the
-/// packages its own target already declares. Offering a label the target does
-/// not depend on would be offering a `missing-dep`.
+/// Every module the file could legally import — **as a file**, because that is
+/// what an import path is.
 ///
-/// `detail` says which of those three a path is, because that is the thing a
-/// reader cannot see in the path itself — `//lib/money` looks the same whether
-/// the target already depends on it or it is this package's own label.
+/// Three sources, and the difference between them is a rule rather than a
+/// convenience:
+///
+/// * the standard library, whose table already spells each module as a file;
+/// * every package the target declares a dependency on, offered as its
+///   *surface* and nothing else — a dependency's inner modules are an
+///   `internal-import`, so offering one would be offering an error;
+/// * this package, offered as every file it owns, from the same walk `buri gen`
+///   derives `sources` from — inside a package every module is reachable, and
+///   the file being typed is as likely to be the one next door as the surface.
+///
+/// A path the target does not depend on is left out: offering it would be
+/// offering a `missing-dep`.
+///
+/// `detail` says which of the three a path came from, because that is the thing
+/// a reader cannot see in the path itself.
 fn module_paths(
     analyzed: &Analyzed,
     path: &Path,
@@ -845,17 +857,46 @@ fn module_paths(
     prefix: &str,
     replacing: (u32, u32),
 ) -> Value {
+    let ws = &analyzed.session.workspace;
     let mut out: Vec<(String, Origin)> = standard_library::MODULES
         .iter()
         .map(|m| (m.path.to_string(), Origin::StandardLibrary))
         .collect();
-    if let Some(package) = analyzed.session.workspace.owning_package(path) {
-        for t in analyzed.session.workspace.targets().into_iter().filter(|t| t.package == package) {
-            for d in analyzed.session.workspace.declared_deps(t) {
-                out.push((d.value.clone(), Origin::Dependency));
+    if let Some(package) = ws.owning_package(path) {
+        for t in ws.targets().into_iter().filter(|t| t.package == package) {
+            for d in ws.declared_deps(t) {
+                // A label names a package; what an import names is that
+                // package's surface file. `//lib/ledger/testing` is the
+                // testing surface's label and `testing/lib.buri` is its file,
+                // so the two spellings meet here and nowhere else.
+                let label = d.value.trim_end_matches('/');
+                let file = match label.strip_suffix("/testing") {
+                    Some(owner) => format!("{owner}/testing/lib.buri"),
+                    None => format!("{label}/lib.buri"),
+                };
+                out.push((file, Origin::Dependency));
             }
         }
-        out.push((analyzed.session.workspace.package(package).label(), Origin::ThisPackage));
+        let own = ws.package(package);
+        let mut sources = Vec::new();
+        let mut schemas = Vec::new();
+        crate::build::regenerate::collect(&ws.root, &own.dir, &mut sources, &mut schemas);
+        let own_rel = ws.rel_of(path);
+        let package_prefix =
+            if own.path.is_empty() { String::new() } else { format!("{}/", own.path) };
+        for rel in sources.into_iter().chain(schemas) {
+            // `REPO.buri` is a repository's declaration, not a module.
+            if rel.ends_with("REPO.buri") {
+                continue;
+            }
+            // A test source is a module nobody may name (`test-source-import`),
+            // and a file may not import itself.
+            let inside = rel.strip_prefix(&package_prefix).unwrap_or(&rel);
+            if inside.starts_with("test/") || rel == own_rel {
+                continue;
+            }
+            out.push((format!("//{rel}"), Origin::ThisPackage));
+        }
     }
     // Sorted by path so the array does not depend on which target was met
     // first; the nearer origin wins where two agree on a path.

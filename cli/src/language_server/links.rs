@@ -89,13 +89,8 @@ fn imports(analyzed: &Analyzed, path: &Path, out: &mut Vec<(u32, u32, String)>) 
 /// the same. An underline belongs under the address rather than under the
 /// punctuation holding it.
 pub(super) fn inside_quotes(text: &str, span: crate::diagnostics::Span) -> (u32, u32) {
-    let quoted = text
-        .get(span.start as usize..span.end as usize)
-        .is_some_and(|s| s.len() >= 2 && s.starts_with('"') && s.ends_with('"'));
-    match quoted {
-        true => (span.start.saturating_add(1), span.end.saturating_sub(1)),
-        false => (span.start, span.end),
-    }
+    let inner = span.inside_quotes(text);
+    (inner.start, inner.end)
 }
 
 /// Every `http://` or `https://` run written in a comment.

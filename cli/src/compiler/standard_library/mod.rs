@@ -4,6 +4,11 @@
 //! It is available to every target, and the purity tiers in SPEC 11.1 govern
 //! what any given import of it can do.
 //!
+//! There is no directory layout on disk here — the library is the one table of
+//! `include_str!`s below — so `core/effect/lib.buri` is a name rather than a
+//! place. It is spelled that way because every import names a file, and the
+//! standard library is not the one corner of the language where that is untrue.
+//!
 //! Modules here may declare a `fn` with no body. Those are the operations the
 //! backend supplies — string and array primitives, the platform's effect
 //! implementations, the test runner's — and every one of them must have an
@@ -55,17 +60,17 @@ pub const MODULES: &[StdModule] = &[
     StdModule {
         prelude: &["Option"],
         eager: true,
-        ..m("core/option", include_str!("sources/option.buri"))
+        ..m("core/option/lib.buri", include_str!("sources/option.buri"))
     },
     StdModule {
         prelude: &["Result"],
         eager: true,
-        ..m("core/result", include_str!("sources/result.buri"))
+        ..m("core/result/lib.buri", include_str!("sources/result.buri"))
     },
     StdModule {
         prelude: &["Order", "Eq", "Ord", "Show", "Hash"],
         eager: true,
-        ..m("core/order", include_str!("sources/order.buri"))
+        ..m("core/order/lib.buri", include_str!("sources/order.buri"))
     },
     StdModule {
         prelude: &[
@@ -82,7 +87,7 @@ pub const MODULES: &[StdModule] = &[
             "RangeError",
         ],
         eager: true,
-        ..m("core/num", include_str!("sources/num.buri"))
+        ..m("core/num/lib.buri", include_str!("sources/num.buri"))
     },
     // `[T]`, `Str`, `Char` and `Bool` need their defining modules present in a
     // program that never names them, because a method needs no import
@@ -91,45 +96,45 @@ pub const MODULES: &[StdModule] = &[
     // which cannot exist in a program that did not import it — so it loads on
     // import, and a repository does not pay to parse `core/crypto` to compile
     // a program that has never heard of it.
-    StdModule { eager: true, ..m("core/list", include_str!("sources/list.buri")) },
-    StdModule { eager: true, ..m("core/str", include_str!("sources/str.buri")) },
-    StdModule { eager: true, ..m("core/char", include_str!("sources/char.buri")) },
-    StdModule { eager: true, ..m("core/bool", include_str!("sources/bool.buri")) },
-    m("core/queue", include_str!("sources/queue.buri")),
-    m("core/bitset", include_str!("sources/bitset.buri")),
-    m("core/json", include_str!("sources/json.buri")),
-    m("core/proto", include_str!("sources/proto.buri")),
-    m("core/map", include_str!("sources/map.buri")),
-    m("core/set", include_str!("sources/set.buri")),
-    m("core/ordmap", include_str!("sources/ordmap.buri")),
-    m("core/ordset", include_str!("sources/ordset.buri")),
-    m("core/bytes", include_str!("sources/bytes.buri")),
-    m("core/crypto", include_str!("sources/crypto.buri")),
-    m("core/math", include_str!("sources/math.buri")),
-    m("core/simd", include_str!("sources/simd.buri")),
-    m("core/bits", include_str!("sources/bits.buri")),
-    StdModule { platform: true, ..m("core/effect", include_str!("sources/effect.buri")) },
-    StdModule { platform: true, ..m("core/host", include_str!("sources/host.buri")) },
+    StdModule { eager: true, ..m("core/list/lib.buri", include_str!("sources/list.buri")) },
+    StdModule { eager: true, ..m("core/str/lib.buri", include_str!("sources/str.buri")) },
+    StdModule { eager: true, ..m("core/char/lib.buri", include_str!("sources/char.buri")) },
+    StdModule { eager: true, ..m("core/bool/lib.buri", include_str!("sources/bool.buri")) },
+    m("core/queue/lib.buri", include_str!("sources/queue.buri")),
+    m("core/bitset/lib.buri", include_str!("sources/bitset.buri")),
+    m("core/json/lib.buri", include_str!("sources/json.buri")),
+    m("core/proto/lib.buri", include_str!("sources/proto.buri")),
+    m("core/map/lib.buri", include_str!("sources/map.buri")),
+    m("core/set/lib.buri", include_str!("sources/set.buri")),
+    m("core/ordmap/lib.buri", include_str!("sources/ordmap.buri")),
+    m("core/ordset/lib.buri", include_str!("sources/ordset.buri")),
+    m("core/bytes/lib.buri", include_str!("sources/bytes.buri")),
+    m("core/crypto/lib.buri", include_str!("sources/crypto.buri")),
+    m("core/math/lib.buri", include_str!("sources/math.buri")),
+    m("core/simd/lib.buri", include_str!("sources/simd.buri")),
+    m("core/bits/lib.buri", include_str!("sources/bits.buri")),
+    StdModule { platform: true, ..m("core/effect/lib.buri", include_str!("sources/effect.buri")) },
+    StdModule { platform: true, ..m("core/host/lib.buri", include_str!("sources/host.buri")) },
     // Not a platform module, deliberately. It *implements* `Alloc` rather than
     // declaring it, and `Alloc` is the one effect whose implementation carries
     // no authority — a `Region` is a number, so a library that builds its own
     // allocator has been granted nothing (SPEC 10.5). That is why this is
     // importable anywhere and `core/host` is not.
-    m("core/alloc", include_str!("sources/alloc.buri")),
-    m("core/io", include_str!("sources/io.buri")),
-    m("core/fs", include_str!("sources/fs.buri")),
-    m("core/env", include_str!("sources/env.buri")),
-    m("core/time", include_str!("sources/time.buri")),
-    m("core/date", include_str!("sources/date.buri")),
-    m("core/random", include_str!("sources/random.buri")),
-    m("core/net/http", include_str!("sources/http.buri")),
+    m("core/alloc/lib.buri", include_str!("sources/alloc.buri")),
+    m("core/io/lib.buri", include_str!("sources/io.buri")),
+    m("core/fs/lib.buri", include_str!("sources/fs.buri")),
+    m("core/env/lib.buri", include_str!("sources/env.buri")),
+    m("core/time/lib.buri", include_str!("sources/time.buri")),
+    m("core/date/lib.buri", include_str!("sources/date.buri")),
+    m("core/random/lib.buri", include_str!("sources/random.buri")),
+    m("core/net/http/lib.buri", include_str!("sources/http.buri")),
     StdModule {
         platform: true,
-        ..m("core/testing/assert", include_str!("sources/assert.buri"))
+        ..m("core/testing/assert/lib.buri", include_str!("sources/assert.buri"))
     },
     StdModule {
         platform: true,
-        ..m("core/testing/context", include_str!("sources/testing_context.buri"))
+        ..m("core/testing/context/lib.buri", include_str!("sources/testing_context.buri"))
     },
     // `ui/*`. A user interface is not one of the deliberately small
     // essentials, and its vocabulary is large, so it gets its own reserved
@@ -137,13 +142,13 @@ pub const MODULES: &[StdModule] = &[
     // it declares the effects; everything else is ordinary Buri over inert
     // handles and could move to a real library once external repositories
     // land.
-    StdModule { platform: true, ..m("ui/effect", include_str!("sources/ui_effect.buri")) },
-    m("ui/signal", include_str!("sources/ui_signal.buri")),
-    m("ui/prop", include_str!("sources/ui_prop.buri")),
-    m("ui/style", include_str!("sources/ui_style.buri")),
-    m("ui/theme", include_str!("sources/ui_theme.buri")),
-    m("ui/node", include_str!("sources/ui_node.buri")),
-    m("ui/testing", include_str!("sources/ui_testing.buri")),
+    StdModule { platform: true, ..m("ui/effect/lib.buri", include_str!("sources/ui_effect.buri")) },
+    m("ui/signal/lib.buri", include_str!("sources/ui_signal.buri")),
+    m("ui/prop/lib.buri", include_str!("sources/ui_prop.buri")),
+    m("ui/style/lib.buri", include_str!("sources/ui_style.buri")),
+    m("ui/theme/lib.buri", include_str!("sources/ui_theme.buri")),
+    m("ui/node/lib.buri", include_str!("sources/ui_node.buri")),
+    m("ui/testing/lib.buri", include_str!("sources/ui_testing.buri")),
 ];
 
 /// The module-path roots the standard library owns.
@@ -158,7 +163,7 @@ pub const ROOTS: &[&str] = &["core/", "ui/"];
 /// Whether a module path names the embedded standard library at all.
 ///
 /// This is a question about the *path*, not about whether the module exists —
-/// `"core/nope"` answers `true`, so that naming a module the standard library
+/// `"core/nope/lib.buri"` answers `true`, so that naming a module the standard library
 /// does not have is a `no-such-module` error rather than a search of the
 /// repository that reports something else.
 pub fn is_std_path(path: &str) -> bool {
@@ -217,13 +222,13 @@ pub fn prelude() -> impl Iterator<Item = (&'static str, &'static str)> {
 /// `core/num`.
 pub fn defining_module(p: Prim) -> &'static str {
     match p {
-        Prim::Str => "core/str",
-        Prim::Char => "core/char",
-        Prim::Bool => "core/bool",
+        Prim::Str => "core/str/lib.buri",
+        Prim::Char => "core/char/lib.buri",
+        Prim::Bool => "core/bool/lib.buri",
         // A template is a `Str` with holes, and its operations are the
         // numeric-rendering ones, so it shares `core/num`'s module the way
         // every numeric type does.
-        Prim::Template => "core/num",
+        Prim::Template => "core/num/lib.buri",
         Prim::I8
         | Prim::I16
         | Prim::I32
@@ -235,7 +240,7 @@ pub fn defining_module(p: Prim) -> &'static str {
         | Prim::U64
         | Prim::U128
         | Prim::F32
-        | Prim::F64 => "core/num",
+        | Prim::F64 => "core/num/lib.buri",
     }
 }
 
@@ -244,7 +249,7 @@ pub fn defining_module(p: Prim) -> &'static str {
 // ---------------------------------------------------------------------------
 
 /// The path of the one module whose exports vary by platform.
-pub const HOST_MODULE: &str = "core/host";
+pub const HOST_MODULE: &str = "core/host/lib.buri";
 
 /// One effect `core/host` can grant, and the platforms that grant it.
 ///

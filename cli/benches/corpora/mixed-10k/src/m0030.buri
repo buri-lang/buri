@@ -4,10 +4,10 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/str" import * as str;
-from "core/list" import * as list;
-from "core/effect" import { Alloc };
-from "//bench/m0001" import { Node1, seed1, blend1, reach1 };
+from "core/str/lib.buri" import * as str;
+from "core/list/lib.buri" import * as list;
+from "core/effect/lib.buri" import { Alloc };
+from "//bench/m0001.buri" import { Node1, seed1, blend1, reach1 };
 
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.

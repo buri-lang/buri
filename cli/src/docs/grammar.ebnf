@@ -164,10 +164,14 @@ ImportSpec      ::= name=IDENT ("as" alias=IDENT)?
    made of these. *)
 ReExport        ::= "from" path=STRING "export" "{" ImportSpecs? "}" ";"
 
-(* STRING in an Import or ReExport is a module path, and has two forms:
-     "core/list"           a standard library module
-     "//lib/money"         a module of this repository, from the root
-   There are no relative paths: a leading "." is not a module path. *)
+(* STRING in an Import or ReExport is a module path, and a module path names a
+   file. It has two roots:
+     "core/list/lib.buri"          a standard library module
+     "//lib/money/cents.buri"      a file of this repository, from the root
+   Everything after the root is the path of a file: a library's surface is its
+   "lib.buri", a binary's entry point its "main.buri", a schema its ".proto".
+   There are no relative paths: a leading "." is not a module path, and a path
+   that names no file is not one either. *)
 
 
 (* --------------------------------------------------------------------------

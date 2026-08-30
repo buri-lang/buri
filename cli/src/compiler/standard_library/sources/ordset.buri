@@ -9,10 +9,10 @@
 //! instead of two and `union` can exist — a set has operations a map does not.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
-//! from "core/host" import * as host;
-//! from "core/ordset" import * as ordset;
-//! from "core/str" import * as str;
+//! from "core/effect/lib.buri" import { Alloc, Stdout };
+//! from "core/host/lib.buri" import * as host;
+//! from "core/ordset/lib.buri" import * as ordset;
+//! from "core/str/lib.buri" import * as str;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -29,9 +29,9 @@
 //! 3 unique: 10 20 30
 //! ```
 
-from "core/effect" import { Alloc };
-from "core/ordmap" import { OrdMap };
-from "core/ordmap" import * as ordmap;
+from "core/effect/lib.buri" import { Alloc };
+from "core/ordmap/lib.buri" import { OrdMap };
+from "core/ordmap/lib.buri" import * as ordmap;
 
 export struct OrdSet<T> {
   members: OrdMap<T, ()>,

@@ -31,11 +31,11 @@
 //! moved rather than rebuilt. Everything else runs once — a component is an
 //! ordinary function and it is called once.
 
-from "ui/effect" import { Event, Scope, Ui };
-from "ui/prop" import { Prop };
-from "ui/signal" import { Signal };
-from "ui/style" import { Style };
-from "ui/theme" import { Theme };
+from "ui/effect/lib.buri" import { Event, Scope, Ui };
+from "ui/prop/lib.buri" import { Prop };
+from "ui/signal/lib.buri" import { Signal };
+from "ui/style/lib.buri" import { Style };
+from "ui/theme/lib.buri" import { Theme };
 
 /// What a region *is*, as against what it looks like.
 ///

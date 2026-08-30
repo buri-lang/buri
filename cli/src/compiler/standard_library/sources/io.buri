@@ -9,7 +9,7 @@
 //! an `IoError` through every print statement buys nothing a program can act on
 //! (SPEC 5.7.1).
 
-from "core/effect" import { Stderr, Stdin, Stdout };
+from "core/effect/lib.buri" import { Stderr, Stdin, Stdout };
 
 export fn print<C: Stdout>(ctx: C, text: Template): () {
   ctx.print(text)

@@ -1,1 +1,0 @@
-from "//lib/money/rounding/mode" export { mode };

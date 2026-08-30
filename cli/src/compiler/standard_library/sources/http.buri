@@ -1,8 +1,8 @@
 //! core/net/http — HTTP over the `Net` effect.
 
-from "core/effect" import { Alloc, Net, NetError };
-from "core/effect" export { NetError };
-from "core/order" import { Eq, Show };
+from "core/effect/lib.buri" import { Alloc, Net, NetError };
+from "core/effect/lib.buri" export { NetError };
+from "core/order/lib.buri" import { Eq, Show };
 
 export struct Request {
   export method: Str,

@@ -1,4 +1,0 @@
-// A module of //lib/money, so its path is "//lib/money/cents" — which is also
-// what the package one directory down is called.
-
-export fn fromCents(n: I64): I64 { n }

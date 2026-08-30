@@ -2280,8 +2280,8 @@ export fn step(n: Int): Int {
     fn a_binding_nothing_reads_is_still_dropped() {
         let p = lower_plain(&program(
             "
-from \"core/effect\" import { Alloc };
-from \"core/host\" import * as host;
+from \"core/effect/lib.buri\" import { Alloc };
+from \"core/host/lib.buri\" import * as host;
 
 export fn junk<C: Alloc>(ctx: C, n: Int): Int {
   let s = \"z\".repeat(ctx, n);

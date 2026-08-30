@@ -31,7 +31,7 @@
 //! `eq`, `show`, `hash`, the operator-trait methods, and the `Checked` and
 //! `Wrapping` method sets.
 
-from "core/order" import { Eq, Ord, Order, Show };
+from "core/order/lib.buri" import { Eq, Ord, Order, Show };
 
 /// The error a narrowing conversion returns. Whether a conversion can fail is
 /// visible in its return type rather than in the choice of operator.
