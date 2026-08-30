@@ -1,13 +1,15 @@
 // SPEC 10, 11.2, 11.3 — effects, contexts, and the test platform.
 //
-// COMPILER BUG (see the suite's report): an effect *inherited* through a
-// `..spread` cannot be used. `context { ..Hermetic(), Fs: files([]) }`
-// typechecks, but calling anything that uses the inherited `Clock`, `Net`,
-// `Env`, `Stdout`, `Stdin`, `Rand` or `Fs` fails at monomorphization with
-// "`Clock` could not be resolved to a concrete type" — a build error, so the
-// assertion that would have caught it cannot be written at all. Every context
-// below that is *used* therefore binds explicitly what it uses, and the spread
-// tests assert only on the binding that follows the spread.
+// This file used to carry a recorded compiler bug in this comment: an effect
+// *inherited* through a `..spread` could not be used, because the binding the
+// spread copied did not carry the implementing type the base had recorded, and
+// so `context { ..Hermetic(), Fs: files([]) }` typechecked but any call through
+// the inherited `Clock` failed at monomorphization with "`Clock` could not be
+// resolved to a concrete type". It is fixed — the spread keeps that type
+// (`semantics/expressions.rs`, `check_context_body`) — and the section
+// "An effect INHERITED through a spread" below is the bug written out as
+// assertions instead: a build error there is a failure, so those blocks are a
+// compile-time claim as much as a runtime one.
 
 from "core/testing/assert/lib.buri" import * as assert;
 from "core/testing/context/lib.buri" import {
@@ -43,6 +45,21 @@ context Fixture {
 context OtherPort {
   ..Fixture(),
   Fs: files([("config.toml", "port=9999")]),
+}
+
+/// A third, built from the second: two spreads between this and `Hermetic`,
+/// with an effect replaced here that neither of them named.
+context DeepFixture {
+  ..OtherPort(),
+  Clock: clockAt(1234),
+}
+
+/// A spread whose replacement is a *generic* wrapper. The binding written here
+/// is `Guarded<TestFs>`, so what a later spread carries is an implementing type
+/// with type arguments of its own rather than a bare one.
+context WrappedFixture {
+  ..Hermetic(),
+  Fs: guarded(files([("a", "A")])),
 }
 
 /// A context assembled from scratch, naming only two effects.
@@ -151,6 +168,87 @@ test "an inline context expression may start from another inline one" {
   let base = context { Alloc: alloc(), Fs: files([("a", "1")]) };
   let ctx = context { ..base, Fs: files([("a", "2")]) };
   assert.eq(assert.ok(loadText(ctx, "a")), "2");
+}
+
+// -----------------------------------------------------------------------------
+// An effect INHERITED through a spread (SPEC 11.3)
+//
+// A spread carries the *implementing type* its base recorded, so an effect that
+// arrives that way dispatches exactly as one written out does. The blocks above
+// assert on the binding that follows the spread; these assert on the ones it
+// did not write, which is where the compiler used to have nothing to dispatch
+// on.
+// -----------------------------------------------------------------------------
+
+test "an effect inherited through a spread can be called" {
+  // `Fixture` names `Fs` and nothing else; `Clock` is `Hermetic`'s.
+  let ctx = Fixture();
+  assert.eq(stamp(ctx).0, 0);
+}
+
+test "every effect a spread supplies can be called, not only the one replaced" {
+  let ctx = Fixture();
+  assert.eq(time.now(ctx).0, 0);
+  assert.none(io.readLine(ctx));
+  assert.eq(env.args(ctx), []);
+  greet(ctx, "inherited");
+  io.eprintln(ctx, "inherited");
+  assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
+  assert.isTrue(random.int(ctx, 0, 10) >= 0);
+  // ...and the one it did replace, which is the only half that used to work.
+  assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=8080");
+}
+
+test "an inherited effect survives a second spread" {
+  // Two levels: `OtherPort` spreads `Fixture`, which spreads `Hermetic`.
+  let ctx = OtherPort();
+  assert.eq(stamp(ctx).0, 0);
+  assert.isTrue(random.int(ctx, 0, 10) >= 0);
+  assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=9999");
+}
+
+test "a binding written after two spreads beats the twice-inherited one" {
+  let ctx = DeepFixture();
+  // Written here, over the `Clock` two spreads had carried down.
+  assert.eq(stamp(ctx).0, 1234);
+  // One level up, and two: neither was disturbed by the replacement.
+  assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=9999");
+  assert.eq(env.args(ctx), []);
+}
+
+test "an inherited effect can be called from an inline context expression" {
+  let ctx = context { ..Hermetic(), Fs: files([("a", "1")]) };
+  assert.eq(stamp(ctx).0, 0);
+  assert.eq(assert.ok(loadText(ctx, "a")), "1");
+  assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
+}
+
+test "a spread with nothing written after it inherits every binding" {
+  let ctx = context { ..Hermetic() };
+  assert.eq(stamp(ctx).0, 0);
+  assert.isFalse(fs.exists(ctx, "nothing"));
+  assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
+}
+
+test "an inherited binding is the same value, not a fresh one" {
+  // The spread reads the implementation out of the base rather than building
+  // another, so the capture this test holds is the one the call writes to.
+  let sink = captureOut();
+  let base = context { Alloc: alloc(), Stdout: sink, Clock: clockAt(5) };
+  let ctx = context { ..base, Clock: clockAt(9) };
+  greet(ctx, "through the spread");
+  assert.eq(sink.captured(), "hello through the spread\n");
+  assert.eq(stamp(ctx).0, 9);
+}
+
+test "a spread carries an implementing type's own type arguments with it" {
+  // `Guarded<TestFs>`, inherited: the wrapper's `impl<C: Fs> Fs for Guarded<C>`
+  // is instantiated from a receiver the spread carried, `TestFs` and all, so
+  // what travels is a whole type rather than a constructor.
+  let ctx = context { ..WrappedFixture(), Clock: clockAt(3) };
+  assert.eq(assert.ok(loadText(ctx, "a")), "A");
+  assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
+  assert.eq(stamp(ctx).0, 3);
 }
 
 // -----------------------------------------------------------------------------

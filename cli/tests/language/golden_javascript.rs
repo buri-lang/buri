@@ -267,6 +267,104 @@ fn generated_javascript_matches_its_record() {
     g.finish("golden-js", cases.len());
 }
 
+/// `async` reaches exactly as far as `can_park` says, and no further.
+///
+/// The transform's whole claim is that the contagion has an edge: a function
+/// that waits on the host is `async` and every call to it is awaited, and a
+/// function that only computes is the same bytes it always was. A test that
+/// checked one half would pass on a backend that printed `async` on
+/// everything, which is the failure mode that costs a promise per call in
+/// programs that touch no host at all.
+///
+/// So both directions are asserted, over one program holding both kinds:
+/// `load` reaches `host.HostFs.readFile` and `count` reaches nothing. Both are
+/// recursive, because an inlined function leaves no declaration to look at.
+#[test]
+fn only_the_functions_that_can_park_are_async() {
+    let program = "\
+from \"core/effect/lib.buri\" import { Alloc, Fs, Stdout };
+from \"core/host/lib.buri\" import * as host;
+from \"core/fs/lib.buri\" import * as fs;
+
+// Reaches a host call that blocks, so this one waits.
+fn load<C: Alloc + Fs>(ctx: C, path: Str, n: Int): Int {
+  if (n <= 0) {
+    0
+  } else {
+    let head = fs.readText(ctx, path).withDefault(\"\");
+    head.len() + load(ctx, path, n - 1)
+  }
+}
+
+// Reaches nothing but arithmetic.
+fn count(n: Int, acc: Int): Int {
+  if (n <= 0) { acc } else { count(n - 1, acc + 2) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
+  let total = load(ctx, \"a.txt\", 3);
+  let _ = ctx.println(\"${total} ${count(4, 0)}\");
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("async-reaches-only-what-parks");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let artifact = std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap();
+    let generated = program_only(&artifact);
+
+    let line = |needle: &str, what: &str| -> String {
+        generated
+            .lines()
+            .find(|l| l.contains(needle))
+            .unwrap_or_else(|| panic!("no {what} in\n{generated}"))
+            .to_string()
+    };
+
+    let load = line("function __cmd_x_main_buri$load", "declaration of `load`");
+    assert!(
+        load.starts_with("async function "),
+        "`load` reaches `host.HostFs.readFile`, so it waits:\n{load}\n\n{generated}"
+    );
+    let count = line("function __cmd_x_main_buri$count", "declaration of `count`");
+    assert!(
+        count.starts_with("function "),
+        "`count` reaches nothing that waits and must not be `async`:\n{count}\n\n{generated}"
+    );
+
+    // And the call sites agree with the declarations: one awaited, one not.
+    let call_load = line("=await __cmd_x_main_buri$load", "awaited call to `load`");
+    assert!(call_load.contains("await "), "{call_load}");
+    for l in generated.lines().filter(|l| l.contains("$count(")) {
+        assert!(
+            !l.contains("await "),
+            "a call to a function that does not wait is not awaited:\n{l}\n\n{generated}"
+        );
+    }
+    // The entry epilogue, which `program_only` filters out of the record, is
+    // where the artifact leaves the synchronous world behind.
+    assert!(
+        artifact.contains("try{const r=await "),
+        "`main` reaches `load`, so the epilogue awaits it\n\n{artifact}"
+    );
+
+    // And it runs, in both build modes. This is the only program in the suite
+    // that is `async` at all, so it is the only one that says the minifier
+    // carries `async`/`await` through its passes intact — and that the value
+    // reaching `head.len()` is a string rather than the promise an unawaited
+    // call would have left there. `data.txt` does not exist, so the read is
+    // an `.Err` and `withDefault` answers `""`: two reads of nothing, and
+    // `count(4, 0)`.
+    let debug_out = scratch.exec_js("cmd/x");
+    debug_out.ok();
+    assert_eq!(debug_out.stdout.trim(), "0 8", "{}", debug_out.stdout);
+    scratch.run(&["build", "//cmd/x", "--release", "--force"]).ok();
+    let release_out = scratch.exec_js("cmd/x");
+    release_out.ok();
+    assert_eq!(release_out.stdout, debug_out.stdout, "release and debug disagree");
+}
+
 /// Two generics instantiated over different contexts get different symbols.
 ///
 /// This is the invariant that decides how `monomorphize::name_of` may name things, and
