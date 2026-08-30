@@ -122,7 +122,7 @@ const INVENTED_CEILING: usize = 2;
 /// actually skipped a declaration, and a body unread only where an error
 /// landed in it. The population rate fell from **145 of 2,000 (7.25%) to 47 of
 /// 2,000 (2.35%)**, measured over the same seeds either side of the change;
-/// the pinned corpus fell from 10 of 528 to **6 of 541 (1.1%)**.
+/// the pinned corpus fell from 10 of 528 to **6 of 545 (1.1%)**.
 ///
 /// The number is read off the **whole population** rather than off the pinned
 /// corpus, which is one case per shape and whose shapes are not equally
