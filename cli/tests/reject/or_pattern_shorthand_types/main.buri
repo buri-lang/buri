@@ -1,0 +1,20 @@
+// EXPECT: expected `Str`, found `I64`
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+enum Event {
+  Opened { value: Str },
+  Closed { value: Int },
+}
+
+fn value(e: Event): Str {
+  match (e) {
+    .Opened { value } | .Closed { value } => value,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(value(Event.Opened { value: "hi" }));
+  .Ok(())
+}
