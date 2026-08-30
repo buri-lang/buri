@@ -181,9 +181,18 @@ pub struct Checker<'a> {
     /// second signature that names one of these gets the error type without a
     /// second diagnostic.
     cyclic_aliases: HashSet<(ModuleId, String)>,
-    /// Whether the declaration being elaborated is a trait, an effect, or an
-    /// `impl`, which are the only places `Self` means anything.
-    in_self_scope: bool,
+    /// What `Self` stands for in the declaration being elaborated — a trait,
+    /// an effect, or an `impl`, which are the only places it means anything.
+    ///
+    /// `Some(Ty::SelfTy)` inside a `trait` or `effect`, where the implementing
+    /// type is not known yet and `Self` stays abstract until an `impl` supplies
+    /// one. `Some(that type)` inside an `impl`'s methods, so a *written* `Self`
+    /// in a signature resolves the same way the implicit type of a `self`
+    /// parameter does — a `Ty::SelfTy` left in an `impl` method's `FnInfo` is
+    /// substituted by nothing downstream and reaches `middle::layout` as a
+    /// type it has no size for. `None` outside both, where `Self` is the
+    /// mistake `self-type-outside-impl` reports.
+    self_scope: Option<Ty>,
     /// Which bodies step 5 is asked for. [`Bodies::All`] unless a caller said
     /// otherwise.
     pub wanted: Bodies,
@@ -219,7 +228,7 @@ impl<'a> Checker<'a> {
             resolving: Vec::new(),
             expanding: Vec::new(),
             cyclic_aliases: HashSet::default(),
-            in_self_scope: false,
+            self_scope: None,
             wanted: Bodies::All,
         }
     }
@@ -932,20 +941,18 @@ impl<'a> Checker<'a> {
                         };
                         let generics = self.elaborate_generics(id, &d.generics);
                         self.tables.trait_mut(tid).generics = generics.clone();
-                        let methods = self.enter_self_scope(|s| {
+                        // A trait's `Self` is whatever type implements it,
+                        // which is not known here and so stays abstract.
+                        let methods = self.enter_self_scope(Ty::SelfTy, |s| {
                             d.methods
                                 .iter()
                                 .map(|sig| {
                                     let mut g = generics.clone();
                                     g.extend(s.elaborate_generics(id, &sig.generics));
-                                    // A trait's `self` is the implementing
-                                    // type, which is what `Self` names.
-                                    let receiver = Some(&Ty::SelfTy);
                                     TraitMethod {
                                         name: t.name(sig.name).to_string(),
                                         generics: g.clone(),
-                                        params: s
-                                            .elaborate_params(id, &g, &sig.params, receiver),
+                                        params: s.elaborate_params(id, &g, &sig.params),
                                         ret: s.elaborate(id, &g, sig.ret),
                                         span: sig.span,
                                     }
@@ -996,7 +1003,7 @@ impl<'a> Checker<'a> {
     ) {
         let generics = self.elaborate_generics(module, &d.generics);
         self.tables.fn_info_mut(fid).generics = generics.clone();
-        let params = self.elaborate_params(module, &generics, &d.params, None);
+        let params = self.elaborate_params(module, &generics, &d.params);
         let ret = self.elaborate(module, &generics, d.ret);
         self.tables.fn_info_mut(fid).params = params.clone();
         self.tables.fn_info_mut(fid).ret = ret;
@@ -1284,24 +1291,27 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `receiver` is the type `self` stands for here — the `impl` head's type,
-    /// or `Self` inside a trait. `None` outside both, where a `self` parameter
-    /// is the mistake `method-declared-free` reports.
+    /// A `self` parameter has no written type, and takes the one `Self` stands
+    /// for here: the `impl` head's type, or `Ty::SelfTy` inside a `trait`. It
+    /// is the same scope [`Checker::elaborate`] resolves a *written* `Self`
+    /// against, so the two spellings of the receiver's type cannot part
+    /// company. Outside both, a `self` parameter is the mistake
+    /// `method-declared-free` reports and there is no type to give it.
     fn elaborate_params(
         &mut self,
         module: ModuleId,
         generics: &[GenericInfo],
         params: &[tree::Param],
-        receiver: Option<&Ty>,
     ) -> Vec<ParamInfo> {
         let t = self.tree(module);
+        let receiver = self.self_scope.clone();
         params
             .iter()
             .map(|p| ParamInfo {
                 name: t.name(p.name).to_string(),
                 ty: match p.written_type() {
                     Some(ty) => self.elaborate(module, generics, ty),
-                    None => receiver.cloned().unwrap_or(Ty::Error),
+                    None => receiver.clone().unwrap_or(Ty::Error),
                 },
                 role: match p.kind {
                     tree::ParamKind::SelfParam => ParamRole::SelfParam,
@@ -1321,12 +1331,15 @@ impl<'a> Checker<'a> {
             flat::TypeView::Unit { .. } => Ty::Unit,
             flat::TypeView::SelfType { span } => {
                 // `Self` stands for the implementing type and is legal only
-                // inside a trait or an `impl` body.
-                if !self.in_self_scope {
+                // inside a trait or an `impl` body. Inside an `impl` that type
+                // is known, and `Self` *is* it from here on: nothing between
+                // this point and `middle::layout` substitutes a `Ty::SelfTy`
+                // that reached an `impl` method's signature.
+                let Some(ty) = self.self_scope.clone() else {
                     self.templated("self-type-outside-impl", span);
                     return Ty::Error;
-                }
-                Ty::SelfTy
+                };
+                ty
             }
             flat::TypeView::Array { elem, .. } => {
                 Ty::Array(Box::new(self.elaborate(module, generics, elem)))
@@ -1722,15 +1735,23 @@ impl<'a> Checker<'a> {
         // four of the early returns below used to leave the flag set, so a
         // later declaration in the same module could write `Self` outside any
         // `trait` or `impl` and have it admitted.
-        self.enter_self_scope(|s| s.register_impl_body(module, index, d));
+        //
+        // The scope opens abstract because the head is elaborated before its
+        // own type is known; `register_impl_body` narrows it to that type the
+        // moment it has one, and this call is what puts the outer scope back
+        // however the whole declaration returns.
+        self.enter_self_scope(Ty::SelfTy, |s| s.register_impl_body(module, index, d));
     }
 
-    /// Runs `f` with `Self` in scope, restoring the previous scope afterwards
-    /// however `f` returns.
-    fn enter_self_scope<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
-        let outer = std::mem::replace(&mut self.in_self_scope, true);
+    /// Runs `f` with `Self` in scope standing for `ty`, restoring the previous
+    /// scope afterwards however `f` returns.
+    ///
+    /// `Ty::SelfTy` is what a `trait` or `effect` declaration passes, and an
+    /// `impl` head's own type is what its methods are elaborated under.
+    fn enter_self_scope<R>(&mut self, ty: Ty, f: impl FnOnce(&mut Self) -> R) -> R {
+        let outer = self.self_scope.replace(ty);
         let out = f(self);
-        self.in_self_scope = outer;
+        self.self_scope = outer;
         out
     }
 
@@ -1755,6 +1776,10 @@ impl<'a> Checker<'a> {
             return;
         };
         let self_ty = self.elaborate(module, &generics, d.self_ty);
+        // From here down `Self` is the type the head named. `register_impl`
+        // restores the outer scope however this returns, so the early exits
+        // below need no unwinding of their own.
+        self.self_scope = Some(self_ty.clone());
         let Some(self_con) = self_ty.head() else {
             if !self_ty.is_error() {
                 let at = self.tree(module).type_span(d.self_ty);
@@ -1850,7 +1875,7 @@ impl<'a> Checker<'a> {
             };
             let mut g = generics.clone();
             g.extend(self.elaborate_generics(module, &method.generics));
-            let params = self.elaborate_params(module, &g, &method.params, Some(&self_ty));
+            let params = self.elaborate_params(module, &g, &method.params);
             let ret = self.elaborate(module, &g, method.ret);
             let fid = self.tables.add_fn(FnInfo {
                 name: mname.to_string(),
@@ -1914,6 +1939,9 @@ impl<'a> Checker<'a> {
         generics: &[GenericInfo],
     ) {
         let self_ty = self.elaborate(module, generics, d.self_ty);
+        // As in `register_trait_impl`: `Self` is the head's type for the rest
+        // of this declaration, and `register_impl` puts the outer scope back.
+        self.self_scope = Some(self_ty.clone());
         let target = match &self_ty {
             Ty::Con(con, _) => Some(*con),
             Ty::Array(_) => None,
@@ -1958,7 +1986,7 @@ impl<'a> Checker<'a> {
             let mname = self.name_text(module, method.name);
             let mut g = generics.to_vec();
             g.extend(self.elaborate_generics(module, &method.generics));
-            let params = self.elaborate_params(module, &g, &method.params, Some(&self_ty));
+            let params = self.elaborate_params(module, &g, &method.params);
             let ret = self.elaborate(module, &g, method.ret);
 
             // A method is a function whose first parameter is `self`, and an
@@ -2226,5 +2254,187 @@ impl<'a> Checker<'a> {
     /// Every trait a type is known to satisfy, for diagnostics.
     pub fn traits_of(&self, con: TyConId) -> BTreeSet<String> {
         crate::compiler::semantics::types::traits_of(&self.tables, con)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diagnostics::SourceMap;
+
+    /// One snippet through the real front end, with its `Tables`.
+    fn tables_of(src: &str) -> Tables {
+        let mut map = SourceMap::new();
+        let analysis = crate::compiler::driver::analyze_snippet(
+            &mut map,
+            "resolve_test.buri",
+            src,
+            crate::compiler::modules::Role::Entry,
+        );
+        let errors: Vec<String> = analysis
+            .diagnostics
+            .items
+            .iter()
+            .filter(|d| d.is_error())
+            .map(|d| d.message.clone())
+            .collect();
+        assert!(errors.is_empty(), "the snippet did not compile: {errors:?}");
+        analysis.checked.tables
+    }
+
+    /// The method named `name` on the type named `ty`.
+    fn method<'t>(tables: &'t Tables, ty: &str, name: &str) -> &'t FnInfo {
+        let con =
+            tables.tycons.iter().position(|c| c.name == ty).expect("the snippet declares the type");
+        tables
+            .fns
+            .iter()
+            .find(|f| f.name == name && f.self_ty.map(TyConId::index) == Some(con))
+            .expect("the snippet declares the method")
+    }
+
+    const RELAY: &str = r#"
+struct Wrap { value: Int }
+
+trait Relay {
+  fn relay(self, done: fn(Self, Int) => Int): Int;
+}
+
+impl Relay for Wrap {
+  fn relay(self, done: fn(Self, Int) => Int): Int {
+    done(self, self.value)
+  }
+}
+
+fn main(): () {}
+"#;
+
+    /// A written `Self` in an `impl` method's parameter is the `impl` head's
+    /// type by the time it reaches `FnInfo.params`. Left as `Ty::SelfTy` it is
+    /// substituted by nothing downstream — `middle::monomorphize` passes `None`
+    /// for the self type at every `substitute` — and reaches `middle::layout`
+    /// as a type it has no size for.
+    #[test]
+    fn a_written_self_in_an_impl_method_parameter_is_the_impl_heads_type() {
+        let tables = tables_of(RELAY);
+        let f = method(&tables, "Wrap", "relay");
+        let Ty::Fn(params, _) = &f.params[1].ty else {
+            panic!("the parameter is a function type: {:?}", f.params[1].ty)
+        };
+        let wrap = tables.tycons.iter().position(|c| c.name == "Wrap").unwrap_or_default();
+        assert!(
+            matches!(&params[0], Ty::Con(id, args) if id.index() == wrap && args.is_empty()),
+            "`Self` stayed unresolved in an `impl` method's parameter: {:?}",
+            params[0],
+        );
+    }
+
+    /// The implicit type of a `self` parameter and a written `Self` come from
+    /// the same scope, so the two spellings of the receiver agree.
+    #[test]
+    fn the_self_parameter_and_a_written_self_agree() {
+        let tables = tables_of(RELAY);
+        let f = method(&tables, "Wrap", "relay");
+        let Ty::Fn(params, _) = &f.params[1].ty else { panic!("a function type") };
+        assert_eq!(f.params[0].ty, params[0]);
+        assert_eq!(f.params[0].role, ParamRole::SelfParam);
+    }
+
+    /// A `trait`'s own signature is the other half: there is no implementing
+    /// type yet, so `Self` stays abstract and an `impl` is what supplies one.
+    #[test]
+    fn a_written_self_in_a_trait_signature_stays_abstract() {
+        let tables = tables_of(RELAY);
+        let tr = tables.traits.iter().find(|t| t.name == "Relay").expect("the trait");
+        let m = tr.methods.first().expect("the method");
+        assert_eq!(m.params[0].ty, Ty::SelfTy);
+        let Ty::Fn(params, _) = &m.params[1].ty else { panic!("a function type") };
+        assert_eq!(params[0], Ty::SelfTy);
+    }
+
+    /// The head's own type parameters are in scope in what `Self` expands to,
+    /// so a generic `impl` gets `Crate<T>` and not a bare constructor — in the
+    /// return type as well as in a parameter.
+    #[test]
+    fn a_written_self_carries_the_impl_heads_type_arguments() {
+        let tables = tables_of(
+            r#"
+struct Crate<T> { value: T }
+
+trait Copyable {
+  fn copy(self, other: Self): Self;
+}
+
+impl<T> Copyable for Crate<T> {
+  fn copy(self, other: Self): Self {
+    other
+  }
+}
+
+fn main(): () {}
+"#,
+        );
+        let f = method(&tables, "Crate", "copy");
+        let head = |ty: &Ty| matches!(ty, Ty::Con(_, args) if args.as_slice() == [Ty::Param(0)]);
+        assert!(head(&f.params[1].ty), "a written `Self` parameter: {:?}", f.params[1].ty);
+        assert!(head(&f.ret), "a written `Self` return: {:?}", f.ret);
+    }
+
+    /// An inherent `impl` resolves `Self` the same way a trait `impl` does:
+    /// the two share `register_impl`'s scope and differ only in what they
+    /// register.
+    #[test]
+    fn an_inherent_impl_resolves_a_written_self_too() {
+        let tables = tables_of(
+            r#"
+struct Knob { value: Int }
+
+impl Knob {
+  fn pick(self, other: Self): Self {
+    if (self.value > other.value) { self } else { other }
+  }
+}
+
+fn main(): () {}
+"#,
+        );
+        let f = method(&tables, "Knob", "pick");
+        assert_eq!(f.params[1].ty, f.params[0].ty);
+        assert_eq!(f.ret, f.params[0].ty);
+        assert!(!matches!(f.params[1].ty, Ty::SelfTy));
+    }
+
+    /// And `Self` outside both is still the mistake it was: the scope is
+    /// entered and left around one declaration, so the next one in the same
+    /// module does not inherit it.
+    #[test]
+    fn self_outside_an_impl_is_still_refused() {
+        let mut map = SourceMap::new();
+        let analysis = crate::compiler::driver::analyze_snippet(
+            &mut map,
+            "resolve_test.buri",
+            r#"
+struct Knob { value: Int }
+
+impl Knob {
+  fn pick(self): Self {
+    self
+  }
+}
+
+fn free(x: Int): Self { x }
+
+fn main(): () {}
+"#,
+            crate::compiler::modules::Role::Entry,
+        );
+        assert!(
+            analysis
+                .diagnostics
+                .items
+                .iter()
+                .any(|d| d.code.as_deref() == Some("self-type-outside-impl")),
+            "a free function's `Self` was admitted",
+        );
     }
 }
