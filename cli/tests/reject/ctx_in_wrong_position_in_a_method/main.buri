@@ -1,0 +1,34 @@
+// EXPECT: `ctx` must come first
+//
+// Inside a method the convention is receiver first, context second. That is
+// the position `Actor.step(self, ctx, msg)` is written in, and until rule 26
+// ran inside `trait` and `impl` bodies nothing here was read at all.
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/io/lib.buri" import * as io;
+
+export struct Bell { export tone: Str }
+
+export trait Ring {
+  fn ring<C: Stdout>(self, times: Int, ctx: C): ();
+}
+
+impl Ring for Bell {
+  fn ring<C: Stdout>(self, times: Int, ctx: C): () {
+    io.println(ctx, "${self.tone} ${times}")
+  }
+}
+
+impl Bell {
+  fn peal<C: Stdout>(self, times: Int, ctx: C): () {
+    io.println(ctx, "${self.tone} ${times}")
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let bell = Bell { tone: "ding" };
+  let _ = bell.ring(2, ctx);
+  let _ = bell.peal(3, ctx);
+  .Ok(())
+}
