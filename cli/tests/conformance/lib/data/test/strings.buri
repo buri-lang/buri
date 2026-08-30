@@ -5,7 +5,8 @@
 // and slice test below uses a non-BMP character somewhere.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 from "core/str/lib.buri" import * as str;
 from "core/char/lib.buri" import * as char;
 from "core/list/lib.buri" import * as list;
@@ -360,337 +361,337 @@ test "toFloat rejects the empty string" {
 // --- concat -------------------------------------------------------------------
 
 test "concat joins two strings" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("foo".concat(ctx, "bar"), "foobar");
 }
 
 test "concat with the empty string is the identity" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("foo".concat(ctx, ""), "foo");
   assert.eq("".concat(ctx, "bar"), "bar");
 }
 
 test "concat of two empty strings is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("".concat(ctx, ""), "");
 }
 
 // --- split / splitAny / lines -------------------------------------------------
 
 test "split cuts on every occurrence" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a,b,c".split(ctx, ","), ["a", "b", "c"]);
 }
 
 test "split keeps empty pieces" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a,,b".split(ctx, ","), ["a", "", "b"]);
 }
 
 test "split keeps a leading and trailing empty piece" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(",a,".split(ctx, ","), ["", "a", ""]);
 }
 
 test "split with an absent separator yields the whole string" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("abc".split(ctx, ","), ["abc"]);
 }
 
 test "split of the empty string yields one empty piece" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("".split(ctx, ","), [""]);
 }
 
 test "split on a multi-character separator" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a::b::c".split(ctx, "::"), ["a", "b", "c"]);
 }
 
 test "splitAny cuts on any of the separator characters" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a,b;c".splitAny(ctx, ",;"), ["a", "b", "c"]);
 }
 
 test "splitAny drops empty pieces" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a,,b".splitAny(ctx, ","), ["a", "b"]);
 }
 
 test "splitAny drops leading and trailing empties" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(",a,".splitAny(ctx, ","), ["a"]);
 }
 
 test "splitAny of the empty string is the empty list" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("".splitAny(ctx, ","), list.empty<Str>());
 }
 
 test "splitAny splits on whitespace" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("  a  b  ".splitAny(ctx, " "), ["a", "b"]);
 }
 
 test "lines splits on newlines" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a\nb\nc".lines(ctx), ["a", "b", "c"]);
 }
 
 test "lines of a single line is a singleton" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("only".lines(ctx), ["only"]);
 }
 
 test "lines keeps blank lines" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a\n\nb".lines(ctx), ["a", "", "b"]);
 }
 
 test "lines of a string ending in a newline yields a trailing empty piece" {
   // SPEC does not fix `lines`; this pins what the implementation does, which
   // is the `split`-like reading rather than the "drop the final empty" one.
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a\n".lines(ctx), ["a", ""]);
 }
 
 // --- replace ------------------------------------------------------------------
 
 test "replace substitutes every occurrence" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("banana".replace(ctx, "a", "o"), "bonono");
 }
 
 test "replace with an absent needle is the identity" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("banana".replace(ctx, "z", "o"), "banana");
 }
 
 test "replace can delete" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("banana".replace(ctx, "na", ""), "ba");
 }
 
 test "replace can lengthen" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("ab".replace(ctx, "b", "bbb"), "abbb");
 }
 
 test "replace on the empty string is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("".replace(ctx, "a", "b"), "");
 }
 
 // --- repeat -------------------------------------------------------------------
 
 test "repeat concatenates n copies" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("ab".repeat(ctx, 3), "ababab");
 }
 
 test "repeat once is the identity" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("ab".repeat(ctx, 1), "ab");
 }
 
 test "repeat zero times is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("ab".repeat(ctx, 0), "");
 }
 
 test "repeat a negative number of times is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("ab".repeat(ctx, -2), "");
 }
 
 test "repeating the empty string is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("".repeat(ctx, 5), "");
 }
 
 // --- toUpper / toLower --------------------------------------------------------
 
 test "toUpper uppercases ASCII" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("hello".toUpper(ctx), "HELLO");
 }
 
 test "toUpper leaves non-letters alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a1-b".toUpper(ctx), "A1-B");
 }
 
 test "toUpper of the empty string is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("".toUpper(ctx), "");
 }
 
 test "toLower lowercases ASCII" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("HELLO".toLower(ctx), "hello");
 }
 
 test "toLower of the empty string is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("".toLower(ctx), "");
 }
 
 test "toLower then toUpper round-trips ASCII" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("MiXeD".toLower(ctx).toUpper(ctx), "MIXED");
 }
 
 // --- chars / fromChars --------------------------------------------------------
 
 test "chars explodes a string into scalar values" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("abc".chars(ctx), ['a', 'b', 'c']);
 }
 
 test "chars of the empty string is the empty list" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("".chars(ctx), list.empty<Char>());
 }
 
 test "chars yields one element per non-BMP character" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a\u{1F600}".chars(ctx), ['a', '\u{1F600}']);
 }
 
 test "chars length agrees with len" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a\u{1F600}b".chars(ctx).len(), "a\u{1F600}b".len());
 }
 
 test "fromChars rebuilds a string" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.fromChars(ctx, ['a', 'b', 'c']), "abc");
 }
 
 test "fromChars of the empty list is the empty string" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.fromChars(ctx, list.empty<Char>()), "");
 }
 
 test "fromChars round-trips chars" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.fromChars(ctx, "a\u{1F600}b".chars(ctx)), "a\u{1F600}b");
 }
 
 // --- fromInt / fromFloat ------------------------------------------------------
 
 test "fromInt renders a positive integer" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.fromInt(ctx, 42), "42");
 }
 
 test "fromInt renders zero" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.fromInt(ctx, 0), "0");
 }
 
 test "fromInt renders a negative integer" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.fromInt(ctx, -7), "-7");
 }
 
 test "fromInt round-trips through toInt" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(assert.some(str.fromInt(ctx, -1234).toInt()), -1234);
 }
 
 test "fromFloat round-trips through toFloat" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(assert.some(str.fromFloat(ctx, 3.5).toFloat()), 3.5);
 }
 
 test "fromFloat renders a negative float" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(assert.some(str.fromFloat(ctx, -0.25).toFloat()), -0.25);
 }
 
 // --- padStart / padEnd --------------------------------------------------------
 
 test "padStart pads on the left" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("7".padStart(ctx, 3, '0'), "007");
 }
 
 test "padStart leaves a long-enough string alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("12345".padStart(ctx, 3, '0'), "12345");
 }
 
 test "padStart to the exact width is the identity" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("abc".padStart(ctx, 3, ' '), "abc");
 }
 
 test "padStart of the empty string fills entirely" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("".padStart(ctx, 2, 'x'), "xx");
 }
 
 test "padEnd pads on the right" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("7".padEnd(ctx, 3, '0'), "700");
 }
 
 test "padEnd leaves a long-enough string alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("12345".padEnd(ctx, 3, '0'), "12345");
 }
 
 test "padEnd measures the width in scalar values" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("\u{1F600}".padEnd(ctx, 3, '.'), "\u{1F600}..");
 }
 
 // --- format -------------------------------------------------------------------
 
 test "format renders a template with no holes" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.format(ctx, "plain"), "plain");
 }
 
 test "format interpolates an Int" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let n = 7;
   assert.eq(str.format(ctx, "n = ${n}"), "n = 7");
 }
 
 test "format interpolates a Str" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let who = "world";
   assert.eq(str.format(ctx, "hello ${who}"), "hello world");
 }
 
 test "format interpolates a Bool" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let b = true;
   assert.eq(str.format(ctx, "${b}"), "true");
 }
 
 test "format interpolates a Char" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let c = 'x';
   assert.eq(str.format(ctx, "[${c}]"), "[x]");
 }
 
 test "format interpolates several holes" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let a = 1;
   let b = 2;
   assert.eq(str.format(ctx, "${a}+${b}=${a + b}"), "1+2=3");
 }
 
 test "format evaluates an expression hole" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.format(ctx, "${2 * 21}"), "42");
 }
 
 test "format escapes a literal dollar sign" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(str.format(ctx, "\$100"), "\$100");
 }
 
@@ -703,7 +704,7 @@ test "a combining mark is its own scalar value" {
 }
 
 test "chars reversed and rebuilt reverses by scalar value" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     str.fromChars(ctx, "a\u{1F600}".chars(ctx).reverse(ctx)),
     "\u{1F600}a",
@@ -711,12 +712,12 @@ test "chars reversed and rebuilt reverses by scalar value" {
 }
 
 test "split on a non-BMP separator" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("a\u{1F600}b".split(ctx, "\u{1F600}"), ["a", "b"]);
 }
 
 test "padStart counts the width in scalar values" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("\u{1F600}".padStart(ctx, 3, '.'), "..\u{1F600}");
 }
 
@@ -838,7 +839,7 @@ test "order.char compares characters" {
 // --- structural equality on strings -------------------------------------------
 
 test "two separately built strings with equal contents are equal" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq("abc", "ab".concat(ctx, "c"));
 }
 
