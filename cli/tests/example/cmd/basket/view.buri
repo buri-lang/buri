@@ -233,7 +233,7 @@ fn line<C: Alloc + Ui + Watch>(ctx: C, state: State, item: Entry): Node<C> {
 /// reader is idle rather than interrupting. Without a live region here a
 /// reactive change to the total would be silent, which is the failure mode a
 /// screen reader cannot work around.
-fn summary<C: Alloc + Ui + Watch>(ctx: C, state: State): Node<C> {
+fn summary<C: Ui>(ctx: C, state: State): Node<C> {
   // A memo, so that the fraction is computed once per change however many
   // things read it, and not at all while nothing does.
   let settled: Prop<Float> = memo(

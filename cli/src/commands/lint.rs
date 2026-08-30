@@ -335,7 +335,15 @@ fn apply_fixes(session: &mut Session, diagnostics: &Diagnostics) -> usize {
     for (i, d) in diagnostics.items.iter().enumerate() {
         for e in &d.edits {
             let row = by_file.entry(e.at.file.0).or_default();
-            row.0.push(e.clone());
+            // Two findings answered by one edit is one edit, not an overlap.
+            // `unused-context-bound` is where that happens: a bound list is one
+            // piece of text with shared separators, so removing two of its
+            // elements is a single rewrite, and each of the findings about
+            // that parameter carries it. Applying it once answers both, and
+            // the count below says two because two findings went away.
+            if !row.0.iter().any(|had| had.at == e.at && had.replacement == e.replacement) {
+                row.0.push(e.clone());
+            }
             row.1.insert(i);
         }
     }
@@ -813,6 +821,7 @@ fn check_hygiene(
     check_unused_declarations(session, target, analysis, &unchecked, diagnostics);
     check_ctx_rebindings(own, analysis, &unchecked, diagnostics);
     check_unused_contexts(session, target, analysis, &unchecked, diagnostics);
+    check_unused_context_bounds(session, target, analysis, &unchecked, diagnostics);
     check_discarded_results(own, analysis, diagnostics);
     check_unused_variables(own, analysis, &unchecked, diagnostics);
     check_deep_nesting(own, analysis, diagnostics);
@@ -2135,6 +2144,323 @@ fn dropped_from_list(session: &Session, at: Span) -> Option<crate::diagnostics::
 /// A deletion of `from..to` in the file `at` names.
 fn deletion(at: Span, from: usize, to: usize) -> crate::diagnostics::Edit {
     crate::diagnostics::Edit { at: Span::new(at.file, from, to), replacement: String::new() }
+}
+
+/// `unused-context-bound`. A `ctx` parameter says a function touches the
+/// world; its bounds say which parts of it. A bound the body never exercises
+/// is a demand on every caller for a capability the code does not use — and it
+/// spreads, because a caller's own signature has to carry the bound to satisfy
+/// it.
+///
+/// **Three uses, and the reason there is no fourth.** The checker consults a
+/// type parameter's bound list in exactly two places, and both of them are a
+/// call that is written down in the checked tree:
+///
+/// * `expressions.rs`'s `resolve_method` at a `Ty::Param` receiver — a method
+///   on a type parameter can only come from its bounds — which becomes a
+///   [`typed::ExprKind::CallTrait`] whose `recv` is that parameter and whose
+///   `trait_id` is the bound. That is `ctx.println(…)`.
+/// * `inference.rs`'s `satisfies` at a `Ty::Param`, reached from the
+///   obligations `expressions.rs`'s `instantiate` raises. `instantiate` has
+///   three callers — `fn_ref`, `call_fn` and `call_trait_method` — and each
+///   writes the type arguments it produced into the node it built, so a
+///   callee's bound landing on `C` is a `targs` entry that mentions
+///   `Ty::Param(i)`. That is `str.format(ctx, …)`.
+///
+/// The third use in the note's list is not a bound demand at all, which is why
+/// it has to be stated rather than derived: handing the context to a
+/// **function-typed parameter** ([`typed::ExprKind::CallValue`]) gives the
+/// whole of `C` to code this function cannot see, so it uses *every* bound.
+/// The callback was written against `C` as declared and nothing here can say
+/// which parts of it the callback reaches.
+///
+/// A struct or enum literal carries type arguments too, and nothing today
+/// raises an obligation for them — a `TyCon`'s generics are never instantiated
+/// — but they are read anyway, so that the rule does not quietly depend on
+/// that staying true.
+///
+/// **What is not asked**, in the order the loop below asks it.
+///
+/// Three of the five are [`check_unused_contexts`]'s, for its reasons: a
+/// declaration with no body (there is no entry in `checked.bodies` at all), an
+/// `impl` method (whose generics must match the trait's bound for bound, so a
+/// dead bound there is dead on the *trait*), and a `ctx` whose type is not a
+/// type parameter, which has no bound list to trim. The scope is narrowed once
+/// more, to a parameter carrying at least one `effect`: that is what makes it
+/// a context, and `T: Eq` on ordinary data is a different question with a
+/// different answer.
+///
+/// The fourth is the one place this rule is *less* able than that one: **a
+/// body that did not check is not asked**. A context has exactly one spelling
+/// and a bound has none — it is used through method names it declares and
+/// through callees whose own bounds name it — so where the typed tree is
+/// truncated there is nothing for the lexer to answer with.
+///
+/// The fifth is a division of labour rather than a doubt: **a context the body
+/// never reads at all is [`check_unused_contexts`]'s, and only its.** Every
+/// bound on such a parameter is dead by construction, so reporting them here
+/// would answer one mistake with one finding plus one per bound — and the edit
+/// they carry is the wrong one, because what that signature needs is the
+/// parameter taken out rather than its bounds trimmed.
+fn check_unused_context_bounds(
+    session: &Session,
+    target: TargetId,
+    analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
+    diagnostics: &mut Diagnostics,
+) {
+    use crate::compiler::semantics::types::{ParamRole, Ty};
+    let tables = &analysis.checked.tables;
+    let mine = editable_modules_of(analysis, target.package);
+    let mut found: Vec<(Span, String, String, Vec<crate::diagnostics::Edit>)> = Vec::new();
+    for (fid, body) in &analysis.checked.bodies {
+        let info = tables.fn_info(*fid);
+        if !mine.contains(&info.module) || info.impl_of.is_some() || unchecked.body(*fid) {
+            continue;
+        }
+        let Some(index) = info.params.iter().position(|p| p.role == ParamRole::Ctx) else {
+            continue;
+        };
+        let Some(Ty::Param(gi)) = info.params.get(index).map(|p| &p.ty) else { continue };
+        let Some(generic) = info.generics.get(*gi as usize) else { continue };
+        if !generic.bounds.iter().any(|b| tables.trait_(*b).is_effect) {
+            continue;
+        }
+        if !body.params.get(index).copied().is_some_and(|local| reads_ctx(body, local)) {
+            continue;
+        }
+        let used = bounds_used(analysis, body, *gi, &generic.bounds);
+        let unused: Vec<usize> = generic
+            .bounds
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| !used.contains(b))
+            .map(|(k, _)| k)
+            .collect();
+        if unused.is_empty() {
+            continue;
+        }
+        // The spans come from the declaring module's own syntax tree, so a
+        // finding this rule makes always points at a file in `mine` — which is
+        // what keeps it out of `core/…`, where a span would defeat the lint
+        // cache for the target rather than merely misplace the caret.
+        let Some(spans) = bound_spans(analysis, info, *gi as usize) else { continue };
+        if spans.len() != generic.bounds.len() {
+            continue;
+        }
+        let edits = dropped_bounds(session, &spans, &unused);
+        for k in unused {
+            let (Some(span), Some(bound)) = (spans.get(k).copied(), generic.bounds.get(k)) else {
+                continue;
+            };
+            let bound = tables.trait_(*bound).name.clone();
+            found.push((span, bound, generic.name.clone(), edits.clone()));
+        }
+    }
+    // `bodies` is a map, so the order findings are met in is not the order they
+    // are written in.
+    found.sort_by_key(|(span, _, _, _)| (span.file.0, span.start));
+    for (span, bound, param, edits) in found {
+        let mut d = Diagnostic::templated("unused-context-bound", span)
+            .with_bind("bound", bound)
+            .with_bind("param", param);
+        for e in edits {
+            d = d.with_edit(e.at, &e.replacement);
+        }
+        diagnostics.push(d);
+    }
+}
+
+/// Whether anything in the body names the context parameter's local.
+///
+/// The question [`check_unused_contexts`] asks, asked again here for the
+/// opposite reason: that rule reports a `no`, and this one has nothing to say
+/// about one. It is the tree alone, with no fallback to the text, because the
+/// only caller has already declined to speak for a body that did not check.
+fn reads_ctx(body: &typed::Body, ctx_local: crate::compiler::semantics::types::LocalId) -> bool {
+    let mut read = false;
+    typed::walk(&body.expr, &mut |e| {
+        if matches!(&e.kind, typed::ExprKind::Local(l) if *l == ctx_local) {
+            read = true;
+        }
+    });
+    read
+}
+
+/// Which of a context parameter's bounds the body exercises.
+///
+/// The three arms are the note's three uses, in the same order, and each is
+/// read off the node the checker wrote its own answer into — see
+/// [`check_unused_context_bounds`] for why there is no fourth.
+fn bounds_used(
+    analysis: &crate::compiler::driver::Analysis,
+    body: &typed::Body,
+    gi: u32,
+    bounds: &[crate::compiler::semantics::types::TraitId],
+) -> BTreeSet<crate::compiler::semantics::types::TraitId> {
+    use crate::compiler::semantics::types::Ty;
+    let tables = &analysis.checked.tables;
+    let mut used = BTreeSet::new();
+    typed::walk(&body.expr, &mut |e| match &e.kind {
+        // A method the bound declares, called on the context.
+        typed::ExprKind::CallTrait { trait_id, method, recv, targs, .. } => {
+            if matches!(recv, Ty::Param(i) if *i == gi) {
+                used.insert(*trait_id);
+            }
+            if let Some(m) = tables.trait_(*trait_id).methods.get(*method) {
+                note_targs(&m.generics, targs, gi, &mut used);
+            }
+        }
+        // A callee that asks for a context of its own, and a callee taken as a
+        // value, which instantiates its generics in the same way.
+        typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
+            if let typed::Callee::Decl { id, targs } = func {
+                note_targs(&tables.fn_info(*id).generics, targs, gi, &mut used);
+            }
+        }
+        // A function-typed parameter, which uses every bound.
+        typed::ExprKind::CallValue { args, .. } => {
+            if args.iter().any(|a| matches!(&a.ty, Ty::Param(i) if *i == gi)) {
+                used.extend(bounds.iter().copied());
+            }
+        }
+        typed::ExprKind::StructLit { con, targs, .. }
+        | typed::ExprKind::EnumLit { con, targs, .. } => {
+            note_targs(&tables.tycon(*con).generics, targs, gi, &mut used);
+        }
+        _ => {}
+    });
+    used
+}
+
+/// Every bound a generic item's own list demands of `Ty::Param(gi)`, at one
+/// instantiation of it.
+///
+/// A type argument that merely *mentions* the parameter counts, because a
+/// derived implementation is a fold over the type's components: `satisfies`
+/// answers `Wrapper<C>: Show` by asking `C: Show`. Reading the mention rather
+/// than the whole argument is the conservative direction — it can only hold a
+/// bound alive that nothing needed, never delete one that something did.
+fn note_targs(
+    generics: &[crate::compiler::semantics::types::GenericInfo],
+    targs: &[crate::compiler::semantics::types::Ty],
+    gi: u32,
+    used: &mut BTreeSet<crate::compiler::semantics::types::TraitId>,
+) {
+    for (g, t) in generics.iter().zip(targs) {
+        if mentions_param(t, gi) {
+            used.extend(g.bounds.iter().copied());
+        }
+    }
+}
+
+fn mentions_param(t: &crate::compiler::semantics::types::Ty, gi: u32) -> bool {
+    use crate::compiler::semantics::types::Ty;
+    match t {
+        Ty::Param(i) => *i == gi,
+        Ty::Con(_, args) | Ty::Tuple(args) => args.iter().any(|a| mentions_param(a, gi)),
+        Ty::Array(e) => mentions_param(e, gi),
+        Ty::Fn(params, ret) => {
+            params.iter().any(|p| mentions_param(p, gi)) || mentions_param(ret, gi)
+        }
+        _ => false,
+    }
+}
+
+/// The span of each bound a type parameter was written with, in order.
+///
+/// Read from the declaring module's syntax tree, because `GenericInfo` keeps
+/// the resolved [`TraitId`]s and the span of the parameter as a whole — the
+/// text `Fs` sits at is only in the tree the parser built.
+///
+/// [`TraitId`]: crate::compiler::semantics::types::TraitId
+fn bound_spans(
+    analysis: &crate::compiler::driver::Analysis,
+    info: &crate::compiler::semantics::types::FnInfo,
+    gi: usize,
+) -> Option<Vec<Span>> {
+    let (module, item) = info.ast.item()?;
+    let m = analysis.loaded.modules.get(module.index())?;
+    let crate::parsing::tree::Item::Fn(decl) = m.ast.items.get(item as usize)? else {
+        return None;
+    };
+    let g = decl.generics.get(gi)?;
+    let t = &m.ast.tree;
+    Some(t.type_list(g.bounds).iter().map(|b| t.type_span(*b)).collect())
+}
+
+/// The bytes that take a set of bounds out of one type parameter's list.
+///
+/// **One rewrite, not one per bound**, and the separators are why: deleting
+/// `Fs` from `<C: Alloc + Fs + Io>` has to take a `+` with it, and so does
+/// deleting `Io` — the same `+`. Two findings whose edits both claim it are
+/// refused as overlapping and neither is applied, so the whole removal is
+/// computed once here and every finding about the parameter carries it.
+///
+/// The list is walked as runs of adjacent bounds. A run that starts after the
+/// first bound takes the separator *before* it (`" + Fs + Io"`); a run that
+/// starts at the first and does not reach the last takes the separator *after*
+/// (`"Fs + Io + "`); a run that is the whole list takes the colon too, leaving
+/// `<C>`. Runs are separated by a bound that stays, so no two of these ranges
+/// meet.
+///
+/// Nothing but the separators may be swallowed. What else sits inside a bound
+/// list is a comment — a reader's sentence about the code — and this deletes
+/// text rather than reformatting it, so it refuses the whole rewrite instead.
+fn dropped_bounds(
+    session: &Session,
+    spans: &[Span],
+    removed: &[usize],
+) -> Vec<crate::diagnostics::Edit> {
+    let Some(first) = spans.first() else { return Vec::new() };
+    let text = session.map.text(first.file);
+    let mut edits = Vec::new();
+    let mut rest: &[usize] = removed;
+    while let Some((&a, after)) = rest.split_first() {
+        // The run: this bound and every one adjacent to it, which is the group
+        // whose separators are shared and so cannot be deleted independently.
+        let mut b = a;
+        rest = after;
+        while let Some((&next, more)) = rest.split_first() {
+            if next != b + 1 {
+                break;
+            }
+            b = next;
+            rest = more;
+        }
+        let (Some(head), Some(tail)) = (spans.get(a), spans.get(b)) else { return Vec::new() };
+        let (from, to) = if a > 0 {
+            match spans.get(a - 1) {
+                Some(before) => (before.end as usize, tail.end as usize),
+                None => return Vec::new(),
+            }
+        } else if let Some(after) = spans.get(b + 1) {
+            (head.start as usize, after.start as usize)
+        } else {
+            // Every bound goes, so the `:` that introduced them goes as well.
+            let Some(before) = text.get(..head.start as usize) else { return Vec::new() };
+            let Some(colon) = before.trim_end().strip_suffix(':') else { return Vec::new() };
+            (colon.trim_end().len(), tail.end as usize)
+        };
+        if !only_separators(text, from, to, spans) {
+            return Vec::new();
+        }
+        edits.push(deletion(*first, from, to));
+    }
+    edits
+}
+
+/// Whether `from..to` holds nothing but bounds, the punctuation that joins
+/// them, and space.
+fn only_separators(text: &str, from: usize, to: usize, spans: &[Span]) -> bool {
+    let Some(region) = text.get(from..to) else { return false };
+    region.char_indices().all(|(offset, c)| {
+        let at = from + offset;
+        spans.iter().any(|s| at >= s.start as usize && at < s.end as usize)
+            || c.is_whitespace()
+            || c == '+'
+            || c == ':'
+    })
 }
 
 /// `discarded-result`. `let _ = <Result>` is already a hard type error

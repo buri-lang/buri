@@ -44,6 +44,16 @@ What the error does cost is the fix: the calls the rewrite would have to touch
 are read off the same tree, so a package that did not check whole gets the
 finding with the sentence and no bytes.
 
+`unused-context-bound` is the same rule one level in — which of a context's
+*effects* the body uses — and it goes quiet for a failed body where
+`unused-context` does not. The asymmetry is the spelling: a context has one,
+and a bound has none. A bound is used through the method names it declares and
+through callees whose own bounds name it, and neither is a token the lexer can
+recognise as this bound, so where the typed tree is truncated there is nothing
+to answer with. It is also silent about a `ctx` nothing reads at all, because
+every bound on such a parameter is dead by construction and the edit that
+signature needs is `unused-context`'s: take the parameter out, not trim it.
+
 `dead-code` asks a second question and so has a second reason to go quiet. It
 reads the package's imports and re-exports to decide which exported names
 anything reaches, so an error landing on one of those lines — or a run of

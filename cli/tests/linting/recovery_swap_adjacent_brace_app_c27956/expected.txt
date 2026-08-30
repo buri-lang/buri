@@ -1,0 +1,148 @@
+error: expected an identifier, found `,` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:7:50
+  |
+7 | from "core/effect/lib.buri" import { AllocClock ,, Stdout };
+  |                                                  ^
+  |
+  = expected: an identifier
+  = actual: `,`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: expected a declaration, found `;` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:7:60
+  |
+7 | from "core/effect/lib.buri" import { AllocClock ,, Stdout };
+  |                                                            ^
+  |
+  = expected: a declaration
+  = actual: `;`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: `Alloc` is not a trait or effect [not-a-trait]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:15:16
+   |
+15 | fn announce<C: Alloc + Stdout>(ctx: C, label: Str): () {
+   |                ^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `Alloc` as one
+error: `Stdout` is not a trait or effect [not-a-trait]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:15:24
+   |
+15 | fn announce<C: Alloc + Stdout>(ctx: C, label: Str): () {
+   |                        ^^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `Stdout` as one
+error: `C` does not satisfy `Stdout` [unsatisfied-bound]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:16:3
+   |
+16 |   io.println(ctx, "-- ${label}")
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Stdout`, or use a type that has one
+error: `Alloc` is not a trait or effect [not-a-trait]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:22:13
+   |
+22 | fn shout<C: Alloc + Clock + Stdout>(ctx: C, label: Str): () {
+   |             ^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `Alloc` as one
+error: `Clock` is not a trait or effect [not-a-trait]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:22:21
+   |
+22 | fn shout<C: Alloc + Clock + Stdout>(ctx: C, label: Str): () {
+   |                     ^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `Clock` as one
+error: `Stdout` is not a trait or effect [not-a-trait]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:22:29
+   |
+22 | fn shout<C: Alloc + Clock + Stdout>(ctx: C, label: Str): () {
+   |                             ^^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `Stdout` as one
+error: `C` has no method `println` [no-such-method]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:23:7
+   |
+23 |   ctx.println("!! ${label}")
+   |       ^^^^^^^
+   |
+   = `C` carries no bounds, and a bare type parameter has no methods; add a bound that declares `println`
+   = fix: add a bound to `C` that declares `println`, or call one the bounds it already carries declare
+error: `Stdout` is not a trait or effect [not-a-trait]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:29:15
+   |
+29 | fn whisper<C: Stdout>(ctx: C, label: Str): () {
+   |               ^^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `Stdout` as one
+error: `C` has no method `println` [no-such-method]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:30:7
+   |
+30 |   ctx.println(".. ${label}")
+   |       ^^^^^^^
+   |
+   = `C` carries no bounds, and a bare type parameter has no methods; add a bound that declares `println`
+   = fix: add a bound to `C` that declares `println`, or call one the bounds it already carries declare
+error: `Alloc` is not a trait or effect [not-a-trait]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:35:14
+   |
+35 | fn banner<C: Alloc>(ctx: C, label: Str): Str {
+   |              ^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `Alloc` as one
+error: `C` does not satisfy `Alloc` [unsatisfied-bound]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:36:3
+   |
+36 |   str.format(ctx, "== ${label} ==")
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Alloc`, or use a type that has one
+error: `Alloc` is not a trait or effect [not-a-trait]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:42:16
+   |
+42 | fn rendered<C: Alloc + Clock>(ctx: C, render: fn(C, Str) => Str, label: Str): Str {
+   |                ^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `Alloc` as one
+error: `Clock` is not a trait or effect [not-a-trait]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:42:24
+   |
+42 | fn rendered<C: Alloc + Clock>(ctx: C, render: fn(C, Str) => Str, label: Str): Str {
+   |                        ^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `Clock` as one
+error: `Alloc` is not a declared effect [not-an-effect]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:48:5
+   |
+48 |     Alloc: host.alloc,
+   |     ^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Alloc` is not one
+error: `Clock` is not a declared effect [not-an-effect]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:49:5
+   |
+49 |     Clock: host.clock,
+   |     ^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Clock` is not one
+error: `Stdout` is not a declared effect [not-an-effect]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:50:5
+   |
+50 |     Stdout: host.stdout,
+   |     ^^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Stdout` is not one
+error: `a context` does not satisfy `Alloc` [unsatisfied-bound]
+  --> lib/recovery_swap_adjacent_brace_app_c27956/main.buri:56:50
+   |
+56 |   let _ = whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label));
+   |                                                  ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Alloc`, or use a type that has one

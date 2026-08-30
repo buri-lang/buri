@@ -121,7 +121,7 @@ fn proto_schemas() {
 /// parity between this command and the language server stated alongside it.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 45);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 47);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the
@@ -138,7 +138,7 @@ fn test_suites() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 92);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 93);
 }
 
 /// Every method a 3.17 client can send is answered by the dispatch, and is

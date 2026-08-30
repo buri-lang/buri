@@ -64,6 +64,7 @@ pub const LINTS: &[LintDoc] = &[
     l!("too-many-parameters", "A function takes few parameters"),
     l!("unsatisfiable-target", "A target admits at least one platform", &["build/tags"]),
     l!("unused-context", "A function that takes `ctx` uses it"),
+    l!("unused-context-bound", "A context asks for the effects it uses"),
     l!("unused-field", "Every field is read"),
     l!("unused-import", "Every import is used"),
     l!("unused-library", "Every source file belongs to a library or a binary", &[
@@ -86,6 +87,7 @@ pub const LINTS: &[LintDoc] = &[
 const UNNECESSARY: &[&str] = &[
     "dead-code",
     "unused-context",
+    "unused-context-bound",
     "unused-field",
     "unused-import",
     "unused-type",
