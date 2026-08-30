@@ -5,13 +5,15 @@ error: `(I64, I64)` has no method `len` [no-such-method]
   |     ^^^
   |
   = tuples, function types, and `Template` have no defining module, so they have no methods
-  = fix: check the spelling, or declare it in `impl (I64, I64) { ... }` in that type's own module — a method may not be added from anywhere else
+  = fix: there is no module to declare `len` in, so write a free function taking the value, or wrap it in a struct of yours and give that the method
 
     What to do
     ──────────
 
-    Check the spelling, or declare it in an impl block in that type's own
-    module.
+    Check the spelling. If the type is one of yours, declare the method in an
+    impl block in that type's own module. If the type ships with the toolchain —
+    a Result, an I64 — or belongs to another package, it cannot gain one from
+    here, and buri docs <module> lists the methods it has.
 
     Why
     ───

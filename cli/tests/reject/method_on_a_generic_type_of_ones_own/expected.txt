@@ -1,0 +1,24 @@
+error: `Pair<Int, Int>` has no method `second` [no-such-method]
+  --> cmd/method_on_a_generic_type_of_ones_own/main.buri:12:28
+   |
+12 |   let _ = ctx.println("${p.second()}");
+   |                            ^^^^^^
+   |
+   = fix: check the spelling, or declare it in `impl<A, B> Pair<A, B> { ... }` in `//cmd/method_on_a_generic_type_of_ones_own/main`, where the type is declared — a method may not be added from anywhere else
+
+     What to do
+     ──────────
+
+     Check the spelling. If the type is one of yours, declare the method in an
+     impl block in that type's own module. If the type ships with the toolchain
+     — a Result, an I64 — or belongs to another package, it cannot gain one from
+     here, and buri docs <module> lists the methods it has.
+
+     Why
+     ───
+
+     A method is looked up in exactly one place: the module that declares the
+     receiver's type. There is no extension mechanism, so a method cannot be
+     added to a type from outside — which is also what makes resolution a single
+     lookup rather than a search.
+

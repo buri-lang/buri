@@ -233,8 +233,8 @@ let texts = paths.map(ctx, fn(p) => fs.readText(ctx, p));
 let texts = paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p));
 ```
 
-The library provides `list.mapCtx`, `list.filterCtx`, `result.andThenCtx` and
-friends; explicit recursion always works. The rule also reaches a value whose
+The library provides `list.mapCtx`, `list.filterCtx`, `result.mapCtx`,
+`result.mapErrCtx`, `result.andThenCtx` and friends; explicit recursion always works. The rule also reaches a value whose
 type *could* be a context — an unbounded `T`, or one bounded only by effects —
 so a closure-builder over a bare type parameter has to take the value as a
 parameter rather than close over it. A `T` with an ordinary trait bound, and

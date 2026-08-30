@@ -1,0 +1,5 @@
+true
+type.googleapis.com/buri.example.ErrorInfo
+0a0c4f55545f4f465f52414e4745120c627572692e6578616d706c65
+true
+{"code":3,"message":"bad argument","details":[{"typeUrl":"type.googleapis.com/buri.example.ErrorInfo","value":"CgxPVVRfT0ZfUkFOR0USDGJ1cmkuZXhhbXBsZQ=="}]}

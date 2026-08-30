@@ -719,10 +719,12 @@ call.
 ## 6. Reference counting, and the functions a unit generates for itself
 
 MEMORY.md §5.1's saturating increment and its decrement, open-coded as two
-stencils, with the cold path a call to `buri_rt_decref` — instruction for
-instruction what MEMORY.md §5.1 spells and what `llvm/emit.rs` emits, because
-two backends deciding separately when a block dies is the one divergence
-MEMORY.md §5 cannot tolerate.
+stencils, with the dying arm calling the type's drop glue and then
+`buri_rt_free` — instruction for instruction what MEMORY.md §5.1 spells and
+what `llvm/emit.rs::decref_pointer` emits, because two backends deciding
+separately when a block dies is the one divergence MEMORY.md §5 cannot
+tolerate. `buri_rt_free` is the sole owner of the free and of the live-block
+counters on both.
 
 `emit::Lower::walk_rc` covers all five site kinds: a
 `Str`/`[T]` block, a nested aggregate, a tagged enum's per-variant payloads, a

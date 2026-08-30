@@ -513,6 +513,55 @@ function $json_decode(j, d) {
   }
 }
 
+// --- sharing ------------------------------------------------------------------
+//
+// `$u` is one bit per list, and it only ever moves one way. `$u === true` says
+// this runtime allocated the list and nothing else holds it, so an operation
+// that grows it may write through instead of copying. **Absence means not
+// ours**, and therefore shared: an array that arrived from the host carries no
+// `$u`, so it is copied and never written to. The fast path tests for `true`
+// rather than for the absence of a mark, because absence is the answer for
+// everything this backend did not make. design/native/MEMORY.md §5.5.
+//
+// An aggregate — a struct, a tuple, an enum, all of them arrays here — carries
+// no bit, because nothing writes into one: a functional update spells its
+// fields out or copies. What it needs is the *other* half of the question, so
+// that a field read out of it can pass the sharing on, and that is `$shared`.
+// A set rather than a property so that marking a value writes nothing on it:
+// a host array handed to `$share` comes back exactly as it went in, and an
+// aggregate this backend allocated does not change shape when it is marked.
+
+// A fresh list this runtime allocated. Called on the way out of everything in
+// `core/list` that builds one.
+function $own(a) {
+  a.$u = true;
+  return a;
+}
+
+const $shared = new WeakSet();
+
+// A second reference to a value has come into existence. Sticky: nothing ever
+// puts a value back, because the cost of an over-set mark is one copy and the
+// cost of a cleared one is an aliasing bug.
+function $share(v) {
+  if (v !== null && typeof v === "object") {
+    if (v.$u === true) v.$u = false;
+    else if (v.$u === undefined) $shared.add(v);
+  }
+  return v;
+}
+
+// A field read out of a parent this expression is the last use of: a second
+// reference only if the parent was one. Perceus's drop specialisation with the
+// answer left until run time, because a garbage collector hides the count that
+// would have decided it statically.
+function $fromShared(p, v) {
+  if (p !== null && typeof p === "object" && (p.$u === false || $shared.has(p))) {
+    return $share(v);
+  }
+  return v;
+}
+
 // --- core/list ----------------------------------------------------------------
 //
 // Indexing yields Option<T>, so `get` is where the absence shows up.
@@ -549,150 +598,197 @@ function $list_get(xs, i) {
   return n >= 0 && n < xs.length ? $some(xs[n]) : undefined;
 }
 
+// A higher-order runtime function marks what it hands to a callback: the
+// element belongs to `xs`, and the seed still belongs to whoever passed it.
+// Everything after the first iteration is the callback's own fresh result, so
+// an accumulator threaded through a fold is marked once and never again.
 function $list_fold(xs, f, acc) {
-  for (let i = 0; i < xs.length; i++) acc = f(acc, xs[i]);
+  acc = $share(acc);
+  for (let i = 0; i < xs.length; i++) acc = f(acc, $share(xs[i]));
   return acc;
 }
 
 function $list_foldCtx(xs, c, f, acc) {
-  for (let i = 0; i < xs.length; i++) acc = f(c, acc, xs[i]);
+  acc = $share(acc);
+  for (let i = 0; i < xs.length; i++) acc = f(c, acc, $share(xs[i]));
   return acc;
 }
 
 // Stops at the first .Err, which is how a fallible fold is written without an
 // early exit.
 function $list_foldResult(xs, f, acc) {
-  let cur = [0, acc];
+  let cur = [0, $share(acc)];
   for (let i = 0; i < xs.length; i++) {
-    cur = f(cur[1], xs[i]);
+    cur = f(cur[1], $share(xs[i]));
     if (cur[0] !== 0) return cur;
   }
   return cur;
 }
 
 function $list_foldResultCtx(xs, c, f, acc) {
-  let cur = [0, acc];
+  let cur = [0, $share(acc)];
   for (let i = 0; i < xs.length; i++) {
-    cur = f(c, cur[1], xs[i]);
+    cur = f(c, cur[1], $share(xs[i]));
     if (cur[0] !== 0) return cur;
   }
   return cur;
 }
 
 function $list_any(xs, p) {
-  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return true;
+  for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) return true;
   return false;
 }
 
 function $list_all(xs, p) {
-  for (let i = 0; i < xs.length; i++) if (!p(xs[i])) return false;
+  for (let i = 0; i < xs.length; i++) if (!p($share(xs[i]))) return false;
   return true;
 }
 
 function $list_find(xs, p) {
-  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return $some(xs[i]);
+  for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) return $some(xs[i]);
   return undefined;
 }
 
 function $list_findIndex(xs, p) {
-  for (let i = 0; i < xs.length; i++) if (p(xs[i])) return $some(i);
+  for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) return $some(i);
   return undefined;
 }
 
 function $list_count(xs, p) {
   let n = 0;
-  for (let i = 0; i < xs.length; i++) if (p(xs[i])) n++;
+  for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) n++;
   return n;
 }
 
 function $list_map(xs, c, f) {
   const out = new Array(xs.length);
-  for (let i = 0; i < xs.length; i++) out[i] = f(xs[i]);
-  return out;
+  for (let i = 0; i < xs.length; i++) out[i] = f($share(xs[i]));
+  return $own(out);
 }
 
 function $list_mapCtx(xs, c, f) {
   const out = new Array(xs.length);
-  for (let i = 0; i < xs.length; i++) out[i] = f(c, xs[i]);
-  return out;
+  for (let i = 0; i < xs.length; i++) out[i] = f(c, $share(xs[i]));
+  return $own(out);
 }
 
 function $list_filter(xs, c, p) {
   const out = [];
-  for (let i = 0; i < xs.length; i++) if (p(xs[i])) out.push(xs[i]);
-  return out;
+  for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) out.push(xs[i]);
+  return $own(out);
 }
 
 function $list_filterCtx(xs, c, p) {
   const out = [];
-  for (let i = 0; i < xs.length; i++) if (p(c, xs[i])) out.push(xs[i]);
-  return out;
+  for (let i = 0; i < xs.length; i++) if (p(c, $share(xs[i]))) out.push(xs[i]);
+  return $own(out);
 }
 
+// The six operations below are the whole of the in-place half. Each is the
+// same shape: ask whether this list is ours and unshared, write through if it
+// is, and otherwise copy exactly as before — where the copy is fresh, so it is
+// ours, so a loop that grows a list pays for at most one copy per sharing
+// event rather than one per iteration.
+
 function $list_concat(xs, c, ys) {
-  return xs.concat(ys);
+  if (xs.$u === true) {
+    // `ys` may be `xs`, so the length is read once before anything is added.
+    const n = ys.length;
+    for (let i = 0; i < n; i++) xs.push(ys[i]);
+    return xs;
+  }
+  return $own(xs.concat(ys));
 }
 
 function $list_push(xs, c, x) {
+  if (xs.$u === true) {
+    xs.push(x);
+    return xs;
+  }
   const out = xs.slice();
   out.push(x);
-  return out;
+  return $own(out);
 }
 
 function $list_reverse(xs, c) {
-  return xs.slice().reverse();
+  if (xs.$u === true) return xs.reverse();
+  return $own(xs.slice().reverse());
 }
 
 // Stable, so a tie-break the comparator does not decide keeps source order.
 function $list_sortBy(xs, c, order) {
-  return xs
-    .map((v, i) => [v, i])
-    .sort((a, b) => {
-      const o = order(a[0], b[0]);
-      return o === 1 ? a[1] - b[1] : o === 0 ? -1 : 1;
-    })
-    .map((p) => p[0]);
+  return $own(
+    xs
+      .map((v, i) => [$share(v), i])
+      .sort((a, b) => {
+        const o = order(a[0], b[0]);
+        return o === 1 ? a[1] - b[1] : o === 0 ? -1 : 1;
+      })
+      .map((p) => p[0]),
+  );
 }
 
 function $list_take(xs, c, n) {
-  return xs.slice(0, Math.max(0, Number(n)));
+  const k = Math.min(Math.max(0, Number(n)), xs.length);
+  if (xs.$u === true) {
+    xs.length = k;
+    return xs;
+  }
+  return $own(xs.slice(0, k));
 }
 
 function $list_drop(xs, c, n) {
-  return xs.slice(Math.max(0, Number(n)));
+  const k = Math.min(Math.max(0, Number(n)), xs.length);
+  if (xs.$u === true) {
+    xs.copyWithin(0, k);
+    xs.length = xs.length - k;
+    return xs;
+  }
+  return $own(xs.slice(k));
 }
 
 function $list_slice(xs, c, a, b) {
-  return xs.slice(Math.max(0, Number(a)), Math.max(0, Number(b)));
+  const lo = Math.min(Math.max(0, Number(a)), xs.length);
+  const hi = Math.min(Math.max(0, Number(b)), xs.length);
+  if (xs.$u === true) {
+    if (hi <= lo) {
+      xs.length = 0;
+    } else {
+      xs.copyWithin(0, lo, hi);
+      xs.length = hi - lo;
+    }
+    return xs;
+  }
+  return $own(xs.slice(lo, hi));
 }
 
 function $list_zip(xs, c, ys) {
   const n = Math.min(xs.length, ys.length);
   const out = new Array(n);
   for (let i = 0; i < n; i++) out[i] = [xs[i], ys[i]];
-  return out;
+  return $own(out);
 }
 
 function $list_flatten(xs, c) {
   const out = [];
   for (const x of xs) for (const y of x) out.push(y);
-  return out;
+  return $own(out);
 }
 
 function $list_empty() {
-  return [];
+  return $own([]);
 }
 
 function $list_range(c, a, b) {
   const out = [];
   for (let i = a; i < b; i++) out.push(i);
-  return out;
+  return $own(out);
 }
 
 function $list_repeat(c, x, n) {
   const out = [];
   for (let i = 0; i < n; i++) out.push(x);
-  return out;
+  return $own(out);
 }
 
 function $list_join(xs, c, sep) {

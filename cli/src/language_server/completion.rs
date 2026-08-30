@@ -756,7 +756,7 @@ pub(super) fn completion_kind(analyzed: &Analyzed, symbol: &Symbol) -> i64 {
         // 3 function, 2 method — a function with a `self` is reached through a
         // receiver, and the icon should say so.
         Symbol::Function(id) => {
-            if analyzed.analysis.checked.tables.fn_info(*id).self_ty.is_some() {
+            if symbols::is_method(&analyzed.analysis.checked.tables, *id) {
                 2
             } else {
                 3
@@ -769,6 +769,8 @@ pub(super) fn completion_kind(analyzed: &Analyzed, symbol: &Symbol) -> i64 {
         Symbol::Field { .. } => 5,
         Symbol::Module(_) => 9,
         Symbol::Local { .. } => 6,
+        // 25 type parameter.
+        Symbol::Generic { .. } => 25,
     }
 }
 
@@ -781,7 +783,10 @@ fn imported(symbol: &Symbol) -> char {
         Symbol::Type(_) | Symbol::Trait(_) | Symbol::Context(_) | Symbol::Variant { .. } => '0',
         Symbol::Function(_) | Symbol::TraitMethod { .. } => '1',
         Symbol::Const(_) => '2',
-        Symbol::Field { .. } | Symbol::Module(_) | Symbol::Local { .. } => '3',
+        Symbol::Field { .. }
+        | Symbol::Module(_)
+        | Symbol::Local { .. }
+        | Symbol::Generic { .. } => '3',
     }
 }
 
@@ -793,7 +798,9 @@ fn nearness(symbol: &Symbol) -> char {
         Symbol::Local { .. } => '0',
         Symbol::Field { .. } | Symbol::Variant { .. } => '1',
         Symbol::Function(_) | Symbol::TraitMethod { .. } => '2',
-        Symbol::Type(_) | Symbol::Trait(_) | Symbol::Context(_) => '3',
+        // A generic parameter is written in the signature the cursor is in, so
+        // it is as near as a type gets.
+        Symbol::Type(_) | Symbol::Trait(_) | Symbol::Context(_) | Symbol::Generic { .. } => '3',
         Symbol::Const(_) => '4',
         Symbol::Module(_) => '5',
     }

@@ -1,16 +1,17 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
-{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "// The shelf edge, written so that every colour this server can produce\n// appears at least once.\nfrom \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\nfrom \"//lib/shop\" import { Item, listing, Stock };\n\n/* A block comment sits in the gap between two tokens, so it is read from the\n   gap rather than from the token stream. */\n\n/// What the edge of the shelf says about one item.\nexport fn edge(item: Item): Str {\n    let cheap = item.price < 250;\n    if (cheap) { \"sale\" } else { item.label() }\n}\n\n/// Putting `count` more of an item on the shelf.\nexport fn restock(item: Item, count: I64): Item {\n    Item { name: item.name, price: item.price, stock: Stock.OnHand { count: count } }\n}\n\nexport fn main(): Result<(), Str> {\n    let ctx = context {\n        Alloc: host.alloc,\n        Stdout: host.stdout,\n    };\n    let apple = restock(listing(\"apple\", 300), 12);\n    let _ = ctx.println(edge(apple));\n    .Ok(())\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "// The shelf edge, written so that every colour this server can produce\n// appears at least once.\nfrom \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\nfrom \"//lib/shop\" import { Item, listing, Stock };\n\n/* A block comment sits in the gap between two tokens, so it is read from the\n   gap rather than from the token stream. */\n\n/// What the edge of the shelf says about one item.\nexport fn edge(item: Item): Str {\n    let cheap = item.price < 250;\n    if (cheap) { \"sale\" } else { item.label() }\n}\n\n/// Putting `count` more of an item on the shelf.\nexport fn restock(item: Item, count: I64): Item {\n    Item { name: item.name, price: item.price, stock: Stock.OnHand { count: count } }\n}\n\n/// The first of two things, whichever kinds they are.\nfn first<A, B>(pair: (A, B)): A {\n    pair.0\n}\n\nexport fn main(): Result<(), Str> {\n    let ctx = context {\n        Alloc: host.alloc,\n        Stdout: host.stdout,\n    };\n    let pair = (restock(listing(\"apple\", 300), 12), \"shelf\");\n    let apple = first(pair);\n    let _ = ctx.println(edge(apple));\n    .Ok(())\n}\n"}}}
 # Every token in the file, in the protocol's relative encoding: five numbers a
 # token — line delta, character delta in UTF-16 units, length, type, modifiers.
 #
 # The legend the `initialize` reply above declares indexes those types:
 #   0 namespace  1 type       2 interface  3 enumMember  4 property
 #   5 function   6 method     7 variable   8 keyword     9 comment
-#   10 string    11 number    12 operator
-# and the modifier bits are 1 `declaration`, 2 `definition`, so 3 is a name
-# where it is written rather than where it is used.
+#   10 string    11 number    12 operator  13 typeParameter
+# and the modifier bits are 1 `declaration`, 2 `definition`, 4 `readonly` — so
+# 3 is a name where it is written rather than where it is used, and 4 is a use
+# of a module-level `let`.
 #
 # The first thirteen records, read out:
 #   0,0,71,9,0    line 0, the `//` comment, 71 units, `comment`
@@ -31,7 +32,11 @@
 # Further down: `edge` is 5 with modifiers 3 (a `function` where it is
 # declared), `price` is 4 (`property`), `Stock` is 1 (`type`), `OnHand` and the
 # `Ok` of `.Ok(())` are 3 (`enumMember`), and `label` and `println` are 6
-# (`method`) rather than 5, because both are reached through a value.
+# (`method`) rather than 5, because both are reached through a value. The `A`
+# and `B` of `fn first<A, B>` are 13 at their declarations and at their uses in
+# the signature; the `host` of `host.alloc` is 0, because the leading segment of
+# a qualified name is the module and not the constant it reaches; and `alloc`
+# itself is 7 with modifier 4, a module-level `let`.
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}}}
 # A range, over the trait declaration in a file no buffer holds. `Priced` is
 # `interface` with both modifier bits, and `cents` is `method` with them: the

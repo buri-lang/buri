@@ -35,3 +35,12 @@
 (test_declaration
   "test" @context
   name: (string_literal) @name) @item
+
+; An `impl` block holds the methods the outline already lists, and without an
+; entry of its own they hang under whatever came before it. The `for` half is
+; optional because an inherent `impl` has none.
+(impl_declaration
+  "impl" @context
+  type: (_) @name
+  ("for" @context
+   trait: (_) @name)?) @item

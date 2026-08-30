@@ -361,6 +361,12 @@ fn the_editor_integration_is_whole() {
         "editors/tree-sitter-buri/grammar.js",
         "editors/tree-sitter-buri/src/scanner.c",
         "editors/tree-sitter-buri/check.sh",
+        // The colour test and the one file it is about. `check.sh` runs it, so
+        // a rename that misses either presents as a check that quietly stops
+        // asserting anything.
+        "editors/tree-sitter-buri/check_highlighting.sh",
+        "editors/tree-sitter-buri/fixture/REPO.buri",
+        "editors/tree-sitter-buri/fixture/lib/reference/sections.buri",
         "editors/zed/extension.toml",
         "editors/zed/src/lib.rs",
         "editors/zed/languages/buri/config.toml",
