@@ -124,15 +124,6 @@ enum Slot {
     /// installed first — which is what makes reading a view one lookup rather
     /// than a walk.
     Fs { store: i64, read_only: bool },
-    /// `core/host/testing`'s `TestProc` — the code the first `exitWith` asked
-    /// for, and `None` where nothing exited.
-    ///
-    /// The one shape `core/testing/context` has no counterpart for, because it
-    /// has no `Proc` double at all. Everything else `core/host/testing` needs is
-    /// one of the variants above: a captured stream is a transcript whichever
-    /// module minted it, and one table with one shape per *state* beats one
-    /// table with one shape per module.
-    Proc { code: Option<i64> },
 }
 
 static TABLE: Mutex<Vec<Slot>> = Mutex::new(Vec::new());
@@ -2107,52 +2098,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
     unsafe { out.write(value) }
 }
 
-/// `proc()` — nothing has exited.
-///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_proc(out: *mut i64) {
-    let handle = install(Slot::Proc { code: None });
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
-
-/// `TestProc::exitWith` — **records** the exit rather than taking it.
-///
-/// A test that ended the process would take every block after it with it, and
-/// the runner would report a suite that stopped rather than a function that
-/// exited. The *first* code is kept, because a program that exits does not
-/// carry on and a second call is one a real process could never have made.
-#[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_testing_test_proc_exit_with(handle: i64, code: i64) {
-    with(handle, (), |slot| {
-        if let Slot::Proc { code: recorded } = slot {
-            if recorded.is_none() {
-                *recorded = Some(code);
-            }
-        }
-    });
-}
-
-/// `TestProc::exited` — `.Some(code)` or `.None`.
-///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_proc_exited(
-    handle: i64,
-    out: *mut i64,
-) -> i32 {
-    let code = with(handle, None, |slot| match slot {
-        Slot::Proc { code } => *code,
-        _ => None,
-    });
-    let Some(code) = code else { return 0 };
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(code) };
-    BURI_OK
-}
+// `core/host/testing`'s `proc()` has no entries here, and that is the whole of
+// the double: `TestProc` records nothing, because nothing can read it back.
+// `proc()` is `TestProc(0)` and `exitWith` is an empty body, both written in
+// `host_testing.buri` — the same shape `TestNet` has, reached for the plainer
+// reason.
 
 // ---------------------------------------------------------------------------
 // The runner's side of a native test binary
