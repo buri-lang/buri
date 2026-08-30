@@ -9,7 +9,8 @@ struct Route {
 
 from "//lib/money/cents" import { Cents, toDollars };
 
-fn route(n: I64): Route {
+fn route(n: I64): I64 {
   let spare = 7;
-  Route { id: toDollars(Cents(n)) }
+  let built = Route { id: toDollars(Cents(n)) };
+  built.id
 }

@@ -230,6 +230,19 @@ pub fn diagnostic(text: &str, d: &Diagnostic, uri: &str) -> Value {
     ];
     if let Some(code) = &d.code {
         fields.push(("code", Value::str(code)));
+        // `DiagnosticTag.Unnecessary` (LSP 3.17 §3.17.2.6, value 1): a finding
+        // about something the program does not need. A client that understands
+        // it greys the span out instead of underlining it, which is the right
+        // shape for "delete this" and the wrong one for "this is wrong".
+        //
+        // Which codes those are is the catalogue's answer rather than this
+        // file's (`lints::is_unnecessary`), so the warning the terminal prints
+        // and the dimming the editor draws cannot come to disagree. It is sent
+        // unconditionally: `tagSupport` is a client capability about rendering,
+        // and a client that does not declare it ignores an unknown field.
+        if crate::documentation::lints::is_unnecessary(code) {
+            fields.push(("tags", Value::Array(vec![Value::number(1)])));
+        }
     }
     if !related.is_empty() {
         fields.push(("relatedInformation", Value::Array(related)));
