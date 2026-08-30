@@ -1,11 +1,11 @@
-error: `JS` does not grant `ui` [host-not-granted]
-  --> cmd/counter/main.buri:28:14
+error: `WEB` does not grant `HostListen` [host-not-granted]
+  --> cmd/server_effects_granted_by_no_platform_on_web/main.buri:21:13
    |
-28 |     Ui: host.ui,
-   |              ^^
+21 |     Listen: host.HostListen {},
+   |             ^^^^^^^^^^^^^^^
    |
-   = a platform is the set of effects its host exports; the reactive graph drives a document, and only a page has one
-   = fix: drop `Ui` from the context, or build this target for a platform that grants it: WEB
+   = a platform is the set of effects its host exports; no platform accepts connections yet; `Listen` is declared so that the authority is split from `Net` before there is a server, and the acceptor that answers it lands with `core/net/server`
+   = fix: drop `Listen` from the context
 
      What to do
      ──────────
@@ -50,11 +50,11 @@ error: `JS` does not grant `ui` [host-not-granted]
      without one a snippet is checked with the whole host granted, because it
      builds no output.
 
-error: `JS` does not grant `watch` [host-not-granted]
-  --> cmd/counter/main.buri:29:17
+error: `WEB` does not grant `HostSockets` [host-not-granted]
+  --> cmd/server_effects_granted_by_no_platform_on_web/main.buri:22:14
    |
-29 |     Watch: host.watch,
-   |                 ^^^^^
+22 |     Sockets: host.HostSockets {},
+   |              ^^^^^^^^^^^^^^^^
    |
-   = a platform is the set of effects its host exports; reading the reactive graph is meaningless where nothing writes it
-   = fix: drop `Watch` from the context, or build this target for a platform that grants it: WEB
+   = a platform is the set of effects its host exports; writing to an open socket is granted with `Listen`, which no platform grants yet; a page neither accepts connections nor holds one to push on
+   = fix: drop `Sockets` from the context

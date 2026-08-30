@@ -165,6 +165,112 @@ export effect Tasks {
   fn parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B];
 }
 
+/// Accepting connections.
+///
+/// `Net` is "I make requests"; this is "I accept them", and they are two
+/// grants rather than one because they are two authorities. A program that
+/// fetches a URL has not thereby earned the right to hold a port open, and the
+/// difference is one a reader of a context should be able to see: `Net` in the
+/// list means the program talks to servers, `Listen` means it *is* one.
+///
+/// `Sockets` is the other half of the pair and is declared beside this one,
+/// because the two are granted together: a platform that accepts connections
+/// is a platform that can write back on them.
+///
+/// **What is fixed here is the authority, not the argument list.** `Tasks` is
+/// the other shape — `parallel` is what a program calls, so its signature was
+/// the expensive thing and it is pinned above. Nothing calls `listen`
+/// directly: `core/net/server` does, and a program hands *that* module a
+/// `Server` value carrying every knob. So the split of authority is the
+/// commitment here, and the parameters below are plumbing that grows a knob at
+/// a time as the runtime learns to honour one — which costs nothing while no
+/// platform grants the effect, because there is no caller anywhere to update.
+///
+/// The handler arrives as a parameter rather than as a capture, for
+/// `Tasks.parallel`'s reason: an effect-carrying value may be passed only as
+/// `self` or `ctx` (SPEC 10.6), so a request handler is *handed* what it needs
+/// and captures nothing effectful. What it is handed is `Self` — the type
+/// implementing this effect, which is the acceptor itself and not the context
+/// the call came through; those are two different types wherever the call goes
+/// through a `context` value, and telling them apart is what
+/// `semantics/expressions.rs`'s `implementing_ty` is for.
+///
+/// **No platform grants this yet.** `core/host` declares `HostListen` and
+/// `listen`, and the grant table gives them no platform at all, so every
+/// `Listen: host.listen` is refused today with the reason. The acceptor that
+/// answers it lands with `core/net/server`; granting it is then one row of
+/// that table rather than a new name a program has to be rewritten to use.
+export effect Listen {
+  /// Accepts connections on `address:port`, answers each request with
+  /// `onRequest`, and returns when the process is asked to shut down.
+  ///
+  /// Answering `.Ok(())` for "the server stopped" rather than never returning
+  /// is what keeps `serve` an ordinary call: a `main` that runs a server ends
+  /// by falling off the end of a function, not by being killed.
+  fn listen(
+    self,
+    address: Str,
+    port: Int,
+    onRequest: fn(Self, Request) => Response,
+  ): Result<(), NetError>;
+}
+
+/// Writing to a connection somebody else accepted.
+///
+/// A websocket is not a request and a response, so the authority to push on
+/// one is neither `Listen` nor `Net`. It is separate because it *outlives* the
+/// handler: a socket handle can be given to an actor and pushed to from there
+/// long after the request that opened it returned, and a context granted only
+/// `Listen` should not be able to do that.
+///
+/// **Every method here names the noun it acts on**, and that is a rule rather
+/// than a style. Method lookup through a context searches every bound effect
+/// and reports two matches as `ambiguous-trait-method` (`find_in_bounds`,
+/// `semantics/expressions.rs`), so an effect that claims a common verb makes
+/// that verb unusable for every effect bound beside it, and the language has
+/// no way to un-claim it afterwards. `Ui.read` and `Watch.read` are the
+/// shipped cautionary case: the two are meant to be bound together, and
+/// `ctx.read(id)` is ambiguous for everyone who does. A bare `send`, `write`
+/// or `close` here would have made the same mistake against `Stdout`, `Ui` and
+/// whatever a later effect wants. Claiming the `socket…` prefix costs six
+/// characters at the one call site there will ever be, and reserves a
+/// namespace instead of a word.
+///
+/// **The operations are declared, rather than this being a marker effect.** It
+/// is tempting to leave `Sockets` empty and used only as a bound, letting
+/// `core/net/server` hold the real operations as functions taking `C: Sockets`
+/// — the surface a program sees would be identical, since `send` and `close`
+/// are `Socket`'s methods either way. It would also be an authority hole. An
+/// effect is an ordinary interface and anyone may write a type satisfying it
+/// (SPEC 10.9), which is safe exactly because a hand-written `Stdout` writes
+/// nowhere; a hand-written `Sockets` satisfying a *marker* would be a key to
+/// operations somebody else implemented. So the operations go through the
+/// implementation, and a forged one forges only its own inert bodies.
+///
+/// A socket is an `Int` handle here and `core/net/server` wraps it in a
+/// `Socket`, which is the arrangement `Ui` already uses: the effect speaks in
+/// signal ids and `ui/signal` hands out `Signal<T>`. The close code is an
+/// `Int` for the same reason — `CloseReason` is an enum in the module above,
+/// and "wire codes never appear in Buri code" is a rule about the code people
+/// write, which is why the mapping lives one layer up from here.
+///
+/// **No platform grants this yet**, on `Listen`'s terms, with which it is
+/// granted and withheld together.
+export effect Sockets {
+  /// Enqueues a text frame. Never waits: the frame goes to the socket's
+  /// outbound buffer, and a socket whose buffer is full is closed rather than
+  /// its writer blocked.
+  fn socketSendText(self, socket: Int, text: Str): ();
+  /// Enqueues a binary frame, on `socketSendText`'s terms. Two operations
+  /// rather than one taking a payload, because they are two framings on the
+  /// wire and not one operation with a choice of argument.
+  fn socketSendBytes(self, socket: Int, body: [U8]): ();
+  /// Closes the socket, with the wire code and reason the far side is told.
+  /// A message sent afterwards is dropped rather than refused: the other end
+  /// may already be gone, so "did this arrive" was never answerable here.
+  fn socketClose(self, socket: Int, code: Int, reason: Str): ();
+}
+
 /// Declared here rather than in `core/fs` so that the effect signature above
 /// can name it without `core/effect` depending on a module that depends on it.
 export enum IoError {
