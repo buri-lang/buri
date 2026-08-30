@@ -1,0 +1,8 @@
+/// Adds one, badly.
+export fn f(a: Int): Int {
+  let b = a + 1
+  b
+}
+
+/// And this one is fine.
+export fn g(  a:Int ):Int { a }

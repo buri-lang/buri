@@ -1,0 +1,8 @@
+export fn broken(a: Int): Int {
+  let b = ;
+  b
+}
+
+export fn one(  a:Int ):Int { a }
+export fn two(  b:Int ):Int { b }
+export fn three(  c:Int ):Int { c }

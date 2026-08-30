@@ -1,0 +1,6 @@
+mkdir ok ok
+append ok ok sync ok ok
+log 010a0214
+checkpoint ok ok ok ok
+temporary-gone yes kept 1e
+remove ok again NotFound
