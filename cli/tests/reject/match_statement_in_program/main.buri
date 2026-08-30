@@ -1,0 +1,16 @@
+// EXPECT: an expression statement is legal only in a test source
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  match (1) {
+    1 => {
+      let _ = ctx.println("one");
+    },
+    _ => {
+      let _ = ctx.println("other");
+    },
+  };
+  .Ok(())
+}
