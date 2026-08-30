@@ -1023,6 +1023,10 @@ pub const ENTRIES: &[Entry] = &[
     // list flattened, and dropping a parameter because one implementation has
     // no use for it is exactly the kind of disagreement nothing diagnoses.
     //
+    // `proc` and `TestProc.exitWith` have no rows, for `TestNet.fetch`'s reason
+    // rather than the allocator's: both are Buri bodies, so no key reaches this
+    // table. `TestProc` records nothing because nothing can read it back.
+    //
     // `alloc` and `TestAlloc.allocate` are open-coded (`emit.rs`).
     Entry {
         key: "host_testing.stdout",
@@ -1285,24 +1289,6 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_testing_test_env_arguments",
         args: &[Arg::Scalar],
         ret: Ret::Out,
-    },
-    Entry {
-        key: "host_testing.proc",
-        symbol: "buri_rt_host_testing_proc",
-        args: &[],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "host_testing.TestProc.exitWith",
-        symbol: "buri_rt_host_testing_test_proc_exit_with",
-        args: &[Arg::Scalar, Arg::Scalar],
-        ret: Ret::Void,
-    },
-    Entry {
-        key: "host_testing.TestProc.exited",
-        symbol: "buri_rt_host_testing_test_proc_exited",
-        args: &[Arg::Scalar],
-        ret: Ret::Sum,
     },
 ];
 

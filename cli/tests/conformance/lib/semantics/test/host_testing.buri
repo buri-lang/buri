@@ -774,24 +774,17 @@ test "an environment holds what it was given and nothing else" {
 // proc
 // -----------------------------------------------------------------------------
 
-test "nothing has exited a fresh process" {
-  let p = proc();
-  assert.none(p.exited());
-}
-
-test "an exit is recorded rather than taken" {
-  let p = proc();
-  let ctx = context { Alloc: alloc(), Proc: p };
+test "an exit is absorbed rather than taken" {
+  let out = stdout();
+  let ctx = context { Alloc: alloc(), Proc: proc(), Stdout: out };
   stop(ctx, 2);
-  // The block is still running, which is the claim: a test that ended the
-  // process would have taken every block after this one with it.
-  assert.eq(assert.some(p.exited()), 2);
-}
-
-test "the first exit is the one that happened" {
-  let p = proc();
-  let ctx = context { Alloc: alloc(), Proc: p };
+  speak(ctx, "after the first");
   stop(ctx, 3);
-  stop(ctx, 4);
-  assert.eq(assert.some(p.exited()), 3);
+  speak(ctx, "after the second");
+  // The whole of the double: a test that ended the process would have taken
+  // every line below the first `stop` with it, and the rest of the suite as
+  // well. The transcript says neither happened. `proc()` has no reader, so
+  // the exit code is nowhere to be asserted on — carrying on *is* the claim,
+  // and two exits later this is still the block making it.
+  assert.eq(out.captured(), "[after the first]\n[after the second]\n");
 }

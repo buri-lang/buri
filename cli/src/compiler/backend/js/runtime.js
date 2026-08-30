@@ -3915,23 +3915,10 @@ function $host_testing_TestEnv_arguments(self) {
   return $slot(self).args.slice();
 }
 
-// Records the exit rather than taking it: a test that ended the process would
-// take every block after it with it. The *first* code is kept, because a
-// program that exits does not carry on.
-function $host_testing_proc() {
-  return $handle({ code: undefined });
-}
-
-function $host_testing_TestProc_exitWith(self, code) {
-  const s = $slot(self);
-  if (s.code === undefined) s.code = code;
-  return 0;
-}
-
-function $host_testing_TestProc_exited(self) {
-  const c = $slot(self).code;
-  return c === undefined ? undefined : $some(c);
-}
+// `proc()` has no function here and no slot: `TestProc` records nothing,
+// because nothing can read it back. `proc()` is `TestProc(0)` and `exitWith`
+// is an empty body, both written in `host_testing.buri` — the same shape
+// `TestNet` has, reached for the plainer reason.
 
 // --- core/testing/assert ------------------------------------------------------------
 //

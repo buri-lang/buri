@@ -33,6 +33,11 @@
 //! Buri body, and neither runtime table gains a row. `TestNet`'s own
 //! documentation has the two reasons in full.
 //!
+//! `TestProc` is the other type with no state, for the plainer reason: it has
+//! nothing to read back. `exitWith` absorbs the call so that a test which
+//! exits keeps running, and what a test asserts is what it does *after* the
+//! exit — so there is nothing left for the runner to hold, and no row either.
+//!
 //! ## `args`, and the one name that could not be the spelling it wants
 //!
 //! `Env` declares `arguments(self): [Str]` — the reader — and a type has one
@@ -40,6 +45,17 @@
 //! also be `arguments`. It is `args`, and it is the only place in this module
 //! where the name is not the one the design note asks for. Every other builder
 //! — `at`, `seed`, `variables`, `captured` — is spelled exactly as written.
+//!
+//! The method table is one map per type keyed by name alone
+//! (`semantics/types.rs`'s `methods`), and an `impl Env for TestEnv` method
+//! registers into it through the same call an inherent one does, so neither
+//! the arity nor the return type nor the `impl` it was written in separates
+//! the two. Behind that there is a second wall: both would mangle to the one
+//! key `host_testing.TestEnv.arguments`, and so to one C symbol, in each of the
+//! two runtime tables. **The reader is what would have to move** — `core/env`
+//! already spells it `args(ctx)` for a program, and `Env.arguments` is called
+//! nowhere else — and that is a rename of the effect surface rather than of
+//! this module.
 
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, IoError, Net, NetError, Proc, Rand, Region, Request,
@@ -326,19 +342,30 @@ impl TestEnv {
 
 // --- Process ------------------------------------------------------------------
 
-/// Records the exit rather than taking it. A test that ended the process would
+/// Absorbs the exit rather than taking it. A test that ended the process would
 /// take every block after it with it, and the runner would report a suite that
 /// stopped rather than a function that exited.
+///
+/// ## The double with nothing to read back
+///
+/// `proc()` has no readers, and that is the whole of it: what a test asserts
+/// about a function that exits is that the *test* carried on — which the
+/// assertions after the call say, and which no method on this type could say
+/// better. An exit code kept where nothing can read it would be state held for
+/// its own sake, so it is not held: `exitWith` absorbs the call and answers
+/// `()`.
+///
+/// That makes this the second double with no runner-side state and no row in
+/// either runtime table, for the plainer of `TestNet`'s two reasons. The handle
+/// names nothing, the way `TestAlloc`'s does — and, as both native backends say
+/// where they open-code that one, zero is as good a name as any.
 export struct TestProc(I64);
 impl Proc for TestProc {
-  fn exitWith(self, code: Int): ();
+  fn exitWith(self, code: Int): () {
+    let _ = code;
+  }
 }
-export fn proc(): TestProc;
 
-impl TestProc {
-  /// The code the first `exitWith` asked for, or `.None` where nothing exited.
-  ///
-  /// The first, not the last: a program that exits does not carry on, so a
-  /// second call is one a real process could never have made.
-  export fn exited(self): Option<Int>;
+export fn proc(): TestProc {
+  TestProc(0)
 }

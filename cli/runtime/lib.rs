@@ -42,9 +42,8 @@
 //!     digits of it;
 //!   * **the stateful half of `core/testing/context` and of
 //!     `core/host/testing`** ([`testing`]) — a captured stdout, a seeded
-//!     generator, a test clock, a fixture environment, a stdin that was handed
-//!     its lines, and a process that records its exit rather than taking it.
-//!     Every one of them is mutable process state outliving the expression
+//!     generator, a test clock, a fixture environment, and a stdin that was
+//!     handed its lines. Every one of them is mutable process state outliving the expression
 //!     that made it, which is why each implementation carries an `I64` handle
 //!     and puts the state on the runner's side; on JavaScript that side is
 //!     `runtime.js`'s `$t.h`, and here it is one table — one, not two, because
