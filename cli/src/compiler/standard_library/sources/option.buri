@@ -45,9 +45,27 @@ impl<T> Option<T> {
     }
   }
 
+  /// `map` where the function needs an effect. The capture rule (SPEC 10.6) is
+  /// why it takes `ctx` rather than letting the lambda close over one.
+  export fn mapCtx<U, C>(self, ctx: C, f: fn(C, T) => U): Option<U> {
+    match (self) {
+      .Some(v) => .Some(f(ctx, v)),
+      .None => .None,
+    }
+  }
+
   export fn andThen<U>(self, f: fn(T) => Option<U>): Option<U> {
     match (self) {
       .Some(v) => f(v),
+      .None => .None,
+    }
+  }
+
+  /// `andThen` for a continuation that needs an effect, as `result.andThenCtx`
+  /// is.
+  export fn andThenCtx<U, C>(self, ctx: C, f: fn(C, T) => Option<U>): Option<U> {
+    match (self) {
+      .Some(v) => f(ctx, v),
       .None => .None,
     }
   }
