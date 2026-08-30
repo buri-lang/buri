@@ -1,0 +1,25 @@
+error: "core/fs" has no member `appendBytes` [no-such-member]
+ --> cmd/namespace_member_missing/main.buri:8:14
+  |
+8 |   let _ = fs.appendBytes(ctx, "wal");
+  |              ^^^^^^^^^^^
+  |
+  = the module exports `IoError`, `exists`, `listDir`, `readText` and `writeText`
+  = fix: correct the member name, or check `buri docs core/fs`
+
+    What to do
+    ──────────
+
+    Correct the member name. The diagnostic lists what the module exports, and
+    offers the nearest of them when the name is a near miss.
+
+    Why
+    ───
+
+    fs in fs.appendBytes(...) is a namespace, not a value: it stands for the
+    module its import named, and what may be written after the dot is exactly
+    what that module exports. So the question the compiler can answer is about
+    the member, and answering it about the base instead — "there is nothing
+    named fs in scope" — sends a reader hunting for a missing import when the
+    import is the one part that was right.
+
