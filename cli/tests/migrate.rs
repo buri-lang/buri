@@ -39,9 +39,23 @@ mod migrate;
 use harness::{indent, repo_root, Scratch};
 use migrate::{plan, sources_under, Style};
 
-/// The packages design slice E7 moves. Named here rather than passed in, so
-/// that the idempotence sweep and the migration cannot drift apart.
-const PACKAGES: &[&str] = &["lib/data", "lib/collections"];
+/// The packages that have moved. Named here rather than passed in, so that the
+/// idempotence sweep and the migration cannot drift apart: a batch is finished
+/// when its packages are on this list and
+/// [`the_migrated_packages_have_nothing_left_to_rewrite`] still passes.
+const PACKAGES: &[&str] = &[
+    // E7, batch 1.
+    "lib/data",
+    "lib/collections",
+    // E9, batch 3.
+    "lib/text",
+    "lib/crypto",
+    "lib/calendar",
+    "lib/numbers",
+    "lib/memory",
+    "lib/canary",
+    "lib/codegen",
+];
 
 /// The corpus both halves work in.
 const CORPUS: &str = "cli/tests/conformance";
@@ -239,7 +253,9 @@ fn the_migrated_packages_have_nothing_left_to_rewrite() {
     let mut left = Vec::new();
     let mut checked = 0;
     for package in PACKAGES {
-        for rel in sources_under(&root.join(CORPUS), package) {
+        let sources = sources_under(&root.join(CORPUS), package);
+        assert!(!sources.is_empty(), "{package} has no sources; has it moved or been renamed?");
+        for rel in sources {
             let text = std::fs::read_to_string(root.join(CORPUS).join(&rel)).unwrap();
             let p = plan(&rel, &text);
             assert!(p.refused.is_none(), "{}", p.refused.unwrap());
@@ -249,7 +265,7 @@ fn the_migrated_packages_have_nothing_left_to_rewrite() {
             }
         }
     }
-    assert!(checked >= 8, "expected the two packages' sources, found {checked}");
+    assert!(checked >= 8, "expected {PACKAGES:?}'s sources, found {checked}");
     assert!(
         left.is_empty(),
         "the migration is not finished in {PACKAGES:?}:\n  {}",

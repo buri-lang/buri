@@ -91,6 +91,20 @@
 //! [`the_excluded_packages_are_excluded_for_the_stated_reason`] and move any
 //! row the narrowing lets in.
 //!
+//! Batch three — `lib/text`, `lib/crypto`, `lib/calendar`, `lib/numbers`,
+//! `lib/memory`, `lib/canary`, `lib/codegen` — is one that reaches excluded
+//! files, and **the table below is still unchanged**. Fifty-one sites across
+//! five files, every one of them `Alloc`, plus the two `lib/codegen` files that
+//! imported `alloc` from the old module and now import it from the new one.
+//! Seven of the nine files are already in the set; the two that are not —
+//! `numbers/floats.buri` and `text/json.buri` — are excluded for `core/math`'s
+//! transcendentals and for `num.U32.toChar` respectively, and neither reason
+//! was ever about the testing context.
+//! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run and
+//! agrees: both refusals still name what they always named. So the census is
+//! unchanged again, and this is the honest report of it rather than a row moved
+//! to look like progress.
+//!
 //! # The harness used to be the biggest exclusion, and it was never about the
 //! backend
 //!
@@ -235,6 +249,10 @@ const PACKAGES: &[Case] = &[
     // file was excluded is the thing this ledger records — but the pressure it
     // names is gone from that file, and from the other seven in `lib/data` and
     // `lib/collections`. See the migration paragraph in the module doc.
+    //
+    // `calendar/date.buri` no longer builds one either — batch three moved its
+    // five sites to `context { Alloc: alloc() }` — and the same applies: the
+    // reason above is why it *was* out.
     included("calendar/date.buri"),
     included("collections/bitset.buri"),
     // It was the one file the backend compiled and got *wrong*, and
