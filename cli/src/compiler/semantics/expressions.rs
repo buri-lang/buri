@@ -940,7 +940,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.call_fn(f, explicit, args, span, Some(recv), expected)
             }
             Some(MethodTarget::Bound(tid, index)) => {
-                self.call_trait_method(tid, index, recv, args, span, expected)
+                self.call_trait_method((tid, index), recv, args, explicit, span, expected)
             }
             None => {
                 self.report_no_method(&recv_ty, name, name_span);
@@ -1037,15 +1037,54 @@ impl<'a, 'b> Infer<'a, 'b> {
         found.map(|(t, i)| MethodTarget::Bound(t, i))
     }
 
-    fn call_trait_method(
+    /// The type arguments `x.f<A, B>(…)` supplies, as a whole trait-method
+    /// list.
+    ///
+    /// `TraitMethod.generics` is the trait's own generics followed by the
+    /// method's, flattened into one list (`resolve.rs`), because that is the
+    /// order `substitute` reads `Ty::Param` indices in. A call can only write
+    /// the method's tail — the trait's are settled by the receiver — so the
+    /// written list fills the tail and the prefix stays inferred, and a count
+    /// that disagrees is counted against the tail rather than against the
+    /// flattened list, which is the only number the reader could have written.
+    ///
+    /// `None` back means "infer everything", which is both the no-arguments
+    /// case and how a rejected list recovers.
+    fn trait_method_targs(
         &mut self,
         tid: TraitId,
-        index: usize,
+        generics: &[GenericInfo],
+        explicit: Option<Vec<Ty>>,
+        span: Span,
+    ) -> Option<Vec<Ty>> {
+        let explicit = explicit?;
+        let owner = self.c.tables.trait_(tid).generics.len();
+        let want = generics.len().saturating_sub(owner);
+        if explicit.len() != want {
+            self.templated("type-argument-mismatch", span)
+                .bind("expected", want.to_string())
+                .bind("found", explicit.len().to_string())
+                .mismatch(want.to_string(), explicit.len().to_string());
+            return None;
+        }
+        let mut targs: Vec<Ty> = (0..owner).map(|_| self.fresh(span)).collect();
+        targs.extend(explicit);
+        Some(targs)
+    }
+
+    /// `bound` is the trait and the position in its method list — one argument
+    /// because `resolve_method` answers with the pair, and neither half means
+    /// anything without the other.
+    fn call_trait_method(
+        &mut self,
+        bound: (TraitId, usize),
         recv: typed::Expr,
         args: &[ExprId],
+        explicit: Option<Vec<Ty>>,
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
+        let (tid, index) = bound;
         let method = self
             .c
             .tables
@@ -1057,7 +1096,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         let recv_ty = self.resolve(&recv.ty);
         // A trait method's own generics come after the trait's; the receiver
         // supplies `Self`.
-        let targs = self.instantiate(&method.generics, None, span);
+        let explicit = self.trait_method_targs(tid, &method.generics, explicit, span);
+        let targs = self.instantiate(&method.generics, explicit, span);
         let params: Vec<Ty> = method
             .params
             .iter()
