@@ -1,16 +1,17 @@
 //! The networking stack's seam — **the crates, and nothing that calls them.**
 //!
 //! `manifest.toml`'s `net` feature brings `tokio`, `hyper`, `rustls` and
-//! `tungstenite` into the runtime's dependency tree. This file is the whole of
-//! what references them, and what it does is name one type from each. No
-//! intrinsic key mangles to a symbol declared here (`runtime_native::symbol_for`
-//! is the rule, and `backend/runtime_table.rs` is the table); neither backend
+//! `tungstenite` into the runtime's dependency tree. This file names one type
+//! from each, which for three of them is still the whole of what references
+//! them; `tokio` is the exception, and `rt.rs` is where it went. No intrinsic
+//! key mangles to a symbol declared *here* (`runtime_native::symbol_for` is
+//! the rule, and `backend/runtime_table.rs` is the table); neither backend
 //! emits a call into this file; nothing in `core/` reaches it.
 //!
-//! That is deliberate and it is the entire slice. Bringing four crates into
-//! the archive that ships inside every `buri` binary is a decision with a
-//! measurable price, and the price is worth measuring *before* anything
-//! depends on the answer:
+//! That was deliberate and it was the whole of the slice that landed the four.
+//! Bringing crates into the archive that ships inside every `buri` binary is a
+//! decision with a measurable price, and the price was worth measuring
+//! *before* anything depended on the answer:
 //!
 //! ```text
 //! aarch64-apple-darwin, libburi_rt.a
@@ -21,10 +22,17 @@
 //! Twenty-four bytes, because `lto = "fat"` is whole-program across the
 //! dependency rlibs too and Rust code that nothing reaches does not reach the
 //! archive. `.github/scripts/assert-runtime-archive.sh` holds that claim in CI
-//! the direct way — it greps the archive's symbol table for the four crates'
-//! names and requires **none** — so the first slice that genuinely links one of
-//! them will have to move the assertion deliberately rather than discover the
-//! growth in a binary size six months later.
+//! the direct way — it greps the archive's symbol table for the crates' names
+//! and requires **none** — so a slice that genuinely links one of them has to
+//! move the assertion deliberately rather than discover the growth in a binary
+//! size six months later.
+//!
+//! **`tokio` has been moved off that list, once, deliberately.** `rt.rs` is the
+//! carrier runtime and `Clock::sleepMillis` and `Net::fetch` wait on it, which
+//! put the reactor and its timer wheel — 185 424 bytes on
+//! aarch64-apple-darwin — into the archive on purpose. The other three are
+//! still reached by nothing but the `size_of` below, and the same paragraph in
+//! that script is what the slice linking one of *them* has to rewrite.
 //!
 //! ## What the two entries below are for
 //!
@@ -39,7 +47,8 @@
 //! `snake_case`, `extern "C"`, scalar parameters and a scalar result. Nothing
 //! here allocates, so §3's ownership rules have nothing to say about it.
 
-/// The reactor, the timer wheel and the carrier pool — `tokio`.
+/// The reactor, the timer wheel and the carrier pool — `tokio`. The one bit
+/// whose crate is genuinely linked: `rt.rs` is what reaches it.
 pub const BURI_NET_TOKIO: i64 = 1 << 0;
 /// HTTP/1.1 and HTTP/2 framing — `hyper`.
 pub const BURI_NET_HYPER: i64 = 1 << 1;
