@@ -1,0 +1,18 @@
+error: expected a declaration, found a string literal [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_cents_c1917d/lib.buri:5:1
+  |
+5 | "core/str" from import * as str;
+  | ^^^^^^^^^^
+  |
+  = expected: a declaration
+  = actual: a string literal
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected a string literal, found `import` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_cents_c1917d/lib.buri:5:17
+  |
+5 | "core/str" from import * as str;
+  |                 ^^^^^^
+  |
+  = expected: a string literal
+  = actual: `import`
+  = fix: quote it, as in `"core/list"`
