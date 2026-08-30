@@ -14,9 +14,14 @@ people add to. The bar and the argument for each of its three clauses are in the
 root `Cargo.toml`, where somebody about to add a dependency will meet them; they
 are not restated here.
 
-What belongs here is what the bar admitted, and why each one clears it.
+What belongs here is what the bar admitted, and why each one clears it — and,
+since 2026-08-30, *which* of the two admitted sets admitted it. The bar is one
+sentence applied twice, because "a crate a contributor installs" and "a crate
+every user of this compiler ships inside their own binary" are not the same
+decision. The root `Cargo.toml` states both halves; §1.1 is the first and §1.1.1
+is the second.
 
-### 1.1 The admitted set
+### 1.1 The toolchain's admitted set
 
 | Crate | Feature | Why it clears the bar |
 |---|---|---|
@@ -38,6 +43,49 @@ copy-and-patch code generator is written in this repository, and the one thing
 it needs from outside is a host `cc` — a platform interface in exactly the sense
 the bar means, already required by the link step, and absent from the lockfile.
 §2 has what having it on costs.
+
+### 1.1.1 The runtime's admitted set, which is closed by an exact list
+
+`libburi_rt.a` is linked into every native binary this compiler produces, so a
+crate admitted to `cli/runtime/manifest.toml` is a crate admitted into
+strangers' programs. Same bar, one extra clause: the set is **closed by an exact
+list**, asserted as an equality by `dependencies_stay_behind_the_bar`, so that a
+fifth crate — and equally a removal — is a failing test rather than a review
+comment.
+
+| Crate | Feature | Why it clears the bar |
+|---|---|---|
+| `tokio` | `net` | The reactor and the timer wheel. `epoll` and `kqueue` behind one readiness API, per platform; getting it subtly wrong presents as a hang. |
+| `hyper` | `net` | HTTP/1.1 and HTTP/2 framing. `cli/runtime/http.rs` is a complete cleartext client, which is the easy half; HPACK, flow control and a correct server are not. |
+| `rustls` | `net` | TLS 1.2 and 1.3 — the crate `cli/runtime/http.rs`'s header named as the growth path when it refused `https://`. |
+| `tungstenite` | `net` | RFC 6455 framing and the handshake: a protocol with a specification and a conformance suite, not an algorithm. |
+
+`net` is **on by default**, which is the opposite of `backend-llvm` and for a
+reason the bar's third clause makes: turning `backend-llvm` off costs a release
+code generator a contributor can do without, while turning `net` off costs a
+*language capability*. So the degradation has to be a diagnostic naming the
+missing effect rather than a link error, which is why the toolchain learns the
+feature's state through `Backend::missing_intrinsics` instead of finding out at
+`cc` time.
+
+As of the slice that admitted them, **nothing references any of the four**.
+`cli/runtime/net.rs` names one type from each and exports two entries that
+answer "was this toolchain built with the networking stack"; no intrinsic key
+mangles to a symbol in that file. That is deliberate, and it is what makes the
+cost measurable before anything depends on the answer: on
+`aarch64-apple-darwin` the archive is 5 987 472 bytes with `net` off and
+5 987 496 with it on. Twenty-four bytes, because `lto = "fat"` is whole-program
+across the dependency rlibs and Rust code nothing reaches does not reach the
+archive.
+
+The one thing that would *not* be dropped is a dependency's **native** object
+code, which `rustc` bundles into a `staticlib` whether anything references it or
+not — measured at 842 544 bytes and twenty-four `.o` members for `rustls`'s
+obvious crypto provider, `ring`. So `rustls` is admitted with no provider, and
+picking one is the decision of the slice that makes `https://` work, where the
+bytes are bought rather than spent. `.github/scripts/assert-runtime-archive.sh`
+holds both halves in CI: a size budget, and a symbol table with none of the four
+crates in it.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 
@@ -170,22 +218,49 @@ entries.
 for the host by `cli/build.rs`:
 
 ```
-rustc --crate-type=staticlib --crate-name=buri_rt --edition 2024 \
-      -C opt-level=3 -C panic=abort -C debuginfo=0 -C lto=fat \
-      -C codegen-units=1 -C metadata=buri_rt -C extra-filename= \
-      --remap-path-prefix=<manifest dir>=. \
-      --target <host triple> -o $OUT_DIR/libburi_rt.a cli/runtime/lib.rs
+<assemble $OUT_DIR/rt-pkg from cli/runtime/: manifest.toml -> Cargo.toml,
+                                             manifest.lock -> Cargo.lock,
+                                             the .rs files beside them>
+cargo fetch --locked --offline --manifest-path $OUT_DIR/rt-pkg/Cargo.toml
+cargo rustc --release --lib --locked \
+      --manifest-path $OUT_DIR/rt-pkg/Cargo.toml \
+      --target <host triple> --target-dir $OUT_DIR/rt \
+      -- --remap-path-prefix==./runtime -Cmetadata=buri_rt -Cextra-filename=
 ```
 
 and `include_bytes!`-ed into the binary through
-`backend::runtime_native::ARCHIVE`. `rustc` is already required to build the
-toolchain, so this adds no tool; it is not a cargo dependency, so it adds nothing
-to the lockfile; and `--target <host triple>` names the one triple this build
-supports, which is why cross-compilation is refused rather than half-working
-(ARCHITECTURE.md §9).
+`backend::runtime_native::ARCHIVE`. `cargo` and `rustc` are already required to
+build the toolchain, so this adds no tool; it adds nothing to the *toolchain's*
+lockfile, because the runtime has one of its own; and `--target <host triple>`
+names the one triple this build supports, which is why cross-compilation is
+refused rather than half-working (ARCHITECTURE.md §9).
 
-The three flags past the obvious ones each fix something measured rather than
-guessed, on `aarch64-apple-darwin`:
+Three things about that shape are decisions rather than mechanics, and
+`cli/build.rs`'s header argues each in full:
+
+- **The package is assembled in `OUT_DIR` rather than checked in**, and its
+  manifest is `manifest.toml`. `cargo package` skips any subdirectory of a
+  package that holds a `Cargo.toml` — unconditionally, ahead of
+  `include`/`exclude` — so a manifest in `cli/runtime/` deletes the whole
+  directory from the published `buri` crate, and a `cargo install buri` from a
+  registry tarball then fails in the build script with no runtime to compile.
+  That regression is what this repairs; the assertion is
+  `.github/scripts/assert-package-ships-runtime.sh`.
+- **`cargo rustc --`, not `RUSTFLAGS`.** The three flags belong to the runtime
+  crate alone. Applied to the whole tree, an empty `-C extra-filename=` is a
+  collision the moment two versions of one crate appear — and two do:
+  `getrandom` 0.2 and 0.3 are both in the runtime's lockfile.
+- **A tree that cannot be *resolved* degrades; one that cannot be *compiled*
+  does not.** `cargo fetch --locked`, offline first, is the probe. It answers
+  the plane, the sandbox, and the stale lockfile with an empty archive, a
+  `cargo:warning` naming which, and a toolchain that still builds; a crate that
+  resolved and then failed to compile fails the build, because that is a broken
+  runtime rather than a missing one.
+
+The three settings past the obvious ones each fix something measured rather than
+guessed, on `aarch64-apple-darwin`. Two of them now live in the runtime's
+`[profile.release]`, where a reader looks for them, and the third stays on the
+command line because Cargo has no profile key for it:
 
 - **`-C lto=fat`.** A staticlib bundles the whole of `std`, and the archive is
   embedded in every `buri` binary. Without it the archive is 17.7 MB; with it,
@@ -283,8 +358,15 @@ is eight jobs. The three that this document is about:
   deliberately no leg without `clang`: it would be the same suite with the
   native tests silently skipped, and that is the one shape of green this
   workflow exists to refuse.
+  `.github/scripts/assert-runtime-archive.sh` is the same gate for the runtime
+  archive — non-empty, under a per-OS size budget, and carrying no symbol from
+  any of §1.1.1's four crates — and it runs on all four native jobs, `release`
+  included.
 - **`minimal`** — `cargo build -p buri --no-default-features` on
-  `ubuntu-latest`. It is the test that `cargo install buri` still works on a
+  `ubuntu-latest`, plus
+  `.github/scripts/assert-package-ships-runtime.sh`, which is the other half of
+  "`cargo install buri` works": the tarball has to carry what `cli/build.rs`
+  compiles. It is the test that `cargo install buri` still works on a
   machine carrying no LLVM, and it is a job rather than an assertion because
   "it builds without the optional system library" is only true if something
   builds it that way. The default-feature build needs no job of its own: every

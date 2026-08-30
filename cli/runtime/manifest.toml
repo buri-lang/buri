@@ -1,0 +1,159 @@
+# `libburi_rt.a`, the native runtime, as a package of its own.
+#
+# **This file is a Cargo manifest that is deliberately not named `Cargo.toml`,
+# and the reason is packaging.** `cargo package` skips any subdirectory of a
+# package that contains a `Cargo.toml` of its own — unconditionally, before
+# `include`/`exclude` are consulted, in both its git-driven and its
+# filesystem-driven file listers. A manifest here would therefore delete the
+# whole of `cli/runtime/` from the published `buri` crate: the sixteen sources
+# the archive is built from would not ship, and a `cargo install buri` from a
+# registry tarball would fail in `cli/build.rs` with nothing to compile.
+#
+# So the package is **assembled** rather than checked in: `cli/build.rs` copies
+# this file to `$OUT_DIR/rt-pkg/Cargo.toml`, `manifest.lock` beside it as
+# `Cargo.lock`, and the `.rs` files beside those, and builds *there*. Nothing
+# about the build changes — Cargo still runs `rustc` with the package root as
+# its working directory and the crate root as the relative path `lib.rs`, which
+# is what the `--remap-path-prefix` in `cli/build.rs` depends on — and
+# `cli/runtime/` becomes an ordinary directory of ordinary files that
+# `cargo package` ships like any other.
+#
+# What that costs is `cd cli/runtime && cargo build`, which no longer resolves.
+# The build has one driver and it is `cli/build.rs`; `BURI_RUNTIME_RELOCK=1
+# cargo build -p buri` is how the lockfile below is regenerated, and
+# `cli/build.rs`'s header is where the rest of the workflow is written down.
+#
+# ## The dependency bar, this side of it
+#
+# The bar is stated once, in the root `Cargo.toml`, and it is stated there in
+# two halves because there are two admitted sets: the **toolchain's**, which a
+# contributor installs, and the **runtime's**, which every user *ships*. This
+# is the second one, and the extra clause it carries is that the set is closed
+# by an exact list rather than by a habit — `dependencies_stay_behind_the_bar`
+# in `cli/tests/language/corpus.rs` asserts equality with that list, so a fifth
+# crate here is a failing test and not a review comment.
+[package]
+name = "buri-rt"
+version = "0.3.0"
+edition = "2024"
+description = "The Buri native runtime: the `buri_rt_*` symbols every native backend emits calls to."
+license = "MIT"
+repository = "https://github.com/buri-lang/buri"
+# Built from the checkout, never from a registry.
+publish = false
+
+[lib]
+# `buri_rt`, because the symbols are `buri_rt_*` and the archive is
+# `libburi_rt.a`; the two backends emit the name, so it is a contract rather
+# than a preference.
+name = "buri_rt"
+# The sources sit directly beside this file rather than under `src/`, because
+# they predate the manifest and moving sixteen files to gain a level of nesting
+# would be churn in every doc link and every git blame.
+path = "lib.rs"
+# A static library and nothing else: `build/link.rs` hands the archive to the
+# platform C driver alongside the objects the backend emitted.
+crate-type = ["staticlib"]
+
+# The runtime's admitted set, in full, and it is **closed**: these four and
+# nothing else, each optional, each behind the one feature below.
+#
+# Four crates for one capability — an asynchronous networking stack — which is
+# a platform interface in exactly the sense the root manifest's bar means, and
+# is the largest single thing in this design that the repository could not
+# reasonably write. Each clears all three clauses, and each is named for what it
+# is rather than for what it belongs to:
+#
+# * **`tokio`** — the reactor, the timer wheel and the carrier pool. `epoll` and
+#   `kqueue` behind one edge-triggered readiness API, per platform, is the whole
+#   of what a hand-written one would have to be, and getting it subtly wrong
+#   presents as a hang rather than as a failure.
+# * **`hyper`** — HTTP/1.1 and HTTP/2 framing. `cli/runtime/http.rs` is a
+#   complete cleartext HTTP/1.1 *client*, which is the easy half; a correct
+#   server, HPACK, flow control and connection management are not.
+# * **`rustls`** — TLS 1.2 and 1.3. `http.rs`'s header has said since it was
+#   written that TLS is the shape of problem the bar exists for, and this is
+#   the crate it named.
+# * **`tungstenite`** — RFC 6455 framing and the handshake, which is a
+#   protocol with a specification and a test suite rather than an algorithm.
+#
+# **Referenced by nothing, and that is this slice.** No intrinsic key reaches
+# any of them yet — `net.rs` names one type from each and stops — so what the
+# archive gains is *nothing that runs*. Measured, aarch64-apple-darwin:
+# 5 987 472 bytes with `net` off, 5 987 496 with it on. Twenty-four bytes, and
+# the reason is that `lto = "fat"` below is whole-program over the dependency
+# rlibs as well: Rust code nothing reaches is not in the archive.
+#
+# The one thing that would *not* be dropped is a dependency's **native**
+# object code, which `rustc` bundles into a `staticlib` whether anything
+# references it or not. That is why `rustls` is here with
+# `default-features = false` and **no crypto provider**: the obvious one,
+# `ring`, adds twenty-four `.o` members of C and AArch64 assembly and
+# 842 544 bytes to every `buri` binary for a capability nothing can call yet,
+# and it makes a host C compiler a *requirement* of the runtime build where
+# today it is only a requirement of the stencil library — which would turn
+# `cli/build.rs`'s "degrades rather than breaks" into "breaks". Choosing a
+# provider is C7's decision, taken where `https://` actually starts working
+# and where the size is bought rather than spent.
+#
+# One line each, deliberately: `dependencies_stay_behind_the_bar` reads this
+# file with a hand-rolled line scanner rather than a TOML crate — a test that
+# needed a crate to check that the crates are the agreed ones would be its own
+# counterexample — so "a dependency is a line" is a property this file owes it.
+[dependencies]
+tokio = { version = "1", optional = true, default-features = false, features = ["rt-multi-thread", "net", "time", "io-util", "sync"] }
+hyper = { version = "1", optional = true, default-features = false, features = ["client", "server", "http1"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12"] }
+tungstenite = { version = "0.30", optional = true, default-features = false, features = ["handshake"] }
+
+# One feature, on by default, and the default is the point: a `cargo install
+# buri` gets a toolchain whose runtime *can* speak the network, because a
+# toolchain that could not would make `Net` a build-flag question for every
+# user rather than a capability question for every program.
+#
+# Off, the four crates resolve to nothing and the archive is the one this
+# repository had before this slice. `cli/build.rs` reads `BURI_RUNTIME_NET=0`
+# and passes `--no-default-features`, which is how the two numbers above were
+# measured and how a host that cannot fetch a dependency tree can still get a
+# real archive by hand.
+[features]
+default = ["net"]
+net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:tungstenite"]
+
+# The flags that used to be spelled out in `cli/build.rs`'s `rustc` command
+# line, in the one place a `cargo build --release` reads them from. Each is a
+# decision rather than a default:
+#
+# * `lto = "fat"` is a **size** decision, not a speed one, and the size is
+#   embedded in every `buri` binary: measured on aarch64-apple-darwin, 17.7 MB
+#   without it and 6.0 MB with, for about 2.6 seconds of build time once per
+#   toolchain build. It is whole-program across the runtime, the copy of `std`
+#   a staticlib bundles, *and* — since this slice — the four dependency rlibs,
+#   which is what makes an unreferenced networking stack cost twenty-four
+#   bytes instead of a megabyte.
+# * `panic = "abort"` because an abort in this language is a write to standard
+#   error and an exit, never an unwind (SPEC 6.10), so the unwinder tables
+#   would be dead weight in every artifact.
+# * `codegen-units = 1` and `debug = 0` are reproducibility and size: one unit
+#   removes the parallel-codegen non-determinism that `--check-reproducible`
+#   would otherwise catch as a byte difference between two builds of the same
+#   tree, and there is no debugger that steps into this archive.
+# * `strip = "none"` pins what Cargo would otherwise infer from `debug = 0`,
+#   which is `strip = "debuginfo"`. There is no debug info to strip, so it
+#   changes nothing about the archive's contents — it is pinned so that a
+#   Cargo whose inference changes cannot silently change the archive's bytes.
+#
+# `opt-level = 3` is `release`'s own default and is left to it.
+[profile.release]
+lto = "fat"
+panic = "abort"
+codegen-units = 1
+debug = 0
+strip = "none"
+
+# Its own workspace root. The assembled package lands under `target/`, which is
+# inside the toolchain's own workspace directory, so without this table Cargo
+# would walk up from `$OUT_DIR/rt-pkg` and attach the runtime to the workspace
+# it must not be part of — taking the workspace's `[profile.release]` with it
+# and reaching for a target-dir lock the outer `cargo` is holding.
+[workspace]
