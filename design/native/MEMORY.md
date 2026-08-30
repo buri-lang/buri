@@ -446,10 +446,10 @@ priced.
 
 ### 5.5 The same opportunity in JavaScript, without a count
 
-Everything above is the native branch. JavaScript is garbage collected, `rc`
-does not run for it (`middle/mod.rs`'s pipeline), and so `$list_push` was
-`xs.slice()` and a `push` — O(n) per call, and O(n²) for the loop that is the
-most ordinary thing a program does with a list. The same functional update that
+Everything above is the native branch. JavaScript is garbage collected, so `rc`
+did not run for it at all, and `$list_push` was `xs.slice()` and a `push` — O(n)
+per call, and O(n²) for the loop that is the most ordinary thing a program does
+with a list. The same functional update that
 costs a bump pointer natively cost a full copy per iteration on the backend that
 defines the language.
 

@@ -899,3 +899,27 @@ test "an accumulator grown in a loop answers what a copy would" {
   assert.eq(assert.some(xs.get(0)), 0);
   assert.eq(assert.some(xs.get(39)), 39);
 }
+
+// A fresh aggregate can only hold aliases that were already marked on the way
+// in, which is what makes reading a field back out of a dying one safe.
+test "a list zipped into a fresh pair is not written through" {
+  let ctx = Hermetic();
+  let inner = [1].concat(ctx, [2]);
+  let outer = list.empty<[Int]>().push(ctx, inner);
+  let pairs = outer.zip(ctx, [10]);
+  let grown = outer.mapCtx(ctx, fn(c, xs: [Int]) => xs.push(c, 9));
+  assert.eq(pairs.len(), 1);
+  assert.eq(assert.some(grown.get(0)), [1, 2, 9]);
+  assert.eq(assert.some(outer.get(0)), [1, 2]);
+}
+
+// A list held in a tuple built beside a use of it.
+test "a list put into a tuple beside another use of it is not written through" {
+  let ctx = Hermetic();
+  let xs = [1].concat(ctx, [2]);
+  let pair = (xs, xs.len());
+  let grown = pair.0.push(ctx, 3);
+  assert.eq(grown, [1, 2, 3]);
+  assert.eq(xs, [1, 2]);
+  assert.eq(pair.1, 2);
+}
