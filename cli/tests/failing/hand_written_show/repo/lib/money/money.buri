@@ -1,3 +1,4 @@
+from "core/effect/lib.buri" import { Alloc };
 from "core/order/lib.buri" import { Show };
 
 derive Eq for Money;
@@ -7,12 +8,15 @@ export struct Money {
     export cents: Int,
 }
 
+/// The signature is `Show`'s: rendering allocates, so `show` takes an `Alloc`
+/// context whether the body uses it or not. An `impl` supplies the signature
+/// its trait declares.
 impl Show for Money {
-    fn show(self): Str {
+    fn show<C: Alloc>(self, ctx: C): Str {
         "Money(hand written)"
     }
 }
 
-export fn render(m: Money): Str {
-    m.show()
+export fn render<C: Alloc>(ctx: C, m: Money): Str {
+    m.show(ctx)
 }

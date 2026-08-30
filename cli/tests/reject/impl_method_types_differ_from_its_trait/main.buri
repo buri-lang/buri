@@ -1,0 +1,30 @@
+// EXPECT: `label` does not have the signature `Describe` declares
+//
+// The two halves of a signature that are not counts: a parameter type and a
+// return type. `label` takes an `Int` where `Describe` declared a `Str`, and
+// `size` answers a `Str` where it declared an `Int`.
+//
+// Each is reported where it was written — the parameter, and the written
+// return type — rather than both at the method's name, so a long signature
+// says which line to edit.
+//
+// The bodies are constants so that the only thing reported is the
+// disagreement between the two declarations.
+struct Point { export x: Int }
+
+trait Describe {
+  fn label(self, prefix: Str): Str;
+  fn size(self): Int;
+}
+
+impl Describe for Point {
+  fn label(self, prefix: Int): Str { "point" }
+  fn size(self): Str { "small" }
+}
+
+export fn main(): Result<(), Str> {
+  let point = Point { x: 1 };
+  let _ = point.label(2);
+  let _ = point.size();
+  .Ok(())
+}
