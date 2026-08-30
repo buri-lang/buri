@@ -12,6 +12,7 @@ from "//lib/semantics/lib.buri" import {
   Meters, Count, Delta,
   Backwards, Suit, rank, declIndex, Loose, Percent,
   Brick, Feather, totalGrams, heaviest, heavyLabel, weighAndShow,
+  Scale, Offset, relayScaled, relayTwice, relayAll,
 };
 
 // -----------------------------------------------------------------------------
@@ -362,6 +363,41 @@ test "a bound of mine and a bound from core/order together" {
 test "a trait method inside a lambda inside a bounded generic" {
   assert.eq(totalGrams([Feather { count: 1 }]), 1);
   assert.eq(totalGrams(list.empty<Feather>()), 0);
+}
+
+// -----------------------------------------------------------------------------
+// `Self` written into a parameter type (SPEC 5.12)
+// -----------------------------------------------------------------------------
+//
+// `Relay` declares `done: fn(Self, Int) => Int`, and both `impl`s write `Self`
+// rather than naming their own type. The receiver handed to the callback is
+// therefore a value whose type came out of the `impl` head, and every
+// assertion here reads a *field* of it: a `Self` that stayed abstract past the
+// front end has no fields to read and no size to pass, which on a native
+// backend is a zero-sized argument and a wrong answer rather than a refusal.
+
+test "a callback whose parameter type is written Self receives the receiver" {
+  assert.eq(relayScaled(Scale { factor: 10 }, 3), 40);
+}
+
+test "the receiver a Self callback is handed carries its fields" {
+  assert.eq(relayScaled(Scale { factor: 1 }, 0), 1);
+  assert.eq(relayScaled(Scale { factor: 7 }, 6), 49);
+}
+
+test "a Self callback reaches the trait again through the value it is given" {
+  assert.eq(relayTwice(Scale { factor: 2 }, 5), 22);
+  assert.eq(relayTwice(Offset { by: 4 }, 5), 17);
+}
+
+test "a second implementation writes Self for its own type" {
+  assert.eq(Offset { by: 4 }.relay(6, fn(back, value) => value + back.by), 14);
+}
+
+test "a Self callback applied once per element of a list" {
+  let ctx = Hermetic();
+  assert.eq(relayAll(ctx, [Scale { factor: 2 }, Scale { factor: 3 }], 4), [10, 15]);
+  assert.eq(relayAll(ctx, list.empty<Scale>(), 4), list.empty<Int>());
 }
 
 test "area matches on all three payload shapes" {

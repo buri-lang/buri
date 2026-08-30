@@ -42,9 +42,9 @@
 //! * **[`Plan::funcs`] is indexed by `FuncIdx`**, one [`FuncPlan`] per entry in
 //!   `Program::funcs`.
 //! * **[`FuncPlan::facts`] fills [`ir::Facts`]** — the ownership column, the
-//!   purity fixpoint and `can_abort` — which `lower` copies onto `ir::Func`
-//!   rather than recomputing. `Facts` documents these as conservative out of
-//!   `lower` alone; this pass is what makes them exact.
+//!   purity fixpoint, `can_abort` and `can_park` — which `lower` copies onto
+//!   `ir::Func` rather than recomputing. `Facts` documents these as
+//!   conservative out of `lower` alone; this pass is what makes them exact.
 //! * **[`FuncPlan::sites`] is keyed by [`NodeId`]**, and a `NodeId` is *the
 //!   index of an expression in `typed::walk`'s pre-order over the function
 //!   body*, counting from zero at the body itself. [`preorder`] is that
@@ -81,10 +81,10 @@
 //!
 //! # What is proved and what is assumed
 //!
-//! **Landed.** Own/borrow inference; purity and `can_abort`; the insertion plan
-//! — incref on a duplicating or capturing use, decref at last use, a drop at
-//! the entry of a branch that does not use a live value, a drop at function
-//! entry for an owned parameter nothing reads.
+//! **Landed.** Own/borrow inference; purity, `can_abort` and `can_park`; the
+//! insertion plan — incref on a duplicating or capturing use, decref at last
+//! use, a drop at the entry of a branch that does not use a live value, a drop
+//! at function entry for an owned parameter nothing reads.
 //!
 //! **Analysis only, and deliberately so.** [`FuncPlan::reuse`] pairs a dying
 //! value with a construction in the same arm (MEMORY.md §5.3's "same basic
@@ -285,6 +285,12 @@ pub struct FuncPlan {
     pub params: Vec<ir::Ownership>,
     pub purity: ir::Purity,
     pub can_abort: bool,
+    /// Whether this instantiation, or anything it calls, can reach a host
+    /// operation that blocks — see [`suspends`]. Nothing reads it yet; it is
+    /// computed here because this is the pass that already walks the call
+    /// graph, and because the answer is per *instantiation* rather than per
+    /// source function, which is the only place it is worth asking.
+    pub can_park: bool,
     /// Sorted by `(node, position)`, and stable within one key.
     pub sites: Vec<Site>,
     pub reuse: Vec<Reuse>,
@@ -300,13 +306,14 @@ pub struct FuncPlan {
 
 impl Default for FuncPlan {
     /// What a function nothing is known about gets: every parameter owned,
-    /// effectful, and abort-capable — the conservative row `ir::Facts`
-    /// describes.
+    /// effectful, abort-capable and park-capable — the conservative row
+    /// `ir::Facts` describes.
     fn default() -> FuncPlan {
         FuncPlan {
             params: Vec::new(),
             purity: ir::Purity::Effectful,
             can_abort: true,
+            can_park: true,
             sites: Vec::new(),
             reuse: Vec::new(),
             unclassified: Vec::new(),
@@ -316,13 +323,14 @@ impl Default for FuncPlan {
 }
 
 impl FuncPlan {
-    /// The three columns `ir::Facts` wants, so `lower` copies rather than
+    /// The four columns `ir::Facts` wants, so `lower` copies rather than
     /// recomputes.
     pub fn facts(&self) -> ir::Facts {
         ir::Facts {
             params: self.params.clone(),
             purity: self.purity,
             can_abort: self.can_abort,
+            can_park: self.can_park,
         }
     }
 
@@ -743,7 +751,7 @@ pub fn sharing(program: &Program) -> Plan {
 /// 2 hands in a `middle::layout`-backed classifier.
 pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> Plan {
     let ownership = infer_ownership(program, counted, opts);
-    let (purity, can_abort) = infer_effects(program);
+    let (purity, can_abort, can_park) = infer_effects(program);
     let mut funcs: Vec<FuncPlan> = Vec::with_capacity(program.funcs.len());
     for (i, f) in program.funcs.iter().enumerate() {
         let params = ownership.get(i).cloned().unwrap_or_default();
@@ -751,6 +759,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             params,
             purity: purity.get(i).copied().unwrap_or(ir::Purity::Effectful),
             can_abort: can_abort.get(i).copied().unwrap_or(true),
+            can_park: can_park.get(i).copied().unwrap_or(true),
             sites: Vec::new(),
             reuse: Vec::new(),
             unclassified: Vec::new(),
@@ -1113,7 +1122,7 @@ fn tails(e: &Expr) -> Vec<&Expr> {
 }
 
 // ---------------------------------------------------------------------------
-// Purity and abortability, the other two columns of `ir::Facts`
+// Purity, abortability and parkability, the other three columns of `ir::Facts`
 // ---------------------------------------------------------------------------
 
 /// The intrinsics this compiler knows the effect of. Everything else is
@@ -1135,6 +1144,32 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
     }
 }
 
+/// Whether an intrinsic key names a host operation that **blocks**: the call
+/// does not return until something outside this program — a disk, a socket, a
+/// clock, a terminal — is ready.
+///
+/// This is the seed of the `can_park` column, and it is a list of *keys*
+/// rather than of effects on purpose. `Fs` is an effect; `host.HostFs` and
+/// `testing_context.MemFs` are two implementations of it, and only the first
+/// one waits. A per-instantiation answer can tell them apart because they are
+/// different `Func` slots, and that difference is the whole point of asking
+/// the question here rather than at the signature.
+///
+/// Everything absent is *not* suspending, so an omission is the direction that
+/// costs correctness rather than performance. That is why the whole
+/// `host.HostFs` surface is in by prefix rather than method by method, and why
+/// a new blocking host operation belongs here on the day it is added.
+fn suspends(key: &str) -> bool {
+    key.starts_with("host.HostFs.")
+        || matches!(
+            key,
+            "host.HostNet.fetch"
+                | "host.HostClock.sleepMillis"
+                | "host.HostStdin.readLine"
+                | "host.HostStdin.readBytes"
+        )
+}
+
 fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
     let rank = |p: ir::Purity| match p {
         ir::Purity::Pure => 0u8,
@@ -1148,8 +1183,15 @@ fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
     }
 }
 
-/// Purity and abortability, both fixpoints over the same exact call graph.
-fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
+/// Purity, abortability and parkability: three fixpoints over the same exact
+/// call graph, computed in one iteration because they are the same walk.
+///
+/// The graph is the *post-monomorphization* one, so every column is per
+/// instantiation. `can_park` is the one that needs that: `fs.readText` at a
+/// context binding `host.HostFs` and `fs.readText` at one binding
+/// `testing_context.MemFs` are two `Func` slots reached from two `Key::Fn`
+/// entries, and only the first reaches a call that waits.
+fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>, Vec<bool>) {
     let mut purity: Vec<ir::Purity> = program
         .funcs
         .iter()
@@ -1166,6 +1208,16 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
         .iter()
         .map(|f| matches!(f.kind, FuncKind::Unbuilt | FuncKind::Intrinsic(_)))
         .collect();
+    // An unbuilt body is lowered to an abort, which is the one thing that
+    // certainly does not wait, so only a suspending intrinsic seeds `true`.
+    let mut parks: Vec<bool> = program
+        .funcs
+        .iter()
+        .map(|f| match &f.kind {
+            FuncKind::Intrinsic(key) => suspends(key),
+            FuncKind::Unbuilt | FuncKind::Body(_) => false,
+        })
+        .collect();
     let mut changed = true;
     while changed {
         changed = false;
@@ -1173,14 +1225,17 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
             let Some(body) = f.body() else { continue };
             let mut p = ir::Purity::Pure;
             let mut a = false;
+            let mut k = false;
             typed::walk(body, &mut |e| match &e.kind {
                 ExprKind::CallFn { func, .. } => {
                     if let Some(c) = func.func() {
                         p = worse(p, purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful));
                         a = a || aborts.get(c.index()).copied().unwrap_or(true);
+                        k = k || parks.get(c.index()).copied().unwrap_or(true);
                     } else {
                         p = ir::Purity::Effectful;
                         a = true;
+                        k = true;
                     }
                 }
                 // A jump into another function's loop is a call, and one
@@ -1188,14 +1243,19 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
                 ExprKind::Continue { func: Some(c), .. } => {
                     p = worse(p, purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful));
                     a = a || aborts.get(c.index()).copied().unwrap_or(true);
+                    k = k || parks.get(c.index()).copied().unwrap_or(true);
                 }
                 // An indirect call reaches a code pointer this pass cannot
                 // name, so it is whatever the worst function in the program is.
                 ExprKind::CallValue { .. } | ExprKind::CallTrait { .. } => {
                     p = ir::Purity::Effectful;
                     a = true;
+                    k = true;
                 }
-                ExprKind::Intrinsic { name, .. } => p = worse(p, intrinsic_purity(name)),
+                ExprKind::Intrinsic { name, .. } => {
+                    p = worse(p, intrinsic_purity(name));
+                    k = k || suspends(name);
+                }
                 ExprKind::CtxGet { .. } | ExprKind::CtxLit { .. } | ExprKind::CtxCall { .. } => {
                     p = ir::Purity::Effectful;
                 }
@@ -1211,18 +1271,27 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
                 }
                 _ => {}
             });
-            if purity.get(i).copied() != Some(p) || aborts.get(i).copied() != Some(a) {
+            // A function that *is* a suspending intrinsic has no body and is
+            // never reached here; one with a body starts at `false` and only
+            // ever climbs, so the seed is not lost.
+            if purity.get(i).copied() != Some(p)
+                || aborts.get(i).copied() != Some(a)
+                || parks.get(i).copied() != Some(k)
+            {
                 if let Some(slot) = purity.get_mut(i) {
                     *slot = p;
                 }
                 if let Some(slot) = aborts.get_mut(i) {
                     *slot = a;
                 }
+                if let Some(slot) = parks.get_mut(i) {
+                    *slot = k;
+                }
                 changed = true;
             }
         }
     }
-    (purity, aborts)
+    (purity, aborts, parks)
 }
 
 // ---------------------------------------------------------------------------
@@ -2417,7 +2486,7 @@ fn construction(body: &Expr) -> Option<usize> {
 mod tests {
     use super::*;
     use crate::compiler::middle::monomorphize;
-    use crate::diagnostics::{Diagnostics, SourceMap};
+    use crate::diagnostics::{Diagnostics, SourceMap, Span};
 
     fn compile(src: &str) -> Program {
         let mut map = SourceMap::new();
@@ -4111,5 +4180,243 @@ export fn main(): Result<(), Str> {
             program.funcs.iter().map(|f| format!("{:?}", f.body())).collect();
         assert_eq!(before, after);
         assert_eq!(plan.funcs.len(), program.funcs.len());
+    }
+
+    // -- the `can_park` column ----------------------------------------------
+    //
+    // Hand-built programs rather than snippets, because the question is about
+    // two *instantiations* of one source function and a snippet cannot put
+    // them side by side without dragging the whole hermetic test context in
+    // with them. What monomorphization guarantees, and what these stand in
+    // for: a `Key::Fn(id, targs)` per context, one `Func` slot each, and the
+    // callee of every `CallFn` already a `FuncIdx`.
+
+    fn parked(program: &Program) -> Vec<bool> {
+        let (_, _, parks) = infer_effects(program);
+        parks
+    }
+
+    fn intrinsic_func(name: &str, key: &str) -> Func {
+        Func {
+            symbol: name.to_string(),
+            debug_name: name.to_string(),
+            params: Vec::new(),
+            locals: Vec::new(),
+            kind: FuncKind::Intrinsic(key.to_string()),
+            ret: Ty::Unit,
+            desc: None,
+            span: Span::default(),
+        }
+    }
+
+    fn body_func(name: &str, body: Expr) -> Func {
+        Func {
+            symbol: name.to_string(),
+            debug_name: name.to_string(),
+            params: Vec::new(),
+            locals: Vec::new(),
+            kind: FuncKind::Body(body),
+            ret: Ty::Unit,
+            desc: None,
+            span: Span::default(),
+        }
+    }
+
+    fn call_to(to: u32) -> Expr {
+        Expr::new(
+            ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(to)), args: Vec::new() },
+            Ty::Unit,
+            Span::default(),
+        )
+    }
+
+    /// A body that calls each of these in turn.
+    fn calls(to: &[u32]) -> Expr {
+        Expr::new(
+            ExprKind::Tuple(to.iter().map(|t| call_to(*t)).collect()),
+            Ty::Unit,
+            Span::default(),
+        )
+    }
+
+    fn hand_built(funcs: Vec<Func>) -> Program {
+        Program {
+            funcs,
+            roots: monomorphize::ProgramRoots::Main(FuncIdx(0)),
+            descriptors: Vec::new(),
+            desc_modules: Vec::new(),
+            desc_index: HashMap::default(),
+            ctx_layouts: HashMap::default(),
+            shapes: Default::default(),
+            stylesheet: String::new(),
+            inline_styles: false,
+            themes: false,
+        }
+    }
+
+    /// Naive iteration has to go round a cycle more than once, and a cycle
+    /// that reaches nothing blocking has to *stay* at `false` rather than
+    /// climbing because it is a cycle.
+    #[test]
+    fn parkability_is_a_fixpoint_across_a_cycle() {
+        // 0 main -> 1 and 5; 1 <-> 2, and 2 -> 3 -> 4, the blocking intrinsic.
+        // 5 <-> 6 is a second cycle, reaching only 7, which does not block.
+        let program = hand_built(vec![
+            body_func("main", calls(&[1, 5])),
+            body_func("a", calls(&[2])),
+            body_func("b", calls(&[1, 3])),
+            body_func("c", calls(&[4])),
+            intrinsic_func("readFile", "host.HostFs.readFile"),
+            body_func("x", calls(&[6])),
+            body_func("y", calls(&[5, 7])),
+            intrinsic_func("nowMillis", "host.HostClock.nowMillis"),
+        ]);
+        assert_eq!(
+            parked(&program),
+            vec![true, true, true, true, true, false, false, false],
+            "the blocking half is `true` all the way back to `main`, and reading \
+             the clock does not make the other half wait"
+        );
+    }
+
+    /// The case the column exists for: one source function, two contexts, two
+    /// answers.
+    ///
+    /// `fs.readText<C: Alloc + Fs>` at a context binding `host.HostFs` reaches
+    /// a call that waits on a disk; the same source at the hermetic test
+    /// context reaches `testing_context.MemFs`, which is a page of memory.
+    /// Monomorphization has already made them two `Func` slots, so the
+    /// fixpoint separates them with no further analysis.
+    #[test]
+    fn one_source_function_at_two_contexts_gets_two_answers() {
+        let program = hand_built(vec![
+            body_func("main", calls(&[1, 2])),
+            body_func("fs:readText<HostFs>", calls(&[3])),
+            body_func("fs:readText<MemFs>", calls(&[4])),
+            intrinsic_func("HostFs.readFile", "host.HostFs.readFile"),
+            intrinsic_func("MemFs.readFile", "testing_context.MemFs.readFile"),
+        ]);
+        let parks = parked(&program);
+        assert!(parks[1], "`readText` at `host.HostFs` waits on the disk");
+        assert!(!parks[2], "`readText` at the test context reaches only memory");
+        assert!(parks[0], "and a caller of both waits, because one half of it does");
+    }
+
+    /// Every key in the seed list, and the near misses beside them: reading
+    /// the clock is not sleeping on it, and the whole `HostFs` surface is in
+    /// by prefix rather than by enumeration.
+    #[test]
+    fn the_seed_list_is_the_blocking_host_calls_and_nothing_else() {
+        for key in [
+            "host.HostFs.readFile",
+            "host.HostFs.writeFile",
+            "host.HostFs.syncFile",
+            "host.HostNet.fetch",
+            "host.HostClock.sleepMillis",
+            "host.HostStdin.readLine",
+            "host.HostStdin.readBytes",
+        ] {
+            assert!(suspends(key), "{key} blocks");
+        }
+        for key in [
+            "host.HostClock.nowMillis",
+            "host.HostStdout.println",
+            "host.HostRand.nextInt",
+            "testing_context.MemFs.readFile",
+            "testing_context.TestClock.sleepMillis",
+            "derivePrimHash",
+        ] {
+            assert!(!suspends(key), "{key} does not block");
+        }
+    }
+
+    /// An indirect call reaches a code pointer this pass cannot name, so it is
+    /// `true` — the same answer the purity column gives it, for the same
+    /// reason.
+    #[test]
+    fn a_call_through_a_function_value_is_conservatively_parkable() {
+        let callee = Expr::new(ExprKind::Unit, Ty::Unit, Span::default());
+        let indirect = Expr::new(
+            ExprKind::CallValue { callee: Box::new(callee), args: Vec::new() },
+            Ty::Unit,
+            Span::default(),
+        );
+        let program = hand_built(vec![body_func("main", indirect)]);
+        assert_eq!(parked(&program), vec![true]);
+    }
+
+    /// A host call written as an intrinsic *node* rather than reached as an
+    /// intrinsic *function* counts too — the two spellings must not disagree.
+    #[test]
+    fn an_inline_intrinsic_node_seeds_the_column() {
+        let node = Expr::new(
+            ExprKind::Intrinsic {
+                name: "host.HostNet.fetch".to_string(),
+                targs: Vec::new(),
+                args: Vec::new(),
+            },
+            Ty::Unit,
+            Span::default(),
+        );
+        let program = hand_built(vec![body_func("main", node)]);
+        assert_eq!(parked(&program), vec![true]);
+    }
+
+    /// The column reaches `ir::Facts` from the plan, on both branches of the
+    /// pipeline: [`run`] is the native one and [`sharing`] is the one the
+    /// JavaScript backend runs for itself.
+    #[test]
+    fn the_column_is_on_the_plan_from_both_entry_points() {
+        let program = hand_built(vec![
+            body_func("main", calls(&[1, 2])),
+            body_func("waits", calls(&[3])),
+            body_func("does not", calls(&[4])),
+            intrinsic_func("HostFs.readFile", "host.HostFs.readFile"),
+            intrinsic_func("MemFs.readFile", "testing_context.MemFs.readFile"),
+        ]);
+        for plan in [run(&program), sharing(&program)] {
+            let waits = plan.func(FuncIdx(1)).expect("a plan");
+            let not = plan.func(FuncIdx(2)).expect("a plan");
+            assert!(waits.can_park);
+            assert!(!not.can_park);
+            assert!(waits.facts().can_park, "and `facts` is what `lower` copies");
+            assert!(!not.facts().can_park);
+        }
+    }
+
+    /// The same question of a real program: arithmetic waits on nothing, and a
+    /// function that reads a file waits.
+    #[test]
+    fn a_compiled_program_agrees() {
+        let src = r#"
+from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/fs/lib.buri" import * as fs;
+
+export fn double(n: Int): Int { n * 2 }
+
+export fn load<C: Alloc + Fs>(ctx: C, path: Str): Str {
+  match (fs.readText(ctx, path)) { .Ok(text) => text, .Err(_) => "" }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
+  let text = load(ctx, "a.txt");
+  let _ = ctx.println("${text}${double(2)}");
+  .Ok(())
+}
+"#;
+        let program = compile(src);
+        let plan = run(&program);
+        assert_eq!(
+            plan.func(find(&program, "double")).map(|f| f.can_park),
+            Some(false),
+            "multiplication waits on nothing"
+        );
+        assert_eq!(
+            plan.func(find(&program, "load")).map(|f| f.can_park),
+            Some(true),
+            "and a read of the host filesystem does"
+        );
     }
 }

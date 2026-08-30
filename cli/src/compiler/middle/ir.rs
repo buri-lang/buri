@@ -575,12 +575,12 @@ pub enum Purity {
 /// What a backend may assume about a function.
 ///
 /// Every field is *conservative* out of `lower` alone: owning every parameter,
-/// `Effectful`, and abort-capable are all the answer that costs performance
-/// and cannot be wrong. `middle::rc` computes the ownership column and the
-/// purity fixpoint, and `lower` copies them on from its plan; where a field
-/// keeps the conservative answer, LLVM emits fewer attributes and the debug
-/// backend emits more reference counting, which is the correct direction to be wrong
-/// in.
+/// `Effectful`, abort-capable and park-capable are all the answer that costs
+/// performance and cannot be wrong. `middle::rc` computes the ownership column
+/// and the three effect fixpoints, and `lower` copies them on from its plan;
+/// where a field keeps the conservative answer, LLVM emits fewer attributes and
+/// the debug backend emits more reference counting, which is the correct
+/// direction to be wrong in.
 ///
 /// `nounwind` is not a field. It is true of every function in the language —
 /// there is no unwinding at all (SPEC 6.10) — and a constant stored per
@@ -591,6 +591,15 @@ pub struct Facts {
     pub purity: Purity,
     /// Whether the function, or anything it calls, can reach `buri_abort`.
     pub can_abort: bool,
+    /// Whether the function, or anything it calls, can reach a host operation
+    /// that blocks — a file read, a fetch, a sleep, a line of standard input.
+    ///
+    /// Per *instantiation*, which is the only precision that makes it useful:
+    /// the same source function at a hermetic test context reaches an
+    /// in-memory filesystem and waits for nothing. `middle::rc`'s `suspends`
+    /// is the seed list. **No backend reads this yet** — it is carried here
+    /// because this is where a backend will ask.
+    pub can_park: bool,
 }
 
 /// What a function *is*: blocks, or a symbol the runtime supplies.
@@ -1437,6 +1446,7 @@ mod tests {
                     params: vec![Ownership::Own, Ownership::Own],
                     purity: Purity::Effectful,
                     can_abort: true,
+                    can_park: true,
                 },
                 unit: 0,
                 body: Body::Code(code),

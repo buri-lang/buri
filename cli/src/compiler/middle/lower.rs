@@ -184,8 +184,12 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
 /// the signature is not trusted at all, because a *shifted* ownership column
 /// is a missing increment on the wrong parameter.
 fn facts(plan: Option<&rc::FuncPlan>, sig: &Signature, dispatch: bool) -> Facts {
-    let conservative =
-        Facts { params: vec![Ownership::Own; sig.params.len()], purity: Purity::Effectful, can_abort: true };
+    let conservative = Facts {
+        params: vec![Ownership::Own; sig.params.len()],
+        purity: Purity::Effectful,
+        can_abort: true,
+        can_park: true,
+    };
     let Some(plan) = plan else { return conservative };
     let mut params = plan.params.clone();
     if dispatch {
@@ -194,7 +198,7 @@ fn facts(plan: Option<&rc::FuncPlan>, sig: &Signature, dispatch: bool) -> Facts 
     if params.len() != sig.params.len() {
         return conservative;
     }
-    Facts { params, purity: plan.purity, can_abort: plan.can_abort }
+    Facts { params, purity: plan.purity, can_abort: plan.can_abort, can_park: plan.can_park }
 }
 
 /// What a function returns.
@@ -2240,6 +2244,7 @@ export fn step(n: Int): Int {
                 params,
                 purity: ir::Purity::Pure,
                 can_abort: false,
+                can_park: false,
                 sites,
                 reuse: Vec::new(),
                 unclassified: Vec::new(),
