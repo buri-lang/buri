@@ -79,9 +79,11 @@ test body is the point of the effect system showing up here too.
 `import * as assert`, and nothing stops a file calling it something else.
 `assert.eq`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, and
 `assert.fail` return `()`, so they stand alone as statements, which is the one
-place the language admits an expression statement. `assert.ok`, `assert.err`,
-and `assert.some` return the unwrapped value, which is how a `Result` is
-consumed in a test:
+place the language admits an expression statement. What the rule asks is the
+type, not the shape: any expression of type `()` may stand alone — a `match`
+whose arms all assert, an `if`, a block — and each is terminated by `;`, the
+same as a call. `assert.ok`, `assert.err`, and `assert.some` return the
+unwrapped value, which is how a `Result` is consumed in a test:
 
 ```buri repo=cli/tests/example role=test
 # from "//lib/money" import { parse, ParseError };
@@ -89,6 +91,23 @@ consumed in a test:
 test "rejects text that is not a number" {
   let e = assert.err(parse("nineteen"));
   assert.eq(e, ParseError.NotANumber { text: "nineteen" });
+}
+```
+
+A `match` that asserts differently per variant is a statement in exactly the
+same way, and the `;` after its `}` is what says so — leave it off and the
+`match` reads as the test body's result, which is what the block would have
+returned had anything followed it:
+
+```buri repo=cli/tests/example role=test
+# from "//lib/money" import { parse, ParseError };
+# from "core/testing/assert" import * as assert;
+test "either outcome is asserted where it lands" {
+  match (parse("19.99")) {
+    .Ok(_) => assert.isTrue(true),
+    .Err(_) => assert.fail("19.99 is a number"),
+  };
+  assert.isFalse(false);
 }
 ```
 

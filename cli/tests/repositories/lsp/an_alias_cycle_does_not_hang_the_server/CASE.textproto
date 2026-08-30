@@ -1,0 +1,18 @@
+# A cycle of type aliases used to overflow the compiler's stack, and the
+# language server runs the same checker — so the crash was an editor losing its
+# server on a keystroke, not a build exiting non-zero. This session opens a file
+# whose alias reaches itself through another module and then hovers over it
+# three times: the server answers, publishes one diagnostic, and shuts down.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a type-alias cycle is published once and hovered over, and the server survives it"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

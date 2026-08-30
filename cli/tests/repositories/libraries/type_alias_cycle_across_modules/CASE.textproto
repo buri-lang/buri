@@ -1,0 +1,38 @@
+# A type alias expands where it was declared, so a chain of them can leave the
+# module it started in and — once an alias is a name a module can publish —
+# come back. `Depth` -> `Sounding` -> `Fathoms` -> `Depth` crosses a module
+# boundary twice, and used to overflow the compiler's stack rather than say so.
+#
+# The clean half comes first: two aliases reaching one struct is a diamond and
+# stays legal, however many modules the walk passes through, because every walk
+# ends. The edit turns exactly one of them round.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an alias cycle that crosses a module is named, and a diamond is not one"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+}
+
+# `Depth` stops naming the struct and starts naming the alias that reaches it
+# the long way round, which closes the chain into a cycle.
+edit {
+  file: "lib/units/soundings.buri"
+  replace: "export type Depth = Reading;"
+  with: "export type Depth = Sounding;"
+}
+
+run {
+  args: ["build", "//cmd/app", "--force"]
+  exit: 1
+  golden: "build.txt"
+}
+
+run {
+  args: ["build", "//cmd/app", "--error-format=json", "--force"]
+  exit: 1
+  golden: "build.json"
+}

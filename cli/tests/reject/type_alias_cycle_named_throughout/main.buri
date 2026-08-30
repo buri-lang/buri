@@ -1,0 +1,21 @@
+// EXPECT: circular type alias: `Node` -> `Link` -> `Node`
+// One cycle is one mistake. Its two names are written in two struct fields, a
+// parameter, a return type and a local annotation — five uses — and exactly
+// one diagnostic comes back: the alias resolves to the error type, and nothing
+// downstream of an error type reports again.
+type Node = Link;
+type Link = Node;
+
+struct Chain {
+  head: Node,
+  tail: Link,
+}
+
+fn walk(c: Chain, n: Node): Link {
+  let here: Node = n;
+  here
+}
+
+export fn main(): Result<(), Str> {
+  .Ok(())
+}

@@ -425,6 +425,64 @@ test "a let is evaluated where it is written, not where it is used" {
 }
 
 // -----------------------------------------------------------------------------
+// 6a. Expression statements (SPEC 11.2.1, static rule 38)
+//
+// A test source is the one place an expression may stand as a statement, and
+// the rule is about its type, not its shape: a `match`, an `if` and a block of
+// type `()` qualify exactly as a call does. Each carries the `;` that tells a
+// block's statement from its result (SPEC 12.2) — the last test here is the
+// same `match` without one, which is the result expression instead.
+//
+// The transcripts are the observation: a statement that was parsed away rather
+// than run would leave the sink empty.
+// -----------------------------------------------------------------------------
+
+test "a unit match stands alone as a statement" {
+  let sink = captureOut();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  match (1) {
+    1 => note(ctx, "one"),
+    _ => note(ctx, "other"),
+  };
+  note(ctx, "after");
+  assert.eq(sink.captured(), "oneafter");
+}
+
+test "a unit if stands alone as a statement" {
+  let sink = captureOut();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  if (true) {
+    note(ctx, "then");
+  } else {
+    note(ctx, "else");
+  };
+  note(ctx, "after");
+  assert.eq(sink.captured(), "thenafter");
+}
+
+test "a unit block stands alone as a statement" {
+  let sink = captureOut();
+  let ctx = context { Alloc: alloc(), Stdout: sink };
+  {
+    let inner = "in";
+    note(ctx, inner);
+  };
+  note(ctx, "after");
+  assert.eq(sink.captured(), "inafter");
+}
+
+test "a match with no `;` after it is the block's result" {
+  let value = {
+    let n = 2;
+    match (n) {
+      2 => "two",
+      _ => "other",
+    }
+  };
+  assert.eq(value, "two");
+}
+
+// -----------------------------------------------------------------------------
 // 7. Closures (SPEC 8.4, 6.6)
 // -----------------------------------------------------------------------------
 

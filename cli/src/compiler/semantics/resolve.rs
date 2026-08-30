@@ -47,6 +47,10 @@ pub enum Sym {
     /// `lib.buri` can put it on the surface; a method is never callable as a
     /// free function, because it is reached through a receiver.
     Method(String),
+    /// A transparent type alias, carrying the module that declares it and the
+    /// name it is declared under. Both are needed because the alias expands in
+    /// its declaring module, wherever an import or a rename carried it to.
+    Alias(ModuleId, String),
 }
 
 #[derive(Default)]
@@ -169,6 +173,14 @@ pub struct Checker<'a> {
     pending_ctx_rules: Vec<(FnId, ModuleId, u32)>,
     /// Guards re-export cycles.
     resolving: Vec<(ModuleId, String)>,
+    /// The aliases being expanded, outermost first, each as the module that
+    /// declares it and the name it is declared under. Guards alias cycles, the
+    /// way `resolving` guards re-export ones.
+    expanding: Vec<(ModuleId, String)>,
+    /// Every alias on a cycle already reported. A cycle is one mistake, so the
+    /// second signature that names one of these gets the error type without a
+    /// second diagnostic.
+    cyclic_aliases: HashSet<(ModuleId, String)>,
     /// Whether the declaration being elaborated is a trait, an effect, or an
     /// `impl`, which are the only places `Self` means anything.
     in_self_scope: bool,
@@ -205,6 +217,8 @@ impl<'a> Checker<'a> {
             order_con: None,
             pending_ctx_rules: Vec::new(),
             resolving: Vec::new(),
+            expanding: Vec::new(),
+            cyclic_aliases: HashSet::default(),
             in_self_scope: false,
             wanted: Bodies::All,
         }
@@ -500,8 +514,13 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
-            tree::Item::TypeAlias(_)
-            | tree::Item::Import(_)
+            // An alias is transparent, but it is still a name a module
+            // declares and may publish, so it is a symbol like any other.
+            tree::Item::TypeAlias(d) => {
+                let name = t.name(d.name).to_string();
+                self.declare(module, d.name, Sym::Alias(module, name), d.exported);
+            }
+            tree::Item::Import(_)
             | tree::Item::ReExport(_)
             | tree::Item::Impl(_)
             | tree::Item::Derive(_)
@@ -619,9 +638,8 @@ impl<'a> Checker<'a> {
     }
 
     fn resolve_scopes(&mut self) {
-        // Type aliases are transparent, so they are not symbols: an alias
-        // resolves to whatever it names at elaboration time. They are recorded
-        // per module here so `Type::Named` can find them.
+        // Everything a module declares is visible unqualified inside it,
+        // before its imports add to that.
         for scope in &mut self.scopes {
             scope.names = scope.own.clone();
         }
@@ -732,12 +750,28 @@ impl<'a> Checker<'a> {
             let Some(sym) = self.lookup_export(from, t.name(spec.name)) else {
                 let path = re.path.clone();
                 let name = t.name(spec.name).to_string();
-                self.templated("no-such-export", spec.name.span)
-                    .bind("path", path.clone())
-                    .bind("name", name.clone())
-                    .fix(format!("add `export` to `{name}`'s declaration in \"{path}\", or drop it from this list"))
-                    .notes
-                    .push("a re-export may name only what its module path exports".into());
+                // A name held back is a different mistake from a name that is
+                // not there, and only the first is answered by `export`.
+                let note;
+                let fix = if self.scope(from).own.contains_key(&name) {
+                    note = Some(format!("`{name}` is declared in \"{path}\" but not exported"));
+                    format!(
+                        "add `export` to `{name}`'s declaration in \"{path}\", or drop it from \
+                         this list"
+                    )
+                } else {
+                    note = self.nearest_export(from, &name).map(|n| format!("did you mean `{n}`?"));
+                    format!("check the spelling, or drop `{name}` from this list")
+                };
+                let d = self
+                    .templated("no-such-export", spec.name.span)
+                    .bind("path", path)
+                    .bind("name", name)
+                    .fix(fix);
+                d.notes.push("a re-export may name only what its module path exports".into());
+                if let Some(n) = note {
+                    d.notes.push(n);
+                }
                 continue;
             };
             // Re-exporting a name does not import it — write both declarations
@@ -780,7 +814,7 @@ impl<'a> Checker<'a> {
         found
     }
 
-    fn nearest_export(&self, module: ModuleId, name: &str) -> Option<String> {
+    pub(crate) fn nearest_export(&self, module: ModuleId, name: &str) -> Option<String> {
         let names: Vec<&str> =
             self.scope(module).exports.keys().map(|s| s.as_str()).collect();
         crate::build::buildfile::nearest(name, &names).map(|s| s.to_string())
@@ -1324,11 +1358,12 @@ impl<'a> Checker<'a> {
                     args.iter().map(|a| self.elaborate(module, generics, *a)).collect();
 
                 // A type alias is transparent: `type UserId = Str` makes
-                // `UserId` and `Str` the same type.
-                if path.len() == 1 {
-                    if let Some(ty) = self.expand_alias(module, name, &elaborated_args, span) {
-                        return ty;
-                    }
+                // `UserId` and `Str` the same type. It expands in the module
+                // that declared it, wherever an import carried the name to.
+                if let Some(Sym::Alias(owner, declared)) = self.resolve_path(module, path) {
+                    return self
+                        .expand_alias(owner, &declared, &elaborated_args, span)
+                        .unwrap_or(Ty::Error);
                 }
                 if path.len() == 1 {
                     if let Some(id) = self.builtin_type(name) {
@@ -1382,16 +1417,29 @@ impl<'a> Checker<'a> {
         args: &[Ty],
         span: Span,
     ) -> Option<Ty> {
-        // Every named type in the module reaches this, so the miss — no alias
-        // by that name, which is the overwhelmingly common case — has to cost
-        // a scan of item discriminants and nothing else. It used to clone the
-        // module's whole syntax tree first.
+        // A scan of item discriminants, borrowing the tree rather than cloning
+        // it: this used to copy the module's whole syntax tree per lookup.
         let items = &self.module(module).ast.items;
         let t = self.tree(module);
         let alias = items.iter().find_map(|i| match i {
             tree::Item::TypeAlias(a) if t.name(a.name) == name => Some(a),
             _ => None,
         })?;
+        // An alias is transparent, so expanding one is a walk that has to end
+        // at a type that is not an alias. `type A = A;` — or `A` through `B`
+        // back to `A`, which an exported alias lets span modules — never ends,
+        // and used to be a stack overflow rather than a diagnostic.
+        let key = (module, name.to_string());
+        if let Some(at) = self.expanding.iter().position(|k| *k == key) {
+            self.report_alias_cycle(at, alias.name.span);
+            return Some(Ty::Error);
+        }
+        // Every alias of a cycle already reported is answered with the error
+        // type in silence. One cycle is one mistake, however many signatures
+        // and fields name it.
+        if self.cyclic_aliases.contains(&key) {
+            return Some(Ty::Error);
+        }
         let generics: Vec<GenericInfo> = alias
             .generics
             .iter()
@@ -1404,8 +1452,66 @@ impl<'a> Checker<'a> {
                 .fix(format!("supply exactly {}", generics.len()));
             return Some(Ty::Error);
         }
+        self.expanding.push(key);
         let body = self.elaborate(module, &generics, alias.ty);
+        self.expanding.pop();
         Some(substitute(&body, args, None))
+    }
+
+    /// Reports the cycle that starts at `at` in [`Checker::expanding`] and has
+    /// just come back round to it, and records every alias on it so that the
+    /// next use of any of them is silent.
+    ///
+    /// The primary span is the declaration the cycle closes on, because that is
+    /// where the edit goes; the uses that led here are correct in themselves.
+    /// Every other alias on the chain gets a secondary span, which is the only
+    /// way a reader sees the other file when the cycle crosses a module.
+    fn report_alias_cycle(&mut self, at: usize, decl: Span) {
+        let chain: Vec<(ModuleId, String)> = self.expanding.iter().skip(at).cloned().collect();
+        // `at` came from a `position` in the same vector, so the chain has a
+        // head; the compiler cannot know that, and a cycle of no aliases is
+        // nothing to say anyway.
+        let Some(head) = chain.first().map(|(m, _)| *m) else { return };
+        if chain.iter().any(|k| self.cyclic_aliases.contains(k)) {
+            return;
+        }
+        // A cycle inside one module names its aliases plainly; one that crosses
+        // a boundary has to say which module each name was declared in, or
+        // `A -> B -> A` is a chain a reader cannot follow to a file.
+        let crosses = chain.iter().any(|(m, _)| *m != head);
+        let written: Vec<String> = chain
+            .iter()
+            .map(|(m, n)| match crosses {
+                true => format!("`{n}` in \"{}\"", self.module(*m).path),
+                false => format!("`{n}`"),
+            })
+            .collect();
+        let closes = written.first().cloned().unwrap_or_default();
+        let cycle = format!("{} -> {closes}", written.join(" -> "));
+        let others: Vec<(Span, String)> = chain
+            .iter()
+            .skip(1)
+            .filter_map(|(m, n)| {
+                let span = self.alias_decl_span(*m, n)?;
+                Some((span, format!("`{n}`, next on the cycle, is declared here")))
+            })
+            .collect();
+        let d = self.templated("circular-type-alias", decl).bind("cycle", cycle);
+        for (span, label) in others {
+            d.secondary_span(span, label);
+        }
+        for key in chain {
+            self.cyclic_aliases.insert(key);
+        }
+    }
+
+    /// Where a module declares the alias it calls `name`.
+    fn alias_decl_span(&self, module: ModuleId, name: &str) -> Option<Span> {
+        let t = self.tree(module);
+        self.module(module).ast.items.iter().find_map(|i| match i {
+            tree::Item::TypeAlias(a) if t.name(a.name) == name => Some(a.name.span),
+            _ => None,
+        })
     }
 
     fn nearest_type_name(&self, module: ModuleId, name: &str) -> Option<String> {

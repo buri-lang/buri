@@ -1339,7 +1339,14 @@ impl<'a> Gen<'a> {
         // `middle::decision` is what puts it last, and what guarantees that the
         // arms before it are mutually exclusive so that "last" means "when
         // nothing else matched" rather than "written last".
-        let last = !self.defensive_aborts && i + 1 == arms.len();
+        //
+        // An or-pattern is the exception: which alternative matched is decided
+        // by running the test, and the test is where the alternative's
+        // bindings are assigned — so dropping it would leave the body reading
+        // names nothing ever wrote.
+        let last = !self.defensive_aborts
+            && i + 1 == arms.len()
+            && !Self::test_assigns(&arm.pattern);
         match self.test(&arm.pattern, subject) {
             // The last arm, or an irrefutable one, needs no test.
             _ if last => out.extend(body),
@@ -1616,6 +1623,30 @@ impl<'a> Gen<'a> {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Whether this pattern's test writes the bindings the body reads.
+    ///
+    /// Only an or-pattern does: the alternative that matched is the one that
+    /// assigns, so its test is not a question whose answer can be assumed even
+    /// when exhaustiveness says it is.
+    fn test_assigns(pattern: &typed::Pattern) -> bool {
+        match &pattern.kind {
+            PatKind::Or(alts) => {
+                let mut bound = Vec::new();
+                if let Some(first) = alts.first() {
+                    first.binds(&mut bound);
+                }
+                !bound.is_empty()
+            }
+            PatKind::Bind { sub: Some(s), .. } => Self::test_assigns(s),
+            PatKind::Tuple(ps) => ps.iter().any(Self::test_assigns),
+            PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
+                fields.iter().any(|f| Self::test_assigns(&f.pattern))
+            }
+            PatKind::Array { elems, .. } => elems.iter().any(Self::test_assigns),
+            _ => false,
         }
     }
 

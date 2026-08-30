@@ -93,13 +93,14 @@ const BASE_SEED: u64 = 0x0B00_1A57_5EC0_4E27;
 /// context in the grammar is hit many times over.
 const CI_PER_KIND: usize = 6;
 
-/// How many cases the two expensive invariants take.
+/// How many cases the formatting invariant takes.
 ///
-/// Analysis loads the standard library and formatting renders a document, so
-/// neither can run on every case inside the suite's time budget. Both take a
-/// deterministic stride through the same ordered list, so the sample is a
-/// spread across every corpus and every mutation shape rather than a prefix.
-const CI_ANALYSED: usize = 300;
+/// Formatting renders a document, so it is the one invariant that still
+/// samples: a deterministic stride through the ordered list, so the cases are
+/// a spread across every corpus and every mutation shape rather than a prefix.
+/// Its ceilings are all zero, so the stride costs it no exactness. `a syntax
+/// error stays a syntax error` used to sample the same way and no longer does
+/// — the note on that test says what the stride cost and what it now costs.
 const CI_FORMATTED: usize = 400;
 
 fn env_num(key: &str) -> Option<usize> {
@@ -290,11 +291,12 @@ impl Tally {
 /// **Every number below is a percentage of that row's population**, read off a
 /// `BURI_RECOVERY_CAP=0` run over all 5,201 cases and rounded up to the next
 /// whole point plus one of margin. It is deliberately not fitted to what a draw
-/// happened to show: the 300-case stride `a syntax error stays a syntax error`
-/// runs by default is redrawn whenever a source is added to the repository, so
-/// a bound fitted to one draw goes red on the next merge for a reason that has
-/// nothing to do with the toolchain. That is exactly what happened to two rows
-/// of that invariant when the standard library grew.
+/// happened to show: `a syntax error stays a syntax error` used to run on a
+/// 300-case stride that was redrawn whenever a source landed in the repository,
+/// so a bound fitted to one draw went red on the next merge for a reason that
+/// had nothing to do with the toolchain — which is exactly what happened to two
+/// of its rows when the standard library grew. It now runs on every case, so
+/// its rows are the population and its ceilings are exact.
 ///
 /// The rate is the whole of the bound for an invariant that runs on every case.
 /// For a strided one, [`sampling_allowance`] is added on top, because a
@@ -315,7 +317,8 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         ("the fix names the missing token", "delete-separator ()") => 5,
         ("the fix names the missing token", "delete-separator {}") => 7,
 
-        // 12.0%, 1.9%, 5.8%, 17.9% and 22.3% over the population.
+        // 12.2%, 1.9%, 5.2%, 17.7% and 22.4% over the population, now that the
+        // row is the population: the rate rounded up, with no draw to cover.
         ("a syntax error stays a syntax error", "delete-closer") => 13,
         ("a syntax error stays a syntax error", "delete-separator ()") => 3,
         // The arm before the comma swallows the next arm's pattern, so `2` gets
@@ -374,7 +377,9 @@ fn sampling_allowance(cases: usize, rate: usize, sample: Sample) -> usize {
 ///
 /// The row is the one that has twice made this suite go red for the wrong
 /// reason — `insert-stray` of `a syntax error stays a syntax error`, whose
-/// honest residue over the whole population is 17.9%.
+/// honest residue over the whole population is 17.9%. That invariant no longer
+/// strides, so the row here is a stand-in: what the allowance owes any row a
+/// future `Sample::Strided` ceiling is drawn from.
 #[test]
 fn a_ceiling_moves_with_the_row_and_not_with_the_corpus() {
     const INVARIANT: &str = "a syntax error stays a syntax error";
@@ -591,7 +596,13 @@ fn the_fix_names_the_missing_token() {
 #[test]
 fn a_syntax_error_does_not_become_a_type_error() {
     let (corpus, all) = corpus_and_cases();
-    let sample = strided(&all, CI_ANALYSED);
+    // Every case, not a stride: a 300-case sample of 5,201 could not see a
+    // five-point regression, so its ceilings had to carry a sampling swing a
+    // real regression could hide inside. The whole population costs 43 s and
+    // takes the gate from 83 s to about 120 s — a quarter of the five-minute
+    // bar — and makes every ceiling below exact. `BURI_RECOVERY_CAP` still
+    // narrows a run by hand.
+    let sample = strided(&all, 0);
     let texts: BTreeMap<&str, &str> =
         corpus.iter().map(|s| (s.name.as_str(), s.text.as_str())).collect();
     let mut baselines: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
@@ -637,7 +648,7 @@ fn a_syntax_error_does_not_become_a_type_error() {
             tally.violation(m, why);
         }
     }
-    tally.finish("a syntax error stays a syntax error", Sample::Strided);
+    tally.finish("a syntax error stays a syntax error", Sample::Whole);
 }
 
 // ---------------------------------------------------------------------------

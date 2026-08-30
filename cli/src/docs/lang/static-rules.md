@@ -106,4 +106,5 @@ Modules and tests:
 37. `test`, and imports of test-only paths, may appear only in a test source. A
     test source may not `export`, and may not be imported (Section 11.2).
 38. An expression statement is legal only in a test source, and only when its
-    type is `()` (Section 11.2.1).
+    type is `()`. Any expression qualifies — a call, a `match`, an `if`, a
+    block — and every one of them is terminated by `;` (Section 11.2.1).

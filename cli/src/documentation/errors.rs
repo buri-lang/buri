@@ -73,6 +73,11 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("chained-comparison", "Comparison operators do not chain"),
     e!("character-literal-length", "A character literal holds one scalar value"),
     e!("circular-import", "Modules form a graph with no cycles"),
+    e!(
+        "circular-type-alias",
+        "A type alias expands to a type, not back to itself",
+        &["lang/types"]
+    ),
     e!("coalesce-operand", "`??` supplies a default for an absent or failed value"),
     e!("colon-colon-not-an-operator", "A module's members are reached with `.`"),
     e!("const-declaration", "A module-level binding is written with `let`", &["lang/lexical"]),
@@ -153,6 +158,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("no-structural-derive", "Only some traits have a structural derivation"),
     e!("no-such-export", "A module exports what it says it exports"),
     e!("no-such-field", "A field is named by the type that declares it"),
+    e!("no-such-member", "A namespace member is named by the module that exports it"),
     e!("no-such-method", "A method is looked up in its type's defining module"),
     e!("no-such-module", "A module path names a module that exists"),
     e!("no-such-positional-field", "A tuple struct's fields are numbered from zero"),
