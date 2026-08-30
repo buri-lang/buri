@@ -221,6 +221,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("self-outside-a-method", "`self` is legal only in a method body"),
     e!("self-type-outside-impl", "`Self` names the implementing type"),
     e!("self-with-a-type", "`self` is written without a type", &["lang/expressions"]),
+    e!("signature-mismatch", "An `impl` supplies the signature its trait declares"),
     e!("statement-not-unit", "A statement's value is used or bound"),
     e!("struct-literal-head", "A struct literal is headed by a type"),
     e!(

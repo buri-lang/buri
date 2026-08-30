@@ -1,0 +1,38 @@
+error: `fetch` takes 1 arguments, but 3 were given [wrong-argument-count]
+  --> cmd/net_fetch_old_arity/main.buri:15:10
+   |
+15 |   match (ctx.fetch("GET", url, "")) {
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 3
+   = fix: pass exactly 1
+error: expected `Request`, found `Str` [type-mismatch]
+  --> cmd/net_fetch_old_arity/main.buri:15:20
+   |
+15 |   match (ctx.fetch("GET", url, "")) {
+   |                    ^^^^^ the parameter type is `Request`
+   |
+   = expected: `Request`
+   = actual: `Str`
+   = fix: produce a `Request` here, or change what surrounds it to accept a `Str`
+
+     What to do
+     ──────────
+
+     Convert explicitly. The diagnostic names the conversion: .toI64() is exact
+     for every I32, while a narrowing one returns a Result because not every
+     value fits.
+
+     A bare numeric literal is reported as Int or Float, the type it takes when
+     nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
+     let x: U8 = 1 — and it becomes any type of the same kind.
+
+     Why
+     ───
+
+     No promotion of any kind, in either direction. A language that widened
+     silently would make the width of an arithmetic result a property of the
+     expression's shape rather than of what was written, and the one place it
+     matters is the one place nobody looks.
+

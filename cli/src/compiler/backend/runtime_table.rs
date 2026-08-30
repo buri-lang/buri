@@ -637,6 +637,15 @@ mod tests {
             "host.HostFs.removeFile",
             "host.HostFs.makeDir",
             "host.HostFs.syncFile",
+            // `host.HostNet.fetch` is absent for a *third* reason, and it is
+            // the one this list exists to distinguish. The archive has a body
+            // (`cli/runtime/host.rs`), and the shape is not merely missing: it
+            // is not expressible. `Ret::Res` names the error variant by index
+            // and §2.1 restricts that variant to carrying no fields, while
+            // `NetError` carries a `Str` on `BadUrl` and on `Transport`. A row
+            // here needs §2.1 widened first, not a `Ret` picked from the ones
+            // that exist.
+            "host.HostNet.fetch",
             // Open-coded, and named here so that "it has no symbol" and "the
             // backend cannot compile it" stay two different statements.
             "testing_context.alloc",
@@ -658,6 +667,20 @@ mod tests {
     fn str_concat_has_a_symbol_and_no_row() {
         assert_eq!(symbol_for("str.concat"), "buri_rt_str_concat");
         assert!(entry("str.concat").is_none());
+    }
+
+    /// `host.HostNet.fetch`, in both directions.
+    ///
+    /// The archive exports exactly the symbol the mangling rule produces — so
+    /// a row added later needs no invention — and this table has no row for
+    /// it, because `NetError`'s two payload-carrying variants put it outside
+    /// `lib.rs` §2.1's `Result` shape. Asserted as a pair so that "the body
+    /// exists" and "the backend can call it" stay two separate claims, exactly
+    /// as `str.concat`'s pair does one row above.
+    #[test]
+    fn host_net_fetch_has_a_symbol_and_no_row() {
+        assert_eq!(symbol_for("host.HostNet.fetch"), "buri_rt_host_net_fetch");
+        assert!(entry("host.HostNet.fetch").is_none());
     }
 
     /// No two rows may claim the same key: `entry` answers the first, so a
