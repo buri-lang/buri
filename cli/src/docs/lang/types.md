@@ -190,6 +190,28 @@ struct UserId(Str);             // the Str is readable only in this module
 Tuple-struct declarations are terminated with `;`; record-struct declarations are
 not.
 
+A literal gives every **required** field a value. A field whose declared type is
+`Option<...>` is not required: leaving it out of a literal is writing `.None`
+for it.
+
+```buri
+struct World { export hi: Str, export hello: Option<Str> }
+
+fn plain(): World { World { hi: "hi" } }              // `hello` is `.None`
+fn given(): World { World { hi: "hi", hello: .Some("hello") } }
+```
+
+Which fields may be left out is a property of the declaration rather than of one
+instantiation of it, so a reader answers the question from the `struct` alone.
+Two consequences follow. Aliases are transparent (Section 5.9), so a field
+declared `Maybe` where `type Maybe = Option<Str>` may be left out. But a field
+declared `T` in a `struct S<T>` may not, at any instantiation — `S<Option<Int>>`
+still writes its `T`. A left-out `Option<Option<T>>` is the *outer* `.None`.
+
+Elision fills only what neither an initializer nor a spread provides, and a
+spread provides every field the literal does not write — so `World { ..base }`
+takes `hello` from `base` rather than resetting it to `.None`.
+
 Outside the declaring module, a private field cannot be read, written in a
 literal, or matched. A struct with any private field therefore cannot be
 constructed from scratch elsewhere — but functional update still works, because

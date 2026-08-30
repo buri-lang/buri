@@ -141,7 +141,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("missing-arrow", "A match arm is `pattern => expression`"),
     e!("missing-conformance", "Conformance is declared, never inferred"),
     e!("missing-field-pattern", "A struct pattern mentions every field"),
-    e!("missing-field-value", "A literal gives every field a value"),
+    e!("missing-field-value", "A literal gives every required field a value"),
     e!("missing-payload-pattern", "A variant with a payload is matched with one"),
     e!("missing-separator", "A list separates its elements with `,`"),
     e!("missing-terminator", "A declaration ends with `;`"),
