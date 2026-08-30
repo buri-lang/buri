@@ -9,6 +9,8 @@ from "//lib/semantics/shapes.buri" export {
   Backwards, Suit, rank, declIndex, Loose, Percent,
   // traits of my own
   Weigh, Label, Brick, Feather, totalGrams, heaviest, heavyLabel, weighAndShow,
+  // a trait method whose written parameter type is `Self`
+  Relay, Scale, Offset, relayScaled, relayTwice, relayAll,
   // generic functions
   identity, constant, swap, triple, twice, largest, smallest, between,
   showAll, sortedShow,

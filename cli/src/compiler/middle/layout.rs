@@ -553,14 +553,24 @@ impl<'a> Layouts<'a> {
                 }
                 TyDef::Enum { .. } => self.build_enum(ty, *id, args),
             },
-            // `()` is nothing (§1). `Var`, `Param`, `SelfTy` and `Error` are
-            // not types a monomorphized program contains: a body reaching the
-            // native branch has been checked and instantiated, and a build
-            // that produced an `Error` stopped before it. Giving them a
-            // defined empty layout rather than an internal error keeps `of`
-            // total for the language server, which asks about half-checked
-            // code on every keystroke.
-            Ty::Unit | Ty::Var(_) | Ty::Param(_) | Ty::SelfTy | Ty::Error => Layout::zero(),
+            // `Self` is not a type a monomorphized program contains: a trait's
+            // signature is abstract, and an `impl`'s is elaborated against the
+            // head's own type (`semantics::resolve`'s `self_scope`), so nothing
+            // downstream is left holding a `Ty::SelfTy` to substitute. Zero was
+            // the answer here once, and it made a written `Self` in an `impl`
+            // method's parameter a silently zero-sized value rather than a
+            // reported mistake — the failure this arm exists to make loud.
+            Ty::SelfTy => crate::diagnostics::ice(
+                "`Self` reached middle::layout: a signature left an `impl` with its receiver \
+                 type unresolved",
+            ),
+            // `()` is nothing (§1). `Var`, `Param` and `Error` are not types a
+            // monomorphized program contains either — a body reaching the
+            // native branch has been checked and instantiated, and a build that
+            // produced an `Error` stopped before it — but a defined empty
+            // layout rather than an internal error is what keeps `of` total for
+            // a caller asking about a half-checked program.
+            Ty::Unit | Ty::Var(_) | Ty::Param(_) | Ty::Error => Layout::zero(),
         }
     }
 
