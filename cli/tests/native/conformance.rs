@@ -27,7 +27,7 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Thirty-one of the forty-one files are in it** — the number the
+//! **Thirty-one of the forty files are in it** — the number the
 //! harness prints, and one the prose had off by one before
 //! `semantics/generics.buri` joined them. `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
@@ -65,7 +65,7 @@
 //!     to, and no document either: `ui/tree.buri` is the tree vocabulary and
 //!     the keyed reconciler under it, and `ui/theme.buri` is the block of
 //!     custom properties a document reads. `ui/reactivity.buri`,
-//!     `ui/fetch.buri`, `ui/tree.buri` and `ui/theme.buri`.
+//!     `ui/tree.buri` and `ui/theme.buri`.
 //!
 //! `semantics/generics.buri` was a fourth until a type parameter a program
 //! never determines stopped being a free variable: `Subst::default_unconstrained`
@@ -354,13 +354,6 @@ const PACKAGES: &[Case] = &[
         "the reactive graph, `ui/effect`'s five `Ui` entries and \
              `ui/testing`'s recorder — all of them `backend/js/runtime.js` and \
              nothing else, because no native platform grants `Ui`",
-    ),
-    excluded(
-        "ui/fetch.buri",
-        "`ui/testing`'s recorder. `Fetch` itself is ordinary Buri here — the \
-             test double answers its own callback — so this file is one \
-             intrinsic away from the native set the day a native platform has \
-             a reason to record",
     ),
     excluded(
         "ui/tree.buri",

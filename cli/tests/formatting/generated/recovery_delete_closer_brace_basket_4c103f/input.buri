@@ -63,5 +63,5 @@ export fn main(): Result<(), Str> {
   ui.mount(ctx, page(ctx, state), [
     kit.themed(kitTheme),
     theme.switching(.Cell(state.dark), appThemed(night), appThemed(day)),
-  ])
+  ]
 }

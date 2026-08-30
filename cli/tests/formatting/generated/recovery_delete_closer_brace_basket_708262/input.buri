@@ -49,7 +49,7 @@ export fn main(): Result<(), Str> {
     Watch: host.watch,
   };
 
-  let state = newState(ctx);
+  let state = newState(ctx;
 
   // One theme per package whose tokens this program uses. //lib/kit's are
   // resolved through this app's own, and this app's are resolved to colours by

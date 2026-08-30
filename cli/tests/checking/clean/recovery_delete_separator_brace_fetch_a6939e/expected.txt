@@ -1,7 +1,0 @@
-error: a struct-literal field ends with `,` [missing-separator]
-  --> main.buri:15:38
-   |
-15 |     Request { method: "GET", url: url headers: [], body: "" }
-   |                                      ^
-   |
-   = fix: write `,` here
