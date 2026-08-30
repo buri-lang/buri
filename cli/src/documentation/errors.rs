@@ -218,6 +218,11 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("self-with-a-type", "`self` is written without a type", &["lang/expressions"]),
     e!("statement-not-unit", "A statement's value is used or bound"),
     e!("struct-literal-head", "A struct literal is headed by a type"),
+    e!(
+        "struct-literal-type",
+        "An anonymous literal takes its type from its surroundings",
+        &["lang/types"]
+    ),
     e!("style-not-static", "A conditional style is known at compile time", &["guide/user-interfaces"]),
     e!("tag-name-not-a-string", "A tag is named by a quoted string", &["build/tags"]),
     e!("tag-not-a-block", "A `tag` is a block in REPO.buri", &["build/tags"]),

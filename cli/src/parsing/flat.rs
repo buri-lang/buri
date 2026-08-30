@@ -947,7 +947,7 @@ impl Tree {
                 span,
             },
             Kind::StructLit => ExprView::StructLit {
-                head: ExprId(p[0]),
+                head: self.opt(p[0]),
                 spread: self.opt(p[1]),
                 fields: self.slice(&self.inits, p[2], p[3]),
                 span,
@@ -1288,7 +1288,14 @@ pub enum ExprView<'t> {
     Index { base: ExprId, index: ExprId, span: Span },
     Try { base: ExprId, span: Span },
     Generic { base: ExprId, args: &'t [TypeId], span: Span },
-    StructLit { head: ExprId, spread: Option<ExprId>, fields: &'t [InitData], span: Span },
+    /// `head` is the type path of `World { ... }`, and `None` for the
+    /// anonymous `{ ... }`, whose type comes from what it is checked against.
+    StructLit {
+        head: Option<ExprId>,
+        spread: Option<ExprId>,
+        fields: &'t [InitData],
+        span: Span,
+    },
     Error { span: Span },
 }
 

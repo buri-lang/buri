@@ -1,0 +1,27 @@
+// EXPECT: nothing here has settled it yet
+//
+// A parameter is one of the places an expected type comes from, but a generic
+// one need not be. `same`'s result is `Bool`, so nothing above the call binds
+// `T`, and the first argument is checked against an inference variable —
+// solving it from the literal's own fields is the inference this feature is
+// deliberately not, so the fix says that rather than naming a type
+// (SPEC 12.3).
+//
+// The neighbouring case where the annotation *does* reach through the call is
+// not an error and is in the conformance suite: `let w: World = identity({ hi:
+// "hi" })` binds `T` before the argument is checked, and compiles.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct World { export hi: Str, export hello: Option<Str> }
+
+derive Eq for World;
+
+fn same<T: Eq>(a: T, b: T): Bool { a == b }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let yes: Bool = same({ hi: "hi" }, World { hi: "hi" });
+  let _ = ctx.println("${yes}");
+  .Ok(())
+}

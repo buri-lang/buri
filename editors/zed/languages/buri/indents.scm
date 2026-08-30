@@ -7,6 +7,7 @@
   (tuple_fields_block)
   (context_body)
   (struct_literal_body)
+  (anonymous_struct_literal)
   (array_expression)
   (arguments)
   (parameters)

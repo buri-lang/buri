@@ -1,4 +1,0 @@
-export fn f(): Int {
-  let a = extra aFunctionWithAVeryLongNameIndeedThatGoesOnAndOnForeverAndEverAgain();
-  a
-}

@@ -1,0 +1,10 @@
+export fn keyed(hi: Str, hello: Option<Str>): World {
+    { hi: hi, hello }
+
+export fn spread(base: World, hello: Option<Str>): World {
+    { ..base, hello }
+}
+
+export fn headed(hi: Str, hello: Option<Str>): World {
+    World { hi, hello }
+}

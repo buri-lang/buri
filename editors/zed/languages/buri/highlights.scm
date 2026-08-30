@@ -104,6 +104,7 @@
 (struct_literal type: (generic_expression (identifier) @type))
 
 (field_initializer name: (identifier) @property)
+(field_shorthand name: (identifier) @property)
 (field_expression field: (identifier) @property)
 (tuple_index_expression index: (integer_literal) @property)
 

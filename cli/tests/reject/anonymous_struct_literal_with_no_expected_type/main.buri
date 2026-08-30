@@ -1,0 +1,17 @@
+// EXPECT: nothing here says what this literal builds
+//
+// A `let` with no annotation is the plainest way to ask a literal to name its
+// own type, and the answer is no: the type of an anonymous literal is read
+// from above and never solved for, so with nothing above it there is nothing
+// to read (SPEC 12.3).
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+struct World { export hi: Str, export hello: Option<Str> }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let w = { hi: "hi" };
+  let _ = ctx.println(w.hi);
+  .Ok(())
+}

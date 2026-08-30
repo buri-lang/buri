@@ -1,5 +1,0 @@
-export fn f(ctx: Ctx, xs: [Int]? ): [Str] {
-    xs.map(ctx, fn(anElement) => {
-        anElement.aRatherLongFieldName.anotherLongFieldName.aThirdOne
-    })
-}

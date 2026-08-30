@@ -31,6 +31,8 @@ from "//lib/semantics/shapes" export {
   Widget, render, eachRow, deferred, Cell, cellIndex, Held, heldTwice,
   // fields a literal may leave out
   World, Holder, worldHere, Hidden, hidden, hiddenPrivate,
+  // literals that leave the type name out too
+  Wrap, takesWorld, anonHere, anonMatch, anonHidden,
   // evaluation-order instrumentation
   note, noteInt, noteBool, noteStr, noteOpt, noteRes,
   noteIf, noteMatch, noteLevel, noteLets, threeInts, fourStrs,
