@@ -6,7 +6,7 @@
 
 from "core/effect/lib.buri" import { Alloc };
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
 from "core/list/lib.buri" import * as list;
 from "core/order/lib.buri" import * as order;
 
@@ -111,7 +111,7 @@ test "fold accumulates left to right" {
 }
 
 test "fold is left-associative in argument order" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(["a", "b", "c"].foldCtx(ctx, fn(c, acc: Str, x) => acc.concat(c, x), ""), "abc");
 }
 
@@ -120,7 +120,7 @@ test "fold on the empty list returns the seed" {
 }
 
 test "foldCtx threads the context through" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     ["a", "b", "c"].foldCtx(ctx, fn(c, acc: Str, x) => acc.concat(c, x), ""),
     "abc",
@@ -128,7 +128,7 @@ test "foldCtx threads the context through" {
 }
 
 test "foldCtx on the empty list returns the seed" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     list.empty<Str>().foldCtx(ctx, fn(c, acc: Str, x) => acc.concat(c, x), "seed"),
     "seed",
@@ -245,22 +245,22 @@ test "contains works on strings" {
 // --- map / filter -------------------------------------------------------------
 
 test "map applies the function elementwise" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].map(ctx, fn(x) => x * 2), [2, 4, 6]);
 }
 
 test "map may change the element type" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2].map(ctx, fn(x) => x > 1), [false, true]);
 }
 
 test "map on the empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<Int>().map(ctx, fn(x) => x * 2), list.empty<Int>());
 }
 
 test "mapCtx threads the context into the callback" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     ["a", "b"].mapCtx(ctx, fn(c, x) => x.toUpper(c)),
     ["A", "B"],
@@ -268,7 +268,7 @@ test "mapCtx threads the context into the callback" {
 }
 
 test "mapCtx on the empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     list.empty<Str>().mapCtx(ctx, fn(c, x) => x.toUpper(c)),
     list.empty<Str>(),
@@ -276,27 +276,27 @@ test "mapCtx on the empty list is empty" {
 }
 
 test "filter keeps the elements the predicate accepts" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3, 4, 5].filter(ctx, fn(x) => x % 2 == 0), [2, 4]);
 }
 
 test "filter keeps source order" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([5, 1, 4, 2, 3].filter(ctx, fn(x) => x < 4), [1, 2, 3]);
 }
 
 test "filter can keep nothing" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].filter(ctx, fn(x) => false), list.empty<Int>());
 }
 
 test "filter on the empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<Int>().filter(ctx, fn(x) => true), list.empty<Int>());
 }
 
 test "filterCtx threads the context into the predicate" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     ["ab", "b", "abc"].filterCtx(ctx, fn(c, x) => x.toUpper(c).startsWith("A")),
     ["ab", "abc"],
@@ -304,7 +304,7 @@ test "filterCtx threads the context into the predicate" {
 }
 
 test "filterCtx on the empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     list.empty<Str>().filterCtx(ctx, fn(c, x) => true),
     list.empty<Str>(),
@@ -314,22 +314,22 @@ test "filterCtx on the empty list is empty" {
 // --- concat / push ------------------------------------------------------------
 
 test "concat joins two lists in order" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2].concat(ctx, [3, 4]), [1, 2, 3, 4]);
 }
 
 test "concat with an empty right operand is the left" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2].concat(ctx, list.empty<Int>()), [1, 2]);
 }
 
 test "concat with an empty left operand is the right" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<Int>().concat(ctx, [3, 4]), [3, 4]);
 }
 
 test "concat of two empty lists is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     list.empty<Int>().concat(ctx, list.empty<Int>()),
     list.empty<Int>(),
@@ -337,17 +337,17 @@ test "concat of two empty lists is empty" {
 }
 
 test "push appends at the end" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2].push(ctx, 3), [1, 2, 3]);
 }
 
 test "push onto the empty list yields a singleton" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<Int>().push(ctx, 1), [1]);
 }
 
 test "push leaves the original untouched" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = [1, 2];
   let ys = xs.push(ctx, 3);
   assert.eq(xs, [1, 2]);
@@ -357,39 +357,39 @@ test "push leaves the original untouched" {
 // --- reverse ------------------------------------------------------------------
 
 test "reverse reverses" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].reverse(ctx), [3, 2, 1]);
 }
 
 test "reverse of a singleton is itself" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1].reverse(ctx), [1]);
 }
 
 test "reverse of the empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<Int>().reverse(ctx), list.empty<Int>());
 }
 
 test "reverse twice is the identity" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3, 4].reverse(ctx).reverse(ctx), [1, 2, 3, 4]);
 }
 
 // --- sortBy / sort ------------------------------------------------------------
 
 test "sortBy orders by the comparator" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([3, 1, 2].sortBy(ctx, fn(a, b) => order.int(a, b)), [1, 2, 3]);
 }
 
 test "sortBy with a reversed comparator sorts descending" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([3, 1, 2].sortBy(ctx, fn(a, b) => order.int(b, a)), [3, 2, 1]);
 }
 
 test "sortBy on the empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     list.empty<Int>().sortBy(ctx, fn(a, b) => order.int(a, b)),
     list.empty<Int>(),
@@ -397,7 +397,7 @@ test "sortBy on the empty list is empty" {
 }
 
 test "sortBy is stable" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // Compare on the first element only; equal keys must keep source order.
   let xs = [(1, "a"), (0, "b"), (1, "c"), (0, "d"), (1, "e")];
   assert.eq(
@@ -407,7 +407,7 @@ test "sortBy is stable" {
 }
 
 test "sortBy is stable when every key is equal" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = [(0, 1), (0, 2), (0, 3), (0, 4)];
   assert.eq(
     xs.sortBy(ctx, fn(a, b) => order.int(a.0, b.0)),
@@ -416,146 +416,146 @@ test "sortBy is stable when every key is equal" {
 }
 
 test "sort orders by Ord" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([3, 1, 2].sort(ctx), [1, 2, 3]);
 }
 
 test "sort of the empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<Int>().sort(ctx), list.empty<Int>());
 }
 
 test "sort of strings is lexicographic" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(["pear", "apple", "fig"].sort(ctx), ["apple", "fig", "pear"]);
 }
 
 test "sort keeps duplicates" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([2, 1, 2, 1].sort(ctx), [1, 1, 2, 2]);
 }
 
 // --- take / drop / slice ------------------------------------------------------
 
 test "take keeps the first n" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3, 4].take(ctx, 2), [1, 2]);
 }
 
 test "take of zero is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].take(ctx, 0), list.empty<Int>());
 }
 
 test "take of more than the length is the whole list" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].take(ctx, 10), [1, 2, 3]);
 }
 
 test "take on the empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<Int>().take(ctx, 3), list.empty<Int>());
 }
 
 test "take of a negative count is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].take(ctx, -1), list.empty<Int>());
 }
 
 test "drop removes the first n" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3, 4].drop(ctx, 2), [3, 4]);
 }
 
 test "drop of zero is the whole list" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].drop(ctx, 0), [1, 2, 3]);
 }
 
 test "drop of more than the length is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].drop(ctx, 10), list.empty<Int>());
 }
 
 test "drop on the empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<Int>().drop(ctx, 3), list.empty<Int>());
 }
 
 test "drop of a negative count is the whole list" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].drop(ctx, -1), [1, 2, 3]);
 }
 
 test "slice takes a half-open range" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3, 4, 5].slice(ctx, 1, 4), [2, 3, 4]);
 }
 
 test "slice with start equal to end is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].slice(ctx, 1, 1), list.empty<Int>());
 }
 
 test "slice covering everything is the whole list" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].slice(ctx, 0, 3), [1, 2, 3]);
 }
 
 test "slice clamps past the end" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].slice(ctx, 1, 99), [2, 3]);
 }
 
 test "slice with an inverted range is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].slice(ctx, 2, 1), list.empty<Int>());
 }
 
 test "slice on the empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<Int>().slice(ctx, 0, 2), list.empty<Int>());
 }
 
 // --- zip / flatten ------------------------------------------------------------
 
 test "zip pairs elementwise" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].zip(ctx, ["a", "b", "c"]), [(1, "a"), (2, "b"), (3, "c")]);
 }
 
 test "zip stops at the shorter list" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].zip(ctx, ["a"]), [(1, "a")]);
 }
 
 test "zip with an empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2].zip(ctx, list.empty<Str>()), list.empty<(Int, Str)>());
 }
 
 test "zip on the empty list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<Int>().zip(ctx, ["a"]), list.empty<(Int, Str)>());
 }
 
 test "flatten concatenates the inner lists" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([[1, 2], [3], [4, 5]].flatten(ctx), [1, 2, 3, 4, 5]);
 }
 
 test "flatten skips empty inner lists" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([[1], list.empty<Int>(), [2]].flatten(ctx), [1, 2]);
 }
 
 test "flatten of an empty outer list is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<[Int]>().flatten(ctx), list.empty<Int>());
 }
 
 test "flatten of a list of empty lists is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     [list.empty<Int>(), list.empty<Int>()].flatten(ctx),
     list.empty<Int>(),
@@ -565,27 +565,27 @@ test "flatten of a list of empty lists is empty" {
 // --- join ---------------------------------------------------------------------
 
 test "join inserts the separator between elements" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(["a", "b", "c"].join(ctx, ", "), "a, b, c");
 }
 
 test "join of a singleton has no separator" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(["only"].join(ctx, ", "), "only");
 }
 
 test "join of the empty list is the empty string" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.empty<Str>().join(ctx, ", "), "");
 }
 
 test "join with an empty separator concatenates" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(["a", "b", "c"].join(ctx, ""), "abc");
 }
 
 test "join preserves empty elements" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(["", "b", ""].join(ctx, "-"), "-b-");
 }
 
@@ -600,47 +600,47 @@ test "empty lists of the same element type are equal" {
 }
 
 test "range is half-open" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.range(ctx, 0, 5), [0, 1, 2, 3, 4]);
 }
 
 test "range from a nonzero start" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.range(ctx, 3, 6), [3, 4, 5]);
 }
 
 test "range with start equal to end is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.range(ctx, 4, 4), list.empty<Int>());
 }
 
 test "range with start past end is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.range(ctx, 5, 2), list.empty<Int>());
 }
 
 test "range over negative numbers" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.range(ctx, -2, 2), [-2, -1, 0, 1]);
 }
 
 test "repeat produces n copies" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.repeat(ctx, 7, 3), [7, 7, 7]);
 }
 
 test "repeat zero times is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.repeat(ctx, 7, 0), list.empty<Int>());
 }
 
 test "repeat a negative number of times is empty" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.repeat(ctx, 7, -3), list.empty<Int>());
 }
 
 test "repeat works on strings" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(list.repeat(ctx, "x", 2), ["x", "x"]);
 }
 
@@ -701,7 +701,7 @@ test "minimum on strings uses Ord" {
 // --- structural equality on lists (SPEC 5.11) ---------------------------------
 
 test "two separately built lists with equal contents are equal" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let a = [1, 2, 3];
   let b = list.range(ctx, 1, 4);
   assert.eq(a, b);
@@ -736,7 +736,7 @@ test "lists of tuples compare structurally" {
 // is what wanted it: decode, accumulating, and stop at the first bad input.
 
 test "foldResultCtx accumulates while every step succeeds" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let out = [1, 2, 3].foldResultCtx(
     ctx,
     fn(c, acc: [Int], x) => .Ok(acc.push(c, x * 10)),
@@ -746,7 +746,7 @@ test "foldResultCtx accumulates while every step succeeds" {
 }
 
 test "foldResultCtx stops at the first failure" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let out = [1, 0, 3].foldResultCtx(
     ctx,
     fn(c, acc: [Int], x) =>
@@ -757,7 +757,7 @@ test "foldResultCtx stops at the first failure" {
 }
 
 test "foldResultCtx over the empty list is the seed" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let out = list.empty<Int>().foldResultCtx(
     ctx,
     fn(c, acc: [Int], x) => .Ok(acc.push(c, x)),
@@ -769,7 +769,7 @@ test "foldResultCtx over the empty list is the seed" {
 // The step after the failing one must not run, or an error would be a
 // suggestion rather than a stop.
 test "foldResultCtx does not run the step after a failure" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let out = [1, 2, 3].foldResultCtx(
     ctx,
     fn(c, acc: [Int], x) =>
@@ -799,7 +799,7 @@ fn grow<C: Alloc>(ctx: C, i: Int, n: Int, acc: [Int]): [Int] {
 }
 
 test "two pushes onto one list do not see each other" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = [1, 2].concat(ctx, [3]);
   let a = xs.push(ctx, 4);
   let b = xs.push(ctx, 5);
@@ -809,7 +809,7 @@ test "two pushes onto one list do not see each other" {
 }
 
 test "a callee that pushes leaves the caller's list alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = list.empty<Int>().push(ctx, 1).push(ctx, 2);
   let a = appended(ctx, xs, 3);
   let b = appended(ctx, xs, 4);
@@ -819,7 +819,7 @@ test "a callee that pushes leaves the caller's list alone" {
 }
 
 test "concat leaves both operands alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = [1].concat(ctx, [2]);
   let ys = [3].concat(ctx, [4]);
   let joined = xs.concat(ctx, ys);
@@ -829,13 +829,13 @@ test "concat leaves both operands alone" {
 }
 
 test "concatenating a list with itself doubles it once" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = [1].concat(ctx, [2]);
   assert.eq(xs.concat(ctx, xs), [1, 2, 1, 2]);
 }
 
 test "reverse leaves the list it was called on alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = [1].concat(ctx, [2, 3]);
   let r = xs.reverse(ctx);
   assert.eq(r, [3, 2, 1]);
@@ -843,7 +843,7 @@ test "reverse leaves the list it was called on alone" {
 }
 
 test "take, drop and slice leave the list they read alone" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = [1].concat(ctx, [2, 3, 4]);
   assert.eq(xs.take(ctx, 2), [1, 2]);
   assert.eq(xs.drop(ctx, 2), [3, 4]);
@@ -852,7 +852,7 @@ test "take, drop and slice leave the list they read alone" {
 }
 
 test "a list inside a list is not written through" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let inner = [1].concat(ctx, [2]);
   let outer = list.empty<[Int]>().push(ctx, inner);
   let grown = assert.some(outer.get(0)).push(ctx, 3);
@@ -861,7 +861,7 @@ test "a list inside a list is not written through" {
 }
 
 test "a list in a struct survives two functional updates" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let base = Basket { label: "base", items: [1].concat(ctx, [2]) };
   let one = Basket { ..base, items: base.items.push(ctx, 3) };
   let two = Basket { ..base, items: base.items.push(ctx, 4) };
@@ -872,7 +872,7 @@ test "a list in a struct survives two functional updates" {
 
 // The accumulator a fold is handed still belongs to whoever passed it.
 test "a fold seed is not written through" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let seed = [0].concat(ctx, list.empty<Int>());
   let out = [1, 2].foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x), seed);
   assert.eq(out, [0, 1, 2]);
@@ -882,7 +882,7 @@ test "a fold seed is not written through" {
 // Every element a higher-order operation hands to a callback is one the list
 // still holds.
 test "an element handed to a callback is not written through" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let inner = [1].concat(ctx, [2]);
   let outer = list.empty<[Int]>().push(ctx, inner);
   let lengths = outer.mapCtx(ctx, fn(c, xs: [Int]) => xs.push(c, 9).len());
@@ -893,7 +893,7 @@ test "an element handed to a callback is not written through" {
 // A list rebound by a loop is the case the whole optimisation is for: the
 // answer is the same, and the work is not.
 test "an accumulator grown in a loop answers what a copy would" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = grow(ctx, 0, 40, list.empty<Int>());
   assert.eq(xs.len(), 40);
   assert.eq(assert.some(xs.get(0)), 0);
@@ -903,7 +903,7 @@ test "an accumulator grown in a loop answers what a copy would" {
 // A fresh aggregate can only hold aliases that were already marked on the way
 // in, which is what makes reading a field back out of a dying one safe.
 test "a list zipped into a fresh pair is not written through" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let inner = [1].concat(ctx, [2]);
   let outer = list.empty<[Int]>().push(ctx, inner);
   let pairs = outer.zip(ctx, [10]);
@@ -915,7 +915,7 @@ test "a list zipped into a fresh pair is not written through" {
 
 // A list held in a tuple built beside a use of it.
 test "a list put into a tuple beside another use of it is not written through" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let xs = [1].concat(ctx, [2]);
   let pair = (xs, xs.len());
   let grown = pair.0.push(ctx, 3);

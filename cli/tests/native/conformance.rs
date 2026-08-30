@@ -68,6 +68,26 @@
 //! never determines stopped being a free variable: `Subst::default_unconstrained`
 //! makes it `()`, which every backend already lays out.
 //!
+//! # The `core/host/testing` migration, and why this list did not move
+//!
+//! Several of the reasons above are written in terms of `Hermetic()`, which
+//! instantiates all nine implementations whether a test uses one or not — and
+//! `cli/tests/migrate.rs` is now replacing it, package by package, with a
+//! context that names only what the function under test needs. The first batch
+//! is `lib/data` and `lib/collections`: two hundred and sixty-four sites, of
+//! which two hundred and sixty bind `Alloc` and four bind nothing at all.
+//!
+//! **All eight of those files were already in the native set**, so the table
+//! below is unchanged and the census is the same thirty files and 1,393
+//! blocks it was before. That is the honest report: the migration removed the
+//! pressure the exclusions named, and no file was waiting on it. The
+//! historical reasons are left where they are — what a ledger records is why a
+//! file *was* out — with a note beside the ones the migration has overtaken.
+//! The batches that follow (`lib/semantics`, `lib/json`, `lib/proto`, then the
+//! rest) reach files that *are* excluded, and each of them should re-run
+//! [`the_excluded_packages_are_excluded_for_the_stated_reason`] and move any
+//! row the narrowing lets in.
+//!
 //! # The harness used to be the biggest exclusion, and it was never about the
 //! backend
 //!
@@ -205,6 +225,13 @@ const PACKAGES: &[Case] = &[
     // `calendar/date.buri` for `list.sortBy` as well.
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what said
     // so on the day each stopped being true.
+    //
+    // `collections/bitset.buri` no longer builds one: it is in the first batch
+    // of the `core/host/testing` migration and binds `Alloc` alone. The reason
+    // above is why it *was* out, and it is left standing because the reason a
+    // file was excluded is the thing this ledger records — but the pressure it
+    // names is gone from that file, and from the other seven in `lib/data` and
+    // `lib/collections`. See the migration paragraph in the module doc.
     included("calendar/date.buri"),
     included("collections/bitset.buri"),
     // It was the one file the backend compiled and got *wrong*, and
