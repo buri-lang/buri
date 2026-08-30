@@ -1,0 +1,60 @@
+//! One of everything, laid out badly.
+
+// A header comment about the file.
+
+from "core/str" import * as str;
+from "//lib/z" import { Zed };
+
+export type Pair<T> = (T, T);
+
+let SEED: [U32] = [1779033703, 3144134277, 1013904242, 2773480762, extra 1359893119, 2600822924, 528734635, 1541459225];
+
+derive Eq, Ord for Working;
+export struct Working {
+    export a: U32,
+    export b: U32,
+    export h: U32,
+}
+
+export enum Shape {
+    Circle(Float),
+    Rect { width: Float, height: Float },
+    Empty,
+}
+
+export trait Weigh {
+    fn grams<C: Alloc + Stdout>(self, ctx: C, scale: Str): Float;
+}
+
+impl Weigh for Working {
+    fn grams<C: Alloc + Stdout>(self, ctx: C, scale: Str): Float {
+        let heavy = self.a > 0 && self.b > 0 && self.h > 0 && scale.len() > 0;
+        if (heavy) { 1.0 } else { 0.0 }
+    }
+}
+
+export context Everything {
+    Clock: Fixed(0),
+    Alloc: System(),
+}
+
+export fn everything<C: Alloc>(ctx: C, b: [U8], o: Option<Int>): Str {
+    let hexed = b
+        .mapCtx(ctx, fn(c, x) => {
+            let n = x.toI64();
+            str.fromChars(c, [HEX.charAt(n)])
+        })
+        .join(ctx, "");
+    let matched = match (o) {
+        .None => 0,
+        .Some(n) => n,
+    };
+    str.format(ctx, "${hexed} ${matched}")
+}
+
+test "everything" {
+    assert.eq(
+        everything(Hermetic(), [1, 2, 3], .Some(6)),
+        "a string long enough that the call around it cannot stay on one line",
+    );
+}

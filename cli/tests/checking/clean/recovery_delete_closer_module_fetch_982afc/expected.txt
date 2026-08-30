@@ -1,0 +1,12 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:72:1
+   |
+72 | 
+   | ^
+   |
+  --> main.buri:62:48
+   |
+62 | test "the failure reasons are distinct values" {
+   |                                                ^ opened here
+   |
+   = fix: write `}` here

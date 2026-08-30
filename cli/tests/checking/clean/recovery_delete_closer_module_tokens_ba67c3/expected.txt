@@ -1,0 +1,9 @@
+error: expected an identifier, found `impl` [unexpected-token]
+  --> main.buri:31:1
+   |
+31 | impl Token {
+   | ^^^^
+   |
+   = expected: an identifier
+   = actual: `impl`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -1,0 +1,6 @@
+export fn f(o: Option<Int>): Int {
+  match (o) {
+    .Some(n) if n > 0 => aFunctionWithAConsiderablyLongerNameThanTheArrowLeavesRoomFor(ctx, n)
+    .None => 0,
+  }
+}

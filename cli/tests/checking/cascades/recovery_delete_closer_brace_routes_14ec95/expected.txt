@@ -1,0 +1,29 @@
+error: this `match` does not cover `_` [match-not-exhaustive]
+ --> main.buri:9:3
+  |
+9 |   match (path) {
+  |   ^^^^^^^^^^^^^^ not covered
+  |
+  = exhaustiveness is not attempted over integer or string ranges
+  = fix: add a `_` arm
+error: expected an identifier, found a string literal [unexpected-token]
+  --> main.buri:11:5
+   |
+11 |     "/health" => Route { name: "health", path },
+   |     ^^^^^^^^^
+   |
+   = expected: an identifier
+   = actual: a string literal
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:15:1
+   |
+15 | 
+   | ^
+   |
+ --> main.buri:8:35
+  |
+8 | export fn route(path: Str): Route {
+  |                                   ^ opened here
+  |
+  = fix: write `}` here

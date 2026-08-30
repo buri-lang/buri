@@ -1,0 +1,10 @@
+export struct Cents(export I64);
+
+derive Eq, Show for Cents;
+
+export fn fromCents(c: I64): Cents { Cents(c) }
+
+// Exported, not on the surface, and named by no sibling. Inside a library
+// `export` means "visible to the rest of this library", so this one says
+// nothing to anybody.
+export fn toDollars(c: Cents): I64 { c.@ 0 / 100 }

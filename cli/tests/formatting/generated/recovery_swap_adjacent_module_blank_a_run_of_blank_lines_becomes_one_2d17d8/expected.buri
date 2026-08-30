@@ -1,0 +1,9 @@
+export fn a(): Int {
+    1
+}
+
+// why
+
+fn
+
+export b(): Int { 2 }

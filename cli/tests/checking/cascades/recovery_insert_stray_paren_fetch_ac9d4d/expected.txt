@@ -1,0 +1,17 @@
+error: this `match` does not cover `.Err(.Transport(_))` [match-not-exhaustive]
+  --> main.buri:19:5
+   |
+19 |     match (result) {
+   |     ^^^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Err(.Transport(_))`, or a `_` arm for everything left
+error: expected a pattern, found `?` [unexpected-token]
+  --> main.buri:24:14
+   |
+24 |         .Err(? .Transport(m)) => "transport",
+   |              ^
+   |
+   = expected: a pattern
+   = actual: `?`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

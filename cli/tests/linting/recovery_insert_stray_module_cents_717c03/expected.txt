@@ -1,0 +1,30 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_module_cents_717c03/lib.buri:10:38
+   |
+10 | export fn toDollars(c: Cents): I64 { c.0 / 100 extra }
+   |                                      ^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `I64`, not `()` [statement-not-unit]
+  --> lib/recovery_insert_stray_module_cents_717c03/lib.buri:10:38
+   |
+10 | export fn toDollars(c: Cents): I64 { c.0 / 100 extra }
+   |                                      ^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_module_cents_717c03/lib.buri:10:47
+   |
+10 | export fn toDollars(c: Cents): I64 { c.0 / 100 extra }
+   |                                               ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_module_cents_717c03/lib.buri:10:48
+   |
+10 | export fn toDollars(c: Cents): I64 { c.0 / 100 extra }
+   |                                                ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

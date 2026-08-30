@@ -1,0 +1,9 @@
+error: expected `(`, found `@` [unexpected-token]
+ --> main.buri:1:31
+  |
+1 | export fn f(x: Int): Str { if @ (x > 0) { "yes" } else { "no" } }
+  |                               ^
+  |
+  = expected: `(`
+  = actual: `@`
+  = fix: write `(` here

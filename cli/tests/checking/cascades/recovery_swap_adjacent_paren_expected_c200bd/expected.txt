@@ -1,0 +1,21 @@
+error: expected `Bool`, found `I64` [type-mismatch]
+ --> main.buri:2:9
+  |
+2 |     if (x 0 >) { "yes" } else { "no" }
+  |         ^ an `if` condition is `Bool`
+  |
+  = expected: `Bool`
+  = actual: `I64`
+  = fix: produce a `Bool` here, or change what surrounds it to accept a `I64`
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:2:11
+  |
+2 |     if (x 0 >) { "yes" } else { "no" }
+  |           ^
+  |
+ --> main.buri:2:8
+  |
+2 |     if (x 0 >) { "yes" } else { "no" }
+  |        ^ opened here
+  |
+  = fix: write `)` here

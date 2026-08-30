@@ -1,0 +1,37 @@
+error: expected `fn`, found `@` [unexpected-token]
+  --> main.buri:37:3
+   |
+37 |   @ export fn color(self): Color {
+   |   ^
+   |
+   = expected: `fn`
+   = actual: `@`
+   = fix: write `fn` here
+error: `Token` has no method `color` [no-such-method]
+  --> main.buri:59:20
+   |
+59 |     (Token.Surface.color(), f(.Surface)),
+   |                    ^^^^^
+   |
+   = fix: check the spelling, or declare it in `impl Token { ... }` in `main.buri`, where the type is declared — a method may not be added from anywhere else
+error: `Token` has no method `color` [no-such-method]
+  --> main.buri:60:22
+   |
+60 |     (Token.OnSurface.color(), f(.OnSurface)),
+   |                      ^^^^^
+   |
+   = fix: check the spelling, or declare it in `impl Token { ... }` in `main.buri`, where the type is declared — a method may not be added from anywhere else
+error: `Token` has no method `color` [no-such-method]
+  --> main.buri:61:17
+   |
+61 |     (Token.Edge.color(), f(.Edge)),
+   |                 ^^^^^
+   |
+   = fix: check the spelling, or declare it in `impl Token { ... }` in `main.buri`, where the type is declared — a method may not be added from anywhere else
+error: `Token` has no method `color` [no-such-method]
+  --> main.buri:62:19
+   |
+62 |     (Token.Accent.color(), f(.Accent)),
+   |                   ^^^^^
+   |
+   = fix: check the spelling, or declare it in `impl Token { ... }` in `main.buri`, where the type is declared — a method may not be added from anywhere else

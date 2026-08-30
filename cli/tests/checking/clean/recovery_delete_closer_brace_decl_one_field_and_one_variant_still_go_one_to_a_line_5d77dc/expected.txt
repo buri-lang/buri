@@ -1,0 +1,12 @@
+error: this variant payload is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:7:37
+  |
+7 | export enum Hello { World, Now(Bool }
+  |                                     ^
+  |
+ --> main.buri:7:31
+  |
+7 | export enum Hello { World, Now(Bool }
+  |                               ^ opened here
+  |
+  = fix: write `)` here

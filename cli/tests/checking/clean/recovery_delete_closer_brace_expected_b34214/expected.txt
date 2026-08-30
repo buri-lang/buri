@@ -1,0 +1,12 @@
+error: this variant payload is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:13:1
+   |
+13 | }
+   | ^
+   |
+  --> main.buri:11:6
+   |
+11 |     B(Int,
+   |      ^ opened here
+   |
+   = fix: write `)` here

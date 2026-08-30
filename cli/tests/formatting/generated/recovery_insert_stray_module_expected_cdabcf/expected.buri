@@ -1,0 +1,7 @@
+derive
+    Eq, Ord, Show, ToJson, FromJson, Hash, Clone, Default, Debug, Display, Sendable
+for extra
+
+Meters;
+
+export struct Meters(export Float);

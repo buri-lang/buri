@@ -1,0 +1,9 @@
+error: expected `(`, found `?` [unexpected-token]
+ --> main.buri:9:12
+  |
+9 | export fn b? (): Int { 2 }
+  |            ^
+  |
+  = expected: `(`
+  = actual: `?`
+  = fix: write `(` here

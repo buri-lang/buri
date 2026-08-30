@@ -1,0 +1,33 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:53:71
+   |
+53 |     let _ = fetch(ctx, get("https://example.invalid/a"), fn(c, result => {
+   |                                                                       ^^
+   |
+  --> main.buri:53:60
+   |
+53 |     let _ = fetch(ctx, get("https://example.invalid/a"), fn(c, result => {
+   |                                                            ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `;` [unexpected-token]
+  --> main.buri:55:7
+   |
+55 |     });
+   |       ^
+   |
+   = expected: `=>`
+   = actual: `;`
+   = fix: write `=>` here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:72:1
+   |
+72 | 
+   | ^
+   |
+  --> main.buri:48:43
+   |
+48 | test "the callback runs once per request" {
+   |                                           ^ opened here
+   |
+   = fix: write `}` here

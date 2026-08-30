@@ -1,0 +1,27 @@
+error: this `match` does not cover `.Err(.BadUrl(_))` [match-not-exhaustive]
+  --> main.buri:19:5
+   |
+19 |     match (result) {
+   |     ^^^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Err(.BadUrl(_))`, or a `_` arm for everything left
+error: `Str` has no method `Err` [no-such-method]
+  --> main.buri:23:10
+   |
+23 |         .Err(.BadUrl(u)) => "bad url",
+   |          ^^^
+   |
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:23:26
+   |
+23 |         .Err(.BadUrl(u)) => "bad url",
+   |                          ^^
+   |
+  --> main.buri:19:20
+   |
+19 |     match (result) {
+   |                    ^ opened here
+   |
+   = fix: write `}` here

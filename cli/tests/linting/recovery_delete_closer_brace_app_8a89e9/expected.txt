@@ -1,0 +1,20 @@
+warning: `spell` is 41 lines long [oversized-function]
+ --> lib/recovery_delete_closer_brace_app_8a89e9/main.buri:9:4
+  |
+9 | fn spell(n: I64): Str {
+  |    ^^^^^
+  |
+  = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+  = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_8a89e9/main.buri:51:1
+   |
+51 | export fn main(): Result<(), Str> {
+   | ^^^^^^
+   |
+ --> lib/recovery_delete_closer_brace_app_8a89e9/main.buri:9:23
+  |
+9 | fn spell(n: I64): Str {
+  |                       ^ opened here
+  |
+  = fix: write `}` here

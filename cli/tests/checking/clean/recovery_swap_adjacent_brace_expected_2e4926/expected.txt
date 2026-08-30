@@ -1,0 +1,19 @@
+error: a match arm is `pattern => expression` [missing-arrow]
+ --> main.buri:5:17
+  |
+5 |         .Some(n) n =>,
+  |                 ^
+  |
+  = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:5:20
+  |
+5 |         .Some(n) n =>,
+  |                    ^^
+  |
+ --> main.buri:2:15
+  |
+2 |     match (x) {
+  |               ^ opened here
+  |
+  = fix: write `}` here

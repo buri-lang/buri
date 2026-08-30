@@ -1,0 +1,34 @@
+error: this import list is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_brace_app_e1ade5/main.buri:5:34
+  |
+5 | from "core/effect" import { Alloc? , Stdout };
+  |                                  ^
+  |
+ --> lib/recovery_insert_stray_brace_app_e1ade5/main.buri:5:27
+  |
+5 | from "core/effect" import { Alloc? , Stdout };
+  |                           ^ opened here
+  |
+  = fix: write `}` here
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_insert_stray_brace_app_e1ade5/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: `Stdout` is not a declared effect [not-an-effect]
+  --> lib/recovery_insert_stray_brace_app_e1ade5/main.buri:13:42
+   |
+13 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+   |                                          ^^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Stdout` is not one
+error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
+  --> lib/recovery_insert_stray_brace_app_e1ade5/main.buri:14:11
+   |
+14 |   let _ = io.println(ctx, banner());
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Stdout`, or use a type that has one

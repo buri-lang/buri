@@ -1,0 +1,21 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:2:16
+  |
+2 |     if (x > 0{ ) "yes" } else { "no" }
+  |                ^
+  |
+ --> main.buri:2:14
+  |
+2 |     if (x > 0{ ) "yes" } else { "no" }
+  |              ^ opened here
+  |
+  = fix: write `}` here
+error: expected `{`, found a string literal [unexpected-token]
+ --> main.buri:2:18
+  |
+2 |     if (x > 0{ ) "yes" } else { "no" }
+  |                  ^^^^^
+  |
+  = expected: `{`
+  = actual: a string literal
+  = fix: write `{` here

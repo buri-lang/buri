@@ -155,10 +155,16 @@ its being a platform module rather than a library:
   ends a program. The runner reports the file, the line, and both values.
 
 A test source may also use **expression statements**, which no other module may:
-a call whose type is `()` may stand alone, terminated by `;`.
+*any* expression whose type is `()` may stand alone, terminated by `;`. A call
+is the common case, and a `match`, an `if` or a block whose every branch
+produces `()` is one too.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 assert.eq(total, 42);              // statement: type is ()
+match (parsed) {                   // statement: every arm is ()
+  .Some(n) => assert.eq(n, 42),
+  .None => assert.fail("no value"),
+};                                 // ← the `;` is what makes it a statement
 // assert.ok(loadConfig(ctx));     // ERROR if it returns Config — bind it or drop
                                    // it explicitly with `let _ =`
 ```
@@ -166,6 +172,12 @@ assert.eq(total, 42);              // statement: type is ()
 This is the narrowest relaxation that makes assertions read as assertions, and
 it does not weaken Section 5.7.1: `Result` is not `()`, so nothing must-use can
 be dropped by it.
+
+The `;` is not decoration, and a `{`-initial expression carries it like any
+other. A block is statements followed by a result expression, and the `;` is
+the only thing that says which one this is; without it a `match` in the middle
+of a test body reads as the block's result, and what follows has nowhere to go
+(Section 12.2).
 
 ### 11.3 Contexts
 

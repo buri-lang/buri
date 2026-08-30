@@ -1,0 +1,14 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:41:25
+   |
+41 |     let log = recorder()extra ;
+   |                         ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:41:25
+   |
+41 |     let log = recorder()extra ;
+   |                         ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

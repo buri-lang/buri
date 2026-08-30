@@ -1,0 +1,14 @@
+// The maintainer's example: the first arm has no `,`. It is one mistake, and
+// the report below says so once — the file it is in still resolves, and the
+// file beside it is still read.
+
+export struct Route {
+  export name: Str,
+}
+
+export fn route(path: Str): Route {
+  match (path) {
+    "/health" => Route { name: "health" }
+    _ => Route { name: "fallback" },
+  }
+}

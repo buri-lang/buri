@@ -1,0 +1,18 @@
+// Aliases imported by name from a library, and used as ordinary types.
+// `Sample` stands for a struct this module cannot name, which is the whole of
+// what "the alias expands in the module that declared it" buys.
+
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/str" import * as str;
+
+from "//lib/units" import { Meters, Trip, Sample, widen, sample, depth };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let trip: Trip = [widen(1.5), widen(2.5)];
+  let total: Meters = (trip[0] ?? 0.0) + (trip[1] ?? 0.0);
+  let deepest: Sample = sample(total);
+  let _ = ctx.println(str.format(ctx, "${depth(deepest)}"));
+  .Ok(())
+}

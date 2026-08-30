@@ -1,0 +1,18 @@
+error: expected `{`, found `export` [unexpected-token]
+ --> main.buri:3:20
+  |
+3 | export struct Wide export { first: Int, export second: Str, export third: Float, export fourth: Bool }
+  |                    ^^^^^^
+  |
+  = expected: `{`
+  = actual: `export`
+  = fix: write `{` here
+error: expected a declaration, found `{` [unexpected-token]
+ --> main.buri:3:27
+  |
+3 | export struct Wide export { first: Int, export second: Str, export third: Float, export fourth: Bool }
+  |                           ^
+  |
+  = expected: a declaration
+  = actual: `{`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

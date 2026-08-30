@@ -1,0 +1,12 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:63:3
+   |
+63 |   )
+   |   ^
+   |
+  --> main.buri:58:16
+   |
+58 |   theme.themed([
+   |                ^ opened here
+   |
+   = fix: write `]` here

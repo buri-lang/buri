@@ -1,0 +1,9 @@
+error: expected `=`, found `io` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_26e8c3/main.buri:13:9
+   |
+13 |   let _ io =.println(ctx, "done");
+   |         ^^
+   |
+   = expected: `=`
+   = actual: `io`
+   = fix: write `=` here

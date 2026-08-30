@@ -1,0 +1,12 @@
+// EXPECT: "core/fs" has no member `copy`
+// Not `appendBytes`: `core/fs` now exports `append` and `readBytes`, so that
+// name draws a did-you-mean and stops pinning the no-suggestion branch.
+from "core/effect" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
+from "core/fs" import * as fs;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
+  let _ = fs.copy(ctx, "wal", "wal.bak");
+  .Ok(())
+}

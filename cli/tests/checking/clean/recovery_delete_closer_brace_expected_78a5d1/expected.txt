@@ -1,0 +1,32 @@
+error: `if` requires an `else` branch [if-without-else]
+ --> main.buri:2:16
+  |
+2 |     if (x > 0) { "yes"  else { "no" }
+  |                ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = `if` is an expression, so both branches must produce a value of the same type
+  = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:2:25
+  |
+2 |     if (x > 0) { "yes"  else { "no" }
+  |                         ^^^^
+  |
+ --> main.buri:2:16
+  |
+2 |     if (x > 0) { "yes"  else { "no" }
+  |                ^ opened here
+  |
+  = fix: write `}` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:4:1
+  |
+4 | 
+  | ^
+  |
+ --> main.buri:1:26
+  |
+1 | export fn f(x: Int): Str {
+  |                          ^ opened here
+  |
+  = fix: write `}` here

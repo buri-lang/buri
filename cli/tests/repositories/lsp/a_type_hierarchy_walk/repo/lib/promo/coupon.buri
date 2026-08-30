@@ -2,7 +2,9 @@ from "//lib/shop" import { Priced };
 
 derive Eq for Coupon;
 /// Money off, in whole cents.
-export struct Coupon { export off: I64 }
+export struct Coupon {
+    export off: I64,
+}
 
 impl Priced for Coupon {
     fn cents(self): I64 {

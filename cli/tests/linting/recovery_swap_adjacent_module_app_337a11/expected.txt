@@ -1,0 +1,28 @@
+error: this type argument list is missing its closing `>` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_module_app_337a11/main.buri:10:33
+   |
+10 | export fn main(): Result<(), Str{ >
+   |                                 ^
+   |
+  --> lib/recovery_swap_adjacent_module_app_337a11/main.buri:10:25
+   |
+10 | export fn main(): Result<(), Str{ >
+   |                         ^ opened here
+   |
+   = fix: write `>` here
+error: expected an expression, found `>` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_337a11/main.buri:10:35
+   |
+10 | export fn main(): Result<(), Str{ >
+   |                                   ^
+   |
+   = expected: an expression
+   = actual: `>`
+   = fix: write a value here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_module_app_337a11/main.buri:13:22
+   |
+13 |   let _ = io.println(ctx, "done");
+   |                      ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

@@ -1,0 +1,21 @@
+error: expected `Bool`, found `I64` [type-mismatch]
+ --> main.buri:1:32
+  |
+1 | export fn f(x: Int): Str { if (x 0 >) { "yes" } else { "no" } }
+  |                                ^ an `if` condition is `Bool`
+  |
+  = expected: `Bool`
+  = actual: `I64`
+  = fix: produce a `Bool` here, or change what surrounds it to accept a `I64`
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:1:34
+  |
+1 | export fn f(x: Int): Str { if (x 0 >) { "yes" } else { "no" } }
+  |                                  ^
+  |
+ --> main.buri:1:31
+  |
+1 | export fn f(x: Int): Str { if (x 0 >) { "yes" } else { "no" } }
+  |                               ^ opened here
+  |
+  = fix: write `)` here

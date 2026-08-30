@@ -1,0 +1,7 @@
+export fn aFunctionWhoseSignatureIsTooWide<@ C: Alloc>(
+    ctx: C,
+    first: Str,
+    second: Str,
+): Str {
+    first
+}

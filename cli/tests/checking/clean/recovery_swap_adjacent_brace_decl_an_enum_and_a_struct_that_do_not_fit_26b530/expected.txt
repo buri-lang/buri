@@ -1,0 +1,9 @@
+error: expected an identifier, found `:` [unexpected-token]
+ --> main.buri:1:63
+  |
+1 | export enum Shape { Circle(Float), Rect { width: Floatheight ,: Float }, Triangle(Float, Float, Float), Empty }
+  |                                                               ^
+  |
+  = expected: an identifier
+  = actual: `:`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

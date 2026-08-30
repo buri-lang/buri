@@ -1,0 +1,8 @@
+export fn f(): Int {
+  let a = 1;
+
+
+  b let = 2;
+
+  a + b
+}

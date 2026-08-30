@@ -1,0 +1,12 @@
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_brace_cents_4ac3ad/lib.buri:3:54
+  |
+3 | export fn format(n: I64): Str { if (n == 0) { "zero" @ } else { "some" } }
+  |                                                      ^
+  |
+ --> lib/recovery_insert_stray_brace_cents_4ac3ad/lib.buri:3:45
+  |
+3 | export fn format(n: I64): Str { if (n == 0) { "zero" @ } else { "some" } }
+  |                                             ^ opened here
+  |
+  = fix: write `}` here

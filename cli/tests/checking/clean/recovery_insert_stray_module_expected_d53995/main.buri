@@ -1,0 +1,11 @@
+export struct S {
+    // only a comment, no fields
+}
+
+? export enum E {
+    // only a comment, no variants
+}
+
+export trait T {
+    // only a comment, no methods
+}

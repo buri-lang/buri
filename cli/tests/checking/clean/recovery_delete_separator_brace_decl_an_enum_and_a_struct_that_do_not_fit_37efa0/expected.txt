@@ -1,0 +1,7 @@
+error: an enum variant ends with `,` [missing-separator]
+ --> main.buri:1:34
+  |
+1 | export enum Shape { Circle(Float) Rect { width: Float, height: Float }, Triangle(Float, Float, Float), Empty }
+  |                                  ^
+  |
+  = fix: write `,` here

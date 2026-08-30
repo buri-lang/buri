@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:13:1
+   |
+13 | :
+   | ^
+   |
+ --> main.buri:4:1
+  |
+4 | (
+  | ^ opened here
+  |
+  = fix: write `)` here

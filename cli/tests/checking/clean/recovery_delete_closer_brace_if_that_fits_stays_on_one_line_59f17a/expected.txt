@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:2:1
+  |
+2 | 
+  | ^
+  |
+ --> main.buri:1:26
+  |
+1 | export fn f(x: Int): Str { if (x > 0) { "yes" } else { "no"  }
+  |                          ^ opened here
+  |
+  = fix: write `}` here

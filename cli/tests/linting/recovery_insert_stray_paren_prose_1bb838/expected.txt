@@ -1,0 +1,9 @@
+error: expected `:`, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_prose_1bb838/lib.buri:1:18
+  |
+1 | export fn shout(s? : Str): Str { s }
+  |                  ^
+  |
+  = expected: `:`
+  = actual: `?`
+  = fix: write `:` here

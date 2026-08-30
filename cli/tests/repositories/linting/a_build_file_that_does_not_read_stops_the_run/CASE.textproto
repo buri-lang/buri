@@ -1,0 +1,43 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the other half of recovery: a source that does not parse is read around and still linted, and a build file that does not read is not — it is the shape of the repository, so the run stops and says so"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "finding.txt"
+}
+
+# The build file is written broken here rather than checked in broken: a
+# `BUILD.buri` in this tree is held to being formatted, and a case is a better
+# place to say "and now it does not read" than an exception to that rule.
+edit {
+  file: "lib/money/BUILD.buri"
+  replace: "visibility: [\"//visibility:public\"]"
+  with: "visibility: [\"//visibility:public\""
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 2
+  golden: "refused.txt"
+}
+
+edit {
+  file: "lib/money/BUILD.buri"
+  replace: "visibility: [\"//visibility:public\""
+  with: "visibility: [\"//visibility:public\"]"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "from \"core/str\" import * as str;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

@@ -1,0 +1,9 @@
+error: expected `{`, found `extra` [unexpected-token]
+ --> main.buri:8:15
+  |
+8 | export enum E extra {}
+  |               ^^^^^
+  |
+  = expected: `{`
+  = actual: `extra`
+  = fix: write `{` here

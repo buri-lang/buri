@@ -1,0 +1,9 @@
+error: expected `;`, found `,` [unexpected-token]
+ --> main.buri:4:32
+  |
+4 | from "core/str" import * as str, ;
+  |                                ^
+  |
+  = expected: `;`
+  = actual: `,`
+  = fix: write `;` here

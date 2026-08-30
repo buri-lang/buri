@@ -21,6 +21,34 @@ Only the *leading* run moves. An import written after a declaration stays where
 it is, because moving it across that declaration could change what the module
 means.
 
+## Type declarations
+
+Almost every other break is decided by the width — what is left of the line
+against what comes next. Struct and enum declarations are not. A **struct**
+declaration with a braced field list puts every field on its own line, and an
+**enum** declaration puts every variant on its own line, each with a trailing
+comma, however short the whole would be:
+
+```buri
+export enum Hello {
+    World,
+    Now(Bool),
+}
+```
+
+One field or one variant breaks exactly like ten. These are the declarations a
+reader scans to learn what a program is made of, and what a type has should not
+read one way at three fields and another way at four; a trailing comma also
+makes adding a member a one-line diff.
+
+Two shapes have nothing to break. An empty body stays shut — `struct S {}` and
+`enum E {}` — because there is no member to give a line to and no list to put a
+comma on. A tuple struct has no braced field list at all: `struct Meters(F64);`
+is left as it is.
+
+This is about *declarations*. A struct literal in an expression, and a match
+arm, break on the width like everything else.
+
 ## A file with a syntax error
 
 A file being edited is a file with a syntax error in it for most of the time

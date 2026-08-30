@@ -1,0 +1,18 @@
+// Every name on the chain, written from outside the library. After the edit
+// that closes the cycle, these five uses report nothing of their own: the
+// alias resolves to the error type, and one cycle stays one diagnostic.
+
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/str" import * as str;
+
+from "//lib/units" import { Depth, Height, Sounding, reading, deepest, metres };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let low: Depth = reading(3.0);
+  let high: Height = reading(4.0);
+  let deep: Sounding = deepest(low, high);
+  let _ = ctx.println(str.format(ctx, "${metres(deep)}"));
+  .Ok(())
+}

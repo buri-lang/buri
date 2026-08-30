@@ -331,6 +331,17 @@ type Handler<T> = fn(T) => Result<(), Str>;
 Aliases are transparent: `type UserId = Str` makes `UserId` and `Str` the same
 type. For a distinct type, use a tuple struct: `struct UserId(Str);`.
 
+An alias may be exported, imported and re-exported like any other declaration
+(Section 4.2). It expands in the module that declared it, so `type Handle =
+LocalStruct` means the same thing wherever the name is read.
+
+Expansion has to end. An alias whose body reaches itself — directly, or through
+other aliases, in this module or across a boundary an export carried it over —
+is `circular-type-alias`, and the alias resolves to the error type. Two aliases
+that reach the same type by different routes are not a cycle: only a walk that
+returns to where it started is. A recursive *type* is written with a struct or
+an enum, whose fields are the boundary an alias does not have.
+
 ### 5.10 Generics
 
 Type parameters are declared in angle brackets. There are no row parameters:

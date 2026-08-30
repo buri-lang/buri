@@ -1,0 +1,7 @@
+from "core/list" export { fold ;
+
+// about g
+export fn g(): Int {
+    1
+}
+/// what is left of the clause

@@ -1,0 +1,3 @@
+from "//lib/z" export extra { apply as play, Banjo, Guitar, Zed }
+
+;

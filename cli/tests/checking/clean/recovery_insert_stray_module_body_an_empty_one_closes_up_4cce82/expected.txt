@@ -1,0 +1,9 @@
+error: expected `fn`, found `@` [unexpected-token]
+  --> main.buri:10:9
+   |
+10 | impl S {@ }
+   |         ^
+   |
+   = expected: `fn`
+   = actual: `@`
+   = fix: write `fn` here

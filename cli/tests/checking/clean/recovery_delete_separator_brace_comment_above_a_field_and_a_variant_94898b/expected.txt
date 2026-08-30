@@ -1,0 +1,7 @@
+error: a record field ends with `,` [missing-separator]
+ --> main.buri:3:16
+  |
+3 |   export a: Int
+  |                ^
+  |
+  = fix: write `,` here

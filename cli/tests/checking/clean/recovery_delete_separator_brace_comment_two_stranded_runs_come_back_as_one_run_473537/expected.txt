@@ -1,0 +1,7 @@
+error: an import name ends with `,` [missing-separator]
+ --> main.buri:3:9
+  |
+3 |     fold
+  |         ^
+  |
+  = fix: write `,` here

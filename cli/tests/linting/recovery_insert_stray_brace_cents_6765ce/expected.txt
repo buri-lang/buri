@@ -1,0 +1,30 @@
+error: there is nothing named `extra` in scope [unresolved-name]
+ --> lib/recovery_insert_stray_brace_cents_6765ce/lib.buri:6:17
+  |
+6 |   let doubled = extra n * 2;
+  |                 ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-terminator]
+ --> lib/recovery_insert_stray_brace_cents_6765ce/lib.buri:6:22
+  |
+6 |   let doubled = extra n * 2;
+  |                      ^
+  |
+  = fix: write `;` here
+error: an expression statement is legal only in a test source [expression-statement]
+ --> lib/recovery_insert_stray_brace_cents_6765ce/lib.buri:6:23
+  |
+6 |   let doubled = extra n * 2;
+  |                       ^^^^^^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `I64`, not `()` [statement-not-unit]
+ --> lib/recovery_insert_stray_brace_cents_6765ce/lib.buri:6:23
+  |
+6 |   let doubled = extra n * 2;
+  |                       ^^^^^^
+  |
+  = only an expression whose type is `()` may stand alone; bind anything else
+  = fix: bind it with `let _ = ...;`

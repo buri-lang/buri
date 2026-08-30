@@ -1,0 +1,9 @@
+error: expected `{`, found `2` [unexpected-token]
+ --> main.buri:8:28
+  |
+8 |     if (n == 0) { 1 } else 2 { }
+  |                            ^
+  |
+  = expected: `{`
+  = actual: `2`
+  = fix: write `{` here

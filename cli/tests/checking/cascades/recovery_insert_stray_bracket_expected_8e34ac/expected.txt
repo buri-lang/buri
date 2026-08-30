@@ -1,0 +1,17 @@
+error: expected an expression, found `@` [unexpected-token]
+ --> main.buri:3:20
+  |
+3 |     let b = [1, 2, @ 3];
+  |                    ^
+  |
+  = expected: an expression
+  = actual: `@`
+  = fix: write a value here
+error: there is nothing named `b` in scope [unresolved-name]
+ --> main.buri:4:5
+  |
+4 |     b
+  |     ^
+  |
+  = did you mean `a`?
+  = fix: correct the spelling, or declare it

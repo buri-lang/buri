@@ -1,0 +1,32 @@
+error: an expression statement is legal only in a test source [expression-statement]
+ --> main.buri:7:3
+  |
+7 |   a b +
+  |   ^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `Int`, not `()` [statement-not-unit]
+ --> main.buri:7:3
+  |
+7 |   a b +
+  |   ^
+  |
+  = only an expression whose type is `()` may stand alone; bind anything else
+  = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+ --> main.buri:7:4
+  |
+7 |   a b +
+  |    ^
+  |
+  = fix: write `;` here
+error: expected an expression, found `}` [unexpected-token]
+ --> main.buri:8:1
+  |
+8 | }
+  | ^
+  |
+  = expected: an expression
+  = actual: `}`
+  = fix: write a value here

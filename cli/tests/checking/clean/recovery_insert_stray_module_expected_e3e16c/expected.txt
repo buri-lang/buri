@@ -1,0 +1,9 @@
+error: expected an identifier, found `@` [unexpected-token]
+  --> main.buri:15:1
+   |
+15 | @ }
+   | ^
+   |
+   = expected: an identifier
+   = actual: `@`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

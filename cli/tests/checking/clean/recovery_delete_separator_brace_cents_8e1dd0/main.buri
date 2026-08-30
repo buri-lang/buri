@@ -1,0 +1,55 @@
+// Internal to //lib/money. Reachable from //lib/money/parse and from lib.buri,
+// and from nothing outside the library.
+//
+// A type's `impl` block lives in the module that declares the type (SPEC.md
+// 6.7.3), so `Cents` and everything callable as `c.something()` are in this
+// file. That is the constraint that decides how a library's files are laid out:
+// one type, one module, however many free functions elsewhere.
+
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
+
+/// Money is never a raw integer. The field is not exported, so there is no way
+/// to add a Cents to an I64 anywhere — including inside this library, outside
+/// this module.
+export struct Cents(I64);
+
+derive Eq, Ord, Show for Cents;
+
+export fn fromDollars(d: I64): Cents { Cents(d * 100) }
+
+export fn fromCents(c: I64): Cents { Cents(c) }
+
+impl Cents {
+  export fn add(self, other: Cents): Cents { Cents(self.0 + other.0) }
+
+  export fn isZero(self): Bool { self.0 == 0 }
+
+  /// Receiver first, context second, as everything callable as a method is.
+  /// Allocates, and says so with `C: Alloc`; performs no I/O, and says that by
+  /// the bounds it does not name.
+  export fn format<C: Alloc>(self, ctx: C): Str {
+    let whole = self.0 / 100;
+    let rest = self.0 % 100;
+    let pad = if (rest < 10) { "0" } else { "" }
+    str.format(ctx, "\$${whole}.${pad}${rest}")
+  }
+
+  /// The amount split at the decimal point: whole units, then hundredths.
+  ///
+  /// Pure, and that is the whole reason it sits beside `format` rather than
+  /// inside it. Turning an interpolation into a `Str` allocates, so `format`
+  /// takes an allocator — and a reactive computation is handed a `Scope`, which
+  /// grants reading the signal graph and nothing else. A running total on a
+  /// page is rendered out of this one; //cmd/basket is where.
+  ///
+  /// Both halves carry the amount's sign, because that is what division and
+  /// remainder do. A caller rendering a negative amount takes the sign off the
+  /// front itself.
+  export fn parts(self): (I64, I64) { (self.0 / 100, self.0 % 100) }
+
+  /// Exported from this module so //lib/money/parse can bounds-check a value it
+  /// built, and absent from lib.buri, so it stops at the library boundary.
+  /// `c.toCents()` outside //lib/money does not resolve.
+  export fn toCents(self): I64 { self.0 }
+}

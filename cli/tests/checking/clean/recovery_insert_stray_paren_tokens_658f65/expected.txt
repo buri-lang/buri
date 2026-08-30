@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:61:23
+   |
+61 |     (Token.Edge.color(? ), f(.Edge)),
+   |                       ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here

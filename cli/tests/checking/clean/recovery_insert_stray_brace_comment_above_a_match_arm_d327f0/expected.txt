@@ -1,0 +1,9 @@
+error: expected `{`, found `,` [unexpected-token]
+ --> main.buri:2:13
+  |
+2 |   match (x) , {
+  |             ^
+  |
+  = expected: `{`
+  = actual: `,`
+  = fix: write `{` here

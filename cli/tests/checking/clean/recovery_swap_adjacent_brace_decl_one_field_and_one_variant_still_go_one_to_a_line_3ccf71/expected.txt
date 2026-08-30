@@ -1,0 +1,9 @@
+error: expected a type, found `}` [unexpected-token]
+ --> main.buri:3:38
+  |
+3 | export struct Point { x: Int, yInt : }
+  |                                      ^
+  |
+  = expected: a type
+  = actual: `}`
+  = fix: name a type here, as in `Int` or `[Str]`

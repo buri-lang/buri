@@ -1,0 +1,35 @@
+warning: `spell` is 41 lines long [oversized-function]
+ --> lib/recovery_swap_adjacent_brace_app_f7c988/main.buri:9:4
+  |
+9 | fn spell(n: I64): Str {
+  |    ^^^^^
+  |
+  = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+  = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: this `match` does not cover `_` [match-not-exhaustive]
+  --> lib/recovery_swap_adjacent_brace_app_f7c988/main.buri:10:3
+   |
+10 |   match (n) {
+   |   ^^^^^^^^^^^ not covered
+   |
+   = exhaustiveness is not attempted over integer or string ranges
+   = fix: add a `_` arm
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_swap_adjacent_brace_app_f7c988/main.buri:13:6
+   |
+13 |     2 "two" =>,
+   |      ^
+   |
+   = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_f7c988/main.buri:13:13
+   |
+13 |     2 "two" =>,
+   |             ^^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_f7c988/main.buri:10:13
+   |
+10 |   match (n) {
+   |             ^ opened here
+   |
+   = fix: write `}` here

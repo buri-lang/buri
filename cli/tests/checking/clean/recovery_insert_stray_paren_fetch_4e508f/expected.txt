@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:65:18
+   |
+65 |     assert.notEq(, timeout, aborted);
+   |                  ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

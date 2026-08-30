@@ -1,0 +1,17 @@
+error: expected an identifier, found `{` [unexpected-token]
+ --> main.buri:6:15
+  |
+6 | export struct { S}
+  |               ^
+  |
+  = expected: an identifier
+  = actual: `{`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is no type `S` [unresolved-type]
+  --> main.buri:10:6
+   |
+10 | impl S {}
+   |      ^
+   |
+   = did you mean `E`?
+   = fix: declare it, import it, or correct the spelling

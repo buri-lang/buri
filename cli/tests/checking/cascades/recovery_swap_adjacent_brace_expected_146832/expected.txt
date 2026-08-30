@@ -1,0 +1,17 @@
+error: this `match` does not cover `.None` [match-not-exhaustive]
+ --> main.buri:2:5
+  |
+2 |     match (x) {
+  |     ^^^^^^^^^^^ not covered
+  |
+  = every `match` must cover its scrutinee's type
+  = fix: add an arm for `.None`, or a `_` arm for everything left
+error: expected an identifier, found `=>` [unexpected-token]
+ --> main.buri:4:10
+  |
+4 |         .=> None 0,
+  |          ^^
+  |
+  = expected: an identifier
+  = actual: `=>`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

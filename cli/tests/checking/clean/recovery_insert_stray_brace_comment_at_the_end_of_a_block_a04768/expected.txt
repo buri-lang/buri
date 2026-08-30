@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+ --> main.buri:3:3
+  |
+3 |   ? x
+  |   ^
+  |
+  = expected: an expression
+  = actual: `?`
+  = fix: write a value here

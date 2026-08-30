@@ -1,0 +1,36 @@
+error: this `match` does not cover `.OnSurface` [match-not-exhaustive]
+  --> main.buri:38:5
+   |
+38 |     match (self) {
+   |     ^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.OnSurface`, or a `_` arm for everything left
+error: `token` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> main.buri:39:19
+   |
+39 |       .Surface => style.token("kit", "surface",
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
+error: `.OnSurface` needs a known expected type [unannotated-variant]
+  --> main.buri:40:7
+   |
+40 |       .OnSurface => style.token("kit", "onSurface"),
+   |       ^^^^^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.OnSurface(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:40:18
+   |
+40 |       .OnSurface => style.token("kit", "onSurface"),
+   |                  ^^
+   |
+  --> main.buri:39:30
+   |
+39 |       .Surface => style.token("kit", "surface",
+   |                              ^ opened here
+   |
+   = fix: write `)` here

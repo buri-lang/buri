@@ -1,0 +1,9 @@
+error: expected a function body, found `a` [unexpected-token]
+ --> main.buri:1:35
+  |
+1 | export fn f(a: Int, b: Int): Bool a { > 0 && b > 0 }
+  |                                   ^
+  |
+  = expected: a function body
+  = actual: `a`
+  = fix: write `{ ... }` after the return type

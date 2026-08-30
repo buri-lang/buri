@@ -1,0 +1,9 @@
+error: expected a string literal, found `{` [unexpected-token]
+  --> main.buri:15:6
+   |
+15 | test { "the canary holds under a context"
+   |      ^
+   |
+   = expected: a string literal
+   = actual: `{`
+   = fix: quote it, as in `"core/list"`

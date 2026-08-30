@@ -1,0 +1,12 @@
+error: this variant payload pattern is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:5:17
+  |
+5 |         .Some(n => n,
+  |                 ^^
+  |
+ --> main.buri:5:14
+  |
+5 |         .Some(n => n,
+  |              ^ opened here
+  |
+  = fix: write `)` here

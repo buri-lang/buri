@@ -1,0 +1,21 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_swap_adjacent_brace_cents_cb2916/lib.buri:3:45
+  |
+3 | export fn format(n: I64): Str { if (n == 0{ ) "zero" } else { "some" } }
+  |                                             ^
+  |
+ --> lib/recovery_swap_adjacent_brace_cents_cb2916/lib.buri:3:43
+  |
+3 | export fn format(n: I64): Str { if (n == 0{ ) "zero" } else { "some" } }
+  |                                           ^ opened here
+  |
+  = fix: write `}` here
+error: expected `{`, found a string literal [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_cents_cb2916/lib.buri:3:47
+  |
+3 | export fn format(n: I64): Str { if (n == 0{ ) "zero" } else { "some" } }
+  |                                               ^^^^^^
+  |
+  = expected: `{`
+  = actual: a string literal
+  = fix: write `{` here

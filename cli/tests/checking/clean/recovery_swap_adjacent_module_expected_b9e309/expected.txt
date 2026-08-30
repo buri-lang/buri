@@ -1,0 +1,9 @@
+error: expected `:`, found `[` [unexpected-token]
+ --> main.buri:1:6
+  |
+1 | let K[ :U32] = [
+  |      ^
+  |
+  = expected: `:`
+  = actual: `[`
+  = fix: write `:` here

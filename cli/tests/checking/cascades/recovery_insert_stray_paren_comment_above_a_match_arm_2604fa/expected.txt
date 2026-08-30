@@ -1,0 +1,24 @@
+error: `Some` holds 1 values, but 2 were matched [wrong-matched-value-count]
+ --> main.buri:5:5
+  |
+5 |     .Some(extra n) => n,
+  |     ^^^^^^^^^^^^^^
+  |
+  = expected: 1
+  = actual: 2
+  = fix: match exactly 1, or end the pattern with `..`
+error: a variant-pattern field ends with `,` [missing-separator]
+ --> main.buri:5:16
+  |
+5 |     .Some(extra n) => n,
+  |                ^
+  |
+  = fix: write `,` here
+error: there is nothing named `n` in scope [unresolved-name]
+ --> main.buri:5:23
+  |
+5 |     .Some(extra n) => n,
+  |                       ^
+  |
+  = did you mean `f`?
+  = fix: correct the spelling, or declare it

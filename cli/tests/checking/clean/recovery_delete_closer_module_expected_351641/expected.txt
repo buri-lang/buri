@@ -1,0 +1,12 @@
+error: this `struct` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:14:1
+   |
+14 | 
+   | ^
+   |
+ --> main.buri:8:20
+  |
+8 | export struct Wide {
+  |                    ^ opened here
+  |
+  = fix: write `}` here
