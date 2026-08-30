@@ -6,7 +6,8 @@
 // into something, and both are wrong.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 from "core/bytes/lib.buri" import { DecodeError, Utf8Error };
 from "core/bytes/lib.buri" import * as bytes;
@@ -15,27 +16,27 @@ from "core/list/lib.buri" import * as list;
 // --- UTF-8 ----------------------------------------------------------------------
 
 test "ASCII is one byte per character" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(bytes.toUtf8(ctx, "abc"), [97, 98, 99]);
   assert.eq(bytes.toUtf8(ctx, "").len(), 0);
 }
 
 test "the encoding widths" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(bytes.toUtf8(ctx, "é"), [195, 169]);
   assert.eq(bytes.toUtf8(ctx, "€"), [226, 130, 172]);
   assert.eq(bytes.toUtf8(ctx, "😀"), [240, 159, 152, 128]);
 }
 
 test "text round trips through its bytes" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let cases = ["", "abc", "héllo", "€1", "😀 and ☃", "tab\there"];
   let back = cases.mapCtx(ctx, fn(c, s) => bytes.fromUtf8(c, bytes.toUtf8(c, s)));
   assert.eq(back, cases.mapCtx(ctx, fn(_c, s) => .Ok(s)));
 }
 
 test "decoding says where the bytes stopped being text" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // A continuation byte with nothing to continue.
   assert.eq(assert.err(bytes.fromUtf8(ctx, [0x80])), Utf8Error(0));
   // A two-byte lead with no continuation.
@@ -45,39 +46,39 @@ test "decoding says where the bytes stopped being text" {
 }
 
 test "an overlong encoding is refused rather than accepted" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // 0xC0 0x80 is a two-byte encoding of NUL, which must be one byte.
   assert.eq(assert.err(bytes.fromUtf8(ctx, [0xc0, 0x80])), Utf8Error(0));
 }
 
 test "a surrogate is not a character" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // 0xED 0xA0 0x80 is U+D800, which UTF-8 does not encode.
   assert.eq(assert.err(bytes.fromUtf8(ctx, [0xed, 0xa0, 0x80])), Utf8Error(0));
 }
 
 test "the empty byte string decodes to the empty string" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(assert.ok(bytes.fromUtf8(ctx, list.empty<U8>())), "");
 }
 
 // --- Hex ---------------------------------------------------------------------------
 
 test "hex is lowercase and two characters per byte" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(bytes.toHex(ctx, [0, 15, 16, 255]), "000f10ff");
   assert.eq(bytes.toHex(ctx, list.empty<U8>()), "");
 }
 
 test "hex round trips, and reads either case" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(assert.ok(bytes.fromHex(ctx, "000f10ff")), [0, 15, 16, 255]);
   assert.eq(assert.ok(bytes.fromHex(ctx, "000F10FF")), [0, 15, 16, 255]);
   assert.eq(assert.ok(bytes.fromHex(ctx, "")).len(), 0);
 }
 
 test "hex refuses an odd length or a character that is not a digit" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(assert.err(bytes.fromHex(ctx, "abc")), DecodeError(3));
   assert.eq(assert.err(bytes.fromHex(ctx, "zz")), DecodeError(0));
   assert.eq(assert.err(bytes.fromHex(ctx, "00zz")), DecodeError(2));
@@ -87,7 +88,7 @@ test "hex refuses an odd length or a character that is not a digit" {
 
 // The RFC 4648 vectors, which pin the padding of every remainder.
 test "the standard base64 vectors" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(bytes.toBase64(ctx, bytes.toUtf8(ctx, "")), "");
   assert.eq(bytes.toBase64(ctx, bytes.toUtf8(ctx, "f")), "Zg==");
   assert.eq(bytes.toBase64(ctx, bytes.toUtf8(ctx, "fo")), "Zm8=");
@@ -98,7 +99,7 @@ test "the standard base64 vectors" {
 }
 
 test "the same vectors, decoded" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let texts = ["", "f", "fo", "foo", "foob", "fooba", "foobar"];
   let back = texts.mapCtx(ctx, fn(c, s) =>
     bytes.fromBase64(c, bytes.toBase64(c, bytes.toUtf8(c, s))));
@@ -106,13 +107,13 @@ test "the same vectors, decoded" {
 }
 
 test "base64 carries bytes that are not text" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let raw: [U8] = [0, 1, 254, 255, 128];
   assert.eq(assert.ok(bytes.fromBase64(ctx, bytes.toBase64(ctx, raw))), raw);
 }
 
 test "base64 refuses a bad length or a character outside the alphabet" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(assert.err(bytes.fromBase64(ctx, "Zg=")), DecodeError(3));
   assert.eq(assert.err(bytes.fromBase64(ctx, "Zg$=")), DecodeError(2));
   // Padding in the middle is not padding.
@@ -122,14 +123,14 @@ test "base64 refuses a bad length or a character outside the alphabet" {
 // --- IEEE 754 byte patterns -----------------------------------------------------
 
 test "a float round-trips through its eight bytes" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let values = [1.0, 0.0 - 2.5, 0.1 + 0.2, 1e21];
   let back = values.mapCtx(ctx, fn(c, x) => bytes.f64FromBytes(bytes.f64ToBytes(c, x), 0));
   assert.eq(back, values.mapCtx(ctx, fn(c, x) => Option.Some(x)));
 }
 
 test "a NaN payload does not survive the round trip" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // Two quiet NaNs differing only in the payload, and a negative signalling
   // one. All three decode to the canonical quiet NaN on every backend.
   let first = assert.some(bytes.f64FromBytes([1, 0, 0, 0, 0, 0, 248, 127], 0));
@@ -142,14 +143,14 @@ test "a NaN payload does not survive the round trip" {
 }
 
 test "four octets canonicalize a NaN as eight do" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let payload = assert.some(bytes.f32FromBytes([1, 0, 192, 127], 0));
   assert.eq(bytes.f32ToBytes(ctx, payload), [0, 0, 192, 127]);
   assert.eq(bytes.f64ToBytes(ctx, payload), [0, 0, 0, 0, 0, 0, 248, 127]);
 }
 
 test "the sign of a zero is preserved, which the NaN rule does not touch" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let positive = assert.some(bytes.f64FromBytes([0, 0, 0, 0, 0, 0, 0, 0], 0));
   let negative = assert.some(bytes.f64FromBytes([0, 0, 0, 0, 0, 0, 0, 128], 0));
   assert.eq(bytes.f64ToBytes(ctx, positive), [0, 0, 0, 0, 0, 0, 0, 0]);

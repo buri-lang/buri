@@ -1,0 +1,4 @@
+library {
+    sources: ["stamp.buri"]
+    visibility: ["//visibility:public"]
+}

@@ -211,7 +211,11 @@ configured by a method that answers a new one (`clock().at(1000)`,
 `fs().files([...]).readOnly()`). `net()` **refuses** every request until
 `net().respond(fn(request) => ...)` says what to answer, and that responder is a
 pure function of the `Request` — SPEC 10.6 keeps it from capturing a context, so
-a response that needs one is built before it and captured. See
+a response that needs one is built before it and captured. `fs()`, `net()` and
+`stdin()` each keep a log of what they were asked: `calls()` answers it in the
+order the calls completed, and a test writes down what it expects with the
+constructor of the same name (`readFile(path)`, `writeFile(path, body)`,
+`fetch(request)`, `readBytes(n)`, one per method). See
 [testing](../build/testing.md).
 
 ### Allocators

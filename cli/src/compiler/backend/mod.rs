@@ -538,14 +538,16 @@ mod tests {
 
     // -- the networking gap -------------------------------------------------
     //
-    // None of the keys below exists yet: `host.HostListen.*`,
-    // `host.HostSockets.*` and `host.HostTasks.*` arrive with `core/tasks` and
-    // the server surface. What is being tested is the refusal, which has to be
-    // in place *before* the keys are, or the first toolchain built without
-    // networking meets them as an unresolved symbol from `cc`. A hand-built
-    // program is the honest seam for that: there is no source to compile that
-    // reaches these keys, and writing one that pretended to would be a fixture
-    // asserting a language feature this repository does not have.
+    // No program reaches the keys below. `host.HostListen.*`,
+    // `host.HostSockets.*` and `host.HostTasks.*` are declared — `core/effect`
+    // has the three effects and `core/host` implements them — and granted by no
+    // platform, so nothing can construct the host value an operation hangs off.
+    // What is being tested is the refusal, which has to be in place *before* a
+    // platform grants one, or the first toolchain built without networking
+    // meets these as an unresolved symbol from `cc`. A hand-built program is
+    // the honest seam for that: there is no source to compile that reaches
+    // these keys, and writing one that pretended to would be a fixture
+    // asserting a grant this repository deliberately withholds.
 
     /// A program holding one intrinsic key, and nothing else.
     fn program_using(keys: &[&str]) -> Program {
@@ -585,7 +587,7 @@ mod tests {
     fn a_runtime_without_networking_reports_the_family() {
         let program = program_using(&[
             "host.HostListen.listen",
-            "host.HostSockets.read",
+            "host.HostSockets.socketSendText",
             "host.HostTasks.parallel",
             "host.HostFs.readFile",
             "list.map",
@@ -594,7 +596,7 @@ mod tests {
             networking_gap_when(&program, false),
             vec![
                 "host.HostListen.listen".to_string(),
-                "host.HostSockets.read".to_string(),
+                "host.HostSockets.socketSendText".to_string(),
                 "host.HostTasks.parallel".to_string(),
             ],
             "the gap claimed something outside the family, or missed part of it"

@@ -481,7 +481,7 @@ anything is laid out, a `CtxGet` has a statically known answer and the only
 question is whether the *implementation value* carries data.
 
 Every implementation `core/host` exports is a zero-sized struct — `struct HostFs {}`,
-`struct HostStdout {}`, fourteen of them (`host.buri`), of which any one platform
+`struct HostStdout {}`, sixteen of them (`host.buri`), of which any one platform
 grants at most ten. A context of zero-sized
 values is zero-sized. So in a program built on `core/host`, **`ctx` is not a
 parameter**: it is dropped from every signature in the program by the layout pass,

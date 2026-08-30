@@ -91,6 +91,20 @@
 //! [`the_excluded_packages_are_excluded_for_the_stated_reason`] and move any
 //! row the narrowing lets in.
 //!
+//! Batch three — `lib/text`, `lib/crypto`, `lib/calendar`, `lib/numbers`,
+//! `lib/memory`, `lib/canary`, `lib/codegen` — is one that reaches excluded
+//! files, and **the table below is still unchanged**. Fifty-one sites across
+//! five files, every one of them `Alloc`, plus the two `lib/codegen` files that
+//! imported `alloc` from the old module and now import it from the new one.
+//! Seven of the nine files are already in the set; the two that are not —
+//! `numbers/floats.buri` and `text/json.buri` — are excluded for `core/math`'s
+//! transcendentals and for `num.U32.toChar` respectively, and neither reason
+//! was ever about the testing context.
+//! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run and
+//! agrees: both refusals still name what they always named. So the census is
+//! unchanged again, and this is the honest report of it rather than a row moved
+//! to look like progress.
+//!
 //! # The harness used to be the biggest exclusion, and it was never about the
 //! backend
 //!
@@ -235,6 +249,10 @@ const PACKAGES: &[Case] = &[
     // file was excluded is the thing this ledger records — but the pressure it
     // names is gone from that file, and from the other seven in `lib/data` and
     // `lib/collections`. See the migration paragraph in the module doc.
+    //
+    // `calendar/date.buri` no longer builds one either — batch three moved its
+    // five sites to `context { Alloc: alloc() }` — and the same applies: the
+    // reason above is why it *was* out.
     included("calendar/date.buri"),
     included("collections/bitset.buri"),
     // It was the one file the backend compiled and got *wrong*, and
@@ -969,6 +987,82 @@ test "stdinBytes reads octets, and readLine finds nothing there" {
     };
     assert_eq!(status, 0, "stdout:\n{out}\nstderr:\n{err}");
     assert_eq!(blocks, 12, "the fixture lost a `test` block");
+}
+
+/// `Self` through a context, natively, as a test that cannot be skipped.
+///
+/// The blocks this mirrors live in `semantics/effects.buri` and run in
+/// [`the_native_set_passes`] above — but that harness *skips* a file the front
+/// end refuses, deliberately, because the corpus is shared with
+/// `language/conformance.rs` and may be mid-change. A handler that reads a
+/// field off the implementation it is handed does not typecheck at all when
+/// `Self` is the receiver, so the whole file would have been skipped rather
+/// than failed, and the native half of this fix would have had no guard on this
+/// side at all. This one panics on a refusal.
+///
+/// Both halves of the substitution are here in one source:
+///
+/// * `ctx.listen(…)` on the **context value**, whose handler reads
+///   `server.bindsTo` — a field of `OneShotListen`, which a context does not
+///   have. `semantics/expressions.rs`'s `implementing_ty` is what makes it
+///   compile, and `OneShotListen` invoking the handler is what makes the
+///   answer depend on the bytes being right.
+/// * `serveOnce(ctx, …)` and `runInOrder(ctx, …)`, which reach the same two
+///   methods through a **bounded type parameter**. The front end cannot settle
+///   `Self` there — a generic body is checked once for every instantiation at
+///   once — so `middle/monomorphize.rs`'s `rewrite_call_args` is what makes
+///   the call land on a handler with the implementation's layout. Before it,
+///   this exited `-1` with no stdout and no stderr.
+#[test]
+fn self_through_a_context_is_the_implementing_type() {
+    if !supported() {
+        return;
+    }
+    const SOURCE: &str = r#"from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/context/lib.buri" import { alloc };
+from "core/effect/lib.buri" import {
+  Alloc, Listen, Net, Request, Response, Sockets, Tasks,
+};
+from "//lib/semantics/lib.buri" import {
+  OneShotListen, QuietSockets, SerialTasks, TeapotNet, runInOrder, serveOnce,
+};
+
+test "the handler is handed the implementation" {
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "10.0.0.1" },
+    Tasks: SerialTasks { label: "serial", bias: 4 },
+  };
+  assert.ok(ctx.listen("10.0.0.1", 0, fn(server, request) => Response {
+    status: if (server.bindsTo == request.url) { 200 } else { 500 },
+    headers: [],
+    body: [],
+  }));
+  let out = ctx.parallel([1], fn(runner, i, item) => runner.bias + item);
+  assert.eq(out[0] ?? 0, 5);
+}
+
+test "and through a bound the call still lands" {
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "127.0.0.1" },
+    Net: TeapotNet { body: [] },
+    Sockets: QuietSockets {},
+    Tasks: SerialTasks { label: "serial", bias: 0 },
+  };
+  assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
+  assert.eq(runInOrder(ctx, [3, 4]), 107);
+}
+"#;
+    let Some((status, out, err, blocks)) = run("semantics/self-through-a-context.buri", SOURCE)
+    else {
+        panic!(
+            "the front end refused the `Self`-through-a-context fixture — which is what it did \
+             before `implementing_ty`, because a handler cannot read a field of a context"
+        );
+    };
+    assert_eq!(status, 0, "stdout:\n{out}\nstderr:\n{err}");
+    assert_eq!(blocks, 2, "the fixture lost a `test` block");
 }
 
 /// The harness has to be able to fail.
