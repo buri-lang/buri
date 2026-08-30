@@ -1,0 +1,9 @@
+error: expected `:`, found `[` [unexpected-token]
+ --> main.buri:6:26
+  |
+6 | export fn parseFlags(args[ :Str]): Flags {
+  |                          ^
+  |
+  = expected: `:`
+  = actual: `[`
+  = fix: write `:` here

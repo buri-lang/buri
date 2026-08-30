@@ -1,0 +1,15 @@
+derive Eq, Ord for Meters;
+export struct Meters(export Float);
+
+/// What this one is for.
+export enum Shape {
+    Circle(Float),
+    Empty,
+}
+
+// why this derive
+Show
+
+derive for Shape;
+
+derive Eq for SomethingElsewhere;

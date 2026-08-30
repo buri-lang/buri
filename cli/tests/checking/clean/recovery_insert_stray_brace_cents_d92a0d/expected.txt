@@ -1,0 +1,9 @@
+error: expected an identifier, found `@` [unexpected-token]
+  --> main.buri:31:23
+   |
+31 |   export fn format<C: @ Alloc>(self, ctx: C): Str {
+   |                       ^
+   |
+   = expected: an identifier
+   = actual: `@`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

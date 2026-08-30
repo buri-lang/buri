@@ -1,0 +1,23 @@
+error: expected an identifier, found `=` [unexpected-token]
+  --> main.buri:68:33
+   |
+68 |     let transport: FetchError . =Transport("a");
+   |                                 ^
+   |
+   = expected: an identifier
+   = actual: `=`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `transport` in scope [unresolved-name]
+  --> main.buri:70:18
+   |
+70 |     assert.notEq(transport, .Transport("b"));
+   |                  ^^^^^^^^^
+   |
+   = fix: declare `transport`, or import it — a name is in scope only from this module's own declarations and its imports
+error: `_3` is not an enum [not-an-enum]
+  --> main.buri:70:29
+   |
+70 |     assert.notEq(transport, .Transport("b"));
+   |                             ^^^^^^^^^^
+   |
+   = fix: the dot form names an enum variant; write the value another way

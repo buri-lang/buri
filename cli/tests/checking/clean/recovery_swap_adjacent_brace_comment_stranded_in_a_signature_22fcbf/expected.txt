@@ -1,0 +1,18 @@
+error: expected an expression, found `}` [unexpected-token]
+ --> main.buri:5:14
+  |
+5 | ): Int { a + } b
+  |              ^
+  |
+  = expected: an expression
+  = actual: `}`
+  = fix: write a value here
+error: expected a declaration, found `b` [unexpected-token]
+ --> main.buri:5:16
+  |
+5 | ): Int { a + } b
+  |                ^
+  |
+  = expected: a declaration
+  = actual: `b`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

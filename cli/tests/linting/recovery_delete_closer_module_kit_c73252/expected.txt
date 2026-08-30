@@ -1,0 +1,17 @@
+warning: list is imported but not used [unused-import]
+ --> lib/recovery_delete_closer_module_kit_c73252/lib.buri:4:30
+  |
+4 | from "core/list" import * as list;
+  |                              ^^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: expected an identifier, found `:` [unexpected-token]
+ --> lib/recovery_delete_closer_module_kit_c73252/lib.buri:6:15
+  |
+6 | export fn one(: I64 { 1 }
+  |               ^
+  |
+  = expected: an identifier
+  = actual: `:`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

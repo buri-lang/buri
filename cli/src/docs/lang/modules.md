@@ -102,6 +102,11 @@ An enum is the unit of its own visibility: its variants and their payload
 fields are exported exactly when it is, and a variant writes no `export` of its
 own (Section 5.7).
 
+A type alias is a name like any other: `export type TenantId = Str;` puts it on
+the module's surface, where it can be imported and re-exported. The alias stays
+transparent across the boundary — it expands in the module that declared it,
+so what an importer gets is the type the declaration names (Section 5.9).
+
 `impl` and `derive` declarations are never exported (Section 6.7.1).
 
 ### 4.2.1 Re-exports

@@ -50,6 +50,10 @@ cli/tests/
                         properties, with its findings recorded as it goes
   recovery.rs           ONE TOKEN WRONG — what the toolchain says about a
                         mistake, as invariants over the whole corpus
+  checking.rs           THE SAME MISTAKES, PINNED — one broken source and the
+                        page the front end prints for it, case by case
+  linting.rs            AND WHAT THE RULES STILL SAY — a lint fixture with one
+                        token wrong, through a one-package repository
 
   conformance/          a Buri repository: `test/` blocks on language semantics
   reject/               programs that must not compile, with their diagnostics
@@ -58,6 +62,9 @@ cli/tests/
   repositories/         whole repositories, one per build-system rule
   golden_javascript/    one construct per case, with the code it emits
   formatting/           an `input.buri` and the one `expected.buri` allowed
+    generated/          the same, a thousand of them, written by the mutator
+  checking/             clean/ and cascades/: a broken source and its page
+  linting/              a broken lint fixture and the findings it still draws
   proto/                vendored schemas, a testee, and the recorded exchanges
   failing/              one directory per failure shape, with its report
   fuzz/                 every finding a search has made, minimised, replayed
@@ -66,8 +73,8 @@ cli/tests/
   message-audit/        run.sh: the diagnostics put to a model, one question
 ```
 
-**Ten binaries**, so a full run links ten times: five directories holding a
-`main.rs` and five bare `.rs` files. A corpus is shared — the `conformance/`
+**Twelve binaries**, so a full run links twelve times: five directories holding
+a `main.rs` and seven bare `.rs` files. A corpus is shared — the `conformance/`
 repository is read by `language::conformance` on the JavaScript backend and by
 `native::conformance` and `native::stencil` on the copy-and-patch one, and
 `crash/` by four suites — so corpora sit at the top level rather than inside any
@@ -92,6 +99,8 @@ several sets of assertions.
 | `adversarial` | That no input panics the toolchain. Malformed sources, build files, schemas, flags and language-server messages, through the binary, asserting on *how* it stops rather than on what it says. |
 | `fuzz` | That the properties every other suite states over a corpus hold over input nobody chose: no mutation of a checked-in source panics the toolchain, the formatter is a fixed point that keeps its tokens and comments on shapes nobody wrote, the benchmark generator emits programs that compile at points in its parameter space no profile names, the same input twice says the same thing, and a generated program prints the answer the generator computed — under every backend, and with code that cannot run inserted into it. Bounded and seeded in CI; `BURI_FUZZ_SECONDS` soaks. |
 | `recovery` | That one mistake reads as one mistake: every compiling source in the repository with a token deleted, inserted or exchanged, held to invariants — one diagnostic per mistake, its caret at the mistake, its `fix` naming the token, no type error invented downstream, and the file still formatting — plus a hand-written case per list context pinning the exact message, span and edit. All six run by default. An invariant is held per mutation shape, against a ceiling rather than against zero where the mutated text has a second reading the grammar accepts — `ceiling()` states which rows those are and what each residue is. A ceiling is a **percentage of the row's population**, read off a `BURI_RECOVERY_CAP=0` run, so a source landing in the repository cannot tip a row whose per-case behaviour did not change; the two invariants that sample rather than sweep add the spread of a sample that size on top, and `a_ceiling_moves_with_the_row_and_not_with_the_corpus` is that property as a test. |
+| `checking` | The same mistakes, pinned rather than counted: seven hundred mutated sources with every error the front end reports about each one recorded beside it. A case whose errors are exactly the parser's lives under `clean/` and one the mistake led the checker into lives under `cascades/`, so a recovery that stops a cascade shows up as a file changing sides; the share that may cascade is a rate over the corpus. |
+| `linting` | What `buri lint` still finds in a file that did not parse whole: each lint fixture's source with one token wrong, through a repository of one package per case, with the whole report recorded. Two invariants over the population — the mistake invents no finding, and a finding whose evidence survived still fires — each against a rate ceiling. |
 | `failing` | That a failing `buri test` fails *well*: the report a user reads — line, expected, got, counts, exit code — pinned byte for byte across every value shape, abort, title edge case and multi-module ordering, so the failure path is held to the same standard as the success path. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
@@ -342,6 +351,29 @@ It is deliberately outside the repository-wide walkers: an `input.buri` is
 misformatted on purpose, and a suite asking whether every source in the
 repository is already formatted would be asking these files a question they
 exist to answer no to.
+
+**The generated corpora** are the same bargain at three orders of magnitude,
+and they are written rather than typed. `formatting/generated/` holds a
+thousand `recovery_*` pairs, `checking/` seven hundred sources with the page
+the front end prints for each, and `linting/` five hundred lint fixtures with
+the findings they still draw — all three sampled from `harness/mutation.rs`'s
+population by `harness/pinned.rs`, one case per **coverage cell**: the mutation
+kind, the delimiter open at the site, the declaration around it, what opened
+that delimiter, and the tokens either side. Two mutations in one cell are the
+same test, so at most two of any cell is kept and the smallest seed that
+exhibits it wins.
+
+Every one of them is regenerable, and each suite has the test that says so:
+the sampler run again from the same seed over the same sources chooses exactly
+the checked-in cases and writes exactly their bytes. Blessing is therefore
+idempotent, and one command regenerates all three:
+
+```
+BURI_BLESS=1 cargo test -p buri --test formatting --test checking --test linting
+```
+
+The count is one constant per suite — `GENERATED_TOTAL` and `TOTAL` — so
+scaling the corpus is a number and a bless.
 
 Each file carries its expectation on its first line:
 

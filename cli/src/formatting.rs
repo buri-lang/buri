@@ -5,6 +5,27 @@
 //! tree, keeping doc comments and ordinary comments with the declaration
 //! beneath them.
 //!
+//! # Layout that is not a function of the width
+//!
+//! Almost every break below is decided by whether what is left of the line can
+//! hold what comes next. Two shapes are not, and they are the declarations of
+//! the two types a reader scans to learn what the program is made of:
+//!
+//!   * A **struct** declaration with a braced field list puts every field on
+//!     its own line, with a trailing comma, however short the whole would be.
+//!   * An **enum** declaration puts every variant on its own line, with a
+//!     trailing comma, the same way.
+//!
+//! One field or one variant breaks exactly like ten: `enum E { A }` comes back
+//! as `enum E {` / `A,` / `}`. The only body that stays on the head line is the
+//! empty one — `struct S {}` and `enum E {}` — which has no member to give a
+//! line to and no list to put a trailing comma on. A **tuple** struct has no
+//! braced field list at all and is untouched: `struct Meters(F64);`.
+//!
+//! Struct *literals* and match arms are expressions and are not this; they
+//! break on the width like everything else. The rule is in `record`, which the
+//! two declaration printers are the only callers of.
+//!
 //! # The document algebra
 //!
 //! Layout is not decided while printing. The tree is first converted to a
@@ -2306,27 +2327,33 @@ fn braced(head: &str, body: Doc) -> Doc {
     ])
 }
 
-/// `<head> { a, b }`, or one member to a line with a trailing comma.
+/// The braced body of a struct or an enum declaration: one member to a line,
+/// always, with a trailing comma.
+///
+/// This is not a width decision. A declaration is the shape a reader scans to
+/// learn what a type is, and a member is a line of it however short the whole
+/// would be, so `HardLine` rather than `Line` and a plain comma rather than an
+/// `if_break` one. One member breaks like ten. The only body left on the head
+/// line is the empty one — `struct S {}` — which has no member to give a line
+/// to and no list to put a comma on, and which `struct_decl` and `enum_decl`
+/// answer before they get here.
 fn record(head: &str, items: Vec<Doc>, trailing: Option<Doc>) -> Doc {
     // A body of nothing but a comment has no list to put a trailing comma on.
     if items.is_empty() {
         return braced(&format!("{head} {{"), trailing.unwrap_or(Doc::Nil));
     }
-    let mut inner = vec![
-        Doc::Line,
-        join(cat(vec![text(","), Doc::Line]), items),
-        if_break(text(","), Doc::Nil),
-    ];
+    let mut inner =
+        vec![Doc::HardLine, join(cat(vec![text(","), Doc::HardLine]), items), text(",")];
     if let Some(c) = trailing {
         inner.push(Doc::HardLine);
         inner.push(c);
     }
-    group(cat(vec![
+    cat(vec![
         text(format!("{head} {{")),
         nest(cat(inner)),
-        Doc::Line,
+        Doc::HardLine,
         text("}"),
-    ]))
+    ])
 }
 
 /// The declarations, with each `derive` moved to sit directly on the type it

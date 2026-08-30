@@ -1,0 +1,9 @@
+error: expected `:`, found `(` [unexpected-token]
+  --> main.buri:49:24
+   |
+49 |   export fn parts(self)( :I64, I64) { (self.0 / 100, self.0 % 100) }
+   |                        ^
+   |
+   = expected: `:`
+   = actual: `(`
+   = fix: write `:` here

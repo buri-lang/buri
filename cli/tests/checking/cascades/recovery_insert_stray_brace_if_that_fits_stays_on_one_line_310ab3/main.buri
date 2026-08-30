@@ -1,0 +1,1 @@
+export fn f(x: Int): Str { extra if (x > 0) { "yes" } else { "no" } }

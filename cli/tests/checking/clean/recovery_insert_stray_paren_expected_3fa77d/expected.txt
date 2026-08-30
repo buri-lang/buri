@@ -1,0 +1,9 @@
+error: expected a type, found `,` [unexpected-token]
+ --> main.buri:1:24
+  |
+1 | export fn f(a: Int, b: , Int): Int {
+  |                        ^
+  |
+  = expected: a type
+  = actual: `,`
+  = fix: name a type here, as in `Int` or `[Str]`

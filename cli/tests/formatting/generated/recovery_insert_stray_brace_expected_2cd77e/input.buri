@@ -1,0 +1,15 @@
+export fn describe(n: Int, tag: Tag): Str {
+    match (n, ) {
+        0 => "zero",
+        m if tag
+            .outermost
+            .middle
+            .innermost
+            .normalised
+            .trimmed
+            .lowercased
+            .stem
+            .present => { "hit" },
+        m => "other",
+    }
+}

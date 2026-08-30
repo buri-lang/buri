@@ -1,0 +1,1 @@
+export fn noteRes<T, E, C: Alloc + Stdout>(ctx: C, mark: Str, value: Result<T, E> fallback: Result<T, E>): Result<T, E> { value }

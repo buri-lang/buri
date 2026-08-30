@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:3:1
+  |
+3 | export trait T {}
+  | ^^^^^^
+  |
+ --> main.buri:1:19
+  |
+1 | export fn f(): () {
+  |                   ^ opened here
+  |
+  = fix: write `}` here

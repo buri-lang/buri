@@ -1,0 +1,3 @@
+export enum Shape { Circle(Float), Rect { width: Float, height: Float }, Triangle(, Float, Float, Float), Empty }
+
+export struct Wide { export first: Int, export second: Str, export third: Float, export fourth: Bool }

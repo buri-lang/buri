@@ -1,0 +1,9 @@
+error: expected `{`, found `,` [unexpected-token]
+ --> main.buri:7:19
+  |
+7 | export enum Hello , { World, Now(Bool) }
+  |                   ^
+  |
+  = expected: `{`
+  = actual: `,`
+  = fix: write `{` here

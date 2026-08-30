@@ -1,0 +1,9 @@
+error: expected `import`, found `*` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_kit_4fc244/lib.buri:4:18
+  |
+4 | from "core/list" * import as list;
+  |                  ^
+  |
+  = expected: `import`
+  = actual: `*`
+  = fix: write `import` here

@@ -1,0 +1,3 @@
+test "nested" {
+  assert.eq(threeInts(threeInts(noteInt(ctx, "a", 0, noteInt(ctx, "b", 0), noteInt(ctx, "c", 1)), noteInt(ctx, "d", 0), noteInt(ctx, "e", 0)), 1);
+}

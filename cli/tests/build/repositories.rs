@@ -28,7 +28,7 @@ fn build_file_rules() {
 /// boundary it draws applies to methods as much as to names.
 #[test]
 fn library_boundaries() {
-    run_corpus(&tests_dir().join("repositories/libraries"), "libraries", 8);
+    run_corpus(&tests_dir().join("repositories/libraries"), "libraries", 10);
 }
 
 /// TAGS.md: a tag is a property of a whole dependency closure, and the two
@@ -77,9 +77,15 @@ fn proto_schemas() {
 /// The `repo_lint_*` cases are the other half: what `REPO.buri`'s `lint` block
 /// does to the same finding — when the catalogue runs, how hard a finding
 /// lands, and what a misspelled field in the block costs.
+///
+/// Four of them are about a file that did not parse: what is still reported
+/// around it, what is rightly not reported inside it, that a package's
+/// neighbour going quiet does not quiet it, and that a *build* file which does
+/// not read is the one thing recovery does not read around. The generated half
+/// of that question is `cli/tests/linting.rs`, five hundred of them.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 23);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 27);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the
@@ -96,7 +102,7 @@ fn test_suites() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 87);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 88);
 }
 
 /// Every method a 3.17 client can send is answered by the dispatch, and is

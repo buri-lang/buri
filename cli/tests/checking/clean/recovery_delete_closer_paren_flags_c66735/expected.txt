@@ -1,0 +1,33 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:7:34
+  |
+7 |   Flags { verbose: args.any(fn(a => a == "--verbose") }
+  |                                  ^^
+  |
+ --> main.buri:7:31
+  |
+7 |   Flags { verbose: args.any(fn(a => a == "--verbose") }
+  |                               ^ opened here
+  |
+  = fix: write `)` here
+error: expected `=>`, found `}` [unexpected-token]
+ --> main.buri:7:55
+  |
+7 |   Flags { verbose: args.any(fn(a => a == "--verbose") }
+  |                                                       ^
+  |
+  = expected: `=>`
+  = actual: `}`
+  = fix: write `=>` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:9:1
+  |
+9 | 
+  | ^
+  |
+ --> main.buri:6:42
+  |
+6 | export fn parseFlags(args: [Str]): Flags {
+  |                                          ^ opened here
+  |
+  = fix: write `}` here

@@ -1,0 +1,17 @@
+error: expected `;`, found `@` [unexpected-token]
+ --> main.buri:2:12
+  |
+2 |   let a = 1@ ;
+  |            ^
+  |
+  = expected: `;`
+  = actual: `@`
+  = fix: write `;` here
+error: there is nothing named `a` in scope [unresolved-name]
+ --> main.buri:7:3
+  |
+7 |   a + b
+  |   ^
+  |
+  = did you mean `b`?
+  = fix: correct the spelling, or declare it

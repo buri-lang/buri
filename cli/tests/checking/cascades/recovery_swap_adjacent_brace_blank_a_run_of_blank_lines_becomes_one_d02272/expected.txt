@@ -1,0 +1,18 @@
+error: expected `I64`, found `()` [type-mismatch]
+ --> main.buri:1:20
+  |
+1 | export fn a(): Int { } 1
+  |                    ^^^ the declared return type is `I64`
+  |
+  = expected: `I64`
+  = actual: `()`
+  = fix: produce a `I64` here, or change what surrounds it to accept a `()`
+error: expected a declaration, found `1` [unexpected-token]
+ --> main.buri:1:24
+  |
+1 | export fn a(): Int { } 1
+  |                        ^
+  |
+  = expected: a declaration
+  = actual: `1`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

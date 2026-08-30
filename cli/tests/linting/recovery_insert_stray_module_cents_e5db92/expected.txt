@@ -1,0 +1,9 @@
+error: expected a type, found `@` [unexpected-token]
+ --> lib/recovery_insert_stray_module_cents_e5db92/lib.buri:5:30
+  |
+5 | export fn fromCents(c: I64): @ Cents { Cents(c) }
+  |                              ^
+  |
+  = expected: a type
+  = actual: `@`
+  = fix: name a type here, as in `Int` or `[Str]`

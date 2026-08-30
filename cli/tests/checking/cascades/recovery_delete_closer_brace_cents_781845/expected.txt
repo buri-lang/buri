@@ -1,0 +1,52 @@
+error: expected `Str`, found `()` [type-mismatch]
+  --> main.buri:31:49
+   |
+31 |   export fn format<C: Alloc>(self, ctx: C): Str {
+   |                                                 ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `()`
+   = fix: produce a `Str` here, or change what surrounds it to accept a `()`
+error: an expression statement is legal only in a test source [expression-statement]
+  --> main.buri:34:45
+   |
+34 |     let pad = if (rest < 10) { "0" } else { "" ;
+   |                                             ^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `Str`, not `()` [statement-not-unit]
+  --> main.buri:34:45
+   |
+34 |     let pad = if (rest < 10) { "0" } else { "" ;
+   |                                             ^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: there is nothing named `pad` in scope [unresolved-name]
+  --> main.buri:35:35
+   |
+35 |     str.format(ctx, "\$${whole}.${pad}${rest}")
+   |                                   ^^^
+   |
+   = did you mean `Add`?
+   = fix: correct the spelling, or declare it
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:36:4
+   |
+36 |   }
+   |    ^
+   |
+   = fix: write `;` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:49:3
+   |
+49 |   export fn parts(self): (I64, I64) { (self.0 / 100, self.0 % 100) }
+   |   ^^^^^^
+   |
+  --> main.buri:31:49
+   |
+31 |   export fn format<C: Alloc>(self, ctx: C): Str {
+   |                                                 ^ opened here
+   |
+   = fix: write `}` here

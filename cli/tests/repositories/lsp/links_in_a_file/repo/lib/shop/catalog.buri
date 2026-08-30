@@ -7,7 +7,10 @@ from "//lib/money" import { Cents };
 // The shelf-edge format is at http://example.com/shelves and nowhere else.
 
 /// One thing for sale, priced as <https://example.org/pricing#cents> says.
-export struct Item { export name: Str, export price: Cents }
+export struct Item {
+    export name: Str,
+    export price: Cents,
+}
 
 /// Where to buy one.
 export fn shopfront(): Str {

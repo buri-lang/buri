@@ -1,0 +1,10 @@
+export type Pairing<T> = (T, T);
+
+derive Eq, Ord, Show, ToJson, FromJson, Hash, Clone, Default, Debug, Display for Meters;
+export struct Meters(export Float);
+
+effect
+
+export Clock {
+    fn now(self): Int;
+}

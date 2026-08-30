@@ -1,0 +1,36 @@
+warning: str is imported but not used [unused-import]
+ --> lib/money/cents.buri:5:29
+  |
+5 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: a match arm ends with `,` [missing-separator]
+  --> lib/routes/routes.buri:10:42
+   |
+10 |     "/health" => Route { name: "health" }
+   |                                          ^
+   |
+   = fix: write `,` here
+
+     What to do
+     ──────────
+
+     Write the , where the caret is. The error carries the edit as bytes, so an
+     editor's quick fix and buri lint --fix both write it for you, and the rest
+     of the list is read for what it says rather than abandoned.
+
+     Why
+     ───
+
+     Every comma-separated list in the language is separated the same way, with
+     no exception for an element that happens to end in a brace. A match arm
+     whose body is a block still ends with ,, because without it A => x followed
+     by -1 => y reads as x - 1 and where one arm stops becomes a guess (SPEC
+     12.12).
+
+     One rule, stated once, is also what lets the parser tell a separator that
+     is missing from a list that has ended: the next element is already under
+     the cursor, so the mistake is one comma and the diagnostic is one sentence.
+

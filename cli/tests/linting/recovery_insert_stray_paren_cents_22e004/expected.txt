@@ -1,0 +1,9 @@
+error: expected `:`, found `c` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_cents_22e004/lib.buri:5:27
+  |
+5 | export fn fromCents(extra c: I64): Cents { Cents(c) }
+  |                           ^
+  |
+  = expected: `:`
+  = actual: `c`
+  = fix: write `:` here

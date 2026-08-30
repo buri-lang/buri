@@ -1,0 +1,3 @@
+export fn f(ctx: Ctx): Int {
+  runWith(ctx, { let a = oneThing(ctx); @ let b = anotherThing(ctx); a + b + aThirdThing(ctx) })
+}

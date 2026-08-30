@@ -1,0 +1,27 @@
+error: this `match` does not cover `.Some(_)` [match-not-exhaustive]
+ --> main.buri:2:5
+  |
+2 |     match (x) {
+  |     ^^^^^^^^^^^ not covered
+  |
+  = every `match` must cover its scrutinee's type
+  = fix: add an arm for `.Some(_)`, or a `_` arm for everything left
+error: a match arm is `pattern => expression` [missing-arrow]
+ --> main.buri:4:14
+  |
+4 |         .None 0 =>,
+  |              ^
+  |
+  = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:4:17
+  |
+4 |         .None 0 =>,
+  |                 ^^
+  |
+ --> main.buri:2:15
+  |
+2 |     match (x) {
+  |               ^ opened here
+  |
+  = fix: write `}` here

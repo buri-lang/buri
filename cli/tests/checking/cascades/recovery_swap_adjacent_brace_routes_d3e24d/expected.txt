@@ -1,0 +1,21 @@
+error: `Route` is missing `path` [missing-field-value]
+  --> main.buri:12:10
+   |
+12 |     _ => Route { name: "fallback", } path,
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: give `path` a value, or start from an existing one with `Route { ..base, field: value }`
+error: a match arm ends with `,` [missing-separator]
+  --> main.buri:12:37
+   |
+12 |     _ => Route { name: "fallback", } path,
+   |                                     ^
+   |
+   = fix: write `,` here
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> main.buri:12:42
+   |
+12 |     _ => Route { name: "fallback", } path,
+   |                                          ^
+   |
+   = fix: write `=>` here

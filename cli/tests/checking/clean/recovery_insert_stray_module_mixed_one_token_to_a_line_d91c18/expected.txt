@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:19:1
+   |
+19 | , }
+   | ^
+   |
+  --> main.buri:15:1
+   |
+15 | {
+   | ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,12 @@
+error: this `enum` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:14:1
+   |
+14 | 
+   | ^
+   |
+ --> main.buri:8:15
+  |
+8 | export enum E {
+  |               ^ opened here
+  |
+  = fix: write `}` here

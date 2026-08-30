@@ -1,0 +1,9 @@
+error: expected `(`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_c8654c/main.buri:14:14
+   |
+14 |           if , (n > 10000) { "huge" } else { "large" }
+   |              ^
+   |
+   = expected: `(`
+   = actual: `,`
+   = fix: write `(` here

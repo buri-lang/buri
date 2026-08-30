@@ -1,0 +1,6 @@
+export fn f(): Int extra {
+  // ---- the hard part ----
+
+  let x = 1;
+  x
+}

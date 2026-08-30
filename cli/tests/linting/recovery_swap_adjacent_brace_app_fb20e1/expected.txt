@@ -1,0 +1,24 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_swap_adjacent_brace_app_fb20e1/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected a pattern, found `=` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_fb20e1/main.buri:13:7
+   |
+13 |   let = ctx context { Alloc: host.alloc, Stdout: host.stdout };
+   |       ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_fb20e1/main.buri:14:22
+   |
+14 |   let _ = io.println(ctx, banner());
+   |                      ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

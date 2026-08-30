@@ -1,0 +1,18 @@
+error: expected an expression, found `}` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_ff0179/lib.buri:10:44
+   |
+10 | export fn toDollars(c: Cents): I64 { c.0 / } 100
+   |                                            ^
+   |
+   = expected: an expression
+   = actual: `}`
+   = fix: write a value here
+error: expected a declaration, found `100` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_ff0179/lib.buri:10:46
+   |
+10 | export fn toDollars(c: Cents): I64 { c.0 / } 100
+   |                                              ^^^
+   |
+   = expected: a declaration
+   = actual: `100`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

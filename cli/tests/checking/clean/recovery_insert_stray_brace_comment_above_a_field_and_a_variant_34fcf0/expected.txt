@@ -1,0 +1,16 @@
+error: a record field ends with `,` [missing-separator]
+ --> main.buri:3:18
+  |
+3 |   export a: extra Int,
+  |                  ^
+  |
+  = fix: write `,` here
+error: expected `:`, found `,` [unexpected-token]
+ --> main.buri:3:22
+  |
+3 |   export a: extra Int,
+  |                      ^
+  |
+  = expected: `:`
+  = actual: `,`
+  = fix: write `:` here

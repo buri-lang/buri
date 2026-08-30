@@ -1,0 +1,9 @@
+error: expected a function body, found `?` [unexpected-token]
+ --> main.buri:1:34
+  |
+1 | export fn f(x: Option<Int>): Int ? {
+  |                                  ^
+  |
+  = expected: a function body
+  = actual: `?`
+  = fix: write `{ ... }` after the return type

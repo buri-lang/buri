@@ -1,0 +1,4 @@
+library {
+    sources: ["soundings.buri", "fathoms.buri"]
+    visibility: ["//visibility:public"]
+}

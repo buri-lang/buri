@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_module_prose_5dd079/lib.buri:1:23
+  |
+1 | export fn shout(s: Str: Str { s }
+  |                       ^
+  |
+ --> lib/recovery_delete_closer_module_prose_5dd079/lib.buri:1:16
+  |
+1 | export fn shout(s: Str: Str { s }
+  |                ^ opened here
+  |
+  = fix: write `)` here

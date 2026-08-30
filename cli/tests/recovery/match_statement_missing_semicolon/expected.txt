@@ -1,0 +1,10 @@
+error [expression-statement] 3:3-6:4
+message: an expression statement is legal only in a test source
+fix: bind it: `let _ = ...;`, or make it the block's result expression
+note: a block is `let`s followed by a result expression
+
+error [missing-terminator] 6:4-6:4
+message: a `match` used as a statement ends with `;`
+fix: write `;` here
+edit: 6:4-6:4 ";"
+

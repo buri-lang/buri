@@ -1,0 +1,23 @@
+error: expected `(Color, Color)`, found `(Color, fn(Token) => Color, <error>)` [type-mismatch]
+  --> main.buri:60:5
+   |
+60 |     (Token.OnSurface.color()f ,(.OnSurface)),
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the element type is `(Color, Color)`
+   |
+   = expected: `(Color, Color)`
+   = actual: `(Color, fn(Token) => Color, <error>)`
+   = fix: produce a `(Color, Color)` here, or change what surrounds it to accept a `(Color, fn(Token) => Color, <error>)`
+error: a tuple element ends with `,` [missing-separator]
+  --> main.buri:60:29
+   |
+60 |     (Token.OnSurface.color()f ,(.OnSurface)),
+   |                             ^
+   |
+   = fix: write `,` here
+error: `.OnSurface` needs a known expected type [unannotated-variant]
+  --> main.buri:60:33
+   |
+60 |     (Token.OnSurface.color()f ,(.OnSurface)),
+   |                                 ^^^^^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.OnSurface(...)`, or annotate what this value is being used as

@@ -1,0 +1,17 @@
+error: this `match` does not cover `.Some(_)` [match-not-exhaustive]
+ --> main.buri:2:5
+  |
+2 |     match (x) {
+  |     ^^^^^^^^^^^ not covered
+  |
+  = every `match` must cover its scrutinee's type
+  = fix: add an arm for `.Some(_)`, or a `_` arm for everything left
+error: expected a pattern, found `@` [unexpected-token]
+ --> main.buri:5:9
+  |
+5 |         @ .Some(n) => n,
+  |         ^
+  |
+  = expected: a pattern
+  = actual: `@`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

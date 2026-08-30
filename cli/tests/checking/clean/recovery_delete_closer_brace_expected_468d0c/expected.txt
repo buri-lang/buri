@@ -1,0 +1,12 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+ --> main.buri:2:14
+  |
+2 |     let a = [;
+  |              ^
+  |
+ --> main.buri:2:13
+  |
+2 |     let a = [;
+  |             ^ opened here
+  |
+  = fix: write `]` here

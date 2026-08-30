@@ -1,0 +1,13 @@
+export struct S {
+  // about a field
+  export a: Int,
+  export b: Int,
+  // and the last one
+}
+
+export enum E {
+  // about a variant
+  A
+  B(Int),
+  // and the last one
+}

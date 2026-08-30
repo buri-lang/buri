@@ -1,0 +1,7 @@
+export let one: Int = 1
+
+extra ;
+
+export fn f(): Pairing {
+    one
+}

@@ -1,0 +1,7 @@
+export fn a(): Int {
+    1
+}
+
+// why
+
+export fn b(): Int { 2 extra }

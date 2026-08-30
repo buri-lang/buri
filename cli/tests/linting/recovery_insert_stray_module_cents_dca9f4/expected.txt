@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_module_cents_dca9f4/lib.buri:3:24
+  |
+3 | export fn format(n: I64@ ): Str { if (n == 0) { "zero" } else { "some" } }
+  |                        ^
+  |
+ --> lib/recovery_insert_stray_module_cents_dca9f4/lib.buri:3:17
+  |
+3 | export fn format(n: I64@ ): Str { if (n == 0) { "zero" } else { "some" } }
+  |                 ^ opened here
+  |
+  = fix: write `)` here

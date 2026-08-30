@@ -1,0 +1,88 @@
+error: expected a declaration, found a string literal [unexpected-token]
+  --> main.buri:10:1
+   |
+10 | "core/testing/assert" from import * as assert;
+   | ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: a declaration
+   = actual: a string literal
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected a string literal, found `import` [unexpected-token]
+  --> main.buri:10:28
+   |
+10 | "core/testing/assert" from import * as assert;
+   |                            ^^^^^^
+   |
+   = expected: a string literal
+   = actual: `import`
+   = fix: quote it, as in `"core/list"`
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:31:5
+   |
+31 |     assert.eq(r.method, "GET");
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:32:5
+   |
+32 |     assert.eq(r.url, "https://example.invalid/things");
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:33:5
+   |
+33 |     assert.eq(r.headers.len(), 0);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:34:5
+   |
+34 |     assert.eq(r.body, "");
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:45:5
+   |
+45 |     assert.eq(log.recorded(), ["refused"]);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:59:5
+   |
+59 |     assert.eq(log.recorded(), ["a", "b"]);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:65:5
+   |
+65 |     assert.notEq(timeout, aborted);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:66:5
+   |
+66 |     assert.eq(timeout, .Timeout);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:69:5
+   |
+69 |     assert.eq(badUrl, .BadUrl("nope"));
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:70:5
+   |
+70 |     assert.notEq(transport, .Transport("b"));
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports

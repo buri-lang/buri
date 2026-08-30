@@ -1,0 +1,28 @@
+error: there is nothing named `extra` in scope [unresolved-name]
+ --> main.buri:1:16
+  |
+1 | let K: [U32] = extra [
+  |                ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: expected `[U32]`, found `Option<<error>>` [type-mismatch]
+ --> main.buri:1:16
+  |
+1 | let K: [U32] = extra [
+  |                ^^^^^^^ the declared type is `[U32]`
+  |
+  = expected: `[U32]`
+  = actual: `Option<<error>>`
+  = fix: produce a `[U32]` here, or change what surrounds it to accept a `Option<<error>>`
+error: this index is missing its closing `]` [unclosed-delimiter]
+ --> main.buri:2:15
+  |
+2 |     1116352408,
+  |               ^
+  |
+ --> main.buri:1:22
+  |
+1 | let K: [U32] = extra [
+  |                      ^ opened here
+  |
+  = fix: write `]` here

@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:6:33
+  |
+6 | export fn parseFlags(args: [Str]: Flags {
+  |                                 ^
+  |
+ --> main.buri:6:21
+  |
+6 | export fn parseFlags(args: [Str]: Flags {
+  |                     ^ opened here
+  |
+  = fix: write `)` here

@@ -1,0 +1,18 @@
+error: expected a type, found `}` [unexpected-token]
+ --> main.buri:3:34
+  |
+3 | export struct Point { x: Int, y: } Int
+  |                                  ^
+  |
+  = expected: a type
+  = actual: `}`
+  = fix: name a type here, as in `Int` or `[Str]`
+error: expected a declaration, found `Int` [unexpected-token]
+ --> main.buri:3:36
+  |
+3 | export struct Point { x: Int, y: } Int
+  |                                    ^^^
+  |
+  = expected: a declaration
+  = actual: `Int`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

@@ -1,0 +1,18 @@
+error: expected a declaration, found `E` [unexpected-token]
+ --> main.buri:7:8
+  |
+7 | export E enum {}
+  |        ^
+  |
+  = expected: a declaration
+  = actual: `E`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected an identifier, found `{` [unexpected-token]
+ --> main.buri:7:15
+  |
+7 | export E enum {}
+  |               ^
+  |
+  = expected: an identifier
+  = actual: `{`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

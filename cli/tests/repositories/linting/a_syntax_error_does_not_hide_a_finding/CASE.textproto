@@ -1,0 +1,37 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a match arm without its comma in one file and an unused import in another: exactly the parse error and the finding, because a file that did not parse whole is not a reason to stop reading the package"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The comma is the whole of the syntax error. With it written the finding is
+# still there and nothing else is — which is what says the report above was
+# two things rather than one thing and a cascade.
+edit {
+  file: "lib/money/routes.buri"
+  replace: "Route { name: \"health\" }\n"
+  with: "Route { name: \"health\" },\n"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "finding.txt"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "from \"core/str\" import * as str;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

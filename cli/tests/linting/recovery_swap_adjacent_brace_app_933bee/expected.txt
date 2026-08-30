@@ -1,0 +1,24 @@
+warning: Stdout is imported but not used [unused-import]
+ --> lib/recovery_swap_adjacent_brace_app_933bee/main.buri:6:36
+  |
+6 | from "core/effect" import { Alloc, Stdout };
+  |                                    ^^^^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: expected an identifier, found `:` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_933bee/main.buri:11:48
+   |
+11 |   let ctx = context { Alloc: host.allocStdout ,: host.stdout };
+   |                                                ^
+   |
+   = expected: an identifier
+   = actual: `:`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_933bee/main.buri:13:22
+   |
+13 |   let _ = io.println(ctx, "done");
+   |                      ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

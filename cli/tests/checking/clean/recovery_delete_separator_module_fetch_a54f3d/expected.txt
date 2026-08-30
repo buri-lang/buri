@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-terminator]
+  --> main.buri:11:62
+   |
+11 | from "ui/effect" import { Fetch, fetch, FetchError, Request }
+   |                                                              ^
+   |
+   = fix: write `;` here

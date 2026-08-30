@@ -1,0 +1,14 @@
+error: an import name ends with `,` [missing-separator]
+ --> main.buri:1:39
+  |
+1 | from "core/str" import { concat, split extra };
+  |                                       ^
+  |
+  = fix: write `,` here
+error: "core/str" does not export `extra` [no-such-export]
+ --> main.buri:1:40
+  |
+1 | from "core/str" import { concat, split extra };
+  |                                        ^^^^^
+  |
+  = fix: check the spelling, or add `export` to `extra`'s declaration in "core/str"

@@ -1,0 +1,12 @@
+error: this `struct` body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:4:18
+  |
+4 |     export b: Int? ,
+  |                  ^
+  |
+ --> main.buri:1:17
+  |
+1 | export struct S {
+  |                 ^ opened here
+  |
+  = fix: write `}` here

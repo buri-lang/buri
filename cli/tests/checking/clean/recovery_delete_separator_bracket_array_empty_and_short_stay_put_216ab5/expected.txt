@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-separator]
+ --> main.buri:3:13
+  |
+3 |   let b = [1 2, 3];
+  |             ^
+  |
+  = fix: write `,` here

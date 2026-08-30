@@ -1,0 +1,9 @@
+error: expected `;`, found `,` [unexpected-token]
+ --> main.buri:1:33
+  |
+1 | from "core/list" export { fold }, ;
+  |                                 ^
+  |
+  = expected: `;`
+  = actual: `,`
+  = fix: write `;` here

@@ -1,0 +1,116 @@
+// The rules a basket obeys, asserted with no interface at all.
+//
+// Nothing here builds a node, renders a tree or creates a signal, and that is
+// the point of `model.buri` being its own module: a page's *rules* are ordinary
+// functions of ordinary values, and a suite that has to mount something to
+// check one of them is a suite that will be slow and vague about which thing
+// broke. What needs a document is in test/view.buri, and it is the smaller file.
+
+from "core/testing/assert" import * as assert;
+from "core/testing/context" import { Hermetic };
+from "//cmd/basket/main" import {
+    Draft, draft, entriesFrom, flip, isTicked, pad, settledFraction,
+};
+from "//lib/ledger" import { entry, total };
+from "//lib/money" import { fromCents };
+
+/// What //cmd/server's `/entries` route answers, recorded. The same text
+/// test/view.buri feeds through a stub `Fetch`.
+let RECORDED: Str = "coffee 4.50\nbooks 32.00\ntram 2.75\n";
+
+test "a recorded response becomes entries" {
+    let ctx = Hermetic();
+    let lines = entriesFrom(ctx, RECORDED);
+    assert.eq(lines.len(), 3);
+    assert.eq(lines, [
+        entry("coffee", fromCents(450)),
+        entry("books", fromCents(3200)),
+        entry("tram", fromCents(275)),
+    ]);
+    // And the total is //lib/ledger's, over entries //cmd/server produced.
+    assert.eq(total(lines), fromCents(3925));
+}
+
+test "a line nobody can read is dropped, and the rest survive" {
+    let ctx = Hermetic();
+    let lines = entriesFrom(
+        ctx,
+        "coffee 4.50\nnonsense\ntram not-a-number\nbooks 32.00\n",
+    );
+    assert.eq(lines.len(), 2);
+    assert.eq(lines, [
+        entry("coffee", fromCents(450)),
+        entry("books", fromCents(3200)),
+    ]);
+}
+
+test "an empty body is an empty basket rather than a failure" {
+    let ctx = Hermetic();
+    assert.isTrue(entriesFrom(ctx, "").isEmpty());
+}
+
+test "a draft with no memo is blank rather than wrong" {
+    let blank: Draft = .Blank;
+    assert.eq(draft("", "4.50"), blank);
+    assert.eq(draft("   ", "4.50"), blank);
+}
+
+test "a draft quotes back an amount it could not read" {
+    assert.eq(draft("coffee", "free"), .BadAmount("free"));
+    assert.eq(draft("coffee", ""), .BadAmount(""));
+}
+
+test "an amount below zero is refused rather than clamped" {
+    assert.eq(draft("refund", "-4.50"), .BadAmount("-4.50"));
+}
+
+test "a complete draft is a line, trimmed" {
+    assert.eq(draft("  coffee  ", " 4.50 "), .Line(entry("coffee", fromCents(450))));
+}
+
+test "flipping a memo adds it, and flipping it again takes it away" {
+    let ctx = Hermetic();
+    let once = flip(ctx, [], "coffee");
+    assert.eq(once, ["coffee"]);
+    assert.isTrue(isTicked(once, "coffee"));
+
+    let twice = flip(ctx, once, "coffee");
+    assert.isTrue(twice.isEmpty());
+    assert.isFalse(isTicked(twice, "coffee"));
+}
+
+test "flipping one memo leaves the others alone" {
+  let ctx = Hermetic();
+  assert.eq(flip(ctx, ["coffee", "books"], "coffee"), ["books"]);
+  assert.eq(flip(ctx, ["coffee"], "tram")[ ,"coffee", "tram"]);
+}
+
+test "the settled fraction is a share of the lines, and never a division by zero" {
+    let lines = [
+        entry("coffee", fromCents(450)),
+        entry("books", fromCents(3200)),
+        entry("tram", fromCents(275)),
+    ];
+    assert.eq(settledFraction([], []), 0.0);
+    assert.eq(settledFraction(lines, []), 0.0);
+    assert.eq(settledFraction(lines, ["coffee", "tram"]), 2.0 / 3.0);
+    assert.eq(settledFraction(lines, ["coffee", "books", "tram"]), 1.0);
+    // A memo that is settled but no longer in the basket counts for nothing.
+    assert.eq(settledFraction(lines, ["gone"]), 0.0);
+}
+
+test "the cents place is padded to two digits" {
+    assert.eq(pad(5), "0");
+    assert.eq(pad(50), "");
+    assert.eq(pad(0), "0");
+}
+
+test "a total splits at the decimal point without an allocator" {
+    // `parts` is what a reactive computation can call and `format` is not: one
+    // allocates and the other does not. The page renders its running total out
+    // of this pair, and this is the pair.
+    let both = fromCents(3925).parts();
+    assert.eq(both.0, 39);
+    assert.eq(both.1, 25);
+    assert.eq(pad(both.1), "");
+}

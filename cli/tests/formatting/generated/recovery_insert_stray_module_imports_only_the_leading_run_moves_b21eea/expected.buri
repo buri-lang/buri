@@ -1,0 +1,9 @@
+from "//lib/z" import { Zed };
+
+export fn f(): Int {
+    1
+}
+
+?
+
+from "core/str" import * as str;

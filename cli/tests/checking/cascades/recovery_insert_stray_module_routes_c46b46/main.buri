@@ -1,0 +1,14 @@
+export struct Route extra {
+  export name: Str,
+  export path: Str,
+}
+
+/// Pure, so it is testable with no context at all — which is the reason to put
+/// it here rather than inside `main`.
+export fn route(path: Str): Route {
+  match (path) {
+    "/entries" => Route { name: "entries", path },
+    "/health" => Route { name: "health", path },
+    _ => Route { name: "fallback", path },
+  }
+}

@@ -1,0 +1,9 @@
+error: expected `:`, found `only` [unexpected-token]
+ --> main.buri:5:27
+  |
+5 | export struct One { extra only: Int }
+  |                           ^^^^
+  |
+  = expected: `:`
+  = actual: `only`
+  = fix: write `:` here

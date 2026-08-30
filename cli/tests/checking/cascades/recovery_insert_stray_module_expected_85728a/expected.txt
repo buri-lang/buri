@@ -1,0 +1,17 @@
+error: expected `{`, found `,` [unexpected-token]
+ --> main.buri:5:17
+  |
+5 | export struct S , {}
+  |                 ^
+  |
+  = expected: `{`
+  = actual: `,`
+  = fix: write `{` here
+error: there is no type `S` [unresolved-type]
+ --> main.buri:9:6
+  |
+9 | impl S {}
+  |      ^
+  |
+  = did you mean `E`?
+  = fix: declare it, import it, or correct the spelling
