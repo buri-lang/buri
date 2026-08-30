@@ -1,0 +1,20 @@
+warning: nothing uses `Ghost` [unused-type]
+  --> lib/recovery_delete_closer_module_stamps_4ba47e/lib.buri:18:8
+   |
+18 | struct Ghost {
+   |        ^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface
+error: this `struct` body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_stamps_4ba47e/lib.buri:21:1
+   |
+21 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_stamps_4ba47e/lib.buri:18:14
+   |
+18 | struct Ghost {
+   |              ^ opened here
+   |
+   = fix: write `}` here
