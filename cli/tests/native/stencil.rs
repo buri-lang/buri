@@ -1194,6 +1194,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "canary/canary.buri",
     "codegen/bitwise.buri",
     "codegen/equality.buri",
+    "codegen/step_trampoline.buri",
     "codegen/strings.buri",
     "codegen/tail_calls.buri",
     "collections/bitset.buri",
@@ -1487,6 +1488,133 @@ export fn main(): Result<(), Str> {
         "a unit reached the link with no key"
     );
     println!("linked with {} ({})", linker.name(), linker.version());
+}
+
+/// **hello world still links the runtime archive, and the answer is honest.**
+///
+/// The size golden for `link::runtime_archive_for`, and the measurement the
+/// slice that added it was asked to take rather than to hope for. There is no
+/// shrink and there was never going to be one: both native entry points call
+/// `buri_rt_argv_init` and `buri_rt_flush` on every path (`stencil/asm.rs`,
+/// `llvm/emit.rs::entry_point`), so the emptiest program the language can
+/// express — `export fn main(): Result<(), Str> { .Ok(()) }` — already names
+/// three runtime symbols, and hello world names six. What decides the
+/// artifact's size is still `-dead_strip`, exactly as BUILD-AND-WATCH.md §2.2
+/// says, and this slice does not improve on it.
+///
+/// Measured on `aarch64-apple-darwin`, debug, through `link::run`:
+///
+/// ```text
+/// libburi_rt.a                         6 035 480 bytes
+/// export fn main() { .Ok(()) }           370 288   6.1% of it
+/// hello world                            374 640   6.2%
+/// ```
+///
+/// The 370 KB the empty program pays is the runtime's floor rather than the
+/// language's. `link.rs` measures that floor directly, on a C program with
+/// *one* reference to `buri_rt_flush`: 33 520 bytes without the archive against
+/// 351 856 with it. That is what the decision is worth to anything that can
+/// take the `Omitted` branch, and no Buri program can.
+///
+/// So the assertion is the one that number is evidence for — the artifact is a
+/// small fraction of the archive it linked — rather than a byte count that
+/// would be a different byte count on the next OS release. A run in which the
+/// archive stopped being dead-stripped is six megabytes and fails here.
+///
+/// **When this test fails**, it is because an entry point stopped needing the
+/// runtime, and that is good news: `runtime_archive_for` will then answer
+/// `Omitted` for a program that prints nothing, the `link` key will stop
+/// carrying the archive's digest for it, and this test should be rewritten to
+/// pin the new pair of numbers rather than deleted.
+#[test]
+fn hello_world_still_links_the_runtime_archive() {
+    if !supported() {
+        return;
+    }
+    let Some(platform) = link::host_platform() else {
+        eprintln!("no linkable host platform");
+        return;
+    };
+    let target = Target { platform, arch: link::host_arch() };
+    if link::select(target).is_err() {
+        eprintln!("no linker driver on this host");
+        return;
+    }
+
+    let programs = [
+        (
+            "bare",
+            r#"
+export fn main(): Result<(), Str> { .Ok(()) }
+"#,
+        ),
+        (
+            "hello",
+            r#"
+from "core/host/lib.buri" import { stdout };
+export fn main(): Result<(), Str> {
+  let _ = stdout.println("hello, world");
+  .Ok(())
+}
+"#,
+        ),
+    ];
+
+    for (name, source) in programs {
+        let (program, tables) = lowered(source);
+        let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+        let units = Stencil
+            .emit(&program, &tables, &opts)
+            .unwrap_or_else(|d| panic!("the backend refused {name}: {:?}", messages(&d)));
+
+        assert_eq!(
+            link::runtime_archive_for(&units),
+            link::RuntimeArchive::Linked,
+            "`{name}` was judged not to reference the runtime, but every native entry point \
+             calls buri_rt_argv_init and buri_rt_flush — read this test's doc comment"
+        );
+
+        let dir = workspace(&format!("archive-size-{name}"));
+        let linker = link::select(target).unwrap().in_dir(dir.join("link"));
+        let rows: Vec<Row> = units
+            .iter()
+            .map(|u| Row {
+                unit: u.name.trim_end_matches(".o").to_string(),
+                key: u.key.as_str().to_string(),
+                cached: false,
+            })
+            .collect();
+        let out = dir.join("app");
+        let options = LinkOptions { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+        if let Err(d) = link::run(&units, &rows, &linker, &out, &options) {
+            panic!("the product's link failed for {name}: {:?}", messages(&d));
+        }
+
+        // The decision reached the command line, both halves of it.
+        assert!(
+            dir.join("link").join(ARCHIVE_NAME).exists(),
+            "`{name}` linked the archive and the archive was not staged"
+        );
+        let size = std::fs::metadata(&out).unwrap().len();
+        let archive = ARCHIVE.len() as u64;
+        println!(
+            "{name}: {size} bytes, {:.1}% of the {archive}-byte archive it linked",
+            (size as f64 / archive as f64) * 100.0
+        );
+        assert!(
+            size * 4 < archive,
+            "`{name}` came out at {size} bytes against a {archive}-byte archive: the artifact \
+             is no longer being dead-stripped down to the part of the runtime it uses"
+        );
+        // And it is a program, not an empty file the linker was talked into.
+        let ran = Command::new(&out).output().unwrap();
+        assert_eq!(
+            ran.status.code(),
+            Some(0),
+            "{name} exited: {}",
+            String::from_utf8_lossy(&ran.stderr)
+        );
+    }
 }
 
 /// One non-tail recursion, at a depth the caller chooses.

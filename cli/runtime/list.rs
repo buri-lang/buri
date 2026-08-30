@@ -425,9 +425,151 @@ pub unsafe extern "C" fn buri_rt_list_range(start: i64, end: i64, out: *mut Buri
     unsafe { out.write(result) }
 }
 
+// ---------------------------------------------------------------------------
+// The closure trampoline
+// ---------------------------------------------------------------------------
+//
+// The header above says why nothing that takes a closure is in this file: "a
+// Buri closure is `{ code, env }` where `code` is a thunk whose signature is
+// the *flattened* one of its own element type, so calling one from C would mean
+// synthesizing a call whose parameter list depends on `T`".
+//
+// That sentence is still true, and [`StepEntry`] is the way around it rather
+// than an exception to it. The runtime does not call the closure; it calls a
+// **function the backend generated at the call site**, where `T` is known, and
+// hands it three pointers — its own opaque state, one element in, one element
+// out. Nothing about the element type crosses but its stride, which is what
+// every other entry in this file already takes.
+//
+// One entry uses it, and it is a pilot: `list.mapCtxStep` is `list.mapCtx`
+// spelled through the trampoline, so that the boundary a task scheduler needs
+// is exercised — by a conformance fixture, and against JavaScript's answer —
+// before the scheduler exists. `map` itself is **not** routed here: both
+// backends open-code that loop, and an indirect call per element is slower than
+// the instructions it would replace.
+
+/// The generated C-ABI entry thunk one step is reached through.
+///
+/// `state` is the backend's own record — a closure's `{ code, env }`, and
+/// whatever else that backend needs to enter Buri code — and is never read
+/// here. `arg` points at one source element at `in_stride`; `out` at where its
+/// answer goes, at `out_stride`. Both are the element's *memory* layout, which
+/// is what a stride describes.
+///
+/// The step **owns** what it is handed and answers a fresh count: the thunk
+/// takes its own reference on `arg`'s element before entering Buri code, and
+/// what it writes through `out` belongs to the block being built. That is
+/// `middle/rc.rs`'s "a call through a function value owns its arguments",
+/// settled on the side of the boundary that knows the type — which is why there
+/// is no `retain` parameter here beside the strides.
+pub type StepEntry = unsafe extern "C" fn(state: *mut u8, arg: *const u8, out: *mut u8);
+
+/// `list.mapCtxStep(self, ctx, f) -> [B]` — `list.mapCtx` with its step reached
+/// through [`StepEntry`].
+///
+/// The answer is `f` at every element in index order, which is `mapCtx`'s
+/// answer: this entry is *compared* against it rather than merely run.
+///
+/// Nothing suspends. The entry thunk is called and returns before the next
+/// element is read, exactly as an open-coded loop runs its step, so the only
+/// new thing under test is the boundary itself.
+///
+/// # Safety
+/// `ptr` covers `len * in_stride` bytes; `entry` is the thunk the backend
+/// generated for this call and `state` the record it was generated against;
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_list_map_ctx_step(
+    ptr: *const u8,
+    len: u64,
+    entry: StepEntry,
+    state: *mut u8,
+    in_stride: u64,
+    out_stride: u64,
+    out: *mut BuriList,
+) {
+    let (n, from, to) = (len as usize, in_stride as usize, out_stride as usize);
+    let result = block(n, to);
+    for i in 0..n {
+        // SAFETY: `i * from` is inside the `n`-element source the caller
+        // promised, and `i * to` is inside the block just allocated. The thunk
+        // is the one the backend generated for these two element types.
+        unsafe {
+            entry(state, ptr.add(i.saturating_mul(from)), result.ptr.add(i.saturating_mul(to)));
+        }
+    }
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(result) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The trampoline, driven by a C thunk written here rather than generated:
+    /// what an entry does with the three pointers is a backend's business, and
+    /// what this file promises is the walk — every element, in index order, at
+    /// the two strides it was told.
+    #[test]
+    fn the_step_entry_sees_every_element_in_order() {
+        unsafe extern "C" fn double_it(state: *mut u8, arg: *const u8, out: *mut u8) {
+            // SAFETY: the test hands a live counter, an `i64` source element
+            // and an `i32` destination slot.
+            unsafe {
+                let seen = state.cast::<i64>();
+                seen.write(seen.read() + 1);
+                out.cast::<i32>().write((arg.cast::<i64>().read() * 2) as i32);
+            }
+        }
+        let src: [i64; 4] = [1, 2, 3, 4];
+        let mut seen: i64 = 0;
+        let mut got = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        // SAFETY: `src` covers four `i64`s and both out-pointers are live.
+        unsafe {
+            buri_rt_list_map_ctx_step(
+                src.as_ptr().cast(),
+                4,
+                double_it,
+                (&raw mut seen).cast(),
+                8,
+                4,
+                &raw mut got,
+            );
+        }
+        assert_eq!(seen, 4, "the step ran once per element");
+        assert_eq!(got.len, 4);
+        // SAFETY: four `i32`s were written there, at the stride asked for.
+        let answers: Vec<i32> =
+            (0..4).map(|i| unsafe { got.ptr.add(i * 4).cast::<i32>().read() }).collect();
+        assert_eq!(answers, vec![2, 4, 6, 8]);
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(got.ptr) };
+    }
+
+    /// An empty list allocates nothing and enters nothing — `block`'s rule,
+    /// which is what keeps `[].mapCtxStep(...)` free rather than a null
+    /// dereference inside the loop.
+    #[test]
+    fn an_empty_list_never_enters_the_step() {
+        unsafe extern "C" fn never(_: *mut u8, _: *const u8, _: *mut u8) {
+            unreachable!("the step ran on an empty list");
+        }
+        let mut got = BuriList { ptr: std::ptr::null_mut(), len: 7 };
+        // SAFETY: the source is empty, so the pointer is never read.
+        unsafe {
+            buri_rt_list_map_ctx_step(
+                std::ptr::null(),
+                0,
+                never,
+                std::ptr::null_mut(),
+                8,
+                8,
+                &raw mut got,
+            );
+        }
+        assert_eq!(got.len, 0);
+        assert!(got.ptr.is_null());
+    }
 
     #[test]
     fn a_range_is_half_open() {

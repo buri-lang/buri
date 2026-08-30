@@ -698,6 +698,18 @@ function $list_mapCtx(xs, c, f) {
   return $own(out);
 }
 
+// `list.mapCtxStep` is `mapCtx` with a runtime-driven step on the native
+// backends, and here it is the same loop as `$list_mapCtx` — deliberately.
+// JavaScript is the reference implementation the two natives are compared
+// against (`cli/tests/native/agreement.rs`), and a reference that shared the
+// mechanism under test would prove nothing about it. This is the same argument
+// `middle/fuse.rs` makes for running the fusion pass on the native branch only.
+function $list_mapCtxStep(xs, c, f) {
+  const out = new Array(xs.length);
+  for (let i = 0; i < xs.length; i++) out[i] = f(c, $share(xs[i]));
+  return $own(out);
+}
+
 function $list_filter(xs, c, p) {
   const out = [];
   for (let i = 0; i < xs.length; i++) if (p($share(xs[i]))) out.push(xs[i]);
@@ -3656,34 +3668,46 @@ function $host_testing_TestStderr_captured(self) {
 // End of input until a test says otherwise: no lines and no octets, so
 // `readLine` runs off the end and `readBytes` finds nothing.
 function $host_testing_stdin() {
-  return $handle({ lines: [], at: 0 });
+  return $handle({ lines: [], at: 0, calls: [] });
 }
 
 // A line stream and an octet stream are two streams and a test picks one, so
 // these two builders replace each other rather than composing: the last one in
 // a chain is the stream.
 function $host_testing_TestStdin_lines(self, lines) {
-  return $handle({ lines: lines.slice(), at: 0 });
+  return $handle({ lines: lines.slice(), at: 0, calls: [] });
 }
 
 function $host_testing_TestStdin_bytes(self, b) {
-  return $handle({ lines: [], at: 0, bytes: b.slice() });
+  return $handle({ lines: [], at: 0, bytes: b.slice(), calls: [] });
 }
 
 function $host_testing_TestStdin_readLine(self) {
   const s = $slot(self);
-  if (s.bytes) return undefined;
-  return s.at < s.lines.length ? $some(s.lines[s.at++]) : undefined;
+  if (s.bytes) return $host_testing_logged(s, ["readLine", 0n], undefined);
+  return $host_testing_logged(
+    s,
+    ["readLine", 0n],
+    s.at < s.lines.length ? $some(s.lines[s.at++]) : undefined,
+  );
 }
 
 function $host_testing_TestStdin_readBytes(self, want) {
   const s = $slot(self);
+  const call = ["readBytes", want];
   const n = Number(want);
   const src = s.bytes || [];
-  if (s.at >= src.length || n <= 0) return undefined;
+  if (s.at >= src.length || n <= 0) return $host_testing_logged(s, call, undefined);
   const out = src.slice(s.at, s.at + n);
   s.at += out.length;
-  return out;
+  return $host_testing_logged(s, call, out);
+}
+
+// Every read this stream was asked for, in the order they completed.
+function $host_testing_TestStdin_calls(self) {
+  return $slot(self).calls.map(function (c) {
+    return c.slice();
+  });
 }
 
 // A `TestFs` handle is a *view*: the files and directories it reads and writes,
@@ -3696,7 +3720,7 @@ function $host_testing_TestStdin_readBytes(self, want) {
 // for, exactly as `$testing_context_data`'s does: a flat map has no empty
 // directory otherwise.
 function $host_testing_fs() {
-  return $handle({ files: {}, dirs: [], ro: false });
+  return $handle({ files: {}, dirs: [], ro: false, calls: [] });
 }
 
 // This view's files with these written over them, in a map of its own, under
@@ -3706,21 +3730,85 @@ function $host_testing_TestFs_files(self, entries) {
   const s = $slot(self);
   const files = Object.assign({}, s.files);
   for (const e of entries) files[e[0]] = $bytes_toUtf8(null, e[1]);
-  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro });
+  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro, calls: [] });
 }
 
 function $host_testing_TestFs_filesBytes(self, entries) {
   const s = $slot(self);
   const files = Object.assign({}, s.files);
   for (const e of entries) files[e[0]] = e[1].slice();
-  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro });
+  return $handle({ files, dirs: s.dirs.slice(), ro: s.ro, calls: [] });
 }
 
 // The same two objects, deliberately: a method that copied would be a snapshot
 // wearing an attenuator's name.
 function $host_testing_TestFs_readOnly(self) {
   const s = $slot(self);
-  return $handle({ files: s.files, dirs: s.dirs, ro: true });
+  return $handle({ files: s.files, dirs: s.dirs, ro: true, calls: [] });
+}
+
+// Records one call on a slot's log and answers what the method answered.
+//
+// The answer is an *argument*, so JavaScript has evaluated it by the time this
+// runs: the call is recorded on the way out, in the order calls complete, which
+// is what `calls()` promises and what `cli/runtime/testing.rs`'s `Recording`
+// does with a `Drop`. Nothing suspends yet, so completion order is program
+// order — recording it this way is what keeps that true when something does.
+function $host_testing_logged(s, call, answer) {
+  s.calls.push(call);
+  return answer;
+}
+
+// Every call this view was asked for, in the order they completed. Through
+// *this* handle: a builder and `readOnly` each answer a new one, with a log of
+// its own.
+function $host_testing_TestFs_calls(self) {
+  return $slot(self).calls.map(function (c) {
+    return c.slice();
+  });
+}
+
+// The text these octets spell, exactly as `readFile` reads back what
+// `writeFileBytes` wrote. An `FsCall` constructor's decode: a test writing a
+// call down performs no effect, so it has no context to reach `bytes` with.
+function $host_testing_spelled(b) {
+  return $utf8Lossy(b);
+}
+
+// A fresh, empty log, and the handle that names it. A bare `I64` rather than a
+// handle-carrying value, because `net()` is a Buri body that builds the
+// `TestNet` around it — the responder in the other field is a value this file
+// cannot make.
+function $host_testing_newNet() {
+  $t.h.push({ calls: [] });
+  return BigInt($t.h.length - 1);
+}
+
+// One request, recorded once the responder has answered it. `Request`'s four
+// fields arrive separately because a `Method` crosses as its variant index;
+// they go back together as the `NetCall` the constructor `fetch` builds.
+function $host_testing_recordFetch(h, method, url, headers, body) {
+  $t.h[Number(h)].calls.push([
+    Number(method),
+    url,
+    headers.map(function (e) {
+      return e.slice();
+    }),
+    body.slice(),
+  ]);
+  return 0;
+}
+
+// Every request this network answered, in that order. A `NetCall` is a newtype
+// over `Request`, so each one is its request in a one-element array.
+//
+// By the handle and not by the `TestNet`: that value carries a responder as
+// well, and `TestNet.calls` is the Buri body that unwraps it — the one `calls()`
+// in this module that is not a row of its own.
+function $host_testing_netCalls(h) {
+  return $t.h[Number(h)].calls.map(function (r) {
+    return [r.slice()];
+  });
 }
 
 // The read-back, without the effect: the same answer `readFile` gives, and no
@@ -3741,22 +3829,29 @@ function $host_testing_TestFs_snapshot(self) {
     });
 }
 
+// Recorded here and not in `read`, which the two share: `read` is the read-back
+// and a read-back is not a call.
 function $host_testing_TestFs_readFile(self, p) {
-  return $host_testing_TestFs_read(self, p);
+  return $host_testing_logged(
+    $slot(self),
+    ["readFile", p, ""],
+    $host_testing_TestFs_read(self, p),
+  );
 }
 
 // `.ReadOnly` is `IoError`'s third variant, and the six that write are the six
 // `ReadOnly<C>` refuses.
 function $host_testing_TestFs_writeFile(self, p, b) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["writeFile", p, b];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   s.files[p] = $bytes_toUtf8(null, b);
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 function $host_testing_TestFs_fileExists(self, p) {
   const s = $slot(self);
-  return p in s.files || s.dirs.includes(p);
+  return $host_testing_logged(s, ["fileExists", p, ""], p in s.files || s.dirs.includes(p));
 }
 
 function $host_testing_TestFs_readDir(self, p) {
@@ -3771,62 +3866,72 @@ function $host_testing_TestFs_readDir(self, p) {
       if (rest && !out.includes(rest.split("/")[0])) out.push(rest.split("/")[0]);
     }
   }
-  return $ok(out.sort());
+  return $host_testing_logged(s, ["readDir", p, ""], $ok(out.sort()));
 }
 
 function $host_testing_TestFs_readFileBytes(self, p) {
-  const f = $slot(self).files;
-  return p in f ? $ok(f[p].slice()) : $err([0]);
+  const s = $slot(self);
+  const f = s.files;
+  return $host_testing_logged(
+    s,
+    ["readFileBytes", p, ""],
+    p in f ? $ok(f[p].slice()) : $err([0]),
+  );
 }
 
 function $host_testing_TestFs_writeFileBytes(self, p, b) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["writeFileBytes", p, $utf8Lossy(b)];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   s.files[p] = b.slice();
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 function $host_testing_TestFs_appendFile(self, p, b) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["appendFile", p, $utf8Lossy(b)];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const f = s.files;
   f[p] = (p in f ? f[p] : []).concat(b);
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 function $host_testing_TestFs_renameFile(self, from, to) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["renameFile", from, to];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const f = s.files;
-  if (!(from in f)) return $err([0]);
+  if (!(from in f)) return $host_testing_logged(s, call, $err([0]));
   f[to] = f[from];
   delete f[from];
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 function $host_testing_TestFs_removeFile(self, p) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["removeFile", p, ""];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const f = s.files;
-  if (!(p in f)) return $err([0]);
+  if (!(p in f)) return $host_testing_logged(s, call, $err([0]));
   delete f[p];
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 // Parents included, an existing directory is `.Ok`, and a path already naming
 // a file is `.AlreadyExists` — the three answers `mkdir -p` gives.
 function $host_testing_TestFs_makeDir(self, p) {
   const s = $slot(self);
-  if (s.ro) return $err([2]);
+  const call = ["makeDir", p, ""];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
   const clean = p.replace(/\/+$/, "");
-  if (clean === "" || clean === ".") return $ok(0);
-  if (clean in s.files) return $err([3]);
+  if (clean === "" || clean === ".") return $host_testing_logged(s, call, $ok(0));
+  if (clean in s.files) return $host_testing_logged(s, call, $err([3]));
   const parts = clean.split("/");
   for (let i = 0; i < parts.length; i++) {
     const at = parts.slice(0, i + 1).join("/");
     if (at !== "" && !s.dirs.includes(at)) s.dirs.push(at);
   }
-  return $ok(0);
+  return $host_testing_logged(s, call, $ok(0));
 }
 
 // Nothing to flush, so this answers whether there is anything to have flushed.
@@ -3834,9 +3939,14 @@ function $host_testing_TestFs_makeDir(self, p) {
 // the filesystem already holds is what gets flushed.
 function $host_testing_TestFs_syncFile(self, p) {
   const s = $slot(self);
+  const call = ["syncFile", p, ""];
   const clean = p.replace(/\/+$/, "");
-  if (clean === "" || clean === ".") return $ok(0);
-  return p in s.files || s.dirs.includes(clean) ? $ok(0) : $err([0]);
+  if (clean === "" || clean === ".") return $host_testing_logged(s, call, $ok(0));
+  return $host_testing_logged(
+    s,
+    call,
+    p in s.files || s.dirs.includes(clean) ? $ok(0) : $err([0]),
+  );
 }
 
 // Millis in and millis out are both `I64`, so this one counts in `BigInt`.

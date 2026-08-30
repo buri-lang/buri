@@ -296,6 +296,12 @@ const PACKAGES: &[Case] = &[
     // never a statement about the backend — see [`repository`].
     included("codegen/equality.buri"),
     included("codegen/tail_calls.buri"),
+    // The closure trampoline's pilot. It is in the native set by construction:
+    // `list.mapCtxStep` exists so that the *native* boundary — the runtime
+    // calling back into Buri code through a generated entry thunk — has
+    // something to be exercised by, so a backend that could not compile this
+    // file would be a backend the key had failed on.
+    included("codegen/step_trampoline.buri"),
     // The four `//lib/semantics` files. Two of them reach `MemFs`'s methods
     // and were waiting on `cli/runtime/lib.rs` §2.1 — the `Result<T, E>`
     // shape — as well as on the repository; the other two build a `Hermetic`

@@ -331,6 +331,39 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
+/// This backend's half of the archive decision: its objects reference the
+/// runtime too, so `build/link.rs` names `libburi_rt.a` on the command line for
+/// a release build exactly as it does for a debug one.
+///
+/// The stencil suite carries the measurement
+/// (`stencil.rs::hello_world_still_links_the_runtime_archive`); what this adds
+/// is that the answer is not a property of one code generator. A backend whose
+/// entry point stopped calling `buri_rt_argv_init` would flip here first.
+#[test]
+fn hello_world_references_the_runtime_archive() {
+    if !buri::compiler::backend::runtime_native::AVAILABLE {
+        println!("skipped: this toolchain carries no runtime archive");
+        return;
+    }
+    let lowered = lower(&program(
+        r#"
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hello, world");
+  .Ok(())
+}
+"#,
+    ));
+    let opts = options(Profile::Release);
+    let units =
+        expect(llvm::emit_lowered(&lowered.ir, &lowered.tables, &opts, Some(lowered.entry)));
+    assert_eq!(
+        buri::build::link::runtime_archive_for(&units),
+        buri::build::link::RuntimeArchive::Linked,
+        "an LLVM artifact was judged not to reference the runtime"
+    );
+}
+
 /// Arithmetic, comparison and a branch, across a function call the inliner
 /// leaves alone. `divide` is the interesting one: SPEC 6.2 says division by
 /// zero aborts, so the emitted code carries a zero test and a cold call to
