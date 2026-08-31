@@ -145,7 +145,8 @@ test "falls back when the variable is unset" {
 
 **Each call builds a fresh context**, which is why a named context is called
 rather than referred to: what one test writes to its filesystem or its captured
-stdout is invisible to the next. Bind what the function needs and nothing else.
+stdout is invisible to the next. Bind what the function needs and nothing else,
+and reach a double the way the real thing is reached: `io.println(ctx, "x")`.
 
 ## Fakes
 
@@ -294,6 +295,6 @@ batch.
 
 `empty-test-suite` (a `test` block with no `sources`),
 `test-without-assertion` (nothing reachable from the test calls into
-`core/testing/assert` — it is transitive, so asserting through a helper is
-fine), `test-title-newline`, and at run time `test-timeout` and
+`core/testing/assert` — transitive, so asserting through a helper is fine),
+`test-title-newline`, and at run time `test-timeout` and
 `platform-not-implemented`.

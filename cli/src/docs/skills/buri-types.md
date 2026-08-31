@@ -73,7 +73,7 @@ Inside such a function, **only the bound's methods are callable** on the
 parameter, and nothing else. Generic code needing an operation no trait
 provides takes it as a function argument: `sortBy(xs, cmp)`.
 
-There is one constraint mechanism. `<T: Ord + Show>` and `<C: Alloc + Fs>` are
+There is one constraint mechanism: `<T: Ord + Show>` and `<C: Alloc + Fs>` are
 the same feature.
 
 ## Traits
@@ -84,7 +84,6 @@ A trait is an interface: a named set of method signatures.
 trait Ord {
     fn compare(self, other: Self): Order;
 }
-
 trait Show {
     fn show<C: Alloc>(self, ctx: C): Str;
 }
@@ -97,9 +96,8 @@ trait Show {
   implement a trait for someone else's type — and there is no coherence pass,
   no orphan rule, no instance search.
 - `impl Trait for Type { ... }` supplies conformance; `impl Type { ... }`
-  declares the type's own methods. Same namespace, same resolution.
-- A method of the type's own may be `export`ed; a method supplied to a trait
-  may not.
+  declares the type's own methods. Same namespace, same resolution, and only
+  the type's own may be `export`ed.
 
 ### `derive`
 
@@ -107,13 +105,11 @@ trait Show {
 derive Eq, Ord, Show for Version;
 ```
 
-Generates methods structurally — struct fields in declaration order, enum
-variants in declaration order, recursing into field types — and fails to
-compile if any field type does not itself satisfy the trait.
-
-Derivable: `Eq`, `Ord`, `Show`, `Hash`, `ToJson`, `FromJson`, and the operator
-traits. `ToJson`/`FromJson` are **only ever derived**; a hand-written `impl` of
-either is rejected.
+Generates methods structurally — fields and variants in declaration order,
+recursing into field types — and fails to compile if a field type does not
+itself satisfy the trait. Derivable: `Eq`, `Ord`, `Show`, `Hash`, `ToJson`,
+`FromJson` and the operator traits; `ToJson`/`FromJson` are **only ever
+derived**, and a hand-written `impl` of either is rejected.
 
 `assert.eq(a, b)` needs `Eq` for the comparison and `Show` for the failure
 message, so `derive Eq, Show for YourType;` is usually what an
@@ -148,8 +144,8 @@ types satisfy `Bounded` only.
 
 No blanket implementations, no associated types, no `where` clauses, no
 supertraits, no trait objects, no dynamic dispatch. Generic code is
-monomorphized; a generic body is typechecked once, polymorphically, with bounds
-verified at the call site.
+monomorphized, and a generic body is typechecked once with bounds verified at
+the call site.
 
 ## Method resolution
 
@@ -183,12 +179,21 @@ platform modules may declare one. `core/effect` declares `Alloc`, `Fs`, `Net`,
 `Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks` (all but
 `WEB`; reached through `core/tasks`), `Listen` and `Sockets` (granted nowhere).
 
-An effect is a trait in every other respect. Two rules separate them:
+An effect is a trait in every other respect but three:
 
 - an effect's implementors are **effect-carrying**, and may be passed only as
   `self` or `ctx`;
 - **no type may implement both an effect and a trait**, so an effect-carrying
-  type satisfies no ordinary bound — which is what makes `T: Ord` not a context.
+  type satisfies no ordinary bound — which is what makes `T: Ord` not a context;
+- **an effect is performed by handing the context to a function.**
+  `ctx.println("hi")` is `io.println(ctx, "hi")` and `ctx.readFile(p)` is
+  `fs.readText(ctx, p)`; the doors are `core/alloc`, `core/io`, `core/fs`,
+  `core/net/http`, `core/time`, `core/random`, `core/env`, `core/proc`,
+  `core/tasks`, `core/net/server` and `ui/signal`, and a method on the value is
+  `effect-method-call`. Only `core/*` and an `impl` supplying an effect keep
+  the method form, which is what lets a wrapper delegate with
+  `self.0.readFile(path)`. **A print answers `Result<(), IoError>`**, so a
+  dropped one is `let _ = io.println(ctx, "hi").ignore();`.
 
 ### The `ctx` rule
 
@@ -220,10 +225,10 @@ never reads a function body.
 | **Deterministic** | `ctx` bounded by `Alloc` alone | `xs.map(ctx, f)` |
 | **Effectful** | `ctx` bounded by anything else | `fs.readText(ctx, p)` |
 
-The rule that decides it: an operation whose result size is fixed is pure, and
-one whose result size depends on runtime data names `Alloc`. Fixed-size
-construction — struct literals, tuples, enum payloads, array literals,
-closures, `Template`s — never requires `Alloc`.
+The rule that decides it: an operation whose result size is fixed is pure, one
+whose result size depends on runtime data names `Alloc`. Fixed-size
+construction — literals, tuples, enum payloads, closures, `Template`s — never
+requires `Alloc`.
 
 ### The capture rule
 
@@ -238,11 +243,11 @@ let texts = paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p));
 ```
 
 The library provides `list.mapCtx`, `list.filterCtx`, `result.mapCtx`,
-`result.mapErrCtx`, `result.andThenCtx` and friends; explicit recursion always works. The rule also reaches a value whose
-type *could* be a context — an unbounded `T`, or one bounded only by effects —
-so a closure-builder over a bare type parameter has to take the value as a
-parameter rather than close over it. A `T` with an ordinary trait bound, and
-any function type, are exempt.
+`result.andThenCtx` and friends; explicit recursion always works. The rule also
+reaches a value whose type *could* be a context — an unbounded `T`, or one
+bounded only by effects — so a closure-builder over a bare type parameter takes
+the value as a parameter rather than closing over it. A `T` with an ordinary
+trait bound, and any function type, are exempt.
 
 ## Contexts
 
@@ -250,11 +255,7 @@ A context binds each effect to a value implementing it. One form, used by both
 `main` and a test.
 
 ```buri
-let ctx = context {
-    Alloc: host.alloc,
-    Stdout: host.stdout,
-    Fs: host.fs,
-};
+let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
 
 context Fixture {
     Alloc: alloc(),
@@ -268,13 +269,12 @@ context Fixture {
   rather than duplicating it.
 - Every left side must name a declared effect (import it!), every right side
   must implement it, and the result satisfies exactly the effects bound — so
-  it is accepted by any `<C: ...>` naming a subset and rejected by any naming
-  more.
+  any `<C: ...>` naming a subset accepts it and any naming more does not.
 - A context's type is generated, unnamed, and never written down.
 
-**Where a context may be built:** in `main`'s body, in a test source, or in a
-test-only module (a path with a `testing` segment) — and never inside a lambda.
-Nowhere else, which is why the purity theorem holds in ordinary code.
+**Where a context may be built:** `main`'s body, a test source, or a test-only
+module (a path with a `testing` segment) — never inside a lambda and nowhere
+else, which is why the purity theorem holds in ordinary code.
 
 ### Restricting what propagates
 
@@ -290,11 +290,9 @@ fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
 ```
 
 **Attenuation** — wrap the context in a type satisfying fewer effects, so the
-callee holds a value that genuinely lacks the rest. Attenuation narrows the
-whole context, never one effect out of it, which is what keeps the `ctx` rule
-satisfiable.
-
-Use confinement by default and attenuation at trust boundaries.
+callee holds a value that genuinely lacks the rest. It narrows the whole
+context, never one effect out of it, which is what keeps the `ctx` rule
+satisfiable. Use confinement by default and attenuation at trust boundaries.
 `core/alloc`'s `GeneralPurpose`, `Arena` and `FixedBuffer` are importable
 anywhere, because `Alloc` is the one effect whose implementation grants
 nothing.
