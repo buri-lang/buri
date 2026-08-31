@@ -26,16 +26,22 @@ The normative text ships in the binary: `buri docs lang/lexical`,
    truthiness: `if (n < 0) { ... } else { ... }`.
 6. **No implicit numeric conversion of any kind.** `1.0 + 1` is an error, and
    so is `I32 + I64`. Convert with a method: `a.toI64()`.
-7. **Effects arrive as a parameter named `ctx`.** A function with no `ctx` and
-   no effect-carrying `self` cannot touch the world. See the `buri-types`
-   skill.
+7. **Effects arrive as a parameter named `ctx`, and are *performed* by handing
+   it to a function.** A function with no `ctx` and no effect-carrying `self`
+   cannot touch the world; and `ctx.println("hi")` is not how you print —
+   `io.println(ctx, "hi")` is, because an effect method is not callable on the
+   value that carries it (`effect-method-call`). `core/io`, `core/fs`,
+   `core/env`, `core/time`, `core/random`, `core/alloc`, `core/net/http`,
+   `core/proc`, `core/tasks` are the doors. See the `buri-types` skill.
 8. **A bare identifier in a pattern is always a binding.** `None` binds a
    variable; write `.None` or `Option.None` to match the variant.
 9. **`Result` may not be discarded.** `let _ = someResult()` is a compile
    error (`result-discarded`), and so is a `_` further down the pattern —
    `let (n, _) = (1, someResult())` — and so is leaving the call standing as a
    statement. Consume it with `?`, `match` or `.withDefault(...)`, or drop it
-   on purpose with `.ignore()`.
+   on purpose with `.ignore()`. **A print answers one too**, so a line a
+   program does not care about is
+   `let _ = io.println(ctx, "hi").ignore();`.
 10. **No relative imports.** A module path is `core/...`, `ui/...`, or
     `//...` from the repository root, and means the same module everywhere.
 11. **Methods live in an `impl` block in their type's own module**, and are

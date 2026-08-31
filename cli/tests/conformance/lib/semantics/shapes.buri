@@ -1019,13 +1019,11 @@ export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
     .Ok(reply) => reply.status,
     .Err(_) => 0,
   };
-  let served = server.listen(ctx, "127.0.0.1",
-    0,
-    fn(c, request) => Response {
-      status: if (request.url == "127.0.0.1") { 200 } else { 404 },
-      headers: [],
-      body: [],
-    },);
+  let served = server.listen(ctx, "127.0.0.1", 0, fn(c, request) => Response {
+    status: if (request.url == "127.0.0.1") { 200 } else { 404 },
+    headers: [],
+    body: [],
+  });
   match (served) {
     .Ok(_) => fetched,
     .Err(_) => 0 - fetched,
