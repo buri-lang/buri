@@ -14,6 +14,12 @@
 //! dialect it is in, which is also the first thing a reader of the directory
 //! listing wants to know.
 //!
+//! A case whose name begins with `signatures_` is a **standard-library
+//! module** — `core/*`, where a `fn` may be declared without a body because the
+//! backend supplies the operation. It is the same formatter and the same
+//! layout; only the parser has to be told, and the case's name is how it is
+//! told (`formatting::Dialect`).
+//!
 //! A case whose name begins with `recovery_` is source with a **syntax error**
 //! in it, and its `expected.buri` pins what the formatter does about that: the
 //! declaration that did not parse comes back byte for byte, everything around
@@ -81,7 +87,9 @@ mod pinned;
 
 use buri::build::textproto;
 use buri::diagnostics::{FileId, SourceMap};
-use buri::formatting::{comment_shape, source, token_shape, Shape};
+use buri::formatting::{
+    comment_shape, formatted as laid_out, source, token_shape, Dialect, Shape,
+};
 use harness::{case_dirs, tests_dir, Golden};
 use std::path::{Path, PathBuf};
 
@@ -153,6 +161,24 @@ fn is_recovery(case: &str) -> bool {
     case.starts_with("recovery_")
 }
 
+/// Whether a case is a standard-library module rather than source.
+///
+/// The same rule the two prefixes above are: a case that does not announce
+/// itself is source, so a `fn` that lost its body by accident is still a case
+/// that does not parse rather than one that quietly becomes a signature list.
+fn is_signatures(case: &str) -> bool {
+    case.starts_with("signatures_")
+}
+
+/// Which parser a case's text is read by.
+fn dialect(case: &str) -> Dialect {
+    if is_signatures(case) {
+        Dialect::Std
+    } else {
+        Dialect::Source
+    }
+}
+
 fn read(path: &Path) -> String {
     std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("{} could not be read: {e}", path.display()))
@@ -180,7 +206,11 @@ fn formatted(label: &str, path: &Path, text: &str) -> String {
     let case = label.split('/').next().unwrap_or_default();
     let mut map = SourceMap::new();
     let id = map.add(label.to_string(), path.to_path_buf(), text.to_string());
-    let parsed = buri::parsing::parser::parse(text, id);
+    let parsed = if is_signatures(case) {
+        buri::parsing::parser::parse_stdlib(text, id)
+    } else {
+        buri::parsing::parser::parse(text, id)
+    };
     if !parsed.errors.is_empty() && !is_recovery(case) {
         let mut out = String::new();
         for e in &parsed.errors {
@@ -199,7 +229,7 @@ fn formatted(label: &str, path: &Path, text: &str) -> String {
              does about that."
         );
     }
-    source(text).unwrap_or_else(|| {
+    laid_out(text, dialect(case)).map(|f| f.text).unwrap_or_else(|| {
         panic!(
             "{label} parses, but `format::source` refused its own output for it.\n\
              That means the output did not parse or lost a comment — a formatter \
@@ -500,7 +530,7 @@ fn formatting_stays_inside_the_margin() {
         }
         let input = dir.join("input.buri");
         let once = expected(dir, &formatted(&format!("{case}/input.buri"), &input, &read(&input)));
-        let regions = buri::formatting::broken_regions(&once);
+        let regions = buri::formatting::broken_regions_in(&once, dialect(&case));
         let mut at = 0usize;
         for line in once.lines() {
             let start = at;

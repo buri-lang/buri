@@ -147,6 +147,16 @@ pub struct Block {
     /// compile there", which is the only way an error page for
     /// `host-not-granted` can carry a program that provokes it.
     pub platform: Option<crate::build::buildfile::Platform>,
+    /// The fence exactly as it stands in the document: hidden `# ` markers,
+    /// `// ERROR:` annotations and all.
+    ///
+    /// What the *reader* gets out of it is `rendered(&body)`, which is what
+    /// `documentation::layout` holds to the formatter's layout, and what a
+    /// rewrite of it puts back.
+    pub body: String,
+    /// The columns the fence itself is indented by, for one written inside a
+    /// list item.
+    pub indent: usize,
     /// The text to compile: hidden `# ` markers removed, `// ERROR:` lines
     /// blanked (they are compiled separately).
     pub source: String,
@@ -453,6 +463,8 @@ fn parse_block(
     Ok(Block {
         claim,
         wrap,
+        body: fence.body.clone(),
+        indent: fence.indent,
         uses: info.list("use"),
         name: info.get("name").map(String::from),
         effects,
@@ -483,6 +495,11 @@ fn strip_annotations(body: &str) -> (String, String, Vec<(usize, String)>) {
     for (i, raw) in body.lines().enumerate() {
         let line = match raw.strip_prefix("##") {
             Some(rest) => format!("#{rest}"),
+            // A lone `#` is a hidden *blank* line, which is what separates two
+            // hidden declarations. `rendered` has always read it that way; this
+            // is the other half, so the compiler sees the blank line rather
+            // than a `#`.
+            None if raw == "#" => String::new(),
             None => raw.strip_prefix("# ").unwrap_or(raw).to_string(),
         };
         original.push_str(&line);
@@ -1022,6 +1039,10 @@ fn run_file_with(
                 }
             }
         };
+        // Two questions per block, and the layout one is asked of every block
+        // including the ones nothing compiles: an `ignore` fence is still a
+        // fence somebody copies out of the page.
+        failures.extend(crate::documentation::layout::check(block));
         failures.extend(run_block_in(workspace, block, &registry, &mut map, &mut cache));
         registry.record(block);
     }
@@ -1111,7 +1132,7 @@ mod tests {
     #[test]
     fn a_whole_module_compiles() {
         let doc = "```buri\n\
-                   export fn double(n: Int): Int {\n  n * 2\n}\n\
+                   export fn double(n: Int): Int {\n    n * 2\n}\n\
                    ```\n";
         assert_eq!(check(doc), "");
     }
@@ -1139,8 +1160,9 @@ mod tests {
     fn a_method_signature_list_compiles_inside_a_hidden_impl() {
         let doc = "```buri sig\n\
                    # export struct Ring(export Int);\n\
+                   #\n\
                    # impl Ring {\n\
-                   export fn size(self): Int;\n\
+                   \x20   export fn size(self): Int;\n\
                    # }\n\
                    ```\n";
         assert_eq!(check(doc), "");
@@ -1196,7 +1218,7 @@ mod tests {
     fn an_error_annotation_is_compiled_on_its_own() {
         let doc = "```buri wrap=body\n\
                    let ok: Int = 5;\n\
-                   let bad: Int = \"nope\";         // ERROR: expected `I64`, found `Str`\n\
+                   let bad: Int = \"nope\"; // ERROR: expected `I64`, found `Str`\n\
                    let alsoOk = ok + 1;\n\
                    ```\n";
         assert_eq!(check(doc), "", "the annotated line should satisfy its own claim");
@@ -1214,7 +1236,7 @@ mod tests {
     #[test]
     fn a_named_block_is_reusable() {
         let doc = "```buri name=pt\n\
-                   export struct Point { export x: Int, export y: Int }\n\
+                   export struct Point {\n    export x: Int,\n    export y: Int,\n}\n\
                    ```\n\
                    ```buri use=pt wrap=body\n\
                    let p = Point { x: 1, y: 2 };\n\

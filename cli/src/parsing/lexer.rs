@@ -504,6 +504,12 @@ pub struct Comment {
     /// The column its first character was written at, so a formatter can move
     /// the whole of a `/* … */` and keep the shape inside it.
     pub column: u32,
+    /// Where its first character was written, so a formatter can tell a
+    /// comment written at the end of a line from one written on a line of its
+    /// own. The two are different things — the first is about the code beside
+    /// it — and the trivia table alone cannot say which this is, because it is
+    /// keyed by the token *after* the comment.
+    pub offset: u32,
 }
 
 /// What was written above one token: its documentation, the comments above
@@ -988,7 +994,12 @@ impl<'a> Lexer<'a> {
                         }
                         let text = raw.trim_end().to_string();
                         let column = self.column(start);
-                        self.pending_comments.push(Comment { text, blank_before: blank, column });
+                        self.pending_comments.push(Comment {
+                            text,
+                            blank_before: blank,
+                            column,
+                            offset: start as u32,
+                        });
                         self.has_trivia = true;
                     }
                     newlines = 0;
@@ -1019,7 +1030,12 @@ impl<'a> Lexer<'a> {
                     }
                     let text = self.slice(start, self.pos).to_string();
                     let column = self.column(start);
-                    self.pending_comments.push(Comment { text, blank_before: blank, column });
+                    self.pending_comments.push(Comment {
+                        text,
+                        blank_before: blank,
+                        column,
+                        offset: start as u32,
+                    });
                     self.has_trivia = true;
                     newlines = 0;
                 }
