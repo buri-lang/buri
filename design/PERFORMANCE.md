@@ -505,10 +505,10 @@ visibly superlinear at the top. So the twenty are chosen to move one axis each:
 | Points | The axis |
 |---|---|
 | `mixed` | The anchor. Every other point is a delta from it, and shares nothing but the generator. |
-| `mixed-many-files`, `mixed-few-files` | Module count against module size: 15,640 modules at 1M against 192. |
+| `mixed-many-files`, `mixed-few-files` | Module count against module size: 15,437 modules at 1M against 186. |
 | `mixed-libs`, `mixed-deep-graph`, `mixed-wide-graph` | Import-graph shape: clustered, deep, wide. |
 | `struct-heavy`/`struct-light`, `enum-heavy`, `impl-heavy`, `match-heavy`, `string-heavy`, `list-heavy`, `long-bodies` | Construct-family weight — one kind turned up until it is most of the corpus. |
-| `generic-blowup`/`generic-free` | Generics density: 243k monomorphized functions at 1M against 119k. |
+| `generic-blowup`/`generic-free` | Generics density: 235k monomorphized functions at 1M against 115k. |
 | `derive-heavy` | Derive load, which only the native branch pays for. |
 | `comment-heavy`/`comment-free`, `long-idents` | Surface: 46 bytes a line against 29, and bytes per token at a fixed token count. |
 
@@ -544,9 +544,9 @@ generator. Above 500,000 lines nothing takes them, anchor included.
 And a native row at all goes to **seven of the twenty points**, recorded as
 `native = false` in the other thirteen manifests. The backend is a function of
 two things this suite can move — the codegen unit count and the size of the IR
-handed to it — so the seven are chosen to span both: `mixed-many-files` (15,640
-units at 1M) and `mixed-few-files` (192) at the ends of the first,
-`generic-blowup` (243k monomorphized functions) and `enum-heavy` (59k) at the
+handed to it — so the seven are chosen to span both: `mixed-many-files` (15,437
+units at 1M) and `mixed-few-files` (186) at the ends of the first,
+`generic-blowup` (235k monomorphized functions) and `enum-heavy` (55k) at the
 ends of the second, `derive-heavy` because `middle::derives` runs only on the
 native branch and is invisible in every JS row, `struct-heavy` because layout and
 the ABI are native-only questions, and `mixed` because it is the anchor. The
@@ -604,10 +604,12 @@ which of the requested targets each can emit for, and how much of the 2 MiB
 corpus budget is spent.
 
 How much of the *pinned* half it covers follows `--set`, for the wall-time
-reason §3.1 gives: 0.3 s under `--quick` and no digests, 10 s plain and the
-anchor's two, 21 s under `--set=scale`, and 2 min 47 s under `--set=scale-full`
+reason §3.1 gives: 0.4 s under `--quick` and no digests, 12 s plain and the
+anchor's two, 26 s under `--set=scale`, and 3 min 24 s under `--set=scale-full`
 for all forty. The last one is the command that answers "is every pinned digest
-still good", and it is the one to run after touching `generate.rs`.
+still good", and it is the one to run after touching `generate.rs` — or after
+touching `formatting`, which since `GENERATOR_REVISION` 7 is the same thing:
+`laid_out` is the last hand every generated module passes through.
 
 ### The parameter space, and the profiles
 
@@ -868,6 +870,68 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > `--only=` selections and individual `--shape=` runs rather than in one
 > command. That is a bug of its own, being fixed separately; until it is, nobody
 > can take this table in a single invocation.
+
+> **Generator revision 7, 2026-08-31 — a break in the series, announced, and
+> the first one that moves a corpus's *shape* rather than only its bytes.**
+> Every module now leaves `generate.rs` through `formatting::source`, so a
+> generated corpus is what `buri format` writes: four spaces, a sorted import
+> run, a `derive` above the declaration it is about, and a body the emitter put
+> on one line broken where the printer breaks it. §3.1's rule applies and was
+> followed — **all eight** saved corpora were re-recorded and **all forty**
+> pinned manifests re-pinned. Every one of the forty is a **six**-line change,
+> and the two extra lines are the point: `lines` and `modules` moved this time,
+> where revisions 2, 4, 5 and 6 moved only `bytes` and the digest.
+>
+> **The line count barely moved, and that is the number the goals are stated
+> in.** A rate in lines/s divides by `lines`, and `lines` moved by **+0.32%** on
+> the anchor (`mixed-100k` 100,755 → 101,074; `mixed-1M` 1,007,259 →
+> 1,010,518), by less than 0.5% on thirty-eight of the forty pinned corpora, and
+> by at most **+1.54%** on any of them (`mixed-many-files-100k`). So every
+> lines/s reading below is comparable with one taken at revision 6 to inside
+> half a percent — well inside the dispersion the protocol already reports —
+> and the table was not re-taken for this revision.
+>
+> **The byte count moved where the layout is what the point is about**, and
+> `modules` fell on nineteen of the twenty points — 360 → 348 on the anchor,
+> 361 → 287 on `struct-heavy` — because a module reaches its line target with
+> fewer declarations once its bodies are laid out. `struct-heavy` −12.1% of
+> bytes and `long-idents` −10.7% are the two large ones: both are dense in type
+> declarations, and a `derive` hoisted above the declaration it is about costs a
+> blank line less than a `derive` written below it, so the module that used to
+> hold it holds another declaration instead. `impl-heavy` −4.0% and
+> `long-bodies` −2.4% are the same effect, smaller; `match-heavy` +5.2% is the
+> other direction — a match arm gains four columns of indent rather than two.
+> Everything else is inside ±2%, and bytes per line moved by less than a byte on
+> sixteen of the twenty points.
+>
+> **Two saved corpora moved further, and both are stress shapes doing what they
+> are for.** `wide-match-1k` is 18,722 → 21,698 bytes at an *identical* 1,000
+> lines: nothing but indentation, which is the cleanest possible reading of what
+> this revision is. `many-small-fns-1k` is 30,492 → 17,205 and 3 modules → 2,
+> because `buri format` writes a one-expression function over three lines: the
+> shape's per-function line estimate went 2 → 4, so a 1,000-line budget now buys
+> 250 tiny functions where it bought 500. That is a real change in what the
+> shape stresses, taken deliberately — four lines per tiny function is the
+> density a *formatted* repository of them has, and the old estimate would have
+> made `--scale=n` mean 2n lines.
+>
+> **What it buys.** A line rate is only worth quoting over source somebody would
+> check in, and until this revision the corpora were the one Buri in the
+> repository nobody had laid out — exempt, by a written row, from the gate that
+> holds every other `.buri` file to one layout. The row is gone:
+> `cli/benches/corpora` is inside
+> `cli/tests/language/corpus.rs::every_source_in_the_repository_is_formatted`
+> now, and passes. What it is still outside is `BURI_BLESS`, because the fix for
+> a drift in generated output is `--record` and not laying the file out where it
+> sits.
+>
+> **What it costs**, and where. Generating a corpus parses and prints it once
+> more before anything else reads it, which is about a fifth on top of every
+> validation: `--validate` 10 s → 12 s, `--set=scale` 21 s → 26 s,
+> `--set=scale-full` 2 min 47 s → 3 min 24 s. All of it is at work-list
+> construction, outside every timer, so no measured rate carries it. The other
+> cost is a coupling stated rather than hidden: **a change to `formatting` is
+> now a change to the generator**, and takes this same ceremony.
 
 > **Generator revision 6, 2026-08-31 — a break in the series, announced, and
 > the one that gives revision 5's bytes back.**

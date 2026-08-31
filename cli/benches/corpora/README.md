@@ -48,8 +48,19 @@ sort into dependency order will not load, and `--validate` is where you find out
 
 **No `BUILD.buri` in a corpus, and no corpus under `cli/tests`.**
 `cli/tests/formatting.rs`'s `every_checked_in_build_file_is_formatted` walks
-`cli/tests` and `cli/src` and matches `BUILD.buri`/`REPO.buri`, so this directory
-is outside every existing sweep. Keep it that way.
+`cli/tests` and `cli/src` and matches `BUILD.buri`/`REPO.buri`, so no build file
+of this directory's is swept. Keep it that way.
+
+**The source here *is* swept, and passes.** Since `GENERATOR_REVISION` 7 the
+last thing `generate.rs` does to a module is hand it to `formatting::source`, so
+every file under `src/` is exactly what `buri format` writes and
+`cli/tests/language/corpus.rs::every_source_in_the_repository_is_formatted`
+holds it to that along with the rest of the tree — a corpus is no longer an
+exception to the one layout. What it *is* an exception to is `BURI_BLESS`: the
+fix for a drift here is `--record`, not laying the file out where it sits, and
+the test says so and leaves the file alone (`GENERATED_NOT_BLESSED`). Blessing
+would write bytes no generator wrote and leave `manifest.txt` pinning a corpus
+that is no longer on disk.
 
 ## The caps
 
@@ -111,6 +122,12 @@ A language change breaks saved corpora. In order:
    there would move the bytes of any profile. A manifest naming an *older*
    revision is legal and expected — that is the point — so `--validate` prints it
    as a note and never as an error.
+6. **A change to the formatter is a change to the generator.** `laid_out` is the
+   last thing every emitter does, so a printer that starts breaking a line
+   somewhere else moves every corpus. The gate that notices first is the
+   repository-wide format sweep above, and the fix is this same ceremony: bump
+   `GENERATOR_REVISION`, re-record all eight, re-pin all forty, write the note
+   in `design/PERFORMANCE.md` §6.
 
 ## The digest
 

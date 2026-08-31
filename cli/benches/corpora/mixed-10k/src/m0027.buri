@@ -4,317 +4,325 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/str" import * as str;
-from "core/list" import * as list;
 from "core/effect" import { Alloc };
-from "//bench/m0010.buri" import { Node10, seed10, blend10, reach10 };
-from "//bench/m0023.buri" import { Node23, seed23, blend23, reach23 };
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "//bench/m0010.buri" import { blend10, Node10, reach10, seed10 };
+from "//bench/m0023.buri" import { blend23, Node23, reach23, seed23 };
 
+derive Eq, Show for Node27;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node27 {
-  export label: Str,
-  export value: Int,
-  export weight: Float,
+    export label: Str,
+    export value: Int,
+    export weight: Float,
 }
 
-derive Eq, Show for Node27;
-
-export fn seed27(): Int { 3814 }
+export fn seed27(): Int {
+    3814
+}
 
 /// Folds this module's seed together with its dependencies'.
 export fn blend27(base: Int): Int {
-  let d0 = blend10(base) + seed10();
-  let d1 = blend23(base) + seed23();
-  d0 + d1 + seed27()
+    let d0 = blend10(base) + seed10();
+    let d1 = blend23(base) + seed23();
+    d0 + d1 + seed27()
 }
 
 /// Reads a dependency's record, so the import carries a type as
 /// well as a function.
 export fn lift27(n: Node10): Node27 {
-  Node27 { label: n.label, value: n.value + seed27(), weight: n.weight }
-}
-
-/// An enum of 4 variants, matched exhaustively below.
-export enum State27_0 {
-  Idle,
-  Running(Int),
-  Failed { code: Int, message: Str },
-  Step3(Int, Str),
+    Node27 { label: n.label, value: n.value + seed27(), weight: n.weight }
 }
 
 derive Eq, Show for State27_0;
+/// An enum of 4 variants, matched exhaustively below.
+export enum State27_0 {
+    Idle,
+    Running(Int),
+    Failed { code: Int, message: Str },
+    Step3(Int, Str),
+}
 
 /// The match every enum in a real program has somewhere.
 export fn rank27_0(state: State27_0): Int {
-  match (state) {
-    .Idle => 0,
-    .Running(ticks) => ticks + 1,
-    .Failed { code, .. } => code * -1,
-    .Step3(k, _) => k + 3,
-  }
+    match (state) {
+        .Idle => 0,
+        .Running(ticks) => ticks + 1,
+        .Failed { code, .. } => code * -1,
+        .Step3(k, _) => k + 3,
+    }
 }
 
 /// Construction, so the variants are reachable from a root.
 export fn start27_0(ticks: Int): State27_0 {
-  if (ticks == 0) { .Idle } else if (ticks < 99) { .Running(ticks) }
-  else { .Failed { code: ticks, message: "overrun" } }
+    if (ticks == 0) {
+        .Idle
+    } else if (ticks < 99) {
+        .Running(ticks)
+    } else {
+        .Failed { code: ticks, message: "overrun" }
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe27_0<C: Alloc>(ctx: C): Int {
-  let s = start27_0(5);
-  rank27_0(s) + s.show(ctx).len()
+    let s = start27_0(5);
+    rank27_0(s) + s.show(ctx).len()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
 export fn digest27_1<C: Alloc>(ctx: C): Int {
-  let xs: [Int] = [2678, 5188, 1910, 8050, 5605, 8125, 3904];
-  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
-  let total = kept.fold(fn(acc, x) => acc + x, 0);
-  total + xs.len()
+    let xs: [Int] = [2678, 5188, 1910, 8050, 5605, 8125, 3904];
+    let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+    let total = kept.fold(fn(acc, x) => acc + x, 0);
+    total + xs.len()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain27_1(): Int {
-  let empty: [Int] = list.empty<Int>();
-  empty.len()
+    let empty: [Int] = list.empty<Int>();
+    empty.len()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe27_1<C: Alloc>(ctx: C): Int {
-  digest27_1(ctx) + drain27_1()
+    digest27_1(ctx) + drain27_1()
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
 export fn firstOr27_2<T>(xs: [T], fallback: T): T {
-  match (xs.first()) {
-    .Some(v) => v,
-    .None => fallback,
-  }
+    match (xs.first()) {
+        .Some(v) => v,
+        .None => fallback,
+    }
 }
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
 export fn describeAll27_2<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
-  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+    xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric27_2(ns: [Int], ss: [Str]): Int {
-  firstOr27_2<Int>(ns, 0) + firstOr27_2<Str>(ss, "").len()
+    firstOr27_2<Int>(ns, 0) + firstOr27_2<Str>(ss, "").len()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe27_2<C: Alloc>(ctx: C): Int {
-  useGeneric27_2([1, 2], ["a"]) + describeAll27_2(ctx, [1, 2]).len()
+    useGeneric27_2([1, 2], ["a"]) + describeAll27_2(ctx, [1, 2]).len()
 }
 
 /// A body of 5 bindings over integer arithmetic — the shape most
 /// lines in most programs actually have.
 export fn compute27_3(input: Int): Int {
-  let a0 = input * 7 + 411;
-  let a1 = a0 + 69;
-  let a2 = a1 * 1;
-  let a3 = a2 - 14;
-  let a4 = a3 + 78;
-  if (a4 > 4121) { a4 } else { a4 - 92 }
+    let a0 = input * 7 + 411;
+    let a1 = a0 + 69;
+    let a2 = a1 * 1;
+    let a3 = a2 - 14;
+    let a4 = a3 + 78;
+    if (a4 > 4121) { a4 } else { a4 - 92 }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe27_3<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  compute27_3(7)
+    let _ = ctx;
+    compute27_3(7)
 }
 
 /// A body of 10 bindings over integer arithmetic — the shape most
 /// lines in most programs actually have.
 export fn compute27_4(input: Int): Int {
-  let a0 = input * 4 + 561;
-  let a1 = a0 * 26;
-  let a2 = a1 * 71;
-  let a3 = a2 - 59;
-  let a4 = a3 + 56;
-  let a5 = a4 + 17;
-  let a6 = a5 - 17;
-  let a7 = a6 - 87;
-  let a8 = a7 - 48;
-  let a9 = a8 + 18;
-  if (a9 > 7125) { a9 } else { a9 - 91 }
+    let a0 = input * 4 + 561;
+    let a1 = a0 * 26;
+    let a2 = a1 * 71;
+    let a3 = a2 - 59;
+    let a4 = a3 + 56;
+    let a5 = a4 + 17;
+    let a6 = a5 - 17;
+    let a7 = a6 - 87;
+    let a8 = a7 - 48;
+    let a9 = a8 + 18;
+    if (a9 > 7125) { a9 } else { a9 - 91 }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe27_4<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  compute27_4(7)
+    let _ = ctx;
+    compute27_4(7)
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
 export fn firstOr27_5<T>(xs: [T], fallback: T): T {
-  match (xs.first()) {
-    .Some(v) => v,
-    .None => fallback,
-  }
+    match (xs.first()) {
+        .Some(v) => v,
+        .None => fallback,
+    }
 }
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
 export fn describeAll27_5<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
-  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+    xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric27_5(ns: [Int], ss: [Str]): Int {
-  firstOr27_5<Int>(ns, 0) + firstOr27_5<Str>(ss, "").len()
+    firstOr27_5<Int>(ns, 0) + firstOr27_5<Str>(ss, "").len()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe27_5<C: Alloc>(ctx: C): Int {
-  useGeneric27_5([1, 2], ["a"]) + describeAll27_5(ctx, [1, 2]).len()
-}
-
-/// A record with 4 fields, derived comparisons and two methods.
-export struct Rec27_6 {
-  export f0: Int,
-  export f1: Str,
-  export f2: Float,
-  export f3: Bool,
+    useGeneric27_5([1, 2], ["a"]) + describeAll27_5(ctx, [1, 2]).len()
 }
 
 derive Eq, Show for Rec27_6;
+/// A record with 4 fields, derived comparisons and two methods.
+export struct Rec27_6 {
+    export f0: Int,
+    export f1: Str,
+    export f2: Float,
+    export f3: Bool,
+}
 
 impl Rec27_6 {
-  /// A pure accessor, of the kind that is most of a real impl block.
-  export fn scaled(self, factor: Int): Int {
-    self.f0 * factor + 427
-  }
+    /// A pure accessor, of the kind that is most of a real impl block.
+    export fn scaled(self, factor: Int): Int {
+        self.f0 * factor + 427
+    }
 
-  /// Allocates, and says so with `C: Alloc`.
-  export fn render<C: Alloc>(self, ctx: C): Str {
-    str.format(ctx, "rec27_6: ${self.f0}/${self.f1}")
-  }
+    /// Allocates, and says so with `C: Alloc`.
+    export fn render<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "rec27_6: ${self.f0}/${self.f1}")
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe27_6<C: Alloc>(ctx: C): Int {
-  let r = Rec27_6 { f0: 7, f1: "probe", f2: 1.5, f3: true };
-  r.scaled(3) + r.render(ctx).len()
+    let r = Rec27_6 { f0: 7, f1: "probe", f2: 1.5, f3: true };
+    r.scaled(3) + r.render(ctx).len()
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
 export fn digest27_7<C: Alloc>(ctx: C): Int {
-  let xs: [Int] = [1165, 2881, 9968, 8001, 8609, 573, 9389, 9115];
-  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
-  let total = kept.fold(fn(acc, x) => acc + x, 0);
-  total + xs.len()
+    let xs: [Int] = [1165, 2881, 9968, 8001, 8609, 573, 9389, 9115];
+    let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+    let total = kept.fold(fn(acc, x) => acc + x, 0);
+    total + xs.len()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain27_7(): Int {
-  let empty: [Int] = list.empty<Int>();
-  empty.len()
+    let empty: [Int] = list.empty<Int>();
+    empty.len()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe27_7<C: Alloc>(ctx: C): Int {
-  digest27_7(ctx) + drain27_7()
+    digest27_7(ctx) + drain27_7()
 }
 
 /// A body of 10 bindings over integer arithmetic — the shape most
 /// lines in most programs actually have.
 export fn compute27_8(input: Int): Int {
-  let a0 = input * 3 + 677;
-  let a1 = a0 - 72;
-  let a2 = a1 + 59;
-  let a3 = a2 + 79;
-  let a4 = a3 - 89;
-  let a5 = a4 + 6;
-  let a6 = a5 - 52;
-  let a7 = a6 * 1;
-  let a8 = a7 - 65;
-  let a9 = a8 + 75;
-  if (a9 > 1402) { a9 } else { a9 - 33 }
+    let a0 = input * 3 + 677;
+    let a1 = a0 - 72;
+    let a2 = a1 + 59;
+    let a3 = a2 + 79;
+    let a4 = a3 - 89;
+    let a5 = a4 + 6;
+    let a6 = a5 - 52;
+    let a7 = a6 * 1;
+    let a8 = a7 - 65;
+    let a9 = a8 + 75;
+    if (a9 > 1402) { a9 } else { a9 - 33 }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe27_8<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  compute27_8(7)
+    let _ = ctx;
+    compute27_8(7)
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
 export fn label27_9<C: Alloc>(ctx: C, id: Int, name: Str): Str {
-  let prefix = if (id < 0) { "charlie" } else { "golf" };
-  let body = str.format(ctx, "${prefix}-${name}-${id}");
-  body.toUpper(ctx)
+    let prefix = if (id < 0) { "charlie" } else { "golf" };
+    let body = str.format(ctx, "${prefix}-${name}-${id}");
+    body.toUpper(ctx)
 }
 
 /// Literals of the kinds the lexer has separate paths for: decimal,
 /// hexadecimal, float, char, escaped string.
 export fn constants27_9(): (Int, Int, Float, Char, Str) {
-  (575858, 0xCAA0, 167.052, 'q', "a\ttab and a \"quote\"")
+    (575858, 0xCAA0, 167.052, 'q', "a\ttab and a \"quote\"")
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe27_9<C: Alloc>(ctx: C): Int {
-  let (a, b, _, _, e) = constants27_9();
-  label27_9(ctx, a, e).len() + b
-}
-
-/// An enum of 5 variants, matched exhaustively below.
-export enum State27_10 {
-  Idle,
-  Running(Int),
-  Failed { code: Int, message: Str },
-  Step3(Int, Str),
-  Step4(Int, Str),
+    let (a, b, _, _, e) = constants27_9();
+    label27_9(ctx, a, e).len() + b
 }
 
 derive Eq, Show for State27_10;
+/// An enum of 5 variants, matched exhaustively below.
+export enum State27_10 {
+    Idle,
+    Running(Int),
+    Failed { code: Int, message: Str },
+    Step3(Int, Str),
+    Step4(Int, Str),
+}
 
 /// The match every enum in a real program has somewhere.
 export fn rank27_10(state: State27_10): Int {
-  match (state) {
-    .Idle => 0,
-    .Running(ticks) => ticks + 1,
-    .Failed { code, .. } => code * -1,
-    .Step3(k, _) => k + 3,
-    .Step4(k, _) => k + 4,
-  }
+    match (state) {
+        .Idle => 0,
+        .Running(ticks) => ticks + 1,
+        .Failed { code, .. } => code * -1,
+        .Step3(k, _) => k + 3,
+        .Step4(k, _) => k + 4,
+    }
 }
 
 /// Construction, so the variants are reachable from a root.
 export fn start27_10(ticks: Int): State27_10 {
-  if (ticks == 0) { .Idle } else if (ticks < 75) { .Running(ticks) }
-  else { .Failed { code: ticks, message: "overrun" } }
+    if (ticks == 0) {
+        .Idle
+    } else if (ticks < 75) {
+        .Running(ticks)
+    } else {
+        .Failed { code: ticks, message: "overrun" }
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe27_10<C: Alloc>(ctx: C): Int {
-  let s = start27_10(5);
-  rank27_10(s) + s.show(ctx).len()
+    let s = start27_10(5);
+    rank27_10(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
 export fn reach27<C: Alloc>(ctx: C): Int {
-  0
-    + probe27_0(ctx)
-    + probe27_1(ctx)
-    + probe27_2(ctx)
-    + probe27_3(ctx)
-    + probe27_4(ctx)
-    + probe27_5(ctx)
-    + probe27_6(ctx)
-    + probe27_7(ctx)
-    + probe27_8(ctx)
-    + probe27_9(ctx)
-    + probe27_10(ctx)
-    + reach10(ctx)
-    + reach23(ctx)
+    0
+        + probe27_0(ctx)
+        + probe27_1(ctx)
+        + probe27_2(ctx)
+        + probe27_3(ctx)
+        + probe27_4(ctx)
+        + probe27_5(ctx)
+        + probe27_6(ctx)
+        + probe27_7(ctx)
+        + probe27_8(ctx)
+        + probe27_9(ctx)
+        + probe27_10(ctx)
+        + reach10(ctx)
+        + reach23(ctx)
 }

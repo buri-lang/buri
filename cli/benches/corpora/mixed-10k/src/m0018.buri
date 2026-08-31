@@ -4,315 +4,318 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/str" import * as str;
-from "core/list" import * as list;
 from "core/effect" import { Alloc };
-from "//bench/m0012.buri" import { Node12, seed12, blend12, reach12 };
-from "//bench/m0013.buri" import { Node13, seed13, blend13, reach13 };
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "//bench/m0012.buri" import { blend12, Node12, reach12, seed12 };
+from "//bench/m0013.buri" import { blend13, Node13, reach13, seed13 };
 
+derive Eq, Show for Node18;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node18 {
-  export label: Str,
-  export value: Int,
-  export weight: Float,
+    export label: Str,
+    export value: Int,
+    export weight: Float,
 }
 
-derive Eq, Show for Node18;
-
-export fn seed18(): Int { 2543 }
+export fn seed18(): Int {
+    2543
+}
 
 /// Folds this module's seed together with its dependencies'.
 export fn blend18(base: Int): Int {
-  let d0 = blend12(base) + seed12();
-  let d1 = blend13(base) + seed13();
-  d0 + d1 + seed18()
+    let d0 = blend12(base) + seed12();
+    let d1 = blend13(base) + seed13();
+    d0 + d1 + seed18()
 }
 
 /// Reads a dependency's record, so the import carries a type as
 /// well as a function.
 export fn lift18(n: Node12): Node18 {
-  Node18 { label: n.label, value: n.value + seed18(), weight: n.weight }
+    Node18 { label: n.label, value: n.value + seed18(), weight: n.weight }
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
 /// three things a decision tree has to merge.
 export fn choose18_0(a: Option<Int>, b: Option<Int>): Int {
-  match ((a, b)) {
-    (.Some(x), .Some(y)) if x > y => x - y,
-    (.Some(x), .Some(y)) => y - x,
-    (.Some(x), .None) => x,
-    (.None, .Some(y)) => y,
-    (.None, .None) => 0,
-  }
+    match ((a, b)) {
+        (.Some(x), .Some(y)) if x > y => x - y,
+        (.Some(x), .Some(y)) => y - x,
+        (.Some(x), .None) => x,
+        (.None, .Some(y)) => y,
+        (.None, .None) => 0,
+    }
 }
 
 /// A `?` chain, which is the other half of how errors move.
 export fn parseBoth18_0(left: Str, right: Str): Option<Int> {
-  let a = left.toInt()?;
-  let b = right.toInt()?;
-  .Some(a + b)
+    let a = left.toInt()?;
+    let b = right.toInt()?;
+    .Some(a + b)
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_0<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  let extra = match (parseBoth18_0("1", "2")) {
-    .Some(v) => v,
-    .None => 0,
-  };
-  choose18_0(.Some(3), .None) + extra
+    let _ = ctx;
+    let extra = match (parseBoth18_0("1", "2")) {
+        .Some(v) => v,
+        .None => 0,
+    };
+    choose18_0(.Some(3), .None) + extra
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
 export fn firstOr18_1<T>(xs: [T], fallback: T): T {
-  match (xs.first()) {
-    .Some(v) => v,
-    .None => fallback,
-  }
+    match (xs.first()) {
+        .Some(v) => v,
+        .None => fallback,
+    }
 }
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
 export fn describeAll18_1<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
-  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+    xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric18_1(ns: [Int], ss: [Str]): Int {
-  firstOr18_1<Int>(ns, 0) + firstOr18_1<Str>(ss, "").len()
+    firstOr18_1<Int>(ns, 0) + firstOr18_1<Str>(ss, "").len()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_1<C: Alloc>(ctx: C): Int {
-  useGeneric18_1([1, 2], ["a"]) + describeAll18_1(ctx, [1, 2]).len()
+    useGeneric18_1([1, 2], ["a"]) + describeAll18_1(ctx, [1, 2]).len()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
 export fn label18_2<C: Alloc>(ctx: C, id: Int, name: Str): Str {
-  let prefix = if (id < 0) { "bravo" } else { "foxtrot" };
-  let body = str.format(ctx, "${prefix}-${name}-${id}");
-  body.toUpper(ctx)
+    let prefix = if (id < 0) { "bravo" } else { "foxtrot" };
+    let body = str.format(ctx, "${prefix}-${name}-${id}");
+    body.toUpper(ctx)
 }
 
 /// Literals of the kinds the lexer has separate paths for: decimal,
 /// hexadecimal, float, char, escaped string.
 export fn constants18_2(): (Int, Int, Float, Char, Str) {
-  (17462, 0xC1DB, 191.027, 'q', "a\ttab and a \"quote\"")
+    (17462, 0xC1DB, 191.027, 'q', "a\ttab and a \"quote\"")
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_2<C: Alloc>(ctx: C): Int {
-  let (a, b, _, _, e) = constants18_2();
-  label18_2(ctx, a, e).len() + b
-}
-
-/// A record with 5 fields, derived comparisons and two methods.
-export struct Rec18_3 {
-  export f0: Int,
-  export f1: Str,
-  export f2: Float,
-  export f3: Bool,
-  export f4: Int,
+    let (a, b, _, _, e) = constants18_2();
+    label18_2(ctx, a, e).len() + b
 }
 
 derive Eq, Show for Rec18_3;
+/// A record with 5 fields, derived comparisons and two methods.
+export struct Rec18_3 {
+    export f0: Int,
+    export f1: Str,
+    export f2: Float,
+    export f3: Bool,
+    export f4: Int,
+}
 
 impl Rec18_3 {
-  /// A pure accessor, of the kind that is most of a real impl block.
-  export fn scaled(self, factor: Int): Int {
-    self.f0 * factor + 282
-  }
+    /// A pure accessor, of the kind that is most of a real impl block.
+    export fn scaled(self, factor: Int): Int {
+        self.f0 * factor + 282
+    }
 
-  /// Allocates, and says so with `C: Alloc`.
-  export fn render<C: Alloc>(self, ctx: C): Str {
-    str.format(ctx, "rec18_3: ${self.f0}/${self.f1}")
-  }
+    /// Allocates, and says so with `C: Alloc`.
+    export fn render<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "rec18_3: ${self.f0}/${self.f1}")
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_3<C: Alloc>(ctx: C): Int {
-  let r = Rec18_3 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-  r.scaled(3) + r.render(ctx).len()
+    let r = Rec18_3 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
+    r.scaled(3) + r.render(ctx).len()
 }
 
 /// A body of 10 bindings over integer arithmetic — the shape most
 /// lines in most programs actually have.
 export fn compute18_4(input: Int): Int {
-  let a0 = input * 4 + 785;
-  let a1 = a0 * 81;
-  let a2 = a1 + 46;
-  let a3 = a2 * 60;
-  let a4 = a3 * 57;
-  let a5 = a4 + 70;
-  let a6 = a5 + 6;
-  let a7 = a6 * 93;
-  let a8 = a7 - 23;
-  let a9 = a8 + 27;
-  if (a9 > 9823) { a9 } else { a9 - 32 }
+    let a0 = input * 4 + 785;
+    let a1 = a0 * 81;
+    let a2 = a1 + 46;
+    let a3 = a2 * 60;
+    let a4 = a3 * 57;
+    let a5 = a4 + 70;
+    let a6 = a5 + 6;
+    let a7 = a6 * 93;
+    let a8 = a7 - 23;
+    let a9 = a8 + 27;
+    if (a9 > 9823) { a9 } else { a9 - 32 }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_4<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  compute18_4(7)
+    let _ = ctx;
+    compute18_4(7)
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
 /// three things a decision tree has to merge.
 export fn choose18_5(a: Option<Int>, b: Option<Int>): Int {
-  match ((a, b)) {
-    (.Some(x), .Some(y)) if x > y => x - y,
-    (.Some(x), .Some(y)) => y - x,
-    (.Some(x), .None) => x,
-    (.None, .Some(y)) => y,
-    (.None, .None) => 0,
-  }
+    match ((a, b)) {
+        (.Some(x), .Some(y)) if x > y => x - y,
+        (.Some(x), .Some(y)) => y - x,
+        (.Some(x), .None) => x,
+        (.None, .Some(y)) => y,
+        (.None, .None) => 0,
+    }
 }
 
 /// A `?` chain, which is the other half of how errors move.
 export fn parseBoth18_5(left: Str, right: Str): Option<Int> {
-  let a = left.toInt()?;
-  let b = right.toInt()?;
-  .Some(a + b)
+    let a = left.toInt()?;
+    let b = right.toInt()?;
+    .Some(a + b)
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_5<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  let extra = match (parseBoth18_5("1", "2")) {
-    .Some(v) => v,
-    .None => 0,
-  };
-  choose18_5(.Some(3), .None) + extra
+    let _ = ctx;
+    let extra = match (parseBoth18_5("1", "2")) {
+        .Some(v) => v,
+        .None => 0,
+    };
+    choose18_5(.Some(3), .None) + extra
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
 /// three things a decision tree has to merge.
 export fn choose18_6(a: Option<Int>, b: Option<Int>): Int {
-  match ((a, b)) {
-    (.Some(x), .Some(y)) if x > y => x - y,
-    (.Some(x), .Some(y)) => y - x,
-    (.Some(x), .None) => x,
-    (.None, .Some(y)) => y,
-    (.None, .None) => 0,
-  }
+    match ((a, b)) {
+        (.Some(x), .Some(y)) if x > y => x - y,
+        (.Some(x), .Some(y)) => y - x,
+        (.Some(x), .None) => x,
+        (.None, .Some(y)) => y,
+        (.None, .None) => 0,
+    }
 }
 
 /// A `?` chain, which is the other half of how errors move.
 export fn parseBoth18_6(left: Str, right: Str): Option<Int> {
-  let a = left.toInt()?;
-  let b = right.toInt()?;
-  .Some(a + b)
+    let a = left.toInt()?;
+    let b = right.toInt()?;
+    .Some(a + b)
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_6<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  let extra = match (parseBoth18_6("1", "2")) {
-    .Some(v) => v,
-    .None => 0,
-  };
-  choose18_6(.Some(3), .None) + extra
+    let _ = ctx;
+    let extra = match (parseBoth18_6("1", "2")) {
+        .Some(v) => v,
+        .None => 0,
+    };
+    choose18_6(.Some(3), .None) + extra
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
 export fn digest18_7<C: Alloc>(ctx: C): Int {
-  let xs: [Int] = [7553, 4893, 2474, 774, 701, 7280, 5704, 3186, 7433, 8315, 782];
-  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
-  let total = kept.fold(fn(acc, x) => acc + x, 0);
-  total + xs.len()
+    let xs: [Int] = [7553, 4893, 2474, 774, 701, 7280, 5704, 3186, 7433, 8315, 782];
+    let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+    let total = kept.fold(fn(acc, x) => acc + x, 0);
+    total + xs.len()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain18_7(): Int {
-  let empty: [Int] = list.empty<Int>();
-  empty.len()
+    let empty: [Int] = list.empty<Int>();
+    empty.len()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_7<C: Alloc>(ctx: C): Int {
-  digest18_7(ctx) + drain18_7()
-}
-
-/// An enum of 4 variants, matched exhaustively below.
-export enum State18_8 {
-  Idle,
-  Running(Int),
-  Failed { code: Int, message: Str },
-  Step3(Int, Str),
+    digest18_7(ctx) + drain18_7()
 }
 
 derive Eq, Show for State18_8;
+/// An enum of 4 variants, matched exhaustively below.
+export enum State18_8 {
+    Idle,
+    Running(Int),
+    Failed { code: Int, message: Str },
+    Step3(Int, Str),
+}
 
 /// The match every enum in a real program has somewhere.
 export fn rank18_8(state: State18_8): Int {
-  match (state) {
-    .Idle => 0,
-    .Running(ticks) => ticks + 1,
-    .Failed { code, .. } => code * -1,
-    .Step3(k, _) => k + 3,
-  }
+    match (state) {
+        .Idle => 0,
+        .Running(ticks) => ticks + 1,
+        .Failed { code, .. } => code * -1,
+        .Step3(k, _) => k + 3,
+    }
 }
 
 /// Construction, so the variants are reachable from a root.
 export fn start18_8(ticks: Int): State18_8 {
-  if (ticks == 0) { .Idle } else if (ticks < 45) { .Running(ticks) }
-  else { .Failed { code: ticks, message: "overrun" } }
+    if (ticks == 0) {
+        .Idle
+    } else if (ticks < 45) {
+        .Running(ticks)
+    } else {
+        .Failed { code: ticks, message: "overrun" }
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_8<C: Alloc>(ctx: C): Int {
-  let s = start18_8(5);
-  rank18_8(s) + s.show(ctx).len()
-}
-
-/// A record with 5 fields, derived comparisons and two methods.
-export struct Rec18_9 {
-  export f0: Int,
-  export f1: Str,
-  export f2: Float,
-  export f3: Bool,
-  export f4: Int,
+    let s = start18_8(5);
+    rank18_8(s) + s.show(ctx).len()
 }
 
 derive Eq, Show for Rec18_9;
+/// A record with 5 fields, derived comparisons and two methods.
+export struct Rec18_9 {
+    export f0: Int,
+    export f1: Str,
+    export f2: Float,
+    export f3: Bool,
+    export f4: Int,
+}
 
 impl Rec18_9 {
-  /// A pure accessor, of the kind that is most of a real impl block.
-  export fn scaled(self, factor: Int): Int {
-    self.f0 * factor + 22
-  }
+    /// A pure accessor, of the kind that is most of a real impl block.
+    export fn scaled(self, factor: Int): Int {
+        self.f0 * factor + 22
+    }
 
-  /// Allocates, and says so with `C: Alloc`.
-  export fn render<C: Alloc>(self, ctx: C): Str {
-    str.format(ctx, "rec18_9: ${self.f0}/${self.f1}")
-  }
+    /// Allocates, and says so with `C: Alloc`.
+    export fn render<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "rec18_9: ${self.f0}/${self.f1}")
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe18_9<C: Alloc>(ctx: C): Int {
-  let r = Rec18_9 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-  r.scaled(3) + r.render(ctx).len()
+    let r = Rec18_9 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
+    r.scaled(3) + r.render(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
 export fn reach18<C: Alloc>(ctx: C): Int {
-  0
-    + probe18_0(ctx)
-    + probe18_1(ctx)
-    + probe18_2(ctx)
-    + probe18_3(ctx)
-    + probe18_4(ctx)
-    + probe18_5(ctx)
-    + probe18_6(ctx)
-    + probe18_7(ctx)
-    + probe18_8(ctx)
-    + probe18_9(ctx)
-    + reach12(ctx)
-    + reach13(ctx)
+    0
+        + probe18_0(ctx)
+        + probe18_1(ctx)
+        + probe18_2(ctx)
+        + probe18_3(ctx)
+        + probe18_4(ctx)
+        + probe18_5(ctx)
+        + probe18_6(ctx)
+        + probe18_7(ctx)
+        + probe18_8(ctx)
+        + probe18_9(ctx)
+        + reach12(ctx)
+        + reach13(ctx)
 }

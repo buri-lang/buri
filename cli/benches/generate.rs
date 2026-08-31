@@ -9,6 +9,14 @@
 //! manifest naming the profile and the seed it came from; `corpus.rs` is that
 //! half, and it produces the same [`Program`] this file does.
 //!
+//! **What it emits is laid out.** The last thing every emitter here does is
+//! hand its module to [`laid_out`], which is `formatting::source` — the printer
+//! `buri format` is. So a generated corpus is the Buri a formatted repository
+//! holds rather than the Buri a `format!` string happened to spell, and
+//! `cli/benches/corpora` is inside the tree's own layout gate rather than
+//! exempt from it. The price is that a change to `formatting` moves these bytes
+//! and so bumps [`GENERATOR_REVISION`], which is stated there.
+//!
 //! Two things the generator is deliberately *not*:
 //!
 //!   * It is not a fuzzer. Every program it emits is meant to compile, and one
@@ -56,6 +64,15 @@
 
 /// Bumped by hand whenever a change here would move the bytes of any profile.
 ///
+/// Since revision 7 that includes a change to **`formatting`**, because
+/// [`laid_out`] is the last thing every emitter does and the printer's answer
+/// is therefore part of what this file writes. A formatter change that moves a
+/// column moves every corpus, and the ceremony is the same one a change here
+/// takes: bump this, re-record the eight saved corpora, re-pin the forty
+/// digests, note it in `design/PERFORMANCE.md` §6. The gate that catches it
+/// first is `cli/tests/language/corpus.rs`, which holds the checked-in corpora
+/// to what `buri format` writes.
+///
 /// A saved corpus records the revision it was written at. A manifest naming an
 /// *older* revision is legal and expected — byte-stability across a generator
 /// change is the entire point of saving one — so `--validate` prints it as a
@@ -69,7 +86,8 @@
 /// | 4 | An enum variant stopped carrying `export`, so every variant line is shorter by the keyword and a space. Again no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. |
 /// | 5 | Every import names a file, so `core/list` is now `core/list/lib.buri` and `//bench/m0007` is `//bench/m0007.buri`. Every import line is longer by a suffix. As with revision 2, which this is the twin of, no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
 /// | 6 | An import that names a surface names the module again, so `core/list/lib.buri` is back to `core/list`. Every generated module imports four or five standard library modules and nothing else across a boundary, so every import block is shorter by nine bytes a line; the `//bench/mNNNN.buri` imports name files inside `//bench` and did not move. Revision 5 undone in one direction, and as there, no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
-pub const GENERATOR_REVISION: u32 = 6;
+/// | 7 | Every module is handed to `formatting::source` before it leaves this file, so a generated corpus is what `buri format` writes — four spaces, a sorted import run, a `derive` above the declaration it is about, and a line broken where the printer breaks it. **The first revision that moves a shape and not only its bytes**: a body the emitter wrote on one line is now several, so `lines` and `modules` both move at every scale where they did not before, and the construct count behind a given line target falls. That is the point rather than a cost — a line rate quoted over source nobody would check in is a rate over the wrong denominator. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
+pub const GENERATOR_REVISION: u32 = 7;
 
 /// A generated program: its modules, in an order where every module's imports
 /// come before it.
@@ -132,8 +150,9 @@ pub enum Shape {
     /// exhaustiveness checking and decision-tree construction, both of which
     /// have a plausible superlinear term in the arm count.
     WideMatch,
-    /// Thousands of two-line functions. Stresses per-item overhead: symbol
-    /// table insertion, scope construction, per-function setup in every phase.
+    /// Thousands of four-line functions — signature, body, brace, and the one
+    /// line that calls it. Stresses per-item overhead: symbol table insertion,
+    /// scope construction, per-function setup in every phase.
     ManySmallFunctions,
     /// A handful of thousand-line functions. Stresses per-body cost: local
     /// scope depth, inference over a long chain of `let`s, and whatever the
@@ -245,6 +264,16 @@ pub struct Params {
     /// Blank lines as a percentage of emitted lines. Generated *and* excluded
     /// from the denominator — the conservative combination §2 already argues
     /// for; today they are only incidental.
+    ///
+    /// It is applied before [`laid_out`], so what survives is what the printer
+    /// keeps: a blank between two declarations, and never a run of them or one
+    /// inside a construct the printer lays out itself. Most of what it inserts
+    /// is therefore taken back out — measured on `mixed` at 1k, 36,279 bytes at
+    /// the default against 36,336 at `blank_pct=20` and 36,413 at 50, with the
+    /// line count identical at all three. **The dial is close to inert and this
+    /// says so** rather than leaving somebody to discover it; no profile sets
+    /// it and no pinned corpus carries it, so nothing measured depends on it
+    /// either way.
     pub blank_pct: u32,
     /// Identifier padding, in characters. Per-declaration names gain a suffix
     /// of this length, which moves bytes/line and bytes/token without moving
@@ -680,12 +709,51 @@ impl Rng {
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// One module's source, as `buri format` writes it.
+///
+/// **Every module this file emits goes through here, and nothing else in it
+/// decides a column.** The emitters below write Buri the way fingers write it —
+/// dense, with the imports in whatever order the emitter thought of them — and
+/// then hand the result to the same printer `buri format` is. So the bytes a
+/// benchmark measures are the bytes of a formatted repository, which is what
+/// every repository the toolchain compiles is: the tree's own gate over
+/// `.buri` source is `cli/tests/language/corpus.rs`, and the corpora under
+/// `cli/benches/corpora` are inside it rather than exempt from it.
+///
+/// It is a layout pass rather than thirty-five hand-written indents because the
+/// formatter's answer is not a column. It sorts an import run, hoists a
+/// `derive` above the declaration it is about, and breaks a line at a width
+/// that depends on how long the identifiers in it came out — so a generator
+/// spelling the answer by hand would be a second, worse copy of `formatting`,
+/// wrong the first time `ident_len` moved. Whatever the formatter learns to do
+/// next, the generator already does it.
+///
+/// It is also a check the validation cannot make. `formatting::source` answers
+/// `None` for source it could not read whole, and every program this file emits
+/// is meant to compile; a `None` here is a generator bug, said at the module
+/// that holds it rather than three phases later.
+#[expect(
+    clippy::panic,
+    reason = "the same reasoning as the file's other allows: a generator that feeds the \
+              toolchain is not the toolchain. The lint set pins a promise that no *input* \
+              panics the compiler; this is the generator refusing to hand it one it knows \
+              is malformed, and there is no caller that could do anything else with the \
+              answer — every path here runs before a timer starts and ends at a person."
+)]
+fn laid_out(path: &str, text: String) -> String {
+    buri::formatting::source(&text).unwrap_or_else(|| {
+        panic!("`{path}` is not source the formatter can read whole; that is a bug in generate.rs")
+    })
+}
+
 /// Generate a program of at least `params.lines` non-blank lines.
 ///
 /// The count is a floor rather than an exact figure: the generator emits whole
 /// declarations, so it overshoots by at most one declaration per module. The
 /// measured rate divides by the *actual* line count, so the overshoot costs
-/// nothing but a slightly ragged label.
+/// nothing but a slightly ragged label. It is counted over the **laid-out**
+/// text and not the emitter's, so the scale a caller asks for is the scale of
+/// the source that is compiled.
 pub fn program(params: &Params) -> Program {
     match params.shape {
         Shape::Mixed => mixed(params),
@@ -763,7 +831,8 @@ fn mixed(p: &Params) -> Program {
             }
         }
         let want_here = p.lines_per_module.min(p.lines.saturating_sub(emitted).max(40));
-        let text = surface(mixed_module(index, &deps, want_here, p, &mut rng, &mut aux), p);
+        let emitted_text = mixed_module(index, &deps, want_here, p, &mut rng, &mut aux);
+        let text = laid_out(&path, surface(emitted_text, p));
         emitted += nonblank_lines(&text);
         modules.push(Module { path, text });
         index += 1;
@@ -774,10 +843,9 @@ fn mixed(p: &Params) -> Program {
     // that the lowering benchmark has something reachable to lower rather than
     // an empty program and a large pile of dead code.
     let last = modules.len();
-    modules.push(Module {
-        path: "//bench/main.buri".to_string(),
-        text: surface(main_module(last, p), p),
-    });
+    let path = "//bench/main.buri".to_string();
+    let text = laid_out(&path, surface(main_module(last, p), p));
+    modules.push(Module { path, text });
 
     Program { modules }
 }
@@ -1514,7 +1582,9 @@ fn deep_nesting(target_lines: usize) -> Program {
         s.push_str(&format!("    + deep{f}(1)\n"));
     }
     s.push_str("    ;\n  if (total == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
-    Program { modules: vec![Module { path: "//bench/main.buri".to_string(), text: s }] }
+    let path = "//bench/main.buri".to_string();
+    let text = laid_out(&path, s);
+    Program { modules: vec![Module { path, text }] }
 }
 
 /// One enum with thousands of variants and one match covering all of them.
@@ -1535,14 +1605,26 @@ fn wide_match(target_lines: usize) -> Program {
     }
     s.push_str("  }\n}\n\nexport fn main(): Result<(), Str> {\n");
     s.push_str("  if (classify(.V0(1)) == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
-    Program { modules: vec![Module { path: "//bench/main.buri".to_string(), text: s }] }
+    let path = "//bench/main.buri".to_string();
+    let text = laid_out(&path, s);
+    Program { modules: vec![Module { path, text }] }
 }
 
-/// Thousands of two-line functions, spread over modules the way real code
-/// would be. Per-item overhead is the whole cost.
+/// Thousands of small functions, spread over modules the way real code would
+/// be. Per-item overhead is the whole cost.
+///
+/// Four lines each, not two: `buri format` writes a one-expression function
+/// over three lines, and the call in `all` is the fourth. So a line budget buys
+/// half the functions it bought before the layout pass, which is the density a
+/// formatted repository of tiny functions actually has.
 fn many_small(target_lines: usize) -> Program {
-    // One declaration line each, plus the one line in `all` that calls it.
-    let per_fn = 2;
+    // Three lines of declaration — signature, body, brace, which is what
+    // `buri format` writes a one-expression function as — plus the one line in
+    // `all` that calls it. Two before the layout pass existed, when the
+    // emitter's `export fn tiny0(x: Int): Int { x + 0 }` was left where it was
+    // written; the estimate is what makes `--scale=n` mean n lines, so it moved
+    // with the layout.
+    let per_fn = 4;
     let total = target_lines / per_fn;
     let per_module = 400usize;
     let module_count = total.div_ceil(per_module).max(1);
@@ -1564,7 +1646,9 @@ fn many_small(target_lines: usize) -> Program {
         }
         s.push_str("}\n");
         made += here;
-        modules.push(Module { path: format!("//bench/m{m:04}.buri"), text: s });
+        let path = format!("//bench/m{m:04}.buri");
+        let text = laid_out(&path, s);
+        modules.push(Module { path, text });
     }
     let mut main = String::from("//! Stress shape entry point.\n\n");
     for m in 0..module_count {
@@ -1575,7 +1659,9 @@ fn many_small(target_lines: usize) -> Program {
         main.push_str(&format!("    + all{m}(1)\n"));
     }
     main.push_str("    ;\n  if (total == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
-    modules.push(Module { path: "//bench/main.buri".to_string(), text: main });
+    let path = "//bench/main.buri".to_string();
+    let text = laid_out(&path, main);
+    modules.push(Module { path, text });
     Program { modules }
 }
 
@@ -1597,5 +1683,7 @@ fn few_large(target_lines: usize) -> Program {
         s.push_str(&format!("    + large{f}(1)\n"));
     }
     s.push_str("    ;\n  if (total == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
-    Program { modules: vec![Module { path: "//bench/main.buri".to_string(), text: s }] }
+    let path = "//bench/main.buri".to_string();
+    let text = laid_out(&path, s);
+    Program { modules: vec![Module { path, text }] }
 }
