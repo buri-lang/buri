@@ -1932,10 +1932,10 @@ Both are fixed positions with fixed names, so you never scan a signature.
 
 The platform. `core/host` exports one value per effect the platform grants —
 `host.alloc`, `host.stdout`, `host.stderr`, `host.stdin`, `host.fs`, `host.net`,
-`host.clock`, `host.rand`, `host.env`, `host.proc`, and on a platform with a
-document `host.ui` and `host.watch` — and it is importable only from
-the module that exports `main`. `main` assembles them into the one context
-the program has:
+`host.clock`, `host.rand`, `host.env`, `host.proc`, `host.tasks`, on a native
+platform `host.listen` and `host.sockets`, and on a platform with a document
+`host.ui` and `host.watch` — and it is importable only from the module that
+exports `main`. `main` assembles them into the one context the program has:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, Stdout };
@@ -1962,38 +1962,47 @@ are withheld together — the implementation struct as well as the value — so
 there is nothing left to construct by name.
 
 `Tasks` — "run this over every item at once" — is granted on `LINUX`, `MACOS`
-and `JS`, and withheld from `WEB`, which is the same three as `Fs` and `Net` and
-is withheld for a reason of the same kind: `parallel` returns only when the last
-task has finished, and a page has an interface that a wait is visible in. A
-page's concurrency is its event loop.
+and `JS`, and withheld from `WEB`, which is the same three as `Fs`, `Stdin`,
+`Env` and `Proc`, and is withheld for a reason of the same kind: `parallel`
+returns only when the last task has finished, and a page has an interface that a
+wait is visible in. A page's concurrency is its event loop.
 
-**Two effects are granted by nobody.** `Listen` and `Sockets` — "I accept
-connections" and "I can write to open sockets" — are declared in `core/effect`,
-and `core/host` declares a `HostListen` and a `HostSockets` with a value apiece,
-and *no* platform grants either name. `Listen: host.listen` is therefore refused
-on every target, with the reason rather than with "no such name", and so is its
-pair. That is deliberate: a signature is the expensive thing to change once
-programs are written against it, so it lands, is reviewed and is documented
-ahead of the server that will answer it — and because a platform *is* the set of
-effects its host exports, "declared but unreachable" needs no second mechanism
-to say so. Granting one later is an edit to one row of the grant table.
+**A row of that table may name no platform at all**, and an empty set of
+platforms is an ordinary value of the field rather than a second mechanism
+bolted on beside it. That is what lets a declaration land ahead of the runtime
+that will answer it: a signature is the expensive thing to change once programs
+are written against it, so `core/effect` declares the effect, `core/host`
+declares the implementation struct and the value, and the row grants it nowhere.
+Every binding of it is then refused on every target, with the reason rather than
+with "no such name", and granting it later is an edit to that one row. No row is
+empty today — every effect named above is reachable from somewhere — but the
+shape is worth knowing, because it is how the last two arrived.
 
-`Tasks` is that same shape seen from the other end, and it is worth knowing how
-its grant arrived, because it is what the grant table is *for*. `Tasks` was
-declared first and granted by nobody either — a row with an empty platform list
-— so its signature could be written, reviewed and documented before there was a
+`Tasks` is the worked example, and it is what the grant table is *for*. `Tasks`
+was declared first and granted by nobody — a row with an empty platform list —
+so its signature could be written, reviewed and documented before there was a
 scheduler to argue with, and every `Tasks: host.tasks` was refused everywhere
 with that reason rather than with "no such name". Granting it was an edit to that
 one row. Nothing about a program that had been written against the signature
 changed, and no second mechanism — no "not implemented" flag, no feature gate —
-was ever involved, because an empty set of platforms is an ordinary value of that
-field.
+was ever involved.
 
-`Listen` and `Sockets` are also the pair that shows what an empty row is *not*
-saying. They will be granted together, because being a server is one authority
-in two halves, and they will never be granted on `JS` or `WEB` — a page does not
-hold a port open. So an empty row means "nobody grants this today" and never
-"everybody will".
+`Listen` and `Sockets` — "I accept connections" and "I can write to open
+sockets" — came the same way, and they are also the case that shows a platform
+list which is neither everything nor the three non-page platforms. They are
+granted on `LINUX` and `MACOS`, and nowhere else. Holding a port open is a
+native program's authority; a page is served rather than serving, and its host
+has no way to accept a connection at all — so `Listen: host.listen` under
+`platform: JS` or `platform: WEB` is refused with that reason, and it is a
+refusal nothing later is going to lift. The two move together, because being a
+server is one authority in two halves: accepting a connection, and writing to
+one somebody already accepted.
+
+That pair is also what an empty row was never promising. An empty list says
+"nobody grants this today" and never "everybody will": `Listen`'s row gained the
+two platforms that can serve and will never gain the other two. The row says who
+grants the effect now, and the reason says why — nothing in it was ever a
+schedule.
 
 Note what is *not* claimed: an effect is an ordinary interface, so anyone may
 write a type that satisfies it (Section 10.9 does). That is not a forgery hole —
@@ -2141,15 +2150,16 @@ export effect Tasks {
     fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
 }
 
+// The other choice, in the shape `Listen` was once declared with and is not
+// any more: `Self` is the acceptor — the type implementing `Listen` — so the
+// handler is handed that, and that is all it gets.
 export effect Listen {
-    // `Self` is the acceptor — the type implementing `Listen` — and the handler
-    // is handed that.
     fn listen(
         self,
         address: Str,
         port: Int,
         onRequest: fn(Self, Request) => Response,
-    ): Result<(), NetError>;
+    ): Result<(), ServeError>;
 }
 ```
 
@@ -2177,8 +2187,14 @@ implementation does.
 A callback whose first parameter is `Self` receives strictly less than its
 caller had: an acceptor grants `Listen` and nothing else, so a handler handed
 one cannot allocate, print, or start a task. That is the right answer where the
-callback is meant to inspect the implementation, and the wrong one everywhere
-else, which is why the choice is written down per method rather than inferred.
+callback is meant to inspect the implementation, and the wrong one for a request
+handler, which is why the choice is written down per method rather than
+inferred — and why `Listen` carries no callback at all today. It is four
+operations now — bind a listener, accept a request, respond to one, close the
+listener — and the loop that calls a handler between the second and the third
+lives in `core/net/server`, written in Buri against the caller's own `C`. A
+handler there may allocate, print, read a clock and start a task, because the
+authority it runs with never crossed the effect boundary to be narrowed.
 
 ### 10.7 Calling convention
 

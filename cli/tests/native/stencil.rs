@@ -2900,3 +2900,40 @@ export fn main(): Result<(), Str> {{
     );
     assert_eq!(live_many, 0, "the heap did not come back balanced: {}", many.stderr);
 }
+
+/// **A Buri server answers a real request, on a real socket.**
+///
+/// The whole of `core/net/server` and `effect Listen` end to end: `bind` opens
+/// a port the operating system chose, `run`'s accept loop hands one request to
+/// a handler written in Buri, `http.text` builds the answer, the acceptor
+/// writes it, and `serve` returns `.Ok(())` because the request limit is spent
+/// — so `main` falls off its end rather than being killed.
+///
+/// It is the one test in this file that is not about codegen, and it is here
+/// because this is where a linked native binary can be produced and then *run
+/// concurrently with something else*. What it pins that no unit test can is the
+/// C ABI in both directions at once: the runtime writing a `Request` at a
+/// layout `middle/layout.rs` decided, and reading a `Response` back out of one.
+/// `cli/runtime/net.rs`'s `the_transcribed_shapes_match_the_value_model` states
+/// those numbers on the runtime's side; this is the side that would fault if
+/// they were wrong.
+///
+/// Every wait is bounded and the client is joined —
+/// `shared::request_when_ready` is where that is argued.
+#[test]
+fn a_server_answers_a_request_on_a_socket() {
+    if !supported() {
+        return;
+    }
+    let binary = build_with("server", &crate::shared::one_shot_server(), None);
+    let (out, reply) = crate::shared::served(&binary, "/ping?x=1");
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "the server did not run to its own end:\n{}",
+        out.stdout
+    );
+    // The query is not the path, which is `Request.path()`'s own claim read
+    // through a socket rather than through a unit test.
+    crate::shared::served_the_path(&reply, "/ping");
+}

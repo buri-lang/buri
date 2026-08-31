@@ -13,10 +13,12 @@ error: `JS` does not grant `ui` [host-not-granted]
 ## What to do
 
 Drop the effect from the context, or build this target for a platform that
-grants it. Where the fix names no platform to build for, there is none: some
-effects are declared ahead of the runtime that answers them — `Listen` and
-`Sockets` are those today — so dropping it from the context is the whole of the
-fix.
+grants it. Where the fix names no platform to build for, there is none: an
+effect may be declared ahead of the runtime that will answer it, and then its
+row names no platform at all, so dropping it from the context is the whole of
+the fix. No effect is in that state today — every one `core/effect` declares is
+granted somewhere — but the clause is what a reader meets on the day one is,
+which is the point of writing it rather than an empty list.
 
 ## Why
 
@@ -36,10 +38,14 @@ granted by nobody, was refused on all four platforms with that reason, and was
 then granted on three by editing that one row — at which point programs written
 against the signature it had been reviewed with simply started compiling.
 
-An empty list is still not a promise that the list will fill. `Listen` and
-`Sockets` have one today because no platform serves yet; when one does, `JS` and
-`WEB` still will not, because a page does not hold a port open. The row says who
-grants the effect now, and the reason says why — nothing more.
+An empty list is still not a promise that the list will fill, and `Listen` and
+`Sockets` are what that looks like once the runtime arrives. Both landed
+declared and granted by nobody; both are granted now on `LINUX` and `MACOS`,
+because holding a port open is a native program's authority; and neither will
+ever be granted on `JS` or `WEB`, because a page is served rather than serving
+and its host has no way to accept a connection. Half of that row filled and the
+other half never will. The row says who grants the effect now, and the reason
+says why — nothing in it was ever a schedule.
 
 ## A program that provokes it
 

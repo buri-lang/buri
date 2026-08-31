@@ -1068,19 +1068,18 @@ test "a stdin of octets reads them, and readLine finds nothing there" {
 /// than failed, and the native half of this fix would have had no guard on this
 /// side at all. This one panics on a refusal.
 ///
-/// Both halves of the substitution are here in one source:
+/// Both halves are here in one source:
 ///
-/// * `server.listen(ctx, …)` with a **context value**, whose handler *prints*
-///   — an effect this context grants and `OneShotListen` does not. Every call
-///   goes through `core/net/server` now, whose body is generic, and inside a
-///   generic body a `Self`-spelled handler is handed the receiver, so what
-///   arrives is the caller's whole context. `middle/monomorphize.rs`'s
-///   `rewrite_call_args` is what makes the value agree with that type; before
-///   it, the acceptor arrived instead and the process died reading its bytes.
+/// * `server.serve(ctx, …)` with a **context value**, whose handler *prints* —
+///   an effect this context grants and `OneShotListen` does not. `run` calls
+///   the handler itself, under the context `serve` was given, so what arrives
+///   is the caller's whole context by construction. When the effect still took
+///   the handler and invoked it, the acceptor arrived instead and the process
+///   died reading its bytes.
 /// * `serveOnce(ctx, …)` and `runInOrder(ctx, …)`, which reach the same
-///   method through a **bounded type parameter**, so the wrapper is one layer
-///   further from the call and the same adaptation has to survive it. Before
-///   `rewrite_call_args`, this exited `-1` with no stdout and no stderr.
+///   library through a **bounded type parameter**, so the call is one layer
+///   further from the context. Before `rewrite_call_args`, this exited `-1`
+///   with no stdout and no stderr.
 ///
 /// And the rule's other side, which is `Tasks.parallel`'s: a step is handed the
 /// caller's **context**, spelled `ctx: C` in the declaration rather than `Self`.
@@ -1115,23 +1114,23 @@ test "the handler is handed the caller's context" {
     Stdout: sink,
     Tasks: SerialTasks { label: "serial", bias: 4 },
   };
-  assert.ok(server.listen(ctx, "10.0.0.1", 0, fn(c, request) => {
-    io.println(c, "hit ${request.url}").ignore();
-    Response {
-      status: if (request.url == "10.0.0.1") { 200 } else { 500 },
-      headers: [],
-      body: [],
-    }
+  assert.ok(server.serve(ctx, server.Server {
+    port: 0,
+    address: .Some("10.0.0.1"),
+    onRequest: fn(c, request) => {
+      io.println(c, "hit ${request.url}").ignore();
+      Response { status: 200, headers: [], body: [] }
+    },
   }));
-  let _ = assert.err(server.listen(ctx, "127.0.0.1", 0, fn(c, request) => {
-    io.println(c, "hit ${request.url}").ignore();
-    Response {
-      status: if (request.url == "10.0.0.1") { 200 } else { 500 },
-      headers: [],
-      body: [],
-    }
+  let _ = assert.err(server.serve(ctx, server.Server {
+    port: 0,
+    address: .Some("10.0.0.1"),
+    onRequest: fn(c, request) => {
+      io.println(c, "hit ${request.url}").ignore();
+      Response { status: 42, headers: [], body: [] }
+    },
   }));
-  assert.eq(sink.captured(), "hit 10.0.0.1\nhit 127.0.0.1\n");
+  assert.eq(sink.captured(), "hit 10.0.0.1\nhit 10.0.0.1\n");
 }
 
 test "and a task is handed the context" {

@@ -3,9 +3,10 @@
 // The same refusal on the one platform whose grant set is otherwise the odd
 // one out. A page grants three effects nothing else does, so "WEB has it and
 // the rest do not" is the shape a reader expects here — and a page is also the
-// platform that will still be refused these two after `core/net/server` lands,
-// because a document does not hold a port open. That is a permanent row rather
-// than an empty one waiting to be filled.
+// platform that is *still* refused these two now that `core/net/server` has an
+// acceptor behind it, because a document does not hold a port open. This
+// fixture was written before the grant landed and asserted the same thing then;
+// that it did not move is the whole of what it is for.
 //
 // PLATFORM: WEB — and the forged structs are refused with the values, as
 // everywhere else a grant is withheld: `Sockets: host.HostSockets {}` is not

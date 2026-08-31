@@ -102,8 +102,9 @@
 //! ```
 
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Proc, Rand, Region, Request,
-    Response, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Proc,
+    Protocol, Rand, Region, Request, Response, ServeError, Sockets, Stderr, Stdin,
+    Stdout, Tasks,
 };
 
 // --- The door onto the effect -------------------------------------------------
@@ -618,39 +619,53 @@ impl<C: Tasks> Tasks for Scoped<C> {
     }
 }
 
-// `Listen.listen` hands its handler `Self`, which here is `Scoped<C>` and
-// inside is `C` — so this is the one forward that is not a call with the same
-// arguments. The handler is wrapped rather than passed: the acceptor hands the
-// inner context out, and this puts the scope back around it, so a handler
-// written against `Scoped<C>` sees the type it was written for. The arena is
-// read into a local first, because a lambda may not capture an effect-carrying
-// value and `self` is one; an `I64` is ordinary data.
+// Four ordinary forwards, and the reason they are ordinary is worth a note.
 //
-// **`c` is the context, and that is a rule rather than an accident.** Inside a
-// generic body a `Self`-spelled handler is handed the receiver: nothing in
-// `C: Listen`'s bounds names what implements `Listen` for `C`, so the acceptor
-// is a value this body could do nothing with, while the receiver satisfies
-// every bound `C` declares. `middle/monomorphize.rs`'s `rewrite_call_args`
-// makes that true by adapting the call — the acceptor's own `Self` is dropped
-// at the boundary and `self.0` is passed — so `Scoped(c, arena)` here is
-// `self` rebuilt. Both native backends used to fault entering this handler,
-// because the retyping that preceded the adapter rewrote `Scoped<C>` into a
+// `Listen` used to hand its handler `Self` — the acceptor — which made this the
+// one forward that was not a call with the same arguments: it rebuilt the
+// handler so that a `Scoped<C>` came back out of a `C`, and both native
+// backends used to fault entering it, because the retyping that preceded
+// `middle/monomorphize.rs`'s call adapter rewrote `Scoped<C>` into a
 // `Scoped<`acceptor`>` on its way past.
 //
-// `core/effect` says `listen` gains a `ctx: C` the day a platform grants the
-// effect, at which point `onRequest` becomes `fn(C, Request) => Response` and
-// this body becomes an ordinary forward with no lambda in it.
+// The effect no longer carries a handler at all. `core/net/server`'s `run`
+// calls `onRequest` itself, under the caller's own context, so a handler
+// written against `Scoped<C>` is entered by ordinary Buri code with the value
+// it was written for and nothing crosses this boundary but a listener, a
+// request and a response. The rule the adapter enforces is unchanged and is
+// still `middle/monomorphize.rs`'s; this wrapper simply no longer needs it.
+//
+// Every allocation a handler makes still lands in the scope's arena, because
+// the handler is handed the `Scoped<C>` `alloc.scoped` built and charges
+// through it — which is the property `lib/memory`'s conformance asserts.
 impl<C: Listen> Listen for Scoped<C> {
-    fn listen(
+    fn listenBind(
         self,
         address: Str,
         port: Int,
-        onRequest: fn(Scoped<C>, Request) => Response,
-    ): Result<(), NetError> {
-        let arena = self.1;
-        self.0.listen(address, port, fn(c, request) => {
-            onRequest(Scoped(c, arena), request)
-        })
+        protocols: [Protocol],
+        requestLimit: Int,
+        idleTimeoutMillis: Int,
+    ): Result<Listener, ServeError> {
+        self.0.listenBind(address, port, protocols, requestLimit, idleTimeoutMillis)
+    }
+
+    fn listenAccept(self, handle: Int): Result<Request, ServeError> {
+        self.0.listenAccept(handle)
+    }
+
+    fn listenRespond(
+        self,
+        handle: Int,
+        status: Int,
+        headers: [Header],
+        body: [U8],
+    ): Result<(), ServeError> {
+        self.0.listenRespond(handle, status, headers, body)
+    }
+
+    fn listenClose(self, handle: Int): () {
+        self.0.listenClose(handle)
     }
 }
 

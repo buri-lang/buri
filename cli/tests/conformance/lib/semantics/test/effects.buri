@@ -13,8 +13,8 @@
 
 from "core/bytes" import * as bytes;
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, IoError, Listen, Net, Rand, Request, Response, Sockets,
-    Stderr, Stdin, Stdout, Tasks,
+    Alloc, Clock, Env, Fs, IoError, Listen, Net, Rand, Request, Response, ServeError,
+    ServeFailure, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -1303,11 +1303,12 @@ test "my own attenuator may wrap the runner's attenuator" {
 // Effects a platform grants together, and the method names they claim
 // -----------------------------------------------------------------------------
 //
-// `Listen` and `Sockets` are granted by no platform, so `host.listen` and
-// `host.sockets` are unreachable from any program (`standard_library/mod.rs`'s
-// grant table, and two reject fixtures). An effect is still an ordinary
-// interface, so a fake satisfies it and the *shape* can be exercised now — and
-// the shape is the thing that is expensive to get wrong.
+// `Listen` and `Sockets` are granted on the native platforms only, and this
+// corpus runs on JavaScript too, so `host.listen` is unreachable from here
+// (`standard_library/mod.rs`'s grant table, and two reject fixtures). An effect
+// is still an ordinary interface, so a fake satisfies it and the *shape* is
+// exercised on every backend — and the shape is the thing that is expensive to
+// get wrong.
 //
 // What these blocks are really about is method-name collision. A call through
 // a context searches every effect it binds, and two effects declaring one name
@@ -1344,23 +1345,26 @@ test "the same five methods resolve on the context value itself" {
     let _ = server.sendText(ctx, 1, "hello");
     let _ = server.sendBytes(ctx, 1, []);
     let _ = server.close(ctx, 1, 1000, "bye");
-    // `c` is the **caller's context**, which is what a handler reached through a
-    // wrapper is handed: `core/net/server`'s body is generic, and inside a
-    // generic body a `Self`-spelled handler receives the receiver
-    // (`rewrite_call_args`, `middle/monomorphize.rs`). So the assertion is that
-    // `c` can do what *this* context grants and the acceptor does not — printing
-    // — and `.Ok(())` back means the handler answered 200.
+    // `c` is the **caller's context**, which is what `run` hands the handler:
+    // it calls `onRequest` itself, under the context `serve` was given. So the
+    // assertion is that `c` can do what *this* context grants and the acceptor
+    // does not — allocating, here — and `.Ok(())` back means the loop ran to
+    // the listener's own end.
     assert.ok(
-        server.listen(ctx, "127.0.0.1", 0, fn(c, request) => {
-            Response {
-                status: if (str.format(c, "${request.url}") == "127.0.0.1") {
-                    200
-                } else {
-                    500
-                },
-                headers: [],
-                body: [],
-            }
+        server.serve(ctx, server.Server {
+            port: 0,
+            address: .Some("127.0.0.1"),
+            onRequest: fn(c, request) => {
+                Response {
+                    status: if (str.format(c, "${request.url}") == "127.0.0.1") {
+                        200
+                    } else {
+                        500
+                    },
+                    headers: [],
+                    body: [],
+                }
+            },
         }),
     );
     let reply = assert.ok(
@@ -1374,8 +1378,101 @@ test "the same five methods resolve on the context value itself" {
     assert.eq(reply.status, 418);
 }
 
+// -----------------------------------------------------------------------------
+// `core/net/server`'s own vocabulary
+// -----------------------------------------------------------------------------
+//
+// The blocks above are about the *effect* — which names it claims, and what a
+// handler is handed. These are about the module on top of it: the `Server`
+// value, the two halves `serve` is made of, and the convention its `Option`
+// fields travel under.
+//
+// The convention is the one thing here that is a *library* rule rather than a
+// behaviour: an omitted `Option` field is `.None` (SPEC 5.6), and `.None`
+// means "the runtime chooses" rather than a number this module promises. So
+// what can be asserted from Buri is that omitting a field and writing `.None`
+// are the same value — which is the half a program can rely on — and the
+// acceptor's own answers are `cli/runtime/net.rs`'s to test.
+
+test "an omitted Server field is .None and not a default this module chose" {
+    let written = server.Server {
+        port: 0,
+        onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+        address: .None,
+        protocols: .None,
+        requestLimit: .None,
+        idleTimeoutMillis: .None,
+    };
+    let elided = server.Server {
+        port: 0,
+        onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+    };
+    assert.eq(elided.address, written.address);
+    assert.eq(elided.protocols, written.protocols);
+    assert.eq(elided.requestLimit, written.requestLimit);
+    assert.eq(elided.idleTimeoutMillis, written.idleTimeoutMillis);
+    assert.none(elided.address);
+}
+
+test "bind answers the port the acceptor chose, and run is the rest of serve" {
+    // The reason the two halves are exported separately: a program binding
+    // `port: 0` does not know its own port until the bind returns, and it has
+    // to be able to publish it *before* the loop starts.
+    let ctx = context {
+        Alloc: alloc(),
+        Listen: OneShotListen { bindsTo: "10.0.0.1" },
+        Stdout: stdout(),
+    };
+    let plan = server.Server {
+        port: 0,
+        onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+    };
+    let listener = assert.ok(server.bind(ctx, plan));
+    assert.eq(listener.port, 8080);
+    assert.ok(server.run(ctx, listener, plan.onRequest));
+}
+
+test "a bind that fails is an error with the platform's own words on it" {
+    let ctx = context {
+        Alloc: alloc(),
+        Listen: OneShotListen { bindsTo: "" },
+        Stdout: stdout(),
+    };
+    let refused = assert.err(
+        server.bind(ctx, server.Server {
+            port: 0,
+            onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+        }),
+    );
+    // The cause is what a program branches on; the detail is what it prints.
+    // Two fields rather than an enum with payloads, which is also what lets the
+    // detail cross the C ABI — `core/effect` says so where `ServeError` is.
+    assert.eq(refused.cause, .PermissionDenied);
+    assert.eq(refused.detail, "no address");
+    assert.eq(server.errorText(refused), "listening was not permitted");
+}
+
+test "every cause has a sentence, and errorText needs no context to say it" {
+    // A constant per variant, so a `main` whose context grants nothing but
+    // `Listen` can still `.mapErr(server.errorText)`.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let said = [
+        ServeFailure.AddressInUse,
+        ServeFailure.AddressNotAvailable,
+        ServeFailure.PermissionDenied,
+        ServeFailure.Unsupported,
+        ServeFailure.Timeout,
+        ServeFailure.Closed,
+        ServeFailure.Transport,
+    ].map(ctx, fn(cause) => server.errorText(ServeError { cause: cause, detail: "" }));
+    assert.eq(said.len(), 7);
+    assert.isTrue(said.all(fn(line) => line != ""));
+}
+
 test "a server that will not bind is the Listen answer and not the network's" {
-    // The network still answers 418; the negation is `listen`'s refusal, so the
+    // The network still answers 418; the negation is the bind's refusal, so the
     // two effects are distinguishable through one context.
     let ctx = context {
         Listen: OneShotListen { bindsTo: "" },
@@ -1386,46 +1483,33 @@ test "a server that will not bind is the Listen answer and not the network's" {
 }
 
 // -----------------------------------------------------------------------------
-// `Self` in an effect method's signature, called through a context
+// A request handler is handed the caller's context
 // -----------------------------------------------------------------------------
 //
-// `Self` is the **implementing** type: the one whose `impl` supplies the body.
-// A context satisfies an effect without implementing it — it names a value that
-// does — so through a context the two are different types, and a method whose
-// signature spells `Self` is where the difference is observable:
-// `Listen.listen` takes `onRequest: fn(Self, Request) => Response`, and the
-// `impl` body hands that handler *itself*.
+// `Listen` used to take the request handler as a `Self`-spelled callback and
+// invoke it, which made "which type is `Self` when the call goes through a
+// context" a question with a program's life on it: substituting the receiver
+// gave the handler the context's layout while the implementation's arrived,
+// JavaScript never noticed because nothing there is laid out, and both native
+// backends read the wrong bytes and died with no output at all. The rule that
+// settled it is still the compiler's — `Self` is the implementing type, read
+// off the context's bindings by `implementing_ty`, and adapted at
+// instantiation by `middle/monomorphize.rs`'s `rewrite_call_args` where a
+// bounded `C` hid the context — and it is guarded by that module's unit tests
+// and by `semantics/expressions.rs`'s, which declare their own effect because
+// they are written as a platform module.
 //
-// Substituting the receiver instead gave the handler the context's layout while
-// the implementation's arrived. JavaScript never noticed, because nothing there
-// is laid out; the native backends read the wrong bytes and the process died
-// with no output at all. So these blocks assert two things at once — that a
-// handler may *read a field of the implementation it is handed*, which is a
-// claim about which type arrived, and that the whole file still runs, which is
-// the claim the segfault used to break.
+// What the effect does now is *not* take a handler. `core/net/server`'s `run`
+// accepts, calls `onRequest` under the caller's own context, and responds, so
+// the handler's first parameter is the caller's `C` by construction and
+// nothing about it crosses `Listen` at all. That is the property these blocks
+// assert, and it is asserted the same way it always was: the handler uses an
+// authority the *acceptor does not grant*, so it can only be working off the
+// caller's context.
 //
-// **Every call now goes through `core/net/server`**, because an effect method
-// is not called on a value outside the standard library and the `impl` that
-// supplies it (SPEC 10.2). `server.listen`'s body is generic, and inside a
-// generic body a `Self`-spelled handler is handed the *receiver*: nothing in
-// `C: Listen` names what implements `Listen` for `C`, so a handler written
-// there could do nothing with the acceptor, while the receiver satisfies every
-// bound `C` declares. `middle/monomorphize.rs`'s `rewrite_call_args` is what
-// makes the value agree with that type, and the two blocks below are its test —
-// a handler that uses an effect the *acceptor does not grant* can only be
-// working off the caller's context.
-//
-// The other half of the rule — `Self` is the implementation, everywhere the
-// implementation's type is in view — is `OneShotListen`'s own `impl` body,
-// which hands the handler `self`, and `semantics/expressions.rs`'s
-// `implementing_ty` tests, which are written as a platform module because that
-// is where the method form is still legal.
-//
-// **`Self` never means the caller's context**, and the section below this one
-// is that rule's other side: an effect that wants to hand a callback the
-// caller's context takes it as a `ctx` parameter and names it. `Tasks.parallel`
-// used to be the counter-example — spelled `Self`, documented as the context —
-// and it is a `ctx` parameter now.
+// The section below this one is the same rule for a task, which never changed:
+// an effect that hands a callback the caller's context takes it as a `ctx`
+// parameter and names it, which is what `Tasks.parallel` does.
 
 test "a handler reached through the wrapper is handed the caller's context" {
     let sink = stdout();
@@ -1438,30 +1522,35 @@ test "a handler reached through the wrapper is handed the caller's context" {
     // a handler handed the acceptor could not do it — and the capture below is
     // what says the line ran at all.
     assert.ok(
-        server.listen(ctx, "10.0.0.1", 0, fn(c, request) => {
-            io.println(c, "hit ${request.url}").ignore();
-            Response {
-                status: if (request.url == "10.0.0.1") { 200 } else { 500 },
-                headers: [],
-                body: [],
-            }
+        server.serve(ctx, server.Server {
+            port: 0,
+            address: .Some("10.0.0.1"),
+            onRequest: fn(c, request) => {
+                io.println(c, "hit ${request.url}").ignore();
+                Response {
+                    status: if (request.url == "10.0.0.1") { 200 } else { 500 },
+                    headers: [],
+                    body: [],
+                }
+            },
         }),
     );
     assert.eq(sink.captured(), "hit 10.0.0.1\n");
-    // The negation: the handler answers 500 when the two disagree, and
-    // `OneShotListen` turns anything but 200 into `.Refused`. So the assertion
-    // above is not passing by answering 200 whatever it was handed.
+    // The negation: the acceptor hands out a request naming *its own* address,
+    // so a handler comparing the two answers 500 when they disagree, and
+    // `OneShotListen` refuses anything outside 200..599 — a listener that
+    // answered `.Ok` whatever it was handed would pass the block above too.
     let _ = assert.err(
-        server.listen(ctx, "127.0.0.1", 0, fn(c, request) => {
-            io.println(c, "hit ${request.url}").ignore();
-            Response {
-                status: if (request.url == "10.0.0.1") { 200 } else { 500 },
-                headers: [],
-                body: [],
-            }
+        server.serve(ctx, server.Server {
+            port: 0,
+            address: .Some("10.0.0.1"),
+            onRequest: fn(c, request) => {
+                io.println(c, "hit ${request.url}").ignore();
+                Response { status: 42, headers: [], body: [] }
+            },
         }),
     );
-    assert.eq(sink.captured(), "hit 10.0.0.1\nhit 127.0.0.1\n");
+    assert.eq(sink.captured(), "hit 10.0.0.1\nhit 10.0.0.1\n");
 }
 
 test "a context binding two effects reaches both through bounds" {

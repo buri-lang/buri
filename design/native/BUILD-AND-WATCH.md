@@ -187,10 +187,19 @@ rather than as an unresolved `buri_rt_*` symbol from `cc`. The first one is
 `net`, beside the carrier pool it fans out onto — so on a `BURI_RUNTIME_NET=0`
 toolchain a program that calls `core/tasks` is refused by name before code
 generation. That is what was designed, and it is now exercised rather than only
-argued for. `host.HostListen.*` and `host.HostSockets.*` are still ahead of
-their first key: both effects are declared in `core/effect` and granted by no
-platform, so the host values their operations hang off cannot be constructed,
-and what exists for them is the refusal alone.
+argued for. `host.HostListen.*` is no longer ahead of its first key either:
+`Listen` is granted on `LINUX` and `MACOS`, `core/net/server` runs the accept
+loop over `listenBind`, `listenAccept`, `listenRespond` and `listenClose`, and
+`cli/runtime/net.rs` answers all four with a hand-framed HTTP/1.1 server behind
+that same feature — so a program that serves meets a `BURI_RUNTIME_NET=0`
+toolchain through this rule and by name, exactly as one that calls `core/tasks`
+does. `host.HostSockets.*` has bodies in that file too
+(`buri_rt_host_sockets_socket_send_text`, `_send_bytes` and `_close`) and is
+the one family still ahead of a caller, for a reason that is no longer the
+grant table's: `Sockets` is granted alongside `Listen`, but nothing performs a
+WebSocket upgrade yet, so there is no socket for a program to name. The rule
+covers those keys regardless, which costs nothing and is one fewer thing to
+remember on the day an upgrade lands.
 
 ### 1.1.3 `net-h3`: the one feature that is off, and what a toolchain without it says
 

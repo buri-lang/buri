@@ -192,17 +192,20 @@ pub fn h3() -> bool {
 /// covered the day it is added rather than the day somebody remembers this
 /// list.
 ///
-/// **`host.HostTasks.parallel` is the first of these keys a program reaches**,
+/// **`host.HostTasks.parallel` was the first of these keys a program reached**,
 /// and it is answered by `cli/runtime/rt.rs` — behind `net`, beside the carrier
 /// pool D4 fans it out onto — which is what keeps this rule honest for it.
-/// `Listen` and `Sockets` are declared and no further: `core/effect` has them
-/// and `core/host` implements them, but the grant table gives both an empty
-/// platform list, so nothing can construct the host value that would reach an
-/// operation. What exists for those two is the refusal, so that the day a
-/// platform grants one it lands with the diagnostic already written. A key this
-/// returns true for and the archive answers anyway is not a problem — the gap is
-/// only ever consulted when [`net`] is false, and with `net` off the archive
-/// answers none of them.
+/// `host.HostListen.*` is reachable now as well: the grant table gives `Listen`
+/// `LINUX, MACOS`, `core/net/server` runs the accept loop over its four
+/// operations, and `cli/runtime/net.rs` answers them from behind the same
+/// feature, so a program that serves and a toolchain built without `net` meet
+/// each other here rather than at the system linker. `Sockets` is the one still
+/// waiting on a caller — it is granted with `Listen`, but nothing performs a
+/// WebSocket upgrade, so no program can name a socket to write to — and it is
+/// matched anyway, which costs nothing and is one fewer thing to remember on
+/// the day an upgrade lands. A key this returns true for and the archive
+/// answers anyway is not a problem either — the gap is only ever consulted when
+/// [`net`] is false, and with `net` off the archive answers none of them.
 ///
 /// `host.HostNet.fetch` is deliberately **not** here, and it stayed out when
 /// `https://` landed. The earlier reason was that `cli/runtime/http.rs` reached

@@ -6,8 +6,8 @@
 // prove its own implementation is the one that ran.
 
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Region, Request, Response,
-    Sockets, Stdout, Tasks,
+    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Protocol,
+    Region, Request, Response, ServeError, Sockets, Stdout, Tasks,
 };
 from "core/fs" import * as fs;
 from "core/io" import * as io;
@@ -929,63 +929,87 @@ impl Net for TeapotNet {
     }
 }
 
-/// A `Listen` that binds, serves nothing, and stops.
+/// A `Listen` that binds once, hands out one request, takes one answer, and
+/// then says it is closed.
 ///
-/// No platform grants `Listen`, so `host.listen` is unreachable from any
-/// program — but an effect is an ordinary interface and anyone may write a
-/// type that satisfies it (SPEC 10.9), which is what lets the *shape* be
-/// exercised years before there is a server behind it. It answers `.Ok(())`
-/// when `bindsTo` names an address and `.Err(.Refused)` when it is empty, so a
-/// test can tell the two returns apart.
+/// `host.listen` is granted on the native platforms only, and this corpus runs
+/// on JavaScript too — but an effect is an ordinary interface and anyone may
+/// write a type that satisfies it (SPEC 10.9), which is what lets the *shape*
+/// be exercised on a platform that has no acceptor at all. It binds when
+/// `bindsTo` names an address and answers `.Err(.PermissionDenied)` when it is
+/// empty, so a test can tell the two returns apart.
 ///
-/// **This fake calls `onRequest`, and that used to be a compiler bug.** `Self`
-/// in an effect method's signature was substituted with the *receiver's* type,
-/// so a call through a `context` value gave the handler's first parameter the
-/// **context's** type while the `impl` body hands it the implementation — two
-/// different layouts. JavaScript never noticed; the stencil backend segfaulted,
-/// with no output, the moment such a handler was invoked. `Self` is the
-/// *implementing* type now, read off the context's bindings
-/// (`implementing_ty`, `semantics/expressions.rs`) and, where a bounded type
-/// parameter hid the context from the front end, corrected at instantiation
-/// (`rewrite_call_args`, `middle/monomorphize.rs`).
+/// **The handler is nowhere in this type**, and that is the shape rather than
+/// an omission. `Listen` used to take the request handler as a `Self`-spelled
+/// callback and *invoke* it, which made the acceptor the thing that entered a
+/// program's own code — and made the handler's first parameter a value granting
+/// only acceptance. `core/net/server` owns the loop now: it accepts, calls the
+/// handler under the caller's own context, and responds. So a fake acceptor is
+/// four small answers and nothing that calls back, and the interesting question
+/// moved to whether the *library* drives them in the right order — which is
+/// what `served` below records.
 ///
-/// The shape is not this file's invention: `ui/effect`'s `Fetch.fetch` takes
-/// `fn(Self, …) => ()` too. `Tasks.parallel` deliberately does **not** — its
-/// step is handed the caller's context, which the declaration names `ctx: C`
-/// rather than spelling `Self` — and `SerialTasks` below is that other answer
-/// as a fake, so the two readings sit in one file and cannot be confused for
-/// each other.
-///
-/// The handler is handed `self`, so a test's handler can read `bindsTo` off it
-/// — which is the assertion a wrong `Self` fails rather than refuses: reading a
-/// field of the implementation is a claim about *which type* arrived, not only
-/// about how many bytes it was.
+/// `SerialTasks` is the other callback shape, still here and unchanged:
+/// `Tasks.parallel`'s step is handed the caller's context, spelled `ctx: C` in
+/// the declaration, because a step genuinely does run under the scheduler.
 export struct OneShotListen {
     export bindsTo: Str,
 }
 
 impl Listen for OneShotListen {
-    fn listen(
+    fn listenBind(
         self,
         address: Str,
         port: Int,
-        onRequest: fn(OneShotListen, Request) => Response,
-    ): Result<(), NetError> {
+        protocols: [Protocol],
+        requestLimit: Int,
+        idleTimeoutMillis: Int,
+    ): Result<Listener, ServeError> {
         match (self.bindsTo) {
-            "" => .Err(.Refused),
+            "" => .Err(ServeError { cause: .PermissionDenied, detail: "no address" }),
             _ => {
-                let reply = onRequest(self, Request {
-                    method: .Get,
-                    url: address,
-                    headers: [],
-                    body: [],
-                });
-                match (reply.status) {
-                    200 => .Ok(()),
-                    _ => .Err(.Refused),
-                }
+                .Ok(Listener { handle: 1, port: if (port == 0) { 8080 } else { port } })
             },
         }
+    }
+
+    /// One request, and then the ordinary end of a server. The `url` is
+    /// `bindsTo`, so a handler that reads the request can tell which acceptor
+    /// it was serving.
+    fn listenAccept(self, handle: Int): Result<Request, ServeError> {
+        match (handle) {
+            1 => {
+                .Ok(Request { method: .Get, url: self.bindsTo, headers: [], body: [] })
+            },
+            _ => .Err(ServeError { cause: .Closed, detail: "" }),
+        }
+    }
+
+    /// The answer is checked for a plausible status and then the listener says
+    /// it is done, which is what makes this a *one-shot*.
+    ///
+    /// `.Closed` from a **respond** rather than from the next accept, because
+    /// this fake has no state to count with: an effect method takes only
+    /// `self`, and `self` is immutable. It is a legal thing for an acceptor to
+    /// say — "that was the last one" — and `core/net/server`'s loop treats
+    /// `.Closed` from either call as the ordinary end, which is what lets a
+    /// stateless fake drive the whole accept-handle-respond path on a platform
+    /// with no acceptor behind it.
+    fn listenRespond(
+        self,
+        handle: Int,
+        status: Int,
+        headers: [Header],
+        body: [U8],
+    ): Result<(), ServeError> {
+        match (status >= 200 && status < 600) {
+            true => .Err(ServeError { cause: .Closed, detail: "" }),
+            false => .Err(ServeError { cause: .Transport, detail: "bad status" }),
+        }
+    }
+
+    fn listenClose(self, handle: Int): () {
+        ()
     }
 }
 
@@ -1030,17 +1054,17 @@ impl Sockets for QuietSockets {
 /// its negation when it refused, so the runtime half sees which effect
 /// answered which call.
 ///
-/// The handler is written, passed and **run** — `OneShotListen` invokes it —
-/// and the receiver here is a bounded `C`, which is the half the front end
-/// cannot settle on its own: a generic body is checked once for every
-/// instantiation at once, so `Self` is `C` until `C` is known. Calling this
-/// with a `context` value is therefore the monomorphization half of the
-/// `Self` question, and `test/effects.buri` does exactly that.
+/// The server is driven through `core/net/server`'s own `serve`, so the
+/// library's accept loop is on the path and not only the effect's four names.
+/// The receiver is a bounded `C`, which is the half the front end cannot
+/// settle on its own: a generic body is checked once for every instantiation
+/// at once. Calling this with a `context` value is therefore the
+/// monomorphization half of the question, and `test/effects.buri` does exactly
+/// that.
 ///
-/// `c` is unused, and has to be: inside a generic body the handler's `Self` is
-/// whatever implements `Listen` for `C`, which no bound here names. The test
-/// that reads a field off the handler's first parameter calls `listen` on the
-/// context value itself, where the implementing type is in view.
+/// The handler is handed `c` — the caller's *own* context — and uses it,
+/// which is the claim: a handler runs under the authority `serve` was called
+/// with, and nothing about that passes through `Listen`.
 export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
     let _ = server.sendText(ctx, 7, "opened");
     let _ = server.sendBytes(ctx, 7, []);
@@ -1051,12 +1075,18 @@ export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
         .Ok(reply) => reply.status,
         .Err(_) => 0,
     };
-    let served = server.listen(ctx, "127.0.0.1", 0, fn(c, request) => {
-        Response {
-            status: if (request.url == "127.0.0.1") { 200 } else { 404 },
-            headers: [],
-            body: [],
-        }
+    let served = server.serve(ctx, server.Server {
+        port: 0,
+        onRequest: fn(c, request) => {
+            Response {
+                status: match (http.send(c, request)) {
+                    .Ok(reply) => reply.status,
+                    .Err(_e) => 404,
+                },
+                headers: [],
+                body: [],
+            }
+        },
     });
     match (served) {
         .Ok(_) => fetched,

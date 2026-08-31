@@ -226,6 +226,19 @@ fn build_and_run_at(
     probe: Option<&str>,
     profile: Profile,
 ) -> (String, String, Option<i32>) {
+    let binary = build_at(name, source, probe, profile);
+    let run = Command::new(&binary).output().unwrap();
+    (
+        String::from_utf8_lossy(&run.stdout).to_string(),
+        String::from_utf8_lossy(&run.stderr).to_string(),
+        run.status.code(),
+    )
+}
+
+/// [`build_and_run_at`]'s first half, for the one row that has to have the
+/// binary in hand before it runs: a server has to be running *while* something
+/// else talks to it, so the run cannot be folded into the build.
+fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile) -> PathBuf {
     let lowered = lower(source);
     let opts = options(profile);
     let units =
@@ -273,13 +286,7 @@ fn build_and_run_at(
         "linking failed:\n{}",
         String::from_utf8_lossy(&linked.stderr)
     );
-
-    let run = Command::new(&binary).output().unwrap();
-    (
-        String::from_utf8_lossy(&run.stdout).to_string(),
-        String::from_utf8_lossy(&run.stderr).to_string(),
-        run.status.code(),
-    )
+    binary
 }
 
 /// The prelude every program below shares: the two capabilities a program that
@@ -3596,4 +3603,31 @@ export fn main(): Result<(), Str> {
     );
     assert_eq!(out, "1 7 5 abcd\n7 abcd\n", "stderr was: {err}");
     assert_eq!(code, Some(0));
+}
+
+/// **A Buri server answers a real request, through this pipeline too.**
+///
+/// `stencil.rs`'s row of the same name, one backend over — and the reason it is
+/// written twice rather than shared is that the two pipelines lay the same
+/// values out and the assertion is about the bytes. `effect Listen`'s four
+/// entries cross the C ABI with a `Request` written by the runtime and a
+/// `Response` read back out of one, and each backend decides for itself where
+/// `.Ok`'s payload sits in a `Result` and where a `Str` sits in a struct. One
+/// green row says nothing about the other.
+///
+/// Every wait is bounded and the client is joined —
+/// `shared::request_when_ready` is where that is argued.
+#[test]
+fn a_server_answers_a_request_on_a_socket() {
+    skip_unless_executable!();
+    let source = crate::shared::one_shot_server();
+    let binary = build_at("server-socket", &source, None, Profile::Release);
+    let (out, reply) = crate::shared::served(&binary, "/ping?x=1");
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "the server did not run to its own end:\n{}",
+        out.stdout
+    );
+    crate::shared::served_the_path(&reply, "/ping");
 }

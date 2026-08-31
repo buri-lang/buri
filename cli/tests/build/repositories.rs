@@ -21,7 +21,7 @@ use std::process::Command;
 /// the declaration and the code disagree.
 #[test]
 fn build_file_rules() {
-    run_corpus(&tests_dir().join("repositories/build-files"), "build-files", 12);
+    run_corpus(&tests_dir().join("repositories/build-files"), "build-files", 13);
 }
 
 /// LIBRARIES.md: `lib.buri` is a library's entire public surface, and the

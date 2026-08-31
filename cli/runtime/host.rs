@@ -5,18 +5,18 @@
 //! every one a *native* platform grants has a counterpart here, named by the
 //! rule in `lib.rs` §1: `host.HostFs.readFile` is `buri_rt_host_fs_read_file`.
 //!
-//! Four of the implementations have no counterpart *here*, for two reasons and
-//! neither of them an omission. `HostUi` and `HostWatch` drive a document, and
-//! a native binary has none. `HostListen` and `HostSockets` are
-//! granted by no platform at all — they are declared ahead of the acceptor that
-//! will answer `listen`, so there is a signature to implement and, deliberately,
-//! nothing yet implementing it. `HostTasks` does have one, and it is in `rt.rs`
-//! rather than in this file — which is where the two arrivals will land as well:
-//! `parallel` is the scheduler's, so it lives with the carrier pool and behind
-//! feature `net`, where a toolchain without a reactor refuses the key with a
-//! sentence instead of a missing symbol, and the acceptor will need tokio from
-//! behind that same feature (`manifest.toml`, `net.rs`) rather than this file's
-//! synchronous world.
+//! Five of the implementations have no counterpart *here*, and not one of them
+//! is an omission. `HostUi` and `HostWatch` drive a document, and a native
+//! binary has none, so those two have no native counterpart anywhere. The other
+//! three are implemented natively and elsewhere in this crate, divided by what
+//! they need rather than by what they are: `HostTasks` is in `rt.rs`, beside
+//! the carrier pool `parallel` fans out onto, and `HostListen` and
+//! `HostSockets` are in `net.rs` because they are the networking half — a bound
+//! listener, an accepted connection, a deadline on every read and every write —
+//! so they live with the reactor and the TLS stack, behind feature `net`, where
+//! a toolchain built without one refuses the key with a sentence instead of
+//! leaving a missing symbol for `cc`. This file is the synchronous world: a
+//! syscall, a buffer, and a return.
 //!
 //! ## Buffering, and why it matches JavaScript
 //!
@@ -224,7 +224,7 @@ unsafe fn view<'a>(ptr: *const u8, len: u64) -> &'a [u8] {
 
 /// # Safety
 /// `ptr`/`len` must describe a live `Str` view.
-unsafe fn text(ptr: *const u8, len: u64) -> String {
+pub(crate) unsafe fn text(ptr: *const u8, len: u64) -> String {
     // SAFETY: forwarded.
     String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned()
 }
@@ -720,7 +720,7 @@ struct BuriHeader {
 /// # Safety
 /// `ptr` must be the payload of a live `[Header]` of `len` elements, or null
 /// with `len == 0`.
-unsafe fn headers(ptr: *const u8, len: u64) -> Vec<(String, String)> {
+pub(crate) unsafe fn headers(ptr: *const u8, len: u64) -> Vec<(String, String)> {
     if ptr.is_null() || len == 0 {
         return Vec::new();
     }

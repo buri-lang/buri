@@ -24,8 +24,8 @@
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Stats };
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Listen, Net, NetError, Proc, Rand, Request, Response,
-    Sockets, Stderr, Stdin, Stdout, Tasks,
+    Alloc, Clock, Env, Fs, Header, Listen, Listener, Net, NetError, Proc, Protocol,
+    Rand, Request, Response, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -44,45 +44,68 @@ from "core/time" import * as time;
 // -----------------------------------------------------------------------------
 //
 // `core/host/testing` doubles eleven of the thirteen. `Listen` and `Sockets`
-// have none — no platform grants them yet — so they are written here. Each is
-// the smallest thing that can *answer differently from nothing*, because a fake
-// that returned the zero value would pass whether or not the forward happened.
+// have none — the acceptor behind them is a real socket, and there is no test
+// double for a port — so they are written here. Each is the smallest thing that
+// can *answer differently from nothing*, because a fake that returned the zero
+// value would pass whether or not the forward happened.
 
-/// Calls its handler once with a request naming the address it was given, and
-/// reports the handler's status.
+/// Hands out one request naming the address it was bound to, takes one answer,
+/// and closes.
 ///
-/// **This is the fake for `Scoped`'s hardest forward.** `Listen.listen` hands
-/// its handler `Self`, which is `Scoped<C>` outside and `C` inside, so the
-/// wrapper cannot pass the handler along unchanged — it wraps it, putting the
-/// scope back around the context the acceptor hands out. What that costs, and
-/// why the case below claims the bound rather than making the call, is written
-/// where the case is.
+/// **This is the fake for the forward `Scoped` used to have to be clever
+/// about.** `Listen.listen` once took the request handler as a `Self`-spelled
+/// callback and invoked it, so a wrapper could not pass the handler along
+/// unchanged: it had to rebuild it, putting the scope back around the context
+/// the acceptor handed out. `core/net/server` owns the loop now and calls the
+/// handler itself, so all four forwards below are ordinary — and the case at
+/// the bottom of this file can make the call rather than only claim the bound.
 struct OneShot {
     bindsTo: Str,
 }
 
 impl Listen for OneShot {
-    fn listen(
+    fn listenBind(
         self,
         address: Str,
         port: Int,
-        onRequest: fn(OneShot, Request) => Response,
-    ): Result<(), NetError> {
+        protocols: [Protocol],
+        requestLimit: Int,
+        idleTimeoutMillis: Int,
+    ): Result<Listener, ServeError> {
         match (self.bindsTo) {
-            "" => .Err(.Refused),
-            _ => {
-                let reply = onRequest(self, Request {
-                    method: .Get,
-                    url: address,
-                    headers: [],
-                    body: [],
-                });
-                match (reply.status) {
-                    200 => .Ok(()),
-                    _ => .Err(.Refused),
-                }
-            },
+            "" => .Err(ServeError { cause: .PermissionDenied, detail: "no address" }),
+            _ => .Ok(Listener { handle: 1, port: 8080 }),
         }
+    }
+
+    fn listenAccept(self, handle: Int): Result<Request, ServeError> {
+        match (handle) {
+            1 => {
+                .Ok(Request { method: .Get, url: self.bindsTo, headers: [], body: [] })
+            },
+            _ => .Err(ServeError { cause: .Closed, detail: "" }),
+        }
+    }
+
+    /// `.Closed` after one answer, because an effect method takes only `self`
+    /// and `self` is immutable — so a stateless fake says "that was the last
+    /// one" here rather than counting. `core/net/server` reads `.Closed` from
+    /// either call as the ordinary end.
+    fn listenRespond(
+        self,
+        handle: Int,
+        status: Int,
+        headers: [Header],
+        body: [U8],
+    ): Result<(), ServeError> {
+        match (status) {
+            200 => .Err(ServeError { cause: .Closed, detail: "" }),
+            _ => .Err(ServeError { cause: .Transport, detail: "not 200" }),
+        }
+    }
+
+    fn listenClose(self, handle: Int): () {
+        ()
     }
 }
 
@@ -240,32 +263,38 @@ fn pushed<C: Sockets>(ctx: C): Int {
     1
 }
 
-/// `listen` reached through `core/net/server`, with a handler written against
-/// the very type the call hands it — a `Scoped<C>` when the caller is inside a
-/// scope, and the bare `C` when it is not.
+/// A whole server reached through `core/net/server`, with a handler written
+/// against the very type the call hands it — a `Scoped<C>` when the caller is
+/// inside a scope, and the bare `C` when it is not.
 fn served<C: Listen>(ctx: C): Bool {
     server
-        .listen(ctx, "127.0.0.1", 8080, fn(_c, _request) => {
-            Response { status: 200, headers: [], body: [] }
+        .serve(ctx, server.Server {
+            port: 8080,
+            address: .Some("127.0.0.1"),
+            onRequest: fn(_c, _request) => {
+                Response { status: 200, headers: [], body: [] }
+            },
         })
         .isOk()
 }
 
-/// The same call with a handler that **uses** what it is handed.
+/// The same server with a handler that **uses** what it is handed.
 ///
-/// A `Self`-spelled handler reached through a wrapper is handed the wrapper's
-/// own context, so what arrives here is the `Scoped<C>` this was called on —
-/// `middle/monomorphize.rs`'s `rewrite_call_args` is what adapts it — and a
-/// handler may
+/// `serve` calls the handler itself, under the context it was given, so what
+/// arrives here is the `Scoped<C>` this was called on — and a handler may
 /// therefore charge the scope and print on the caller's stdout, neither of
 /// which the acceptor grants. A handler that ignored its first parameter, like
 /// `served` above, would pass whatever arrived.
 fn servedUsing<C: Alloc + Listen + Stdout>(ctx: C): Bool {
     server
-        .listen(ctx, "127.0.0.1", 8080, fn(c, request) => {
-            let _ = io.println(c, "handled ${request.url}").ignore();
-            let _ = alloc.allocate(c, 16);
-            Response { status: 200, headers: [], body: [] }
+        .serve(ctx, server.Server {
+            port: 8080,
+            address: .Some("127.0.0.1"),
+            onRequest: fn(c, request) => {
+                let _ = io.println(c, "handled ${request.url}").ignore();
+                let _ = alloc.allocate(c, 16);
+                Response { status: 200, headers: [], body: [] }
+            },
         })
         .isOk()
 }
@@ -491,29 +520,23 @@ test "a scope forwards sockets" {
     assert.eq(alloc.scoped(ctx, fn(c) => pushed(c)), 1);
 }
 
-// `Listen` is the one forward that is not a forward: `listen` hands its handler
-// `Self`, which is `Scoped<C>` at the wrapper and the acceptor inside it, so
-// this `impl` rebuilds the handler rather than passing it along. Both of its
-// paths are exercised below — the refusal, where the acceptor answers without
-// calling the handler at all, and the acceptor *invoking* the handler the
-// wrapper rebuilt.
+// `Listen` is four ordinary forwards, and it is worth saying why that sentence
+// is short. The effect used to take the request handler as a `Self`-spelled
+// callback and *invoke* it, which made this the one `impl` in `core/alloc` that
+// could not pass its argument along: `Self` is `Scoped<C>` at the wrapper and
+// the acceptor inside it, so the handler had to be rebuilt. That rebuilt
+// handler was a call both native backends faulted on, until
+// `middle/monomorphize.rs`'s `rewrite_call_args` stopped retyping it and
+// started adapting the call.
 //
-// The second used to be a call both native backends faulted on. Inside a
-// generic body `Self` is the receiver — nothing in `C: Listen`'s bounds names
-// what implements `Listen` for `C` — and monomorphization used to make that
-// true by retyping the handler down to the implementation, which rewrote
-// `Scoped<C>` into a `Scoped<`acceptor`>` on the way past and handed the
-// caller's closure a struct of the wrong width. It adapts the call instead
-// now: the acceptor's own `Self` is dropped at the boundary and the receiver
-// is passed, so `Scoped(c, arena)` is the `Scoped<C>` it was written to be.
-// `middle/monomorphize.rs`'s `rewrite_call_args` is the rule, and
-// `cli/tests/native/agreement.rs`'s
-// `a_handler_a_wrapper_rebuilt_is_entered_on_every_backend` is the same shape
-// with no `core/alloc` in it at all.
+// `core/net/server` owns the loop now and calls `onRequest` itself, under the
+// caller's context, so nothing crosses `Listen` but a handle, a request and a
+// response — and the property that mattered is unchanged and still asserted
+// below: a handler running inside a scope charges the scope.
 
 test "a scope forwards listening" {
-    // A real `listen` through the wrapper: `Scoped<C>` builds the adapter, the
-    // acceptor is reached, and its refusal comes back out through the scope.
+    // A real server through the wrapper: the bind is refused, and the refusal
+    // comes back out through the scope.
     let ctx = context {
         Alloc: alloc.generalPurpose(),
         Listen: OneShot { bindsTo: "" },
@@ -521,11 +544,9 @@ test "a scope forwards listening" {
     assert.isFalse(alloc.scoped(ctx, fn(c) => served(c)));
 }
 
-test "a scope forwards listening onto a handler the acceptor calls" {
-    // The half this file could not run before. The acceptor calls the handler
-    // the wrapper rebuilt, and what arrives is the scope: the handler prints on
-    // the caller's stdout and charges the scope's arena, and the caller's own
-    // allocator does not move.
+test "a scope forwards listening onto a handler the loop calls" {
+    // The handler runs inside the scope: it prints on the caller's stdout and
+    // charges the scope's arena, and the caller's own allocator does not move.
     let out = testing.stdout();
     let gp = alloc.generalPurpose();
     let ctx = context {
@@ -538,9 +559,9 @@ test "a scope forwards listening onto a handler the acceptor calls" {
     assert.eq(gp.stats(), Stats { allocations: 0, bytes: 0 });
 }
 
-test "an acceptor answers the handler it is given" {
-    // The other half, with nothing wrapped: the handler runs and its `200` is
-    // what makes `listen` answer `.Ok`.
+test "a server answers the handler it is given" {
+    // The other half, with nothing wrapped: the handler runs, its `200` is what
+    // the acceptor accepts, and `serve` ends `.Ok` on the listener's `.Closed`.
     assert.isTrue(served(OneShot { bindsTo: "127.0.0.1" }));
     assert.isFalse(served(OneShot { bindsTo: "" }));
 }

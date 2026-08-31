@@ -502,11 +502,12 @@ language one, and the existing machinery covers it:
   compile for one of a binary's outputs and not for another**, which is what
   "per output" costs and buys.
 
-  WEB grants `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand`, `Ui`, `Watch` and
-  `Fetch`, and withholds `Fs`, `Net`, `Stdin`, `Env`, `Proc` and `Tasks`.
-  `LINUX`, `MACOS` and `JS` grant those eleven non-UI effects and none of the
-  three UI ones. Telling the first three apart from each other is a table edit,
-  not new machinery, and is deferred (see Open).
+  WEB grants `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand`, `Net`, `Ui` and
+  `Watch`, and withholds `Fs`, `Stdin`, `Env`, `Proc`, `Tasks`, `Listen` and
+  `Sockets`. `LINUX` and `MACOS` grant all thirteen non-UI effects and neither
+  UI one; `JS` grants eleven of the thirteen — everything but `Listen` and
+  `Sockets`. Telling the three non-page platforms apart from each other was a
+  table edit rather than new machinery, and it has now happened (see Open).
 
   `Tasks` is the eleventh, and it arrived by a route worth recording, because it
   is the same mechanism read in a third direction. It landed **declared and
@@ -521,14 +522,17 @@ language one, and the existing machinery covers it:
   returns only when the last task has finished, and a page's concurrency is its
   event loop.
 
-  Two non-UI effects are on the near side of that route today. `Listen` and
-  `Sockets` each name an empty platform list, so `Listen: host.listen` and
-  `Sockets: host.sockets` are refused with the reason until an acceptor answers
-  `listen`. They also show the limit of what an empty row claims. They are
-  granted **together** — being a server is one authority in two halves — and
-  when they are granted, `JS` and `WEB` still will not have them, because a page
-  does not hold a port open. An empty row says nobody grants this today, never
-  that everybody eventually will.
+  `Listen` and `Sockets` came down that same route and are now through it.
+  Both landed naming an empty platform list; both name `LINUX, MACOS` today,
+  and that is the first row shape the table has held which is neither every
+  platform, nor the three non-page ones, nor `WEB` alone. They were granted
+  **together**, because being a server is one authority in two halves —
+  accepting a connection, and writing to one somebody already accepted — and
+  `JS` and `WEB` do not have them and are not going to: a page is served rather
+  than serving, and its host has no way to accept a connection at all. That is
+  the bound on what an empty row ever claimed. It said nobody grants this
+  today, never that everybody eventually will, and the way this pair resolved is
+  the difference: half the row filled, and the other half never will.
 - **Email is a different effect grant, not a lesser web.** Its host exports
   rendering but nothing interactive — no `Ui`, no `Fetch`; a `render` evaluates
   the tree once (`Const` and `Computed` props resolve; `Cell` has nothing to
@@ -637,18 +641,27 @@ design is *for*.
 
 ## Open
 
-- **Host subsetting among the non-UI platforms.** The mechanism is a table, and
-  `LINUX`, `MACOS` and `JS` all still grant the same eleven effects — so
-  `Fs: host.fs` under `platform: JS` compiles, which it should not. Telling them
-  apart is a table edit and a reject case.
+- **Host subsetting among the non-UI platforms — closed.** The mechanism was
+  always a table; the complaint was that no row had ever used it to tell
+  `LINUX`, `MACOS` and `JS` apart, so the three were one set under three names
+  and the reject case did not exist. `Listen` and `Sockets` are the rows that
+  broke it: both name `LINUX, MACOS` and nothing else, so `Listen: host.listen`
+  under `platform: JS` is refused with a reason while `platform: LINUX`
+  compiles. Whether some *other* row should also lose a platform is now an
+  argument about that row rather than about machinery.
 - **`Tasks` on `WEB`.** Granted on the other three; withheld from the page
   because `parallel` waits for its last task and a page has an interface that a
   wait is visible in. The shape a page would want is the callback one `Fetch`
   already has, and it is the concurrency work's, not this document's.
-- **An acceptor for `Listen`/`Sockets`.** Both effects are declared and their
-  rows are empty, so no platform grants them. Granting one is a table edit;
-  earning the grant is the runtime work. The two move together and never onto
-  `JS` or `WEB`.
+- **A socket to hand out, and a handler per task.** The acceptor exists:
+  `Listen` is four operations, `core/net/server` runs the accept loop over them
+  in Buri, and `cli/runtime/net.rs` answers them with a hand-framed HTTP/1.1
+  server. Two things are left. `serve` takes one connection at a time and runs
+  the handler on the calling task, so a slow handler is the whole server's
+  latency — a handler per task is the next slice and needs no change to the
+  effect. And `Sockets` is granted but unreachable: nothing performs a WebSocket
+  upgrade, so no program can obtain a socket for `sendText`, `sendBytes` or
+  `close` to write to. Neither is a table edit; both are runtime work.
 - **A per-target vocabulary check.** A style or widget with no meaning on some
   target — hover in email, a form in a static render. Backend degradation with a
   warning is the answer until real components hit it.

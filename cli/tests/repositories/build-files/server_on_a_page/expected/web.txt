@@ -1,20 +1,22 @@
-error: `WEB` does not grant `HostListen` [host-not-granted]
-  --> cmd/server_effects_granted_by_no_platform_on_web/main.buri:22:13
+error: `WEB` does not grant `listen` [host-not-granted]
+  --> cmd/app/main.buri:13:22
    |
-22 |     Listen: host.HostListen {},
-   |             ^^^^^^^^^^^^^^^
+13 |         Listen: host.listen,
+   |                      ^^^^^^
    |
-   = a platform is the set of effects its host exports; no platform accepts connections yet; `Listen` is declared so that the authority is split from `Net` before there is a server, and the acceptor that answers it lands with `core/net/server`
-   = fix: drop `Listen` from the context
+   = a platform is the set of effects its host exports; holding a port open is a native program's authority; a page is served rather than serving, and its host has no way to accept a connection
+   = fix: drop `Listen` from the context, or build this target for a platform that grants it: LINUX, MACOS
 
      What to do
      ──────────
 
      Drop the effect from the context, or build this target for a platform that
-     grants it. Where the fix names no platform to build for, there is none:
-     some effects are declared ahead of the runtime that answers them — Listen
-     and Sockets are those today — so dropping it from the context is the whole
-     of the fix.
+     grants it. Where the fix names no platform to build for, there is none: an
+     effect may be declared ahead of the runtime that will answer it, and then
+     its row names no platform at all, so dropping it from the context is the
+     whole of the fix. No effect is in that state today — every one core/effect
+     declares is granted somewhere — but the clause is what a reader meets on
+     the day one is, which is the point of writing it rather than an empty list.
 
      Why
      ───
@@ -37,10 +39,14 @@ error: `WEB` does not grant `HostListen` [host-not-granted]
      written against the signature it had been reviewed with simply started
      compiling.
 
-     An empty list is still not a promise that the list will fill. Listen and
-     Sockets have one today because no platform serves yet; when one does, JS
-     and WEB still will not, because a page does not hold a port open. The row
-     says who grants the effect now, and the reason says why — nothing more.
+     An empty list is still not a promise that the list will fill, and Listen
+     and Sockets are what that looks like once the runtime arrives. Both landed
+     declared and granted by nobody; both are granted now on LINUX and MACOS,
+     because holding a port open is a native program's authority; and neither
+     will ever be granted on JS or WEB, because a page is served rather than
+     serving and its host has no way to accept a connection. Half of that row
+     filled and the other half never will. The row says who grants the effect
+     now, and the reason says why — nothing in it was ever a schedule.
 
      A program that provokes it
      ──────────────────────────
@@ -50,11 +56,3 @@ error: `WEB` does not grant `HostListen` [host-not-granted]
      without one a snippet is checked with the whole host granted, because it
      builds no output.
 
-error: `WEB` does not grant `HostSockets` [host-not-granted]
-  --> cmd/server_effects_granted_by_no_platform_on_web/main.buri:23:14
-   |
-23 |     Sockets: host.HostSockets {},
-   |              ^^^^^^^^^^^^^^^^
-   |
-   = a platform is the set of effects its host exports; writing to an open socket is granted with `Listen`, which no platform grants yet; a page neither accepts connections nor holds one to push on
-   = fix: drop `Sockets` from the context

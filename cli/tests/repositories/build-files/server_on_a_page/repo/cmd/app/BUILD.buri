@@ -1,0 +1,8 @@
+# One output, and it is the whole of what this case is about: the platform a
+# rule names decides which of `core/host`'s exports the program may reach, and
+# `host.listen` is not one of JavaScript's.
+binary {
+    outputs: [
+        { platform: JS },
+    ]
+}

@@ -1,4 +1,4 @@
-//! core/net/server — accepting connections, and writing back on them.
+//! core/net/server — being a server.
 //!
 //! `core/net/http` is the client half: `http.send(ctx, request)` makes one
 //! request and answers one response. This is the other half — a program that
@@ -10,43 +10,269 @@
 //! **The same two types.** `Request` and `Response` are `core/effect`'s, the
 //! ones `core/net/http` re-exports: there is one shape for an HTTP message in
 //! this language, not one per direction, so a handler here answers with the
-//! same `Response` a client reads.
+//! same `Response` a client reads, and builds it with the same
+//! `http.text` / `http.status` / `withHeader`.
 //!
-//! **This module is a door, not yet a design.** No platform grants `Listen` or
-//! `Sockets` today — `core/host` declares the implementations and the grant
-//! table gives them no platform — so nothing here has a caller, and it is
-//! deliberately four thin functions rather than a server vocabulary. It exists
-//! because an effect method that no standard-library function calls is a method
-//! nothing outside `core/*` can perform: an effect is reached by handing the
-//! context to a function (SPEC 10.2), and these are those functions. The
-//! vocabulary a real server wants — routing, middleware, a `Socket` handle with
-//! its own methods, a `CloseReason` instead of a wire code — grows here when a
-//! platform grants the effects.
+//! ```buri
+//! from "core/effect" import { Alloc, Listen };
+//! from "core/host" import * as host;
+//! from "core/net/http" import * as http;
+//! from "core/net/server" import * as server;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Listen: host.listen,
+//!     };
+//!     server
+//!         .serve(ctx, server.Server {
+//!             port: 3000,
+//!             onRequest: fn(c, request) => {
+//!                 match (request.path()) {
+//!                     "/ping" => http.text(c, "pong"),
+//!                     _ => http.status(404),
+//!                 }
+//!             },
+//!         })
+//!         .mapErr(server.errorText)
+//! }
+//! ```
+//!
+//! ## Every knob is a field, and an omitted one is `.None`
+//!
+//! `Server` carries the whole configuration — address, protocols, limits and
+//! deadlines — and every field but `port` and `onRequest` is an `Option`. A
+//! literal may leave an `Option` field out and the checker fills in `.None`
+//! (SPEC 5.6), which is why the example above is three lines long.
+//!
+//! **`.None` is not "the default"; it is the absence of a choice, and the
+//! runtime is what turns the absence into a default.** That distinction is the
+//! library convention this module asks readers to hold, and it is worth the
+//! sentence because elision makes it easy to miss: writing nothing does not
+//! commit this module to a number, so nothing here documents "the default
+//! address is `127.0.0.1`" as a promise. The acceptor picks, and a toolchain
+//! whose runtime picks differently is not breaking this module's contract. A
+//! program that wants a number pinned writes the number.
+//!
+//! `bind` is where the `.None`s are rendered into what `effect Listen` calls
+//! *unset*, and this is the whole of the encoding:
+//!
+//! | Field | `.None` crosses as | And the acceptor today |
+//! |---|---|---|
+//! | `address` | `""` | listens on `127.0.0.1` |
+//! | `protocols` | `[]` | speaks HTTP/1.1 |
+//! | `requestLimit` | `-1` | answers until the listener is closed |
+//! | `idleTimeoutMillis` | `-1` | waits for a connection indefinitely |
+//!
+//! The third column is what *this* runtime does, and it is written down so a
+//! reader knows what to expect rather than so a program may rely on it. The
+//! second column is the contract.
+//!
+//! ## What is here, and what is not yet
+//!
+//! `serve` is one connection at a time: the acceptor reads one request, the
+//! handler answers it, and only then is the next connection accepted. That is
+//! the honest shape of an HTTP/1.1 server with no task pool behind it, and it
+//! is the thing that changes first — a handler on a task of its own, and many
+//! connections in flight, is the next slice and needs no change here.
+//!
+//! `sendText`, `sendBytes` and `close` are the socket half. Nothing hands out
+//! a `Socket` yet — a WebSocket upgrade is not something `serve` performs —
+//! so the three exist because an effect method no standard-library function
+//! calls is a method nothing outside `core/*` can perform (SPEC 10.2), and
+//! they say what they will do rather than pretending to do it today.
 
-from "core/effect" import { Listen, NetError, Request, Response, Sockets };
+from "core/effect" import {
+    Listen, Listener, Protocol, Request, Response, ServeError, ServeFailure, Sockets,
+};
 
-from "core/effect" export { NetError, Request, Response };
+from "core/effect" export {
+    Listener, Protocol, Request, Response, ServeError, ServeFailure,
+};
 
-/// Accepts connections on `address:port`, answers each request with
-/// `onRequest`, and returns when the process is asked to shut down.
+/// A server, whole.
 ///
-/// The handler is a parameter rather than a capture because an effect-carrying
-/// value may be passed only as `self` or `ctx` (SPEC 10.6), so it is *handed*
-/// what it needs. What it is handed is this context — `C`, the caller's own —
-/// which is what makes a handler able to allocate, print, or read a clock while
-/// it answers.
-export fn listen<C: Listen>(
-    ctx: C,
-    address: Str,
-    port: Int,
-    onRequest: fn(C, Request) => Response,
-): Result<(), NetError> {
-    ctx.listen(address, port, onRequest)
+/// `port` and `onRequest` are the two a server cannot be without: a port to
+/// hold and something to answer with. Everything else is an `Option` that may
+/// be left out of the literal, and `.None` means "the runtime chooses" — see
+/// the module header, which is where that convention is argued rather than
+/// merely stated.
+///
+/// `C` is the caller's own context, and it is what `onRequest` is handed. A
+/// handler may therefore do anything the context it was written beside can do:
+/// allocate a response body, print a line, read a clock, start a task. Nothing
+/// about that authority passes through `Listen` — `serve` calls the handler
+/// itself — which is the reason the effect has four small methods and not one
+/// big one.
+export struct Server<C> {
+    /// The port to hold. `0` asks the operating system to choose one, and
+    /// `bind` answers with the number it chose.
+    export port: Int,
+    /// What answers a request. Called once per request, on the calling task,
+    /// with the context `serve` was given.
+    export onRequest: fn(C, Request) => Response,
+    /// The interface to listen on. `.None` lets the runtime choose, which on
+    /// every platform that grants `Listen` today means loopback — a server
+    /// that wants to be reachable from another machine says so.
+    export address: Option<Str>,
+    /// The HTTP versions to speak. `.None` is HTTP/1.1. A protocol this
+    /// toolchain's runtime was not built with is `.Err(.Unsupported)` from
+    /// `bind`, with a message naming the switch that would add it.
+    export protocols: Option<[Protocol]>,
+    /// Stop after answering this many requests, and return `.Ok(())`. `.None`
+    /// serves until the listener is closed.
+    ///
+    /// It is a knob rather than a debugging aid: a server that is supposed to
+    /// answer one request and exit is a real shape — a one-shot callback
+    /// receiver, an OAuth redirect catcher, a test — and having it means a
+    /// server can be *finished* by something other than being killed.
+    export requestLimit: Option<Int>,
+    /// Give up waiting for a connection after this long, and return
+    /// `.Err(.Timeout)`. `.None` waits indefinitely, which is what an ordinary
+    /// server does.
+    export idleTimeoutMillis: Option<Int>,
 }
 
+//
+// Two knobs a reader might look for are deliberately absent: **how long one
+// connection may take to send its head**, and **the largest body the acceptor
+// will read**. Both exist and both are the runtime's own numbers; neither is a
+// field here, because `Listen.listenBind` is at the ten-integer budget a
+// runtime call has (`backend/stencil/abi.rs`) and a field nothing could carry
+// across would be a knob that silently did nothing. `effect Listen` says the
+// same thing from the other side, which is where the budget is.
+
+/// The whole of a server: bind the port, answer requests until the listener is
+/// done, give the port back.
+///
+/// `.Ok(())` means the server stopped the way it was asked to — its request
+/// limit spent, or its listener closed. An error is a reason it could not go
+/// on, and the port is given back on that path too.
+///
+/// A program that needs the port *while* the server runs — anything binding
+/// `port: 0` — wants `bind` and `run` instead, which are this function's two
+/// halves and are exported for exactly that.
+export fn serve<C: Listen>(ctx: C, server: Server<C>): Result<(), ServeError> {
+    match (bind(ctx, server)) {
+        .Err(e) => .Err(e),
+        .Ok(listener) => run(ctx, listener, server.onRequest),
+    }
+}
+
+/// Opens the port and answers with it, without serving anything yet.
+///
+/// The point of the split is `port: 0`: the operating system chooses, and a
+/// program that has to publish the number — write it to a file, print it, hand
+/// it to a task that will connect — reads `listener.port` here, between the
+/// bind and the loop.
+export fn bind<C: Listen>(ctx: C, server: Server<C>): Result<Listener, ServeError> {
+    ctx.listenBind(
+        server.address.withDefault(""),
+        server.port,
+        server.protocols.withDefault([]),
+        server.requestLimit.withDefault(-1),
+        server.idleTimeoutMillis.withDefault(-1),
+    )
+}
+
+/// Answers requests on an already-open listener until it is done, then closes
+/// it.
+///
+/// The loop is `answering` below, and it is a tail call: there are no loops
+/// (SPEC 15.1), and `middle/tail_calls.rs` rewrites a self tail call into one,
+/// so a server that answers a million requests uses one frame.
+export fn run<C: Listen>(
+    ctx: C,
+    listener: Listener,
+    onRequest: fn(C, Request) => Response,
+): Result<(), ServeError> {
+    let outcome = answering(ctx, listener.handle, onRequest);
+    let _closed = ctx.listenClose(listener.handle);
+    outcome
+}
+
+/// One request, then the rest of them.
+///
+/// `.Closed` is the ordinary end and becomes `.Ok(())` here — the one place
+/// that translation happens, so that no caller of this module ever has to know
+/// a listener signs off by failing.
+///
+/// It is read from **either** call, and that is a deliberate widening rather
+/// than a convenience. An acceptor may notice it is done when it takes the
+/// last response as easily as when it is next asked for a request, and which
+/// of the two it chooses is a fact about the acceptor. Reading only one would
+/// make the other spelling a failure a server would have to know about.
+fn answering<C: Listen>(
+    ctx: C,
+    handle: Int,
+    onRequest: fn(C, Request) => Response,
+): Result<(), ServeError> {
+    match (ctx.listenAccept(handle)) {
+        .Err(e) => {
+            match (e.cause) {
+                .Closed => .Ok(()),
+                _ => .Err(e),
+            }
+        },
+        .Ok(request) => {
+            let handler = onRequest;
+            let reply = handler(ctx, request);
+            match (ctx.listenRespond(handle, reply.status, reply.headers, reply.body)) {
+                .Err(e) => {
+                    match (e.cause) {
+                        .Closed => .Ok(()),
+                        _ => .Err(e),
+                    }
+                },
+                .Ok(_ok) => answering(ctx, handle, onRequest),
+            }
+        },
+    }
+}
+
+/// A `ServeError`'s cause as one line of English, for a `main` that answers
+/// `Result<(), Str>`.
+///
+/// A free function rather than a method, for `http.errorText`'s reason:
+/// `ServeError` is declared in `core/effect`, and a method must live in its
+/// type's defining module.
+///
+/// The **cause only**, and it costs no context: it is a constant per variant,
+/// so this needs no `Alloc` and can be used from anywhere, including the
+/// `.mapErr` of a `main` whose context grants nothing but `Listen`. The
+/// platform's own words are `e.detail`, and a program that wants both writes
+/// `"${server.errorText(e)}: ${e.detail}"` — one interpolation, at the place
+/// that already knows whether it has somewhere to print it.
+export fn errorText(e: ServeError): Str {
+    match (e.cause) {
+        .AddressInUse => "the address is already in use",
+        .AddressNotAvailable => "the address is not available on this machine",
+        .PermissionDenied => "listening was not permitted",
+        .Unsupported => "the protocol is not supported by this toolchain",
+        .Timeout => "no connection arrived before the deadline",
+        .Closed => "the listener is closed",
+        .Transport => "the transport failed",
+    }
+}
+
+// --- Sockets ------------------------------------------------------------------
+//
+// The other half of being a server, and the half with nothing behind it yet:
+// `serve` performs no WebSocket upgrade, so nothing in this language hands out
+// a socket. These three exist because an effect method no standard-library
+// function calls is a method nothing outside `core/*` can perform — an effect
+// is reached by handing a context to a function (SPEC 10.2), and these are
+// those functions — and because the authority is granted with `Listen` rather
+// than after it.
+//
+// A handle that names no open socket is treated as one that has already gone,
+// which is the behaviour `Sockets` declares for a closed socket anyway. The
+// `Socket` value with its own methods, `CloseReason` instead of a wire code,
+// and the upgrade that mints one, land together.
+
 /// Enqueues a text frame on an open socket. Never waits: the frame goes to the
-/// socket's outbound buffer, and a socket whose buffer is full is closed rather
-/// than its writer blocked.
+/// socket's outbound buffer, and a socket whose buffer is full is closed
+/// rather than its writer blocked.
 export fn sendText<C: Sockets>(ctx: C, socket: Int, text: Str): () {
     ctx.socketSendText(socket, text)
 }

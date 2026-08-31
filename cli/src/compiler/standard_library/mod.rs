@@ -141,10 +141,14 @@ pub const MODULES: &[StdModule] = &[
     m("core/date", include_str!("sources/date.buri")),
     m("core/random", include_str!("sources/random.buri")),
     m("core/net/http", include_str!("sources/http.buri")),
-    // The other half of being a server, and a door rather than a design: no
-    // platform grants `Listen` or `Sockets` yet, so nothing here has a caller.
-    // It exists because an effect method no standard-library function calls is
-    // an operation nothing outside `core/*` can perform — see [`WRAPPERS`].
+    // The other half of being a server: `Server`, `bind`, `run`, `serve`, and
+    // the accept loop those three are written out of. The loop is Buri rather
+    // than the runtime's, which is what lets a request handler run under the
+    // caller's own context — see the module's own header, and `effect Listen`.
+    // The socket half has no acceptor behind it yet and says so where the
+    // functions are; it exists because an effect method no standard-library
+    // function calls is an operation nothing outside `core/*` can perform —
+    // see [`WRAPPERS`].
     m("core/net/server", include_str!("sources/server.buri")),
     m("core/proc", include_str!("sources/proc.buri")),
     // Not a platform module: it *names* `Tasks` in its bounds rather than
@@ -417,25 +421,30 @@ const HOST_GRANTS: &[HostGrant] = &[
                   page; a page's concurrency is its event loop, and the effect that reaches \
                   it lands with the servers",
     },
-    // The two halves of being a server, on the same empty-row terms as `Tasks`
-    // and with one difference worth stating: these two are granted *together*
-    // or not at all, and never on `JS` or `WEB`. Nothing enforces the pairing
-    // beyond the two rows below being edited in one commit, which is the same
-    // thing that keeps every other row honest.
+    // The two halves of being a server. They are granted *together* or not at
+    // all, and never on `JS` or `WEB`. Nothing enforces the pairing beyond the
+    // two rows below being edited in one commit — and
+    // `the_server_effects_are_granted_together_and_never_on_a_page`, which is
+    // the assertion that they were.
+    //
+    // These are the first two rows whose platform list is neither everything,
+    // nor the three non-page platforms, nor `WEB`: a native program may hold a
+    // port open and a JavaScript one may not, so `LINUX, MACOS` is a shape the
+    // table now has. `design/ui-reactivity.md`'s open item about host
+    // subsetting among the non-UI platforms is closed by that.
     HostGrant {
         effect: "Listen",
         exports: &["HostListen", "listen"],
-        platforms: &[],
-        because: "no platform accepts connections yet; `Listen` is declared so that the \
-                  authority is split from `Net` before there is a server, and the acceptor \
-                  that answers it lands with `core/net/server`",
+        platforms: &[Platform::Linux, Platform::Macos],
+        because: "holding a port open is a native program's authority; a page is served \
+                  rather than serving, and its host has no way to accept a connection",
     },
     HostGrant {
         effect: "Sockets",
         exports: &["HostSockets", "sockets"],
-        platforms: &[],
-        because: "writing to an open socket is granted with `Listen`, which no platform \
-                  grants yet; a page neither accepts connections nor holds one to push on",
+        platforms: &[Platform::Linux, Platform::Macos],
+        because: "writing to an open socket is granted with `Listen`, and a page neither \
+                  accepts connections nor holds one to push on",
     },
     HostGrant {
         effect: "Ui",
@@ -564,7 +573,10 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Env", "args", "core/env", "env.args(ctx)"),
     w("Proc", "exitWith", "core/proc", "proc.exit(ctx, code)"),
     w("Tasks", "parallel", "core/tasks", "tasks.parallel(ctx, items, f)"),
-    w("Listen", "listen", "core/net/server", "server.listen(ctx, address, port, onRequest)"),
+    w("Listen", "listenBind", "core/net/server", "server.bind(ctx, aServer)"),
+    w("Listen", "listenAccept", "core/net/server", "server.serve(ctx, aServer)"),
+    w("Listen", "listenRespond", "core/net/server", "server.serve(ctx, aServer)"),
+    w("Listen", "listenClose", "core/net/server", "server.run(ctx, listener, onRequest)"),
     w("Sockets", "socketSendText", "core/net/server", "server.sendText(ctx, socket, text)"),
     w("Sockets", "socketSendBytes", "core/net/server", "server.sendBytes(ctx, socket, bytes)"),
     w("Sockets", "socketClose", "core/net/server", "server.close(ctx, socket, code, reason)"),
@@ -851,20 +863,29 @@ mod tests {
         assert_eq!(grant.platforms, fs.platforms, "`Tasks` and `Fs` are granted together");
     }
 
-    /// `Listen` and `Sockets` are granted by no platform either, and — the
-    /// part that is theirs rather than `Tasks`' — they are granted by *the
-    /// same* set of platforms as each other.
+    /// `Listen` and `Sockets` are granted on the two native platforms, never
+    /// on a page, and always by *the same* set of platforms as each other.
     ///
     /// The pairing is the invariant worth asserting. "I accept connections"
     /// and "I can write to open sockets" are the two halves of being a server:
     /// a platform granting only the first could accept a websocket upgrade and
     /// then never answer on it, and one granting only the second would hand
-    /// out an authority over sockets nothing there can produce. Today both
-    /// lists are empty and the assertion is nearly free; the day
-    /// `core/net/server` fills one in, it is what catches the other having
-    /// been forgotten.
+    /// out an authority over sockets nothing there can produce. Nothing but
+    /// this test enforces it, because the pairing is a claim about two rows
+    /// and a row cannot say anything about its neighbour.
+    ///
+    /// The withholding half is asserted **by platform** rather than by
+    /// emptiness, because `JS` and `WEB` are a permanent no and not a
+    /// not-yet — a page is served rather than serving. That is the difference
+    /// between this row and every other one that varies: `Fs` is absent from
+    /// `WEB` because a page has no filesystem *today*, and these two are
+    /// absent because a page is not a server.
+    ///
+    /// It is also the first row whose platform list is neither everything, nor
+    /// the three non-page platforms, nor `WEB` alone — so it is asserted
+    /// literally rather than against a neighbour's list the way `Tasks`' is.
     #[test]
-    fn the_server_effects_are_granted_by_no_platform_and_always_together() {
+    fn the_server_effects_are_granted_together_and_never_on_a_page() {
         let listen = host_grant_of("listen").expect("`listen` is in the grant table");
         let sockets = host_grant_of("sockets").expect("`sockets` is in the grant table");
         assert_eq!(listen.effect, "Listen");
@@ -876,12 +897,27 @@ mod tests {
             listen.platforms_phrase(),
             sockets.platforms_phrase()
         );
-        assert!(listen.platforms.is_empty(), "granted by {}", listen.platforms_phrase());
-        for platform in Platform::ALL {
+        assert_eq!(
+            listen.platforms,
+            &[Platform::Linux, Platform::Macos],
+            "granted by {}",
+            listen.platforms_phrase()
+        );
+        for platform in [Platform::Js, Platform::Web] {
             for name in ["HostListen", "listen", "HostSockets", "sockets"] {
                 assert!(
                     host_withholds(platform, name),
-                    "`{}` grants `{name}`, which no platform implements",
+                    "`{}` grants `{name}`; a page is served rather than serving, and that is \
+                     a permanent row rather than an empty one waiting to be filled",
+                    platform.proto()
+                );
+            }
+        }
+        for platform in [Platform::Linux, Platform::Macos] {
+            for name in ["HostListen", "listen", "HostSockets", "sockets"] {
+                assert!(
+                    !host_withholds(platform, name),
+                    "`{}` withholds `{name}`, which `cli/runtime/net.rs` implements",
                     platform.proto()
                 );
             }
@@ -904,8 +940,11 @@ mod tests {
     /// everybody who does; `Net.fetch` and `Fetch.fetch` are the same word for
     /// nearly the same thing, saved only by no platform granting both. Neither
     /// can be fixed now, so neither is asserted about here — what is asserted
-    /// is that the two effects landing today do not add a third, which is the
-    /// only moment the question is cheap to answer.
+    /// is that the two server effects do not add a third. `Listen` grew from
+    /// one method to four when its accept loop moved into `core/net/server`,
+    /// and every one of the four kept the `listen` prefix for exactly this
+    /// reason: a namespace is claimed once, and four common verbs would have
+    /// been four names taken from every effect a server binds beside it.
     #[test]
     fn the_server_effects_claim_no_method_name_another_effect_claims() {
         let mut mine: Vec<(&str, String)> = Vec::new();
@@ -930,7 +969,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(mine.len(), 4, "the two effects declare four methods between them: {mine:?}");
+        assert_eq!(mine.len(), 7, "the two effects declare seven methods between them: {mine:?}");
         for (owner, method) in &mine {
             for (other, name) in &theirs {
                 assert!(
