@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = impl-heavy-1M
 profile = impl-heavy
-generator_revision = 5
-revision = 5
-recorded = 2026-08-30
+generator_revision = 6
+revision = 6
+recorded = 2026-08-31
 params = lines=1000000 methods_per_struct=12 w_struct=6
 lines = 1007007
-bytes = 33413019
+bytes = 33319392
 modules = 3468
-digest = 361bff6beab25773bcd91312ab7aaacf43d41bc861a2aebc574bc26cba3ee0d8
+digest = 5dd11f381ffe6dbc781e0c1c9685e8a1f158e72bd8d8d953a005048d9220c6d8

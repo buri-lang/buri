@@ -68,7 +68,8 @@
 /// | 3 | `self` stopped writing its type, so every method signature is shorter by the receiver's name and a colon. Again no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. |
 /// | 4 | An enum variant stopped carrying `export`, so every variant line is shorter by the keyword and a space. Again no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. |
 /// | 5 | Every import names a file, so `core/list` is now `core/list/lib.buri` and `//bench/m0007` is `//bench/m0007.buri`. Every import line is longer by a suffix. As with revision 2, which this is the twin of, no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
-pub const GENERATOR_REVISION: u32 = 5;
+/// | 6 | An import that names a surface names the module again, so `core/list/lib.buri` is back to `core/list`. Every generated module imports four or five standard library modules and nothing else across a boundary, so every import block is shorter by nine bytes a line; the `//bench/mNNNN.buri` imports name files inside `//bench` and did not move. Revision 5 undone in one direction, and as there, no construct, count or shape moved: `lines` and `modules` are identical at every scale and only `bytes` and the digest differ. Every saved corpus was re-recorded and all forty pinned manifests re-pinned at it; `design/PERFORMANCE.md` §6 says so. |
+pub const GENERATOR_REVISION: u32 = 6;
 
 /// A generated program: its modules, in an order where every module's imports
 /// come before it.
@@ -837,14 +838,14 @@ fn mixed_module(
          //! here is meant to be read; it is meant to be *compiled*, at a\n\
          //! controlled size and with the construct mix of real source.\n\n"
     ));
-    s.push_str("from \"core/str/lib.buri\" import * as str;\n");
-    s.push_str("from \"core/list/lib.buri\" import * as list;\n");
-    s.push_str("from \"core/effect/lib.buri\" import { Alloc };\n");
+    s.push_str("from \"core/str\" import * as str;\n");
+    s.push_str("from \"core/list\" import * as list;\n");
+    s.push_str("from \"core/effect\" import { Alloc };\n");
     // `Eq`, `Show`, `Ord` and `Hash` are in scope everywhere; the JSON pair is
     // not. The import appears only when `derives` reaches them, so the default
     // corpus is unchanged.
     if p.derives as usize > DERIVABLE_IN_SCOPE {
-        s.push_str("from \"core/json/lib.buri\" import { ToJson, FromJson };\n");
+        s.push_str("from \"core/json\" import { ToJson, FromJson };\n");
     }
     for d in deps {
         s.push_str(&format!(
@@ -1335,8 +1336,8 @@ fn main_module(count: usize, p: &Params) -> String {
          //! monomorphization reaches the whole program from `main` and the\n\
          //! lowering benchmark is not measuring dead-code elimination.\n\n",
     );
-    s.push_str("from \"core/effect/lib.buri\" import { Alloc };\n");
-    s.push_str("from \"core/host/lib.buri\" import * as host;\n");
+    s.push_str("from \"core/effect\" import { Alloc };\n");
+    s.push_str("from \"core/host\" import * as host;\n");
     for i in 0..count {
         s.push_str(&format!("from \"//bench/m{i:04}.buri\" import {{ blend{i}, reach{i} }};\n"));
     }

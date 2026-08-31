@@ -869,10 +869,37 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > command. That is a bug of its own, being fixed separately; until it is, nobody
 > can take this table in a single invocation.
 
+> **Generator revision 6, 2026-08-31 — a break in the series, announced, and
+> the one that gives revision 5's bytes back.**
+> An import that names a surface names the module again, so
+> `core/list/lib.buri` is `core/list`. Every generated module imports four or
+> five standard library modules and nothing else across a boundary, so every
+> import line is nine bytes shorter; the `//bench/mNNNN.buri` imports name files
+> inside `//bench` and did not move at all. §3.1's rule applies and was followed
+> — **all eight** saved corpora were re-recorded and **all forty** pinned
+> manifests re-pinned.
+>
+> **Three corpora came back byte-identical**, and they are the exact ones
+> revision 5's note is about. `few-large-fns-1k` (23,867) and `wide-match-1k`
+> (18,722) carry no import at all; `many-small-fns-1k` (30,492) carries only
+> `//bench/...` ones. Revision 5 moved all three anyway, because it renamed the
+> module *paths* a digest folds, and this revision does not touch a path inside
+> `//bench` — so this time their source bytes are unchanged. The other five
+> shrank: `mixed-10k` 347,800 → 346,810, `mixed-many-files-1k` 40,168 → 39,691,
+> `mixed-1k` 35,741 → 35,615, `derive-heavy-1k` 35,502 → 35,340,
+> `mixed-few-files-1k` 37,202 → 37,157.
+>
+> **Nothing measurable moved with it.** `lines` and `modules` are identical for
+> all forty pinned and all eight saved corpora — checked over the diff, not
+> assumed: every one of the forty is a five-line change, and the five lines are
+> `generator_revision`, `revision`, `recorded`, `bytes` and `digest`. Every
+> reading below is still comparable with one taken at revision 5; a rate quoted
+> in lines/s is unmoved because the line count is unmoved.
+
 > **Generator revision 5, 2026-08-30 — a break in the series, announced, and
 > the first one that moves a corpus holding no import.**
-> Every import names a file, so `core/list` became `core/list/lib.buri` and
-> `//bench/m0007` became `//bench/m0007.buri`: every generated import line is
+> Every import named a file, so `core/list` became `core/list/lib.buri` and
+> `//bench/m0007` became `//bench/m0007.buri`: every generated import line was
 > longer by a suffix. §3.1's rule applies and was followed — **all eight** saved
 > corpora were re-recorded and **all forty** pinned manifests re-pinned.
 >

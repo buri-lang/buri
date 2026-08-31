@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = comment-heavy-100k
 profile = comment-heavy
-generator_revision = 5
-revision = 5
-recorded = 2026-08-30
+generator_revision = 6
+revision = 6
+recorded = 2026-08-31
 params = comment_block_lines=6 lines=100000
 lines = 100540
-bytes = 4610894
+bytes = 4605476
 modules = 201
-digest = 1e36f59b79d217c6ad50dbcd1139f28693f40b9b5550d756fc81da8a9c3c2ef9
+digest = 57c92afa060c44eddeb2c7c44a35a4b80792e08f3187959ece83b85b7f7a0f02

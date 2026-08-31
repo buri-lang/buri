@@ -117,9 +117,9 @@ const SEED: u64 = generate::SEED;
 /// measurement — so it is measured on its own and subtracted, and both figures
 /// are reported. See `design/PERFORMANCE.md` §3, "The prelude floor".
 const FLOOR: &str = "\
-from \"core/str/lib.buri\" import * as str;
-from \"core/list/lib.buri\" import * as list;
-from \"core/effect/lib.buri\" import { Alloc };
+from \"core/str\" import * as str;
+from \"core/list\" import * as list;
+from \"core/effect\" import { Alloc };
 
 export fn main(): Result<(), Str> {
   let xs: [Int] = list.empty<Int>();
