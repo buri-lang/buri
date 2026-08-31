@@ -112,7 +112,7 @@ pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(
 /// between is a flake rather than a failure.
 pub fn one_shot_server() -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Stdout }};
+        r#"from "core/effect" import {{ Alloc, Listen, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -123,6 +123,7 @@ export fn main(): Result<(), Str> {{
     Alloc: host.alloc,
     Listen: host.listen,
     Stdout: host.stdout,
+    Tasks: host.tasks,
   }};
   let plan = server.Server {{
     port: 0,
@@ -135,7 +136,7 @@ export fn main(): Result<(), Str> {{
     .Ok(listener) => {{
       let pad = "x".repeat(ctx, {pad});
       let _ = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
-      match (server.run(ctx, listener, plan.onRequest)) {{
+      match (server.run(ctx, listener, plan)) {{
         .Err(e) => .Err(server.errorText(e)),
         .Ok(_ok) => {{
           let _ = io.println(ctx, "served").ignore();
@@ -146,6 +147,68 @@ export fn main(): Result<(), Str> {{
   }}
 }}
 "#,
+        pad = STDOUT_BUFFER
+    )
+}
+
+/// A server that answers `requests` requests, each handler sleeping for
+/// `sleep_millis` before it answers.
+///
+/// **The sleep is the whole instrument.** A handler that computes proves nothing
+/// about concurrency on a machine with one processor free, and a handler that
+/// waits proves it on any machine: the acceptor's handlers overlapping take
+/// about one sleep in total, and one at a time takes `requests` of them. The gap
+/// between those two numbers is what `served_many`'s caller asserts inside.
+///
+/// How many handlers there are is not a parameter, because it is not a knob:
+/// the acceptor answers with `net.rs`'s `MAX_HANDLERS` on `Listener.handlers`
+/// and `run` fans out to it. That constant being a constant — sixty-four, and
+/// not a function of this machine's processor count — is what makes the timing
+/// assertion predictable, and `net.rs` says so where it is declared.
+pub fn concurrent_server(requests: usize, sleep_millis: usize) -> String {
+    format!(
+        r#"from "core/effect" import {{ Alloc, Clock, Listen, Stdout, Tasks }};
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/time" import * as time;
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{
+    Alloc: host.alloc,
+    Clock: host.clock,
+    Listen: host.listen,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  }};
+  let plan = server.Server {{
+    port: 0,
+    onRequest: fn(c, request) => {{
+      let _slept = time.sleepMs(c, {sleep});
+      http.text(c, request.path())
+    }},
+    requestLimit: .Some({requests}),
+    idleTimeoutMillis: .Some(60000),
+  }};
+  match (server.bind(ctx, plan)) {{
+    .Err(e) => .Err(server.errorText(e)),
+    .Ok(listener) => {{
+      let pad = "x".repeat(ctx, {pad});
+      let _ = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+      match (server.run(ctx, listener, plan)) {{
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(_ok) => {{
+          let _ = io.println(ctx, "served").ignore();
+          .Ok(())
+        }},
+      }}
+    }},
+  }}
+}}
+"#,
+        requests = requests,
+        sleep = sleep_millis,
         pad = STDOUT_BUFFER
     )
 }
@@ -238,6 +301,122 @@ pub fn served(binary: &Path, target: &str) -> (Ran, String) {
         stderr,
     };
     (ran, String::from_utf8_lossy(&reply).to_string())
+}
+
+/// Run a server binary and make `requests` requests **at the same time**, one
+/// thread each; answer what each client got back and how long the whole
+/// exchange took.
+///
+/// The shape is `served`'s, with the one difference that matters: the clients
+/// all connect before any of them is answered, so a server that answers one
+/// connection at a time takes `requests` handler-sleeps and one that answers
+/// `handlers` at a time takes about `requests / handlers` of them.
+///
+/// **Every wait is bounded and every thread is joined**, for the reason
+/// `served` states: a test that could wait forever for a server is a suite that
+/// runs until CI kills it.
+pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>, std::time::Duration) {
+    use std::io::{BufRead, Read, Write};
+    let mut child = Command::new(binary)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+    let stdout = child.stdout.take().expect("a piped stdout");
+    let (announced, listening) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut reader = std::io::BufReader::new(stdout);
+        let mut first = String::new();
+        let _ = reader.read_line(&mut first);
+        let port = first
+            .split_whitespace()
+            .nth(1)
+            .and_then(|p| p.parse::<u16>().ok())
+            .filter(|p| *p > 0);
+        let _ = announced.send(port);
+        let mut rest = String::new();
+        let _ = reader.read_to_string(&mut rest);
+        (first, rest)
+    });
+
+    let port = listening
+        .recv_timeout(SERVER_DEADLINE)
+        .unwrap_or_else(|e| panic!("the server announced no port within {SERVER_DEADLINE:?}: {e}"))
+        .expect("the server's first line did not carry a port");
+
+    let started = std::time::Instant::now();
+    let clients: Vec<_> = (0..requests)
+        .map(|i| {
+            std::thread::spawn(move || {
+                // The same retry `served` uses and for the same reason: the
+                // port is announced before the first accept, so a connect can
+                // lose the race with the backlog on a loaded machine.
+                let until = std::time::Instant::now() + SERVER_DEADLINE;
+                let mut socket = loop {
+                    match std::net::TcpStream::connect(("127.0.0.1", port)) {
+                        Ok(socket) => break socket,
+                        Err(e) => {
+                            assert!(
+                                std::time::Instant::now() < until,
+                                "could not reach the server on 127.0.0.1:{port}: {e}"
+                            );
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                    }
+                };
+                socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
+                socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
+                socket
+                    .write_all(
+                        format!("GET /r{i} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").as_bytes(),
+                    )
+                    .unwrap();
+                socket.flush().unwrap();
+                let mut reply = Vec::new();
+                let _ = socket.read_to_end(&mut reply);
+                String::from_utf8_lossy(&reply).to_string()
+            })
+        })
+        .collect();
+    let replies: Vec<String> =
+        clients.into_iter().map(|c| c.join().expect("a client finished")).collect();
+    let elapsed = started.elapsed();
+
+    let status = child.wait().expect("the server exited");
+    let (first, rest) = reader.join().expect("the reader thread finished");
+    let mut stderr = String::new();
+    if let Some(mut err) = child.stderr.take() {
+        let _ = err.read_to_string(&mut stderr);
+    }
+    let ran = Ran {
+        status: status.code().unwrap_or(-1),
+        stdout: format!(
+            "{}\n{rest}",
+            first.split_whitespace().take(2).collect::<Vec<_>>().join(" ")
+        ),
+        stderr,
+    };
+    (ran, replies, elapsed)
+}
+
+/// Every client got its own path back, and nobody got somebody else's.
+///
+/// **This is the ordering-independence claim.** The replies come back in
+/// whatever order the handlers finished, so what is asserted is the pairing and
+/// not the sequence: request `i` went out on connection `i` and `/ri` came back
+/// on it. A server that crossed two answers over would fail here whatever the
+/// timing said.
+pub fn each_answered_its_own(replies: &[String]) {
+    for (i, reply) in replies.iter().enumerate() {
+        assert!(
+            reply.starts_with("HTTP/1.1 200 OK\r\n"),
+            "client {i} was not answered 200:\n{reply}"
+        );
+        assert!(
+            reply.ends_with(&format!("\r\n\r\n/r{i}")),
+            "client {i} was answered somebody else's request:\n{reply}"
+        );
+    }
 }
 
 /// The three things every backend's server row asserts about the answer.
