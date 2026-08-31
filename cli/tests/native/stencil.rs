@@ -72,12 +72,14 @@ fn skip_reason() -> Option<String> {
 /// that returned quietly would report every test as passed on a host with no
 /// backend, which is exactly what `.github/scripts/assert-stencils.sh` exists
 /// to catch.
+///
+/// And on a runner it does not print, it **panics** — `harness/ci.rs` reads
+/// `BURI_CI`, every job in the workflow sets it, and every one of them asserts
+/// the stencil libraries are real bytes before the suite starts. A guard firing
+/// there is a broken runner rather than a modest host.
 fn supported() -> bool {
     match skip_reason() {
-        Some(why) => {
-            eprintln!("stencil: skipped ({why})");
-            false
-        }
+        Some(why) => !crate::ci::skipped("stencil", &why),
         None => true,
     }
 }

@@ -456,13 +456,11 @@ fn skip_reason() -> Option<String> {
 ///
 /// The print is the point: the corpus is 26 files and 1187 test blocks, and a
 /// host that ran none of them reports the same four passing tests as a host
-/// that ran all of them.
+/// that ran all of them. On a runner it is not a print but a panic —
+/// `harness/ci.rs` reads `BURI_CI` and the workflow sets it everywhere.
 fn supported() -> bool {
     match skip_reason() {
-        Some(why) => {
-            eprintln!("native conformance: skipped ({why})");
-            false
-        }
+        Some(why) => !crate::ci::skipped("native conformance", &why),
         None => true,
     }
 }

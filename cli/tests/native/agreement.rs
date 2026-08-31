@@ -301,7 +301,7 @@ fn skip_reason() -> Option<String> {
 macro_rules! rows_or_skip {
     () => {
         if let Some(why) = skip_reason() {
-            eprintln!("backend agreement: skipped ({why})");
+            crate::ci::skipped("backend agreement", &why);
             return;
         }
     };
