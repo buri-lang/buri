@@ -4,309 +4,317 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/str" import * as str;
-from "core/list" import * as list;
 from "core/effect" import { Alloc };
-from "//bench/m0010.buri" import { Node10, seed10, blend10, reach10 };
-from "//bench/m0013.buri" import { Node13, seed13, blend13, reach13 };
-from "//bench/m0006.buri" import { Node6, seed6, blend6, reach6 };
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "//bench/m0006.buri" import { blend6, Node6, reach6, seed6 };
+from "//bench/m0010.buri" import { blend10, Node10, reach10, seed10 };
+from "//bench/m0013.buri" import { blend13, Node13, reach13, seed13 };
 
+derive Eq, Show for Node14;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node14 {
-  export label: Str,
-  export value: Int,
-  export weight: Float,
+    export label: Str,
+    export value: Int,
+    export weight: Float,
 }
 
-derive Eq, Show for Node14;
-
-export fn seed14(): Int { 867 }
+export fn seed14(): Int {
+    867
+}
 
 /// Folds this module's seed together with its dependencies'.
 export fn blend14(base: Int): Int {
-  let d0 = blend10(base) + seed10();
-  let d1 = blend13(base) + seed13();
-  let d2 = blend6(base) + seed6();
-  d0 + d1 + d2 + seed14()
+    let d0 = blend10(base) + seed10();
+    let d1 = blend13(base) + seed13();
+    let d2 = blend6(base) + seed6();
+    d0 + d1 + d2 + seed14()
 }
 
 /// Reads a dependency's record, so the import carries a type as
 /// well as a function.
 export fn lift14(n: Node10): Node14 {
-  Node14 { label: n.label, value: n.value + seed14(), weight: n.weight }
+    Node14 { label: n.label, value: n.value + seed14(), weight: n.weight }
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
 export fn label14_0<C: Alloc>(ctx: C, id: Int, name: Str): Str {
-  let prefix = if (id < 0) { "golf" } else { "alpha" };
-  let body = str.format(ctx, "${prefix}-${name}-${id}");
-  body.toUpper(ctx)
+    let prefix = if (id < 0) { "golf" } else { "alpha" };
+    let body = str.format(ctx, "${prefix}-${name}-${id}");
+    body.toUpper(ctx)
 }
 
 /// Literals of the kinds the lexer has separate paths for: decimal,
 /// hexadecimal, float, char, escaped string.
 export fn constants14_0(): (Int, Int, Float, Char, Str) {
-  (992444, 0x8668, 806.732, 'q', "a\ttab and a \"quote\"")
+    (992444, 0x8668, 806.732, 'q', "a\ttab and a \"quote\"")
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_0<C: Alloc>(ctx: C): Int {
-  let (a, b, _, _, e) = constants14_0();
-  label14_0(ctx, a, e).len() + b
+    let (a, b, _, _, e) = constants14_0();
+    label14_0(ctx, a, e).len() + b
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
 export fn digest14_1<C: Alloc>(ctx: C): Int {
-  let xs: [Int] = [8491, 4325, 991, 7096, 4573];
-  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
-  let total = kept.fold(fn(acc, x) => acc + x, 0);
-  total + xs.len()
+    let xs: [Int] = [8491, 4325, 991, 7096, 4573];
+    let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+    let total = kept.fold(fn(acc, x) => acc + x, 0);
+    total + xs.len()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain14_1(): Int {
-  let empty: [Int] = list.empty<Int>();
-  empty.len()
+    let empty: [Int] = list.empty<Int>();
+    empty.len()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_1<C: Alloc>(ctx: C): Int {
-  digest14_1(ctx) + drain14_1()
+    digest14_1(ctx) + drain14_1()
 }
 
 /// A body of 4 bindings over integer arithmetic — the shape most
 /// lines in most programs actually have.
 export fn compute14_2(input: Int): Int {
-  let a0 = input * 9 + 907;
-  let a1 = a0 + 58;
-  let a2 = a1 * 53;
-  let a3 = a2 * 62;
-  if (a3 > 9502) { a3 } else { a3 - 31 }
+    let a0 = input * 9 + 907;
+    let a1 = a0 + 58;
+    let a2 = a1 * 53;
+    let a3 = a2 * 62;
+    if (a3 > 9502) { a3 } else { a3 - 31 }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_2<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  compute14_2(7)
+    let _ = ctx;
+    compute14_2(7)
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
 /// three things a decision tree has to merge.
 export fn choose14_3(a: Option<Int>, b: Option<Int>): Int {
-  match ((a, b)) {
-    (.Some(x), .Some(y)) if x > y => x - y,
-    (.Some(x), .Some(y)) => y - x,
-    (.Some(x), .None) => x,
-    (.None, .Some(y)) => y,
-    (.None, .None) => 0,
-  }
+    match ((a, b)) {
+        (.Some(x), .Some(y)) if x > y => x - y,
+        (.Some(x), .Some(y)) => y - x,
+        (.Some(x), .None) => x,
+        (.None, .Some(y)) => y,
+        (.None, .None) => 0,
+    }
 }
 
 /// A `?` chain, which is the other half of how errors move.
 export fn parseBoth14_3(left: Str, right: Str): Option<Int> {
-  let a = left.toInt()?;
-  let b = right.toInt()?;
-  .Some(a + b)
+    let a = left.toInt()?;
+    let b = right.toInt()?;
+    .Some(a + b)
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_3<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  let extra = match (parseBoth14_3("1", "2")) {
-    .Some(v) => v,
-    .None => 0,
-  };
-  choose14_3(.Some(3), .None) + extra
+    let _ = ctx;
+    let extra = match (parseBoth14_3("1", "2")) {
+        .Some(v) => v,
+        .None => 0,
+    };
+    choose14_3(.Some(3), .None) + extra
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
 export fn firstOr14_4<T>(xs: [T], fallback: T): T {
-  match (xs.first()) {
-    .Some(v) => v,
-    .None => fallback,
-  }
+    match (xs.first()) {
+        .Some(v) => v,
+        .None => fallback,
+    }
 }
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
 export fn describeAll14_4<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
-  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+    xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric14_4(ns: [Int], ss: [Str]): Int {
-  firstOr14_4<Int>(ns, 0) + firstOr14_4<Str>(ss, "").len()
+    firstOr14_4<Int>(ns, 0) + firstOr14_4<Str>(ss, "").len()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_4<C: Alloc>(ctx: C): Int {
-  useGeneric14_4([1, 2], ["a"]) + describeAll14_4(ctx, [1, 2]).len()
-}
-
-/// A record with 4 fields, derived comparisons and two methods.
-export struct Rec14_5 {
-  export f0: Int,
-  export f1: Str,
-  export f2: Float,
-  export f3: Bool,
+    useGeneric14_4([1, 2], ["a"]) + describeAll14_4(ctx, [1, 2]).len()
 }
 
 derive Eq, Show for Rec14_5;
+/// A record with 4 fields, derived comparisons and two methods.
+export struct Rec14_5 {
+    export f0: Int,
+    export f1: Str,
+    export f2: Float,
+    export f3: Bool,
+}
 
 impl Rec14_5 {
-  /// A pure accessor, of the kind that is most of a real impl block.
-  export fn scaled(self, factor: Int): Int {
-    self.f0 * factor + 657
-  }
+    /// A pure accessor, of the kind that is most of a real impl block.
+    export fn scaled(self, factor: Int): Int {
+        self.f0 * factor + 657
+    }
 
-  /// Allocates, and says so with `C: Alloc`.
-  export fn render<C: Alloc>(self, ctx: C): Str {
-    str.format(ctx, "rec14_5: ${self.f0}/${self.f1}")
-  }
+    /// Allocates, and says so with `C: Alloc`.
+    export fn render<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "rec14_5: ${self.f0}/${self.f1}")
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_5<C: Alloc>(ctx: C): Int {
-  let r = Rec14_5 { f0: 7, f1: "probe", f2: 1.5, f3: true };
-  r.scaled(3) + r.render(ctx).len()
+    let r = Rec14_5 { f0: 7, f1: "probe", f2: 1.5, f3: true };
+    r.scaled(3) + r.render(ctx).len()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
 export fn label14_6<C: Alloc>(ctx: C, id: Int, name: Str): Str {
-  let prefix = if (id < 0) { "bravo" } else { "delta" };
-  let body = str.format(ctx, "${prefix}-${name}-${id}");
-  body.toUpper(ctx)
+    let prefix = if (id < 0) { "bravo" } else { "delta" };
+    let body = str.format(ctx, "${prefix}-${name}-${id}");
+    body.toUpper(ctx)
 }
 
 /// Literals of the kinds the lexer has separate paths for: decimal,
 /// hexadecimal, float, char, escaped string.
 export fn constants14_6(): (Int, Int, Float, Char, Str) {
-  (282683, 0x291F, 767.034, 'q', "a\ttab and a \"quote\"")
+    (282683, 0x291F, 767.034, 'q', "a\ttab and a \"quote\"")
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_6<C: Alloc>(ctx: C): Int {
-  let (a, b, _, _, e) = constants14_6();
-  label14_6(ctx, a, e).len() + b
-}
-
-/// An enum of 6 variants, matched exhaustively below.
-export enum State14_7 {
-  Idle,
-  Running(Int),
-  Failed { code: Int, message: Str },
-  Step3(Int, Str),
-  Step4(Int, Str),
-  Step5(Int, Str),
+    let (a, b, _, _, e) = constants14_6();
+    label14_6(ctx, a, e).len() + b
 }
 
 derive Eq, Show for State14_7;
+/// An enum of 6 variants, matched exhaustively below.
+export enum State14_7 {
+    Idle,
+    Running(Int),
+    Failed { code: Int, message: Str },
+    Step3(Int, Str),
+    Step4(Int, Str),
+    Step5(Int, Str),
+}
 
 /// The match every enum in a real program has somewhere.
 export fn rank14_7(state: State14_7): Int {
-  match (state) {
-    .Idle => 0,
-    .Running(ticks) => ticks + 1,
-    .Failed { code, .. } => code * -1,
-    .Step3(k, _) => k + 3,
-    .Step4(k, _) => k + 4,
-    .Step5(k, _) => k + 5,
-  }
+    match (state) {
+        .Idle => 0,
+        .Running(ticks) => ticks + 1,
+        .Failed { code, .. } => code * -1,
+        .Step3(k, _) => k + 3,
+        .Step4(k, _) => k + 4,
+        .Step5(k, _) => k + 5,
+    }
 }
 
 /// Construction, so the variants are reachable from a root.
 export fn start14_7(ticks: Int): State14_7 {
-  if (ticks == 0) { .Idle } else if (ticks < 22) { .Running(ticks) }
-  else { .Failed { code: ticks, message: "overrun" } }
+    if (ticks == 0) {
+        .Idle
+    } else if (ticks < 22) {
+        .Running(ticks)
+    } else {
+        .Failed { code: ticks, message: "overrun" }
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_7<C: Alloc>(ctx: C): Int {
-  let s = start14_7(5);
-  rank14_7(s) + s.show(ctx).len()
+    let s = start14_7(5);
+    rank14_7(s) + s.show(ctx).len()
 }
 
 /// Nested matching over `Option` and a tuple, with a guard — the
 /// three things a decision tree has to merge.
 export fn choose14_8(a: Option<Int>, b: Option<Int>): Int {
-  match ((a, b)) {
-    (.Some(x), .Some(y)) if x > y => x - y,
-    (.Some(x), .Some(y)) => y - x,
-    (.Some(x), .None) => x,
-    (.None, .Some(y)) => y,
-    (.None, .None) => 0,
-  }
+    match ((a, b)) {
+        (.Some(x), .Some(y)) if x > y => x - y,
+        (.Some(x), .Some(y)) => y - x,
+        (.Some(x), .None) => x,
+        (.None, .Some(y)) => y,
+        (.None, .None) => 0,
+    }
 }
 
 /// A `?` chain, which is the other half of how errors move.
 export fn parseBoth14_8(left: Str, right: Str): Option<Int> {
-  let a = left.toInt()?;
-  let b = right.toInt()?;
-  .Some(a + b)
+    let a = left.toInt()?;
+    let b = right.toInt()?;
+    .Some(a + b)
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_8<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  let extra = match (parseBoth14_8("1", "2")) {
-    .Some(v) => v,
-    .None => 0,
-  };
-  choose14_8(.Some(3), .None) + extra
-}
-
-/// An enum of 4 variants, matched exhaustively below.
-export enum State14_9 {
-  Idle,
-  Running(Int),
-  Failed { code: Int, message: Str },
-  Step3(Int, Str),
+    let _ = ctx;
+    let extra = match (parseBoth14_8("1", "2")) {
+        .Some(v) => v,
+        .None => 0,
+    };
+    choose14_8(.Some(3), .None) + extra
 }
 
 derive Eq, Show for State14_9;
+/// An enum of 4 variants, matched exhaustively below.
+export enum State14_9 {
+    Idle,
+    Running(Int),
+    Failed { code: Int, message: Str },
+    Step3(Int, Str),
+}
 
 /// The match every enum in a real program has somewhere.
 export fn rank14_9(state: State14_9): Int {
-  match (state) {
-    .Idle => 0,
-    .Running(ticks) => ticks + 1,
-    .Failed { code, .. } => code * -1,
-    .Step3(k, _) => k + 3,
-  }
+    match (state) {
+        .Idle => 0,
+        .Running(ticks) => ticks + 1,
+        .Failed { code, .. } => code * -1,
+        .Step3(k, _) => k + 3,
+    }
 }
 
 /// Construction, so the variants are reachable from a root.
 export fn start14_9(ticks: Int): State14_9 {
-  if (ticks == 0) { .Idle } else if (ticks < 98) { .Running(ticks) }
-  else { .Failed { code: ticks, message: "overrun" } }
+    if (ticks == 0) {
+        .Idle
+    } else if (ticks < 98) {
+        .Running(ticks)
+    } else {
+        .Failed { code: ticks, message: "overrun" }
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_9<C: Alloc>(ctx: C): Int {
-  let s = start14_9(5);
-  rank14_9(s) + s.show(ctx).len()
+    let s = start14_9(5);
+    rank14_9(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
 export fn reach14<C: Alloc>(ctx: C): Int {
-  0
-    + probe14_0(ctx)
-    + probe14_1(ctx)
-    + probe14_2(ctx)
-    + probe14_3(ctx)
-    + probe14_4(ctx)
-    + probe14_5(ctx)
-    + probe14_6(ctx)
-    + probe14_7(ctx)
-    + probe14_8(ctx)
-    + probe14_9(ctx)
-    + reach10(ctx)
-    + reach13(ctx)
-    + reach6(ctx)
+    0
+        + probe14_0(ctx)
+        + probe14_1(ctx)
+        + probe14_2(ctx)
+        + probe14_3(ctx)
+        + probe14_4(ctx)
+        + probe14_5(ctx)
+        + probe14_6(ctx)
+        + probe14_7(ctx)
+        + probe14_8(ctx)
+        + probe14_9(ctx)
+        + reach10(ctx)
+        + reach13(ctx)
+        + reach6(ctx)
 }

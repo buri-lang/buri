@@ -2,12 +2,12 @@
 # and the README beside this file.
 name = long-bodies-1M
 profile = mixed
-generator_revision = 6
-revision = 6
+generator_revision = 7
+revision = 7
 recorded = 2026-08-31
 params = body_lets=24..48 lines=1000000 nesting=3 seed=0x0b001a575eed0013 w_arith_fn=8
-lines = 1007145
-bytes = 30994776
-modules = 3526
-digest = 51a52edbd09502fef1cf7cac406c08178ea1956263ae5ca7ecc59f72fd19dddd
+lines = 1010464
+bytes = 30239255
+modules = 3471
+digest = 757b9fabf416f45460c3a59bc00f871cea5c2d3a09b51aa10c05f544c57d0da0
 native = false

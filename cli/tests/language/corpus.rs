@@ -180,6 +180,10 @@ fn formatting_build_files_is_a_fixed_point() {
 /// or a recording of what a command printed — and says which suite asks that
 /// question instead. A corpus that cannot write such a row is a corpus that
 /// should be formatted.
+///
+/// It is not the list for *generated* source. A corpus written by a tool in
+/// this repository is held to the same layout as one written by a person — the
+/// tool is where it is fixed, which is [`GENERATED_NOT_BLESSED`] below.
 const UNFORMATTED_BY_DESIGN: &[(&str, &str)] = &[
     (
         "cli/tests/formatting",
@@ -216,13 +220,6 @@ const UNFORMATTED_BY_DESIGN: &[(&str, &str)] = &[
         "input that once crashed the toolchain, kept byte for byte. The bytes are the case",
     ),
     (
-        "cli/benches/corpora",
-        "a saved benchmark corpus is *output*: `benches/generate.rs` writes it and its \
-         `manifest.txt` pins the bytes and a digest of what was written \
-         (`design/PERFORMANCE.md` §3.1). Laying one out by hand would make it disagree with \
-         the generator that produced it, and would move every number pinned against it",
-    ),
-    (
         "cli/tests/repositories/linting/a_bound_the_fix_cannot_reach",
         "the case's subject is a comment written *between two bounds*, which is a position \
          the formatter does not keep — it prints every comment on a line of its own, so \
@@ -234,6 +231,37 @@ const UNFORMATTED_BY_DESIGN: &[(&str, &str)] = &[
          and its goldens record both halves of what the command did about that",
     ),
 ];
+
+/// Where a `.buri` file is checked but must not be **rewritten** here, and how
+/// to fix it instead.
+///
+/// `cli/benches/corpora` holds *output*: `benches/generate.rs` writes it and
+/// `manifest.txt` pins its bytes and their digest (`design/PERFORMANCE.md`
+/// §3.1). Since `GENERATOR_REVISION` 7 the last thing the generator does to a
+/// module is hand it to `formatting::source`, so a saved corpus **is** what
+/// `buri format` writes and belongs inside the walk rather than exempt from it.
+///
+/// What it does not belong inside is `BURI_BLESS`. Laying the file out where it
+/// sits would write bytes no generator wrote, and the first thing anybody heard
+/// about it would be `--validate` failing on a digest — one hash against
+/// another, with the diff that explained it already blessed away. So a drift
+/// here is reported with the command that regenerates it, and the file is left
+/// exactly as it was.
+const GENERATED_NOT_BLESSED: &[(&str, &str)] = &[(
+    "cli/benches/corpora",
+    "a saved benchmark corpus is output, so it is re-recorded rather than laid out: \
+     `BURI_BLESS=1 cargo bench -p buri --bench compiler -- --record=<name>`. If \
+     `benches/generate.rs` moved, `GENERATOR_REVISION` and the forty pinned manifests \
+     move with it (`design/PERFORMANCE.md` §6)",
+)];
+
+/// Whether a path is generated output, and the row saying how to regenerate it.
+fn regenerated_rather_than_blessed(rel: &str) -> Option<&'static str> {
+    GENERATED_NOT_BLESSED
+        .iter()
+        .find(|(dir, _)| rel.starts_with(&format!("{dir}/")))
+        .map(|(_, how)| *how)
+}
 
 /// Whether a file is a template rather than a file.
 ///
@@ -313,7 +341,9 @@ fn every_buri_file(root: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
 ///
 /// The walk is the enforcement and [`UNFORMATTED_BY_DESIGN`] is the whole of
 /// the exemption, so a corpus added tomorrow is checked without anybody
-/// remembering to add it here.
+/// remembering to add it here. [`GENERATED_NOT_BLESSED`] is not a second
+/// exemption: those files are checked like every other, and only the *fix* is
+/// different — they are regenerated rather than laid out where they sit.
 ///
 /// ```text
 /// buri format                                                   # in a repository
@@ -328,6 +358,7 @@ fn every_source_in_the_repository_is_formatted() {
     let blessing = std::env::var_os("BURI_BLESS").is_some();
 
     let mut drifted = Vec::new();
+    let mut stale_output = Vec::new();
     let mut refused = Vec::new();
     for path in &files {
         let Ok(text) = std::fs::read_to_string(path) else { continue };
@@ -335,7 +366,9 @@ fn every_source_in_the_repository_is_formatted() {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         match canonical(&rel, &name, &text) {
             Some(formatted) if formatted != text => {
-                if blessing {
+                if let Some(how) = regenerated_rather_than_blessed(&rel) {
+                    stale_output.push((rel, how));
+                } else if blessing {
                     std::fs::write(path, &formatted).unwrap();
                 } else {
                     drifted.push(rel);
@@ -356,6 +389,14 @@ fn every_source_in_the_repository_is_formatted() {
          `UNFORMATTED_BY_DESIGN` with a row saying which suite asks it its question.",
         refused.len(),
         refused.join("\n  ")
+    );
+    assert!(
+        stale_output.is_empty(),
+        "{} generated `.buri` file(s) are not what `buri format` would write, and \
+         blessing is not the fix for them:\n  {}\n{}",
+        stale_output.len(),
+        stale_output.iter().map(|(rel, _)| rel.as_str()).collect::<Vec<_>>().join("\n  "),
+        stale_output.first().map(|(_, how)| *how).unwrap_or_default()
     );
     assert!(
         drifted.is_empty(),
