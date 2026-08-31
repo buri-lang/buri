@@ -2,9 +2,9 @@
 # and the README beside this file.
 name = few-large-fns-1k
 profile = few-large-fns
-generator_revision = 5
-revision = 2
-recorded = 2026-08-30
+generator_revision = 6
+revision = 3
+recorded = 2026-08-31
 params = lines=1000
 lines = 1010
 bytes = 23867

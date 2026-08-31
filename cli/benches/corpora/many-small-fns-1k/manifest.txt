@@ -2,9 +2,9 @@
 # and the README beside this file.
 name = many-small-fns-1k
 profile = many-small-fns
-generator_revision = 5
-revision = 2
-recorded = 2026-08-30
+generator_revision = 6
+revision = 3
+recorded = 2026-08-31
 params = lines=1000
 lines = 1018
 bytes = 30492

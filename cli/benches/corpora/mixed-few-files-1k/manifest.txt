@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = mixed-few-files-1k
 profile = mixed-few-files
-generator_revision = 5
-revision = 5
-recorded = 2026-08-30
+generator_revision = 6
+revision = 6
+recorded = 2026-08-31
 params = fanout=1..2 lines=1000 lines_per_module=5000
 lines = 1085
-bytes = 37202
+bytes = 37157
 modules = 2
-digest = aa559cffcc4cd4526511f9c35e6b4e5da12dc19e7615800fe316b2c837b64fdb
+digest = 3efa6baf94a37cab1b53c716489db5be1f55ac9820bbc95be3d02caeb61a9333

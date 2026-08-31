@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = struct-light-1M
 profile = struct-light
-generator_revision = 5
-revision = 4
-recorded = 2026-08-30
+generator_revision = 6
+revision = 5
+recorded = 2026-08-31
 params = lines=1000000 w_struct=0
 lines = 1007260
-bytes = 35820177
+bytes = 35723175
 modules = 3593
-digest = 6bfbb1229223b57268014d749d90bf8bf0d7b252d30cac932e2eba04365e1bc6
+digest = 890a6812edeefb8fe46a4f6929233b40291176805ccf642a6281752c2cd3b2fa
