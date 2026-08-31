@@ -463,13 +463,13 @@ impl<'a> Monomorphizer<'a> {
                     .map(|c| format!("{}.", self.tables().tycon(c).name))
                     .unwrap_or_default();
                 let debug = format!("{module}:{owner}{}", info.name);
-                // The whole path, file name and all. Taking `lib.buri` off the
-                // way `intrinsic_key` does would be shorter and would collide:
-                // `//lib/a.buri` and `//lib/a/lib.buri` are two modules that
-                // may both exist — see the `a_module_beside_a_package_of_its_name`
-                // case — and two functions on one symbol is a miscompile.
-                // `intrinsic_key` may strip it because it only ever names a
-                // standard library module, and none of those has a sibling.
+                // The whole path, file name and all. It is the module's
+                // canonical path, which is the file — a repository module has
+                // two spellings and only one identity — and taking `lib.buri`
+                // off it would collide: `//lib/a.buri` and `//lib/a/lib.buri`
+                // are two modules that may both exist (see the
+                // `a_module_beside_a_package_of_its_name` case), and two
+                // functions on one symbol is a miscompile.
                 let mut symbol = format!(
                     "{}${owner}{}",
                     module.replace(['/', '.'], "_").replace("//", ""),
@@ -713,14 +713,13 @@ impl<'a> Monomorphizer<'a> {
             .module_paths
             .get(info.module.index())
             .cloned()
-            .unwrap_or_else(|| "core/num/lib.buri".into());
-        // The key names the *module*, not the file: `core/str/lib.buri` is
-        // `str` and `ui/effect/lib.buri` is `ui_effect`, which is what every
-        // backend's runtime table is written against. A module path names a
-        // file, so the surface's name comes off here rather than at each of the
-        // three tables.
-        let stem = module.strip_suffix("/lib.buri").unwrap_or(&module);
-        let short = stem.strip_prefix("core/").unwrap_or(stem).replace('/', "_");
+            .unwrap_or_else(|| "core/num".into());
+        // `core/str` is `str` and `ui/effect` is `ui_effect`, which is what
+        // every backend's runtime table is written against. A standard library
+        // module path is the module and nothing else — it never names a file
+        // inside one, because there is nothing inside one to name — so there
+        // is no surface name to take off here.
+        let short = module.strip_prefix("core/").unwrap_or(&module).replace('/', "_");
         let key = match info.self_ty {
             // `core/str` exists for `Str`, so `str.Str.len` says it twice.
             // `core/num` is the defining module of a dozen types, so there the

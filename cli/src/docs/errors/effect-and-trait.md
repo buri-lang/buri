@@ -23,8 +23,8 @@ is not.
 ## A program that provokes it
 
 ```buri fail code=effect-and-trait
-# from "core/effect/lib.buri" import { Alloc, Stdout };
-# from "core/order/lib.buri" import { Show };
+# from "core/effect" import { Alloc, Stdout };
+# from "core/order" import { Show };
 struct SilentOut {}
 
 impl Stdout for SilentOut {

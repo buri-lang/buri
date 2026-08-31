@@ -51,8 +51,11 @@ impl Role {
 
 pub struct ModuleData {
     pub id: ModuleId,
-    /// The module path as written in an import, which names a file:
-    /// `//lib/money/cents.buri`, `core/list/lib.buri`.
+    /// The module's canonical path, which for a repository module is the file:
+    /// `//lib/money/cents.buri`, `//lib/money/lib.buri`. For the standard
+    /// library it is the module: `core/list`. Canonical rather than as
+    /// written, because a repository module has two legal spellings — see
+    /// [`crate::build::workspace::PackageModule::path`].
     pub path: String,
     pub file: FileId,
     pub role: Role,
@@ -521,7 +524,10 @@ impl<'a> Loader<'a> {
         if let Some(id) = self.by_path.get(path) {
             return Some(*id);
         }
-        let Some(text) = standard_library::source(path) else {
+        // `core/effect` is what the table holds and `core/effect/lib.buri`
+        // names the same module the long way round. The module is keyed by the
+        // canonical spelling, so the two cannot become two.
+        let Some(module) = standard_library::find(path) else {
             self.diags.push(
                 Diagnostic::templated("no-such-module", span)
                     .with_bind("path", path)
@@ -529,6 +535,13 @@ impl<'a> Loader<'a> {
             );
             return None;
         };
+        let (written, text) = (path, module.source);
+        let path = module.path;
+        if let Some(id) = self.by_path.get(path) {
+            let id = *id;
+            self.alias(written, id);
+            return Some(id);
+        }
         let file = self.map.embedded(path, text);
         let (ast, errors) = self.cache.parse(self.map.text(file), file, true);
         self.diags.extend(errors.iter().cloned());
@@ -544,8 +557,24 @@ impl<'a> Loader<'a> {
             pkg: None,
             disk: None,
         });
+        self.alias(written, id);
         self.load_imports(id);
         Some(id)
+    }
+
+    /// Records that `written` reaches the module already loaded as `id`.
+    ///
+    /// A module has one identity — one [`ModuleData`], one canonical path —
+    /// and two legal spellings, because which one an import writes depends on
+    /// whether it crosses a package boundary. `by_path` is therefore every
+    /// spelling that reaches a module rather than one key per module: the
+    /// resolver looks a module up by the string in the import line, and both
+    /// strings have to land on the same module or the types they carry are
+    /// not the same types.
+    fn alias(&mut self, written: &str, id: ModuleId) {
+        if !self.by_path.contains_key(written) {
+            self.by_path.insert(written.to_string(), id);
+        }
     }
 
     /// Loads by module path, resolving through the workspace.
@@ -562,11 +591,22 @@ impl<'a> Loader<'a> {
             );
             return None;
         };
+        // `m.path` rather than `path`: two spellings reach one file — a module
+        // is `//lib/money` from outside and `//lib/money/lib.buri` from inside
+        // — and the module is keyed by the file, so the two cannot become two
+        // copies of everything the file declares.
         match ws.resolve_module(path) {
-            Ok(ModuleLocation::InPackage(m)) if m.kind == ModuleKind::Proto => {
-                self.load_proto(path, m.file, role, span)
+            Ok(ModuleLocation::InPackage(m)) => {
+                let (canonical, kind, file) = (m.path, m.kind, m.file);
+                let id = match kind {
+                    ModuleKind::Proto => self.load_proto(&canonical, file, role, span),
+                    _ => self.load_file(&canonical, file, role, span),
+                };
+                if let Some(id) = id {
+                    self.alias(path, id);
+                }
+                id
             }
-            Ok(ModuleLocation::InPackage(m)) => self.load_file(path, m.file, role, span),
             Ok(ModuleLocation::Std { .. }) => self.load_std(path, span),
             Err(msg) => {
                 // The resolver says which of the several ways a path can fail
@@ -738,41 +778,12 @@ impl<'a> Loader<'a> {
             return false;
         }
 
-        // Every import names a file. Asked of the string, before anything is
-        // resolved, so a snippet in the documentation, a generated benchmark
-        // and a fixture standing outside any repository all get the same
-        // answer as a source file in a package — and so the reader is told
-        // that the *spelling* is wrong rather than that a module is missing.
-        if (path.starts_with("//") || standard_library::is_std_path(path))
-            && !crate::build::workspace::names_a_file(path)
-        {
-            let mut d = Diagnostic::templated("import-path-without-a-file", span)
-                .with_bind("path", path);
-            // The fix is derived, never guessed: `//lib/money/cents` is a
-            // module in one repository and a library's surface in another, and
-            // only the workspace this file sits in can say which. Where there
-            // is no workspace — or where it does not recognise the path — the
-            // message stands on its own and no edit is offered.
-            if let Some(suggestion) =
-                self.ws.and_then(|ws| ws.file_form_of(path)).or_else(|| {
-                    let candidate = format!("{path}/lib.buri");
-                    standard_library::find(&candidate).map(|_| candidate)
-                })
-            {
-                // The page's `fix` has to teach the rule, because most of the
-                // places this fires have no repository to ask. Where there is
-                // one, the concrete answer replaces it — in the terminal and
-                // as the title of the editor's quick fix, which is the same
-                // string.
-                d = d.with_fix(format!("write \"{suggestion}\""));
-                d = d.with_edit(span.inside_quotes(self.map.text(span.file)), &suggestion);
-            }
-            self.diags.push(d);
-            return false;
-        }
-
         // `core/host` is importable only from the module that exports `main`.
-        if path == standard_library::HOST_MODULE && role != Role::Entry {
+        // Asked of the canonical spelling, so that naming the surface file the
+        // long way round is not a way past the gate.
+        if standard_library::canonical(path) == Some(standard_library::HOST_MODULE)
+            && role != Role::Entry
+        {
             self.diags.push(Diagnostic::templated("host-import", span));
             return false;
         }
@@ -804,9 +815,39 @@ impl<'a> Loader<'a> {
         // compiled independently — one test binary each — so there is nothing
         // for an import to resolve to, whoever writes it (TESTING.md, "What a
         // test can reach").
-        if is_declared_test_source(ws, Some(loc.package), path) {
+        if is_declared_test_source(ws, Some(loc.package), &loc.path) {
             self.diags
                 .push(Diagnostic::templated("test-source-import", span).with_bind("path", path));
+            return false;
+        }
+
+        // A surface is named as a module — `//lib/money`, `//lib/money/testing`
+        // — wherever it is written, including from inside the package that
+        // owns it: a suite reaches its own library the way its dependents do.
+        // Every other module is a file, and its path is that file's name.
+        //
+        // So the check is on the *kind*, and the same-package guard is only
+        // about which diagnostic gets to speak: from outside, a path naming a
+        // module inside another package is `internal-import`, and telling its
+        // writer to add `.buri` would be telling them to write a different
+        // error.
+        //
+        // The fix is read off the resolver rather than guessed. One textual
+        // rule cannot produce both answers: in a repository holding
+        // `lib/money/cents.buri` and `cmd/app/main.buri`, `//lib/money/cents`
+        // means `cents.buri` while `//cmd/app/main` means `main.buri`, and
+        // only the layout says which.
+        let names_a_surface =
+            matches!(loc.kind, ModuleKind::LibrarySurface | ModuleKind::TestingSurface);
+        if Some(loc.package) == importer_pkg
+            && !names_a_surface
+            && !crate::build::workspace::names_a_file(path)
+        {
+            let d = Diagnostic::templated("import-path-without-a-file", span)
+                .with_bind("path", path)
+                .with_fix(format!("write \"{}\"", loc.path))
+                .with_edit(span.inside_quotes(self.map.text(span.file)), &loc.path);
+            self.diags.push(d);
             return false;
         }
 
@@ -861,8 +902,12 @@ impl<'a> Loader<'a> {
                     let rel = package_relative_source(ws, id, p)?;
                     ws.rule_of_file(id, &rel)
                 };
+                // `loc.path` and not `path`: this asks which *file* a rule
+                // owns, so it needs the module's canonical path rather than
+                // the string somebody typed. An extensionless spelling would
+                // otherwise find no file and skip the check in silence.
                 let importer_rule = rule_of(importer_pkg, importer_path);
-                let target_rule = rule_of(Some(loc.package), path);
+                let target_rule = rule_of(Some(loc.package), &loc.path);
                 if let (Some(from), Some(to)) = (importer_rule, target_rule) {
                     if from != to {
                         let owner = ws.package(loc.package).label();

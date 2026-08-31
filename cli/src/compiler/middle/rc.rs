@@ -2665,9 +2665,9 @@ mod tests {
     fn only_a_program_that_can_reach_a_task_boundary_is_marked() {
         let plain = run(&compile(
             r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2683,10 +2683,10 @@ export fn main(): Result<(), Str> {
 
         let program = compile(
             r#"
-from "core/effect/lib.buri" import { Alloc, Stdout, Tasks };
-from "core/host/lib.buri" import * as host;
-from "core/tasks/lib.buri" import * as tasks;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/tasks" import * as tasks;
+from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
@@ -3139,8 +3139,8 @@ export fn main(): Result<(), Str> {
     /// past the match, a borrow across a call, and two branches that use
     /// different values.
     const TREE: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Tree { Leaf, Node(Str, [Tree]) }
 
@@ -3160,8 +3160,8 @@ export fn main(): Result<(), Str> {
 "#;
 
     const PROGRAM: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 struct P { name: Str, n: Int }
 
@@ -3207,8 +3207,8 @@ export fn main(): Result<(), Str> {
     /// shape the LLVM backend's live-block test leaked three blocks an
     /// iteration on.
     const CHURN: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 struct Row { name: Str, tags: [Str] }
 
@@ -3270,9 +3270,9 @@ export fn main(): Result<(), Str> {
     /// A tail-recursive drain: every iteration builds *both* of its loop
     /// variables, and neither is the caller's to keep alive.
     const DRAIN: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/list/lib.buri" import * as list;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
 
 export fn drain<C: Alloc>(ctx: C, xs: [Int], acc: [Int]): [Int] {
   match (xs.first()) {
@@ -3372,10 +3372,10 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_rest_binding_is_dropped_and_never_increfed() {
         let src = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/list/lib.buri" import * as list;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+from "core/str" import * as str;
 
 export fn tell<C: Alloc>(ctx: C, xs: [Str]): Int {
   match (xs) {
@@ -3426,8 +3426,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_merged_group_balances_at_every_entry() {
         let src = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 export fn even(n: Int, s: Str, t: Str): Str {
   if (n <= 0) { s } else { odd(n - 1, t, s) }
@@ -3463,8 +3463,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_closure_in_a_loop_captures_by_incrementing() {
         let src = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 export fn tag<C: Alloc>(ctx: C, n: Int, prefix: Str, acc: [Str]): [Str] {
   if (n <= 0) {
@@ -3604,8 +3604,8 @@ export fn main(): Result<(), Str> {
         let args: Vec<String> = (0..LINKS).map(|i| format!("\"x{i}\", \"x{i}\"")).collect();
         let src = format!(
             r#"
-from "core/effect/lib.buri" import {{ Alloc, Stdout }};
-from "core/host/lib.buri" import * as host;
+from "core/effect" import {{ Alloc, Stdout }};
+from "core/host" import * as host;
 
 export fn same({params}): Bool {{
   {chain}
@@ -3641,8 +3641,8 @@ export fn main(): Result<(), Str> {{
     #[test]
     fn a_deferred_scrutinee_is_not_consumed_by_the_match_that_reads_it() {
         const SRC: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -3817,9 +3817,9 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_scrutinee_the_match_built_is_dropped_after_the_arms() {
         const SRC: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/list/lib.buri" import * as list;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
 
 fn two<C: Alloc>(ctx: C, n: Int): ([Int], [Int]) {
   (list.range(ctx, 0, n), list.range(ctx, 0, n + 1))
@@ -3856,9 +3856,9 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_fresh_value_behind_a_branch_is_still_dropped() {
         const SRC: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/str" import * as str;
 
 fn size(s: Str): Int { s.len() }
 
@@ -3892,9 +3892,9 @@ export fn main(): Result<(), Str> {
     #[test]
     fn the_standard_library_balances_too() {
         let src = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/list/lib.buri" import * as list;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
 
 struct Row { name: Str, tags: [Str] }
 
@@ -3927,8 +3927,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_dying_value_is_paired_with_a_construction() {
         let src = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Pair { One(Str), Two(Str, Str) }
 
@@ -3972,8 +3972,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_value_used_after_the_construction_is_not_paired() {
         let src = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Pair { One(Str), Two(Str, Str) }
 
@@ -4023,8 +4023,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn only_a_construction_pairs_and_it_carries_its_own_shape() {
         let src = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Shape { Nil, One(Str), Two(Str, Str) }
 
@@ -4089,8 +4089,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn purity_is_a_fixpoint_over_the_call_graph() {
         let src = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 export fn double(n: Int): Int { n * 2 }
 
@@ -4151,10 +4151,10 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_context_and_an_option_no_literal_builds_are_both_counted() {
         const SRC: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/list/lib.buri" import * as list;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+from "core/str" import * as str;
 
 export fn showFirst<C: Alloc>(ctx: C, o: Option<Str>): Str {
   match (o) { .Some(v) => str.format(ctx, "S${v}"), .None => "N" }
@@ -4198,9 +4198,9 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_fresh_scrutinee_is_dropped_on_the_arm_that_jumps_too() {
         const SRC: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/list/lib.buri" import * as list;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
 
 fn takeOne<C: Alloc>(ctx: C, xs: [Int]): Option<(Int, [Int])> {
   match (xs.first()) {
@@ -4276,8 +4276,8 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_called_closure_is_not_consumed_by_the_call() {
         const SRC: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 export fn twice<C: Alloc>(ctx: C, n: Int): Int {
   let g: fn(Int) => Int = fn(x) => x + n;
@@ -4331,9 +4331,9 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_projection_of_a_temporary_releases_it() {
         const SRC: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/list/lib.buri" import * as list;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
 
 struct Pair { a: [Str], b: [Str] }
 
@@ -4594,9 +4594,9 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_compiled_program_agrees() {
         let src = r#"
-from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/fs/lib.buri" import * as fs;
+from "core/effect" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
+from "core/fs" import * as fs;
 
 export fn double(n: Int): Int { n * 2 }
 

@@ -35,8 +35,8 @@
 //! re-extracted, no element is touched, and the browser repaints from the
 //! variables it already had.
 
-from "ui/prop/lib.buri" import { Prop };
-from "ui/style/lib.buri" import { Color };
+from "ui/prop" import { Prop };
+from "ui/style" import { Color };
 
 /// One package's tokens, resolved to values.
 ///

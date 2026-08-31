@@ -816,14 +816,14 @@ mod tests {
     /// runner hooks are built by `middle::monomorphize::leaving` and no
     /// declaration spells them, which both runtime tables already say.
     const DECLARED_IN: &[(&str, &str)] = &[
-        ("alloc", "core/alloc/lib.buri"),
-        ("bytes", "core/bytes/lib.buri"),
-        ("char", "core/char/lib.buri"),
-        ("host", "core/host/lib.buri"),
-        ("host_testing", "core/host/testing/lib.buri"),
-        ("list", "core/list/lib.buri"),
-        ("math", "core/math/lib.buri"),
-        ("str", "core/str/lib.buri"),
+        ("alloc", "core/alloc"),
+        ("bytes", "core/bytes"),
+        ("char", "core/char"),
+        ("host", "core/host"),
+        ("host_testing", "core/host/testing"),
+        ("list", "core/list"),
+        ("math", "core/math"),
+        ("str", "core/str"),
     ];
 
     /// Every `fn <name>` in `source`, answered as the index of its `ctx`

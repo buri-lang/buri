@@ -63,7 +63,7 @@ fn wanted(c: &Checker, fid: FnId) -> bool {
 fn check_bodies_the_extractor_folds(c: &mut Checker) {
     let Bodies::In(files) = c.wanted.clone() else { return };
     // No `ui/style` in the closure is no extraction, and then no fold.
-    if c.loaded.find("ui/style/lib.buri").is_none() {
+    if c.loaded.find("ui/style").is_none() {
         return;
     }
     let mut queue = Vec::new();

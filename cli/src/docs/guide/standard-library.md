@@ -185,8 +185,8 @@ finished in, handing each call the item's own index. Every task has finished
 before it returns, so nothing outlives the context that granted it:
 
 ```buri
-from "core/effect/lib.buri" import { Alloc, Tasks };
-from "core/tasks/lib.buri" import * as tasks;
+from "core/effect" import { Alloc, Tasks };
+from "core/tasks" import * as tasks;
 
 fn squares<C: Alloc + Tasks>(ctx: C, ns: [Int]): [Int] {
   tasks.parallel(ctx, ns, fn(c, i, n) => n * n)
@@ -213,8 +213,8 @@ signature names them. A message is built by a free function and then by
 chaining:
 
 ```buri
-from "core/effect/lib.buri" import { Alloc, Net };
-from "core/net/http/lib.buri" import * as http;
+from "core/effect" import { Alloc, Net };
+from "core/net/http" import * as http;
 
 fn ping<C: Alloc + Net>(ctx: C): Str {
   match (http.send(ctx, http.request(.Get, "http://example.com/ping"))) {
@@ -276,8 +276,8 @@ builds its own allocator has been granted nothing.
 `core/alloc` also has the **scope**:
 
 ```buri
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc, Fs };
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc, Fs };
 
 fn inAScope<C: Alloc + Fs>(ctx: C, path: Str): Bool {
   alloc.scoped(ctx, fn(c) => c.fileExists(path))

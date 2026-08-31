@@ -23,7 +23,7 @@ and the diagnostic names the component rather than the type you wrote it on.
 ## A program that provokes it
 
 ```buri fail code=underivable
-# from "core/order/lib.buri" import { Eq };
+# from "core/order" import { Eq };
 struct Inner { export x: Int }
 
 struct Outer { export inner: Inner }

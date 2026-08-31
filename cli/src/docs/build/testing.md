@@ -44,10 +44,10 @@ into the library.
 ```buri repo=cli/tests/example role=test
 // lib/money/test/cents.buri
 
-from "//lib/money/lib.buri" import { fromCents, fromDollars };
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
+from "//lib/money" import { fromCents, fromDollars };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
 
 test "pads the cents place" {
   let ctx = context { Alloc: alloc() };
@@ -87,8 +87,8 @@ same as a call. `assert.ok`, `assert.err`, and `assert.some` return the
 unwrapped value, which is how a `Result` is consumed in a test:
 
 ```buri repo=cli/tests/example role=test
-# from "//lib/money/lib.buri" import { parse, ParseError };
-# from "core/testing/assert/lib.buri" import * as assert;
+# from "//lib/money" import { parse, ParseError };
+# from "core/testing/assert" import * as assert;
 test "rejects text that is not a number" {
   let e = assert.err(parse("nineteen"));
   assert.eq(e, ParseError.NotANumber { text: "nineteen" });
@@ -101,8 +101,8 @@ same way, and the `;` after its `}` is what says so — leave it off and the
 returned had anything followed it:
 
 ```buri repo=cli/tests/example role=test
-# from "//lib/money/lib.buri" import { parse, ParseError };
-# from "core/testing/assert/lib.buri" import * as assert;
+# from "//lib/money" import { parse, ParseError };
+# from "core/testing/assert" import * as assert;
 test "either outcome is asserted where it lands" {
   match (parse("19.99")) {
     .Ok(_) => assert.isTrue(true),
@@ -121,12 +121,12 @@ A test source may import:
 
 | | |
 |---|---|
-| The target under test | `//lib/money/lib.buri` for a library, `//cmd/server/main.buri` for a binary |
+| The target under test | `//lib/money` for a library — its surface, the same name a dependent uses — and `//cmd/server/main.buri` for a binary, whose entry point is a file and not a surface |
 | The target's `dependencies` | The same libraries the target itself depends on |
 | The suite's `test.dependencies` | Fakes, fixtures, matchers |
-| `core/*` | Including the test platform: `core/testing/assert/lib.buri` and `core/host/testing/lib.buri` |
+| `core/*` | Including the test platform: `core/testing/assert` and `core/host/testing` |
 
-| Any test-only path | `//lib/ledger/testing/lib.buri`, `//lib/testing/fakes/lib.buri` — the package is declared in `test.dependencies` like any other library |
+| Any test-only path | `//lib/ledger/testing`, `//lib/testing/fakes` — the package is declared in `test.dependencies` like any other library |
 
 and may not:
 
@@ -164,13 +164,13 @@ library code that happens to be test-only, and it lives behind a path with a
 `testing` segment ([`libraries.md`](./libraries.md#the-testing-surface)):
 
 ```buri repo=cli/tests/example package=//lib/ledger role=testing
-# from "core/host/testing/lib.buri" import { alloc, fs };
-# from "core/effect/lib.buri" import { Alloc, Fs };
+# from "core/host/testing" import { alloc, fs };
+# from "core/effect" import { Alloc, Fs };
 // lib/ledger/testing/fixtures.buri — inside //lib/ledger, so it can use the
 // library's internals to build a fixture.
 
 from "//lib/ledger/entry.buri" import { Entry, entry };
-from "//lib/money/lib.buri" import { fromCents, fromDollars };
+from "//lib/money" import { fromCents, fromDollars };
 
 /// A three-entry ledger, one of them zero, for anyone testing against ledgers.
 export fn sample(): [Entry] {
@@ -192,13 +192,13 @@ export context WithLedger {
 
 A `testing { sources: [...] }` block in `lib/ledger/BUILD.buri` is what puts
 that file in the build. A consumer's suite then reaches it the way it reaches
-any library — declared, and by label:
+any library — declared, and by that same label:
 
 ```buri repo=cli/tests/example package=//tools/report role=test
 // tools/report/test/render.buri — a different package's suite, using it. A
 // name reaches this suite only if `testing/lib.buri` re-exports it, exactly as
 // `lib.buri` decides the library's own surface one level up.
-from "//lib/ledger/testing/lib.buri" import { sample, oneOff };
+from "//lib/ledger/testing" import { sample, oneOff };
 ```
 
 with `test { dependencies: ["//lib/ledger/testing"] }` in that package's rule.
@@ -218,8 +218,8 @@ its test sources import it by its module path:
 from "//cmd/server/routes.buri" export { Route, route };
 
 from "//cmd/server/routes.buri" import { route };
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
@@ -232,7 +232,7 @@ export fn main(): Result<(), Str> {
 ```
 
 ```buri repo=cli/tests/example package=//cmd/server role=test
-# from "core/testing/assert/lib.buri" import * as assert;
+# from "core/testing/assert" import * as assert;
 // cmd/server/test/routes.buri
 
 from "//cmd/server/main.buri" import { route };
@@ -254,10 +254,10 @@ hand it ([`SPEC.md` §11](../SPEC.md)). A binary whose failure modes you want to
 assert on puts them in a function that takes an ordinary bounded `ctx`:
 
 ```buri
-# from "core/effect/lib.buri" import { Alloc, Env, Fs, Stdout };
-# from "core/host/lib.buri" import * as host;
-# from "core/env/lib.buri" import * as env;
-# from "core/fs/lib.buri" import * as fs;
+# from "core/effect" import { Alloc, Env, Fs, Stdout };
+# from "core/host" import * as host;
+# from "core/env" import * as env;
+# from "core/fs" import * as fs;
 // cmd/server/main.buri
 export fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> {
   fs.writeText(ctx, path, "started\n").mapErr(fn(e) => "could not write the ledger log")
@@ -279,10 +279,10 @@ export fn main(): Result<(), Str> {
 supply, and it is the same list in both directions.
 
 ```buri role=test
-# from "core/testing/assert/lib.buri" import * as assert;
-# from "core/host/testing/lib.buri" import { alloc, fs as memory, stdout };
-# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
-# from "core/fs/lib.buri" import * as fs;
+# from "core/testing/assert" import * as assert;
+# from "core/host/testing" import { alloc, fs as memory, stdout };
+# from "core/effect" import { Alloc, Fs, Stdout };
+# from "core/fs" import * as fs;
 # fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> {
 #   fs.writeText(ctx, path, "started\n").mapErr(fn(e) => "could not write the ledger log")
 # }
@@ -387,9 +387,9 @@ no method could read it would be state kept for its own sake, so `exitWith`
 absorbs the call and answers `()`.
 
 ```buri role=test
-# from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc, fs };
-from "core/effect/lib.buri" import { Alloc, Fs, IoError };
+# from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc, fs };
+from "core/effect" import { Alloc, Fs, IoError };
 # fn archive<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
 #   match (ctx.readFile(path)) {
 #     .Err(e) => .Err(e),
@@ -413,9 +413,9 @@ test "a read-only filesystem refuses the write, and nothing is written" {
 ```
 
 ```buri role=test
-# from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc, clock, env, stdout };
-from "core/effect/lib.buri" import { Alloc, Clock, Env, Stdout };
+# from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc, clock, env, stdout };
+from "core/effect" import { Alloc, Clock, Env, Stdout };
 # fn logPath<C: Env>(ctx: C): Str { ctx.variable("LEDGER_LOG") ?? "ledger.log" }
 
 context Fixture {
@@ -457,10 +457,10 @@ fake server — it is given every `Request` the code under test makes, and eithe
 answers it or fails it.
 
 ```buri role=test
-# from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc, net };
-from "core/effect/lib.buri" import { Alloc, Net, NetError, Request };
-from "core/net/http/lib.buri" import * as http;
+# from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc, net };
+from "core/effect" import { Alloc, Net, NetError, Request };
+from "core/net/http" import * as http;
 # fn load<C: Net>(ctx: C, request: Request): Result<Int, NetError> {
 #   http.send(ctx, request).map(fn(r) => r.status)
 # }
@@ -527,10 +527,10 @@ effects are ordinary interfaces ([`SPEC.md` §10.9](../SPEC.md)), and it is boun
 exactly the way the runner's own implementations are:
 
 ```buri role=test
-# from "core/testing/assert/lib.buri" import * as assert;
-# from "core/host/testing/lib.buri" import { alloc };
-# from "core/effect/lib.buri" import { Alloc, Net, NetError, Request, Response };
-# from "core/net/http/lib.buri" import * as http;
+# from "core/testing/assert" import * as assert;
+# from "core/host/testing" import { alloc };
+# from "core/effect" import { Alloc, Net, NetError, Request, Response };
+# from "core/net/http" import * as http;
 # fn status<C: Net>(ctx: C, url: Str): Result<Int, NetError> {
 #   http.send(ctx, http.request(.Get, url)).map(fn(r) => r.status)
 # }
@@ -586,10 +586,10 @@ these are ordinary functions of `core/host/testing`: `readFile(path)`,
 one prints.
 
 ```buri role=test
-# from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc, fs, net, readFile, fetch };
-from "core/effect/lib.buri" import { Alloc, Fs, IoError, Net, NetError, Response };
-from "core/net/http/lib.buri" import * as http;
+# from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc, fs, net, readFile, fetch };
+from "core/effect" import { Alloc, Fs, IoError, Net, NetError, Response };
+from "core/net/http" import * as http;
 # fn cached<C: Alloc + Fs + Net>(ctx: C, url: Str): Result<Response, NetError> {
 #   match (ctx.readFile("cache")) {
 #     .Ok(_body) => .Ok(http.status(200)),
@@ -648,9 +648,9 @@ number. Matching is the `Eq` those records derive, which is what makes a fault
 readable: it is spelled exactly as `calls()` reports the call it names.
 
 ```buri role=test
-# from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc, appendFile, fs, readFile };
-from "core/effect/lib.buri" import { Alloc, Fs, IoError };
+# from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc, appendFile, fs, readFile };
+from "core/effect" import { Alloc, Fs, IoError };
 # fn commit<C: Alloc + Fs>(ctx: C, entries: [[U8]], i: Int): Result<(), IoError> {
 #   match (entries.get(i)) {
 #     .None => .Ok(()),
@@ -748,9 +748,9 @@ remove, so a task runs to completion before the next one starts and `calls()`
 reports them in the order they finished:
 
 ```buri repo=cli/tests/example role=test
-# from "core/effect/lib.buri" import { Tasks };
-# from "core/host/testing/lib.buri" import { task, tasks };
-# from "core/testing/assert/lib.buri" import * as assert;
+# from "core/effect" import { Tasks };
+# from "core/host/testing" import { task, tasks };
+# from "core/testing/assert" import * as assert;
 # fn doubled<C: Tasks>(ctx: C, items: [Int]): [Int] {
 #   ctx.parallel(ctx, items, fn(_c, _i, item) => item * 2)
 # }
@@ -823,10 +823,10 @@ reached fails the test**.
 A suite's filesystem is written in the suite, with `fs().files([...])`:
 
 ```buri role=test
-# from "core/testing/assert/lib.buri" import * as assert;
-# from "core/host/testing/lib.buri" import { alloc, fs as memory };
-# from "core/effect/lib.buri" import { Alloc, Fs };
-# from "core/fs/lib.buri" import * as fs;
+# from "core/testing/assert" import * as assert;
+# from "core/host/testing" import { alloc, fs as memory };
+# from "core/effect" import { Alloc, Fs };
+# from "core/fs" import * as fs;
 # struct Entry { export memo: Str }
 # fn sample(): [Entry] { [Entry { memo: "coffee" }] }
 # fn render<C: Alloc>(ctx: C, entries: [Entry]): Str {

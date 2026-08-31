@@ -289,7 +289,7 @@ rather than answering about the call that string is an argument to.
 
 **A completion item says what it replaces.** A module path has a `/` in it and a
 client's idea of a word does not, so an item that carried only a label left the
-editor guessing which characters an accepted `core/order/lib.buri` was meant to
+editor guessing which characters an accepted `core/order` was meant to
 stand in for — and it guessed `order`. Every item now carries the range: the
 path typed so far inside the quotes, or the partial name inside the braces.
 `detail` says the thing the label cannot: for a path, whether it is a file of
@@ -297,13 +297,15 @@ this package, the surface of a library your target already declares, or the
 standard library; for an exported name, the signature the formatter would
 print.
 
-**A path is completed as a file, because that is what a path is.** The list
-inside the quotes is the standard library's modules, every file this package
-owns, and — for each library the target declares — that library's surface and
-nothing else. A dependency's inner modules are an `internal-import` and a test
-source is a module nobody may name, so neither is offered: a completion list is
-a claim about what would compile, and a row that would not is worse than a row
-that is missing. Sorting is by kind before spelling, because
+**A path is completed in the one form an import of it is written in.** A
+surface is a module and everything else is a file, so the list is not one kind
+of thing: the standard library as its module paths, each library the target
+declares as its label, this package's own surfaces as modules, and every other
+file this package owns as a file. Everything on the list with a `.buri` on it is
+a file of this package; everything without one is a surface. A dependency's inner
+modules are an `internal-import` and a test source is a module nobody may name,
+so neither is offered: a completion list is a claim about what would compile,
+and a row that would not is worse than a row that is missing. Sorting is by kind before spelling, because
 alphabetical order puts every capitalized name above every lowercase one, which
 is a fact about ASCII rather than about what you are looking for. The `///`
 prose is the one thing left out, and `completionItem/resolve` supplies it for
@@ -312,7 +314,7 @@ to show one line of it.
 
 **Which half filters is decided by what the client can filter.** A path prefix
 is filtered here: `core/z` comes back empty, because a module path is not a word
-and no client's filter would keep `core/order/lib.buri` off the list for you. A name
+and no client's filter would keep `core/order` off the list for you. A name
 inside the braces is not: every export comes back, each with a `textEdit` over
 the letters typed so far, and the client narrows the list against that range as
 you type — which is what keeps the list from being recomputed on every

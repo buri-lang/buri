@@ -124,7 +124,7 @@ pub fn presentations(text: &str, params: &Value) -> Value {
 /// any `Color` a repository happens to define: the swatch stands for the
 /// standard library's constructors and nothing else.
 fn color_constructor(analyzed: &Analyzed) -> Option<TyConId> {
-    let index = analyzed.analysis.loaded.modules.iter().position(|m| m.path == "ui/style/lib.buri")?;
+    let index = analyzed.analysis.loaded.modules.iter().position(|m| m.path == "ui/style")?;
     match analyzed.analysis.checked.scopes.get(index)?.own.get("Color")? {
         Sym::Ty(id) => Some(*id),
         _ => None,

@@ -31,12 +31,12 @@
 //! understand to get past, so treating one as an unknown field would silently
 //! read the rest of the message at the wrong offset.
 
-from "core/effect/lib.buri" import { Alloc };
-from "core/bytes/lib.buri" import * as bytes;
-from "core/json/lib.buri" import { Json };
-from "core/list/lib.buri" import * as list;
-from "core/num/lib.buri" import * as num;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc };
+from "core/bytes" import * as bytes;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/num" import * as num;
+from "core/str" import * as str;
 
 /// Where a message stopped being one.
 ///

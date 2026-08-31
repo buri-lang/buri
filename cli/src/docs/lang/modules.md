@@ -11,10 +11,10 @@ the syntax is here.
 The module path comes **first**, before the specifier list:
 
 ```buri
-from "core/list/lib.buri" import { map, filter };
-from "core/list/lib.buri" import { map as listMap };
-from "core/list/lib.buri" import * as list;
-from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+from "core/list" import { map, filter };
+from "core/list" import { map as listMap };
+from "core/list" import * as list;
+from "core/effect" import { Alloc, Fs, Stdout };
 ```
 
 The ordering is chosen for tooling rather than for prose: by the time you open
@@ -22,7 +22,7 @@ the brace, the compiler already knows which module you mean, so an editor can
 offer the module's exports as completions. With the path last, the specifier
 list has to be typed blind and then retro-checked.
 
-A namespace import **must** be named. `from "core/list/lib.buri" import *;` is not
+A namespace import **must** be named. `from "core/list" import *;` is not
 derivable from the grammar — the only wildcard form is `* as <name>`. There is
 consequently no way for an identifier to enter a module's scope without that
 identifier, or the namespace holding it, being written in the importing file.
@@ -34,34 +34,48 @@ Import declarations are terminated with `;`. Circular imports are an error.
 
 #### 4.1.1 Module paths
 
-**A module path names a file.** It is a root, and then the path of a file
-under it — the path you would type into an editor, extension and all.
+**A module path names a surface, or a file inside your own package.** There are
+two kinds of thing to name and they are spelled differently because they are
+different things:
+
+| What | Written | Who may write it |
+|---|---|---|
+| a **surface** — a library's `lib.buri`, or its `testing/lib.buri` | `"//lib/money"`, `"//lib/money/testing"`, `"core/list"` | anyone the visibility rules allow, including the package's own suite |
+| a **file** inside a package | `"//lib/money/cents.buri"`, `"//cmd/app/main.buri"` | only another file of that same package |
+
+A surface is the one thing a package publishes, so naming it is naming the
+package. `"//lib/money"` is both the label its dependents declare in a
+`dependencies` and the path they write in an import — one string, in the two
+namespaces that meet there — and it is what the library's own test source
+writes as well, because a suite reaches its library the way a dependent does.
+Everything else is one file among many, so the path has to say *which*, and the
+only honest answer is the name of the file.
 
 | Form | Example | Names |
 |---|---|---|
-| Standard library | `"core/list/lib.buri"`, `"ui/signal/lib.buri"` | A module of the standard library, which ships with the compiler. |
-| Repository-absolute | `"//lib/money/lib.buri"`, `"//lib/money/cents.buri"` | A file of this repository, by its path from the root. |
+| Standard library | `"core/list"`, `"ui/signal"` | A module of the standard library, which ships with the compiler. Every one of them is a surface. |
+| A package's surface | `"//lib/money"`, `"//lib/money/testing"` | That package's `lib.buri`, or its `testing/lib.buri`. |
+| A file of your own package | `"//lib/money/cents.buri"`, `"//cmd/app/main.buri"` | A file of this package, by its path from the repository root. |
 
-A path used to be a name with the file left off, and the rule connecting the
-two was something you had to know: a library was its *directory*, a module
-inside one dropped its extension, a binary's entry point was the word `main`,
-and a testing surface was a directory that meant a file two levels down. Four
-spellings for four kinds of the same thing, and a module with two names.
+**The two cannot be told apart by their shape.** `"//lib/money/testing"` and
+`"//lib/money/cents"` are the same string with one segment changed; the first
+is a surface and the second is a file with its name left off. What decides it
+is what is on disk. So a path with a file name missing is
+`import-path-without-a-file` and the diagnostic works out which file it meant —
+no textual rule could — and a path that leaves the package and names a file
+inside it is `internal-import`, because what it reaches for is not on the
+surface.
 
-Now there is one name. `//` is the repository root, `core/` and `ui/` are the
-standard library, and everything after that is a file:
+A binary's entry point is a file for the same reason a surface is not:
+`"//cmd/app"` would be that package's `lib.buri`, and a package with only a
+binary has not got one. So it is `"//cmd/app/main.buri"`, and only that
+binary's own test sources may write it.
 
-| What it is | Path |
-|---|---|
-| A library's surface | `"//lib/money/lib.buri"` |
-| A module inside a library | `"//lib/money/cents.buri"` |
-| A library's testing surface | `"//lib/money/testing/lib.buri"` |
-| A binary's entry point | `"//cmd/server/main.buri"` |
-| A schema | `"//proto/address.proto"` |
-
-A path that names no file — `"//lib/money"`, `"core/list"` — is
-`import-path-without-a-file`, and inside a repository the diagnostic works out
-which file the old spelling meant and offers the edit.
+The one spelling that is accepted and is not the one to write:
+`"//lib/money/lib.buri"` names the surface by the file it is, and resolves to
+the same module — a module has one identity however it is reached. It is the
+long way round rather than a second module. Nothing in the toolchain writes it,
+and nothing in this repository contains one.
 
 The standard library owns two reserved roots. `core/` is the deliberately small
 set of essentials — the types every program uses and the effects every platform
@@ -76,8 +90,8 @@ means the same module wherever it is written, a file can be moved between
 directories without rewriting the imports inside it, and a reader never has to
 know where a file sits to know what it imports.
 
-`"//lib/money/lib.buri"` names the *library* rooted at `lib/money` — that file,
-and transitively only what it exports. `"//lib/money/cents.buri"` names an
+`"//lib/money"` names the *library* rooted at `lib/money` — its `lib.buri`, and
+transitively only what that file exports. `"//lib/money/cents.buri"` names an
 individual module inside it, which the build system permits only from within
 the same library. Both are ordinary module paths to the compiler; the
 distinction is enforced with the visibility rules in
@@ -85,19 +99,18 @@ distinction is enforced with the visibility rules in
 
 One path segment is reserved: **`testing`**. A module path containing it is
 test-only, and may be imported only from a test source (Section 11.2). That
-covers `"core/testing/assert/lib.buri"`, `"core/host/testing/lib.buri"`, a
-library's own utilities-for-testing-it at `"//lib/money/testing/lib.buri"`, and
-a whole package of shared fixtures at `"//lib/testing/fakes/lib.buri"` — one
-rule, visible in the import line, with nothing to declare. The segment is a
-*directory* name: `"//lib/money/testing.buri"` is a module called `testing` and
-is not test-only, because the segment that would have made it so is a file
-name.
+covers `"core/testing/assert"`, `"core/host/testing"`, a library's own
+utilities-for-testing-it at `"//lib/money/testing"`, and a whole package of
+shared fixtures at `"//lib/testing/fakes"` — one rule, visible in the import
+line, with nothing to declare. The segment is a *directory* name:
+`"//lib/money/testing.buri"` is a file called `testing` and is not test-only,
+because the segment that would have made it so is a file name.
 
-One module is reserved the other way: **`"core/host/lib.buri"`**, the platform's
+One module is reserved the other way: **`"core/host"`**, the platform's
 implementations of the effects it grants, is importable only from the module
 that exports `main` (Section 10.3). The two restrictions are the same shape, and
 between them they name every place in a program where authority can enter. They
-are also separate: `"core/host/testing/lib.buri"` is the same surface for a test
+are also separate: `"core/host/testing"` is the same surface for a test
 source, and it is governed by the `testing` segment alone — the module that
 exports `main` may not import it, and a test source may.
 

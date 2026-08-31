@@ -2972,7 +2972,7 @@ mod tests {
     fn snippet(handler: &str) -> String {
         format!(
             r#"
-from "core/effect/lib.buri" import {{ Listen, Net, NetError, Request, Response }};
+from "core/effect" import {{ Listen, Net, NetError, Request, Response }};
 
 struct Server {{ mark: Int }}
 

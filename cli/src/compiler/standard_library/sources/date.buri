@@ -18,9 +18,9 @@
 //! the whole range of `Int` and uses nothing but integer arithmetic.
 //!
 //! ```buri run
-//! from "core/effect/lib.buri" import { Alloc, Stdout };
-//! from "core/host/lib.buri" import * as host;
-//! from "core/date/lib.buri" import * as date;
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/date" import * as date;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -40,9 +40,9 @@
 //! 2024-02-29 is .Thursday, +1y is 2025-02-28
 //! ```
 
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
-from "core/time/lib.buri" import { Instant };
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
+from "core/time" import { Instant };
 
 /// A civil date. Any year, including negative ones: the calendar is proleptic
 /// Gregorian, so it extends backwards past its own adoption.

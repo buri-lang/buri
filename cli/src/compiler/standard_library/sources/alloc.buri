@@ -69,9 +69,9 @@
 //! is on `Stats` rather than on the allocators.
 //!
 //! ```buri run
-//! from "core/alloc/lib.buri" import * as alloc;
-//! from "core/effect/lib.buri" import { Alloc, Stdout };
-//! from "core/host/lib.buri" import * as host;
+//! from "core/alloc" import * as alloc;
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let gp = alloc.generalPurpose();
@@ -95,7 +95,7 @@
 //! 32 of 64 left
 //! ```
 
-from "core/effect/lib.buri" import {
+from "core/effect" import {
   Alloc, Clock, Env, Fs, Listen, Net, Proc, Rand, Sockets, Stderr, Stdin, Stdout, Tasks,
   IoError, NetError, Region, Request, Response,
 };

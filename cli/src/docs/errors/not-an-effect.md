@@ -22,8 +22,8 @@ them.
 ## A program that provokes it
 
 ```buri fail code=not-an-effect
-# from "core/host/lib.buri" import * as host;
-from "core/effect/lib.buri" import { Alloc, Region, Stdout };
+# from "core/host" import * as host;
+from "core/effect" import { Alloc, Region, Stdout };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Region: host.alloc, Stdout: host.stdout };

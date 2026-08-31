@@ -25,7 +25,7 @@ names the file each failure came from, and each is reported at its own line.
 ## A program that provokes it
 
 ```buri fail code=duplicate-test-name role=test
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 
 test "adds" {
   assert.eq(1 + 1, 2);

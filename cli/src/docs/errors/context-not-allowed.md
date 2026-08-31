@@ -25,8 +25,8 @@ what the capture rule exists to prevent.
 ## A program that provokes it
 
 ```buri fail code=context-not-allowed
-# from "core/effect/lib.buri" import { Alloc, Stdout };
-# from "core/host/lib.buri" import * as host;
+# from "core/effect" import { Alloc, Stdout };
+# from "core/host" import * as host;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let make = fn(n: Int) => {

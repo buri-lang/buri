@@ -19,9 +19,9 @@
 //! it stopped at rather than one recomputed afterwards.
 //!
 //! ```buri run
-//! from "core/effect/lib.buri" import { Alloc, Stdout };
-//! from "core/host/lib.buri" import * as host;
-//! from "core/bytes/lib.buri" import * as bytes;
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/bytes" import * as bytes;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -36,10 +36,10 @@
 //! 6 bytes, 686920e282ac, aGkg4oKs
 //! ```
 
-from "core/char/lib.buri" import * as char;
-from "core/effect/lib.buri" import { Alloc };
-from "core/list/lib.buri" import * as list;
-from "core/str/lib.buri" import * as str;
+from "core/char" import * as char;
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/str" import * as str;
 
 /// Where a byte sequence stopped being UTF-8: the index of the first byte that
 /// could not be part of a valid encoding.

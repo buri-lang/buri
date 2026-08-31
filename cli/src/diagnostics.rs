@@ -7,7 +7,7 @@
 //! error: cmd/server/routes.buri imports //lib/money, which is not in deps
 //!   --> cmd/server/routes.buri:3:6
 //!    |
-//!  3 | from "//lib/money/lib.buri" import { Cents, format };
+//!  3 | from "//lib/money" import { Cents, format };
 //!    |      ^^^^^^^^^^^^^^^^^^^^^^
 //!    |
 //!    = expected: a module path this target may see

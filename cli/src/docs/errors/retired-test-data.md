@@ -17,10 +17,10 @@ Delete the `data` entry, and give the suite its filesystem where the rest of its
 context is written:
 
 ```buri role=test
-# from "core/testing/assert/lib.buri" import * as assert;
-# from "core/host/testing/lib.buri" import { alloc, fs as testFs };
-# from "core/effect/lib.buri" import { Alloc, Fs };
-# from "core/fs/lib.buri" import * as fs;
+# from "core/testing/assert" import * as assert;
+# from "core/host/testing" import { alloc, fs as testFs };
+# from "core/effect" import { Alloc, Fs };
+# from "core/fs" import * as fs;
 # fn render(): Str { "coffee  $4.50" }
 test "renders the statement" {
   let ctx = context {

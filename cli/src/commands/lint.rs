@@ -2473,7 +2473,7 @@ fn check_discarded_results(
     analysis: &crate::compiler::driver::Analysis,
     diagnostics: &mut Diagnostics,
 ) {
-    for (span, _) in calls_into(analysis, own, "core/result/lib.buri", &["ignore"]) {
+    for (span, _) in calls_into(analysis, own, "core/result", &["ignore"]) {
         diagnostics.push(Diagnostic::templated("discarded-result", span));
     }
 }
@@ -2496,7 +2496,7 @@ fn check_tests_assert(
             .loaded
             .modules
             .get(info.module.index())
-            .is_some_and(|m| m.path == "core/testing/assert/lib.buri")
+            .is_some_and(|m| m.path == "core/testing/assert")
     };
 
     for case in &analysis.checked.tests {

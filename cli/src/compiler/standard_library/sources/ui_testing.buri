@@ -21,9 +21,9 @@
 //! named by an index nothing else can produce, so a test can only reach the
 //! cells it made.
 
-from "ui/effect/lib.buri" import { Scope, Ui, Watch };
-from "ui/node/lib.buri" import { Node };
-from "ui/theme/lib.buri" import { Theme };
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/node" import { Node };
+from "ui/theme" import { Theme };
 
 /// Creates and writes signals, and runs computations, with no rendering.
 export struct Headless(I64);

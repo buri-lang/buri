@@ -664,8 +664,8 @@ pub fn assemble(
     match block.wrap {
         Wrap::Module => {}
         Wrap::Body | Wrap::Expr => {
-            body.push_str("from \"core/effect/lib.buri\" import * as __effect;\n");
-            body.push_str("from \"core/host/lib.buri\" import * as __host;\n");
+            body.push_str("from \"core/effect\" import * as __effect;\n");
+            body.push_str("from \"core/host\" import * as __host;\n");
             body.push_str("export fn main(): Result<(), Str> {\n");
             body.push_str("  let ctx = context {\n");
             for e in &block.effects {
@@ -1282,10 +1282,10 @@ mod tests {
 
     #[test]
     fn hidden_lines_are_compiled_but_not_shown() {
-        let body = "# from \"core/str/lib.buri\" import * as str;\nlet s = str.trim(\"  x  \");\n";
+        let body = "# from \"core/str\" import * as str;\nlet s = str.trim(\"  x  \");\n";
         let (source, _, _) = strip_annotations(body);
-        assert!(source.starts_with("from \"core/str/lib.buri\""));
-        assert!(!rendered(body).contains("core/str/lib.buri"));
+        assert!(source.starts_with("from \"core/str\""));
+        assert!(!rendered(body).contains("core/str"));
         assert!(rendered(body).contains("str.trim"));
     }
 }

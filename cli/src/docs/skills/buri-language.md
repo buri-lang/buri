@@ -47,10 +47,10 @@ The normative text ships in the binary: `buri docs lang/lexical`,
 ## A whole program
 
 ```buri
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/io/lib.buri" import * as io;
-from "core/list/lib.buri" import * as list;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
 
 struct Point {
     x: Float,
@@ -93,7 +93,7 @@ a program where `core/host` may be imported and a context built. `.Ok(())`
 exits 0; `.Err(msg)` prints `msg` on stderr and exits 1.
 
 **The effect names have to be imported.** `context { Alloc: host.alloc }` with
-no `from "core/effect/lib.buri" import { Alloc };` above it fails with
+no `from "core/effect" import { Alloc };` above it fails with
 `not-an-effect` — a common first mistake.
 
 ## Modules
@@ -102,13 +102,13 @@ The path comes first, before the specifier list, so an editor can complete the
 names. Import declarations end in `;`.
 
 ```buri
-from "core/list/lib.buri" import { map, filter };
-from "core/list/lib.buri" import { map as listMap };
-from "core/list/lib.buri" import * as list;
-from "//lib/money/lib.buri" import { Cents };
+from "core/list" import { map, filter };
+from "core/list" import { map as listMap };
+from "core/list" import * as list;
+from "//lib/money" import { Cents };
 ```
 
-- `from "core/list/lib.buri" import *;` is not derivable — the only wildcard form is
+- `from "core/list" import *;` is not derivable — the only wildcard form is
   `* as <name>`. Every unqualified name in a module is written in that module.
 - A declaration is module-private unless prefixed `export`. Struct fields carry
   their own `export`, so a struct's name and its representation are exported
@@ -119,11 +119,14 @@ from "//lib/money/lib.buri" import { Cents };
 - `impl` and `derive` are never exported.
 - Declaration order does not matter; mutual recursion needs no forward
   declarations. Circular imports are an error.
-- Every module path names a file: `"core/list/lib.buri"`,
-  `"//lib/money/cents.buri"`, `"//cmd/app/main.buri"`. A path that names none is
-  `import-path-without-a-file`.
+- A surface is named as a module — `"core/list"`, `"//lib/money"`,
+  `"//lib/money/testing"` — by anyone allowed to name it, its own suite
+  included. Everything else is a file, and only its own package may name it:
+  `"//lib/money/cents.buri"`, `"//cmd/app/main.buri"`. A path with the file
+  name left off is `import-path-without-a-file`; one that leaves the package
+  and names a file inside is `internal-import`.
 - A `testing` directory segment makes a module test-only.
-  `core/host/lib.buri` is importable only from the module exporting `main`.
+  `core/host` is importable only from the module exporting `main`.
 
 ## Declarations
 

@@ -267,10 +267,17 @@ pub enum ModuleLocation {
 
 #[derive(Clone, Debug)]
 pub struct PackageModule {
-    /// The path as it was written. For a module in this repository this is
-    /// `"//"` followed by [`PackageModule::rel`], letter for letter: an import
-    /// names a file, so there is exactly one spelling of a module and the
-    /// two-spellings-for-one-file era is over.
+    /// The module's **canonical** path: `"//"` followed by
+    /// [`PackageModule::rel`], letter for letter.
+    ///
+    /// Not the path as it was written, because two spellings reach one file
+    /// and only one of them can be the module's identity. `//lib/money` is
+    /// what a dependent writes and `//lib/money/lib.buri` is what a file
+    /// inside `lib/money` writes, and both can appear in a single compilation
+    /// — a test source naming its own surface while a dependency of that suite
+    /// names it from outside. The loader keys a module by this path, so two
+    /// keys would be two copies of every type `lib.buri` exports, and a value
+    /// of one would not be a value of the other.
     pub path: String,
     pub kind: ModuleKind,
     pub package: PackageId,
@@ -296,13 +303,12 @@ impl ModuleLocation {
     }
 }
 
-/// Whether a module path names a file, which every module path must.
+/// Whether a module path names a file rather than a module directory.
 ///
 /// The two extensions a module can have are `.buri` and `.proto`. Asked of the
-/// *path* rather than of the disk, because the answer decides which diagnostic
-/// a bad import gets and that decision has to be available where there is no
-/// repository at all — a documentation snippet, a benchmark, a fixture
-/// standing on its own.
+/// *path* rather than of the disk, because this is half of the question "may
+/// this file be written here" — the other half is which package the writer is
+/// in — and neither half is a fact about what is on disk.
 pub fn names_a_file(path: &str) -> bool {
     path.ends_with(".buri") || path.ends_with(".proto")
 }
@@ -628,49 +634,23 @@ impl Workspace {
         Some(if is_test_only_path(path) { format!("{label}/testing") } else { label })
     }
 
-    /// The file-form spelling of a path written the way imports used to be
-    /// written, or `None` when nothing on disk answers to it.
-    ///
-    /// This is the fix `import-path-without-a-file` offers, and it is derived
-    /// rather than guessed: it walks the same longest-package-prefix loop
-    /// [`Workspace::resolve_module`] walks, applies the classification the old
-    /// rule used, and only answers once the file it lands on exists. So the
-    /// suggestion names the file the import already meant — `//lib/money/cents`
-    /// is a module in one repository and a library surface in another, and no
-    /// amount of reading the string can tell them apart.
-    pub fn file_form_of(&self, path: &str) -> Option<String> {
-        if crate::compiler::standard_library::is_std_path(path) {
-            let candidate = format!("{path}/lib.buri");
-            return crate::compiler::standard_library::find(&candidate).map(|_| candidate);
-        }
-        let rest = path.strip_prefix("//")?;
-        for (package_path, id) in &self.sorted_paths {
-            let remainder = if rest == package_path {
-                ""
-            } else if package_path.is_empty() {
-                rest
-            } else if let Some(r) = rest.strip_prefix(&format!("{package_path}/")) {
-                r
-            } else {
-                continue;
-            };
-            let package = self.package(*id);
-            let file = match remainder {
-                "" => package.dir.join("lib.buri"),
-                "testing" => package.dir.join("testing/lib.buri"),
-                "main" => package.dir.join("main.buri"),
-                r if r.ends_with(".proto") => package.dir.join(r),
-                r => package.dir.join(format!("{r}.buri")),
-            };
-            if !file.is_file() {
-                return None;
-            }
-            return Some(format!("//{}", self.rel_of(&file)));
-        }
-        None
-    }
-
     /// Resolves a module path written in an import.
+    ///
+    /// Two forms arrive here and both are legal; which one a writer may use is
+    /// decided by where they are writing *from*, and that is
+    /// `check_import_legality`'s question rather than this one's:
+    ///
+    /// | written | means |
+    /// |---|---|
+    /// | `//lib/money` | the module `lib/money` — its `lib.buri` |
+    /// | `//lib/money/testing` | that library's testing surface |
+    /// | `//lib/money/lib.buri` | the same file, named the long way round |
+    /// | `//lib/money/cents.buri` | one file inside that module |
+    /// | `//proto/address.proto` | a schema, unchanged |
+    ///
+    /// Whichever was written, [`PackageModule::path`] comes back canonical —
+    /// `//` plus the repository-relative file name — so a module has one
+    /// identity however it was reached.
     pub fn resolve_module(&self, path: &str) -> Result<ModuleLocation, String> {
         if path.starts_with('.') {
             return Err(format!(
@@ -679,7 +659,12 @@ impl Workspace {
             ));
         }
         if crate::compiler::standard_library::is_std_path(path) {
-            return Ok(ModuleLocation::Std { path: path.to_string() });
+            // Canonical here too, and for the same reason: `core/effect` and
+            // `core/effect/lib.buri` are one module or they are two copies of
+            // `Alloc`. A path the library does not have keeps its spelling, so
+            // that `no-such-module` quotes back what was written.
+            let canonical = crate::compiler::standard_library::canonical(path).unwrap_or(path);
+            return Ok(ModuleLocation::Std { path: canonical.to_string() });
         }
         if path == "core" {
             return Err("\"core\" is not a module; name one, as in \"core/list\"".into());
@@ -698,18 +683,6 @@ impl Workspace {
             ));
         };
 
-        // Every module path names a file, so a path that does not is not a
-        // module path at all. `check_import_legality` catches this before the
-        // loader ever asks, and says so with its own code and its own fix; the
-        // sentence here is for the callers that resolve a path they were
-        // handed rather than one somebody wrote.
-        if !names_a_file(path) {
-            return Err(format!(
-                "\"{path}\" names no file; every module path ends in the name of a file, as in \
-                 \"{path}/lib.buri\""
-            ));
-        }
-
         // Longest package prefix wins.
         for (package_path, id) in &self.sorted_paths {
             let remainder = if rest == package_path {
@@ -723,29 +696,39 @@ impl Workspace {
             };
 
             let package = self.package(*id);
-            // The remainder *is* the package-relative file name — the path and
-            // the file agree letter for letter, which is the whole of the rule.
-            // What is left to decide is only which kind of module that file is,
-            // and the three names a rule knows by kind rather than by listing
-            // answer that: `lib.buri`, `testing/lib.buri`, `main.buri`.
-            let kind = match remainder {
-                "lib.buri" => ModuleKind::LibrarySurface,
-                "testing/lib.buri" => ModuleKind::TestingSurface,
-                "main.buri" => ModuleKind::BinaryEntry,
+            // What is left of the path after the package's own name is either
+            // a file inside that package, letter for letter, or nothing at all
+            // — and nothing at all is the module form, which names the
+            // package's surface. The three names a rule knows by kind rather
+            // than by listing — `lib.buri`, `testing/lib.buri`, `main.buri` —
+            // are what decide which kind of module a file is, and `testing`
+            // and `main` are the extensionless spellings of two of them.
+            let (kind, file) = match remainder {
+                "" => (ModuleKind::LibrarySurface, package.dir.join("lib.buri")),
+                "lib.buri" => (ModuleKind::LibrarySurface, package.dir.join("lib.buri")),
+                "testing" | "testing/lib.buri" => {
+                    (ModuleKind::TestingSurface, package.dir.join("testing/lib.buri"))
+                }
+                "main" | "main.buri" => (ModuleKind::BinaryEntry, package.dir.join("main.buri")),
                 // A `.proto` path names the schema itself. `build.proto`'s own
                 // header writes the import that way — `from
-                // "//proto/foo.proto" import ...` — and every other path now
-                // reads the same: the module path is the file.
-                r if r.ends_with(".proto") => ModuleKind::Proto,
-                _ => ModuleKind::Internal,
+                // "//proto/foo.proto" import ...` — and a schema has no module
+                // form, because it is a file inside a package like any other.
+                r if r.ends_with(".proto") => (ModuleKind::Proto, package.dir.join(r)),
+                r if r.ends_with(".buri") => (ModuleKind::Internal, package.dir.join(r)),
+                // An extensionless inner path. Legal to *resolve* — it is how
+                // a dependent used to name someone else's internals, and it is
+                // an `internal-import` from there and an
+                // `import-path-without-a-file` from inside — so both
+                // diagnostics can name the file it meant.
+                r => (ModuleKind::Internal, package.dir.join(format!("{r}.buri"))),
             };
-            let file = package.dir.join(remainder);
             if !file.is_file() {
                 return Err(format!("\"{path}\" names no file ({})", self.rel_of(&file)));
             }
             let rel = self.rel_of(&file);
             return Ok(ModuleLocation::InPackage(PackageModule {
-                path: path.to_string(),
+                path: format!("//{rel}"),
                 kind,
                 package: *id,
                 file,
@@ -990,7 +973,10 @@ mod tests {
 
     #[test]
     fn testing_segment_anywhere_makes_a_path_test_only() {
-        assert!(is_test_only_path("core/testing/assert/lib.buri"));
+        assert!(is_test_only_path("core/testing/assert"));
+        assert!(is_test_only_path("//lib/ledger/testing"));
+        // Both spellings of one module, and the rule reads the same segment in
+        // each.
         assert!(is_test_only_path("//lib/ledger/testing/lib.buri"));
         assert!(is_test_only_path("//lib/testing/fakes.buri"));
         assert!(!is_test_only_path("//lib/money/lib.buri"));
@@ -1001,15 +987,67 @@ mod tests {
         assert!(!is_test_only_path("//lib/money/testing.buri"));
     }
 
+    /// A repository with a library, a module inside it and a testing surface,
+    /// for the two spellings to be resolved against.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("buri-workspace-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(dir.join("lib/money/testing"));
+        let _ = std::fs::write(dir.join("REPO.buri"), "name: \"scratch\"\n");
+        let _ = std::fs::write(
+            dir.join("lib/money/BUILD.buri"),
+            "library {\n  sources: [\"cents.buri\"]\n  testing { sources: [] }\n}\n",
+        );
+        let _ = std::fs::write(dir.join("lib/money/lib.buri"), "");
+        let _ = std::fs::write(dir.join("lib/money/cents.buri"), "");
+        let _ = std::fs::write(dir.join("lib/money/testing/lib.buri"), "");
+        dir
+    }
+
+    /// **Two spellings, one module.** A dependent writes `//lib/money` and a
+    /// test source inside the package writes `//lib/money/lib.buri`, and both
+    /// can stand in one compilation — so the resolver has to answer with one
+    /// identity or the loader keys one file twice and the types it exports
+    /// stop being the same types.
     #[test]
-    fn a_module_path_names_a_file() {
+    fn both_spellings_of_a_module_resolve_to_one_canonical_path() {
+        let dir = scratch("two-spellings");
+        let mut map = crate::diagnostics::SourceMap::default();
+        let mut diags = Diagnostics::default();
+        let ws = Workspace::load(&dir, &mut map, &mut diags).expect("the scratch repository loads");
+        let pairs = [
+            ("//lib/money", "//lib/money/lib.buri", ModuleKind::LibrarySurface),
+            ("//lib/money/testing", "//lib/money/testing/lib.buri", ModuleKind::TestingSurface),
+            // And the extensionless inner path, which is legal to resolve so
+            // that both diagnostics about it can name the file it meant.
+            ("//lib/money/cents", "//lib/money/cents.buri", ModuleKind::Internal),
+        ];
+        for (module_form, file_form, kind) in pairs {
+            let a = ws.resolve_module(module_form).expect(module_form);
+            let b = ws.resolve_module(file_form).expect(file_form);
+            let (a, b) = (a.in_package().expect(module_form).clone(), b.in_package().expect(file_form).clone());
+            assert_eq!(a.path, file_form, "{module_form} is not canonicalised");
+            assert_eq!(b.path, file_form);
+            assert_eq!(a.file, b.file, "{module_form} and {file_form} are different files");
+            assert_eq!(a.kind, kind);
+            assert_eq!(b.kind, kind);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The half of the import rule that can be read off the string. The other
+    /// half — which package the writer is in — is the loader's, and the two
+    /// together are `import-path-without-a-file`.
+    #[test]
+    fn a_path_that_names_a_file_is_the_form_for_a_file_inside_your_own_package() {
         assert!(names_a_file("//lib/money/lib.buri"));
+        assert!(names_a_file("//lib/money/cents.buri"));
         assert!(names_a_file("//proto/address.proto"));
-        assert!(names_a_file("core/list/lib.buri"));
-        // The forms imports used to take, every one of them now an error.
+        // The module form, which is what an import that leaves the package
+        // writes. Legal, and not a file.
         assert!(!names_a_file("//lib/money"));
         assert!(!names_a_file("//lib/money/testing"));
-        assert!(!names_a_file("//cmd/app/main"));
         assert!(!names_a_file("core/list"));
     }
 }

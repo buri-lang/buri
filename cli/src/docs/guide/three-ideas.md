@@ -11,7 +11,7 @@ with `effect` instead of `trait`, and only by platform modules — and a functio
 names the ones it needs as bounds on its context parameter:
 
 ```buri sig role=platform
-# from "core/effect/lib.buri" import { Alloc, IoError };
+# from "core/effect" import { Alloc, IoError };
 # struct User(Int);
 # enum LoadError { NotFound }
 effect Fs {

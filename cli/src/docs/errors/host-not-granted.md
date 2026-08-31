@@ -44,9 +44,9 @@ grants the effect now, and the reason says why — nothing more.
 ## A program that provokes it
 
 ```buri fail code=host-not-granted platform=JS
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "ui/effect/lib.buri" import { Ui, Watch };
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
   let ctx = context {
