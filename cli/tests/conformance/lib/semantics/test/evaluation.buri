@@ -2,7 +2,7 @@
 // and the two propagation operators.
 //
 // Ordering is proved by an exact transcript: every test that cares binds
-// `captureOut()`, calls something built out of `note*`, and asserts on what
+// `stdout()`, calls something built out of `note*`, and asserts on what
 // `captured` read back. Specified evaluation order is what makes effect
 // sequencing meaningful (SPEC 8.2), so the transcript is the observation.
 

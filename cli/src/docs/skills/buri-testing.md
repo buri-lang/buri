@@ -45,10 +45,11 @@ there and nowhere else. `buri gen` maintains `test.sources` for you.
 ```buri
 from "//lib/money/lib.buri" import { fromCents, fromDollars };
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 test "pads the cents place" {
-    let ctx = Hermetic();
+    let ctx = context { Alloc: alloc() };
     assert.eq(fromCents(1905).format(ctx), "\$19.05");
 }
 
@@ -78,16 +79,16 @@ test "addition composes" {
 | `assert.err(r)` | fails unless `r` is `.Err`; returns the error |
 | `assert.some(o)` | fails unless `o` is `.Some`; returns the wrapped value |
 
-The first five return `()`, so they stand alone as statements — a test source
-is the one place the language admits an expression statement, and only when the
-type is `()`. Any expression of that type qualifies, not only a call: a `match`
-whose arms all assert is a statement too, terminated by `;` like the rest. The
-last three return a value, and are how a `Result` is consumed in a test, since
+The first five return `()`, so they stand alone as statements — a test source is
+the one place the language admits an expression statement, and only when the type
+is `()`. Any expression of that type qualifies, not only a call: a `match` whose
+arms all assert is a statement too, terminated by `;` like the rest. The last
+three return a value, and are how a `Result` is consumed in a test, since
 `Result` is still must-use here.
 
 ```buri
 test "reads the config it wrote" {
-    let ctx = Hermetic();
+    let ctx = context { Alloc: alloc(), Fs: memory() };
     assert.ok(fs.writeText(ctx, "cfg", "port=8080"));   // returns (), so a statement
     let text = assert.ok(fs.readText(ctx, "cfg"));      // returns Str, so a binding
     assert.eq(text, "port=8080");
@@ -99,30 +100,36 @@ If `assert.eq` reports `unsatisfied-bound`, the type under test is missing
 
 ## The runner's context
 
-`core/testing/context` exports one implementation per effect, not one
-pre-assembled world. It is importable only from a test source.
+`core/host/testing` is `core/host`'s surface written out for a test: the same
+names, **called** rather than referred to, so each call answers a fresh double.
+One per effect, not a pre-assembled world. Importable only by a test source.
 
 | Member | Effect | In a test |
 |---|---|---|
 | `alloc()` | `Alloc` | real, from a per-test arena the runner reclaims |
-| `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | captured and never printed; `captured()` reads it back |
-| `stdin([Str])` | `Stdin` | these lines, then end-of-input |
-| `data()` | `Fs` | in-memory, rooted at the package directory, and empty |
-| `files([(Str, Str)])` | `Fs` | in-memory, containing exactly these entries |
-| `readOnly(F)` | `Fs` | wraps an `Fs` so every write fails |
-| `noNet()` | `Net` | refuses every connection |
-| `clockAt(Int)` | `Clock` | starts there, advances only when the test advances it |
-| `randSeed(Int)` | `Rand` | seeded, so a failure reproduces |
-| `envOf([(Str, Str)], [Str])` | `Env` | these variables and these arguments |
+| `stdout()`, `stderr()` | `Stdout`, `Stderr` | captured and never printed; `captured()` reads either back |
+| `stdin()` | `Stdin` | at end of input, so a suite never blocks on a pipe nobody writes to |
+| `fs()` | `Fs` | in-memory and empty; writes are discarded after the test |
+| `net()` | `Net` | refuses every request until `respond` says what to answer |
+| `clock()` | `Clock` | at zero; `sleepMillis` advances it without sleeping |
+| `rand()` | `Rand` | seeded at zero, so a failure reproduces |
+| `env()` | `Env` | no variables and no arguments |
+| `proc()` | `Proc` | absorbs the exit instead of taking it, so the test carries on |
+| `tasks()` | `Tasks` | runs the tasks one at a time, in program order |
 
-`Hermetic` binds all of them at hermetic defaults — empty `envOf`,
-`clockAt(0)`, `randSeed(0)`, `data()` for the filesystem. A file may use it
-directly, declare its own on top of it, or build one per test:
+Configuration is a **method answering a new handle**, leaving the value it was
+called on alone: `clock().at(n)`, `rand().seed(n)`,
+`env().variables([...]).arguments([...])`, `stdin().lines(...)` or `.bytes(...)`
+(these replace), `fs().files(...)` and `.filesBytes(...)` (these compose),
+`fs().readOnly()`, `net().respond(fn(Request) => ...)`, `tasks().anyOrder()`.
+Read the environment back with `captured()`, `fs().read(p)`, `fs().snapshot()`
+and `calls()` — what the code under test **asked** for; `faults([...])` says what
+fails, and a fault whose call never happens fails the test.
 
 ```buri
 context Fixture {
-    ..Hermetic(),
-    Env: envOf([("LEDGER_LOG", "custom.log")], ["--verbose"]),
+    Alloc: alloc(),
+    Env: env().variables([("LEDGER_LOG", "custom.log")]).arguments(["--verbose"]),
 }
 
 test "reads the log path from the environment" {
@@ -131,14 +138,14 @@ test "reads the log path from the environment" {
 }
 
 test "falls back when the variable is unset" {
-    let ctx = context { ..Fixture(), Env: envOf([], []) };
+    let ctx = context { ..Fixture(), Env: env() };
     assert.eq(logPath(ctx), "ledger.log");
 }
 ```
 
 **Each call builds a fresh context**, which is why a named context is called
 rather than referred to: what one test writes to its filesystem or its captured
-stdout is invisible to the next.
+stdout is invisible to the next. Bind what the function needs and nothing else.
 
 ## Fakes
 
@@ -159,36 +166,34 @@ impl Net for StubNet {
 }
 
 test "a timeout reaches the caller as an error" {
-    let ctx = context { ..Hermetic(), Net: StubNet { failing: "https://example.test/slow" } };
+    let ctx = context { Alloc: alloc(), Net: StubNet { failing: "https://example.test/slow" } };
     assert.eq(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
 }
 ```
 
 A fake answers from its fields rather than from a counter — there is no
 mutation to hold one in. Keeping state between calls is the runner's own
-privilege: `clockAt` and `captureOut` are intrinsics holding a slot in a table
-the runtime owns, and a fake you write cannot get one. For "the third write
-fails", split the operation into a pure `prepare`, one effectful `persist` and a
-pure `publish`, and let the test hand the step it chooses an `.Err`.
+privilege: `clock()` and `stdout()` are intrinsics holding a slot in a table
+the runtime owns, and a fake you write cannot get one. "The third write fails"
+is a fault plan (`fs().faults([...])`); a crash *between* two calls is a step
+boundary — split it into a pure `prepare`, one effectful `persist` and a pure
+`publish`, and hand the step you choose an `.Err`.
 
-This is defence in depth. The primary mechanism is that a suite whose calls
-never passed a `Net`-bounded context cannot open a socket in anything it
-transitively calls, so the toolchain applies no operating-system confinement.
+Defence in depth: a suite whose calls never passed a `Net`-bounded context
+cannot open a socket at all, so no operating-system confinement is applied.
 
 ## What a test source may and may not do
 
 May import: the target under test (`//lib/money/lib.buri`, or
 `//cmd/server/main.buri` for a binary), the target's `dependencies`, the suite's
-`test.dependencies`, `core/*` including the test platform, and any test-only
-path.
+`test.dependencies`, `core/*` including the test platform, and any test-only path.
 
 May **not**: import a library-internal module (`//lib/money/cents.buri` →
 `test-internal-import`); import another test source (they are compiled
 independently); be imported by anything; `export` anything.
 
-If a test needs an internal function, either the function belongs on the
-surface — say so in `lib.buri` — or the test is asserting on an implementation
-detail.
+If a test needs an internal function, either the function belongs on the surface
+— say so in `lib.buri` — or the test asserts on an implementation detail.
 
 **`main` itself is not testable.** It takes no parameters and builds its own
 context out of `core/host`, so there is no fake to hand it. Put the logic in a
@@ -202,7 +207,7 @@ export fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> {
 
 ```buri
 test "run fails cleanly when the log is unwritable" {
-    let ctx = context { ..Hermetic(), Fs: readOnly(data()) };
+    let ctx = context { Alloc: alloc(), Stdout: stdout(), Fs: memory().readOnly() };
     let msg = assert.err(run(ctx, "ledger.log"));
     assert.isTrue(msg.contains("ledger"));
 }
@@ -210,40 +215,37 @@ test "run fails cleanly when the log is unwritable" {
 
 ## Shared fixtures
 
-A helper more than one suite needs is not a test source — it is ordinary
-library code behind a path with a `testing` segment, declared by a
+A helper more than one suite needs is not a test source — it is ordinary library
+code behind a path with a `testing` segment, declared by a
 `testing { sources: [...] }` block. It may import the library's internals, has
-its own `dependencies`, is never linked into a production artifact, and
-inherits the library's `visibility` and `tags`. A consumer's suite reaches it
-by label, declared in `test { dependencies }`.
+its own `dependencies`, is never linked into a production artifact, and inherits
+the library's `visibility` and `tags`. A consumer's suite reaches it by label,
+declared in `test { dependencies }`.
 
 Prefer a private helper while only one suite wants the fixture, and promote it
 as soon as a second does — a fixture on a public surface is an API.
 
 ## Golden files
 
-Write a suite's filesystem in the suite, with `fs().files([...])` from
-`core/host/testing`:
+Write a suite's filesystem in the suite, with `core/host/testing`'s `fs().files`:
 
 ```buri
-from "core/host/testing/lib.buri" import { fs as testFs };
+from "core/host/testing/lib.buri" import { alloc, fs as memory };
 
 test "renders the statement" {
-    let ctx = context { ..Hermetic(), Fs: testFs().files([("statement.txt", "coffee")]) };
+    let ctx = context { Alloc: alloc(), Fs: memory().files([("statement.txt", "coffee")]) };
     let want = assert.ok(fs.readText(ctx, "statement.txt"));
     assert.eq(render(ctx, sample()), want);
 }
 ```
 
-A golden read straight back out of that filesystem is usually shorter as a
-value in the assertion itself. The filesystem earns its place when the code
-under test is what does the reading.
+A golden read straight back out of that filesystem is usually shorter as a value
+in the assertion. The filesystem earns its place when the code under test reads.
 
-Both `test { data: [...] }` and `buri test --accept` are retired. The field
-made a suite's filesystem a fact about the build that only the JavaScript
-runner could supply; a linked test binary has no runner, so the backends gave
-different answers. A golden is a value in the suite's own source now, which an
-editor rewrites, and no suite is refused a backend for holding one.
+Both `test { data: [...] }` and `buri test --accept` are retired: the field made
+a suite's filesystem a fact about the build that only the JavaScript runner could
+supply — a linked test binary has no runner — so the backends disagreed. A golden
+is a value in the suite's own source now, and no backend is refused one.
 
 ## Running
 

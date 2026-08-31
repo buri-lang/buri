@@ -1214,7 +1214,7 @@ export fn stampedWith<C: Alloc + Clock>(ctx: C, into: [Int]): [Int] {
 // 12. Evaluation-order instrumentation
 // =============================================================================
 
-/// Appends `mark` to stdout. A test binds `captureOut()` and reads the whole
+/// Appends `mark` to stdout. A test binds `stdout()` and reads the whole
 /// transcript back with `captured`, so the order in which the parts of an
 /// expression ran is an exact string.
 export fn note<C: Alloc + Stdout>(ctx: C, mark: Str): () {

@@ -46,10 +46,11 @@ into the library.
 
 from "//lib/money/lib.buri" import { fromCents, fromDollars };
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 test "pads the cents place" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(fromCents(1905).format(ctx), "\$19.05");
 }
 
@@ -70,7 +71,7 @@ own line.
 
 A test that needs a context builds one, with the same `context` form `main` uses
 — a test source and `main`'s body are the only places in the language where a
-context is created rather than received, which is why `core/testing/context` is
+context is created rather than received, which is why `core/host/testing` is
 importable only from a test source. A pure assertion, like the second one above,
 needs no context at all, and the fact that you can see which is which from the
 test body is the point of the effect system showing up here too.
@@ -123,7 +124,7 @@ A test source may import:
 | The target under test | `//lib/money/lib.buri` for a library, `//cmd/server/main.buri` for a binary |
 | The target's `dependencies` | The same libraries the target itself depends on |
 | The suite's `test.dependencies` | Fakes, fixtures, matchers |
-| `core/*` | Including the test platform: `core/testing/assert/lib.buri`, `core/host/testing/lib.buri`, `core/testing/context/lib.buri` |
+| `core/*` | Including the test platform: `core/testing/assert/lib.buri` and `core/host/testing/lib.buri` |
 
 | Any test-only path | `//lib/ledger/testing/lib.buri`, `//lib/testing/fakes/lib.buri` — the package is declared in `test.dependencies` like any other library |
 
@@ -163,8 +164,8 @@ library code that happens to be test-only, and it lives behind a path with a
 `testing` segment ([`libraries.md`](./libraries.md#the-testing-surface)):
 
 ```buri repo=cli/tests/example package=//lib/ledger role=testing
-# from "core/testing/context/lib.buri" import { Hermetic, files };
-# from "core/effect/lib.buri" import { Fs };
+# from "core/host/testing/lib.buri" import { alloc, fs };
+# from "core/effect/lib.buri" import { Alloc, Fs };
 // lib/ledger/testing/fixtures.buri — inside //lib/ledger, so it can use the
 // library's internals to build a fixture.
 
@@ -184,8 +185,8 @@ export fn sample(): [Entry] {
 /// otherwise write the same three lines. A `context` declaration may be
 /// exported only from a path with a `testing` segment ([`SPEC.md` §11.3]).
 export context WithLedger {
-  ..Hermetic(),
-  Fs: files([("ledger.log", "coffee\t\$4.50\n")]),
+  Alloc: alloc(),
+  Fs: fs().files([("ledger.log", "coffee\t\$4.50\n")]),
 }
 ```
 
@@ -279,7 +280,7 @@ supply, and it is the same list in both directions.
 
 ```buri role=test
 # from "core/testing/assert/lib.buri" import * as assert;
-# from "core/testing/context/lib.buri" import { Hermetic, data, readOnly };
+# from "core/host/testing/lib.buri" import { alloc, fs as memory, stdout };
 # from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
 # from "core/fs/lib.buri" import * as fs;
 # fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> {
@@ -287,7 +288,7 @@ supply, and it is the same list in both directions.
 # }
 // cmd/server/test/run.buri
 test "run fails cleanly when the log is unwritable" {
-  let ctx = context { ..Hermetic(), Fs: readOnly(data()) };
+  let ctx = context { Alloc: alloc(), Stdout: stdout(), Fs: memory().readOnly() };
   let msg = assert.err(run(ctx, "ledger.log"));
   assert.isTrue(msg.contains("ledger"));
 }
@@ -295,60 +296,13 @@ test "run fails cleanly when the log is unwritable" {
 
 ## The runner's context
 
-`core/testing/context` exports one implementation per effect, not one
-pre-assembled world. Each is real where it can be and hermetic everywhere else:
-
-| Member | Effect | In a test |
-|---|---|---|
-| `alloc()` | `Alloc` | Real, with a per-test arena the runner reclaims. |
-| `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` is how a test reads it back. |
-| `stdin([Str])` | `Stdin` | Reads the given lines, then end-of-input. |
-| `data()` | `Fs` | In-memory, rooted at the package directory, and empty. Writes are visible to that test and discarded after it. |
-| `files([(Str, Str)])` | `Fs` | In-memory, containing exactly these entries. |
-| `readOnly(F)` | `Fs` | Wraps an `Fs` so every write fails. |
-| `noNet()` | `Net` | Refuses every connection. A fake goes in `test.dependencies`. |
-| `clockAt(Int)` | `Clock` | Starts there and advances only when the test advances it. |
-| `randSeed(Int)` | `Rand` | Seeded, so a failure reproduces. |
-| `envOf([(Str, Str)], [Str])` | `Env` | These variables and these arguments. |
-
-`Hermetic` is a context binding all of them at their defaults — an empty
-`envOf`, `clockAt(0)`, `randSeed(0)`, and `data()` for the filesystem. A file
-may use it directly, declare its own on top of it, or build one per test:
-
-```buri role=test
-# from "core/testing/assert/lib.buri" import * as assert;
-# from "core/testing/context/lib.buri" import { Hermetic, envOf };
-# from "core/effect/lib.buri" import { Env };
-# from "core/env/lib.buri" import * as env;
-# fn logPath<C: Env>(ctx: C): Str { env.get(ctx, "LEDGER_LOG") ?? "ledger.log" }
-context Fixture {
-  ..Hermetic(),
-  Env: envOf([("LEDGER_LOG", "custom.log")], ["--verbose"]),
-}
-
-test "reads the log path from the environment" {
-  let ctx = Fixture();
-  assert.eq(logPath(ctx), "custom.log");
-}
-
-test "falls back when the variable is unset" {
-  let ctx = context { ..Fixture(), Env: envOf([], []) };
-  assert.eq(logPath(ctx), "ledger.log");
-}
-```
-
-Each call builds a fresh context, so what one test writes to its filesystem or
-prints to its captured stdout is invisible to the next — which is why a named
-context is called rather than referred to.
-
-### `core/host/testing` — the same doubles, under `core/host`'s names
-
-`core/host/testing` is the platform a test source binds, and it is
-`core/host`'s surface written out for a test: the same names — `alloc`,
-`stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc` —
-**called** rather than referred to. `core/host`'s `clock` is one clock because a process
-has one; `clock()` is a fresh clock every call, so a test never inherits another
-test's.
+`core/host/testing` is the platform a test source binds, and it exports one
+double per effect rather than one pre-assembled world — each real where it can
+be and hermetic everywhere else. It is `core/host`'s surface written out for a
+test: the same names — `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`,
+`clock`, `rand`, `env`, `proc` — **called** rather than referred to.
+`core/host`'s `clock` is one clock because a process has one; `clock()` is a
+fresh clock every call, so a test never inherits another test's.
 
 | Member | Effect | In a test |
 |---|---|---|
@@ -397,12 +351,12 @@ stdin built from octets answers `.None` to `readLine`, and the last builder in
 the chain is the stream. `files` and `filesBytes` do compose, in either order,
 because both write into the one map a file lives in.
 
-`readOnly()` is `core/testing/context`'s `ReadOnly<C>` wrapper folded into a
-method, and the fold keeps what made it a wrapper: it attenuates the *same*
-filesystem rather than a copy, so a read through the attenuated handle answers
-whatever the filesystem holds now. `ReadOnly<C>` itself stays, because it
-attenuates any `Fs` — including one a test wrote — and the method attenuates
-only this one.
+`readOnly()` is the `ReadOnly<C>` attenuation wrapper folded into a method, and
+the fold keeps what made it a wrapper: it attenuates the *same* filesystem
+rather than a copy, so a read through the attenuated handle answers whatever the
+filesystem holds now. Writing the wrapper by hand still works, and still has a
+use the method does not cover — it attenuates any `Fs`, including one a test
+wrote, and the method attenuates only this one.
 
 ### Reading the environment back
 
@@ -464,12 +418,18 @@ from "core/host/testing/lib.buri" import { alloc, clock, env, stdout };
 from "core/effect/lib.buri" import { Alloc, Clock, Env, Stdout };
 # fn logPath<C: Env>(ctx: C): Str { ctx.variable("LEDGER_LOG") ?? "ledger.log" }
 
+context Fixture {
+  Alloc: alloc(),
+  Env: env().variables([("LEDGER_LOG", "custom.log")]).arguments(["--verbose"]),
+}
+
 test "reads the log path from the environment" {
-  let ctx = context {
-    Alloc: alloc(),
-    Env: env().variables([("LEDGER_LOG", "custom.log")]).arguments(["--verbose"]),
-  };
-  assert.eq(logPath(ctx), "custom.log");
+  assert.eq(logPath(Fixture()), "custom.log");
+}
+
+test "falls back when the variable is unset" {
+  let ctx = context { ..Fixture(), Env: env() };
+  assert.eq(logPath(ctx), "ledger.log");
 }
 
 test "a context names only the effects the function under test needs" {
@@ -481,9 +441,12 @@ test "a context names only the effects the function under test needs" {
 }
 ```
 
-The second block is the shape to copy: a test context binds what the function
-needs and nothing else, rather than a pre-assembled world. `core/testing/context`
-and its `Hermetic()` keep working unchanged while the corpus moves across.
+The last block is the shape to copy: a test context binds what the function
+needs and nothing else, rather than a pre-assembled world. A file whose tests
+want the same one declares it, as `Fixture` does, and a test that wants it with
+one line changed spreads it — and each call builds a fresh context, so what one
+test writes to its filesystem or prints to its captured stdout is invisible to
+the next. That is why a named context is called rather than referred to.
 
 ### A network that answers
 
@@ -565,8 +528,8 @@ exactly the way the runner's own implementations are:
 
 ```buri role=test
 # from "core/testing/assert/lib.buri" import * as assert;
-# from "core/testing/context/lib.buri" import { Hermetic };
-# from "core/effect/lib.buri" import { Net, NetError, Request, Response };
+# from "core/host/testing/lib.buri" import { alloc };
+# from "core/effect/lib.buri" import { Alloc, Net, NetError, Request, Response };
 # from "core/net/http/lib.buri" import * as http;
 # fn status<C: Net>(ctx: C, url: Str): Result<Int, NetError> {
 #   http.send(ctx, http.request(.Get, url)).map(fn(r) => r.status)
@@ -584,7 +547,7 @@ impl Net for StubNet {
 }
 
 test "a timeout reaches the caller as an error" {
-  let ctx = context { ..Hermetic(), Net: StubNet { failing: "https://example.test/slow" } };
+  let ctx = context { Alloc: alloc(), Net: StubNet { failing: "https://example.test/slow" } };
   assert.eq(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
   assert.eq(assert.ok(status(ctx, "https://example.test/x")), 200);
 }
@@ -595,11 +558,11 @@ is the same thing already written: `StubNet.fetch` and a responder are the same
 function of the same request.
 
 The fake answers from its fields rather than from a counter, because there is no
-mutation to hold one in. `clockAt`'s advancing clock and `captureOut`'s
+mutation to hold one in. `clock()`'s advancing clock and `stdout()`'s
 accumulating buffer do change between calls, and that is a privilege of the
 runner's own implementations rather than a mechanism a fake can borrow: each of
 those constructors is an intrinsic that installs a slot in a table the runtime
-owns, and nothing in `core/testing/context` hands one out. A fake you write is
+owns, and `core/host/testing` hands out no way to open one. A fake you write is
 an immutable struct and stays one, so it answers the same way every time it is
 asked the same question.
 
