@@ -27,11 +27,18 @@
 //!   3. the out-pointer                                   (lib.rs §2 rules 2, 3)
 //! ```
 //!
-//! Step 1 needs no table entry at all: a `Str` argument spreads to three
-//! values because a `Str` *is* three leaves, and a zero-sized `ctx` spreads to
-//! none because it occupies no bytes. That is why there is no per-argument
-//! column here — the IR is the argument list, and a second description of it
-//! would be a thing to disagree with.
+//! Step 1 is the IR's own argument list: a `Str` argument spreads to three
+//! values because a `Str` *is* three leaves. There is no per-argument column
+//! for the shapes, because a second description of them would be a thing to
+//! disagree with.
+//!
+//! Two arguments are the exception, and both are here because the IR genuinely
+//! cannot answer them: [`Entry::by_ref`], whose type is a bare `T`, and
+//! [`Entry::ctx`], which the C signature has no parameter for. The second one
+//! read "a `ctx` spreads to no leaves because it occupies no bytes" for a long
+//! time, and that is a fact about `core/host`'s empty marker structs rather
+//! than about contexts — see [`Entry::ctx`] for what it costs when a program
+//! writes something else.
 //!
 //! Steps 2 and 3 are what [`Extra`] and [`Ret`] select. What the backend
 //! supplies for itself is where an argument *is*: its convention is
@@ -105,7 +112,7 @@ pub enum Extra {
     /// (`backend/intrinsic_keys.rs`'s `step_call`):
     ///
     /// ```text
-    ///   entry       the generated C-ABI thunk, `void(state, in, out)`
+    ///   entry       the generated C-ABI thunk, `void(state, index, in, out)`
     ///   state       the backend's own record, opaque to the runtime
     ///   in_stride   the source element's stride
     ///   out_stride  the result element's stride
@@ -128,8 +135,8 @@ pub enum Extra {
     /// this backend's business and reaches the runtime inside `state`; the
     /// closure is the last argument at every key `step_call` names, so "skip it
     /// and append the four" and "write the four where it stood" are the same C
-    /// signature — which is what lets this table, which has no per-argument
-    /// column, describe the same call `llvm/runtime.rs`'s `Arg::Step` does.
+    /// signature — which is what lets this table, which names no *shape* per
+    /// argument, describe the same call `llvm/runtime.rs`'s `Arg::Step` does.
     Step,
 }
 
@@ -199,23 +206,53 @@ pub struct Entry {
     /// caller spills it to a stack slot and passes the address — which is
     /// `lib.rs` §2 rule 4, and the same reason `stride` is a parameter.
     pub by_ref: Option<usize>,
+    /// The index, in the Buri argument list, of the operation's **context**
+    /// parameter — the one the C signature has no parameter for at all.
+    ///
+    /// `cli/runtime` allocates through `buri_rt_alloc` and reads no capability
+    /// (`sources/alloc.buri`'s header says so), so a `ctx: C` crosses nothing.
+    /// The question is *which argument that is*, and it is a fact about the
+    /// **declaration** rather than about the value: `list.push(self, ctx,
+    /// item)` names its second, `list.repeat(ctx, item, times)` its first.
+    ///
+    /// It is a column here for the reason [`Entry::by_ref`] is one — the IR
+    /// cannot answer it. Asking the argument's *type* instead ("is it a
+    /// `Ty::Ctx`?") is the same question only while every `C` is instantiated
+    /// at a `context { … }` record, and `C` is an ordinary type parameter with
+    /// an ordinary bound (SPEC 10.1): a value that *implements* `Alloc`
+    /// satisfies `C: Alloc` without being a context, which is what SPEC 10.8's
+    /// attenuating `ReadOnly<C>` and `core/host/testing`'s `alloc()` both are.
+    /// One of those in this position spread to a leaf the C signature has no
+    /// parameter for and shifted every argument after it — which links, runs,
+    /// and dies in `memmove`.
+    ///
+    /// `llvm/runtime.rs` says the same thing with an `Arg::Dropped` at this
+    /// index, and `an_entry_names_the_context_the_other_table_drops` holds the
+    /// two together.
+    pub ctx: Option<usize>,
 }
 
 const fn e(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry { key, symbol, extra: Extra::None, ret, by_ref: None }
+    Entry { key, symbol, extra: Extra::None, ret, by_ref: None, ctx: None }
 }
 
 const fn el(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry { key, symbol, extra: Extra::Element, ret, by_ref: None }
+    Entry { key, symbol, extra: Extra::Element, ret, by_ref: None, ctx: None }
 }
 
 const fn er(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) -> Entry {
-    Entry { key, symbol, extra: Extra::Element, ret, by_ref: Some(by_ref) }
+    Entry { key, symbol, extra: Extra::Element, ret, by_ref: Some(by_ref), ctx: None }
+}
+
+/// `entry`, with the index of its declaration's `ctx` parameter
+/// ([`Entry::ctx`]).
+const fn cx(entry: Entry, at: usize) -> Entry {
+    Entry { ctx: Some(at), ..entry }
 }
 
 /// A runtime-driven step ([`Extra::Step`]).
 const fn es(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry { key, symbol, extra: Extra::Step, ret, by_ref: None }
+    Entry { key, symbol, extra: Extra::Step, ret, by_ref: None, ctx: None }
 }
 
 /// Every key this backend has a runtime body for.
@@ -254,50 +291,51 @@ pub const ENTRIES: &[Entry] = &[
     e("str.toInt", "buri_rt_str_to_int", Ret::Opt),
     e("str.toFloat", "buri_rt_str_to_float", Ret::Opt),
     // -- core/str, `Alloc`-bounded ------------------------------------------
-    e("str.split", "buri_rt_str_split", Ret::Out),
-    e("str.splitAny", "buri_rt_str_split_any", Ret::Out),
-    e("str.lines", "buri_rt_str_lines", Ret::Out),
-    e("str.replace", "buri_rt_str_replace", Ret::Out),
-    e("str.repeat", "buri_rt_str_repeat", Ret::Out),
-    e("str.toUpper", "buri_rt_str_to_upper", Ret::Out),
-    e("str.toLower", "buri_rt_str_to_lower", Ret::Out),
-    e("str.chars", "buri_rt_str_chars", Ret::Out),
-    e("str.fromChars", "buri_rt_str_from_chars", Ret::Out),
-    e("str.fromInt", "buri_rt_str_from_int", Ret::Out),
-    e("str.fromFloat", "buri_rt_str_from_float", Ret::Out),
-    e("str.padStart", "buri_rt_str_pad_start", Ret::Out),
-    e("str.padEnd", "buri_rt_str_pad_end", Ret::Out),
+    cx(e("str.split", "buri_rt_str_split", Ret::Out), 1),
+    cx(e("str.splitAny", "buri_rt_str_split_any", Ret::Out), 1),
+    cx(e("str.lines", "buri_rt_str_lines", Ret::Out), 1),
+    cx(e("str.replace", "buri_rt_str_replace", Ret::Out), 1),
+    cx(e("str.repeat", "buri_rt_str_repeat", Ret::Out), 1),
+    cx(e("str.toUpper", "buri_rt_str_to_upper", Ret::Out), 1),
+    cx(e("str.toLower", "buri_rt_str_to_lower", Ret::Out), 1),
+    cx(e("str.chars", "buri_rt_str_chars", Ret::Out), 1),
+    cx(e("str.fromChars", "buri_rt_str_from_chars", Ret::Out), 0),
+    cx(e("str.fromInt", "buri_rt_str_from_int", Ret::Out), 0),
+    cx(e("str.fromFloat", "buri_rt_str_from_float", Ret::Out), 0),
+    cx(e("str.padStart", "buri_rt_str_pad_start", Ret::Out), 1),
+    cx(e("str.padEnd", "buri_rt_str_pad_end", Ret::Out), 1),
     // -- core/list ----------------------------------------------------------
     //
     // `len` is open-coded (it is a load) and every entry taking a closure is
     // absent; `cli/runtime/list.rs`'s header says which and why.
     el("list.get", "buri_rt_list_get", Ret::Opt),
-    el("list.concat", "buri_rt_list_concat", Ret::Out),
+    cx(el("list.concat", "buri_rt_list_concat", Ret::Out), 1),
     // `push(self, ctx, item)` — the item is a `T`, so it goes by address.
-    er("list.push", "buri_rt_list_push", Ret::Out, 2),
-    el("list.reverse", "buri_rt_list_reverse", Ret::Out),
-    el("list.slice", "buri_rt_list_slice", Ret::Out),
-    el("list.take", "buri_rt_list_take", Ret::Out),
-    el("list.drop", "buri_rt_list_drop", Ret::Out),
+    cx(er("list.push", "buri_rt_list_push", Ret::Out, 2), 1),
+    cx(el("list.reverse", "buri_rt_list_reverse", Ret::Out), 1),
+    cx(el("list.slice", "buri_rt_list_slice", Ret::Out), 1),
+    cx(el("list.take", "buri_rt_list_take", Ret::Out), 1),
+    cx(el("list.drop", "buri_rt_list_drop", Ret::Out), 1),
     // `repeat(ctx, item, times)` — likewise, one place earlier.
-    er("list.repeat", "buri_rt_list_repeat", Ret::Out, 1),
-    e("list.range", "buri_rt_list_range", Ret::Out),
-    e("list.join", "buri_rt_list_join", Ret::Out),
+    cx(er("list.repeat", "buri_rt_list_repeat", Ret::Out, 1), 0),
+    cx(e("list.range", "buri_rt_list_range", Ret::Out), 0),
+    cx(e("list.join", "buri_rt_list_join", Ret::Out), 1),
     // -- the closure trampoline, and its one pilot key ----------------------
     //
     // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
     // C-ABI entry thunk of [`Extra::Step`] instead of through the loop
     // `stencil/lists.rs` open-codes. It is the *pilot* for that mechanism and
-    // nothing else uses it: `core/list`'s own combinators keep their loops,
-    // which are faster than a call per element can be, and the operations the
-    // trampoline exists for — a task pool, an accepting socket — are not
-    // written yet.
+    // nothing in `core/list` uses it: those combinators keep their loops, which
+    // are faster than a call per element can be.
     //
-    // So this row is here to be *called*, by a conformance fixture and by an
-    // agreement row, before there is anything else to call it with. The
+    // So this row landed to be *called*, by a conformance fixture and by an
+    // agreement row, before there was anything else to call it with. The
     // alternative was landing the boundary underneath `Tasks.parallel` and
-    // debugging two new things at once.
-    es("list.mapCtxStep", "buri_rt_list_map_ctx_step", Ret::Out),
+    // debugging two new things at once. `host.HostTasks.parallel` is that
+    // second key and it is in the `core/host` block below, beside the rest of
+    // the host surface rather than up here — the trampoline is a mechanism, not
+    // a section of this table.
+    cx(es("list.mapCtxStep", "buri_rt_list_map_ctx_step", Ret::Out), 1),
     // -- core/bytes ---------------------------------------------------------
     //
     // Six of `bytes.buri`'s surface, and the rest of that module is Buri:
@@ -310,14 +348,14 @@ pub const ENTRIES: &[Entry] = &[
     // `[U8]`: the element type is fixed at `U8`, so there is no `T` for the
     // stride-and-glue pair of `lib.rs` §2 rule 4 to describe, and
     // `cli/runtime/value.rs`'s `list_of_bytes` knows the stride is one.
-    e("bytes.toUtf8", "buri_rt_bytes_to_utf8", Ret::Out),
+    cx(e("bytes.toUtf8", "buri_rt_bytes_to_utf8", Ret::Out), 0),
     // `Result<Str, Utf8Error>` — §2.1's *second* error shape. `Utf8Error(Int)`
     // is a struct, so there is no variant index to name it with and the value
     // crosses through its own out-pointer.
-    e("bytes.fromUtf8", "buri_rt_bytes_from_utf8", Ret::Res),
-    e("bytes.f64ToBytes", "buri_rt_bytes_f64_to_bytes", Ret::Out),
+    cx(e("bytes.fromUtf8", "buri_rt_bytes_from_utf8", Ret::Res), 0),
+    cx(e("bytes.f64ToBytes", "buri_rt_bytes_f64_to_bytes", Ret::Out), 0),
     e("bytes.f64FromBytes", "buri_rt_bytes_f64_from_bytes", Ret::Opt),
-    e("bytes.f32ToBytes", "buri_rt_bytes_f32_to_bytes", Ret::Out),
+    cx(e("bytes.f32ToBytes", "buri_rt_bytes_f32_to_bytes", Ret::Out), 0),
     e("bytes.f32FromBytes", "buri_rt_bytes_f32_from_bytes", Ret::Opt),
     // -- core/char ----------------------------------------------------------
     //
@@ -369,6 +407,27 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostRand.nextInt", "buri_rt_host_rand_next_int", Ret::Scalar),
     e("host.HostRand.nextFloat", "buri_rt_host_rand_next_float", Ret::Scalar),
     e("host.HostProc.exitWith", "buri_rt_host_proc_exit_with", Ret::NoReturn),
+    // -- Tasks --------------------------------------------------------------
+    //
+    // `parallel(self, ctx, items, f)`. `self` is `HostTasks`, an empty struct,
+    // so it flattens to nothing; `ctx` is the caller's whole context and is the
+    // one this row's fourth column names, because it is dropped from the C call
+    // and read into the step's state record instead; `items` is the `[A]` the
+    // runtime walks, which is what the strides of [`Extra::Step`] describe; `f`
+    // crosses as the entry thunk and the state record rather than as
+    // `{ code, env }`.
+    //
+    // Two of the four arguments carry no bytes across and they are dropped for
+    // different reasons: `self` because it is empty, `ctx` because the runtime
+    // reads no capability. Only the second is a rule — a `TestTasks` receiver is
+    // a live handle and crosses — which is why the column names an index rather
+    // than a width.
+    //
+    // The body is in `cli/runtime/rt.rs` behind feature `net`, which is why
+    // `runtime_native::net_intrinsic` names the `host.HostTasks.*` family: a
+    // toolchain built without the reactor refuses this key with a sentence
+    // before code generation rather than with a missing symbol from `cc`.
+    cx(es("host.HostTasks.parallel", "buri_rt_host_tasks_parallel", Ret::Out), 1),
     // -- core/alloc's counters ----------------------------------------------
     //
     // Four scalars in, one scalar out, and no context anywhere in them: the
@@ -538,8 +597,8 @@ pub const ENTRIES: &[Entry] = &[
         Ret::Opt,
     ),
     e(
-        "testing_context.TestEnv.arguments",
-        "buri_rt_testing_context_test_env_arguments",
+        "testing_context.TestEnv.args",
+        "buri_rt_testing_context_test_env_args",
         Ret::Out,
     ),
     // -- core/host/testing --------------------------------------------------
@@ -552,6 +611,11 @@ pub const ENTRIES: &[Entry] = &[
     // `alloc` and `TestAlloc.allocate` are open-coded, as
     // `testing_context`'s are, and are named in
     // [`the_unimplemented_surface_is_not_claimed`] for the same reason.
+    //
+    // `proc` and `TestProc.exitWith` are absent and are not named there either,
+    // for `TestNet.fetch`'s reason rather than the allocator's: both are Buri
+    // bodies, so no key reaches this table to be missing from it. `TestProc`
+    // records nothing because nothing can read it back.
     e("host_testing.stdout", "buri_rt_host_testing_stdout", Ret::Out),
     e("host_testing.stderr", "buri_rt_host_testing_stderr", Ret::Out),
     e("host_testing.TestStdout.print", "buri_rt_host_testing_test_stdout_print", Ret::Void),
@@ -581,43 +645,67 @@ pub const ENTRIES: &[Entry] = &[
     // The stream's log, read back. A log is state the runner keeps, so it is
     // here for the reason the handle table itself is.
     e("host_testing.TestStdin.calls", "buri_rt_host_testing_test_stdin_calls", Ret::Out),
-    // `TestFs`'s seventeen. The eleven the `Fs` effect declares are `MemFs`'s
-    // shapes, and the six above them are this module's: two builders, the
-    // attenuator, and the three read-backs a test asserts through.
+    // `TestFs`'s twenty-two, and every one of them takes a **handle** rather
+    // than a `TestFs`. That value is a handle and a fault plan since the plan
+    // landed, and an argument crosses as its leaves — so a row taking `self`
+    // would be handed three values where it expects one, which is the crash
+    // `TestNet.calls` found first. The eleven methods of `Fs` are Buri bodies
+    // over these rows; `host_testing.buri` says why the plan is in the program.
     //
     // `snapshot` is `Ret::Out` over a `[(Str, Str)]` — one block of two-`Str`
     // elements, which is the layout `str.splitOnce` already writes through an
-    // out-pointer, one element wide.
-    e("host_testing.fs", "buri_rt_host_testing_fs", Ret::Out),
-    e("host_testing.TestFs.files", "buri_rt_host_testing_test_fs_files", Ret::Out),
-    e("host_testing.TestFs.filesBytes", "buri_rt_host_testing_test_fs_files_bytes", Ret::Out),
-    e("host_testing.TestFs.readOnly", "buri_rt_host_testing_test_fs_read_only", Ret::Out),
-    e("host_testing.TestFs.read", "buri_rt_host_testing_test_fs_read", Ret::Res),
-    e("host_testing.TestFs.snapshot", "buri_rt_host_testing_test_fs_snapshot", Ret::Out),
-    e("host_testing.TestFs.calls", "buri_rt_host_testing_test_fs_calls", Ret::Out),
-    e("host_testing.TestFs.readFile", "buri_rt_host_testing_test_fs_read_file", Ret::Res),
-    e("host_testing.TestFs.writeFile", "buri_rt_host_testing_test_fs_write_file", Ret::Res),
+    // out-pointer, one element wide. The three builders and `newFs` answer an
+    // `I64` and so are `Ret::Scalar`, `newNet`'s shape rather than `clock`'s:
+    // what they answer is the handle, and the value around it is built in Buri.
+    e("host_testing.newFs", "buri_rt_host_testing_new_fs", Ret::Scalar),
+    e("host_testing.fsFiles", "buri_rt_host_testing_fs_files", Ret::Scalar),
+    e("host_testing.fsFilesBytes", "buri_rt_host_testing_fs_files_bytes", Ret::Scalar),
+    e("host_testing.fsReadOnly", "buri_rt_host_testing_fs_read_only", Ret::Scalar),
+    e("host_testing.fsRead", "buri_rt_host_testing_fs_read", Ret::Res),
+    e("host_testing.fsSnapshot", "buri_rt_host_testing_fs_snapshot", Ret::Out),
+    e("host_testing.fsCalls", "buri_rt_host_testing_fs_calls", Ret::Out),
+    e("host_testing.fsReadFile", "buri_rt_host_testing_fs_read_file", Ret::Res),
+    e("host_testing.fsWriteFile", "buri_rt_host_testing_fs_write_file", Ret::Res),
     e(
-        "host_testing.TestFs.fileExists",
-        "buri_rt_host_testing_test_fs_file_exists",
+        "host_testing.fsFileExists",
+        "buri_rt_host_testing_fs_file_exists",
         Ret::Scalar,
     ),
-    e("host_testing.TestFs.readDir", "buri_rt_host_testing_test_fs_read_dir", Ret::Res),
+    e("host_testing.fsReadDir", "buri_rt_host_testing_fs_read_dir", Ret::Res),
     e(
-        "host_testing.TestFs.readFileBytes",
-        "buri_rt_host_testing_test_fs_read_file_bytes",
+        "host_testing.fsReadFileBytes",
+        "buri_rt_host_testing_fs_read_file_bytes",
         Ret::Res,
     ),
     e(
-        "host_testing.TestFs.writeFileBytes",
-        "buri_rt_host_testing_test_fs_write_file_bytes",
+        "host_testing.fsWriteFileBytes",
+        "buri_rt_host_testing_fs_write_file_bytes",
         Ret::Res,
     ),
-    e("host_testing.TestFs.appendFile", "buri_rt_host_testing_test_fs_append_file", Ret::Res),
-    e("host_testing.TestFs.renameFile", "buri_rt_host_testing_test_fs_rename_file", Ret::Res),
-    e("host_testing.TestFs.removeFile", "buri_rt_host_testing_test_fs_remove_file", Ret::Res),
-    e("host_testing.TestFs.makeDir", "buri_rt_host_testing_test_fs_make_dir", Ret::Res),
-    e("host_testing.TestFs.syncFile", "buri_rt_host_testing_test_fs_sync_file", Ret::Res),
+    e("host_testing.fsAppendFile", "buri_rt_host_testing_fs_append_file", Ret::Res),
+    e("host_testing.fsRenameFile", "buri_rt_host_testing_fs_rename_file", Ret::Res),
+    e("host_testing.fsRemoveFile", "buri_rt_host_testing_fs_remove_file", Ret::Res),
+    e("host_testing.fsMakeDir", "buri_rt_host_testing_fs_make_dir", Ret::Res),
+    e("host_testing.fsSyncFile", "buri_rt_host_testing_fs_sync_file", Ret::Res),
+    // -- the fault plan's promise -------------------------------------------
+    //
+    // The plan itself never crosses. It is a list of Buri values holding an
+    // `IoError`, and §2.1 cannot name an error variant that carries a field, so
+    // matching is the `Eq` the `Call` records derive and happens in
+    // `host_testing.buri`. What crosses is the half a program cannot keep:
+    // `fsWithPlan`/`netWithPlan` mint the plan, `addFsFault`/`addNetFault` say
+    // what each entry would read like in a failure message, `noteFault` records
+    // that one fired, and `test.leave` below reports the rest. `noteFsCall` is
+    // the twelfth way into a log: a call the plan failed never reaches the row
+    // that would have recorded it, and it is still a call.
+    e("host_testing.fsWithPlan", "buri_rt_host_testing_fs_with_plan", Ret::Scalar),
+    e("host_testing.addFsFault", "buri_rt_host_testing_add_fs_fault", Ret::Void),
+    e("host_testing.addNetFault", "buri_rt_host_testing_add_net_fault", Ret::Void),
+    e("host_testing.faultFails", "buri_rt_host_testing_fault_fails", Ret::Void),
+    e("host_testing.noteFault", "buri_rt_host_testing_note_fault", Ret::Void),
+    e("host_testing.noteFsCall", "buri_rt_host_testing_note_fs_call", Ret::Void),
+    e("host_testing.netRebind", "buri_rt_host_testing_net_rebind", Ret::Scalar),
+    e("host_testing.netWithPlan", "buri_rt_host_testing_net_with_plan", Ret::Scalar),
     // -- the call log's remaining four --------------------------------------
     //
     // `spelled` is an `FsCall` constructor's decode and not a filesystem
@@ -637,6 +725,45 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.newNet", "buri_rt_host_testing_new_net", Ret::Scalar),
     e("host_testing.recordFetch", "buri_rt_host_testing_record_fetch", Ret::Void),
     e("host_testing.netCalls", "buri_rt_host_testing_net_calls", Ret::Out),
+    // -- tasks(): the order the work happens in ------------------------------
+    //
+    // `parallel` is the **second** key of the closure trampoline in this table
+    // and the reason the double is worth having: it reaches its steps through
+    // the same entry thunk `host.HostTasks.parallel` reaches them through, so a
+    // program tested against this is tested against the boundary that ships.
+    // `self` is a `TestTasks`, a handle, so it is a scalar where the real one is
+    // `Arg::Dropped` — the runtime has to be able to ask which order this run
+    // schedules in. The other rows are the ordering builders, the log, and the
+    // plan's two halves.
+    cx(
+        es("host_testing.TestTasks.parallel", "buri_rt_host_testing_test_tasks_parallel", Ret::Out),
+        1,
+    ),
+    e("host_testing.tasks", "buri_rt_host_testing_tasks", Ret::Out),
+    e(
+        "host_testing.TestTasks.anyOrder",
+        "buri_rt_host_testing_test_tasks_any_order",
+        Ret::Out,
+    ),
+    e(
+        "host_testing.TestTasks.everyOrder",
+        "buri_rt_host_testing_test_tasks_every_order",
+        Ret::Out,
+    ),
+    e("host_testing.TestTasks.seed", "buri_rt_host_testing_test_tasks_seed", Ret::Out),
+    e("host_testing.TestTasks.calls", "buri_rt_host_testing_test_tasks_calls", Ret::Out),
+    e("host_testing.TestTasks.runs", "buri_rt_host_testing_test_tasks_runs", Ret::Scalar),
+    e(
+        "host_testing.TestTasks.orders",
+        "buri_rt_host_testing_test_tasks_orders",
+        Ret::Scalar,
+    ),
+    e("host_testing.TestTasks.replan", "buri_rt_host_testing_test_tasks_replan", Ret::Out),
+    e(
+        "host_testing.TestTasks.addFault",
+        "buri_rt_host_testing_test_tasks_add_fault",
+        Ret::Void,
+    ),
     e("host_testing.clock", "buri_rt_host_testing_clock", Ret::Out),
     e("host_testing.TestClock.at", "buri_rt_host_testing_test_clock_at", Ret::Out),
     e(
@@ -659,12 +786,23 @@ pub const ENTRIES: &[Entry] = &[
     ),
     e("host_testing.env", "buri_rt_host_testing_env", Ret::Out),
     e("host_testing.TestEnv.variables", "buri_rt_host_testing_test_env_variables", Ret::Out),
-    e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
-    e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
     e("host_testing.TestEnv.arguments", "buri_rt_host_testing_test_env_arguments", Ret::Out),
-    e("host_testing.proc", "buri_rt_host_testing_proc", Ret::Out),
-    e("host_testing.TestProc.exitWith", "buri_rt_host_testing_test_proc_exit_with", Ret::Void),
-    e("host_testing.TestProc.exited", "buri_rt_host_testing_test_proc_exited", Ret::Opt),
+    e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
+    e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
+    // The one key here that no Buri declaration produces: `middle::monomorphize`
+    // emits it after every `test` body, so that "a fault whose call never
+    // happens fails the test" is checked once for all three backends rather than
+    // three times in three test-binary entry points. Its twin
+    // `buri_rt_test_enter` is called from those entry points instead, because it
+    // is the *runner's* protocol — which block to run — and this is the
+    // *program's* rule.
+    e("test.leave", "buri_rt_test_leave", Ret::Void),
+    // The other half of the same lowering, emitted after it: whether to run this
+    // body again. `TestTasks.everyOrder` reruns the body once per completion
+    // order, and answering yes here is how — the body calls itself, so the
+    // reruns are one tree on all three backends rather than a loop in each of
+    // three entry points.
+    e("test.replay", "buri_rt_test_replay", Ret::Scalar),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.
@@ -734,8 +872,15 @@ mod tests {
             // way to invoke, and its answer is the `Result<Response, NetError>`
             // §2.1 cannot name — and it is why widening §2.1 later changes
             // nothing about the double. Its *log* is a different question and
-            // has three rows above: `newNet`, `recordFetch` and
-            // `netCalls` cross nothing §2.1 restricts.
+            // has five rows above: `newNet`, `netRebind`, `netWithPlan`,
+            // `recordFetch` and `netCalls` cross nothing §2.1 restricts. So does
+            // its **fault plan**, which is the same wall a third time: the plan
+            // is a list of Buri values holding a `NetError`, so it stays in the
+            // program and only its rendering and its fired flags cross.
+            //
+            // `host_testing.fs` is absent for a different reason and is not a
+            // gap: `fs()` is a Buri body too now, because a `TestFs` is a handle
+            // and a plan. `newFs` is the row that mints the handle.
             // Open-coded, and named here so that "it has no symbol" and "the
             // backend cannot compile it" stay two different statements.
             "testing_context.alloc",
@@ -744,6 +889,15 @@ mod tests {
             // is open-coded the same way.
             "host_testing.alloc",
             "host_testing.TestAlloc.allocate",
+            // Buri bodies, for the reason two paragraphs up.
+            "host_testing.fs",
+            "host_testing.TestFs.readFile",
+            "host_testing.TestFs.faults",
+            // `TestTasks.faults` is a Buri body over `replan` and `addFault`,
+            // for the reason its two twins are: a plan is walked one entry at a
+            // time, and the walk is the program's.
+            "host_testing.faults",
+            "host_testing.TestTasks.faults",
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }
@@ -771,6 +925,150 @@ mod tests {
     fn host_net_fetch_has_a_symbol_and_no_row() {
         assert_eq!(symbol_for("host.HostNet.fetch"), "buri_rt_host_net_fetch");
         assert!(entry("host.HostNet.fetch").is_none());
+    }
+
+    /// The module a key's first segment names, for the keys whose operations
+    /// are *declared* in Buri.
+    ///
+    /// `test.leave` and `test.replay` are absent because they are not: both
+    /// runner hooks are built by `middle::monomorphize::leaving` and no
+    /// declaration spells them, which both runtime tables already say.
+    const DECLARED_IN: &[(&str, &str)] = &[
+        ("alloc", "core/alloc/lib.buri"),
+        ("bytes", "core/bytes/lib.buri"),
+        ("char", "core/char/lib.buri"),
+        ("host", "core/host/lib.buri"),
+        ("host_testing", "core/host/testing/lib.buri"),
+        ("list", "core/list/lib.buri"),
+        ("math", "core/math/lib.buri"),
+        ("str", "core/str/lib.buri"),
+        ("testing_context", "core/testing/context/lib.buri"),
+    ];
+
+    /// Every `fn <name>` in `source`, answered as the index of its `ctx`
+    /// parameter — `None` where it has none.
+    ///
+    /// A set rather than one answer because the name is looked up without its
+    /// owner: `Str.repeat` and `list.repeat` are two declarations of `repeat`,
+    /// and they are in two modules, so within one module the answers agree or
+    /// the lookup was not specific enough to assert on. The caller checks that.
+    fn declared_ctx(source: &str, name: &str) -> Vec<Option<usize>> {
+        let mut out = Vec::new();
+        for (at, _) in source.match_indices("fn ") {
+            // `asfn foo` is not a declaration of `foo`.
+            if source
+                .get(..at)
+                .and_then(|before| before.chars().next_back())
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+            {
+                continue;
+            }
+            let Some(rest) = source.get(at.saturating_add(3)..) else { continue };
+            let Some(tail) = rest.strip_prefix(name) else { continue };
+            // `fn splitOnce` must not answer for `fn split`, so the character
+            // after the name has to end it.
+            if tail.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+            // Past the generics, if any, to the parameter list's own `(`.
+            let Some(open) = tail.find('(') else { continue };
+            let Some(head) = tail.get(..open) else { continue };
+            if head.contains(')') || head.contains('{') {
+                continue;
+            }
+            let Some(after) = tail.get(open.saturating_add(1)..) else { continue };
+            let mut depth = 0usize;
+            let mut params: Vec<String> = Vec::new();
+            let mut piece = String::new();
+            for c in after.chars() {
+                match c {
+                    // `>` closes a generic argument list and also ends the `=>`
+                    // of a function type; the saturating decrement is what lets
+                    // one loop read both without counting arrows.
+                    '(' | '[' | '<' => {
+                        depth = depth.saturating_add(1);
+                        piece.push(c);
+                    }
+                    ')' if depth == 0 => break,
+                    ')' | ']' | '>' => {
+                        depth = depth.saturating_sub(1);
+                        piece.push(c);
+                    }
+                    ',' if depth == 0 => params.push(std::mem::take(&mut piece)),
+                    _ => piece.push(c),
+                }
+            }
+            if !piece.trim().is_empty() {
+                params.push(piece);
+            }
+            out.push(
+                params.iter().position(|p| p.split(':').next().is_some_and(|n| n.trim() == "ctx")),
+            );
+        }
+        out
+    }
+
+    /// [`Entry::ctx`] is the index of the **declaration's** `ctx` parameter,
+    /// checked against the declaration rather than against a second list.
+    ///
+    /// This is the test that would have caught the bug the column exists for.
+    /// The rule it replaced asked the *argument's type* — "is it a `Ty::Ctx`?"
+    /// — which is the same answer only while every `C: Alloc` is instantiated
+    /// at a `context { … }` record; a value that merely implements `Alloc`
+    /// satisfies the bound (SPEC 10.1, 10.8) and slipped through as an extra
+    /// leaf. A column can be wrong the same way a type test was, so it is
+    /// derived here from the one place that cannot be: the signature.
+    #[test]
+    fn the_context_column_is_the_declarations_ctx_parameter() {
+        let module = |path: &str| {
+            crate::compiler::standard_library::MODULES
+                .iter()
+                .find(|m| m.path == path)
+                .map(|m| m.source)
+        };
+        let mut checked = 0usize;
+        for entry in ENTRIES {
+            let Some((_, path)) = DECLARED_IN
+                .iter()
+                .find(|(prefix, _)| entry.key.split('.').next() == Some(prefix))
+            else {
+                continue;
+            };
+            let source = module(path).unwrap_or_else(|| panic!("no module at {path}"));
+            let name = entry.key.rsplit('.').next().unwrap_or(entry.key);
+            let found = declared_ctx(source, name);
+            // `str.eq` and `str.hash` are `semantics/builtins.rs`'s, declared
+            // on every primitive rather than written in `core/str` — so there
+            // is nothing here to read, and neither takes a context.
+            if found.is_empty() {
+                assert_eq!(entry.ctx, None, "{} has no declaration and a ctx column", entry.key);
+                continue;
+            }
+            let first = found.first().copied().flatten();
+            assert!(
+                found.iter().all(|a| *a == found[0]),
+                "{}: two declarations of `{name}` in {path} disagree about `ctx`",
+                entry.key
+            );
+            assert_eq!(entry.ctx, first, "{}", entry.key);
+            checked += 1;
+        }
+        // A scan that matched nothing would pass every assertion above.
+        assert!(checked > 180, "only {checked} rows were read against a declaration");
+        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 29);
+    }
+
+    /// The two shapes the column takes, by example, so that the indices are
+    /// legible without opening `core/list`.
+    #[test]
+    fn a_receiver_shifts_the_context_by_one() {
+        assert_eq!(entry("list.push").and_then(|e| e.ctx), Some(1));
+        assert_eq!(entry("list.repeat").and_then(|e| e.ctx), Some(0));
+        assert_eq!(entry("str.fromInt").and_then(|e| e.ctx), Some(0));
+        assert_eq!(entry("str.split").and_then(|e| e.ctx), Some(1));
+        // `get` takes no context — it allocates nothing.
+        assert_eq!(entry("list.get").and_then(|e| e.ctx), None);
+        assert_eq!(entry("host.HostStdout.println").and_then(|e| e.ctx), None);
     }
 
     /// No two rows may claim the same key: `entry` answers the first, so a

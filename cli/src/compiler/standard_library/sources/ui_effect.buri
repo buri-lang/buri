@@ -63,9 +63,24 @@ export effect Ui {
 /// which on a platform with an interface means freezing it, so this one takes a
 /// callback and returns immediately. A platform grants one or the other.
 export effect Fetch {
-  /// Starts `request` and returns immediately. `done` runs later, with the
-  /// same context this call was made with — which is what lets it write
-  /// signals without capturing anything.
+  /// Starts `request` and returns immediately. `done` runs later, handed the
+  /// value the declaration names — which is why the parameter it is handed is
+  /// worth reading twice.
+  ///
+  /// **`Self` here is the implementation**, as `Self` is everywhere it is
+  /// written (SPEC 10.6). That is *not* what a `done` is for: the callback
+  /// exists so a response can write a signal without capturing anything, and
+  /// writing a signal needs `Ui`, which a `HostFetch` does not grant. So this
+  /// signature is a slice behind its own documentation and is named here rather
+  /// than left to be discovered.
+  ///
+  /// **It wants `ctx: C`**, the way `Tasks.parallel` has it: the caller's whole
+  /// context beside `self`, with `done: fn(C, Result<…>) => ()`. Nothing calls
+  /// `fetch` anywhere in this tree today — no program, no test, no example —
+  /// so the change is four declarations and one `runtime.js` body, and it lands
+  /// with the first caller rather than ahead of one. `Tasks.parallel` made the
+  /// same trip; what it cost was one parameter, and what it bought was steps
+  /// that can do what the module says they can.
   fn fetch(
     self,
     request: Request,

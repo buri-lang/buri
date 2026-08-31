@@ -3,36 +3,42 @@
 //!
 //! `manifest.toml`'s `net` feature brings `tokio`, `hyper`, `rustls`, `ring`
 //! and `tungstenite` into the runtime's dependency tree. This file names one
-//! type from each, which for three of them is still the *whole* of what
-//! references them: no intrinsic key mangles to a symbol declared here
-//! (`runtime_native::symbol_for` is the rule, and `backend/runtime_table.rs` is
-//! the table); neither backend emits a call into this file; nothing in `core/`
-//! reaches it.
+//! type from each, which for two of them — `hyper` and `tungstenite` — is
+//! still the *whole* of what references them: no intrinsic key mangles to a
+//! symbol declared here (`runtime_native::symbol_for` is the rule, and
+//! `backend/runtime_table.rs` is the table); neither backend emits a call into
+//! this file; nothing in `core/` reaches it.
 //!
 //! The crates landed a slice ahead of any code that uses them so that the price
-//! could be measured *before* anything depended on the answer. The bill, on
-//! aarch64-apple-darwin, and the second row is what `https://` cost:
+//! could be measured *before* anything depended on the answer. Three of them
+//! have since been linked, each in the commit that needed it and each with its
+//! bytes written down: `tokio` by `rt.rs` (the reactor and its timer wheel,
+//! +185 424 bytes when B6 measured it), and `rustls` and `ring` by `tls.rs`,
+//! which `http.rs` calls for every `https://` URL (+1 804 592 when C7 did).
+//! Where that leaves the archive, measured on aarch64-apple-darwin on this
+//! tree:
 //!
 //! ```text
 //! libburi_rt.a
-//!   net off                                 6 052 464 bytes
-//!   net on, tokio/hyper/rustls/tungstenite   6 052 488        +24
-//!   net on, https:// through rustls + ring   7 857 056 +1 804 592
+//!   net off                                       6 130 536 bytes
+//!   net on, the reactor and the TLS client linked 8 198 904   +2 068 368
 //! ```
 //!
-//! Twenty-four bytes for four unreferenced crates, because `lto = "fat"` is
-//! whole-program across the dependency rlibs too and Rust code that nothing
-//! reaches does not reach the archive. **1.72 MiB** for the two that are now
-//! reached, about 845 KB of it `ring`'s native object code, which a `staticlib`
-//! bundles whether the linker needs it or not and which therefore no amount of
-//! LTO removes.
+//! Twenty-four bytes was what four unreferenced crates cost, because
+//! `lto = "fat"` is whole-program across the dependency rlibs and Rust code
+//! that nothing reaches does not reach the archive. What LTO cannot touch is a
+//! dependency's **native** object code: about 845 KB of the TLS figure is
+//! `ring`'s C and AArch64 assembly, which a `staticlib` bundles whether the
+//! linker needs it or not.
 //!
 //! `.github/scripts/assert-runtime-archive.sh` holds the remaining claim in CI
-//! the direct way — it greps the archive's symbol table for `tokio`, `hyper`
-//! and `tungstenite` and requires **none** — and `rustls` and `ring` left that
-//! list in the commit that linked them, which is the assertion being moved
-//! deliberately rather than the growth being discovered in a binary six months
-//! later.
+//! the direct way — it greps the archive's symbol table, requires `tokio`,
+//! `rustls` and `ring` to be **present** when the feature file says `net`, and
+//! requires `hyper` and `tungstenite` to be **absent** either way. Each of the
+//! three crossed that line in the commit that linked it, which is the
+//! assertion being moved deliberately rather than the growth being discovered
+//! in a binary six months later, and the slice that links one of the other two
+//! moves it again the same way.
 //!
 //! ## What the two entries below are for
 //!
@@ -56,7 +62,8 @@
 //! `snake_case`, `extern "C"`, scalar parameters and a scalar result. Nothing
 //! here allocates, so §3's ownership rules have nothing to say about it.
 
-/// The reactor, the timer wheel and the carrier pool — `tokio`.
+/// The reactor, the timer wheel and the carrier pool — `tokio`. The one bit
+/// whose crate is genuinely linked: `rt.rs` is what reaches it.
 pub const BURI_NET_TOKIO: i64 = 1 << 0;
 /// HTTP/1.1 and HTTP/2 framing — `hyper`.
 pub const BURI_NET_HYPER: i64 = 1 << 1;
@@ -72,7 +79,7 @@ pub const BURI_NET_WEBSOCKET: i64 = 1 << 3;
 ///
 /// A `const` rather than a function body so that the answer is folded at the
 /// one place it is asked, and so that the `net`-off build has no branch and no
-/// data for the four crates at all.
+/// data for the five crates at all.
 #[cfg(feature = "net")]
 const LINKED: i64 = {
     // Naming a type is the whole reference. `size_of` is a constant, so this

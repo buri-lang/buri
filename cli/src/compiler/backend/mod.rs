@@ -29,6 +29,13 @@ pub mod js;
 /// same way.
 pub mod intrinsic_keys;
 
+/// The one C signature by which something outside a Buri artifact enters Buri
+/// code, and the two runtime entries a stencil door takes its stack from.
+///
+/// Ungated for [`intrinsic_keys`]'s reason: both native backends read it, and
+/// a table two backends share cannot live inside either of them.
+pub mod carrier;
+
 /// The native runtime archive both native backends link against, built by
 /// `cli/build.rs`. Its ABI contract is `cli/runtime/lib.rs`'s module comment.
 pub mod runtime_native;
@@ -531,16 +538,18 @@ mod tests {
 
     // -- the networking gap -------------------------------------------------
     //
-    // No program reaches the keys below. `host.HostListen.*`,
-    // `host.HostSockets.*` and `host.HostTasks.*` are declared — `core/effect`
-    // has the three effects and `core/host` implements them — and granted by no
-    // platform, so nothing can construct the host value an operation hangs off.
-    // What is being tested is the refusal, which has to be in place *before* a
-    // platform grants one, or the first toolchain built without networking
-    // meets these as an unresolved symbol from `cc`. A hand-built program is
-    // the honest seam for that: there is no source to compile that reaches
-    // these keys, and writing one that pretended to would be a fixture
-    // asserting a grant this repository deliberately withholds.
+    // `host.HostTasks.parallel` is the one key below a program reaches: `Tasks`
+    // is granted on the three non-page platforms and answered by
+    // `cli/runtime/rt.rs`. `host.HostListen.*` and `host.HostSockets.*` are
+    // declared — `core/effect` has both effects and `core/host` implements them
+    // — and granted by no platform, so nothing can construct the host value
+    // their operations hang off. What is being tested is the refusal, which has
+    // to be in place *before* a platform grants one, or the first toolchain
+    // built without networking meets these as an unresolved symbol from `cc`. A
+    // hand-built program is the honest seam for that: there is no source to
+    // compile that reaches the two server keys, and writing one that pretended
+    // to would be a fixture asserting a grant this repository deliberately
+    // withholds.
 
     /// A program holding one intrinsic key, and nothing else.
     fn program_using(keys: &[&str]) -> Program {

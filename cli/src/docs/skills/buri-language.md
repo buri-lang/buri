@@ -32,7 +32,10 @@ The normative text ships in the binary: `buri docs lang/lexical`,
 8. **A bare identifier in a pattern is always a binding.** `None` binds a
    variable; write `.None` or `Option.None` to match the variant.
 9. **`Result` may not be discarded.** `let _ = someResult()` is a compile
-   error (`result-discarded`).
+   error (`result-discarded`), and so is a `_` further down the pattern —
+   `let (n, _) = (1, someResult())` — and so is leaving the call standing as a
+   statement. Consume it with `?`, `match` or `.withDefault(...)`, or drop it
+   on purpose with `.ignore()`.
 10. **No relative imports.** A module path is `core/...`, `ui/...`, or
     `//...` from the repository root, and means the same module everywhere.
 11. **Methods live in an `impl` block in their type's own module**, and are

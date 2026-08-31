@@ -292,7 +292,7 @@ jobs:
       # A repository written here rather than one of the checked-in ones,
       # because both native binaries in `cli/tests/example` are refused by the
       # dev build — `//cmd/server` needs `host.HostFs.readFile` and
-      # `//tools/report` needs `host.HostEnv.arguments`, and neither is
+      # `//tools/report` needs `host.HostEnv.args`, and neither is
       # implemented (measured, not assumed: both were tried). A four-line
       # program that only prints is what this needs; the artifact being small
       # does not make its bytes less reproducible.

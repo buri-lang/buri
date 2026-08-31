@@ -1,0 +1,6 @@
+from "core/effect/lib.buri" import { Tasks };
+
+/// Every item labelled with its own index, one task each.
+export fn labelled<C: Tasks>(ctx: C, items: [Int]): [Int] {
+    ctx.parallel(ctx, items, fn(_c, i, item) => i * 100 + item)
+}

@@ -5,7 +5,7 @@
 # package that contains a `Cargo.toml` of its own — unconditionally, before
 # `include`/`exclude` are consulted, in both its git-driven and its
 # filesystem-driven file listers. A manifest here would therefore delete the
-# whole of `cli/runtime/` from the published `buri` crate: the sixteen sources
+# whole of `cli/runtime/` from the published `buri` crate: the seventeen sources
 # the archive is built from would not ship, and a `cargo install buri` from a
 # registry tarball would fail in `cli/build.rs` with nothing to compile.
 #
@@ -48,7 +48,7 @@ publish = false
 # than a preference.
 name = "buri_rt"
 # The sources sit directly beside this file rather than under `src/`, because
-# they predate the manifest and moving sixteen files to gain a level of nesting
+# they predate the manifest and moving seventeen files to gain a level of nesting
 # would be churn in every doc link and every git blame.
 path = "lib.rs"
 # A static library and nothing else: `build/link.rs` hands the archive to the
@@ -85,14 +85,18 @@ crate-type = ["staticlib"]
 # * **`tungstenite`** — RFC 6455 framing and the handshake, which is a
 #   protocol with a specification and a test suite rather than an algorithm.
 #
-# **Two of the five are linked; three are still referenced by nothing.**
-# `rustls` and `ring` are reached by `tls.rs`, which `http.rs` calls for every
-# `https://` URL. `tokio`, `hyper` and `tungstenite` are not reached by
-# anything: `net.rs` names one type from each and stops, `lto = "fat"` below is
-# whole-program over the dependency rlibs, and Rust code nothing reaches is not
-# in the archive. `.github/scripts/assert-runtime-archive.sh` still holds that
-# for those three by grepping the archive's symbol table, and it stopped
-# holding it for `rustls` and `ring` in the commit that linked them.
+# **Three of the five are linked; two are still referenced by nothing.** When
+# the crates landed, none of them was: `net.rs` named one type from each and
+# stopped, `lto = "fat"` below is whole-program over the dependency rlibs, and
+# Rust code nothing reaches is not in the archive — measured on
+# aarch64-apple-darwin at the commit that added `net`, twenty-four bytes for the
+# lot. Three have since been reached, each in the commit that needed it:
+# `tokio` by `rt.rs`, the carrier runtime whose reactor and timer wheel
+# `Clock::sleepMillis` and `Net::fetch` wait on (+185 424 bytes), and `rustls`
+# and `ring` by `tls.rs`, which `http.rs` calls for every `https://` URL
+# (+1 804 592). `hyper` and `tungstenite` are reached by nothing still.
+# `.github/scripts/assert-runtime-archive.sh` is where all of that is asserted
+# rather than assumed: three names its symbol table must carry, two it must not.
 #
 # ## The provider, and what it costs
 #
@@ -101,15 +105,14 @@ crate-type = ["staticlib"]
 # capability is bought rather than where the dependency is added. This is that
 # slice, and the bill, measured on aarch64-apple-darwin:
 #
-#   net off (no dependency tree at all)      6 052 464 bytes
-#   net on, nothing linked (before C7)       6 052 488          +24
-#   net on, https:// working (this slice)    7 857 056    +1 804 592
+#   net off (no dependency tree at all)      6 130 536 bytes
+#   net on (the reactor and the TLS client)  8 198 904   +2 068 368
 #
 # **1.72 MiB**, of which 845 064 bytes is `ring`'s **native** object code — C
 # and AArch64 assembly in twenty-five `.o` members that `rustc` bundles into a
 # `staticlib` whether the linker needs them or not, so `lto = "fat"` cannot
 # touch them. `curve25519.o` alone is 405 KB and `p256-nistz.o` is 173 KB. That
-# total is **over** the 7 MiB budget
+# total put the archive **over** the 7 MiB budget
 # `.github/scripts/assert-runtime-archive.sh` carried, by about 505 KB; the
 # budget was re-measured and re-stated there in this commit, which is the
 # ratchet working as written rather than the ratchet being quietly widened.
@@ -162,9 +165,10 @@ net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:ring", "dep:tungstenite"]
 #   embedded in every `buri` binary: measured on aarch64-apple-darwin, 17.7 MB
 #   without it and 6.0 MB with, for about 2.6 seconds of build time once per
 #   toolchain build. It is whole-program across the runtime, the copy of `std`
-#   a staticlib bundles, *and* — since this slice — the four dependency rlibs,
-#   which is what makes an unreferenced networking stack cost twenty-four
-#   bytes instead of a megabyte.
+#   a staticlib bundles, *and* the dependency rlibs,
+#   which is what made an unreferenced networking stack cost twenty-four
+#   bytes instead of a megabyte, and what still holds `hyper` and
+#   `tungstenite` out of it.
 # * `panic = "abort"` because an abort in this language is a write to standard
 #   error and an exit, never an unwind (SPEC 6.10), so the unwinder tables
 #   would be dead weight in every artifact.

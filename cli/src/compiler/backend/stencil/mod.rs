@@ -36,7 +36,8 @@
 //! stencil/
 //!   mod.rs      this file: the backend, and one object per codegen unit
 //!   abi.rs      the two facts the library builder and the emitter must share
-//!   asm.rs      the two hand-written shims: `main`, for a program and for tests
+//!   asm.rs      the hand-written shims: `main`, for a program and for tests,
+//!               and the carrier door in front of each root (`carrier.rs`)
 //!   emit.rs     middle::ir into stencil keys
 //!   glue.rs     the functions a unit generates for itself: thunks, drop glue
 //!   jit.rs      copy, patch, and the three analyses a stencil key needs
@@ -140,6 +141,7 @@ pub mod runtime;
 
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::ActionKey;
+use crate::compiler::backend::carrier;
 use crate::compiler::backend::{Backend, Emitted, Options, Target, Units};
 use crate::compiler::middle::layout::{EnumRepr, Layouts, Repr};
 use crate::compiler::middle::monomorphize::{Program, ProgramRoots};
@@ -521,6 +523,39 @@ pub fn supported(target: Target) -> Result<abi::StencilTarget, String> {
     Ok(stencils)
 }
 
+/// The symbol a C runtime starts a program at, and the one the two `asm.rs`
+/// shims are emitted under.
+///
+/// Named here rather than spelled at the one use because a *second* named shim
+/// arrived in the same list ([`carrier::MAIN_ENTRY`]) and a list with one
+/// literal and one constant in it reads as though the two were different
+/// kinds of thing.
+const ENTRY_SYMBOL: &str = "main";
+
+/// The C door into one root, or `None` for a root this backend has no record
+/// shape for yet.
+///
+/// **Nullary only, deliberately.** `carrier.rs`'s `state` is passed and not
+/// read, so a root that took arguments would have to read them out of a record
+/// whose layout nothing has decided — and deciding it here, with no call site
+/// to fill it, is exactly the guess `cli/runtime/rt.rs` §1 refuses to make
+/// about the task table. Every Buri root *is* nullary (`main(): Result<(),
+/// Str>` and a `test` block both), so the `None` arm is unreachable today and
+/// is here so that the day it is reachable is a missing symbol rather than a
+/// door that reads uninitialised bytes.
+fn carrier_door(
+    target: abi::StencilTarget,
+    frames: &[jit::FrameSig],
+    idx: usize,
+    sym: &str,
+) -> Option<asm::Shim> {
+    let frame = frames.get(idx)?;
+    if !frame.params.is_empty() {
+        return None;
+    }
+    Some(asm::carrier_entry(target, sym, frame.ret_size))
+}
+
 /// One codegen unit, from IR to object bytes.
 /// Everything one emission's units share, computed once above the loop.
 ///
@@ -566,18 +601,35 @@ fn compile_unit(
     // binary has no `main` to own it, so it goes in the unit that owns the
     // *first* test — the same rule `llvm/mod.rs` applies to the root that
     // exists.
-    let mut shim: Option<asm::Shim> = None;
+    //
+    // **The carrier doors ride with it**, in the same unit and for the same
+    // reason: `main` and a door are the two ways into this program's Buri
+    // code, they name the same roots, and a unit that has one and not the
+    // other would leave a symbol nothing defines. `carrier.rs` is the
+    // signature; `asm::carrier_entry` is this backend's half of it.
+    let mut shims: Vec<(String, asm::Shim)> = Vec::new();
     match root {
         Root::Main(idx) if members.contains(idx) => {
             let sym = jit::symbol_of(program, u32::try_from(*idx).unwrap_or(0));
-            shim = Some(asm::program_entry(target, &sym, main_result(program, tables, *idx)));
+            shims.push((
+                String::from(ENTRY_SYMBOL),
+                asm::program_entry(target, &sym, main_result(program, tables, *idx)),
+            ));
+            if let Some(door) = carrier_door(target, frames, *idx, &sym) {
+                shims.push((String::from(carrier::MAIN_ENTRY), door));
+            }
         }
         Root::Tests(tests) if tests.first().is_some_and(|i| members.contains(i)) => {
             let names: Vec<String> = tests
                 .iter()
                 .map(|i| jit::symbol_of(program, u32::try_from(*i).unwrap_or(0)))
                 .collect();
-            shim = Some(asm::test_entry(target, &names));
+            shims.push((String::from(ENTRY_SYMBOL), asm::test_entry(target, &names)));
+            for (i, (t, sym)) in tests.iter().zip(&names).enumerate() {
+                if let Some(door) = carrier_door(target, frames, *t, sym) {
+                    shims.push((carrier::test_entry(i), door));
+                }
+            }
         }
         _ => {}
     }
@@ -693,27 +745,29 @@ fn compile_unit(
         },
     ];
 
-    if let Some(shim) = shim {
-        // The shim goes after the bodies rather than before them, so that the
+    if !shims.is_empty() {
+        // The shims go after the bodies rather than before them, so that the
         // offsets `resolve` already patched stay where they are.
-        while !code.len().is_multiple_of(16) {
-            code.push(0);
-        }
-        let at = code.len() as u64;
-        code.extend_from_slice(&shim.bytes);
-        let main = want(&mut symbols, &mut index, "main");
-        if let Some(s) = symbols.get_mut(main) {
-            s.defined = Some(object::Definition { section: 0, offset: at });
-        }
-        for (off, kind, target, addend) in shim.relocs {
-            let sym = want(&mut symbols, &mut index, &name_of(&target));
-            out.push(object::Reloc {
-                section: CODE,
-                offset: at.saturating_add(off),
-                kind,
-                symbol: sym,
-                addend,
-            });
+        for (name, shim) in shims {
+            while !code.len().is_multiple_of(16) {
+                code.push(0);
+            }
+            let at = code.len() as u64;
+            code.extend_from_slice(&shim.bytes);
+            let ix = want(&mut symbols, &mut index, &name);
+            if let Some(s) = symbols.get_mut(ix) {
+                s.defined = Some(object::Definition { section: 0, offset: at });
+            }
+            for (off, kind, target, addend) in shim.relocs {
+                let sym = want(&mut symbols, &mut index, &name_of(&target));
+                out.push(object::Reloc {
+                    section: CODE,
+                    offset: at.saturating_add(off),
+                    kind,
+                    symbol: sym,
+                    addend,
+                });
+            }
         }
         // The Buri stack, in its own zero-filled section so that it costs no
         // bytes in the object or in the artifact.
@@ -824,6 +878,39 @@ mod tests {
             for b in abi::StencilTarget::ALL {
                 if a != b && available_for(a) {
                     assert_ne!(blob(a).1, blob(b).1, "{} and {}", a.slug(), b.slug());
+                }
+            }
+        }
+    }
+
+    /// The extractor's name guard, asserted against the libraries this
+    /// toolchain actually baked rather than against a synthetic name.
+    ///
+    /// `library::refuse_hole_name` is what makes a compiler that outlines half
+    /// a stencil a build failure; this is the standing check that it did. Before
+    /// it existed the `macos-arm64` blob shipped a `Branch` hole named
+    /// `st_decref_drop.cold.1` — a jump into a function no library carries — and
+    /// nothing in the tree said so, because the only reader that noticed was
+    /// ELF's and it noticed the *section*, not the name.
+    ///
+    /// Stencil names are not checked here: a library key is `bin/add/i64/ff/f`
+    /// and its variants, which is not a C identifier and is not meant to be.
+    /// The extractor checks the C function name, which is, and does it before
+    /// the key is assigned.
+    #[test]
+    fn no_shipped_hole_names_a_function_the_compiler_invented() {
+        for t in abi::StencilTarget::ALL {
+            let Ok(lib) = load(t) else { continue };
+            for s in &lib.stencils {
+                for h in &s.holes {
+                    assert_eq!(
+                        library::outlining_artifact(&h.name),
+                        None,
+                        "{}: {} reaches {}",
+                        t.slug(),
+                        s.name,
+                        h.name
+                    );
                 }
             }
         }

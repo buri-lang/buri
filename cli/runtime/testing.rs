@@ -130,24 +130,51 @@ enum Slot {
     /// `store` is always an index below the view's own, because the store is
     /// installed first — which is what makes reading a view one lookup rather
     /// than a walk.
-    Fs { store: i64, read_only: bool, calls: Vec<FsLog> },
-    /// `core/host/testing`'s `TestNet` — its log, and nothing else.
+    ///
+    /// `plan` names the [`Slot::Plan`] this view fails through, or `-1` where
+    /// nothing has called `faults`. It travels with the view exactly as
+    /// `read_only` does — a builder is configuration and not a write — so the
+    /// filesystem `fs().faults(p).files(x)` answers fails what `p` names.
+    Fs { store: i64, read_only: bool, plan: i64, calls: Vec<FsLog> },
+    /// `core/host/testing`'s `TestNet` — its log and the plan it fails through,
+    /// and nothing else.
     ///
     /// The one slot that holds no state the double *reads*: a `TestNet` carries
     /// its responder as a value, because behaviour is what a runner cannot hold
     /// (`host_testing.buri`'s own documentation), and a log is state, which is
     /// what a runner is for. So the handle names the log and the responder
-    /// travels in the program.
-    Net { calls: Vec<NetLog> },
-    /// `core/host/testing`'s `TestProc` — the code the first `exitWith` asked
-    /// for, and `None` where nothing exited.
+    /// travels in the program — and so does the plan, for the same reason read
+    /// once more: a `NetError` carries a `Str` on two of its variants.
+    Net { calls: Vec<NetLog>, plan: i64 },
+    /// A fault plan's **promise**: what each of its entries reads like, and
+    /// whether anything has fired it.
     ///
-    /// The one shape `core/testing/context` has no counterpart for, because it
-    /// has no `Proc` double at all. Everything else `core/host/testing` needs is
-    /// one of the variants above: a captured stream is a transcript whichever
-    /// module minted it, and one table with one shape per *state* beats one
-    /// table with one shape per module.
-    Proc { code: Option<i64> },
+    /// The plan itself is a Buri value and stays in the program — an `IoError`
+    /// is a value `lib.rs` §2.1 cannot hand back across a row, so matching is
+    /// the `Eq` the `Call` records derive and happens there. What is here is the
+    /// half a program cannot keep: a `test` block has returned by the time
+    /// anyone could ask whether every fault it planned was used, so
+    /// [`buri_rt_test_leave`] asks on its behalf.
+    ///
+    /// `retired` is set when `faults` is called a second time on a chain: that
+    /// call replaces the plan, and a promise nothing can keep any more is not
+    /// one to report.
+    Plan { entries: Vec<PlanEntry>, retired: bool },
+    /// `core/host/testing`'s `TestTasks` — the order it schedules its tasks
+    /// in, the plan it fails them through, and the tasks that have completed.
+    ///
+    /// `mode` is program order, one seeded order, or every order; `seed` is the
+    /// order's own number, or `-1` for the mode's default. Both are numbers
+    /// rather than a Rust enum because they are the numbers that cross:
+    /// `host_testing.buri`'s `tasksOrdering` sends them, and one place spelling
+    /// the mapping out is one place for the two sides to agree.
+    ///
+    /// `faults` is the plan itself, which the other two doubles keep in the
+    /// program: a task's fault is an index, a count and a sentence, and all
+    /// three of those cross, so the matching happens here beside the walk that
+    /// needs it. `plan` still names the [`Slot::Plan`] holding the *promise*,
+    /// entry for entry with this list.
+    Tasks { mode: i64, seed: i64, plan: i64, log: Vec<i64>, faults: Vec<TaskFault> },
 }
 
 /// One call to a `TestFs`, as `core/host/testing`'s `FsCall` records it: the
@@ -179,6 +206,19 @@ struct NetLog {
 struct StdinLog {
     name: &'static str,
     count: i64,
+}
+
+/// One entry of a fault plan, as the runner sees it: the sentence a failure
+/// would print, and whether the call it names has happened.
+///
+/// The text is assembled where the plan is installed rather than where it is
+/// reported, because the pieces are the program's — a call's three fields and an
+/// error's variant index and payload — and this side has no Buri value to render
+/// from. `host_testing.buri`'s `describeFsPlan` hands them over one entry at a
+/// time.
+struct PlanEntry {
+    shown: String,
+    fired: bool,
 }
 
 static TABLE: Mutex<Vec<Slot>> = Mutex::new(Vec::new());
@@ -1163,12 +1203,12 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_env_variable(
     BURI_OK
 }
 
-/// `TestEnv::arguments`.
+/// `TestEnv::args`.
 ///
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_test_env_arguments(
+pub unsafe extern "C" fn buri_rt_testing_context_test_env_args(
     handle: i64,
     out: *mut BuriList,
 ) {
@@ -1196,11 +1236,11 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_env_arguments(
 //   * **Every constructor takes no arguments.** `clock()` is at zero and
 //     `rand()` is at seed zero; a test that wants another says so with a
 //     builder.
-//   * **A builder answers a new handle.** `at`, `seed`, `variables` and `args`
-//     each `install` rather than editing the slot they were called on, so the
-//     value a test already holds is unchanged and two clocks built from one
-//     are two clocks. That is what makes `let base = env(); base.args([..])`
-//     safe to write twice.
+//   * **A builder answers a new handle.** `at`, `seed`, `variables` and
+//     `arguments` each `install` rather than editing the slot they were called
+//     on, so the value a test already holds is unchanged and two clocks built
+//     from one are two clocks. That is what makes
+//     `let base = env(); base.arguments([..])` safe to write twice.
 //
 // `alloc()` and `TestAlloc::allocate` are absent for the reason the module
 // header gives about `core/testing/context`'s: both native backends open-code
@@ -1434,14 +1474,34 @@ fn fs_view(handle: i64) -> (i64, bool) {
     }
 }
 
-/// A store holding `entries`, and a view onto it with `read_only`.
+/// The plan a handle fails through, or `-1` where it has none.
+///
+/// Separate from [`fs_view`] because only the three builders read it, and every
+/// method below reads the view: a third element on that tuple would be a value
+/// eleven callers destructure and discard.
+fn slot_plan(handle: i64) -> i64 {
+    let table = lock();
+    match usize::try_from(handle).ok().and_then(|i| table.get(i)) {
+        Some(
+            Slot::Fs { plan, .. } | Slot::Net { plan, .. } | Slot::Tasks { plan, .. },
+        ) => *plan,
+        _ => -1,
+    }
+}
+
+/// A store holding `entries`, and a view onto it with `read_only` and `plan`.
 ///
 /// The order matters: the store is installed first so that a view's `store` is
 /// always an index below its own, which is what makes [`fs_view`] one lookup
 /// rather than a walk.
-fn fs_install(entries: Vec<(String, Vec<u8>)>, dirs: Vec<String>, read_only: bool) -> i64 {
+fn fs_install(
+    entries: Vec<(String, Vec<u8>)>,
+    dirs: Vec<String>,
+    read_only: bool,
+    plan: i64,
+) -> i64 {
     let store = install(Slot::Files { entries, dirs });
-    install(Slot::Fs { store, read_only, calls: Vec::new() })
+    install(Slot::Fs { store, read_only, plan, calls: Vec::new() })
 }
 
 /// This view's files and directories, copied.
@@ -1479,15 +1539,14 @@ fn list_of_pairs(items: &[(String, String)]) -> BuriList {
     BuriList { ptr, len: items.len() as u64 }
 }
 
-/// `fs()` — in-memory, empty, and writable.
+/// `newFs()` — in-memory, empty, writable, and failing nothing.
 ///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
+/// A bare handle rather than a `TestFs`, for `newNet`'s reason: `fs()` is a Buri
+/// body that builds the value around it, because the second field is a fault
+/// plan and a plan is a list of Buri values this side cannot make.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_fs(out: *mut i64) {
-    let handle = fs_install(Vec::new(), Vec::new(), false);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
+pub extern "C" fn buri_rt_host_testing_new_fs() -> i64 {
+    fs_install(Vec::new(), Vec::new(), false, -1)
 }
 
 /// `TestFs::files` — a **new** filesystem holding this one's files and these as
@@ -1498,51 +1557,45 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs(out: *mut i64) {
 /// written twice is the later body — `fs_put`'s rule, and an object
 /// assignment's.
 ///
-/// The attenuation travels with the files: `fs().readOnly().files(..)` is a
-/// read-only filesystem with those files in it, because a builder is
-/// configuration and not a write.
+/// The attenuation travels with the files, and so does the fault plan:
+/// `fs().readOnly().files(..)` is a read-only filesystem with those files in it
+/// and `fs().faults(p).files(..)` still fails what `p` names, because a builder
+/// is configuration and not a write.
 ///
 /// # Safety
-/// `xs` points at `count` `(Str, Str)` elements; `out` is writable and aligned
-/// for an `i64`.
+/// `xs` points at `count` `(Str, Str)` elements.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_files(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_files(
     handle: i64,
     xs: *const u8,
     count: u64,
-    out: *mut i64,
-) {
+) -> i64 {
     // SAFETY: forwarded to the caller.
     let added = unsafe { pairs(xs, count) };
     let added = added.into_iter().map(|(k, v)| (k, v.into_bytes()));
-    let fresh = fs_extended(handle, added);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(fresh) }
+    fs_extended(handle, added)
 }
 
 /// `TestFs::filesBytes` — the byte twin, for a fixture that is not text.
 ///
 /// # Safety
-/// `xs` points at `count` `(Str, [U8])` elements; `out` is writable and aligned
-/// for an `i64`.
+/// `xs` points at `count` `(Str, [U8])` elements.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_files_bytes(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_files_bytes(
     handle: i64,
     xs: *const u8,
     count: u64,
-    out: *mut i64,
-) {
+) -> i64 {
     // SAFETY: forwarded to the caller.
     let added = unsafe { byte_pairs(xs, count) };
-    let fresh = fs_extended(handle, added);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(fresh) }
+    fs_extended(handle, added)
 }
 
 /// The handle both builders answer: this view's files with `added` written over
-/// them, in a store of its own, under this view's attenuation.
+/// them, in a store of its own, under this view's attenuation and plan.
 fn fs_extended(handle: i64, added: impl IntoIterator<Item = (String, Vec<u8>)>) -> i64 {
     let (store, read_only) = fs_view(handle);
+    let plan = slot_plan(handle);
     let (mut entries, dirs) = fs_contents(store);
     for (path, body) in added {
         match entries.iter_mut().find(|(k, _)| *k == path) {
@@ -1550,7 +1603,7 @@ fn fs_extended(handle: i64, added: impl IntoIterator<Item = (String, Vec<u8>)>) 
             None => entries.push((path, body)),
         }
     }
-    fs_install(entries, dirs, read_only)
+    fs_install(entries, dirs, read_only, plan)
 }
 
 /// `TestFs::readOnly` — a **new** handle onto the *same* files, through which
@@ -1558,19 +1611,38 @@ fn fs_extended(handle: i64, added: impl IntoIterator<Item = (String, Vec<u8>)>) 
 ///
 /// The same store, deliberately: `ReadOnly<C>` holds the inner value, so a read
 /// through it answers whatever that filesystem holds now, and a method that
-/// copied would be a snapshot wearing an attenuator's name.
-///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
+/// copied would be a snapshot wearing an attenuator's name. The plan travels
+/// with it, as it does through the other two builders.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_only(
-    handle: i64,
-    out: *mut i64,
-) {
+pub extern "C" fn buri_rt_host_testing_fs_read_only(handle: i64) -> i64 {
     let (store, _) = fs_view(handle);
-    let fresh = install(Slot::Fs { store, read_only: true, calls: Vec::new() });
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(fresh) }
+    let plan = slot_plan(handle);
+    install(Slot::Fs { store, read_only: true, plan, calls: Vec::new() })
+}
+
+/// `TestFs::faults` — a **new** view onto the same store, with a fresh, empty
+/// plan and this one's attenuation.
+///
+/// The plan the receiver was using is retired: `faults` replaces rather than
+/// composing, and a promise that has been replaced is not one
+/// [`buri_rt_test_leave`] should report. A fresh log, as every builder here
+/// answers one, so the calls `failsOnCall` counts are the calls made through the
+/// value the test put in its context.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_fs_with_plan(handle: i64) -> i64 {
+    let (store, read_only) = fs_view(handle);
+    retire(slot_plan(handle));
+    let plan = install(Slot::Plan { entries: Vec::new(), retired: false });
+    install(Slot::Fs { store, read_only, plan, calls: Vec::new() })
+}
+
+/// Marks a plan as one nothing can keep any more.
+fn retire(plan: i64) {
+    with(plan, (), |slot| {
+        if let Slot::Plan { retired, .. } = slot {
+            *retired = true;
+        }
+    });
 }
 
 /// `TestFs::read(self, path) -> Result<Str, IoError>` — the read-back, without
@@ -1585,7 +1657,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_only(
 /// `ptr`/`len` describe a readable range; `out` is writable and aligned for a
 /// [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_read(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1616,7 +1688,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_snapshot(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_snapshot(
     handle: i64,
     out: *mut BuriList,
 ) {
@@ -1636,9 +1708,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_snapshot(
 /// view. A read is never refused.
 ///
 /// # Safety
-/// As [`buri_rt_host_testing_test_fs_read`].
+/// As [`buri_rt_host_testing_fs_read`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_file(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_read_file(
     handle: i64,
     base: *mut u8,
     ptr: *const u8,
@@ -1651,7 +1723,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_file(
     // the read-back and a read-back is not a call.
     let _recorded = recording_fs(handle, "readFile", &path, "");
     // SAFETY: forwarded to the caller.
-    unsafe { buri_rt_host_testing_test_fs_read(handle, base, ptr, len, out) }
+    unsafe { buri_rt_host_testing_fs_read(handle, base, ptr, len, out) }
 }
 
 /// `TestFs.writeFile(self, path, body) -> Result<(), IoError>`.
@@ -1663,7 +1735,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_file(
 /// # Safety
 /// Both ranges are readable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_write_file(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_write_file(
     handle: i64,
     _pbase: *mut u8,
     pptr: *const u8,
@@ -1692,7 +1764,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_write_file(
 /// # Safety
 /// The range is readable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_file_exists(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_file_exists(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1721,7 +1793,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_file_exists(
 /// # Safety
 /// The range is readable; `out` is writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_dir(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_read_dir(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1765,7 +1837,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_dir(
 /// # Safety
 /// The range is readable; `out` is writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_file_bytes(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_read_file_bytes(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1789,7 +1861,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_read_file_bytes(
 /// # Safety
 /// Both ranges are readable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_write_file_bytes(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_write_file_bytes(
     handle: i64,
     _pbase: *mut u8,
     pptr: *const u8,
@@ -1817,7 +1889,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_write_file_bytes(
 /// # Safety
 /// Both ranges are readable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_append_file(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_append_file(
     handle: i64,
     _pbase: *mut u8,
     pptr: *const u8,
@@ -1852,7 +1924,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_append_file(
 /// # Safety
 /// Both ranges are readable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_rename_file(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_rename_file(
     handle: i64,
     _fbase: *mut u8,
     fptr: *const u8,
@@ -1893,7 +1965,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_rename_file(
 /// # Safety
 /// The range is readable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_remove_file(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_remove_file(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1923,7 +1995,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_remove_file(
 /// # Safety
 /// The range is readable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_make_dir(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_make_dir(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1967,7 +2039,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_fs_make_dir(
 /// # Safety
 /// The range is readable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_sync_file(
+pub unsafe extern "C" fn buri_rt_host_testing_fs_sync_file(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -2115,18 +2187,18 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_variables(
     unsafe { out.write(fresh) }
 }
 
-/// `TestEnv::args` — a **new** environment with these arguments and this one's
-/// variables.
+/// `TestEnv::arguments` — a **new** environment with these arguments and this
+/// one's variables.
 ///
-/// `args` rather than `arguments` because `Env` already declares the reader of
-/// that name and a Buri type has one method of each name; the module header
-/// says so where a reader of the source will meet it.
+/// The name the design note asks for, which it can have because `Env`'s reader
+/// moved to `args`; the module header says why where a reader of the source
+/// will meet it.
 ///
 /// # Safety
 /// `xs` points at `count` [`BuriStr`]s; `out` is writable and aligned for an
 /// `i64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_args(
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
     handle: i64,
     xs: *const u8,
     count: u64,
@@ -2159,12 +2231,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_variable(
     unsafe { buri_rt_testing_context_test_env_variable(handle, base, ptr, len, out) }
 }
 
-/// `TestEnv::arguments`.
+/// `TestEnv::args`.
 ///
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_args(
     handle: i64,
     out: *mut BuriList,
 ) {
@@ -2173,52 +2245,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
     unsafe { out.write(value) }
 }
 
-/// `proc()` — nothing has exited.
-///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_proc(out: *mut i64) {
-    let handle = install(Slot::Proc { code: None });
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
-
-/// `TestProc::exitWith` — **records** the exit rather than taking it.
-///
-/// A test that ended the process would take every block after it with it, and
-/// the runner would report a suite that stopped rather than a function that
-/// exited. The *first* code is kept, because a program that exits does not
-/// carry on and a second call is one a real process could never have made.
-#[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_testing_test_proc_exit_with(handle: i64, code: i64) {
-    with(handle, (), |slot| {
-        if let Slot::Proc { code: recorded } = slot {
-            if recorded.is_none() {
-                *recorded = Some(code);
-            }
-        }
-    });
-}
-
-/// `TestProc::exited` — `.Some(code)` or `.None`.
-///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_proc_exited(
-    handle: i64,
-    out: *mut i64,
-) -> i32 {
-    let code = with(handle, None, |slot| match slot {
-        Slot::Proc { code } => *code,
-        _ => None,
-    });
-    let Some(code) = code else { return 0 };
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(code) };
-    BURI_OK
-}
+// `core/host/testing`'s `proc()` has no entries here, and that is the whole of
+// the double: `TestProc` records nothing, because nothing can read it back.
+// `proc()` is `TestProc(0)` and `exitWith` is an empty body, both written in
+// `host_testing.buri` — the same shape `TestNet` has, reached for the plainer
+// reason.
 
 // -- `core/host/testing`'s call log -----------------------------------------
 //
@@ -2347,7 +2378,7 @@ fn recording_stdin(handle: i64, name: &'static str, count: i64) -> Recording {
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_fs_calls(handle: i64, out: *mut BuriList) {
+pub unsafe extern "C" fn buri_rt_host_testing_fs_calls(handle: i64, out: *mut BuriList) {
     let calls = with(handle, Vec::new(), |slot| match slot {
         Slot::Fs { calls, .. } => {
             calls.iter().map(|c| (c.name, c.path.clone(), c.body.clone())).collect()
@@ -2389,7 +2420,28 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_calls(handle: i64, out:
 /// field is a value the archive cannot make.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_new_net() -> i64 {
-    install(Slot::Net { calls: Vec::new() })
+    install(Slot::Net { calls: Vec::new(), plan: -1 })
+}
+
+/// `netRebind(handle)` — a fresh, empty log carrying this one's plan.
+///
+/// `respond` answers a new network and a new log, because a network that shared
+/// its receiver's log would report calls made to a different one; what it does
+/// not change is what the test said would fail.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_net_rebind(handle: i64) -> i64 {
+    install(Slot::Net { calls: Vec::new(), plan: slot_plan(handle) })
+}
+
+/// `netWithPlan(handle)` — a fresh, empty log with a fresh, empty plan.
+///
+/// [`buri_rt_host_testing_fs_with_plan`] for the network, retiring the replaced
+/// plan for the same reason.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_net_with_plan(handle: i64) -> i64 {
+    retire(slot_plan(handle));
+    let plan = install(Slot::Plan { entries: Vec::new(), retired: false });
+    install(Slot::Net { calls: Vec::new(), plan })
 }
 
 /// `recordFetch(handle, method, url, headers, body)` — one request, recorded
@@ -2424,7 +2476,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_fetch(
     let body = unsafe { view(bptr, blen) }.to_vec();
     let call = NetLog { method: method as i8, url, headers, body };
     with(handle, (), |slot| {
-        if let Slot::Net { calls } = slot {
+        if let Slot::Net { calls, .. } = slot {
             calls.push(call);
         }
     });
@@ -2468,7 +2520,7 @@ unsafe fn header_pairs(ptr: *const u8, len: u64) -> Vec<(String, String)> {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_net_calls(handle: i64, out: *mut BuriList) {
     let calls = with(handle, Vec::new(), |slot| match slot {
-        Slot::Net { calls } => calls
+        Slot::Net { calls, .. } => calls
             .iter()
             .map(|c| (c.method, c.url.clone(), c.headers.clone(), c.body.clone()))
             .collect(),
@@ -2510,6 +2562,252 @@ pub unsafe extern "C" fn buri_rt_host_testing_spelled(
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
 }
+
+// ---------------------------------------------------------------------------
+// The fault plan's promise
+// ---------------------------------------------------------------------------
+//
+// The plan itself is a Buri value and is matched there, by the `Eq` the `Call`
+// records derive: an `IoError` carries a `Str` on `.Other` and `lib.rs` §2.1
+// cannot name an error variant that carries anything, so a plan the archive held
+// could not hand its errors back. What is here is the half a program cannot
+// keep — *which entries have fired* — because the block that would ask has
+// returned by the time the answer matters.
+//
+// So `faults` installs a [`Slot::Plan`] and then tells this side, one entry at a
+// time, what each fault would read like in a failure message. The pieces are the
+// program's and the sentence is assembled here, which is the same division
+// `note_failure` already makes: the compiler's `Show` renders the values and
+// this file writes the line.
+
+/// `IoError`'s variant names, in declaration order in `core/effect`, as a
+/// failure message spells them.
+///
+/// The indices are `ioCode`'s, and the two lists are held together by
+/// `conformance/lib/semantics/test/host_testing.buri`, which asserts the message
+/// for a fault of each shape.
+const IO_ERROR_NAMES: [&str; 7] = [
+    ".NotFound",
+    ".PermissionDenied",
+    ".ReadOnly",
+    ".AlreadyExists",
+    ".NotADirectory",
+    ".CrossDevice",
+    ".Other",
+];
+
+/// `NetError`'s variant names, in declaration order — `netCode`'s indices.
+const NET_ERROR_NAMES: [&str; 5] =
+    [".Timeout", ".Refused", ".BadUrl", ".Transport", ".Aborted"];
+
+/// One error, as a message names it: the variant, and the text it carries where
+/// it carries any.
+fn error_shown(names: &[&str], code: i64, payload: &str) -> String {
+    let name = usize::try_from(code).ok().and_then(|i| names.get(i)).copied().unwrap_or("?");
+    if payload.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name}(\"{payload}\")")
+    }
+}
+
+/// Adds one entry to the plan the handle names, with only its call spelled.
+///
+/// The other half arrives in a second call, and the split is the frame-threaded
+/// backend's: `stencil/abi.rs`'s `MAX_INT_ARGS` is ten and a `Str` is three of
+/// them, so one row carrying a call *and* an error would be fifteen.
+fn plan_push(handle: i64, shown: String) {
+    let plan = slot_plan(handle);
+    with(plan, (), |slot| {
+        if let Slot::Plan { entries, .. } = slot {
+            entries.push(PlanEntry { shown, fired: false });
+        }
+    });
+}
+
+/// `addFsFault(handle, name, path, body)` — the call half of one entry of a
+/// filesystem's plan, as a failure message would spell it.
+///
+/// The call's three fields rather than an `FsCall`: this side does not read Buri
+/// records, and `describeFsPlan` is already walking the plan to get here.
+///
+/// # Safety
+/// Each pointer must address its byte length, or be null with a zero length.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn buri_rt_host_testing_add_fs_fault(
+    handle: i64,
+    _name_base: *mut u8,
+    name: *const u8,
+    name_len: u64,
+    _path_base: *mut u8,
+    path: *const u8,
+    path_len: u64,
+    _body_base: *mut u8,
+    body: *const u8,
+    body_len: u64,
+) {
+    // SAFETY: the caller promises each range.
+    let (name, path, body) = unsafe {
+        (
+            String::from_utf8_lossy(view(name, name_len)).into_owned(),
+            String::from_utf8_lossy(view(path, path_len)).into_owned(),
+            String::from_utf8_lossy(view(body, body_len)).into_owned(),
+        )
+    };
+    let call = if body.is_empty() {
+        format!("{name}(\"{path}\")")
+    } else {
+        format!("{name}(\"{path}\", \"{body}\")")
+    };
+    plan_push(handle, call);
+}
+
+/// `addNetFault(handle, url)` — the call half of one entry of a network's plan.
+///
+/// The URL and not the whole request: matching is `NetCall`'s derived `Eq` and
+/// reads every field of it, and a message that named every header would be a
+/// paragraph where a reader wants a line.
+///
+/// # Safety
+/// The pointer must address its byte length, or be null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_add_net_fault(
+    handle: i64,
+    _url_base: *mut u8,
+    url: *const u8,
+    url_len: u64,
+) {
+    // SAFETY: the caller promises the range.
+    let url = unsafe { String::from_utf8_lossy(view(url, url_len)).into_owned() };
+    plan_push(handle, format!("fetch(\"{url}\")"));
+}
+
+/// `faultFails(handle, nth, code, payload)` — the failure half of the entry the
+/// call above just added, for whichever double added it.
+///
+/// One row for both, which is what the split turned out to be worth: a fault
+/// fails the same way whatever it names, and the error's variant index is the
+/// only thing that differs — `IoError`'s or `NetError`'s, told apart by the
+/// slot the plan hangs from.
+///
+/// # Safety
+/// The pointer must address its byte length, or be null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_fault_fails(
+    handle: i64,
+    nth: i64,
+    code: i64,
+    _payload_base: *mut u8,
+    payload: *const u8,
+    payload_len: u64,
+) {
+    // SAFETY: the caller promises the range.
+    let payload = unsafe { String::from_utf8_lossy(view(payload, payload_len)).into_owned() };
+    let names: &[&str] = match slot_kind(handle) {
+        Kind::Net => &NET_ERROR_NAMES,
+        Kind::Fs => &IO_ERROR_NAMES,
+    };
+    let error = error_shown(names, code, &payload);
+    let plan = slot_plan(handle);
+    with(plan, (), |slot| {
+        if let Slot::Plan { entries, .. } = slot
+            && let Some(entry) = entries.last_mut()
+        {
+            entry.shown.push_str(&format!(" fails {error}"));
+            if nth != 0 {
+                entry.shown.push_str(&format!(" on call {nth}"));
+            }
+        }
+    });
+}
+
+/// Which double a handle names, which is which error enum its plan spells.
+enum Kind {
+    Fs,
+    Net,
+}
+
+fn slot_kind(handle: i64) -> Kind {
+    let table = lock();
+    match usize::try_from(handle).ok().and_then(|i| table.get(i)) {
+        Some(Slot::Net { .. }) => Kind::Net,
+        _ => Kind::Fs,
+    }
+}
+
+/// `noteFault(handle, index)` — the entry at `index` has fired.
+///
+/// Idempotent: a `fails` entry fires on every matching call and the promise is
+/// kept by the first of them.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_note_fault(handle: i64, index: i64) {
+    let plan = slot_plan(handle);
+    with(plan, (), |slot| {
+        if let Slot::Plan { entries, .. } = slot
+            && let Some(entry) = usize::try_from(index).ok().and_then(|i| entries.get_mut(i))
+        {
+            entry.fired = true;
+        }
+    });
+}
+
+/// `noteFsCall(handle, name, path, body)` — one call on the path that never
+/// reached the row that would have recorded it.
+///
+/// A call the plan failed is a call: the code under test asked the filesystem
+/// for something and was answered. The eleven rows record through [`Recording`]
+/// on their way out; this is the twelfth way in, and it is a plain push because
+/// there is nothing to guard — the answer is already decided.
+///
+/// # Safety
+/// Each pointer must address its byte length, or be null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_note_fs_call(
+    handle: i64,
+    _name_base: *mut u8,
+    name: *const u8,
+    name_len: u64,
+    _path_base: *mut u8,
+    path: *const u8,
+    path_len: u64,
+    _body_base: *mut u8,
+    body: *const u8,
+    body_len: u64,
+) {
+    // SAFETY: the caller promises each range.
+    let (name, path, body) = unsafe {
+        (
+            String::from_utf8_lossy(view(name, name_len)).into_owned(),
+            String::from_utf8_lossy(view(path, path_len)).into_owned(),
+            String::from_utf8_lossy(view(body, body_len)).into_owned(),
+        )
+    };
+    // The name is one of the eleven the constructors write, so it is matched
+    // back onto the `&'static str` the log holds rather than leaked: a log
+    // entry's name is not a string a program invented.
+    let known = FS_CALL_NAMES.iter().find(|n| **n == name).copied().unwrap_or("");
+    with(handle, (), |slot| {
+        if let Slot::Fs { calls, .. } = slot {
+            calls.push(FsLog { name: known, path, body });
+        }
+    });
+}
+
+/// The eleven names an `FsCall` can carry, which are the eleven methods of `Fs`.
+const FS_CALL_NAMES: [&str; 11] = [
+    "readFile",
+    "writeFile",
+    "fileExists",
+    "readDir",
+    "readFileBytes",
+    "writeFileBytes",
+    "appendFile",
+    "renameFile",
+    "removeFile",
+    "makeDir",
+    "syncFile",
+];
 
 // ---------------------------------------------------------------------------
 // The runner's side of a native test binary
@@ -2586,12 +2884,79 @@ fn resume_at() -> Option<i64> {
 /// binary is the same program run by hand that it is under the runner.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_test_enter(index: i64) -> i32 {
+    // Where the block's own slots begin. Unconditional, and before the two
+    // early answers: a binary nothing is driving checks the post-condition too,
+    // because it is the program's rule and not the runner's protocol.
+    WATERMARK.store(lock().len(), std::sync::atomic::Ordering::Relaxed);
+    // And this block has been run no times. `TestTasks.everyOrder` counts the
+    // runs of one *body*, so the count belongs to the block and is reset where
+    // the block is: `buri_rt_test_replay` advances it, and a block that never
+    // schedules anything leaves it at the one run every block makes.
+    *replay() = Replay { pass: 0, total: 1, note: None };
     let Some(from) = resume_at() else { return 1 };
     if index < from {
         return 0;
     }
     runner().at = index;
     1
+}
+
+/// The handle table's length when the current block started.
+///
+/// A `test` block's doubles are the slots installed after this point, which is
+/// what makes [`buri_rt_test_leave`] a question about *this* block: the table
+/// grows for the life of the process and the block before this one left its
+/// filesystems in it.
+static WATERMARK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The end of a `test` block: every fault the block planned has happened.
+///
+/// The other half of `core/host/testing`'s `faults`, and the half a program
+/// cannot check for itself — the block has returned by the time the question can
+/// be asked. `middle::monomorphize` emits this call after every test body, so it
+/// runs on all three backends from one place; `runtime.js`'s `$test_leave` is
+/// the same function for JavaScript, and `$run` marks the watermark there that
+/// [`buri_rt_test_enter`] marks here.
+///
+/// A block that ended by aborting never reaches this, which is the right order
+/// of report: a failed assertion is what went wrong, and an unused fault plan is
+/// a consequence of stopping early rather than a second failure.
+///
+/// **One watermark per run of a block, and the reruns move it.**
+/// `TestTasks.everyOrder` runs the body once per completion order, and every one
+/// of those runs installs its own doubles; a plan the third run declared and
+/// never reached is the third run's failure and not the block's. So this is
+/// asked at the end of *every* run, and [`buri_rt_test_replay`] moves the
+/// watermark up before the next one — which is the question this comment used to
+/// leave open, answered in the direction that keeps each run's promise its own.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_test_leave(index: i64) {
+    let unconsumed = unconsumed_since(WATERMARK.load(std::sync::atomic::Ordering::Relaxed));
+    if unconsumed.is_empty() {
+        return;
+    }
+    if resume_at().is_some() {
+        runner().at = index;
+    }
+    let listed = unconsumed.join("; ");
+    crate::abort::die(&[b"a fault was planned and never happened: ", listed.as_bytes()])
+}
+
+/// Every entry of every plan installed at or after `from` that nothing fired,
+/// in the order the plans were installed and the entries were written.
+///
+/// A retired plan is skipped: `faults` replaces, and a promise that has been
+/// replaced is not one to report. Separate from [`buri_rt_test_leave`] because
+/// that function ends the process and this is the part with an answer to check.
+fn unconsumed_since(from: usize) -> Vec<String> {
+    let table = lock();
+    let mut out: Vec<String> = Vec::new();
+    for slot in table.iter().skip(from) {
+        if let Slot::Plan { entries, retired: false } = slot {
+            out.extend(entries.iter().filter(|e| !e.fired).map(|e| e.shown.clone()));
+        }
+    }
+    out
 }
 
 /// A failed `assert` comparison, with both values already rendered.
@@ -2723,6 +3088,490 @@ fn quote_into(text: &str, out: &mut String) {
     out.push('"');
 }
 
+// ---------------------------------------------------------------------------
+// `tasks()` — the order the work happens in
+// ---------------------------------------------------------------------------
+//
+// The one double whose subject is scheduling rather than state.
+// `Tasks.parallel` promises its results in the items' order and promises
+// nothing about the order the work runs in; `TestTasks` makes that order a
+// value a test writes down, and this file is where the choice is made.
+//
+// The walk is `cli/runtime/rt.rs`'s walk with a permutation in front of it and
+// a log behind it, and it is the *same boundary* — the closure trampoline of
+// [`crate::list::StepEntry`] — because a double that reached its steps some
+// other way would be testing a different thing from the one that ships.
+//
+// A seed is the order's own number in the factorial number system, counted
+// from zero over the orders in lexicographic order. That is what makes
+// `everyOrder`'s `k`th run and `seed(k)` the same order, and it is what lets a
+// failure report print one line that replays what failed.
+
+/// Program order — the items' own.
+const ORDER_PROGRAM: i64 = 0;
+/// One seeded order per run of the body.
+const ORDER_SEEDED: i64 = 1;
+/// Every order, one run of the body each.
+const ORDER_EVERY: i64 = 2;
+
+/// The largest fan-out `everyOrder` will enumerate.
+///
+/// Six items are 720 runs of the block and seven are 5040. A test that wants a
+/// wider fan-out wants `anyOrder`, and one that wanted every order of it wanted
+/// something no machine is going to finish.
+const EVERY_ORDER_CEILING: i64 = 6;
+
+/// One planned failure, as the runner matches it: which task, which call of it,
+/// and what the failure will say.
+///
+/// The whole fault, unlike `TestFs`' and `TestNet`'s, which keep the plan in the
+/// program because an `IoError` cannot cross. A task's fault carries an index, a
+/// count and a sentence — three things that cross — so the matching is here
+/// beside the walk that needs it, and `Slot::Plan` holds the *promise* exactly as
+/// it does for the other two.
+struct TaskFault {
+    index: i64,
+    nth: i64,
+    reason: String,
+}
+
+/// `tasks()` — program order, no plan, an empty log.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_tasks(out: *mut i64) {
+    let handle = install(Slot::Tasks {
+        mode: ORDER_PROGRAM,
+        seed: -1,
+        plan: -1,
+        log: Vec::new(),
+        faults: Vec::new(),
+    });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// A **new** scheduler at that mode and seed, carrying this one's plan.
+///
+/// A fresh log, as every builder in this module answers one: the tasks a test
+/// reads back are the tasks run through the value it put in its context. The
+/// plan travels, exactly as `TestFs`' does through `files` — a builder is
+/// configuration and not a write.
+fn tasks_at(handle: i64, mode: i64, seed: i64) -> i64 {
+    let (plan, faults) = with(handle, (-1, Vec::new()), |slot| match slot {
+        Slot::Tasks { plan, faults, .. } => (
+            *plan,
+            faults
+                .iter()
+                .map(|f| TaskFault { index: f.index, nth: f.nth, reason: f.reason.clone() })
+                .collect(),
+        ),
+        _ => (-1, Vec::new()),
+    });
+    install(Slot::Tasks { mode, seed, plan, log: Vec::new(), faults })
+}
+
+/// The mode and seed a scheduler handle names, or program order for a handle
+/// naming nothing — [`with`]'s fallback rule.
+fn tasks_ordering_of(handle: i64) -> (i64, i64) {
+    let table = lock();
+    match usize::try_from(handle).ok().and_then(|i| table.get(i)) {
+        Some(Slot::Tasks { mode, seed, .. }) => (*mode, *seed),
+        _ => (ORDER_PROGRAM, -1),
+    }
+}
+
+/// `TestTasks::anyOrder` — one seeded order, at the default seed.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_any_order(handle: i64, out: *mut i64) {
+    let next = tasks_at(handle, ORDER_SEEDED, -1);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(next) }
+}
+
+/// `TestTasks::everyOrder` — every order, one run of the body each.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_every_order(handle: i64, out: *mut i64) {
+    let next = tasks_at(handle, ORDER_EVERY, -1);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(next) }
+}
+
+/// `TestTasks::seed` — one seeded order, at the seed the test named.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_seed(
+    handle: i64,
+    seed: i64,
+    out: *mut i64,
+) {
+    let next = tasks_at(handle, ORDER_SEEDED, seed);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(next) }
+}
+
+/// `TestTasks::replan` — a **new** scheduler with a fresh, empty plan and this
+/// one's ordering, retiring the plan it was using.
+///
+/// [`buri_rt_host_testing_fs_with_plan`]'s function at the third double, and its
+/// reason read once more: `faults` replaces rather than composing, and a promise
+/// that has been replaced is not one [`buri_rt_test_leave`] should report.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_replan(handle: i64, out: *mut i64) {
+    let (mode, seed) = tasks_ordering_of(handle);
+    retire(slot_plan(handle));
+    let plan = install(Slot::Plan { entries: Vec::new(), retired: false });
+    let next = install(Slot::Tasks { mode, seed, plan, log: Vec::new(), faults: Vec::new() });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(next) }
+}
+
+/// `TestTasks::addFault(index, nth, reason)` — one entry of a scheduler's plan.
+///
+/// It lands in two places, which is one place more than the other two doubles
+/// need: [`Slot::Plan`] holds what a failure message would say, exactly as
+/// `addFsFault` leaves it, and the slot holds the three fields the walk matches
+/// on — because for tasks the matching is here rather than in the program. The
+/// two lists are appended together and are read by the same index, which is what
+/// lets [`buri_rt_host_testing_note_fault`] mark the entry a walk fired.
+///
+/// # Safety
+/// The pointer must address its byte length, or be null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_add_fault(
+    handle: i64,
+    index: i64,
+    nth: i64,
+    _reason_base: *mut u8,
+    reason: *const u8,
+    reason_len: u64,
+) {
+    // SAFETY: the caller promises the range.
+    let reason = unsafe { String::from_utf8_lossy(view(reason, reason_len)).into_owned() };
+    let mut shown = format!("task({index}) fails \"{reason}\"");
+    if nth != 0 {
+        shown.push_str(&format!(" on call {nth}"));
+    }
+    plan_push(handle, shown);
+    with(handle, (), |slot| {
+        if let Slot::Tasks { faults, .. } = slot {
+            faults.push(TaskFault { index, nth, reason: reason.clone() });
+        }
+    });
+}
+
+/// `TestTasks::calls() -> [TaskCall]` — the tasks that completed, in the order
+/// they completed.
+///
+/// `TaskCall` is one `Int`, so the element is a word and the list is the log
+/// itself: there is no record to build the way `fsCalls` builds one.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_calls(handle: i64, out: *mut BuriList) {
+    let log: Vec<i64> = with(handle, Vec::new(), |slot| match slot {
+        Slot::Tasks { log, .. } => log.clone(),
+        _ => Vec::new(),
+    });
+    let value = list_of(&log, |index: &i64| *index);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `TestTasks::runs()` — which run of the body this is, counted from one.
+///
+/// The receiver is read for nothing: the runs are the *block*'s, and a block
+/// with two schedulers in it is still one block being run again.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_test_tasks_runs(_handle: i64) -> i64 {
+    i64::try_from(replay().pass + 1).unwrap_or(i64::MAX)
+}
+
+/// `TestTasks::orders()` — how many runs of the body there will be.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_test_tasks_orders(_handle: i64) -> i64 {
+    i64::try_from(replay().total).unwrap_or(i64::MAX)
+}
+
+/// `TestTasks.parallel(self, ctx, items, f) -> [B]` — `f` at every item, in the order
+/// this scheduler chose, and the results in the items' order.
+///
+/// `buri_rt_host_tasks_parallel`'s walk with three things around it: the
+/// permutation in front, the log behind, and the plan between them. The four
+/// words after `len` are [`crate::list::StepEntry`]'s ABI, and the `[B]` block is
+/// written at each item's **own** index rather than at the position the work was
+/// done in — which is the whole of `Tasks.parallel`'s order promise, and is why
+/// a scheduler is free to hand the work out in any order at all.
+///
+/// Every element of the result is written by exactly one step, because the order
+/// is a permutation of `0..n`; a plan that fails one of them ends the process
+/// before the block is handed back, so there is no arm here that leaves the
+/// result half-filled and returns it.
+///
+/// # Safety
+/// `ptr` covers `len * in_stride` bytes; `entry` is the thunk the backend
+/// generated for this call and `state` the record it was generated against;
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_parallel(
+    handle: i64,
+    ptr: *const u8,
+    len: u64,
+    entry: crate::list::StepEntry,
+    state: *mut u8,
+    in_stride: u64,
+    out_stride: u64,
+    out: *mut BuriList,
+) {
+    let (n, from, to) = (len as usize, in_stride as usize, out_stride as usize);
+    let result = crate::list::block(n, to);
+    for index in task_order(handle, n) {
+        let i = usize::try_from(index).unwrap_or(0);
+        fail_planned_task(handle, index);
+        // SAFETY: `i * from` is inside the `n`-element source the caller
+        // promised, and `i * to` is inside the block just allocated. The thunk
+        // is the one the backend generated for these two element types, and `i`
+        // is a member of a permutation of `0..n`, so both are in range whatever
+        // order the walk is in.
+        unsafe {
+            entry(
+                state,
+                index as u64,
+                ptr.add(i.saturating_mul(from)),
+                result.ptr.add(i.saturating_mul(to)),
+            );
+        }
+        note_task(handle, index);
+    }
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(result) }
+}
+
+/// The order this run schedules `count` tasks in, and where `everyOrder` learns
+/// how many runs there are to make.
+///
+/// The count is not known until a `parallel` says it, and this is the call that
+/// says it. A second fan-out in the same run does not change the number of runs
+/// — the first is the one being enumerated — and is scheduled by the same rank
+/// at its own length.
+fn task_order(handle: i64, count: usize) -> Vec<i64> {
+    let (mode, seed) = tasks_ordering_of(handle);
+    let orders = orders_of(count);
+    if mode == ORDER_EVERY && count as i64 > EVERY_ORDER_CEILING {
+        let named = format!("{count}");
+        crate::abort::die(&[
+            b"everyOrder over ",
+            named.as_bytes(),
+            b" tasks is more runs of this block than a suite can finish: ",
+            b"a fan-out that wide is anyOrder's question",
+        ]);
+    }
+    let rank = match mode {
+        ORDER_EVERY => {
+            let mut replay = replay();
+            if replay.total <= 1 {
+                replay.total = orders;
+            }
+            replay.pass
+        }
+        ORDER_SEEDED if seed < 0 => orders.saturating_sub(1),
+        ORDER_SEEDED => (seed as u128) % orders.max(1),
+        _ => 0,
+    };
+    let order = permutation(count, rank);
+    note_order(mode, rank, &order);
+    order
+}
+
+/// `n!`, saturating.
+///
+/// A `u128` holds `34!`. Past that the count is not a number any suite is going
+/// to reach, and saturating is what keeps a seed legal at every length rather
+/// than making one length a panic.
+fn orders_of(n: usize) -> u128 {
+    (1..=n as u128).try_fold(1u128, |acc, i| acc.checked_mul(i)).unwrap_or(u128::MAX)
+}
+
+/// The `rank`th permutation of `0..n`, counted from zero in lexicographic
+/// order, wrapping past the last.
+///
+/// The factorial number system, read out digit by digit: the first digit is the
+/// rank over `(n-1)!` and names which of the remaining items goes first. Written
+/// this way rather than as a shuffle because a shuffle is not invertible — a
+/// report that names a seed has to be a report a reader can replay, and this is
+/// the mapping that makes `everyOrder`'s `k`th run and `seed(k)` the same
+/// sentence.
+fn permutation(n: usize, rank: u128) -> Vec<i64> {
+    let mut pool: Vec<i64> = (0..n as i64).collect();
+    let mut left = rank % orders_of(n).max(1);
+    let mut out = Vec::with_capacity(n);
+    for taken in 0..n {
+        let remaining = orders_of(n - taken - 1);
+        let digit = usize::try_from(left / remaining.max(1)).unwrap_or(0).min(pool.len() - 1);
+        left %= remaining.max(1);
+        out.push(pool.remove(digit));
+    }
+    out
+}
+
+/// One completed task, appended to the log.
+fn note_task(handle: i64, index: i64) {
+    with(handle, (), |slot| {
+        if let Slot::Tasks { log, .. } = slot {
+            log.push(index);
+        }
+    });
+}
+
+/// The plan's answer for the task about to run — and the end of the block where
+/// there is one.
+///
+/// A task answers `B` and every `B` comes from the closure, so a double cannot
+/// fail one and carry on: what a task that died would do to the run is end it,
+/// and that is what this does, with the test's own words where a real one would
+/// have had a stack. The tasks scheduled before it have already had their
+/// effects, which is the state a reader of the report wants.
+///
+/// The count is of *matching* tasks — this index in the log — so
+/// `failsOnCall(2, …)` names the second `parallel` that reached it, a walk
+/// reaching each index once.
+fn fail_planned_task(handle: i64, index: i64) -> Option<()> {
+    let (at, reason) = chosen_task_fault(handle, index)?;
+    buri_rt_host_testing_note_fault(handle, at as i64);
+    let named = format!("task({index}): ");
+    crate::abort::die(&[b"a task was failed by the plan: ", named.as_bytes(), reason.as_bytes()])
+}
+
+/// The first entry of the plan this task matches and its position satisfies —
+/// which entry, and what the failure would say.
+///
+/// `chosenFsFault`'s rule, on this side rather than in the program: the first,
+/// so a plan is read in the order it was written, and every entry sees the same
+/// count of matching tasks. Separate from [`fail_planned_task`] because that
+/// function ends the process and this is the half with an answer to check.
+fn chosen_task_fault(handle: i64, index: i64) -> Option<(usize, String)> {
+    let nth = with(handle, 0, |slot| match slot {
+        Slot::Tasks { log, .. } => log.iter().filter(|entry| **entry == index).count() as i64,
+        _ => 0,
+    }) + 1;
+    with(handle, None, |slot| match slot {
+        Slot::Tasks { faults, .. } => faults
+            .iter()
+            .position(|f| f.index == index && (f.nth == 0 || f.nth == nth))
+            .map(|at| (at, faults[at].reason.clone())),
+        _ => None,
+    })
+}
+
+/// Which run of the `test` body this is, and how many there are.
+///
+/// One per block rather than one per double, which is what `everyOrder` means:
+/// the body is what re-runs, and every run of it builds its own doubles from the
+/// same lines. [`buri_rt_test_enter`] resets it and [`buri_rt_test_replay`]
+/// advances it.
+struct Replay {
+    /// The run being made, counted from zero. It is also the rank of the order
+    /// this run schedules with, which is why `seed(runs() - 1)` replays it.
+    pass: u128,
+    /// How many runs there are. One until an `everyOrder` fan-out says
+    /// otherwise.
+    total: u128,
+    /// The mode, the rank and the order of the first fan-out of this run — the
+    /// datum a failure report names. **D6 renders it**; this file records it and
+    /// [`task_order_note`] writes the sentence.
+    note: Option<(i64, u128, Vec<i64>)>,
+}
+
+static REPLAY: Mutex<Replay> = Mutex::new(Replay { pass: 0, total: 1, note: None });
+
+/// Lock, recovering from poisoning, for the reason [`lock`] gives.
+fn replay() -> std::sync::MutexGuard<'static, Replay> {
+    match REPLAY.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// Records the order a fan-out was handed, for the report to name.
+///
+/// The **first** of the run, not the last: `everyOrder` enumerates the orders of
+/// the first fan-out, so that is the one whose number a replay line has to
+/// carry.
+fn note_order(mode: i64, rank: u128, order: &[i64]) {
+    let mut replay = replay();
+    if replay.note.is_none() {
+        replay.note = Some((mode, rank, order.to_vec()));
+    }
+}
+
+/// What a failure report says about the order this run used, or `None` where
+/// nothing ordered anything.
+///
+/// **The datum D6 renders.** The sentence is assembled here for
+/// [`note_failure`]'s reason — the pieces are the runner's and this file writes
+/// the line — and it is deliberately not printed by anything yet: the failure
+/// report is one wire format shared by three backends, and widening it is a
+/// slice of its own. A caller that has one prints it under the message.
+pub fn task_order_note() -> Option<String> {
+    let replay = replay();
+    let (mode, rank, order) = replay.note.as_ref()?;
+    if *mode == ORDER_PROGRAM {
+        return None;
+    }
+    let listed: Vec<String> = order.iter().map(i64::to_string).collect();
+    let run = if replay.total > 1 {
+        format!(", order {} of {}", replay.pass + 1, replay.total)
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "the tasks completed in the order {}{run} — replay it with `tasks().seed({rank})`",
+        listed.join(", ")
+    ))
+}
+
+/// The end of one run of a `test` body: whether to run it again.
+///
+/// `middle::monomorphize` emits this after [`buri_rt_test_leave`], so the two
+/// questions are asked in the order a reader wants — *did this run keep what it
+/// promised*, and only then *is there another order to try*. Answering 1 makes
+/// the body call itself, which is what "reruns the body" means on all three
+/// backends from one lowering.
+///
+/// It moves the watermark up, which is the question
+/// [`buri_rt_test_leave`]'s doc comment left for whoever landed `everyOrder`:
+/// every run installs its own doubles, so a plan the *next* run declares is the
+/// only plan the next `leave` is asking about. The runs before it have each been
+/// asked already.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_test_replay(index: i64) -> u8 {
+    let mut replay = replay();
+    if replay.pass + 1 >= replay.total {
+        return 0;
+    }
+    replay.pass += 1;
+    replay.note = None;
+    drop(replay);
+    if resume_at().is_some() {
+        runner().at = index;
+    }
+    WATERMARK.store(lock().len(), std::sync::atomic::Ordering::Relaxed);
+    1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2826,4 +3675,295 @@ fn probe_two_read_lines() {
         assert_eq!(buri_rt_test_enter(9), 1);
         note_failure(&[b"division by zero"]);
     }
+
+    /// A fault plan, end to end on this side: what a message names it, what
+    /// firing one does, and what a block would be told on the way out.
+    ///
+    /// [`buri_rt_test_leave`] itself ends the process, so what is checked here
+    /// is [`unconsumed_since`] — the part with an answer. The call site is
+    /// checked by `cli/tests/failing/unconsumed_fault/`, whose report the
+    /// native backend and the JavaScript one both produce.
+    #[test]
+    fn a_plan_reports_the_entries_nothing_fired() {
+        // `unconsumed_since` is a question about the whole table above a
+        // watermark, so a case that installs a plan of its own on another thread
+        // would answer it. There are two now.
+        let _alone = one_runner_at_a_time();
+        let from = lock().len();
+        let files = buri_rt_host_testing_new_fs();
+        let handle = buri_rt_host_testing_fs_with_plan(files);
+        add_fault(handle, "readFile", "log", "", 0, 0, "");
+        add_fault(handle, "writeFile", "log", "one", 2, 6, "disk full");
+        assert_eq!(
+            unconsumed_since(from),
+            vec![
+                String::from("readFile(\"log\") fails .NotFound"),
+                String::from("writeFile(\"log\", \"one\") fails .Other(\"disk full\") on call 2"),
+            ]
+        );
+
+        // Firing the first keeps its promise and leaves the second's standing.
+        buri_rt_host_testing_note_fault(handle, 0);
+        assert_eq!(
+            unconsumed_since(from),
+            vec![String::from(
+                "writeFile(\"log\", \"one\") fails .Other(\"disk full\") on call 2"
+            )]
+        );
+
+        // A builder carries the plan, so the promise is the same one.
+        let derived = buri_rt_host_testing_fs_read_only(handle);
+        buri_rt_host_testing_note_fault(derived, 1);
+        assert!(unconsumed_since(from).is_empty());
+
+        // And a plan `faults` replaced makes no claim at all.
+        let again = buri_rt_host_testing_fs_with_plan(handle);
+        add_fault(again, "readDir", "log", "", 0, 1, "");
+        buri_rt_host_testing_fs_with_plan(again);
+        assert!(unconsumed_since(from).is_empty());
+    }
+
+    /// The two rows one entry arrives in, spelled once for the test above.
+    fn add_fault(handle: i64, name: &str, path: &str, body: &str, nth: i64, code: i64, payload: &str) {
+        // SAFETY: every range is a live `&str`'s.
+        unsafe {
+            buri_rt_host_testing_add_fs_fault(
+                handle,
+                std::ptr::null_mut(),
+                name.as_ptr(),
+                name.len() as u64,
+                std::ptr::null_mut(),
+                path.as_ptr(),
+                path.len() as u64,
+                std::ptr::null_mut(),
+                body.as_ptr(),
+                body.len() as u64,
+            );
+            buri_rt_host_testing_fault_fails(
+                handle,
+                nth,
+                code,
+                std::ptr::null_mut(),
+                payload.as_ptr(),
+                payload.len() as u64,
+            );
+        }
+    }
+
+    /// A seed is the order's own number, and the numbering is lexicographic.
+    ///
+    /// This is the mapping the whole double rests on: it is what makes
+    /// `everyOrder`'s `k`th run and `seed(k)` the same order, which is what lets
+    /// a failure report print a line a reader can paste back. `runtime.js`'s
+    /// `$tpermutation` is the same function for the other backend, and
+    /// `conformance/lib/semantics/test/host_testing.buri` asserts three of these
+    /// six through both of them.
+    #[test]
+    fn a_seed_names_the_order_it_replays() {
+        let all: Vec<Vec<i64>> = (0..6).map(|rank| permutation(3, rank)).collect();
+        assert_eq!(
+            all,
+            vec![
+                vec![0, 1, 2],
+                vec![0, 2, 1],
+                vec![1, 0, 2],
+                vec![1, 2, 0],
+                vec![2, 0, 1],
+                vec![2, 1, 0],
+            ]
+        );
+        // Past the last one it wraps, so a seed derived from a program's content
+        // is legal at every length.
+        assert_eq!(permutation(3, 6), vec![0, 1, 2]);
+        assert_eq!(permutation(3, 11), vec![2, 1, 0]);
+        // The degenerate lengths, which every fan-out eventually is.
+        assert_eq!(permutation(0, 4), Vec::<i64>::new());
+        assert_eq!(permutation(1, 4), vec![0]);
+        assert_eq!(orders_of(0), 1);
+        assert_eq!(orders_of(6), 720);
+    }
+
+    /// The three modes, at the handles a program would reach them through.
+    ///
+    /// The default seed is the **reverse** of program order — the one order most
+    /// likely to catch a program that depended on the order it was given — and a
+    /// builder carries the plan while answering a new log.
+    #[test]
+    fn the_ordering_a_builder_answers() {
+        let _alone = one_runner_at_a_time();
+        let plain = tasks_handle();
+        assert_eq!(task_order(plain, 3), vec![0, 1, 2]);
+
+        let any = tasks_at(plain, ORDER_SEEDED, -1);
+        assert_eq!(task_order(any, 3), vec![2, 1, 0]);
+
+        let seeded = tasks_at(plain, ORDER_SEEDED, 3);
+        assert_eq!(task_order(seeded, 3), vec![1, 2, 0]);
+
+        // A builder answers a new handle: the receiver still schedules the way
+        // it did.
+        assert_eq!(task_order(plain, 3), vec![0, 1, 2]);
+    }
+
+    /// `everyOrder` counts the runs of the **block**, and the count is the one
+    /// `buri_rt_test_replay` walks.
+    ///
+    /// The call site is `cli/tests/failing/every_order/`, whose first block is
+    /// true on five runs and false on the sixth: a golden holding that failure is
+    /// the body having run six times. What is checked here is the protocol under
+    /// it — the total is the first fan-out's `n!`, the pass advances once per
+    /// answer, and the last answer is no.
+    #[test]
+    fn the_body_is_run_once_per_order() {
+        let _alone = one_runner_at_a_time();
+        buri_rt_test_enter(0);
+        let every = tasks_at(tasks_handle(), ORDER_EVERY, -1);
+
+        // The first fan-out is what says how many orders there are.
+        assert_eq!(buri_rt_host_testing_test_tasks_orders(every), 1);
+        assert_eq!(task_order(every, 3), vec![0, 1, 2]);
+        assert_eq!(buri_rt_host_testing_test_tasks_orders(every), 6);
+        assert_eq!(buri_rt_host_testing_test_tasks_runs(every), 1);
+
+        let mut seen = vec![vec![0, 1, 2]];
+        for run in 2..=6 {
+            assert_eq!(buri_rt_test_replay(0), 1, "run {run}");
+            assert_eq!(buri_rt_host_testing_test_tasks_runs(every), run);
+            seen.push(task_order(every, 3));
+        }
+        // Six runs, six orders, each of them once.
+        assert_eq!(buri_rt_test_replay(0), 0);
+        assert_eq!(seen, (0..6).map(|rank| permutation(3, rank)).collect::<Vec<_>>());
+
+        // And a block that orders nothing is run once.
+        buri_rt_test_enter(0);
+        assert_eq!(buri_rt_test_replay(0), 0);
+        assert_eq!(buri_rt_host_testing_test_tasks_runs(every), 1);
+    }
+
+    /// The datum a failure report names — **D6 renders it**, and this is the
+    /// sentence it will render.
+    ///
+    /// Program order says nothing, because there is nothing about it to replay;
+    /// a seeded order names its seed; and an `everyOrder` run names which of the
+    /// orders it is as well, because the failing one is the last that ran.
+    #[test]
+    fn the_report_can_name_the_order_and_the_seed() {
+        let _alone = one_runner_at_a_time();
+        buri_rt_test_enter(0);
+        let plain = tasks_handle();
+        let _ = task_order(plain, 3);
+        assert_eq!(task_order_note(), None);
+
+        buri_rt_test_enter(0);
+        let seeded = tasks_at(plain, ORDER_SEEDED, 3);
+        let _ = task_order(seeded, 3);
+        assert_eq!(
+            task_order_note(),
+            Some(String::from(
+                "the tasks completed in the order 1, 2, 0 — replay it with `tasks().seed(3)`"
+            ))
+        );
+
+        buri_rt_test_enter(0);
+        let every = tasks_at(plain, ORDER_EVERY, -1);
+        let _ = task_order(every, 3);
+        assert_eq!(buri_rt_test_replay(0), 1);
+        let _ = task_order(every, 3);
+        assert_eq!(
+            task_order_note(),
+            Some(String::from(
+                "the tasks completed in the order 0, 2, 1, order 2 of 6 \
+                 — replay it with `tasks().seed(1)`"
+            ))
+        );
+    }
+
+    /// A fault is matched here rather than in the program, because a task's
+    /// fault is three things that cross — and the promise is still
+    /// [`Slot::Plan`]'s, entry for entry.
+    ///
+    /// The firing itself ends the process, so what is checked is the half with an
+    /// answer: which entry a walk would choose. `cli/tests/failing/every_order/`
+    /// is the call site, on both backends.
+    #[test]
+    fn a_fault_is_chosen_by_the_task_and_the_count() {
+        let _alone = one_runner_at_a_time();
+        let from = lock().len();
+        let scheduler = replan_of(tasks_handle());
+        add_task_fault(scheduler, 1, 0, "gone");
+        add_task_fault(scheduler, 2, 2, "twice is too many");
+        assert_eq!(
+            unconsumed_since(from),
+            vec![
+                String::from("task(1) fails \"gone\""),
+                String::from("task(2) fails \"twice is too many\" on call 2"),
+            ]
+        );
+
+        // Task 0 is named by nothing; task 1 by an entry that fires every time;
+        // task 2 by one that waits for the second fan-out to reach it.
+        assert_eq!(chosen_task_fault(scheduler, 0), None);
+        assert_eq!(chosen_task_fault(scheduler, 1), Some((0, String::from("gone"))));
+        assert_eq!(chosen_task_fault(scheduler, 2), None);
+        note_task(scheduler, 2);
+        assert_eq!(
+            chosen_task_fault(scheduler, 2),
+            Some((1, String::from("twice is too many")))
+        );
+
+        // A builder carries the plan and its promise; a second `faults` retires
+        // both.
+        let carried = tasks_at(scheduler, ORDER_SEEDED, -1);
+        assert_eq!(chosen_task_fault(carried, 1), Some((0, String::from("gone"))));
+        replan_of(scheduler);
+        assert!(unconsumed_since(from).is_empty());
+    }
+
+    /// Two things in this file are one per *process* rather than one per handle
+    /// — the run counter `everyOrder` walks, and *"every plan installed since a
+    /// watermark"* — and `cargo test` runs these cases on many threads at once.
+    /// A case that asks about either takes this first. It is a lock over those
+    /// cases and not over the crate: every other case here asks about a handle
+    /// it minted itself.
+    static ONE_RUNNER: Mutex<()> = Mutex::new(());
+
+    fn one_runner_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        match ONE_RUNNER.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// `tasks()`, without the out-pointer the row is called through.
+    fn tasks_handle() -> i64 {
+        let mut handle = 0i64;
+        // SAFETY: `handle` is a live, aligned `i64`.
+        unsafe { buri_rt_host_testing_tasks(&raw mut handle) };
+        handle
+    }
+
+    /// `TestTasks::replan`, likewise.
+    fn replan_of(handle: i64) -> i64 {
+        let mut next = 0i64;
+        // SAFETY: `next` is a live, aligned `i64`.
+        unsafe { buri_rt_host_testing_test_tasks_replan(handle, &raw mut next) };
+        next
+    }
+
+    /// One entry of a plan, at the row's own signature.
+    fn add_task_fault(handle: i64, index: i64, nth: i64, reason: &str) {
+        // SAFETY: the range is a live `&str`'s.
+        unsafe {
+            buri_rt_host_testing_test_tasks_add_fault(
+                handle,
+                index,
+                nth,
+                std::ptr::null_mut(),
+                reason.as_ptr(),
+                reason.len() as u64,
+            );
+        }
+    }
+
 }

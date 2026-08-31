@@ -42,9 +42,8 @@
 //!     digits of it;
 //!   * **the stateful half of `core/testing/context` and of
 //!     `core/host/testing`** ([`testing`]) — a captured stdout, a seeded
-//!     generator, a test clock, a fixture environment, a stdin that was handed
-//!     its lines, and a process that records its exit rather than taking it.
-//!     Every one of them is mutable process state outliving the expression
+//!     generator, a test clock, a fixture environment, and a stdin that was
+//!     handed its lines. Every one of them is mutable process state outliving the expression
 //!     that made it, which is why each implementation carries an `I64` handle
 //!     and puts the state on the runner's side; on JavaScript that side is
 //!     `runtime.js`'s `$t.h`, and here it is one table — one, not two, because
@@ -141,17 +140,47 @@
 //!
 //! 5. **A closure parameter arrives as an entry thunk and an opaque state.**
 //!    Rule 4 answers "the runtime cannot name `T`" for a value; this answers it
-//!    for a *call*. Four words: a `void(state, in, out)` the backend generated
-//!    at the call site, where the element types are known; the backend's own
-//!    record, which the runtime passes back untouched and never looks inside;
-//!    and the two element strides, because an operation with a step reads one
-//!    element type and writes another.
+//!    for a *call*. Four words: a `void(state, index, in, out)` the backend
+//!    generated at the call site, where the element types are known; the
+//!    backend's own record, which the runtime passes back untouched and never
+//!    looks inside; and the two element strides, because an operation with a
+//!    step reads one element type and writes another. The `index` is which item
+//!    the call is for: the runtime drives the walk, so it is the only side that
+//!    knows, and `effect Tasks` promises the step is told. It is on every step
+//!    rather than on the keys that read it, so that this boundary has one C
+//!    signature (`list.rs`'s `StepEntry`).
 //!
 //!    §0 says a closure "cannot be called from C", and it still cannot: what
-//!    the runtime calls is the thunk, which is C. `list.mapCtxStep` is the one
-//!    entry that uses this today and it is a pilot — the mechanism a scheduler
-//!    will want, exercised against an answer that is already known
-//!    (`list.rs`'s `StepEntry`).
+//!    the runtime calls is the thunk, which is C. Two entries use this:
+//!    `list.mapCtxStep`, the pilot, which is `list.mapCtx` reached a second way
+//!    and exists to be compared against an answer that is already known; and
+//!    `host.HostTasks.parallel`, which is the scheduler the pilot was landed
+//!    for (`list.rs`'s `StepEntry`, `rt.rs`).
+//!
+//! ## 2.2 The one entry that goes the other way
+//!
+//! Every rule above describes a call **into** this crate. There is now one
+//! symbol that describes a call **out of** it, and it is not in this file at
+//! all: `backend/carrier.rs` fixes
+//!
+//! ```text
+//!   void entry(void *state, void *out);
+//! ```
+//!
+//! as the C door by which a carrier enters Buri code. Both native backends
+//! emit one in front of a program's root. It is stated *there* rather than
+//! here because the shape of the thing behind the door is the backend's: the
+//! frame-threaded one takes a Buri data stack from
+//! [`memory::buri_rt_stack_acquire`] and puts it in the frame-pointer
+//! register, and the LLVM one is a `ccc` wrapper over a `fastcc` body and
+//! needs none. What is *shared* is only the two words, which is why they are
+//! written down in one file and diffed byte for byte by a test.
+//!
+//! [`memory::buri_rt_stack_acquire`] and [`memory::buri_rt_stack_release`] are
+//! the two entries that pair with it, and they are the first `buri_rt_*`
+//! symbols nothing in a Buri *program* names: no intrinsic key produces them,
+//! neither runtime table has a row, and the only caller is a shim the stencil
+//! backend hand-writes.
 //!
 //! ## 2.1 `Result<T, E>`, and the one thing rule 3 leaves open
 //!
@@ -296,24 +325,33 @@
 //!
 //! ## 6. Startup and shutdown, which the generated entry point owns
 //!
-//! Two calls the emitted `main` must make, and the whole of what it must know:
+//! Two calls the emitted `main` must make, one it may, and the whole of what it
+//! must know:
 //!
 //! ```c
 //! int main(int argc, char** argv) {
-//!     buri_rt_argv_init(argc, argv);   /* first statement */
-//!     ...                              /* the program */
-//!     buri_rt_flush();                 /* before every return path */
+//!     buri_rt_argv_init(argc, argv);        /* first statement */
+//!     buri_rt_frames_are_per_carrier();     /* if, and only if, they are */
+//!     ...                                   /* the program */
+//!     buri_rt_flush();                      /* before every return path */
 //!     return 0;
 //! }
 //! ```
 //!
-//! [`buri_rt_argv_init`] is what makes `env.arguments()` exact — `std::env` in
+//! [`buri_rt_argv_init`] is what makes `env.args(ctx)` exact — `std::env` in
 //! a staticlib depends on a platform-specific startup hook that a linker
 //! `--gc-sections` pass is entitled to have opinions about — and it installs
 //! the panic hook that turns a runtime bug into a message rather than a bare
-//! `SIGABRT`. If it is never called, `env.arguments()` falls back to `std::env`
+//! `SIGABRT`. If it is never called, `env.args(ctx)` falls back to `std::env`
 //! and the fallback is correct on both supported platforms; the call is
 //! preferred, not required.
+//!
+//! [`buri_rt_frames_are_per_carrier`] is the artifact's one statement about
+//! *itself* rather than about its arguments: whether a second carrier entering
+//! Buri code gets frames of its own. Saying nothing is the safe answer and the
+//! old behaviour — `Tasks.parallel` then runs its steps one at a time — so an
+//! entry point that forgets it is slow and not wrong. Its doc comment says
+//! which backend says it and why the other cannot yet.
 //!
 //! [`buri_rt_flush`] is required. Standard output and standard error are
 //! **buffered**, exactly as `$host` buffers them on JavaScript
@@ -335,15 +373,24 @@
 //! entry, the root `Cargo.toml` states the bar, and
 //! `dependencies_stay_behind_the_bar` asserts the equality).
 //!
-//! **Two of the five are linked and three are not.** `rustls` over `ring` is
-//! what `tls.rs` uses for `https://`, and it is why the archive grew by about
-//! 1.72 MiB — most of it `ring`'s native object code, which a `staticlib`
-//! carries whether the linker wants it or not. `tokio`, `hyper` and
-//! `tungstenite` are still referenced only by `net.rs`, which names one type
-//! from each and stops, so `lto = "fat"` leaves them out of the archive
-//! entirely; `.github/scripts/assert-runtime-archive.sh` holds that in CI by
-//! grepping the symbol table, and the two that moved out of that list moved in
-//! the commit that linked them.
+//! **Three of the five are linked and two are not.** [`rt`] is the carrier
+//! runtime — the reactor, the run baton, the carrier pool and the task table —
+//! and `Clock::sleepMillis` and `Net::fetch` wait on it, so the archive carries
+//! the reactor's code on purpose; `rustls` over `ring` is what [`tls`] uses for
+//! `https://`, and it is why the archive grew by about 1.72 MiB, most of it
+//! `ring`'s native object code, which a `staticlib` carries whether the linker
+//! wants it or not. `hyper` and `tungstenite` are still referenced only by
+//! [`net`], which names one type from each and stops, so `lto = "fat"` leaves
+//! them out of the archive entirely.
+//! `.github/scripts/assert-runtime-archive.sh` holds both halves in CI by
+//! grepping the symbol table — three names that must be there, two that must
+//! not — and each of the three moved across that line in the commit that
+//! linked it. The slice that links one of the other two moves it again.
+//!
+//! Nothing about the **feature's** shape changed with any of it: `net` off is
+//! still a runtime with no dependency at all, [`rt`] and [`tls`] do not
+//! compile, `Clock::sleepMillis` is `thread::sleep` as it always was, and
+//! `https://` goes back to a refusal that names this feature as the reason.
 //!
 //! **What a toolchain built without it owes the user.** `net` off is a
 //! *language capability* missing, not a code generator missing, so the
@@ -393,6 +440,11 @@ mod math;
 mod memory;
 mod net;
 mod rng;
+/// The carrier runtime — the tokio handle, the run baton, the carrier pool and
+/// the task table. Behind `net` in full: without the feature there is no
+/// reactor to hold and nothing here compiles.
+#[cfg(feature = "net")]
+pub mod rt;
 mod testing;
 mod text;
 /// TLS for `http`'s `https://` half. Behind the `net` feature because it *is*
@@ -422,6 +474,61 @@ pub use value::*;
 /// biasing at either end of the call, and a backend that gets the sign wrong
 /// fails immediately rather than silently reporting `NotFound`.
 pub const BURI_OK: i32 = -1;
+
+/// Whether every carrier gets its own Buri frames, declared by the artifact.
+///
+/// `false` until an entry point says otherwise, and the conservative answer is
+/// the one that costs nothing: a runtime that believes frames are shared runs
+/// `rt::buri_rt_host_tasks_parallel`'s steps one at a time, which is what it
+/// did before there was a fan-out at all.
+static FRAMES_PER_CARRIER: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// The artifact declaring that a second carrier entering Buri code gets frames
+/// of its own — §6's third call, and the one that is *optional*.
+///
+/// It is a property of the **artifact**, not of a call site, which is why it is
+/// stated once at startup rather than carried on the step boundary: what it
+/// answers is "where does a Buri frame live", and a program has one answer.
+///
+/// * The **LLVM** backend calls it. A Buri frame there is a machine frame —
+///   `alloca`s in an ordinary function — so a carrier's 512 KiB thread stack is
+///   its own and two tasks may be in flight at once.
+/// * The **frame-threaded** backend does not, and must not until each carrier
+///   owns a Buri stack (track B, B7). Today a program has exactly one, the
+///   `buri$stencil$stack` block its `main` guards, and an entry thunk works in a
+///   frame the *call site* set aside — so two steps of one `parallel` would
+///   share it, and one that suspends would still be holding it. Sequential is
+///   not a limitation of that backend's scheduler; it is the truth about where
+///   its frames are.
+/// * A toolchain built without `net` has no scheduler to tell, and this is then
+///   a store nobody loads.
+///
+/// Idempotent, and never unset: an artifact makes one statement about itself.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_frames_are_per_carrier() {
+    FRAMES_PER_CARRIER.store(true, std::sync::atomic::Ordering::Release);
+}
+
+/// What [`buri_rt_frames_are_per_carrier`] was told, for the scheduler.
+#[must_use]
+pub fn frames_are_per_carrier() -> bool {
+    FRAMES_PER_CARRIER.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// Unsay it, which only a test may do.
+///
+/// An artifact makes one statement about itself and never takes it back, so
+/// this is not part of the contract above; it exists because `cargo test` runs
+/// every case of this crate in one process, and a case that wants to see the
+/// scheduler fan out must not leave every later case fanning out too.
+///
+/// `net`-gated as well as test-gated, because without the reactor there is no
+/// scheduler to tell and `rt.rs` — the only caller — is not compiled.
+#[cfg(all(test, feature = "net"))]
+pub(crate) fn forget_frames_are_per_carrier() {
+    FRAMES_PER_CARRIER.store(false, std::sync::atomic::Ordering::Release);
+}
 
 /// 128-bit division and remainder, in one call.
 ///

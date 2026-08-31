@@ -144,12 +144,36 @@ impl Jit<'_> {
         let mut floats: Vec<Src> = Vec::new();
 
         for (i, (slot, t)) in args.iter().copied().enumerate() {
-            // A **context argument is dropped**, whatever it weighs. The
-            // runtime allocates through `buri_rt_alloc` and has no use for one;
-            // It is a rule rather than a consequence of "it spreads to no
-            // leaves", because a bug once made it one.
-            if matches!(source_ty(prog, t), Some(Ty::Ctx(_))) {
+            // A **context argument is dropped**, whatever it weighs and
+            // whatever type it turned out to be. The runtime allocates through
+            // `buri_rt_alloc` and has no use for one, so the C signature has no
+            // parameter for it.
+            //
+            // Which argument that is comes from the row ([`Entry::ctx`]) rather
+            // than from the value's type, and the difference is not academic.
+            // Asking "is this a `Ty::Ctx`?" was the rule here, and it is the
+            // right answer only while every `C: Alloc` is instantiated at a
+            // `context { … }`. `C` is an ordinary type parameter with an
+            // ordinary bound (SPEC 10.1), so a value that *implements* `Alloc`
+            // satisfies it without being a context — SPEC 10.8's attenuating
+            // `ReadOnly<C>`, and `core/host/testing`'s `alloc()`, which is a
+            // `struct TestAlloc(I64)` carrying a handle. One of those slipped
+            // past the type test, spread to a leaf, and shifted every argument
+            // after it one register down: `push` reached `buri_rt_list_push`
+            // with the handle where the pointer belongs and died in `memmove`
+            // before the first test block.
+            if entry.ctx == Some(i) {
                 continue;
+            }
+            // A context the row does *not* name is this table being wrong, not
+            // this call being unusual, and every context in the corpus reaches
+            // here — so a missing annotation is a refusal at build time rather
+            // than a shifted argument list at run time.
+            if matches!(source_ty(prog, t), Some(Ty::Ctx(_))) {
+                return Err(format!(
+                    "{}: a context at argument {i} that the runtime table does not name",
+                    entry.key
+                ));
             }
             if entry.by_ref == Some(i) {
                 ints.push(Src::Addr(slot));
@@ -643,6 +667,10 @@ impl Jit<'_> {
     /// [`Extra::Step`]'s four words: the generated entry thunk, the state
     /// record, and the two element strides.
     ///
+    /// The runtime's own loop counter is the fifth thing the boundary carries
+    /// and it is **not** one of these: it is an argument of the thunk rather
+    /// than of the entry, because it changes per element and these do not.
+    ///
     /// The record's shape is `glue.rs`'s [`super::glue::E_FRAME`] — the
     /// closure's two words, the frame the entry thunk is to work in, and the
     /// step's contexts. It is built **past this function's own frame**, which is
@@ -683,7 +711,7 @@ impl Jit<'_> {
 
         let widths: Vec<u32> =
             params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
-        let (ctx_at, bytes) = super::glue::state_shape(&widths);
+        let (ctx_at, bytes) = super::glue::state_shape(&widths, call.index);
         // A context is a *value* here rather than the dropped argument a
         // runtime entry takes, because what reads it is the step and not the
         // runtime. One that owned a count would need a retain per element, and
@@ -699,7 +727,14 @@ impl Jit<'_> {
                 supplied.len()
             ));
         }
-        for (i, (off, (from, t))) in ctx_at.iter().copied().zip(supplied).enumerate() {
+        // `ctx_at` is parallel to the supplied contexts; `widths` to the
+        // closure's parameters. An index parameter sits in the second and not
+        // in the first, so the walk carries its own cursor rather than reusing
+        // the enumeration.
+        let ctx_params: Vec<usize> = (0..params.len().saturating_sub(1))
+            .filter(|i| call.index != Some(*i))
+            .collect();
+        for ((off, (from, t)), i) in ctx_at.iter().copied().zip(supplied).zip(ctx_params) {
             let w = widths.get(i).copied().unwrap_or(0);
             if w == 0 {
                 continue;
@@ -724,7 +759,8 @@ impl Jit<'_> {
                 ("JIT_CONT", V::Fall),
             ],
         );
-        let thunk = self.helper(super::glue::Helper::Entry { params, ret: *ret });
+        let thunk =
+            self.helper(super::glue::Helper::Entry { params, ret: *ret, index: call.index });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(in_stride)));
@@ -1091,14 +1127,35 @@ impl Jit<'_> {
 }
 
 impl Jit<'_> {
+    /// Which argument of `str.concat` [`Jit::str_concat`] never sees, at the
+    /// arity this call arrived with.
+    ///
+    /// `str.concat` has no table row, so the rule [`Entry::ctx`] states for
+    /// every other key is stated here instead, and it is the same rule read off
+    /// the same place — the **declaration**. `Str.concat<C: Alloc>(self, ctx: C,
+    /// other: Str)` is three arguments and the middle one is the context;
+    /// `lower::template`'s `str.concat(a, b)` is two and never had one. Either
+    /// way `buri_rt_str_concat` sees two `Str`s and nothing else.
+    ///
+    /// By position rather than by type, for [`Entry::ctx`]'s reason: a `C:
+    /// Alloc` instantiated at a value that merely *implements* `Alloc` is not a
+    /// `Ty::Ctx`, and `s.concat(alloc(), t)` used to reach `str_concat` as three
+    /// arguments — which this backend refuses by arity, so it was a "report it"
+    /// diagnostic on a program the front end was right to accept.
+    pub(crate) const fn concat_ctx(argc: usize) -> Option<usize> {
+        if argc == 3 { Some(1) } else { None }
+    }
+
     /// `str.concat(a, b)`, and the `str.concat(self, ctx, other)` a method call
     /// spells: one call to `buri_rt_str_concat`.
     ///
     /// The context is dropped whatever it weighs, which is the same rule
-    /// [`Jit::rt_call`] applies to a `buri_rt_*` entry and for the same reason
-    /// — a bug once made it a rule. `emit.rs`'s arm has already dropped it,
-    /// along with every other argument that occupies no bytes, so what arrives
-    /// here is two `Str`s.
+    /// [`Jit::rt_call`] applies to a `buri_rt_*` entry and for the same reason.
+    /// `emit.rs`'s arm has already dropped it, at the index
+    /// [`Jit::concat_ctx`] names, so what arrives here is two `Str`s — and an
+    /// argument list of any other length is refused below rather than
+    /// truncated, because a third `Str` here would be a shape this call cannot
+    /// express.
     ///
     /// **A call, where the other backend open-codes.** `llvm/emit.rs::concat`
     /// emits MEMORY.md §5.3's three paths as instructions;
@@ -1115,18 +1172,6 @@ impl Jit<'_> {
     /// input to a concatenation rather than a tag to be stripped — the answer
     /// is ASCII exactly when both halves are — and the callee masks what it
     /// needs as a count.
-    /// Whether an argument of `str.concat` is one [`Jit::str_concat`] never
-    /// sees.
-    ///
-    /// A context, and anything else that occupies no bytes.
-    /// A register-machine backend drops a context by type and then *spreads*
-    /// what is left, and a zero-sized value spreads to no leaves — so both
-    /// halves of that are one question here, and `s.concat(host.alloc, t)`
-    /// reaches the same two `Str`s on both backends.
-    pub(crate) fn concat_drops(&mut self, prog: &ir::Program, t: ir::Type) -> bool {
-        matches!(source_ty(prog, t), Some(Ty::Ctx(_))) || self.width_of(prog, t) == 0
-    }
-
     pub(crate) fn str_concat(&mut self, st: &Fn2, args: &[u32], dest: u32) -> Result<(), String> {
         let (Some(a), Some(b)) = (args.first().copied(), args.get(1).copied()) else {
             return Err(String::from("str.concat of fewer than two strings"));
