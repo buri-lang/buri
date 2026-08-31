@@ -3,19 +3,18 @@
 
 # Buri
 
-A strict, purely functional, statically typed language with TypeScript-shaped
-syntax, Rust-shaped data declarations, and Roc-shaped ideas about platforms and
-effects.
+A programming language for AI _and_ humans.
+
+Buri is safe, fast to run, fast to compile, and friendly - in that order:
+
+- **Safe**: Buri will not error, is functional which rules out entire classes of logic bugs, and Buri code is easy to verify it works as expected whether you wrote the code or not.
+- **Fast to run**: make expensive actions explicit, choose syntax that enables compilers to optimize the code a lot.
+- **Fast to compile**: typechecks 1 million lines of code per second, and compiles tests 15 times faster than LLVM, with a build system designed to scale large repositories.
+- **Friendly**: clear type system, explicit syntax, readable error messages, linter messages encourages AI to improve code architecture not just "fix the symtoms".
 
 ## What Buri is
 
-Buri is a strict, purely functional, statically typed language and the
-single-binary toolchain that implements it. There is no `null`, no exception,
-no mutation and no aliasing; `match` is exhaustive, indexing answers `Option`,
-and a `Result` cannot be dropped on the floor. Anything a function can do
-besides compute — allocate, print, read a file, open a socket — has to arrive
-as an effect value in a parameter the compiler checks, so a signature says what
-a function is allowed to do and not only what it takes.
+Buri is a strict, purely functional, statically typed language that compiles to JavaScript and native code. Here's a sample program:
 
 ```buri run
 from "core/effect" import { Alloc, Stdout };
@@ -27,9 +26,8 @@ enum Grade {
 }
 
 impl Grade {
-  // No context parameter, so this cannot allocate, print, read a file, or open
-  // a socket. That is in the signature, not in this comment, and the compiler
-  // is what holds it.
+  // No ctx parameter, so this cannot allocate, print, read a file, or open
+  // a socket.
   fn shortfall(self): Int {
     match (self) {
       .Pass(_) => 0,
@@ -38,10 +36,11 @@ impl Grade {
   }
 }
 
-// `main` takes no arguments. It builds the one context the program has, and
-// those two bindings are the whole effect budget: this program can allocate and
-// it can print, and there is nothing else it could reach for.
+// `main` is the entry point and builds the `context`.
 export fn main(): Result<(), Str> {
+// This contxt declares the program can allocate to the heap
+// and print to standard out, and nothing else
+// (no network calls, no file system operations, etc.).
   let ctx = context {
     Alloc:  host.alloc,
     Stdout: host.stdout,
@@ -57,13 +56,6 @@ export fn main(): Result<(), Str> {
 ```stdout
 points short: 12
 ```
-
-Three goals order every trade in the design: **safe, fast to run, fast to
-compile** — in that order when they conflict
-([`guide/goals.md`](./cli/src/docs/guide/goals.md) has what each bought and
-cost). The toolchain is one binary with nothing to configure: the build system,
-the test runner, the formatter, the linter, the language server, and the
-documentation — every example of which is compiled by the test suite.
 
 ## Status
 
@@ -111,19 +103,3 @@ buri init hello-buri && cd hello-buri && buri test //...
 The binary carries no runtime dependencies. Linking a native binary uses the
 system C toolchain (`cc`, or whatever `CC` names); the JavaScript path resolves
 a runtime — `bun` or `node` — from `PATH`, or from `BURI_JS` naming one.
-
-## Where the documentation is
-
-All of it is compiled into the binary — `buri docs` is the index,
-`buri docs search "tail call"` finds the page that answers a question, and both
-work in any directory. The same pages are the files under
-[`cli/src/docs/`](./cli/src/docs/): the language reference
-[`SPEC.md`](./cli/src/docs/SPEC.md), the [guide](./cli/src/docs/guide/), the
-[build system](./cli/src/docs/build/), and one page per diagnostic. A worked
-monorepo lives in [`cli/tests/example/`](./cli/tests/example/);
-[`design/`](./design/) holds contributor notes and [`formal/`](./formal/) the
-Lean 4 formalisation of the type system.
-
-## License
-
-MIT — the text is in [`LICENSE`](./LICENSE) and covers everything here.
