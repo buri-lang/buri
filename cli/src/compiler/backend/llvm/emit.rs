@@ -72,6 +72,7 @@ use inkwell::{FloatPredicate, IntPredicate};
 use crate::compiler::backend::intrinsic_keys::{
     bits_op, derive_key, list_call, list_closure_key, step_call, Step,
 };
+use crate::compiler::backend::carrier;
 use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::rc::{self, Counted as _};
@@ -150,7 +151,7 @@ pub struct Unit<'ctx, 'a> {
     release_elems: Map<Ty, FunctionValue<'ctx>>,
     retains: Map<Ty, FunctionValue<'ctx>>,
     /// The C-ABI entry thunks of [`Job::Entry`], one per step signature.
-    entries: Map<(Vec<Ty>, Ty), FunctionValue<'ctx>>,
+    entries: Map<(Vec<Ty>, Ty, Option<usize>), FunctionValue<'ctx>>,
     env_glue: Option<FunctionValue<'ctx>>,
     /// Helper bodies still to be built. Drained by [`Unit::finish`] rather than
     /// built where they are asked for, because a helper is asked for in the
@@ -339,6 +340,25 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             None => self.ctx.void_type().fn_type(params, false),
         };
         let f = self.module.add_function(symbol, ty, Some(Linkage::External));
+        self.platform_abi(f);
+        self.runtime.insert(symbol.to_string(), f);
+        f
+    }
+
+    /// Marks a function as carrying the **platform** calling convention:
+    /// `ccc`, `nounwind`.
+    ///
+    /// Extracted from [`Unit::declare_rt`] rather than copied beside it,
+    /// because that function's header is the claim *"this is the single place
+    /// in a Buri artifact where a platform ABI appears"* and the carrier door
+    /// ([`Unit::carrier_door`]) is the second thing that needs it. Two callers
+    /// of one function keep the claim true; two copies of four lines would
+    /// have made it false the moment one of them gained an attribute.
+    ///
+    /// `nounwind` on both sides for the same reason: the runtime is Rust
+    /// compiled with `panic = "abort"` and it installs a hook that exits, and
+    /// a Buri body has no unwinding of its own to let out.
+    fn platform_abi(&self, f: FunctionValue<'ctx>) {
         attrs::set_convention(f, attrs::C);
         let kind = inkwell::attributes::Attribute::get_named_enum_kind_id("nounwind");
         if kind != 0 {
@@ -347,8 +367,26 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.ctx.create_enum_attribute(kind, 0),
             );
         }
-        self.runtime.insert(symbol.to_string(), f);
-        f
+    }
+
+    /// The carrier entry signature as an LLVM function type, built from
+    /// `backend/carrier.rs` rather than spelled here.
+    ///
+    /// Every word of that ABI is a pointer today; the `match` is what makes a
+    /// widening a compile error in this function instead of a silently wrong
+    /// type.
+    fn carrier_fn_type(&self) -> inkwell::types::FunctionType<'ctx> {
+        let params: Vec<BasicMetadataTypeEnum<'ctx>> = carrier::ENTRY
+            .params
+            .iter()
+            .map(|w| match w {
+                carrier::Word::Ptr => self.ptr_ty().into(),
+            })
+            .collect();
+        match carrier::ENTRY.ret {
+            None => self.ctx.void_type().fn_type(&params, false),
+            Some(carrier::Word::Ptr) => self.ptr_ty().fn_type(&params, false),
+        }
     }
 
     fn ptr_ty(&self) -> inkwell::types::PointerType<'ctx> {
@@ -2037,6 +2075,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         return None;
                     };
+                    let step_index = step_call(key).and_then(|c| c.index);
                     // A context that owns a reference count would need a
                     // retain per element rather than a copy, and none does:
                     // `core/host`'s allocators are empty structs and
@@ -2044,8 +2083,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // where there is a span to hang it on.
                     if ps
                         .iter()
+                        .enumerate()
                         .take(ps.len().saturating_sub(1))
-                        .any(|t| self.rc_counted(t))
+                        .any(|(i, t)| step_index != Some(i) && self.rc_counted(t))
                     {
                         self.error(
                             span,
@@ -2054,14 +2094,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         return None;
                     }
-                    let bytes = self.step_state_bytes(&ps);
+                    let bytes = self.step_state_bytes(&ps, step_index);
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
                     // The contexts, beside the closure. They are Buri arguments
                     // this row `Arg::Dropped`s out of the C signature, and this
                     // is where they go instead — read back by the entry thunk,
                     // which is the only thing that wants them.
-                    let ctx_at = self.step_ctx_offsets(&ps);
+                    let ctx_at = self.step_ctx_offsets(&ps, step_index);
                     let from: Vec<ir::ValueId> = step_call(key)
                         .and_then(|c| c.ctx)
                         .into_iter()
@@ -2100,7 +2140,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         );
                         self.store_slots(into, &cslots, align, &cpieces);
                     }
-                    let thunk = self.entry_thunk(&ps, &r);
+                    let thunk = self.entry_thunk(&ps, &r, step_index);
                     let (Some(inn), Some(outn)) = (element.clone(), elements.answer.clone())
                     else {
                         self.error(
@@ -2953,9 +2993,10 @@ enum Job<'ctx> {
     /// rest: the glue every closure environment shares.
     EnvGlue { value: FunctionValue<'ctx> },
     /// The C-ABI entry thunk a **runtime-driven step** is reached through:
-    /// `void(state, arg, out)`, which runs one closure once on one element.
-    /// `params` and `ret` are that closure's own signature.
-    Entry { value: FunctionValue<'ctx>, params: Vec<Ty>, ret: Ty },
+    /// `void(state, index, arg, out)`, which runs one closure once on one
+    /// element. `params` and `ret` are that closure's own signature, and
+    /// `index` is which of `params` the runtime's loop counter goes into.
+    Entry { value: FunctionValue<'ctx>, params: Vec<Ty>, ret: Ty, index: Option<usize> },
 }
 
 /// The element types one runtime entry's generic parameters are read at.
@@ -3071,18 +3112,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// The C-ABI entry thunk for one step signature.
     ///
-    /// `void(ptr state, ptr arg, ptr out)` at `ccc` — the shape
-    /// `cli/runtime/list.rs`'s `StepEntry` declares, and the same three
-    /// pointers the frame-threaded backend's `Helper::Entry` takes. One per
-    /// `(params, ret)`, because that is what the body depends on and a second
-    /// call site at the same element types wants the same function.
-    fn entry_thunk(&mut self, params: &[Ty], ret: &Ty) -> FunctionValue<'ctx> {
-        let key = (params.to_vec(), ret.clone());
+    /// `void(ptr state, i64 index, ptr arg, ptr out)` at `ccc` — the shape
+    /// `cli/runtime/list.rs`'s `StepEntry` declares, and the same four
+    /// arguments the frame-threaded backend's `Helper::Entry` takes. One per
+    /// `(params, ret, index)`, because that is what the body depends on and a
+    /// second call site at the same element types wants the same function. The
+    /// index *position* is in the key rather than derived from the types: two
+    /// steps can take the same types and mean different things by the second
+    /// parameter.
+    fn entry_thunk(
+        &mut self,
+        params: &[Ty],
+        ret: &Ty,
+        index: Option<usize>,
+    ) -> FunctionValue<'ctx> {
+        let key = (params.to_vec(), ret.clone(), index);
         if let Some(f) = self.entries.get(&key) {
             return *f;
         }
         let p = self.ptr_ty();
-        let ty = self.ctx.void_type().fn_type(&[p.into(), p.into(), p.into()], false);
+        let word = self.ctx.i64_type();
+        let ty = self.ctx.void_type().fn_type(&[p.into(), word.into(), p.into(), p.into()], false);
         let name = format!("buri.entry.{}", self.helpers);
         self.helpers = self.helpers.saturating_add(1);
         let f = self.module.add_function(&name, ty, Some(Linkage::Private));
@@ -3091,11 +3141,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // one convention for the same reason the glue above is.
         attrs::set_convention(f, attrs::C);
         self.entries.insert(key, f);
-        self.pending.push(Job::Entry { value: f, params: params.to_vec(), ret: ret.clone() });
+        self.pending.push(Job::Entry {
+            value: f,
+            params: params.to_vec(),
+            ret: ret.clone(),
+            index,
+        });
         f
     }
 
-    /// [`Unit::entry_thunk`]'s body: three pointers in, one Buri call.
+    /// [`Unit::entry_thunk`]'s body: three pointers and a counter in, one Buri
+    /// call.
     ///
     /// This is [`Unit::build_thunk`]'s problem from the other side. A thunk
     /// converts a closure's environment for a Buri caller; this converts *C
@@ -3112,16 +3168,29 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// are the same value at every element, and a C signature has no parameter
     /// for one. A zero-sized context is no leaves at all; `TestAlloc`'s handle
     /// is one, and [`STEP_CTX`] is where it was put.
-    fn build_entry(&mut self, state: &mut Function<'ctx>, params: &[Ty], ret: &Ty) {
+    ///
+    /// The **index** comes out of neither. It is the runtime's loop counter,
+    /// which changes per element and which nothing on this side of the boundary
+    /// can derive, so it is its own C argument and is copied straight into the
+    /// parameter `index` names. A step whose closure does not take one — the
+    /// `list.mapCtxStep` pilot — leaves the register unread.
+    fn build_entry(
+        &mut self,
+        state: &mut Function<'ctx>,
+        params: &[Ty],
+        ret: &Ty,
+        index: Option<usize>,
+    ) {
         let ptr = self.ptr_ty();
         let (Some(record), Some(arg), Some(out)) = (
             state.value.get_nth_param(0).and_then(|p| p.try_into().ok()),
-            state.value.get_nth_param(1).and_then(|p| p.try_into().ok()),
             state.value.get_nth_param(2).and_then(|p| p.try_into().ok()),
+            state.value.get_nth_param(3).and_then(|p| p.try_into().ok()),
         ) else {
             let _ = self.builder.build_unreachable();
             return;
         };
+        let counter = state.value.get_nth_param(1);
         let record: PointerValue<'ctx> = record;
         let arg: PointerValue<'ctx> = arg;
         let out: PointerValue<'ctx> = out;
@@ -3145,8 +3214,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let fty = self.closure_fn_type(&param_slots, &ret_slots);
 
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![env.into()];
-        let ctx_at = self.step_ctx_offsets(params);
-        for (t, off) in params.iter().zip(ctx_at) {
+        let ctx_at = self.step_ctx_offsets(params, index);
+        // `ctx_at` is parallel to the parameters that are in the record, which
+        // is every one but the element and the index; the walk pairs them up
+        // rather than assuming the two lists line up position for position.
+        let record_params: Vec<usize> = (0..params.len().saturating_sub(1))
+            .filter(|i| index != Some(*i))
+            .collect();
+        let mut from_record = record_params.into_iter().zip(ctx_at);
+        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+            if index == Some(i) {
+                // The counter, at its declared width. `Int` is `i64` and the
+                // C argument already is one, so this is a move.
+                if let Some(v) = counter {
+                    argv.push(v.into());
+                }
+                continue;
+            }
+            let Some((_, off)) = from_record.next() else { continue };
             let r = self.reprs.of_ty(t);
             let (slots, align) = (r.slots.clone(), r.layout.align);
             if slots.is_empty() {
@@ -3189,11 +3274,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// them being wrong, and nothing would diagnose it — the record is opaque
     /// to everything between the two.
     ///
-    /// The last parameter is the element, which travels through `arg`.
-    fn step_ctx_offsets(&mut self, params: &[Ty]) -> Vec<u32> {
+    /// The last parameter is the element, which travels through `arg`;
+    /// `index`, where there is one, travels in its own C argument. Neither is
+    /// in the record, so neither takes room in the answer.
+    fn step_ctx_offsets(&mut self, params: &[Ty], index: Option<usize>) -> Vec<u32> {
         let mut at = STEP_CTX;
         let mut out = Vec::new();
-        for t in params.iter().take(params.len().saturating_sub(1)) {
+        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+            if index == Some(i) {
+                continue;
+            }
             out.push(at);
             let size = self.reprs.of_ty(t).layout.size;
             at = at.saturating_add(size.next_multiple_of(8));
@@ -3202,9 +3292,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// The size of a step's state record: `{ code, env, ctx... }`.
-    fn step_state_bytes(&mut self, params: &[Ty]) -> u32 {
+    fn step_state_bytes(&mut self, params: &[Ty], index: Option<usize>) -> u32 {
         let mut at = STEP_CTX;
-        for t in params.iter().take(params.len().saturating_sub(1)) {
+        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+            if index == Some(i) {
+                continue;
+            }
             let size = self.reprs.of_ty(t).layout.size;
             at = at.saturating_add(size.next_multiple_of(8));
         }
@@ -3312,8 +3405,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.build_thunk(&mut state, func, env, first);
                 return;
             }
-            Job::Entry { params, ret, .. } => {
-                self.build_entry(&mut state, &params, &ret);
+            Job::Entry { params, ret, index, .. } => {
+                self.build_entry(&mut state, &params, &ret, index);
                 return;
             }
             Job::Release { ty, .. } => {
@@ -4072,14 +4165,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
-    /// Whether an argument is a context, and therefore not the runtime's
-    /// business (VALUE-MODEL.md §8).
+    /// Which argument of `str.concat` is the context, at the arity this call
+    /// arrived with — the one the C signature has no parameter for.
     ///
-    /// `Ty::Ctx` and not "spreads to no leaves": `core/testing/context`'s
-    /// implementations carry an `I64` handle each, because Buri has no mutation
-    /// and a captured stdout's state lives on the runner's side.
-    fn is_context(&self, ty: ir::Type) -> bool {
-        matches!(self.type_of(ty), Some(Ty::Ctx(_)))
+    /// `str.concat` has no [`runtime::ENTRIES`] row, so the `Arg::Dropped` that
+    /// answers this for every other key is spelled here instead, off the same
+    /// source: the **declaration**. `Str.concat<C: Alloc>(self, ctx: C, other:
+    /// Str)` is three arguments and the middle one is the context;
+    /// `lower::template`'s `str.concat(a, b)` is two and never had one.
+    ///
+    /// By position rather than by type. This asked `Ty::Ctx` once, which is the
+    /// same question only while every `C: Alloc` is instantiated at a `context
+    /// { … }` record — and `C` is an ordinary type parameter with an ordinary
+    /// bound (SPEC 10.1), so a value that merely *implements* `Alloc` satisfies
+    /// it. `core/host/testing`'s `alloc()` is `struct TestAlloc(I64)` and
+    /// carries a handle; one of those in this position spread to a leaf and
+    /// `pieces` was read off by one from there on.
+    const fn concat_ctx(argc: usize) -> Option<usize> {
+        if argc == 3 { Some(1) } else { None }
     }
 
     /// The source type behind an [`ir::Type`], where there is one.
@@ -5007,18 +5110,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         args: &[ir::ValueId],
     ) -> bool {
         // Two shapes reach this key: `str.concat(self, ctx, other)` from a
-        // method call, whose context is zero-sized and contributes no leaf, and
-        // `str.concat(a, b)` from `lower::template`, which never had one. Both
-        // flatten to the same six words, so the flattening is the check.
+        // method call, and `str.concat(a, b)` from `lower::template`, which
+        // never had a context. Both flatten to the same six words, so the
+        // flattening is the check.
+        let drop = Self::concat_ctx(args.len());
         let mut pieces: Vec<BasicValueEnum<'ctx>> = Vec::new();
-        for a in args {
+        for (i, a) in args.iter().enumerate() {
             // A context contributes nothing, whatever it weighs — the same rule
             // `entry_args` applies to `Arg::Dropped`, and for the same reason.
-            // Here it is read off the *source* type rather than from a table,
-            // because this key arrives in two shapes: `str.concat(self, ctx,
-            // other)` from a method call and `str.concat(a, b)` from
-            // `lower::template`, which never had one.
-            if self.is_context(code.ty_of(*a)) {
+            // Which argument it is comes from the arity rather than from the
+            // type, because this key has no table row to name it; see
+            // `concat_ctx`.
+            if drop == Some(i) {
                 continue;
             }
             let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*a));
@@ -7714,13 +7817,70 @@ pub fn numeric_op(key: &str) -> bool {
 // The emitted entry point
 // ---------------------------------------------------------------------------
 
+/// The carrier entry signature **as this backend actually emits it**, read
+/// back out of an LLVM module.
+///
+/// Not the shared constant restated: a throwaway context and module are made,
+/// a door type is built the way [`Unit::carrier_fn_type`] builds one, and its
+/// LLVM type is *printed* and translated into `backend/carrier.rs`'s canonical
+/// spelling. So the bytes this answers come from LLVM's own idea of the
+/// function type — which is what a linker and a caller will see — rather than
+/// from the table the type was meant to be built from.
+///
+/// `stencil::asm::carrier_signature` is the other side, and
+/// `the_two_carrier_doors_have_one_signature` diffs the two.
+pub fn carrier_signature() -> Vec<u8> {
+    let ctx = inkwell::context::Context::create();
+    let module = ctx.create_module("carrier.signature");
+    let ptr = ctx.ptr_type(inkwell::AddressSpace::default());
+    let params: Vec<BasicMetadataTypeEnum<'_>> = carrier::ENTRY
+        .params
+        .iter()
+        .map(|w| match w {
+            carrier::Word::Ptr => ptr.into(),
+        })
+        .collect();
+    let ty = match carrier::ENTRY.ret {
+        None => ctx.void_type().fn_type(&params, false),
+        Some(carrier::Word::Ptr) => ptr.fn_type(&params, false),
+    };
+    let f = module.add_function(carrier::MAIN_ENTRY, ty, Some(Linkage::External));
+    // `void (ptr, ptr)`, as LLVM prints it. The translation to the canonical
+    // spelling is whitespace and nothing else, which is the point: a third
+    // parameter or an `i32` return would come through this untouched and would
+    // not match.
+    let printed = f.get_type().print_to_string().to_string();
+    printed.split_whitespace().collect::<String>().into_bytes()
+}
+
 impl<'ctx, 'a> Unit<'ctx, 'a> {
-    /// `int main(int, char**)`, the two calls `cli/runtime/lib.rs` §6 requires,
-    /// and SPEC's `Result<(), Str>` contract.
+    /// `buri_rt_frames_are_per_carrier()`, in both emitted entry points.
+    ///
+    /// A Buri frame here is a machine frame — `middle::layout`'s locals area
+    /// becomes `alloca`s in an ordinary LLVM function — so a carrier that
+    /// enters Buri code brings its own, and `Tasks.parallel` may run two steps
+    /// at once. The frame-threaded backend emits no such call and must not
+    /// until each carrier owns a Buri stack: `runtime::FRAMES_PER_CARRIER` is
+    /// where the difference is argued, and `cli/runtime/lib.rs` §6 is the
+    /// contract.
+    ///
+    /// It is the one call in §6's list that is *optional*, so an entry point
+    /// that lost it would be a program whose tasks stopped overlapping — slow,
+    /// never wrong.
+    fn declare_frames_are_per_carrier(&mut self) {
+        let f = self.declare_rt(runtime::FRAMES_PER_CARRIER, &[], None);
+        if let Ok(call) = self.builder.build_call(f, &[], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
+    }
+
+    /// `int main(int, char**)`, the calls `cli/runtime/lib.rs` §6 names, and
+    /// SPEC's `Result<(), Str>` contract.
     ///
     /// ```c
     /// int main(int argc, char** argv) {
     ///     buri_rt_argv_init(argc, argv);
+    ///     buri_rt_frames_are_per_carrier();
     ///     r = buri_main();
     ///     buri_rt_flush();
     ///     if (tag(r) != Ok) { eprintln(payload(r)); buri_rt_flush(); return 1; }
@@ -7732,6 +7892,82 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// 1 — byte for byte what the JavaScript backend does
     /// (`js/generate.rs:300-310`), because a program's exit status must not
     /// depend on which backend built it.
+    /// **`void buri$carrier$main(void *state, void *out)`** — the C door into
+    /// one root, for a caller that is not this artifact's own `main`.
+    ///
+    /// `backend/carrier.rs` is the signature and the argument order; this is
+    /// the LLVM half of it, and it is a `ccc` wrapper in front of the `fastcc`
+    /// body and nothing else. What the stencil door spends nine instructions
+    /// on — asking `buri_rt_stack_acquire` for a Buri data stack no kernel
+    /// guards — has no counterpart here, and should not: a frame in this
+    /// backend *is* the machine's, and a carrier thread's machine stack is the
+    /// OS's and already guarded on the side it grows towards.
+    ///
+    /// That asymmetry is the reason the signature is written down in a third
+    /// file. The two doors are two different programs behind one C type, and
+    /// the only thing that keeps them substitutable is that neither one spells
+    /// the type itself.
+    ///
+    /// **External linkage**, unlike [`Unit::entry_thunk`]'s private one: this
+    /// is a name something outside the artifact looks up. `-dead_strip` deletes
+    /// it from a Mach-O program that never references it, so a single-threaded
+    /// artifact pays nothing for it there. On ELF that depends on the door
+    /// having a section of its own to be collected — `--gc-sections` collects
+    /// sections, not symbols — and neither backend asks for one today, which
+    /// `tests/native/stencil.rs`'s carrier-door test measures at 84 and 128
+    /// bytes for the stencil emitter rather than assuming either way.
+    ///
+    /// `state` is passed and not read — `carrier.rs` says why the parameter is
+    /// fixed before the caller that fills it exists — and a root with
+    /// parameters gets no door at all, for the reason `stencil/mod.rs`'s
+    /// `carrier_door` gives: the record's layout is the *call site's*
+    /// decision, and there is no call site yet to make it.
+    pub fn carrier_door(&mut self, root: FuncIdx, symbol: &str) {
+        let Some(func) = self.program.funcs.get(root.index()) else { return };
+        if !func.sig.params.is_empty() {
+            return;
+        }
+        let sig = ir::Signature { params: Vec::new(), rets: func.sig.rets.clone() };
+        let Some(callee) = self.declare(root) else { return };
+        let door = self.module.add_function(symbol, self.carrier_fn_type(), Some(Linkage::External));
+        self.platform_abi(door);
+        let block = self.ctx.append_basic_block(door, "entry");
+        self.builder.position_at_end(block);
+
+        let Ok(call) = self.builder.build_call(callee, &[], "r") else {
+            let _ = self.builder.build_return(None);
+            return;
+        };
+        attrs::set_call_convention(call, attrs::FAST);
+
+        // The return area goes through `out`, in the slots this backend
+        // returns it in — the same `store_slots` the step entry thunk writes
+        // its answer with, because it is the same question.
+        let (_, rets) = self.slots_of_sig(&sig);
+        let out = door.get_nth_param(carrier::OUT as u32).and_then(|p| p.try_into().ok());
+        if let (Some(out), Some(answer)) = (out, call.try_as_basic_value().basic()) {
+            let out: PointerValue<'ctx> = out;
+            if !rets.is_empty() {
+                let align = self.ret_align(&sig);
+                let pieces = repr::disassemble(&self.builder, &rets, answer);
+                self.store_slots(out, &rets, align, &pieces);
+            }
+        }
+        let _ = self.builder.build_return(None);
+    }
+
+    /// The alignment a signature's return area wants, for the one store that
+    /// needs to know.
+    ///
+    /// An aggregate's is `middle::layout`'s; anything else is a word, which is
+    /// the widest a scalar slot in a return position is.
+    fn ret_align(&mut self, sig: &ir::Signature) -> u32 {
+        match sig.rets.first().copied() {
+            Some(ir::Type::Agg(id)) => self.reprs.of(self.program, id).layout.align,
+            _ => 8,
+        }
+    }
+
     pub fn entry_point(&mut self, main: FuncIdx) {
         let Some(func) = self.program.funcs.get(main.index()) else { return };
         let Some(callee) = self.declare(main) else { return };
@@ -7749,6 +7985,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 attrs::set_call_convention(call, attrs::C);
             }
         }
+        self.declare_frames_are_per_carrier();
 
         let Ok(call) = self.builder.build_call(callee, &[], "r") else { return };
         attrs::set_call_convention(call, attrs::FAST);
@@ -7868,6 +8105,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 attrs::set_call_convention(call, attrs::C);
             }
         }
+        self.declare_frames_are_per_carrier();
         let word = self.ctx.i64_type();
         for (i, test) in tests.iter().enumerate() {
             let Some(callee) = self.declare(*test) else { continue };
@@ -8375,6 +8613,72 @@ fn float_predicate(op: ir::BinOp) -> FloatPredicate {
         ir::BinOp::Le => FloatPredicate::OLE,
         ir::BinOp::Gt => FloatPredicate::OGT,
         _ => FloatPredicate::OGE,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **The two carrier doors have one signature, byte for byte.**
+    ///
+    /// The acceptance test of slices B7 and B8 together. Two backends emit a
+    /// function under the same name for the same caller to call, and nothing
+    /// links them: `stencil/asm.rs` writes machine code and this file writes
+    /// LLVM IR, in two modules that never meet. A disagreement would not be a
+    /// compile error or a link error — it would be a `ccc` call made with the
+    /// wrong number of arguments at run time, in whichever profile the user
+    /// happened to build, which is `cli/runtime/lib.rs` §1's *"a wrong answer
+    /// at run time"* exactly.
+    ///
+    /// The two sides are derived rather than restated. The stencil side is the
+    /// table its emitter reads its argument registers out of; this side is an
+    /// LLVM `FunctionType`, built and then **printed**, so what is compared is
+    /// LLVM's own idea of the type a caller will see.
+    #[cfg(feature = "backend-stencil")]
+    #[test]
+    fn the_two_carrier_doors_have_one_signature() {
+        let stencil = crate::compiler::backend::stencil::asm::carrier_signature();
+        let llvm = carrier_signature();
+        assert_eq!(
+            String::from_utf8_lossy(&stencil),
+            String::from_utf8_lossy(&llvm),
+            "the two backends' carrier doors do not have the same C signature"
+        );
+        assert_eq!(stencil, llvm);
+        assert_eq!(llvm, b"void(ptr,ptr)".to_vec());
+    }
+
+    /// The LLVM side is read out of a module and not out of the constant, so a
+    /// type built with a different arity or a different answer is a different
+    /// string. This is what makes the comparison above worth making.
+    #[test]
+    fn the_printed_signature_is_llvms_own() {
+        let ctx = inkwell::context::Context::create();
+        let module = ctx.create_module("carrier.signature.control");
+        let ptr = ctx.ptr_type(inkwell::AddressSpace::default());
+        let render = |f: FunctionValue<'_>| {
+            f.get_type().print_to_string().to_string().split_whitespace().collect::<String>()
+        };
+        let three = module.add_function(
+            "three",
+            ctx.void_type().fn_type(&[ptr.into(), ptr.into(), ptr.into()], false),
+            None,
+        );
+        let answering =
+            module.add_function("answering", ptr.fn_type(&[ptr.into(), ptr.into()], false), None);
+        assert_eq!(render(three), "void(ptr,ptr,ptr)");
+        assert_eq!(render(answering), "ptr(ptr,ptr)");
+        assert_ne!(render(three).into_bytes(), carrier_signature());
+        assert_ne!(render(answering).into_bytes(), carrier_signature());
+    }
+
+    /// The signature is the shared table's, not a copy of it: the type is
+    /// built by walking `carrier::ENTRY`, so an entry added there appears here
+    /// without this file being edited.
+    #[test]
+    fn the_door_type_is_built_from_the_shared_table() {
+        assert_eq!(carrier_signature(), carrier::ENTRY.render());
     }
 }
 

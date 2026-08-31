@@ -1505,10 +1505,10 @@ impl<'a> Jit<'a> {
             // `Str`s and nothing else (`rtcall.rs`'s `str_concat`).
             "str.concat" => {
                 let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
+                let drop = Self::concat_ctx(args.len());
                 let mut list: Vec<u32> = Vec::new();
-                for a in args {
-                    let t = code.ty_of(*a);
-                    if self.concat_drops(prog, t) {
+                for (i, a) in args.iter().enumerate() {
+                    if drop == Some(i) {
                         continue;
                     }
                     list.push(st.at(*a));
@@ -2459,11 +2459,11 @@ impl<'a> Jit<'a> {
             return;
         }
         if key == "str.concat" {
-            let params =
-                prog.funcs.get(fi).map(|f| f.sig.params.clone()).unwrap_or_default();
+            let params = prog.funcs.get(fi).map(|f| f.sig.params.clone()).unwrap_or_default();
+            let drop = Self::concat_ctx(params.len());
             let mut list: Vec<u32> = Vec::new();
-            for (i, t) in params.iter().enumerate() {
-                if self.concat_drops(prog, *t) {
+            for i in 0..params.len() {
+                if drop == Some(i) {
                     continue;
                 }
                 list.push(p(i));

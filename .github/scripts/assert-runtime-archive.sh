@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # The runtime archive this toolchain was built with is real, is the right size,
-# and carries none of the networking stack.
+# carries every networking crate something calls into, and carries no networking
+# crate that nothing does.
 #
 # THE LIVENESS GATE, and it is the runtime's half of the one
 # `assert-stencils.sh` performs for the stencil libraries — for the same reason,
@@ -28,22 +29,33 @@
 #      find out what grew, and then either fix it or re-measure and re-state the
 #      number here with the new one written down.
 #
-#      IT HAS BEEN HIT ONCE, and this is the re-statement. The `https://` slice
-#      links `rustls` over the `ring` provider and the archive grew by 1 804 592
-#      bytes — 1.72 MiB, about 845 KB of it `ring`'s own C and assembly object
-#      files, which a `staticlib` carries whether the linker needs them or not.
-#      On aarch64-apple-darwin that is 6 052 488 bytes before and 7 857 056
-#      after, which is 505 KB OVER the 7 MiB this script used to allow. The
-#      budgets below are the new measurements with about a fifth of headroom.
+#      IT HAS BEEN HIT ONCE, and the budgets below are the re-statement. Two
+#      slices moved the archive after the one that measured it. B6 linked the
+#      carrier runtime — `cli/runtime/rt.rs`, the reactor and its timer wheel —
+#      which is 185 424 bytes of tokio on all three triples. C7 linked the TLS
+#      client, which is 1.72 MiB, about 845 KB of it `ring`'s own C and assembly
+#      object files, which a `staticlib` carries whether the linker needs them
+#      or not. Together they put aarch64-apple-darwin at 8 198 904 bytes, over
+#      the 7 MiB this script used to allow. The budgets below are the new
+#      measurements: about 15 % of headroom over the figure measured here, and
+#      about a fifth over the projected Linux one.
 #
 #   3. THE NETWORKING CRATES, ON WHICHEVER SIDE OF THE LINE THEY ARE ON.
-#      `net` brings five crates in. Two of them — `rustls` and `ring` — are now
-#      reached, by `cli/runtime/tls.rs`, and the archive MUST carry them: an
-#      archive built with the feature and carrying no TLS code would be a
-#      toolchain whose `https://` fails at run time for a reason no test here
-#      would have caught. Three of them — `tokio`, `hyper`, `tungstenite` — are
-#      still referenced by nothing, `lto = "fat"` drops them whole, and the
-#      archive must NOT carry them.
+#      `net` brings five crates in. Three of them are now reached and the
+#      archive MUST carry them: `tokio`, by `rt.rs`, since B6; `rustls` and
+#      `ring`, by `cli/runtime/tls.rs`, since C7. An archive built with the
+#      feature and carrying no TLS code would be a toolchain whose `https://`
+#      fails at run time for a reason no test here would have caught, and one
+#      carrying no reactor would be a toolchain whose every suspending host call
+#      does. Two of them — `hyper` and `tungstenite` — are still referenced by
+#      nothing but `net.rs`'s `size_of`, `lto = "fat"` drops them whole, and the
+#      archive must NOT carry them. The slice that first links one of THOSE
+#      moves it across the same way, deliberately, in the commit that does it.
+#
+#      `mio` and `socket2` reach the archive through tokio and are deliberately
+#      on neither list: they are that crate's platform layer, not a sixth and
+#      seventh dependency, and `dependencies_stay_behind_the_bar` is what holds
+#      the direct set to five.
 #
 #      Which side is which is read from `libburi_rt.a.features`, written beside
 #      the archive by the same run of `cli/build.rs` that produced it: a
@@ -59,11 +71,11 @@ set -euo pipefail
 target=${1:-target}
 
 case "$(uname -s)" in
-  # 7 857 056 measured; 9 MiB is ~20 % of headroom for the runtime itself.
+  # 8 198 904 measured; 9 MiB leaves ~15 %.
   Darwin) budget=9437184 ;;
-  # 8 469 832 was measured before TLS, on the larger of the two Linux triples;
-  # the macOS delta puts it near 10.3 MB and CI is where that is confirmed.
-  # 12 MiB is ~20 % on that projection.
+  # 8 469 832 was measured on the larger of the two Linux triples before either
+  # the reactor or TLS; the macOS deltas put it near 10.5 MB and CI is where
+  # that is confirmed. 12 MiB is ~20 % on that projection.
   Linux)  budget=12582912 ;;
   *)      echo "::error::this script knows macOS and Linux only" ; exit 1 ;;
 esac
@@ -128,7 +140,7 @@ absent() {
 present() {
   for crate in "$@"; do
     if ! grep -qi -- "$crate" <<<"$symbols"; then
-      echo "::error::libburi_rt.a carries NO symbol from \`$crate\`, but it was built with the runtime's \`net\` feature, which is what links the TLS client. An archive in this state has an \`https://\` that fails at run time and a test suite that never noticed. Check cli/runtime/tls.rs is still reached from http.rs."
+      echo "::error::libburi_rt.a carries NO symbol from \`$crate\`, but it was built with the runtime's \`net\` feature, which is what links the reactor and the TLS client. An archive in this state has an \`https://\` or a suspending host call that fails at run time and a test suite that never noticed. Check cli/runtime/rt.rs and cli/runtime/tls.rs are still reached."
       status=1
     fi
   done
@@ -149,13 +161,13 @@ fi
 # half of a log.
 before=$status
 if grep -qx "net" "$features"; then
-  present rustls ring_core
+  present tokio rustls ring_core
   # `aws_lc` is here although it was never a dependency: it is the OTHER
   # provider `rustls` ships, and a second one appearing means a feature was
   # enabled somewhere that quietly doubled the cryptography in every binary.
-  absent tokio hyper tungstenite aws_lc
+  absent hyper tungstenite aws_lc
   if [ "$status" -eq "$before" ]; then
-    echo "libburi_rt.a: TLS is linked, and the three unreferenced crates are still unreferenced"
+    echo "libburi_rt.a: the reactor and TLS are linked, and the two unreferenced crates are still unreferenced"
   fi
 else
   absent tokio hyper rustls tungstenite ring_core aws_lc

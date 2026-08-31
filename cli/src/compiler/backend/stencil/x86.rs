@@ -52,7 +52,9 @@
 )]
 
 use super::elfobj as elf;
-use super::library::{ConstRef, Hole, HoleKind, Site, SiteKind, Stencil};
+use super::library::{
+    ConstRef, Hole, HoleKind, Site, SiteKind, Stencil, refuse_hole_name, refuse_stencil_name,
+};
 
 /// `jmp rel32`.
 const JMP_REL32: u8 = 0xe9;
@@ -113,11 +115,34 @@ pub fn extract_elf_x86(obj: &elf::Obj) -> Result<(Vec<Stencil>, Vec<Dropped>), S
     if obj.machine != elf::EM_X86_64 {
         return Err(format!("expected an x86-64 ELF object, got machine {}", obj.machine));
     }
+    // `extract_elf_arm64`'s spill check, narrowed to the sections that can be
+    // one: this reader *must* accept a non-`.text` section, because that is
+    // where a spilled SSE constant lives and `spilled` below copies it into the
+    // stencil. What it must not accept is a section of **code**. A compiler
+    // that splits a stencil in two puts the cold half in `.text.unlikely.` or
+    // `.text.split.`, and a stencil that branches out of its own bytes is not
+    // one run of bytes; the arm64 reader says so about any second section at
+    // all, and this says the same thing about the half of them that could be a
+    // second half of a function.
+    if let Some(other) = obj.other_sections.iter().find(|o| o.exec) {
+        return Err(format!(
+            "a stencil spilled {} bytes of code into {}; every hole must be a symbol the \
+             source declared",
+            other.data.len(),
+            other.name
+        ));
+    }
     let mut out = Vec::new();
     let mut dropped = Vec::new();
     for (sname, start, end) in elf::functions(obj) {
         if !sname.starts_with("st_") {
             continue;
+        }
+        // The Mach-O half of this check earns its keep because Mach-O has no
+        // section prefixes; here it is belt to the braces above, and costs a
+        // string comparison per function.
+        if let Some(e) = refuse_stencil_name(&sname) {
+            return Err(e);
         }
         let Some(body) = obj.text.get(start..end) else {
             return Err(format!("{sname}: {start:#x}..{end:#x} is outside .text"));
@@ -228,6 +253,19 @@ fn one(
         let sym = obj.syms.get(r.symbolnum as usize).ok_or_else(|| {
             Refusal::Fatal(format!("{sname}: relocation names symbol {}", r.symbolnum))
         })?;
+
+        // Before the `defined` split below, and deliberately: an outlined half
+        // is a symbol this object *defines*, so a check placed after it would
+        // let the whole family through the spilled-constant path — which would
+        // copy the cold half's instructions into the unit's constant pool and
+        // aim a `jmp` at data. The two names this reader legitimately relocates
+        // against, an empty section symbol and a `.L` constant label, are the
+        // two `library::outlining_artifact` is explicit about not refusing.
+        // Fatal rather than a drop, so that this target is exactly as loud as
+        // the other two.
+        if let Some(e) = refuse_hole_name(sname, &sym.name) {
+            return Err(Refusal::Fatal(e));
+        }
 
         // A relocation against a symbol this object *defines* is not a hole: it
         // is a reference to a constant clang spilled, and there is nothing to

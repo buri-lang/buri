@@ -1201,6 +1201,15 @@ pub fn suspends(key: &str) -> bool {
                 | "host.HostClock.sleepMillis"
                 | "host.HostStdin.readLine"
                 | "host.HostStdin.readBytes"
+                // `Tasks.parallel` is the one entry here that does not wait on
+                // anything *outside* the program: it waits on the program's own
+                // tasks. It belongs on the list all the same, and for the same
+                // consequence — the call does not return until something else
+                // has finished, so a caller of it is a function that may be in
+                // the middle of a call while other work runs. On JavaScript
+                // that is literally an `await`; on the natives it is what makes
+                // the caller's frame outlive a scheduling decision.
+                | "host.HostTasks.parallel"
         )
 }
 

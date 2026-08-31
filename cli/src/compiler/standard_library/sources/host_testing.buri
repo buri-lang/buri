@@ -14,12 +14,13 @@
 //! That is the whole reason these are functions and `core/host`'s are `let`s.
 //!
 //! Configuration is a **method on the value that answers a new handle**:
-//! `clock().at(1000)`, `rand().seed(7)`, `env().variables([...]).args([...])`.
+//! `clock().at(1000)`, `rand().seed(7)`,
+//! `env().variables([...]).arguments([...])`.
 //! There are no free `clockAt`/`randSeed`/`envOf` constructors, because a
 //! reader who knows `clock()` should not have to learn a second name to start
 //! it somewhere else, and because a chain reads in the order it is applied.
 //!
-//! The structs carry an `I64` handle rather than their state. A captured
+//! Most structs carry an `I64` handle rather than their state. A captured
 //! stdout accumulates what a test writes to it and Buri has no mutation, so the
 //! state lives on the runner's side and the value here names it —
 //! `backend/js/runtime.js`'s `$t.h` on one backend and
@@ -35,6 +36,14 @@
 //! responder, and that is the same rule rather than an exception to it: the
 //! handle names its **log**, and a log is state.
 //!
+//! `TestFs` is the second value that is not a bare handle, and the second
+//! reason is the first one read again. A fault plan holds `IoError` *values* and
+//! `IoError.Other` carries a `Str`, which `cli/runtime/lib.rs` §2.1 has no way
+//! to hand back across a row — so the plan travels in the program, the eleven
+//! methods of `Fs` are Buri bodies over rows that take the handle, and the
+//! runner holds what it can: the log, the files, and which entries of the plan
+//! have fired.
+//!
 //! ## The call log
 //!
 //! `TestFs`, `TestNet` and `TestStdin` each keep every call made through the
@@ -46,17 +55,62 @@
 //! constructor named after the method it records, compared by `Eq` and printed
 //! by `Show`.
 //!
-//! ## `args`, and the one name that could not be the spelling it wants
+//! `TestProc` is the other type with no state, for the plainer reason: it has
+//! nothing to read back. `exitWith` absorbs the call so that a test which
+//! exits keeps running, and what a test asserts is what it does *after* the
+//! exit — so there is nothing left for the runner to hold, and no row either.
 //!
-//! `Env` declares `arguments(self): [Str]` — the reader — and a type has one
-//! method of each name (`duplicate-method`), so the *builder* beside it cannot
-//! also be `arguments`. It is `args`, and it is the only place in this module
-//! where the name is not the one the design note asks for. Every other builder
-//! — `at`, `seed`, `variables`, `captured` — is spelled exactly as written.
+//! ## The fault plan
+//!
+//! `fs().faults([...])` and `net().faults([...])` say what breaks. A fault is
+//! one of those same `Call` constructors and an error — `readFile(p).fails(e)`
+//! for every matching call, `readFile(p).failsOnCall(n, e)` for the `n`th — and
+//! the match is the `Eq` the `Call` records already derive, so a fault is
+//! spelled exactly as `calls()` reports the call it names. **Success comes from
+//! the environment and failure comes from the plan**: `files` and `respond` say
+//! what a call finds, and nothing else in the module says what a call answers.
+//!
+//! **A fault whose call never happens fails the test.** That is a claim the
+//! program cannot check for itself — the block has returned by the time anyone
+//! could — so the runner checks it: `buri_rt_test_leave(index)` runs after every
+//! `test` body and reports the plans declared inside it that have entries
+//! nothing fired. It is the reason `TestFs` and `TestNet` each carry two things,
+//! a handle and a plan, and the reason `faults` hands the runner a rendering of
+//! each entry as it installs it.
+//!
+//! ## The order the work happens in
+//!
+//! `tasks()` is the one double whose subject is not state but **scheduling**.
+//! `Tasks.parallel` promises its results in the items' order and promises
+//! nothing about the order the work runs in, so a program that depended on the
+//! second would pass every test and fail in production. This double makes the
+//! order a value a test writes down: program order by default, `anyOrder()` for
+//! one seeded order, and `everyOrder()` for all of them — which re-runs the
+//! `test` body once per completion order, so the assertion at the end of it is
+//! an assertion about every order rather than about one. A seed is the order's
+//! own number, so a failure names a line that replays it.
+//!
+//! ## `arguments`, and the name that had to move to make room for it
+//!
+//! Every builder here is spelled exactly as the design note writes it, and
+//! `arguments` is the one that cost something. A type's methods are one map
+//! keyed by name — an `impl Env for TestEnv` method registers into it through
+//! the same call an inherent one does — so the arity and the return type
+//! separate nothing, and `Env`'s reader and this builder cannot both be
+//! `arguments`. Behind that they would mangle to one intrinsic key and one C
+//! symbol in each of the two runtime tables.
+//!
+//! So **the reader moved**: `core/effect`'s `Env` declares `args(self): [Str]`
+//! now, which is the name a program already used — `core/env` has always
+//! exported `args(ctx)` and was the only caller of the method — and
+//! `TestEnv.arguments([Str])` is the builder. The reader is on the effect and
+//! the builder is on the double, so the two never meet on one type anyway;
+//! what they were competing for was the name, and the name went to the surface
+//! a test writes.
 
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, Header, IoError, Method, Net, NetError, Proc, Rand,
-  Region, Request, Response, Stderr, Stdin, Stdout,
+  Region, Request, Response, Stderr, Stdin, Stdout, Tasks,
 };
 
 // --- Alloc --------------------------------------------------------------------
@@ -156,30 +210,109 @@ impl TestStdin {
 /// append creating a file, rename replacing one, removing what is not there —
 /// answers exactly what a real filesystem answers, which is what lets one
 /// conformance block run against both.
-export struct TestFs(I64);
-impl Fs for TestFs {
-  fn readFile(self, path: Str): Result<Str, IoError>;
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
-  fn fileExists(self, path: Str): Bool;
-  fn readDir(self, path: Str): Result<[Str], IoError>;
-  fn readFileBytes(self, path: Str): Result<[U8], IoError>;
-  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
-  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
-  fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
-  fn removeFile(self, path: Str): Result<(), IoError>;
-  fn makeDir(self, path: Str): Result<(), IoError>;
-  fn syncFile(self, path: Str): Result<(), IoError>;
+///
+/// ## Two fields, for `TestNet`'s reason
+///
+/// `handle` names the runner-side state — the files, the attenuation, the log,
+/// and the plan's own bookkeeping — and `faults` is the **plan itself**, which
+/// stays in the program. A fault carries an `IoError` and `IoError.Other`
+/// carries a `Str`: `cli/runtime/lib.rs` §2.1 names an error variant by its
+/// index and restricts that variant to carrying no fields, so a row could not
+/// hand the value back even if the runner held it. So the plan is a Buri value,
+/// the match is the `Eq` the `FsCall` records derive, and every method here is a
+/// body that asks the plan before it calls its row. What the runner keeps is
+/// what a failure message needs and which entries have fired, which is the one
+/// half of `faults` a program cannot remember for itself.
+export struct TestFs {
+  handle: I64,
+  plan: [FsFault],
 }
-export fn fs(): TestFs;
+
+impl Fs for TestFs {
+  fn readFile(self, path: Str): Result<Str, IoError> {
+    match (self.planned(readFile(path))) {
+      .Some(error) => .Err(error),
+      .None => fsReadFile(self.handle, path),
+    }
+  }
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
+    match (self.planned(writeFile(path, body))) {
+      .Some(error) => .Err(error),
+      .None => fsWriteFile(self.handle, path, body),
+    }
+  }
+  /// The one method of `Fs` that cannot fail, and so the one no fault can ever
+  /// fire on. A plan naming it is a plan whose call never happens, which the
+  /// post-condition reports at the end of the block.
+  fn fileExists(self, path: Str): Bool {
+    fsFileExists(self.handle, path)
+  }
+  fn readDir(self, path: Str): Result<[Str], IoError> {
+    match (self.planned(readDir(path))) {
+      .Some(error) => .Err(error),
+      .None => fsReadDir(self.handle, path),
+    }
+  }
+  fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+    match (self.planned(readFileBytes(path))) {
+      .Some(error) => .Err(error),
+      .None => fsReadFileBytes(self.handle, path),
+    }
+  }
+  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+    match (self.planned(writeFileBytes(path, body))) {
+      .Some(error) => .Err(error),
+      .None => fsWriteFileBytes(self.handle, path, body),
+    }
+  }
+  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+    match (self.planned(appendFile(path, body))) {
+      .Some(error) => .Err(error),
+      .None => fsAppendFile(self.handle, path, body),
+    }
+  }
+  fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+    match (self.planned(renameFile(source, destination))) {
+      .Some(error) => .Err(error),
+      .None => fsRenameFile(self.handle, source, destination),
+    }
+  }
+  fn removeFile(self, path: Str): Result<(), IoError> {
+    match (self.planned(removeFile(path))) {
+      .Some(error) => .Err(error),
+      .None => fsRemoveFile(self.handle, path),
+    }
+  }
+  fn makeDir(self, path: Str): Result<(), IoError> {
+    match (self.planned(makeDir(path))) {
+      .Some(error) => .Err(error),
+      .None => fsMakeDir(self.handle, path),
+    }
+  }
+  fn syncFile(self, path: Str): Result<(), IoError> {
+    match (self.planned(syncFile(path))) {
+      .Some(error) => .Err(error),
+      .None => fsSyncFile(self.handle, path),
+    }
+  }
+}
+
+export fn fs(): TestFs {
+  TestFs { handle: newFs(), plan: [] }
+}
 
 impl TestFs {
   /// A **new** filesystem holding this one's files and these as well, as the
   /// UTF-8 the text spells. The last entry for a path wins, and so does a later
   /// builder: `fs().files(a).files(b)` is `a` overwritten by `b`.
-  export fn files(self, entries: [(Str, Str)]): TestFs;
+  export fn files(self, entries: [(Str, Str)]): TestFs {
+    TestFs { handle: fsFiles(self.handle, entries), plan: self.plan }
+  }
   /// The byte twin, for a fixture that is not text. It composes with `files` in
   /// either order, because both write into the one map a file lives in.
-  export fn filesBytes(self, entries: [(Str, [U8])]): TestFs;
+  export fn filesBytes(self, entries: [(Str, [U8])]): TestFs {
+    TestFs { handle: fsFilesBytes(self.handle, entries), plan: self.plan }
+  }
   /// A **new** handle onto the *same* files, through which every write fails
   /// with `.ReadOnly`.
   ///
@@ -193,14 +326,46 @@ impl TestFs {
   ///
   /// `ReadOnly<C>` itself stays: it attenuates *any* `Fs`, including one a test
   /// wrote, and this method attenuates only this one.
-  export fn readOnly(self): TestFs;
+  export fn readOnly(self): TestFs {
+    TestFs { handle: fsReadOnly(self.handle), plan: self.plan }
+  }
+  /// A **new** filesystem onto the same files, failing the calls this plan
+  /// names — and a promise that every one of them is made.
+  ///
+  /// A fault is a call and an error: `readFile(p).fails(e)` fails every matching
+  /// call, and `readFile(p).failsOnCall(n, e)` fails the `n`th, counted from one
+  /// over the matching calls made through this handle. Matching is the `Eq` the
+  /// `FsCall` records derive, so a fault names a call exactly as `calls()`
+  /// reports it — same constructor, same arguments.
+  ///
+  /// **Success comes from the environment and failure comes from the plan.**
+  /// `files` says what a read finds; this says what fails. A call the plan fails
+  /// is not performed — nothing is written and nothing is removed — and it is
+  /// still a call, so `calls()` has it.
+  ///
+  /// **A fault whose call never happens fails the test.** A plan is a claim
+  /// about what the code under test does, and a claim nothing exercised is one
+  /// the next change to that code will quietly stop being true. The runner
+  /// checks it at the end of the block, so an unconsumed fault is a failure with
+  /// the fault's own spelling in it rather than a test that passed.
+  ///
+  /// `faults` **replaces** rather than composing, as `respond` does and for the
+  /// same reason: two plans for one call have no answer to which of them wins.
+  /// The plan it replaced is retired, and its promise with it.
+  export fn faults(self, plan: [FsFault]): TestFs {
+    let handle = fsWithPlan(self.handle);
+    let _ = describeFsPlan(handle, plan, 0);
+    TestFs { handle: handle, plan: plan }
+  }
   /// What this filesystem holds at `path`, or `.Err(.NotFound)`.
   ///
   /// The same answer `readFile` gives, reachable without the `Fs` effect: a
   /// test asserting on what a function *wrote* is reading an environment back
   /// rather than performing an effect, and should not have to bind one to do
-  /// it.
-  export fn read(self, path: Str): Result<Str, IoError>;
+  /// it. A read-back is not a call, and no fault fires on one.
+  export fn read(self, path: Str): Result<Str, IoError> {
+    fsRead(self.handle, path)
+  }
   /// Every file, as text, **sorted by path**.
   ///
   /// Sorted rather than in the order the writes happened, because the order of
@@ -210,7 +375,9 @@ impl TestFs {
   ///
   /// A directory `makeDir` created holds no octets and is not a file, so it is
   /// not here; `readDir` is the question it answers.
-  export fn snapshot(self): [(Str, Str)];
+  export fn snapshot(self): [(Str, Str)] {
+    fsSnapshot(self.handle)
+  }
   /// Every call made through this handle, in the order they completed.
   ///
   /// Through *this* handle: a builder answers a new filesystem and with it a
@@ -218,9 +385,178 @@ impl TestFs {
   /// calls made through the value it put in the context. Reading the
   /// environment back is not a call — `read`, `snapshot` and `calls` itself are
   /// not in it — and a write that was refused is one, because a refusal is an
-  /// answer to something that was asked.
-  export fn calls(self): [FsCall];
+  /// answer to something that was asked. A call the plan failed is one too.
+  export fn calls(self): [FsCall] {
+    fsCalls(self.handle)
+  }
+  /// The plan's answer for a call about to be made, recorded and consumed.
+  ///
+  /// The log is what counts the matching calls, which is what makes
+  /// `failsOnCall`'s `nth` a number the test can check for itself: it is this
+  /// call's position among the matching entries `calls()` will report. The empty
+  /// plan is answered without reading the log at all, which is every test that
+  /// names no fault.
+  fn planned(self, call: FsCall): Option<IoError> {
+    if (self.plan.len() == 0) {
+      .None
+    } else {
+      let nth = countingFsCalls(fsCalls(self.handle), call, 0) + 1;
+      match (chosenFsFault(self.handle, self.plan, call, nth, 0)) {
+        .None => .None,
+        .Some(error) => {
+          let _ = noteFsCall(self.handle, call.name, call.path, call.body);
+          .Some(error)
+        },
+      }
+    }
+  }
 }
+
+/// The first fault in the plan this call matches and this position satisfies,
+/// marked as fired.
+///
+/// The first, so a plan is read in the order it was written. Every entry sees
+/// the same `nth` — the count of matching *calls*, not of the calls this entry
+/// answered — so a plan of `failsOnCall(1, a)` and `failsOnCall(2, b)` over one
+/// call fails the first with `a` and the second with `b`.
+fn chosenFsFault(
+  handle: I64,
+  plan: [FsFault],
+  call: FsCall,
+  nth: Int,
+  i: Int,
+): Option<IoError> {
+  match (plan.get(i)) {
+    .None => .None,
+    .Some(fault) => {
+      if (fault.call == call && (fault.nth == 0 || fault.nth == nth)) {
+        let _ = noteFault(handle, i);
+        .Some(fault.error)
+      } else {
+        chosenFsFault(handle, plan, call, nth, i + 1)
+      }
+    },
+  }
+}
+
+/// How many entries of the log are this call, which is how many matching calls
+/// have already been made.
+fn countingFsCalls(log: [FsCall], call: FsCall, i: Int): Int {
+  match (log.get(i)) {
+    .None => 0,
+    .Some(seen) => {
+      let here = if (seen == call) { 1 } else { 0 };
+      here + countingFsCalls(log, call, i + 1)
+    },
+  }
+}
+
+/// Tells the runner what each fault of the plan reads like in a failure
+/// message, in the order the plan lists them.
+///
+/// One call per entry rather than one call with the list, because the list is a
+/// list of Buri values and what crosses is text and two numbers — the whole of
+/// what a message needs. Walking it here costs one row per fault at the moment
+/// a test declares the plan, which is once per double.
+fn describeFsPlan(handle: I64, plan: [FsFault], i: Int): () {
+  match (plan.get(i)) {
+    .None => (),
+    .Some(fault) => {
+      let _ = addFsFault(handle, fault.call.name, fault.call.path, fault.call.body);
+      let _ = faultFails(handle, fault.nth, ioCode(fault.error), ioPayload(fault.error));
+      describeFsPlan(handle, plan, i + 1)
+    },
+  }
+}
+
+/// An `IoError`'s index in its own declaration order, which `core/effect` states
+/// is the ABI — `methodCode`'s rule, for the other enum this module hands over.
+fn ioCode(error: IoError): Int {
+  match (error) {
+    .NotFound => 0,
+    .PermissionDenied => 1,
+    .ReadOnly => 2,
+    .AlreadyExists => 3,
+    .NotADirectory => 4,
+    .CrossDevice => 5,
+    .Other(_) => 6,
+  }
+}
+
+/// The text `IoError.Other` carries, and the empty string for the six variants
+/// that carry nothing.
+fn ioPayload(error: IoError): Str {
+  match (error) {
+    .Other(message) => message,
+    _ => "",
+  }
+}
+
+/// A fresh, empty, writable filesystem, and the handle that names it.
+fn newFs(): I64;
+
+/// This view's files with these written over them, in a store of its own, under
+/// this view's attenuation and this view's plan.
+fn fsFiles(handle: I64, entries: [(Str, Str)]): I64;
+
+/// The byte twin of `fsFiles`.
+fn fsFilesBytes(handle: I64, entries: [(Str, [U8])]): I64;
+
+/// A second view onto the same store, refusing every write.
+fn fsReadOnly(handle: I64): I64;
+
+/// A view onto the same store with a fresh, empty plan, retiring the plan this
+/// one was using — `faults` replaces, so the promise it replaced goes with it.
+fn fsWithPlan(handle: I64): I64;
+
+/// The call half of one fault, as a failure message spells it: the `FsCall`'s
+/// three fields.
+///
+/// Two rows for one entry, and the split is the frame-threaded backend's:
+/// `stencil/abi.rs`'s `MAX_INT_ARGS` is ten, and a `Str` is three of them
+/// (`lib.rs` §2 rule 1), so a row carrying a call *and* an error would be
+/// fifteen. `faultFails` is the other half and is shared with the network,
+/// which is what the split turned out to be worth.
+fn addFsFault(handle: I64, name: Str, path: Str, body: Str): ();
+
+/// The failure half of the fault just added: the call number `failsOnCall`
+/// named or zero for every call, and the error as its variant index and the
+/// text it carries.
+fn faultFails(handle: I64, nth: Int, code: Int, payload: Str): ();
+
+/// The plan entry at `index` has fired, so its promise is kept.
+fn noteFault(handle: I64, index: Int): ();
+
+/// One call, on the path that did not reach the row that would have recorded
+/// it.
+fn noteFsCall(handle: I64, name: Str, path: Str, body: Str): ();
+
+/// The read-back, without the effect.
+fn fsRead(handle: I64, path: Str): Result<Str, IoError>;
+
+/// Every file, as text, sorted by path.
+fn fsSnapshot(handle: I64): [(Str, Str)];
+
+/// Every call made through this handle, in the order they completed.
+fn fsCalls(handle: I64): [FsCall];
+
+/// The eleven methods of `Fs`, as rows over a handle.
+///
+/// Free functions rather than methods on `TestFs`, because a `TestFs` is a
+/// handle *and* a plan and an argument is flattened into its leaves: a row
+/// taking `self` would be handed three values where it expects one.
+/// `TestNet.calls` is the same shape, and landed for the same reason.
+fn fsReadFile(handle: I64, path: Str): Result<Str, IoError>;
+fn fsWriteFile(handle: I64, path: Str, body: Str): Result<(), IoError>;
+fn fsFileExists(handle: I64, path: Str): Bool;
+fn fsReadDir(handle: I64, path: Str): Result<[Str], IoError>;
+fn fsReadFileBytes(handle: I64, path: Str): Result<[U8], IoError>;
+fn fsWriteFileBytes(handle: I64, path: Str, body: [U8]): Result<(), IoError>;
+fn fsAppendFile(handle: I64, path: Str, body: [U8]): Result<(), IoError>;
+fn fsRenameFile(handle: I64, source: Str, destination: Str): Result<(), IoError>;
+fn fsRemoveFile(handle: I64, path: Str): Result<(), IoError>;
+fn fsMakeDir(handle: I64, path: Str): Result<(), IoError>;
+fn fsSyncFile(handle: I64, path: Str): Result<(), IoError>;
 
 // --- Network ------------------------------------------------------------------
 
@@ -266,16 +602,33 @@ impl TestFs {
 ///
 /// It carries a handle as well, and that is not a contradiction: the responder
 /// is the behaviour and the handle names the **log**, which is state like any
-/// other. `calls()` reads it.
+/// other. `calls()` reads it. The third field is the **fault plan**, which is in
+/// the value for the second of the two reasons above read once more — a
+/// `NetError` carries a `Str` on two variants, so the plan's errors could not
+/// come back out of a row.
 export struct TestNet {
   handle: I64,
   responder: fn(Request) => Result<Response, NetError>,
+  plan: [NetFault],
 }
 
 impl Net for TestNet {
+  /// The plan first, the responder second, and the log last.
+  ///
+  /// The plan first because a failure the test asked for is not a failure of
+  /// the responder's: a request the plan fails never reaches it, which is what
+  /// makes `respond` and `faults` two answers to two different questions rather
+  /// than two answers to one. The log last for `calls()`'s reason — a call is
+  /// recorded on the way out — and a failed request is a request, so both paths
+  /// record.
   fn fetch(self, request: Request): Result<Response, NetError> {
-    let respond = self.responder;
-    let answer = respond(request);
+    let answer: Result<Response, NetError> = match (self.planned(fetch(request))) {
+      .Some(error) => .Err(error),
+      .None => {
+        let respond = self.responder;
+        respond(request)
+      },
+    };
     let _ = recordFetch(
       self.handle,
       methodCode(request.method),
@@ -288,11 +641,25 @@ impl Net for TestNet {
 }
 
 export fn net(): TestNet {
-  TestNet { handle: newNet(), responder: fn(_request) => .Err(.Refused) }
+  TestNet { handle: newNet(), responder: fn(_request) => .Err(.Refused), plan: [] }
 }
 
 /// A fresh, empty log, and the handle that names it.
 fn newNet(): I64;
+
+/// A fresh, empty log carrying this one's plan, for the builder that answers a
+/// new network without changing what it promised.
+fn netRebind(handle: I64): I64;
+
+/// A fresh, empty log with a fresh, empty plan, retiring the plan this handle
+/// was using.
+fn netWithPlan(handle: I64): I64;
+
+/// The call half of one fault of a network's plan. The URL and not the whole
+/// request — matching is `NetCall`'s `Eq` and reads every field, and a message
+/// that named every header would be a paragraph. `faultFails` is the other
+/// half, shared with the filesystem.
+fn addNetFault(handle: I64, url: Str): ();
 
 /// One request, recorded after the responder has answered it.
 ///
@@ -322,6 +689,28 @@ fn methodCode(method: Method): Int {
   }
 }
 
+/// A `NetError`'s index in its own declaration order — `ioCode`'s rule, for the
+/// error this double fails with.
+fn netCode(error: NetError): Int {
+  match (error) {
+    .Timeout => 0,
+    .Refused => 1,
+    .BadUrl(_) => 2,
+    .Transport(_) => 3,
+    .Aborted => 4,
+  }
+}
+
+/// The text `NetError`'s two payload-carrying variants carry, and the empty
+/// string for the three that carry nothing.
+fn netPayload(error: NetError): Str {
+  match (error) {
+    .BadUrl(message) => message,
+    .Transport(message) => message,
+    _ => "",
+  }
+}
+
 impl TestNet {
   /// A **new** network answering through this function, which is handed every
   /// request the code under test makes and either answers it or fails it.
@@ -336,7 +725,21 @@ impl TestNet {
     self,
     responder: fn(Request) => Result<Response, NetError>,
   ): TestNet {
-    TestNet { handle: newNet(), responder: responder }
+    TestNet { handle: netRebind(self.handle), responder: responder, plan: self.plan }
+  }
+  /// A **new** network failing the requests this plan names — and a promise
+  /// that every one of them is made.
+  ///
+  /// `TestFs::faults` states the whole rule and it is the same rule here:
+  /// matching is `NetCall`'s derived `Eq`, so two requests differing in a header
+  /// are two calls and a fault names one of them; `fails` fails every matching
+  /// request and `failsOnCall(n, e)` the `n`th; a failed request never reaches
+  /// the responder and is still in `calls()`; and a fault whose request is never
+  /// made fails the test.
+  export fn faults(self, plan: [NetFault]): TestNet {
+    let handle = netWithPlan(self.handle);
+    let _ = describeNetPlan(handle, plan, 0);
+    TestNet { handle: handle, responder: self.responder, plan: plan }
   }
   /// Every request made through this handle, in the order they were answered.
   ///
@@ -345,6 +748,66 @@ impl TestNet {
   /// shared its receiver's log would report calls made to a different network.
   export fn calls(self): [NetCall] {
     netCalls(self.handle)
+  }
+  /// The plan's answer for a request about to be made, recorded and consumed.
+  ///
+  /// `TestFs::planned`, for the other double: the log counts the matching
+  /// requests, and an empty plan is answered without reading it.
+  fn planned(self, call: NetCall): Option<NetError> {
+    if (self.plan.len() == 0) {
+      .None
+    } else {
+      let nth = countingNetCalls(netCalls(self.handle), call, 0) + 1;
+      chosenNetFault(self.handle, self.plan, call, nth, 0)
+    }
+  }
+}
+
+/// `chosenFsFault`, for the network. The two are one rule written at two types:
+/// a `Call` is compared by the `Eq` it derives, and there is no `Fault<C, E>` to
+/// write it once with, because a `calls()` answering one list cannot hold two
+/// error types.
+fn chosenNetFault(
+  handle: I64,
+  plan: [NetFault],
+  call: NetCall,
+  nth: Int,
+  i: Int,
+): Option<NetError> {
+  match (plan.get(i)) {
+    .None => .None,
+    .Some(fault) => {
+      if (fault.call == call && (fault.nth == 0 || fault.nth == nth)) {
+        let _ = noteFault(handle, i);
+        .Some(fault.error)
+      } else {
+        chosenNetFault(handle, plan, call, nth, i + 1)
+      }
+    },
+  }
+}
+
+/// How many entries of the log are this request.
+fn countingNetCalls(log: [NetCall], call: NetCall, i: Int): Int {
+  match (log.get(i)) {
+    .None => 0,
+    .Some(seen) => {
+      let here = if (seen == call) { 1 } else { 0 };
+      here + countingNetCalls(log, call, i + 1)
+    },
+  }
+}
+
+/// `describeFsPlan`, for the network.
+fn describeNetPlan(handle: I64, plan: [NetFault], i: Int): () {
+  match (plan.get(i)) {
+    .None => (),
+    .Some(fault) => {
+      let request = fault.call.0;
+      let _ = addNetFault(handle, request.url);
+      let _ = faultFails(handle, fault.nth, netCode(fault.error), netPayload(fault.error));
+      describeNetPlan(handle, plan, i + 1)
+    },
   }
 }
 
@@ -396,7 +859,7 @@ impl TestRand {
 export struct TestEnv(I64);
 impl Env for TestEnv {
   fn variable(self, name: Str): Option<Str>;
-  fn arguments(self): [Str];
+  fn args(self): [Str];
 }
 export fn env(): TestEnv;
 
@@ -406,29 +869,37 @@ impl TestEnv {
   /// wins.
   export fn variables(self, vars: [(Str, Str)]): TestEnv;
   /// A **new** environment with these arguments and this one's variables.
-  ///
-  /// `args` rather than `arguments`: `Env.arguments` is the reader, and a type
-  /// has one method of each name.
-  export fn args(self, arguments: [Str]): TestEnv;
+  export fn arguments(self, args: [Str]): TestEnv;
 }
 
 // --- Process ------------------------------------------------------------------
 
-/// Records the exit rather than taking it. A test that ended the process would
+/// Absorbs the exit rather than taking it. A test that ended the process would
 /// take every block after it with it, and the runner would report a suite that
 /// stopped rather than a function that exited.
+///
+/// ## The double with nothing to read back
+///
+/// `proc()` has no readers, and that is the whole of it: what a test asserts
+/// about a function that exits is that the *test* carried on — which the
+/// assertions after the call say, and which no method on this type could say
+/// better. An exit code kept where nothing can read it would be state held for
+/// its own sake, so it is not held: `exitWith` absorbs the call and answers
+/// `()`.
+///
+/// That makes this the second double with no runner-side state and no row in
+/// either runtime table, for the plainer of `TestNet`'s two reasons. The handle
+/// names nothing, the way `TestAlloc`'s does — and, as both native backends say
+/// where they open-code that one, zero is as good a name as any.
 export struct TestProc(I64);
 impl Proc for TestProc {
-  fn exitWith(self, code: Int): ();
+  fn exitWith(self, code: Int): () {
+    let _ = code;
+  }
 }
-export fn proc(): TestProc;
 
-impl TestProc {
-  /// The code the first `exitWith` asked for, or `.None` where nothing exited.
-  ///
-  /// The first, not the last: a program that exits does not carry on, so a
-  /// second call is one a real process could never have made.
-  export fn exited(self): Option<Int>;
+export fn proc(): TestProc {
+  TestProc(0)
 }
 
 // --- The call log -------------------------------------------------------------
@@ -562,4 +1033,279 @@ export fn readLine(): StdinCall {
 /// A `readBytes(n)`, as a call.
 export fn readBytes(n: Int): StdinCall {
   StdinCall { name: "readBytes", count: n }
+}
+
+// --- The fault plan -----------------------------------------------------------
+//
+// A plan is a list of faults and a fault is a call and an error. Success comes
+// from the environment — `files`, `respond` — and failure comes from here, which
+// is what keeps the two readable side by side: a fixture says what is there and
+// a plan says what breaks.
+//
+// One `Fault` record per double, as there is one `Call` record per double, and
+// for the same reason: the note's `Call<Result<R, E>>` cannot be taken
+// literally, because a `calls()` answering one list cannot hold eleven result
+// types and a phantom parameter would have to be erased before a log could be
+// written. A double's error type is fixed by the double, so `FsCall::fails`
+// takes an `IoError` and `NetCall::fails` takes a `NetError` and neither needs a
+// type parameter at all.
+//
+// Neither record derives anything. A `Call` derives `Eq` because a plan matches
+// with it and `Show` because `assert.eq` renders with it; a `Fault` is matched
+// by its call and printed by the runner from the pieces `addFsFault` sends, so
+// deriving here would generate two functions per program that nothing calls.
+
+/// One planned failure of a `TestFs`.
+///
+/// `nth` is the call number `failsOnCall` named, counted from one over the
+/// matching calls, and **zero for `fails`**, which is every call. Zero rather
+/// than an `Option<Int>` because zero is not a call number — there is no zeroth
+/// call — so the two spellings cannot be confused and the record stays flat.
+export struct FsFault {
+  call: FsCall,
+  error: IoError,
+  nth: Int,
+}
+
+impl FsCall {
+  /// This call fails with this error, every time it is made.
+  export fn fails(self, error: IoError): FsFault {
+    FsFault { call: self, error: error, nth: 0 }
+  }
+  /// The `nth` matching call fails with this error, counted from one, and every
+  /// other one is answered by the filesystem.
+  ///
+  /// The *matching* call: a plan that fails the second `appendFile("wal", b)`
+  /// counts appends of `b` to `wal` and not calls in general, so a read between
+  /// two writes does not move the number.
+  export fn failsOnCall(self, nth: Int, error: IoError): FsFault {
+    FsFault { call: self, error: error, nth: nth }
+  }
+}
+
+/// One planned failure of a `TestNet`. `FsFault`'s two fields at the network's
+/// two types.
+export struct NetFault {
+  call: NetCall,
+  error: NetError,
+  nth: Int,
+}
+
+impl NetCall {
+  /// This request fails with this error, every time it is made — and it never
+  /// reaches the responder.
+  export fn fails(self, error: NetError): NetFault {
+    NetFault { call: self, error: error, nth: 0 }
+  }
+  /// The `nth` matching request fails, counted from one. The retry a test is
+  /// about to assert on is `failsOnCall(1, .Timeout)` and a responder.
+  export fn failsOnCall(self, nth: Int, error: NetError): NetFault {
+    NetFault { call: self, error: error, nth: nth }
+  }
+}
+
+// --- Tasks --------------------------------------------------------------------
+
+/// Runs every task, one at a time, in an order the test chooses — and by
+/// default in the order the items are written.
+///
+/// `Tasks.parallel` promises its *results* in the items' order and promises
+/// nothing about the order the work happens in, which is the one thing about a
+/// concurrent program a test cannot otherwise pin down. This double makes that
+/// order a value: `tasks()` runs the tasks in program order, `anyOrder()` runs
+/// them in one seeded order, and `everyOrder()` runs the whole `test` body once
+/// per completion order. Nothing here is concurrent — a double that raced would
+/// be the thing it exists to remove — so a task runs to completion before the
+/// next one starts, and `calls()` reports them in that order.
+///
+/// ## The seed is the order's own number
+///
+/// There are `n!` orders of `n` tasks, and a seed is which of them, counted
+/// from zero in the order the orders themselves sort in: `seed(0)` is program
+/// order, `seed(1)` swaps the last two, and the last seed is the reverse. So a
+/// seed **replays** rather than merely re-randomising: `everyOrder`'s fourth
+/// run and `seed(3)` are the same order, which is what lets a failure report
+/// name one line a reader can paste back. A seed past the last one wraps, so a
+/// number derived from a program's content is a legal seed at every length.
+///
+/// `anyOrder()` with no seed is the **reverse** of program order, which is the
+/// single order most likely to catch a program that depended on the order it
+/// was given. It is deliberately not a random one: a suite whose result changed
+/// between two runs of the same program could not be cached, and a failure
+/// nobody can reproduce is a failure nobody fixes.
+///
+/// ## A bare handle, where `TestFs` and `TestNet` carry two things
+///
+/// Those two hold their fault plan in the program because a plan carries an
+/// `IoError` or a `NetError`, and `cli/runtime/lib.rs` §2.1 cannot hand an
+/// error variant with a field back across a row. A task has no error to carry —
+/// `parallel` answers `[B]` and every `B` comes from the closure — so a fault
+/// here is an *index*, a count and a sentence, all three of which cross. The
+/// runner therefore does the matching as well as the promising, and this value
+/// is the handle and nothing else.
+export struct TestTasks(I64);
+
+impl Tasks for TestTasks {
+  /// Every task once, in the order this double schedules them, and the results
+  /// in the items' order.
+  ///
+  /// The runtime drives the walk, through the same closure trampoline
+  /// `host.HostTasks.parallel` uses (`backend/intrinsic_keys.rs`'s `step_call`)
+  /// and for the reason that mechanism exists: this double's job is the
+  /// *order*, and choosing one is the runtime's. So the double runs the **same**
+  /// boundary the real implementation runs, which is what makes a test of a
+  /// program through this an honest test of the program through that.
+  ///
+  /// `ctx` is the caller's whole context and is what every step is handed —
+  /// `Tasks`' own promise, and the same parameter the real implementation
+  /// takes. A `Buri` body could supply it too (`SerialTasks` in the
+  /// conformance corpus does); what it could not supply is the order.
+  fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
+}
+
+/// Program order, no faults, and a fresh log.
+export fn tasks(): TestTasks;
+
+impl TestTasks {
+  /// A **new** scheduler running its tasks in one seeded order.
+  ///
+  /// The default seed is the reverse of program order; `seed(n)` names another.
+  /// One order per run of the body, not one per `parallel`: two fan-outs of the
+  /// same length in one block are scheduled the same way, so a test that asserts
+  /// on both is asserting about one decision rather than two.
+  export fn anyOrder(self): TestTasks;
+  /// A **new** scheduler that runs the whole `test` body once per completion
+  /// order — `n!` times for a `parallel` over `n` items.
+  ///
+  /// The body, not the fan-out: a task's effects are the point, and re-running
+  /// only the loop would re-run them against a filesystem the last order had
+  /// already written to. Every run therefore builds its own doubles from the
+  /// same lines, which is what makes the runs independent and what makes the
+  /// assertion at the end of the body an assertion about *every* order.
+  ///
+  /// Six items are 720 runs of the body and seven are 5040, so this refuses
+  /// above six and says so. A fan-out that wide is `anyOrder`'s question.
+  ///
+  /// The first failing order ends the block, because a failed assertion is an
+  /// abort and there is nothing to catch (SPEC 6.10) — so the report names the
+  /// order that failed and the seed that replays it, and the orders after it do
+  /// not run.
+  export fn everyOrder(self): TestTasks;
+  /// A **new** scheduler at that seed — the order's own number, counted from
+  /// zero, wrapping past the last.
+  ///
+  /// This is `anyOrder` with the choice named, and it is what a failure report
+  /// prints for a reader to paste back: `seed(3)` is `everyOrder`'s fourth run,
+  /// exactly.
+  export fn seed(self, n: Int): TestTasks;
+  /// A **new** scheduler failing the tasks this plan names — and a promise that
+  /// every one of them is reached.
+  ///
+  /// A task has no error channel to answer through, so a task the plan fails is
+  /// a task that ends the program — which is what a task that died would do to
+  /// the run for real. A fault is therefore a call and a **reason**, and the
+  /// block fails with that reason where a real one would have failed with a
+  /// stack. The tasks scheduled before it have run and had their effects; the
+  /// ones after it have not started.
+  ///
+  /// The rules are `TestFs::faults`' rules: `task(k).fails(why)` fails that task
+  /// every time it is reached and `task(k).failsOnCall(n, why)` the `n`th time,
+  /// counted from one over the matching tasks — which counts `parallel` calls,
+  /// since one call reaches each index once. A fault whose task is never
+  /// reached fails the test. `faults` replaces rather than composing, and
+  /// retires the plan it replaced.
+  export fn faults(self, plan: [TaskFault]): TestTasks {
+    let planned = self.replan();
+    let _ = describeTaskPlan(planned, plan, 0);
+    planned
+  }
+  /// Every task this scheduler ran, in the order they completed.
+  ///
+  /// The order the *work* happened in, which is what this double exists to
+  /// choose and the only place it is observable: the result list is in the
+  /// items' order whatever this says. A task the plan failed is not here,
+  /// because it never completed — and the block it ended has no assertion left
+  /// to read this with anyway.
+  export fn calls(self): [TaskCall];
+  /// Which run of the `test` body this is, counted from one.
+  ///
+  /// One for a block that is not being re-run, so a test that reads it under
+  /// `tasks()` or `anyOrder()` reads the truth rather than a special case. Under
+  /// `everyOrder` it is the number of the order this run is using, plus one —
+  /// `seed(runs() - 1)` is this run's order.
+  ///
+  /// The answer is the **block**'s rather than this handle's: the body's runs
+  /// are the runner's bookkeeping, and a block with two schedulers in it is
+  /// still one block being run again. It is a method because that is how a test
+  /// reaches it, not because the handle decides it.
+  export fn runs(self): Int;
+  /// How many runs of the body there will be: `n!` under `everyOrder` once a
+  /// `parallel` has said what `n` is, and one otherwise.
+  ///
+  /// One before the first `parallel`, because until then nothing knows how many
+  /// tasks there are to order.
+  export fn orders(self): Int;
+  /// A **new** scheduler with a fresh, empty plan and this one's ordering,
+  /// retiring the plan it was using.
+  fn replan(self): TestTasks;
+  /// One entry of a plan: which task, on which call, and why — the three
+  /// pieces a failure message is assembled from, and the three the runner
+  /// matches on.
+  fn addFault(self, index: Int, nth: Int, reason: Str): ();
+}
+
+/// Hands the runner each entry of a plan as it is installed.
+///
+/// `describeFsPlan`'s walk. It is a walk here rather than a list crossing whole
+/// because a `[TaskFault]` is a list of records holding a `Str`, and one row per
+/// entry is the shape the other two doubles already use.
+fn describeTaskPlan(ctx: TestTasks, plan: [TaskFault], i: Int): () {
+  match (plan.get(i)) {
+    .None => (),
+    .Some(fault) => {
+      let _ = ctx.addFault(fault.call.index, fault.nth, fault.reason);
+      describeTaskPlan(ctx, plan, i + 1)
+    },
+  }
+}
+
+/// One task of one `parallel`, named by its index — as `calls()` reports it and
+/// as a plan names it.
+///
+/// The index and not the item: a task is identified by where it is in the
+/// fan-out, which is the one thing every task of every `parallel` has and the
+/// only thing the effect's signature promises about it (`f` is handed the
+/// index). An item would have to be `Show`n to be recorded and `Eq` to be
+/// matched, and `parallel` bounds neither.
+export struct TaskCall {
+  index: Int,
+}
+
+derive Eq, Show for TaskCall;
+
+/// The task at that index, as a call.
+export fn task(index: Int): TaskCall {
+  TaskCall { index: index }
+}
+
+/// One planned failure of a `TestTasks`. `FsFault`'s three fields, with a reason
+/// where the filesystem has an error: a task answers `B` and has no error
+/// channel, so what a fault carries is what the failure will say.
+export struct TaskFault {
+  call: TaskCall,
+  reason: Str,
+  nth: Int,
+}
+
+impl TaskCall {
+  /// This task fails with this reason, every time it is reached.
+  export fn fails(self, reason: Str): TaskFault {
+    TaskFault { call: self, reason: reason, nth: 0 }
+  }
+  /// The `nth` time this task is reached it fails, counted from one over the
+  /// matching tasks — which is once per `parallel`, so `n` is the number of the
+  /// fan-out rather than of the task.
+  export fn failsOnCall(self, nth: Int, reason: Str): TaskFault {
+    TaskFault { call: self, reason: reason, nth: nth }
+  }
 }

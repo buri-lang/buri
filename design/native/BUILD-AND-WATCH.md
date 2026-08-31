@@ -55,7 +55,7 @@ comment.
 
 | Crate | Feature | Why it clears the bar |
 |---|---|---|
-| `tokio` | `net` | The reactor and the timer wheel. `epoll` and `kqueue` behind one readiness API, per platform; getting it subtly wrong presents as a hang. |
+| `tokio` | `net` | The reactor and the timer wheel, and **linked**: `cli/runtime/rt.rs` is the carrier runtime and every suspending host call parks on it. `epoll` and `kqueue` behind one readiness API, per platform; getting it subtly wrong presents as a hang. |
 | `hyper` | `net` | HTTP/1.1 and HTTP/2 framing. `cli/runtime/http.rs` is a complete cleartext client, which is the easy half; HPACK, flow control and a correct server are not. |
 | `rustls` | `net` | TLS 1.2 and 1.3, and **linked**: `cli/runtime/tls.rs` builds its client configuration and `http.rs` reaches that for every `https://` URL. |
 | `ring` | `net` | `rustls`'s crypto provider. Reached only through `rustls::crypto::ring`, and declared directly anyway — see §1.1.2. |
@@ -73,33 +73,54 @@ The crates were admitted a slice **ahead of any code that uses them**, so that
 what they cost could be measured before anything depended on the answer.
 `cli/runtime/net.rs` names one type from each and exports two entries that
 answer "was this toolchain built with the networking stack"; no intrinsic key
-mangles to a symbol in that file. Three of the five are still in exactly that
-state, and two are not.
+mangles to a symbol in that file. On `aarch64-apple-darwin` the archive was
+5 987 472 bytes with `net` off and 5 987 496 with it on: twenty-four bytes,
+because `lto = "fat"` is whole-program across the dependency rlibs and Rust code
+nothing reaches does not reach the archive. Two of the five are still in exactly
+that state — `hyper` and `tungstenite` — and three are not.
+
+**`tokio` was linked first, once and deliberately.** `cli/runtime/rt.rs` is the
+carrier runtime — the reactor handle, the run baton, the carrier pool with its
+512 KiB stacks and the task table — and `Clock::sleepMillis` and `Net::fetch`
+wait on it through `park_on`, so the reactor and its timer wheel are in the
+archive on purpose:
+
+| `aarch64-apple-darwin`, `libburi_rt.a` | bytes |
+|---|---|
+| before `rt.rs` | 6 035 480 |
+| after | 6 220 904 |
+| the reactor | +185 424 |
+
+`mio` and `socket2` arrive with it and are tokio's platform layer rather than a
+sixth and seventh dependency; the direct set is still five, and
+`dependencies_stay_behind_the_bar` is what holds it there.
 
 ### 1.1.2 What `https://` cost, and the budget it moved
 
-`aarch64-apple-darwin`, `libburi_rt.a`:
+`rustls` and `ring` followed, and they are the expensive half.
+`aarch64-apple-darwin`, `libburi_rt.a`, as this tree stands:
 
 | | bytes | delta |
 |---|---:|---:|
-| `net` off | 6 052 464 | |
-| `net` on, nothing linked | 6 052 488 | +24 |
-| `net` on, `https://` through `rustls` + `ring` | 7 857 056 | +1 804 592 |
+| `net` off | 6 130 536 | |
+| `net` on — the reactor and the TLS client | 8 198 904 | +2 068 368 |
 
-Twenty-four bytes for four unreferenced crates, because `lto = "fat"` is
-whole-program across the dependency rlibs and Rust code nothing reaches does not
-reach the archive. **1.72 MiB** once `rustls` is reached, and about 845 KB of
-that is the one thing LTO cannot touch: a dependency's **native** object code,
-which `rustc` bundles into a `staticlib` whether the linker needs it or not.
-`ring` contributes twenty-odd `.o` members of C and AArch64 assembly, of which
+Of that delta, 185 424 bytes is the reactor above and **1.72 MiB** is TLS —
+1 804 592 as each was measured in the commit that linked it; the remaining
+~78 KB is the runtime's own code growing in the slices between. About 845 KB of
+the TLS figure is the one
+thing LTO cannot touch: a dependency's **native** object code, which `rustc`
+bundles into a `staticlib` whether the linker needs it or not. `ring`
+contributes twenty-odd `.o` members of C and AArch64 assembly, of which
 `curve25519.o` is 405 KB and `p256-nistz.o` is 173 KB.
 
-**That is over the budget this repository had written down**, by about 505 KB:
+**That is over the budget this repository had written down.**
 `.github/scripts/assert-runtime-archive.sh` allowed 7 MiB on macOS and 10 MiB on
-Linux, measured before TLS. The budget is a ratchet whose stated response to
-being hit is "find out what grew, then fix it or re-measure and re-state" — this
-is the re-statement, 9 MiB and 12 MiB, and the growth is named rather than
-absorbed. Every `buri` binary is 1.72 MiB larger for having a TLS client in it.
+Linux, measured before either the reactor or TLS. The budget is a ratchet whose
+stated response to being hit is "find out what grew, then fix it or re-measure
+and re-state" — this is the re-statement, 9 MiB and 12 MiB, and the growth is
+named rather than absorbed. Every `buri` binary is 1.72 MiB larger for having a
+TLS client in it.
 
 **`ring` rather than `aws-lc-rs`**, the other provider `rustls` ships:
 `aws-lc-rs` wants `cmake` at build time, which is a second tool to require of
@@ -135,9 +156,10 @@ lines, and forty lines this repository can reasonably write is the definition of
 `SSL_CERT_FILE` is for, and `tls.rs` says so.
 
 `.github/scripts/assert-runtime-archive.sh` holds all of it in CI: the size
-budget, a symbol table that **must** mention `rustls` and `ring` when the
-feature file says `net`, and one that must mention none of `tokio`, `hyper`,
-`tungstenite` or `aws_lc` either way.
+budget, a symbol table that **must** mention `tokio`, `rustls` and `ring` when
+the feature file says `net`, and one that must mention neither `hyper` nor
+`tungstenite` — nor `aws_lc`, a provider that was never a dependency — either
+way.
 
 **How the toolchain knows.** `cli/build.rs` writes `libburi_rt.a.features`
 beside the archive and beside its digest — the Cargo features the archive was
@@ -157,11 +179,17 @@ body for, and `backend::split_networking` sorts that half out from the ordinary
 "this backend has no implementation of" half at each of the two emission sites.
 The refusal is `networking-not-available`, whose fix names the feature rather
 than asking for a bug report: the program is fine and the toolchain is what has
-to change. No program reaches those keys yet — the three effects are declared in
-`core/effect` and granted by no platform, so the host values their operations
-hang off cannot be constructed — and the refusal is in place first, so that the
-day a platform grants one the key lands with its diagnostic already written
-rather than as an unresolved `buri_rt_*` symbol from `cc`.
+to change. The refusal landed **before any of those keys existed**, on purpose,
+so that the day one arrived it arrived with its diagnostic already written
+rather than as an unresolved `buri_rt_*` symbol from `cc`. The first one is
+`host.HostTasks.parallel`, and it is answered by `cli/runtime/rt.rs` — behind
+`net`, beside the carrier pool it fans out onto — so on a `BURI_RUNTIME_NET=0`
+toolchain a program that calls `core/tasks` is refused by name before code
+generation. That is what was designed, and it is now exercised rather than only
+argued for. `host.HostListen.*` and `host.HostSockets.*` are still ahead of
+their first key: both effects are declared in `core/effect` and granted by no
+platform, so the host values their operations hang off cannot be constructed,
+and what exists for them is the refusal alone.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 
