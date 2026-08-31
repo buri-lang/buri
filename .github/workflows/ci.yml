@@ -257,7 +257,7 @@ jobs:
       # LAST in the job, deliberately: it rebuilds the runtime archive and
       # relinks `buri`, so running it earlier would leave every step after it
       # measuring an h3 toolchain that no other job has.
-      - if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+      - if: matrix.arch == 'x86_64'
         name: The runtime builds with net-h3, and it costs what it says
         env:
           BURI_RUNTIME_NET_H3: "1"
