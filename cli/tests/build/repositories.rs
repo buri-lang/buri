@@ -466,6 +466,12 @@ fn language_server_budget() -> std::time::Duration {
 #[test]
 fn language_server_speed() {
     if std::env::var("BURI_PERF").is_err() {
+        crate::harness::ci::deferred_to(
+            "language server budget",
+            "language server budget (arm64)",
+            "BURI_PERF is unset, and a millisecond in a debug profile is a fact about the \
+             profile",
+        );
         return;
     }
     let scratch = Scratch::copy_of("lsp-speed", &example_repo());
@@ -540,6 +546,12 @@ const RESTORE_DRIFT: u32 = 3;
 #[test]
 fn language_server_open_cost() {
     if std::env::var("BURI_PERF").is_err() {
+        crate::harness::ci::deferred_to(
+            "language server budget",
+            "language server budget (arm64)",
+            "BURI_PERF is unset, and a millisecond in a debug profile is a fact about the \
+             profile",
+        );
         return;
     }
     let scratch = generated_repository("lsp-open-scale", 24, 4, 86);

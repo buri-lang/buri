@@ -6,16 +6,16 @@
 //! them:
 //!
 //! ```text
-//! cargo test -p buri --test migrate                                  # the proofs
-//! cargo test -p buri --test migrate -- --ignored --nocapture         # the migration
+//! cargo test -p buri --test migrate                                  # all of it
 //! ```
 //!
-//! The migration is `#[ignore]`d because it is the one test in the tree that
-//! edits a checked-in corpus. Everything else here is ordinary: unit cases over
-//! synthetic sources, one per rewrite the table names, and one sweep over the
-//! packages that have already moved asserting that a second run finds nothing —
-//! which is the whole of "the script is idempotent", written down where it
-//! fails if it stops being true.
+//! One invocation, and no `--ignored`: the rewriter-in-place, which was the one
+//! test in the tree that edited a checked-in corpus, is gone (the note at the
+//! bottom of this file says why, and what still covers it). What is left is
+//! ordinary — unit cases over synthetic sources, one per rewrite the table
+//! names, and one sweep over the packages that have already moved asserting
+//! that a second run finds nothing, which is the whole of "the script is
+//! idempotent" written down where it fails if it stops being true.
 
 #![allow(
     clippy::unwrap_used,
@@ -36,7 +36,7 @@ mod harness;
 #[path = "harness/migrate.rs"]
 mod migrate;
 
-use harness::{indent, repo_root, Scratch};
+use harness::{indent, repo_root};
 use migrate::{nothing_blocked, plan, sources_under, Style};
 
 /// A repository the migration runs over, the directories inside it whose
@@ -449,6 +449,12 @@ fn a_context_declaration_is_answered_by_the_diagnostic_its_caller_drew() {
     });
     assert_eq!(report.derived, 1, "one site, and the compiler named its effect");
     assert_eq!(report.approximated, 0, "and named it, so nothing was approximated");
+    // The fixpoint is a loop and this is the only test that watches it turn:
+    // one round that drew the diagnostic, and one that asked again and got
+    // nothing back. `Report::rounds` had no reader at all once the in-place
+    // migration was deleted, and a field nothing reads is a field that can say
+    // anything.
+    assert_eq!(report.rounds, 2, "one round to draw the diagnostic and one to confirm the fix");
     let out = report.plans[0].render(Style::Final).0;
     assert!(out.contains("..context { Clock: clock() },"), "{}", indent(&out));
 }
@@ -559,118 +565,30 @@ fn every_corpus_names_a_repository_with_sources_in_it() {
 }
 
 // ---------------------------------------------------------------------------
-// The migration
+// The migration itself is gone
 // ---------------------------------------------------------------------------
-
-/// Runs the migration and writes it into the checked-in corpora.
-///
-/// Ignored, because it is the one test here that edits trees somebody else
-/// owns. Each corpus is migrated in a scratch copy of its own repository — the
-/// compiler is asked the same question a dozen times and none of those answers
-/// belongs in the repository — and the settled text is copied back only at the
-/// end.
-///
-/// `BURI_MIGRATE` overrides [`CORPORA`], comma separated, and each entry is a
-/// corpus's `root`, so a later batch needs no edit here to be re-run on its
-/// own.
-#[test]
-#[ignore = "edits the checked-in corpora; run it deliberately"]
-fn migrate_the_corpus() {
-    let root = repo_root();
-    let chosen: Vec<&Corpus> = match std::env::var("BURI_MIGRATE") {
-        Ok(list) => {
-            let wanted: Vec<String> = list.split(',').map(|s| s.trim().to_string()).collect();
-            let picked: Vec<&Corpus> =
-                CORPORA.iter().filter(|c| wanted.iter().any(|w| w == c.root)).collect();
-            assert_eq!(
-                picked.len(),
-                wanted.len(),
-                "BURI_MIGRATE names a corpus that is not in CORPORA: {wanted:?}"
-            );
-            picked
-        }
-        Err(_) => CORPORA.iter().collect(),
-    };
-
-    let mut moved = 0;
-    let mut derived = 0;
-    let mut approximated = 0;
-    let mut unmigrated: Vec<(String, String)> = Vec::new();
-    let mut shapes: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-
-    for corpus in chosen {
-        let corpus_root = root.join(corpus.root);
-        let files: Vec<(String, String)> = corpus
-            .packages
-            .iter()
-            .flat_map(|package| sources_under(&corpus_root, package))
-            .filter(|rel| {
-                let whole = format!("{}/{rel}", corpus.root);
-                match HELD.iter().find(|(held, _)| *held == whole) {
-                    Some((held, why)) => {
-                        println!("held: {held} — {why}");
-                        false
-                    }
-                    None => true,
-                }
-            })
-            .map(|rel| {
-                let text = std::fs::read_to_string(corpus_root.join(&rel)).unwrap();
-                (rel, text)
-            })
-            .collect();
-        assert!(!files.is_empty(), "no sources under {}", corpus.root);
-
-        let scratch = Scratch::copy_of("migrate", &corpus_root);
-        let report = migrate::migrate(&files, &nothing_blocked, |rendered| {
-            for (rel, text) in rendered {
-                scratch.write(rel, text);
-            }
-            let mut args: Vec<&str> = vec!["test", "--error-format=json", "--force"];
-            args.extend(corpus.targets.iter().copied());
-            scratch.run(&args).all()
-        });
-
-        for p in &report.plans {
-            let (text, _) = p.render(Style::Final);
-            if text != p.original {
-                std::fs::write(corpus_root.join(&p.rel), &text).unwrap();
-                moved += 1;
-            }
-            for note in &p.notes {
-                println!("note: {}/{}: {note}", corpus.root, p.rel);
-            }
-            for site in &p.sites {
-                let key = if site.blocked.is_some() {
-                    "Hermetic() (unmigrated)".to_string()
-                } else if site.effects.is_empty() {
-                    "context { }".to_string()
-                } else {
-                    site.effects.iter().copied().collect::<Vec<_>>().join(", ")
-                };
-                *shapes.entry(key).or_default() += 1;
-            }
-        }
-        derived += report.derived;
-        approximated += report.approximated;
-        unmigrated.extend(
-            report.unmigrated.iter().map(|(rel, why)| (format!("{}/{rel}", corpus.root), why.clone())),
-        );
-        println!("{}: {} round(s)", corpus.root, report.rounds);
-    }
-
-    println!("migration: {moved} file(s) rewritten");
-    println!(
-        "  sites: {derived} derived, {approximated} over-approximated, {} unmigrated",
-        unmigrated.len()
-    );
-    for (rel, why) in &unmigrated {
-        println!("  unmigrated: {rel} — {why}");
-    }
-
-    // The shape of what was written, so a reader of the log can see the
-    // narrowing rather than take it on trust.
-    for (shape, count) in &shapes {
-        println!("  {count:>4} × {shape}");
-    }
-}
+//
+// `migrate_the_corpus` used to live here: `#[ignore]`d, driven by hand, it ran
+// the rewriter over every corpus in `CORPORA` and wrote the settled text back
+// into the checked-in trees. It has been **deleted**, and the reason is that
+// the behaviour it performed is no longer wanted rather than that it was
+// inconvenient to run.
+//
+// The migration is finished. `the_migrated_packages_have_nothing_left_to_rewrite`
+// above plans every source in every corpus on every run and asserts that not
+// one of them has a site or an import left to move, and
+// `the_held_and_partial_lists_name_files_that_are_still_there` asserts the two
+// exception lists still describe files that exist and still name the old
+// module. Running the rewriter again over trees a test says are already at the
+// fixpoint writes nothing by construction; what it does do is compile a dozen
+// packages a dozen times to prove it, which is minutes for an answer a parse
+// per file already gives.
+//
+// So nothing was covered by it that is not covered now. The one capability
+// that went with it is "re-run the rewrite in place", and the day a corpus
+// needs one it needs a *different* rewrite — the table in `harness/migrate.rs`
+// is about `Hermetic()` and about nothing else, and a second migration is a
+// second script rather than this one pointed at new files.
+//
+// It is written down here rather than left to `git log` because an empty space
+// under a heading invites somebody to fill it back in with the same thing.
