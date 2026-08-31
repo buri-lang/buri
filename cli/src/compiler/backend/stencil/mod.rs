@@ -608,12 +608,21 @@ fn compile_unit(
     // other would leave a symbol nothing defines. `carrier.rs` is the
     // signature; `asm::carrier_entry` is this backend's half of it.
     let mut shims: Vec<(String, asm::Shim)> = Vec::new();
+    // G3: `middle::rc::crosses_tasks`'s whole-program answer, which is the one
+    // fact an entry point states that no `Func` in it carries. `asm::Marking`
+    // is where the argument for making the call from a backend that cannot fan
+    // out is written down.
+    let marking = if program.crosses_tasks {
+        asm::Marking::ValuesMayCrossTasks
+    } else {
+        asm::Marking::None
+    };
     match root {
         Root::Main(idx) if members.contains(idx) => {
             let sym = jit::symbol_of(program, u32::try_from(*idx).unwrap_or(0));
             shims.push((
                 String::from(ENTRY_SYMBOL),
-                asm::program_entry(target, &sym, main_result(program, tables, *idx)),
+                asm::program_entry(target, &sym, main_result(program, tables, *idx), marking),
             ));
             if let Some(door) = carrier_door(target, frames, *idx, &sym) {
                 shims.push((String::from(carrier::MAIN_ENTRY), door));
@@ -624,7 +633,7 @@ fn compile_unit(
                 .iter()
                 .map(|i| jit::symbol_of(program, u32::try_from(*i).unwrap_or(0)))
                 .collect();
-            shims.push((String::from(ENTRY_SYMBOL), asm::test_entry(target, &names)));
+            shims.push((String::from(ENTRY_SYMBOL), asm::test_entry(target, &names, marking)));
             for (i, (t, sym)) in tests.iter().zip(&names).enumerate() {
                 if let Some(door) = carrier_door(target, frames, *t, sym) {
                     shims.push((carrier::test_entry(i), door));

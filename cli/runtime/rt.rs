@@ -1,5 +1,5 @@
-//! The carrier runtime — the tokio handle, the run baton, the carrier pool and
-//! the task table, behind feature `net`.
+//! The carrier runtime — the tokio handle, the carrier pool and the task
+//! table, behind feature `net`.
 //!
 //! Design: `design/native` track B, §0.1 ("carrier threads with a run baton,
 //! then stack switching") and §4 ("Runtime choices, concretely").
@@ -19,54 +19,71 @@
 //! stack switch per `(arch, os)`, behind this same table and this same
 //! [`park_on`]. Nothing above this file changes when it does.
 //!
-//! ## 1. The baton, and why concurrency lands before parallelism
+//! ## 1. The baton is gone, and what stands in its place
 //!
-//! [`Baton`] is a token: **exactly one carrier runs Buri code at a time.** A
-//! suspending call gives it up for the duration of the wait and takes it back
-//! before returning, so I/O overlaps, a server can have many connections in
-//! flight and `Tasks.parallel` can interleave — while two Buri *functions*
-//! never execute simultaneously.
+//! Until G3 this file held a **run baton**: a token admitting exactly one
+//! carrier to Buri code at a time. It was a staging device, and it said so —
+//! non-atomic reference counts, the `rc == 1` in-place licence and a
+//! single-threaded allocator were all correct only because the thing they are
+//! not safe against did not happen. `design/native/MEMORY.md` prices atomic
+//! refcounting at 2–3×, and the baton let that cost land as its own slice
+//! rather than as a prerequisite for every other one.
 //!
-//! That distinction is the staging device for the whole of track B. Non-atomic
-//! refcounts, the single-threaded allocator and every `rc == 1` in-place update
-//! (`memory.rs`) stay correct **untouched**, because the thing they are not
-//! safe against does not happen yet. `design/native/MEMORY.md` prices atomic
-//! refcounting at 2–3×; the baton lets that cost land as its own slice (track
-//! G) rather than as a prerequisite for every other one.
+//! **That slice landed, and this is it.** What replaces the baton is not
+//! another lock; it is that the *values* two carriers can both reach are
+//! marked, and a marked block is counted atomically and is never eligible for
+//! an in-place write:
+//!
+//! * `middle::rc::crosses_tasks` asks the whole program whether any of its
+//!   values can come to be reachable from a second carrier. Both native
+//!   backends turn a `true` into one call at startup,
+//!   `memory::buri_rt_values_may_cross_tasks`.
+//! * That call makes `memory::finish` stamp `CAP_SHARED_FLAG` into **every
+//!   block the program allocates**, so G2's fork takes its atomic arm
+//!   everywhere and `buri_rt_unique_cap` answers `None` everywhere.
+//! * [`fan_out`] is **gated on the same latch**. Two carriers run Buri code
+//!   beside each other only in a program whose blocks are all marked, and
+//!   `memory::values_may_cross_tasks` is the run-time proof of that rather
+//!   than an assumption about who called whom.
+//!
+//! So the exclusion the baton provided is still there; it moved from a lock
+//! held across a whole call into the header word of the blocks the call
+//! touches, which is the only place it can be while two steps genuinely
+//! compute at once. Everything else in this runtime was already thread-safe
+//! and was checked rather than assumed: `host.rs`'s four streams are
+//! process-global `Mutex`es, `memory.rs`'s counters are atomics and its caches
+//! are per-thread, `rng.rs` and the `Alloc` counters are `Mutex`es.
 //!
 //! ## 2. What creates a second carrier, and what still does not
 //!
 //! [`buri_rt_host_tasks_parallel`] does: it fans a `Tasks.parallel` call's
-//! steps onto the pool, one carrier each, and gives the baton up while it waits
-//! for them. That is the only thing in a Buri program that starts a carrier
-//! today — [`task_start`] and the table below are the shape track F's
-//! `core/actor` needs and nothing calls them yet.
+//! steps onto the pool, one carrier each, and waits for them. That is the only
+//! thing in a Buri program that starts a carrier today — [`task_start`] and
+//! the table below are the shape track F's `core/actor` needs and nothing
+//! calls them yet.
 //!
-//! And it does it **only where a carrier entering Buri code gets frames of its
-//! own**, which is the artifact's statement about itself and not this file's
-//! guess: `lib.rs`'s `buri_rt_frames_are_per_carrier`. Where a program has one
-//! Buri stack — the frame-threaded backend's, until each carrier owns one
-//! (track B, B7) — the steps run one after another on the calling carrier, in
-//! index order, answering the same `[B]`. The order promise is what makes those
-//! two the same program; the timing is not part of it.
+//! It does it only where **both** statements the artifact makes about itself
+//! are true, and they are different facts:
+//!
+//! * `lib.rs`'s `buri_rt_frames_are_per_carrier` — a carrier entering Buri
+//!   code gets frames of its own. A property of the *backend*: the LLVM one
+//!   says it, the frame-threaded one does not until each carrier owns a Buri
+//!   stack (track B, B7).
+//! * `memory::buri_rt_values_may_cross_tasks` — a block this program allocates
+//!   may be reached from two carriers, so it is marked. A property of the
+//!   *program*, and both backends say it for the programs it is true of.
+//!
+//! Where either is missing the steps run one after another on the calling
+//! carrier, in index order, answering the same `[B]`. The order promise is
+//! what makes those two the same program; the timing is not part of it.
 //!
 //! [`Clock::sleepMillis`][slp] and [`Net::fetch`][fch] route through
-//! [`park_on`], so two steps that wait now genuinely overlap. Two steps that
-//! *compute* do not: the baton admits one carrier at a time and track G is what
-//! removes it.
-//!
-//! One consequence is worth stating rather than leaving to be discovered: the
-//! **process carrier still does not hold the baton**. It has nothing to be
-//! excluded from — while it is inside a `parallel` it is dispatching and
-//! waiting, not running Buri code, and when it is not, it is the only thread
-//! that runs any — so [`park_on`] and [`fan_out`] both give the baton up only
-//! if the calling carrier is actually holding it, which a carrier running a
-//! *nested* `parallel` is and the process carrier is not. Taking it at entry
-//! would make those two conditionals unconditional and would buy nothing else;
-//! it needs a runtime entry hook `main` calls, and the slice that wants one
-//! (track F's detached tasks, which outlive the call that started them) is the
-//! one that should add it. `parking_without_the_baton_takes_no_baton` pins
-//! today's answer so that the change is a visible one.
+//! [`park_on`], so two steps that wait overlap. **Two steps that compute now
+//! overlap too**, which is the whole of what this slice changed at this level:
+//! `the_steps_of_one_fan_out_compute_at_the_same_time` is the case that would
+//! have been impossible to write while the baton existed, and
+//! `a_shared_counter_survives_a_fan_out` is the one that says the counts under
+//! it are exact.
 //!
 //! There is also **no `buri_rt_task_*` C ABI here**, on purpose. The table and
 //! the pool are Rust-visible only. An exported symbol is a contract both
@@ -83,17 +100,16 @@
 //! give at theirs: a poisoned lock means this runtime already panicked, and
 //! failing a second time on top of the first helps nobody.
 //!
-//! Carrier stacks are [`CARRIER_STACK_BYTES`]. That is the *machine* stack; on
-//! the stencil backend a carrier will additionally own a Buri data stack with
-//! its own guard page (track B, B7), and `main`'s static block is left exactly
-//! as it is.
+//! Carrier stacks are [`CARRIER_STACK_BYTES`]. That is the *machine* stack; a
+//! carrier additionally acquires a Buri data stack with its own guard page
+//! from `memory::buri_rt_stack_acquire` (track B, B7), and `main`'s static
+//! block is left exactly as it is.
 
 use std::collections::VecDeque;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::{self, ThreadId};
 
 use crate::list::{block, StepEntry};
@@ -140,179 +156,36 @@ pub fn handle() -> &'static tokio::runtime::Handle {
 }
 
 // ---------------------------------------------------------------------------
-// The run baton
-// ---------------------------------------------------------------------------
-
-/// The right to come back, handed out by [`Baton::release`] and consumed by
-/// [`Baton::acquire`].
-///
-/// A zero-sized `#[must_use]` value rather than a bare pair of calls, and
-/// deliberately **not** `Send`: the carrier that gave the baton up is the
-/// carrier that takes it back, and a ticket that could cross a thread boundary
-/// would make "release here, acquire there" a thing the type system permits.
-#[must_use = "a released baton must be acquired again before running Buri code"]
-pub struct Ticket(PhantomData<*const ()>);
-
-/// The run baton: **exactly one carrier runs Buri code at a time.**
-///
-/// A `Mutex`/`Condvar` pair holding the thread that has it, rather than a
-/// `Mutex` guard, because the hold is not lexical — [`park_on`] releases in
-/// the middle of a call and reacquires before it returns, and a guard cannot
-/// be dropped and revived across that.
-///
-/// The holder is recorded so that [`Baton::held_here`] can answer, which is
-/// what makes a double release a panic with a name on it rather than a
-/// silently over-released token and two carriers in Buri code at once.
-pub struct Baton {
-    holder: Mutex<Option<ThreadId>>,
-    free: Condvar,
-}
-
-impl Baton {
-    /// A baton nobody is holding.
-    ///
-    /// Public because a test wants one that is not the process's — the global
-    /// baton is held for the life of whatever carrier took it, so a test that
-    /// borrowed it would be a test that stopped every later one.
-    pub const fn new() -> Self {
-        Self { holder: Mutex::new(None), free: Condvar::new() }
-    }
-
-    /// The process's baton.
-    pub fn global() -> &'static Baton {
-        static BATON: Baton = Baton::new();
-        &BATON
-    }
-
-    /// Take the baton, blocking until whoever has it gives it up.
-    ///
-    /// This is a carrier's *entry*: the first thing a thread does before it
-    /// runs Buri code, and the counterpart of the [`Ticket`]-carrying pair
-    /// below, which is the same operation in the middle of a call.
-    ///
-    /// # Panics
-    /// If the calling thread already holds it. That is a runtime bug — a
-    /// carrier entered twice — and it would otherwise deadlock against itself.
-    pub fn hold(&self) {
-        let mut holder = self.lock();
-        let me = thread::current().id();
-        assert!(
-            *holder != Some(me),
-            "a carrier tried to take the run baton twice; the second take would wait for the first"
-        );
-        while holder.is_some() {
-            holder = match self.free.wait(holder) {
-                Ok(g) => g,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-        }
-        *holder = Some(me);
-    }
-
-    /// Give the baton up. Another carrier may now run Buri code.
-    ///
-    /// # Panics
-    /// If the calling thread is not holding it.
-    pub fn release(&self) -> Ticket {
-        let mut holder = self.lock();
-        let me = thread::current().id();
-        assert!(
-            *holder == Some(me),
-            "a carrier released the run baton it was not holding"
-        );
-        *holder = None;
-        drop(holder);
-        // One waiter, because the baton admits one: waking the rest would be a
-        // thundering herd whose every member goes straight back to sleep.
-        self.free.notify_one();
-        Ticket(PhantomData)
-    }
-
-    /// Take the baton back, consuming the ticket [`Baton::release`] gave out.
-    pub fn acquire(&self, ticket: Ticket) {
-        let Ticket(_) = ticket;
-        self.hold();
-    }
-
-    /// Whether the calling thread is the one holding it.
-    pub fn held_here(&self) -> bool {
-        *self.lock() == Some(thread::current().id())
-    }
-
-    /// Whether anybody is holding it.
-    pub fn held(&self) -> bool {
-        self.lock().is_some()
-    }
-
-    fn lock(&self) -> MutexGuard<'_, Option<ThreadId>> {
-        match self.holder.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
-}
-
-impl Default for Baton {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// A carrier's hold on the process baton, released when it is dropped.
-///
-/// `!Send` for [`Ticket`]'s reason, and it exists so that a panic on a carrier
-/// releases the baton instead of wedging every other one behind a thread that
-/// is no longer there.
-#[must_use = "dropping the hold immediately gives the baton straight back"]
-pub struct Held(PhantomData<*const ()>);
-
-impl Drop for Held {
-    fn drop(&mut self) {
-        let _ = Baton::global().release();
-    }
-}
-
-/// Run `f` as a carrier: take the process baton, run, give it back.
-///
-/// This is what a spawned carrier's body is wrapped in, and what a test uses
-/// to stand in for the process carrier that does not hold the baton yet (§2).
-pub fn as_carrier<T>(f: impl FnOnce() -> T) -> T {
-    Baton::global().hold();
-    let _held = Held(PhantomData);
-    f()
-}
-
-// ---------------------------------------------------------------------------
 // Parking
 // ---------------------------------------------------------------------------
 
-/// Wait for `future` without holding the run baton.
+/// Wait for `future` on this thread.
 ///
-/// The three lines the design sketches, plus the conditional §2 explains: the
-/// process carrier does not hold the baton yet, so today the release and the
-/// reacquire are both skipped and this is `block_on` with the same answer as
-/// before. A carrier that *is* holding it gives it up for the whole of the
-/// wait, which is what makes overlapped I/O real the moment a second carrier
-/// exists.
+/// **Three lines until G3, and one after it.** The two that went were the run
+/// baton's: a suspending call used to give the baton up for the duration of
+/// the wait and take it back before returning, which is what made I/O overlap
+/// while two Buri functions still never ran at once. With the baton gone there
+/// is nothing to give up — a carrier that waits is simply a carrier that is
+/// not running, and the carriers that *are* running were already allowed to
+/// (§1) — so what is left is the `block_on` that was always underneath.
 ///
 /// The future is polled on **this** thread — `Handle::block_on` drives it here
 /// and the reactor's threads only wake it — so it need be neither `Send` nor
 /// `'static`, and a body that is still synchronous (`http.rs`'s client) costs
-/// no copy and no thread hop to route through here. What it gains today is the
-/// baton discipline; what it gains later is that the same call site becomes a
-/// real await when the client behind it does.
+/// no copy and no thread hop to route through here. What it gains is that the
+/// same call site becomes a real await when the client behind it does.
+///
+/// It stays a named function rather than becoming `handle().block_on(...)` at
+/// its two call sites, because "this is a suspension point" is a fact
+/// `host.rs` states about `sleepMillis` and `fetch` and the compiler's
+/// `rc::suspends` list agrees with, and a wrapper is where that fact is
+/// written down.
 ///
 /// # Panics
 /// If called from a tokio worker thread, which `Handle::block_on` refuses. No
 /// carrier is one, and nothing in `host.rs` runs inside a task.
 pub fn park_on<T>(future: impl Future<Output = T>) -> T {
-    let baton = Baton::global();
-    let ticket = baton.held_here().then(|| baton.release());
-    let out = handle().block_on(future);
-    if let Some(ticket) = ticket {
-        baton.acquire(ticket);
-    }
-    out
+    handle().block_on(future)
 }
 
 // ---------------------------------------------------------------------------
@@ -422,11 +295,11 @@ impl<T> Handoff<T> {
 
 /// Run `f` on a carrier from the pool, reusing an idle one where there is one.
 ///
-/// The job is **not** wrapped in [`as_carrier`]: a carrier that is going to
-/// run Buri code takes the baton, and one doing runtime work of its own does
-/// not, so the choice belongs to the caller. [`task_start`] and `fan_out` are
-/// the two that wrap, because a task and a step are both Buri code; nothing
-/// wraps nothing yet.
+/// The job runs as it is written. Until G3 it was handed to `as_carrier`,
+/// which took the run baton first, and [`task_start`] and [`fan_out`] were the
+/// two callers that wrapped because a task and a step are both Buri code.
+/// There is no baton to take now, so the wrapper is gone with it and this is
+/// the whole of what starting a carrier means.
 pub fn on_carrier<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Handoff<T> {
     let (done, finished) = channel();
     let answer = Arc::new(Mutex::new(None));
@@ -489,12 +362,16 @@ fn install(slot: Slot) -> i64 {
 
 /// Start `f` on a carrier as a task, and answer its handle.
 ///
-/// `f` runs **as a carrier** — it takes the baton before its first instruction
-/// — because a task is a thing that runs Buri code. That is what makes a task
-/// started from Buri code wait for the starter to suspend rather than run
-/// beside it.
+/// `f` runs **beside its starter**, which is what changed in G3: a task used
+/// to take the run baton before its first instruction, so a task started from
+/// Buri code waited for the starter to suspend. Now it runs, and the values it
+/// and its starter share are the marked ones (§1).
+///
+/// Nothing in a Buri program reaches this yet — track F's `core/actor` is what
+/// does — so what the change costs today is one line of this file and one
+/// assertion in `a_task_runs_beside_the_thread_that_started_it`.
 pub fn task_start(f: impl FnOnce() + Send + 'static) -> i64 {
-    install(Slot::Running(on_carrier(move || as_carrier(f))))
+    install(Slot::Running(on_carrier(f)))
 }
 
 /// Wait for a task and tombstone its slot. `false` where the handle names
@@ -542,14 +419,13 @@ pub fn task_is_live(handle: i64) -> bool {
 // signature below is the one those two rows describe rather than a prediction
 // of one.
 //
-// **Concurrent, on the carrier pool, answering in index order.** Every step is
-// dispatched to a carrier of its own; the calling carrier gives the run baton up
-// for as long as it is waiting and takes it back before it returns. So two steps
-// that wait overlap, and two steps that *compute* still do not: the baton keeps
-// exactly one carrier in Buri code at a time, which is what leaves the
-// single-threaded allocator and the non-atomic refcounts correct untouched
-// (§1). Track G is the slice that removes the baton; this one only makes it earn
-// its keep.
+// **Parallel, on the carrier pool, answering in index order.** Every step is
+// dispatched to a carrier of its own and they run at the same time — two that
+// wait overlap and, since G3, two that *compute* overlap as well. What used to
+// stop the second was the run baton, and what stops it being a race now is
+// that the blocks the steps share are marked and therefore counted atomically
+// (§1). The allocator was already thread-safe; the counts and the in-place
+// write licence are what the mark buys.
 //
 // The order promise is kept the way `core/tasks` says it is: the `[B]` block is
 // allocated up front and each step writes its own element into it, so the answer
@@ -599,8 +475,11 @@ struct Steps {
 // alive for the whole of the call, the record the backend generated for it, and
 // a destination block allocated here and not published until every step has
 // written into it. Each step reads and writes at its own index, so no two
-// carriers touch the same byte, and the run baton keeps them out of Buri code
-// at the same time.
+// carriers touch the same byte of the source or the answer. The blocks they
+// *both* reach — the closure's record, the caller's context, an element that
+// appears twice in the list — are reached through reference operations, and
+// those are safe because `buri_rt_host_tasks_parallel` fans out only where
+// every block in the program carries `CAP_SHARED_FLAG` (§1).
 unsafe impl Send for Steps {}
 
 impl Steps {
@@ -626,10 +505,18 @@ impl Steps {
 
 /// Every step on the calling carrier, one after another, in index order.
 ///
-/// What this file did before there was a fan-out, and still the answer for a
-/// program whose artifact shares one Buri stack (`lib.rs`'s
-/// `buri_rt_frames_are_per_carrier`) and for the one- and no-item cases, where a
-/// carrier would be a thread started to do what this thread is already doing.
+/// What this file did before there was a fan-out, and still the answer where
+/// either of the artifact's two statements about itself is missing — a program
+/// that shares one Buri stack (`lib.rs`'s `buri_rt_frames_are_per_carrier`) or
+/// one whose blocks are not marked (`memory::values_may_cross_tasks`) — and
+/// for the one- and no-item cases, where a carrier would be a thread started
+/// to do what this thread is already doing.
+///
+/// **This arm is the safe answer, not merely the slow one.** It is what a
+/// toolchain that forgot to emit either statement gets, which is why both
+/// statements are gates here rather than assertions: a missing one is a
+/// program that computes the same `[B]` a little slower, and never two
+/// carriers counting an unmarked block.
 ///
 /// # Safety
 /// `steps` describes `n` live elements and `n` writable slots.
@@ -640,24 +527,32 @@ unsafe fn in_order(steps: Steps, n: usize) {
     }
 }
 
-/// Every step on a carrier of its own, at most [`IN_FLIGHT`] at a time.
+/// Every step on a carrier of its own, at most [`IN_FLIGHT`] at a time —
+/// **genuinely at once**, which is G3's half of this function.
 ///
-/// The baton is given up **before** the first carrier is dispatched, for two
-/// reasons and not one. A carrier's body begins by taking it ([`as_carrier`]),
-/// so a caller still holding it would be a caller waiting for work that is
-/// waiting for the caller. And a step that finishes during the dispatch loop
-/// puts its carrier back in the pool in time for the next index to reuse it, so
-/// a `parallel` over items that do not wait costs a handful of threads rather
-/// than one per item.
+/// Until G3 the calling carrier gave the run baton up here before the first
+/// dispatch and took it back after the last join, and the steps then took it
+/// one at a time: two that waited overlapped and two that computed did not.
+/// The baton is gone, so both overlap, and what makes that safe is not
+/// anything this function does but that every block the program allocated
+/// carries `CAP_SHARED_FLAG` — see §1 and [`buri_rt_host_tasks_parallel`]'s
+/// gate, which is the run-time proof rather than an assumption about callers.
 ///
-/// Between the release and the reacquire this thread runs no Buri code — it
-/// dispatches, and it waits — which is the whole of what the baton excludes.
+/// The **window** survives the baton and is unrelated to it: a step that
+/// finishes during the dispatch loop puts its carrier back in the pool in time
+/// for the next index to reuse it, so a `parallel` over items that do not wait
+/// costs a handful of threads rather than one per item.
+///
+/// This thread dispatches and waits. It runs no Buri code between the first
+/// dispatch and the last join — not because it is excluded but because there
+/// is nothing here for it to run — so a **nested** fan-out is a carrier
+/// dispatching to other carriers, and needs nothing given up first.
+/// `a_nested_fan_out_answers_the_same_numbers` is that case, and it is what
+/// `a_nested_fan_out_gives_the_baton_up_first` became.
 ///
 /// # Safety
 /// As [`in_order`].
 unsafe fn fan_out(steps: Steps, n: usize) {
-    let baton = Baton::global();
-    let ticket = baton.held_here().then(|| baton.release());
     let mut window: VecDeque<Handoff<()>> = VecDeque::with_capacity(n.min(IN_FLIGHT));
     for i in 0..n {
         if window.len() == IN_FLIGHT {
@@ -665,13 +560,10 @@ unsafe fn fan_out(steps: Steps, n: usize) {
         }
         // SAFETY: `i < n`, each index dispatched once, and `Steps` is `Send`
         // for the reason stated at its `unsafe impl`.
-        window.push_back(on_carrier(move || as_carrier(|| unsafe { steps.run(i) })));
+        window.push_back(on_carrier(move || unsafe { steps.run(i) }));
     }
     while let Some(handoff) = window.pop_front() {
         finish(Some(handoff));
-    }
-    if let Some(ticket) = ticket {
-        baton.acquire(ticket);
     }
 }
 
@@ -696,9 +588,10 @@ fn finish(handoff: Option<Handoff<()>>) {
 /// no arm below that skips one.
 ///
 /// Whether the steps run on carriers of their own or one after another on this
-/// one is the artifact's answer, not this call's: see
-/// [`crate::buri_rt_frames_are_per_carrier`]. Either way the `[B]` is the same
-/// `[B]`, which is what `core/tasks`'s order promise is worth.
+/// one is the artifact's answer, not this call's, and it takes **two**
+/// statements rather than one: [`crate::buri_rt_frames_are_per_carrier`] and
+/// [`crate::memory::buri_rt_values_may_cross_tasks`] (§2). Either way the `[B]`
+/// is the same `[B]`, which is what `core/tasks`'s order promise is worth.
 ///
 /// `in_order` below is `buri_rt_list_map_ctx_step`'s walk, and the two stay
 /// separate for the reason D3 gave when they were the same three lines: they are
@@ -731,8 +624,15 @@ pub unsafe extern "C" fn buri_rt_host_tasks_parallel(
         out_stride: to,
     };
     // SAFETY: the caller's `n` elements, at the strides it named.
+    //
+    // **Two gates, two different facts** (§2). The frames one is the backend's
+    // — a second carrier must have somewhere of its own to put a frame. The
+    // marking one is the program's — the blocks two carriers would both count
+    // must carry `CAP_SHARED_FLAG`, or the counts race. Neither implies the
+    // other and neither is assumed: an artifact that made only one of the two
+    // calls gets `in_order`, which answers the same `[B]`.
     unsafe {
-        if n > 1 && crate::frames_are_per_carrier() {
+        if n > 1 && crate::frames_are_per_carrier() && crate::memory::values_may_cross_tasks() {
             fan_out(steps, n);
         } else {
             in_order(steps, n);
@@ -746,15 +646,17 @@ pub unsafe extern "C" fn buri_rt_host_tasks_parallel(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicU64;
     use std::time::{Duration, Instant};
 
-    /// The pool, the task table and the *process* baton are one shared thing,
-    /// and `cargo test` runs this module's cases on many threads at once. A
-    /// case that asks "was the idle carrier reused" or "is the process baton
-    /// free" is asking about global state, so the cases that do take this
-    /// first. Nothing outside this file touches any of the three, so it is a
+    /// The pool and the task table are one shared thing, and `cargo test` runs
+    /// this module's cases on many threads at once. A case that asks "was the
+    /// idle carrier reused" is asking about global state, so the cases that do
+    /// take this first. Nothing outside this file touches either, so it is a
     /// lock over this module and not over the crate.
+    ///
+    /// The **marking latch** is the one piece of global state this module
+    /// shares with others, and it has a lock of its own: `memory::latch`, taken
+    /// after this one by the cases that need both.
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
     fn alone() -> MutexGuard<'static, ()> {
@@ -762,17 +664,6 @@ mod tests {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),
         }
-    }
-
-    /// Deliberately a **relaxed load, a yield, and a relaxed store** rather
-    /// than a `fetch_add`. A read-modify-write split in three is exactly what
-    /// mutual exclusion has to make safe, and a lost update is then a wrong
-    /// number rather than undefined behaviour — which is what lets this be a
-    /// stress test rather than a thing only `loom` or a sanitizer could see.
-    fn increment_slowly(counter: &AtomicU64) {
-        let seen = counter.load(Ordering::Relaxed);
-        thread::yield_now();
-        counter.store(seen + 1, Ordering::Relaxed);
     }
 
     /// One `parallel` call, with the arm chosen here rather than read out of
@@ -817,116 +708,153 @@ mod tests {
         (0..n).map(|i| unsafe { got.ptr.add(i * 8).cast::<i64>().read() }).collect()
     }
 
+    /// **The count of a marked block is exact under every carrier at once.**
+    ///
+    /// The invariant the run baton used to provide, restated as the thing that
+    /// replaced it. Eight carriers each `incref` a marked block a thousand
+    /// times; the count is one plus eight thousand or an update was lost.
+    ///
+    /// `increment_slowly` is what makes the *other* half of this test — the
+    /// one in `a_shared_counter_survives_a_fan_out` — a wrong number rather
+    /// than undefined behaviour. This half needs no such stand-in, because
+    /// `buri_rt_incref`'s marked arm is a real `fetch_add` and its unmarked
+    /// arm is the load-and-store the mark exists to keep two carriers out of.
+    /// **Running this without the mark is a data race and therefore not a
+    /// test**; the red-proof is in `reports/wave8-g3.md`, taken against a tree
+    /// with the marking latch forced off, where it loses updates every run.
     #[test]
-    fn the_baton_admits_one_carrier_at_a_time() {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        static INSIDE: AtomicUsize = AtomicUsize::new(0);
-        static OVERLAPS: AtomicUsize = AtomicUsize::new(0);
-        // Its own baton rather than the process's, so this case says nothing
-        // about what any other case is doing with that one.
-        static BATON: Baton = Baton::new();
-
+    fn the_count_of_a_marked_block_is_exact_under_every_carrier() {
+        let _alone = alone();
+        // `alone()` first, then this; `memory::latch` states the order.
+        let _latch = crate::memory::latch();
         const CARRIERS: usize = 8;
-        const ROUNDS: usize = 400;
+        const ROUNDS: usize = 1000;
 
+        crate::memory::buri_rt_values_may_cross_tasks();
+        let p = crate::memory::buri_rt_alloc(64);
+        // SAFETY: `p` is live and was just allocated under the latch.
+        let (rc, marked) = unsafe { crate::memory::count_and_mark(p) };
+        assert_eq!((rc, marked), (1, true), "a block allocated under the latch was not marked");
+
+        let shared = p as usize;
         thread::scope(|scope| {
             for _ in 0..CARRIERS {
-                scope.spawn(|| {
+                scope.spawn(move || {
                     for _ in 0..ROUNDS {
-                        BATON.hold();
-                        if INSIDE.fetch_add(1, Ordering::SeqCst) != 0 {
-                            OVERLAPS.fetch_add(1, Ordering::SeqCst);
-                        }
-                        increment_slowly(&COUNTER);
-                        INSIDE.fetch_sub(1, Ordering::SeqCst);
-                        // The ticket is the right to come back, and this round
-                        // does not: dropping it is how a carrier leaves.
-                        drop(BATON.release());
+                        // SAFETY: the block outlives this scope and every
+                        // increment here is matched below.
+                        unsafe { crate::memory::buri_rt_incref(shared as *mut u8) };
                     }
                 });
             }
         });
-
-        assert_eq!(OVERLAPS.load(Ordering::SeqCst), 0, "two carriers held the baton at once");
+        // SAFETY: `p` is still live — nothing decremented it.
+        let (rc, _) = unsafe { crate::memory::count_and_mark(p) };
         assert_eq!(
-            COUNTER.load(Ordering::SeqCst),
-            (CARRIERS * ROUNDS) as u64,
-            "an update was lost, so the increments were not mutually exclusive",
+            rc,
+            1 + (CARRIERS * ROUNDS) as u64,
+            "an increment was lost: the marked arm is not atomic",
         );
-        assert!(!BATON.held(), "the baton was left held");
-    }
 
-    /// The ordering the sketch in `design/native` promises: a carrier that
-    /// releases hands the baton to whoever is waiting, and gets it back only
-    /// once that one has given it up.
-    #[test]
-    fn a_released_baton_goes_to_a_waiting_carrier_and_comes_back() {
-        static BATON: Baton = Baton::new();
-        let order: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
-
-        BATON.hold();
-        order.lock().unwrap().push("first in");
-
+        // And back down the same way, so the block is freed exactly once.
         thread::scope(|scope| {
-            let waiter = scope.spawn(|| {
-                BATON.hold();
-                order.lock().unwrap().push("second in");
-                order.lock().unwrap().push("second out");
-                drop(BATON.release());
-            });
-
-            // Long enough for the waiter to reach `hold` and block there. It
-            // cannot get in whether it has or not, which is why this sleep is
-            // not what the assertions rest on.
-            thread::sleep(Duration::from_millis(20));
-            assert!(BATON.held_here(), "the waiter took the baton off its holder");
-
-            let ticket = BATON.release();
-            order.lock().unwrap().push("first parked");
-            waiter.join().unwrap();
-            BATON.acquire(ticket);
-            order.lock().unwrap().push("first back");
+            for _ in 0..CARRIERS {
+                scope.spawn(move || {
+                    for _ in 0..ROUNDS {
+                        // SAFETY: one decrement per increment above, and the
+                        // count is above one throughout.
+                        unsafe { crate::memory::buri_rt_decref(shared as *mut u8, None) };
+                    }
+                });
+            }
         });
+        // SAFETY: `p` is still live at a count of one.
+        let (rc, marked) = unsafe { crate::memory::count_and_mark(p) };
+        assert_eq!((rc, marked), (1, true), "a decrement was lost");
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(p) };
+        crate::memory::forget_values_may_cross_tasks();
+    }
 
-        drop(BATON.release());
-        assert_eq!(
-            *order.lock().unwrap(),
-            ["first in", "first parked", "second in", "second out", "first back"],
-            "the second carrier did not run inside the first one's park",
+    /// **The latch is a property of the program**: before it, no block carries
+    /// the mark; after it, every one does, and a recycled block comes back
+    /// marked because it goes through `finish` like any other.
+    ///
+    /// This is the whole of the "err over-set" decision, asserted rather than
+    /// argued: there is no per-value question, so there is no value the
+    /// analysis can be wrong about.
+    #[test]
+    fn the_latch_marks_every_block_and_nothing_before_it() {
+        let _alone = alone();
+        // `alone()` first, then this; `memory::latch` states the order.
+        let _latch = crate::memory::latch();
+        assert!(!crate::memory::values_may_cross_tasks(), "the silent answer is the safe one");
+
+        let plain = crate::memory::buri_rt_alloc(48);
+        // SAFETY: live, just allocated.
+        assert_eq!(unsafe { crate::memory::count_and_mark(plain) }.1, false);
+
+        crate::memory::buri_rt_values_may_cross_tasks();
+        assert!(crate::memory::values_may_cross_tasks());
+        for size in [0u64, 1, 24, 48, 64, 4096] {
+            let p = crate::memory::buri_rt_alloc(size);
+            // SAFETY: live, just allocated.
+            let (rc, marked) = unsafe { crate::memory::count_and_mark(p) };
+            assert_eq!((rc, marked), (1, true), "a {size}-byte block was not marked");
+            // SAFETY: the capacity is still the byte count it asked for, which
+            // is what keeps the release glue's `cap / stride` walk honest.
+            assert_eq!(unsafe { crate::memory::buri_rt_cap(p) }, size);
+            // SAFETY: the only reference.
+            unsafe { crate::memory::buri_rt_free(p) };
+        }
+
+        // The block freed before the latch comes back through the per-thread
+        // cache, and it comes back marked.
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(plain) };
+        let again = crate::memory::buri_rt_alloc(48);
+        // SAFETY: live, just allocated.
+        assert!(
+            unsafe { crate::memory::count_and_mark(again) }.1,
+            "a recycled block kept the mark it was made without",
         );
-        assert!(!BATON.held());
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(again) };
+        crate::memory::forget_values_may_cross_tasks();
     }
 
-    /// `assert!` with a bare message panics with a `&'static str` payload and
-    /// with a formatted one with a `String`; a test that read only one of them
-    /// would pass on an empty message.
-    fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
-        payload
-            .downcast_ref::<&'static str>()
-            .copied()
-            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-            .unwrap_or("<the panic carried no message>")
-    }
-
+    /// **A marked block is never unique**, so nothing writes through one.
+    ///
+    /// `buri_rt_unique_cap` is the licence for every in-place write in
+    /// `list.rs` and `text.rs`, and G2 left it unforked on an argument whose
+    /// premise the baton was keeping true. This is that premise closed: the
+    /// same block, the same count of one, and the answer changes with the
+    /// mark.
     #[test]
-    fn a_double_take_is_named_rather_than_a_deadlock() {
-        static BATON: Baton = Baton::new();
-        let twice = thread::spawn(|| {
-            BATON.hold();
-            BATON.hold();
-        });
-        let panicked = twice.join().expect_err("taking the baton twice was allowed");
-        let message = panic_message(&*panicked);
-        assert!(message.contains("twice"), "the panic did not name the fault: {message}");
-    }
+    fn a_marked_block_is_never_unique() {
+        let _alone = alone();
+        // `alone()` first, then this; `memory::latch` states the order.
+        let _latch = crate::memory::latch();
+        let plain = crate::memory::buri_rt_alloc(64);
+        // SAFETY: live, count of one, unmarked.
+        assert_eq!(unsafe { crate::memory::buri_rt_unique_cap(plain) }, Some(64));
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(plain) };
 
-    #[test]
-    fn a_release_by_a_carrier_that_is_not_holding_is_named() {
-        static BATON: Baton = Baton::new();
-        let wrong = thread::spawn(|| drop(BATON.release()));
-        let panicked = wrong.join().expect_err("an unheld baton was released");
-        let message = panic_message(&*panicked);
-        assert!(message.contains("not holding"), "the panic did not name the fault: {message}");
+        crate::memory::buri_rt_values_may_cross_tasks();
+        let marked = crate::memory::buri_rt_alloc(64);
+        // SAFETY: live, count of one, marked.
+        let (rc, is_marked) = unsafe { crate::memory::count_and_mark(marked) };
+        assert_eq!((rc, is_marked), (1, true));
+        assert_eq!(
+            // SAFETY: live payload pointer.
+            unsafe { crate::memory::buri_rt_unique_cap(marked) },
+            None,
+            "a block two carriers may reach was handed an in-place write",
+        );
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(marked) };
+        crate::memory::forget_values_may_cross_tasks();
     }
 
     #[test]
@@ -946,41 +874,30 @@ mod tests {
         assert!(started.elapsed() >= Duration::from_millis(25), "the sleep did not wait");
     }
 
-    /// The process carrier's situation today (§2): it holds nothing, so
-    /// parking touches no baton and answers exactly as it did before.
+    /// A carrier that parks does not stop another one from running.
+    ///
+    /// Under the baton this was the whole of the concurrency story and the
+    /// test had to be careful about it: the parking carrier held the baton, so
+    /// the second could only run if the park gave it up. There is no baton
+    /// now, and the case is kept because the *property* is still the one
+    /// `park_on` exists for — a suspended carrier is not a stopped process —
+    /// and because a `block_on` that had somehow become blocking of anything
+    /// but its own thread would fail here rather than somewhere subtler. The
+    /// timeout is what turns a regression into a message instead of a hang.
     #[test]
-    fn parking_without_the_baton_takes_no_baton() {
-        assert!(!Baton::global().held_here());
-        assert_eq!(park_on(async { "unchanged" }), "unchanged");
-        assert!(!Baton::global().held_here(), "parking took a baton it had not been given");
-    }
-
-    /// The claim §1 is built on, and the only way to state it without a timing
-    /// race: the parking carrier is *already* holding the baton when the
-    /// second one is dispatched, so the second can only run if the park gave it
-    /// up. If it never does, the timeout answers instead of the send, and the
-    /// assertion names it rather than hanging the suite.
-    #[test]
-    fn a_parked_carrier_lets_the_next_one_in() {
+    fn a_parked_carrier_does_not_stop_the_next_one() {
         let _alone = alone();
-        as_carrier(|| {
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            let second = on_carrier(move || {
-                as_carrier(move || {
-                    let _ = tx.send("the second carrier ran");
-                })
-            });
-            let arrived =
-                park_on(async { tokio::time::timeout(Duration::from_secs(5), rx).await });
-            second.join().expect("the second carrier did not finish");
-            let arrived = arrived.expect("the parked carrier never released the baton");
-            assert_eq!(
-                arrived.expect("the second carrier dropped its sender"),
-                "the second carrier ran",
-            );
-            assert!(Baton::global().held_here(), "the parked carrier did not take the baton back");
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let second = on_carrier(move || {
+            let _ = tx.send("the second carrier ran");
         });
-        assert!(!Baton::global().held(), "a carrier kept the baton");
+        let arrived = park_on(async { tokio::time::timeout(Duration::from_secs(5), rx).await });
+        second.join().expect("the second carrier did not finish");
+        let arrived = arrived.expect("the parked carrier never let the second one run");
+        assert_eq!(
+            arrived.expect("the second carrier dropped its sender"),
+            "the second carrier ran",
+        );
     }
 
     #[test]
@@ -1005,12 +922,10 @@ mod tests {
         let jobs: Vec<_> = (0..4u8)
             .map(|n| {
                 on_carrier(move || {
-                    as_carrier(|| {
-                        park_on(async {
-                            tokio::time::sleep(Duration::from_millis(5)).await;
-                        });
-                        n
-                    })
+                    park_on(async {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    });
+                    n
                 })
             })
             .collect();
@@ -1018,7 +933,6 @@ mod tests {
         answers.sort_unstable();
         assert_eq!(answers, [0, 1, 2, 3]);
         assert!(carriers() >= 4, "four jobs in flight shared fewer than four carriers");
-        assert!(!Baton::global().held(), "a carrier kept the baton");
     }
 
     #[test]
@@ -1047,17 +961,32 @@ mod tests {
         assert!(task_join(a) && task_join(b));
     }
 
+    /// A task runs **beside** the thread that started it, which is what
+    /// `a_task_runs_as_a_carrier_and_gives_the_baton_back` became: the task
+    /// used to take the run baton first, so it could not start until its
+    /// starter had suspended.
+    ///
+    /// Asserted by having the task wait for a signal the starter only sends
+    /// *after* `task_start` has returned. Under the baton this deadlocked;
+    /// there is no ordering here that can pass by accident, and a regression
+    /// is the five-second timeout rather than a hung suite.
     #[test]
-    fn a_task_runs_as_a_carrier_and_gives_the_baton_back() {
+    fn a_task_runs_beside_the_thread_that_started_it() {
         let _alone = alone();
-        let held = std::sync::Arc::new(AtomicUsize::new(0));
-        let seen = std::sync::Arc::clone(&held);
+        let (go, wait) = channel::<()>();
+        let (done, ran) = channel::<&'static str>();
         let handle = task_start(move || {
-            seen.store(usize::from(Baton::global().held_here()), Ordering::SeqCst);
+            wait.recv().expect("the starter dropped its sender before the task ran");
+            let _ = done.send("beside");
         });
+        // The task is already running and is blocked on `wait`, which it could
+        // not be if starting it had waited for this thread to suspend.
+        go.send(()).expect("the task was not running to receive it");
+        assert_eq!(
+            ran.recv_timeout(Duration::from_secs(5)).expect("the task never ran"),
+            "beside",
+        );
         assert!(task_join(handle));
-        assert_eq!(held.load(Ordering::SeqCst), 1, "a task ran without the baton");
-        assert!(!Baton::global().held(), "the task kept the baton");
     }
 
     /// The number is a decision (§3) rather than a default, so it is asserted
@@ -1271,10 +1200,14 @@ mod tests {
     /// **Two tasks that wait, wait at the same time.** The slice's whole point.
     ///
     /// Two steps that each sleep 100 ms answer in a little over 100 ms rather
-    /// than in 200: the sleep is [`park_on`]'s, so a carrier gives the run
-    /// baton up for the length of it and the other carrier's step gets in.
-    /// Sequentially this is 200 ms and the bound below fails, which is what
-    /// makes it a test of the scheduler rather than of the clock.
+    /// than in 200: the sleep is [`park_on`]'s and the two carriers are two
+    /// threads. Sequentially this is 200 ms and the bound below fails, which is
+    /// what makes it a test of the scheduler rather than of the clock.
+    ///
+    /// **D4's acceptance case, and its number does not move in G3.** It was
+    /// green under the baton — a step that waits was already giving the baton
+    /// up — so the ~100 ms it measures is the same ~100 ms before and after,
+    /// and that is the point of re-running it here rather than of changing it.
     ///
     /// The upper bound is generous — 100 ms of real waiting plus the whole of a
     /// loaded machine's scheduling — because the failure it guards against is
@@ -1282,9 +1215,8 @@ mod tests {
     /// would fail under `cargo test`'s own parallelism instead.
     #[test]
     fn two_tasks_that_wait_overlap() {
-        // The fan-out draws on the carrier pool and hands the process
-        // baton around, both of which every other case that reads them
-        // takes this lock for.
+        // The fan-out draws on the carrier pool, which every other case
+        // that reads it takes this lock for.
         let _alone = alone();
         unsafe extern "C" fn nap(_: *mut u8, index: u64, _: *const u8, out: *mut u8) {
             crate::buri_rt_host_clock_sleep_millis(100);
@@ -1313,9 +1245,8 @@ mod tests {
     /// satisfied, and that the `[B]` is in index order anyway.
     #[test]
     fn a_fan_out_answers_in_the_items_order() {
-        // The fan-out draws on the carrier pool and hands the process
-        // baton around, both of which every other case that reads them
-        // takes this lock for.
+        // The fan-out draws on the carrier pool, which every other case
+        // that reads it takes this lock for.
         let _alone = alone();
         /// The indices in the order their steps *finished*.
         struct Finished(Mutex<Vec<u64>>);
@@ -1357,49 +1288,127 @@ mod tests {
         assert_eq!(seen, vec![3, 2, 1, 0], "the work did not finish out of order");
     }
 
-    /// **The baton still admits one carrier at a time, through the fan-out.**
+    /// **Two steps that compute run at the same time.** The case the baton
+    /// made impossible, and the one sentence of behaviour G3 changes here.
     ///
-    /// `the_baton_admits_one_carrier_at_a_time` stresses [`Baton`] directly;
-    /// this one stresses the thing that hands it out. The step is the same
-    /// read-modify-write split in three, so a second step running beside this
-    /// one is a wrong *number* rather than undefined behaviour, and the case
-    /// counts overlaps outright as well.
+    /// Each step spins on a shared counter until every other step has arrived,
+    /// then leaves. Under the baton the first step would spin for ever, because
+    /// the second cannot enter Buri code until the first has left — so this is
+    /// a test that could not have been written before this slice and cannot
+    /// pass by accident after it. The timeout is what makes a regression a
+    /// message instead of a hung suite.
     #[test]
-    fn the_baton_admits_one_step_at_a_time() {
-        // The fan-out draws on the carrier pool and hands the process
-        // baton around, both of which every other case that reads them
-        // takes this lock for.
+    fn the_steps_of_one_fan_out_compute_at_the_same_time() {
         let _alone = alone();
+        const STEPS: usize = 4;
+        struct Rendezvous {
+            arrived: AtomicUsize,
+            gave_up: AtomicUsize,
+        }
+        unsafe extern "C" fn meet(state: *mut u8, index: u64, _: *const u8, out: *mut u8) {
+            // SAFETY: the test hands a live `Rendezvous` and an `i64` slot.
+            unsafe {
+                let r = &*state.cast::<Rendezvous>();
+                r.arrived.fetch_add(1, Ordering::SeqCst);
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while r.arrived.load(Ordering::SeqCst) < STEPS {
+                    if Instant::now() > deadline {
+                        r.gave_up.fetch_add(1, Ordering::SeqCst);
+                        break;
+                    }
+                    thread::yield_now();
+                }
+                out.cast::<i64>().write(index as i64);
+            }
+        }
+        let r = Rendezvous { arrived: AtomicUsize::new(0), gave_up: AtomicUsize::new(0) };
+        let src = vec![0i64; STEPS];
+        // SAFETY: `STEPS` `i64`s in and out, and `r` outlives the call.
+        let got = unsafe {
+            steps_of(
+                src.as_ptr().cast(),
+                STEPS,
+                meet,
+                (&raw const r).cast_mut().cast(),
+                8,
+                8,
+                true,
+            )
+        };
+        // SAFETY: `STEPS` `i64`s were written there.
+        let answers = unsafe { i64s(&got, STEPS) };
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(got.ptr) };
+        assert_eq!(answers, (0..STEPS as i64).collect::<Vec<i64>>(), "the items' order");
+        assert_eq!(
+            r.gave_up.load(Ordering::SeqCst),
+            0,
+            "a step waited ten seconds for another one: the steps are still serialised",
+        );
+    }
+
+    /// **A block every step of one fan-out counts keeps an exact count.**
+    ///
+    /// The `Tasks.parallel`-shaped version of
+    /// `the_count_of_a_marked_block_is_exact_under_every_carrier`: this one
+    /// goes through the real scheduler rather than through `thread::scope`, so
+    /// what it tests is that the fan-out only ever hands carriers *marked*
+    /// blocks. Two hundred steps each take and give back a reference to one
+    /// block; the count at the end is one, or the fan-out ran on something the
+    /// latch had not marked.
+    ///
+    /// It also counts overlaps outright, which is the assertion that inverted
+    /// in this slice: `the_baton_admits_one_step_at_a_time` asserted **zero**
+    /// overlaps, and the whole of what the baton bought was that zero. The
+    /// number now expected is "more than none", and the count under it is
+    /// still exact — which is the trade the mark makes and this case states.
+    #[test]
+    fn a_shared_counter_survives_a_fan_out() {
+        let _alone = alone();
+        // `alone()` first, then this; `memory::latch` states the order.
+        let _latch = crate::memory::latch();
+        const STEPS: usize = 200;
         struct Shared {
-            counter: AtomicU64,
+            block: usize,
             inside: AtomicUsize,
             overlaps: AtomicUsize,
         }
-        const STEPS: usize = 200;
-        unsafe extern "C" fn bump(state: *mut u8, index: u64, _: *const u8, out: *mut u8) {
-            // SAFETY: the test hands a live `Shared` and an `i64` slot.
+        unsafe extern "C" fn touch(state: *mut u8, index: u64, _: *const u8, out: *mut u8) {
+            // SAFETY: the test hands a live `Shared`, a live block and a slot.
             unsafe {
                 let shared = &*state.cast::<Shared>();
                 if shared.inside.fetch_add(1, Ordering::SeqCst) != 0 {
                     shared.overlaps.fetch_add(1, Ordering::SeqCst);
                 }
-                increment_slowly(&shared.counter);
+                let p = shared.block as *mut u8;
+                for _ in 0..50 {
+                    crate::memory::buri_rt_incref(p);
+                }
+                thread::yield_now();
+                for _ in 0..50 {
+                    crate::memory::buri_rt_decref(p, None);
+                }
                 shared.inside.fetch_sub(1, Ordering::SeqCst);
                 out.cast::<i64>().write(index as i64);
             }
         }
+
+        crate::memory::buri_rt_values_may_cross_tasks();
+        let p = crate::memory::buri_rt_alloc(32);
+        // SAFETY: live, just allocated under the latch.
+        assert_eq!(unsafe { crate::memory::count_and_mark(p) }, (1, true));
         let shared = Shared {
-            counter: AtomicU64::new(0),
+            block: p as usize,
             inside: AtomicUsize::new(0),
             overlaps: AtomicUsize::new(0),
         };
         let src = vec![0i64; STEPS];
-        // SAFETY: `STEPS` `i64`s in and out, and `shared` outlives the call.
+        // SAFETY: `STEPS` `i64`s in and out; `shared` and the block outlive it.
         let got = unsafe {
             steps_of(
                 src.as_ptr().cast(),
                 STEPS,
-                bump,
+                touch,
                 (&raw const shared).cast_mut().cast(),
                 8,
                 8,
@@ -1410,17 +1419,21 @@ mod tests {
         let answers = unsafe { i64s(&got, STEPS) };
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(got.ptr) };
-        assert_eq!(answers, (0..STEPS as i64).collect::<Vec<i64>>());
+        assert_eq!(answers, (0..STEPS as i64).collect::<Vec<i64>>(), "the items' order");
+        // SAFETY: `p` is still live at whatever the counts left it.
+        let (rc, marked) = unsafe { crate::memory::count_and_mark(p) };
         assert_eq!(
-            shared.overlaps.load(Ordering::SeqCst),
-            0,
-            "two steps were in Buri code at once"
+            (rc, marked),
+            (1, true),
+            "the count did not come back to one: a reference operation was lost",
         );
-        assert_eq!(
-            shared.counter.load(Ordering::SeqCst),
-            STEPS as u64,
-            "a lost update: the steps were not excluding one another"
+        assert!(
+            shared.overlaps.load(Ordering::SeqCst) > 0,
+            "no two steps were ever in Buri code together, so this proved nothing",
         );
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(p) };
+        crate::memory::forget_values_may_cross_tasks();
     }
 
     /// More items than may be in flight: the window slides, and every step
@@ -1430,9 +1443,8 @@ mod tests {
     /// is said out loud — the list is deliberately longer than it.
     #[test]
     fn a_list_longer_than_the_window_still_answers_every_item() {
-        // The fan-out draws on the carrier pool and hands the process
-        // baton around, both of which every other case that reads them
-        // takes this lock for.
+        // The fan-out draws on the carrier pool, which every other case
+        // that reads it takes this lock for.
         let _alone = alone();
         unsafe extern "C" fn triple(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
             // SAFETY: an `i64` in and an `i64` out.
@@ -1451,18 +1463,21 @@ mod tests {
         assert_eq!(answers, (0..n as i64).map(|i| i * 3).collect::<Vec<i64>>());
     }
 
-    /// A step that is itself a fan-out, from a carrier that is holding the
-    /// baton.
+    /// A step that is itself a fan-out.
     ///
-    /// The nested call has to give the baton up before it dispatches — a
-    /// carrier's body begins by taking it — so this is the case that would
-    /// deadlock if it did not. `Handoff::join` has no timeout, so a failure
-    /// here is the suite stopping rather than a message.
+    /// `a_nested_fan_out_gives_the_baton_up_first` under the baton, where the
+    /// giving-up was the point: a carrier's body began by taking the baton, so
+    /// a nested call that kept it would have been a caller waiting for work
+    /// that was waiting for the caller. With no baton the nesting is only
+    /// nesting, and the case is kept for the property it always also had —
+    /// that a fan-out from a carrier answers the same numbers a fan-out from
+    /// the process thread does, and leaves the pool usable. `Handoff::join`
+    /// has no timeout, so a failure here is still the suite stopping rather
+    /// than a message.
     #[test]
-    fn a_nested_fan_out_gives_the_baton_up_first() {
-        // The fan-out draws on the carrier pool and hands the process
-        // baton around, both of which every other case that reads them
-        // takes this lock for.
+    fn a_nested_fan_out_answers_the_same_numbers() {
+        // The fan-out draws on the carrier pool, which every other case
+        // that reads it takes this lock for.
         let _alone = alone();
         unsafe extern "C" fn inner(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
             // SAFETY: an `i64` in and an `i64` out.
@@ -1493,15 +1508,167 @@ mod tests {
         // does in `a_task_may_itself_run_tasks` — the same nesting, the other
         // arm, the same number.
         assert_eq!(answers, vec![1063, 2064]);
-        assert!(!Baton::global().held(), "the nested call kept the baton");
     }
 
-    /// **The artifact decides**, and its silence is the sequential answer.
+    /// **The data-race fixture, and it fails deterministically without the
+    /// mark.**
     ///
-    /// The only case that touches `lib.rs`'s global, which is why it puts it
-    /// back. The observable difference is the thread a step runs on: where an
-    /// artifact has not said its carriers have frames of their own, every step
-    /// runs on the caller's.
+    /// The counting cases above are stress tests: a lost update needs two
+    /// carriers' load-and-store windows to interleave, so on the pre-fix tree
+    /// they fail *often* rather than *always* — the numbers are in
+    /// `reports/wave8-g3.md`. This one has no window to hit, because what it
+    /// exercises is not the count but the **in-place write licence**, and that
+    /// is a decision each carrier takes on its own and then acts on:
+    ///
+    ///  * `base` is one heap `Str` with a capacity floor of
+    ///    [`crate::memory::BURI_RT_GROWTH_FLOOR`] bytes behind four bytes of
+    ///    text, and a count of one, because this thread holds the only
+    ///    reference and every step merely borrows it — which is the shape a
+    ///    closure's captured value has.
+    ///  * Every step concatenates **its own index** onto it. Unmarked, the
+    ///    first step to look reads `rc == 1`, takes MEMORY.md §5.3's in-place
+    ///    path, and writes its suffix into the borrowed block — and answers a
+    ///    *view over it*. There is no window to hit: a step that reaches the
+    ///    concat while the count says one does this, and on the pre-fix tree
+    ///    one always does.
+    ///  * Marked, `buri_rt_unique_cap` answers `None` whatever the count, so
+    ///    every step allocates and nothing is written through.
+    ///
+    /// The two assertions are the two faces of the same fault: **no answer is
+    /// a view over the caller's block**, and **the caller's block still holds
+    /// what the caller put in it** — read over the whole capacity, because the
+    /// suffix lands at offset four and a test that read only the four bytes it
+    /// wrote would miss the write it is looking for. `[G3-RED]` in
+    /// `reports/wave8-g3.md` is this case on a tree whose `finish` does not
+    /// stamp the mark: it fails on every run, at both assertions.
+    #[test]
+    fn two_steps_never_append_to_one_buffer_in_place() {
+        use crate::value::{BuriStr, BURI_RT_STR_ASCII, BURI_RT_STR_LEN_MASK};
+        let _alone = alone();
+        let _latch = crate::memory::latch();
+        const STEPS: usize = 16;
+
+        /// `(the shared base, the suffix bytes)`, read by every step.
+        struct Base {
+            base: usize,
+            ptr: usize,
+            len: u64,
+        }
+        unsafe extern "C" fn append(state: *mut u8, index: u64, _: *const u8, out: *mut u8) {
+            // SAFETY: the test hands a live `Base` and a `BuriStr` slot.
+            unsafe {
+                let b = &*state.cast::<Base>();
+                let digits = b"0123456789abcdef";
+                let suffix = &digits[index as usize % 16..][..1];
+                crate::buri_rt_str_concat(
+                    b.base as *mut u8,
+                    b.ptr as *const u8,
+                    b.len,
+                    std::ptr::null_mut(),
+                    suffix.as_ptr(),
+                    1 | BURI_RT_STR_ASCII,
+                    out.cast::<BuriStr>(),
+                );
+            }
+        }
+
+        crate::memory::buri_rt_values_may_cross_tasks();
+        // A four-byte `Str` in a block with room to grow, which is what a
+        // captured accumulator looks like.
+        let base = crate::memory::buri_rt_alloc_zeroed(crate::memory::BURI_RT_GROWTH_FLOOR);
+        // SAFETY: `base` is a fresh block of at least four bytes.
+        unsafe { std::ptr::copy_nonoverlapping(b"seed".as_ptr(), base, 4) };
+        let state = Base {
+            base: base as usize,
+            ptr: base as usize,
+            len: 4 | BURI_RT_STR_ASCII,
+        };
+
+        let src = vec![0i64; STEPS];
+        let stride = std::mem::size_of::<BuriStr>();
+        // SAFETY: `STEPS` `i64`s in, `STEPS` `BuriStr`s out, and `state` and
+        // the block both outlive the call.
+        let got = unsafe {
+            steps_of(
+                src.as_ptr().cast(),
+                STEPS,
+                append,
+                (&raw const state).cast_mut().cast(),
+                8,
+                stride,
+                true,
+            )
+        };
+        // The caller's own block, read back **before** anything is freed. The
+        // whole of it: an in-place append writes its suffix at offset four, so
+        // a test that read only the four bytes it put there would miss exactly
+        // the write it is looking for. The block was zeroed, so "seed" and
+        // sixty zero bytes is the untouched picture.
+        // SAFETY: `base` is this test's live block of `BURI_RT_GROWTH_FLOOR`.
+        let base_after = unsafe {
+            std::slice::from_raw_parts(base, crate::memory::BURI_RT_GROWTH_FLOOR as usize).to_vec()
+        };
+        // And whether any answer is a *view over it*, which is the same fault
+        // stated as aliasing rather than as a write.
+        let aliased = (0..STEPS)
+            .filter(|i| {
+                // SAFETY: `STEPS` `BuriStr`s were written there.
+                unsafe { got.ptr.add(i * stride).cast::<BuriStr>().read().base == base }
+            })
+            .count();
+
+        // SAFETY: `STEPS` `BuriStr`s were written there.
+        let answers: Vec<String> = (0..STEPS)
+            .map(|i| unsafe {
+                let s = got.ptr.add(i * stride).cast::<BuriStr>().read();
+                let n = (s.len & BURI_RT_STR_LEN_MASK) as usize;
+                String::from_utf8_lossy(std::slice::from_raw_parts(s.ptr, n)).into_owned()
+            })
+            .collect();
+        for i in 0..STEPS {
+            // SAFETY: each answer owns its block unless the concat aliased.
+            unsafe {
+                let s = got.ptr.add(i * stride).cast::<BuriStr>().read();
+                if !s.base.is_null() && s.base != base {
+                    crate::memory::buri_rt_free(s.base);
+                }
+            }
+        }
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(got.ptr) };
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(base) };
+        crate::memory::forget_values_may_cross_tasks();
+
+        let mut distinct = answers.clone();
+        distinct.sort();
+        distinct.dedup();
+        let mut untouched = vec![0u8; crate::memory::BURI_RT_GROWTH_FLOOR as usize];
+        untouched[..4].copy_from_slice(b"seed");
+        assert_eq!(aliased, 0, "a step answered a view over the buffer it borrowed");
+        assert_eq!(base_after, untouched, "a step wrote through a borrowed buffer");
+        assert_eq!(
+            distinct.len(),
+            STEPS,
+            "two steps appended to one buffer: {answers:?}",
+        );
+    }
+
+    /// **The artifact decides, twice**, and silence on either question is the
+    /// sequential answer.
+    ///
+    /// The only case that touches the two globals, which is why it puts both
+    /// back. The observable difference is the thread a step runs on, and the
+    /// table it walks is the whole truth table: a step fans out where the
+    /// artifact has said *both* that its carriers have frames of their own and
+    /// that its values may cross a task boundary, and runs on the caller's
+    /// thread otherwise.
+    ///
+    /// The two are separate rows rather than one because they are separate
+    /// facts (§2), and because the "frames yes, marking no" row is the one a
+    /// bug would land in: it is a backend that can fan out over blocks nobody
+    /// marked, which is the silent aliasing MEMORY.md §5.5 names. Asserting it
+    /// stays sequential is asserting that the gate is a gate.
     #[test]
     fn the_artifact_says_whether_the_steps_may_fan_out() {
         static WHERE: Mutex<Vec<ThreadId>> = Mutex::new(Vec::new());
@@ -1537,17 +1704,34 @@ mod tests {
         }
 
         let _alone = alone();
-        assert!(!crate::frames_are_per_carrier(), "the silent answer is the safe one");
+        let _latch = crate::memory::latch();
         let me = thread::current().id();
+        let here = |seen: &[ThreadId]| seen.iter().all(|id| *id == me);
+
+        assert!(!crate::frames_are_per_carrier(), "the silent answer is the safe one");
+        assert!(!crate::memory::values_may_cross_tasks(), "the silent answer is the safe one");
+        assert!(here(&ran_on()), "neither statement made, and a step left the calling carrier");
+
+        // Marking without frames: the blocks are safe to share and there is
+        // still nowhere for a second carrier to put a frame.
+        crate::memory::buri_rt_values_may_cross_tasks();
+        assert!(here(&ran_on()), "a shared Buri stack ran a step off the calling carrier");
+
+        // Frames without marking: **the row a bug lands in.** A backend that
+        // can fan out, over blocks nothing marked, must not.
+        crate::memory::forget_values_may_cross_tasks();
+        crate::buri_rt_frames_are_per_carrier();
+        let unmarked = ran_on();
         assert!(
-            ran_on().iter().all(|id| *id == me),
-            "a shared Buri stack ran a step somewhere other than the calling carrier"
+            here(&unmarked),
+            "steps fanned out over unmarked blocks: {unmarked:?}",
         );
 
-        crate::buri_rt_frames_are_per_carrier();
-        assert!(crate::frames_are_per_carrier(), "the artifact's statement did not stick");
+        // Both: the steps fan out.
+        crate::memory::buri_rt_values_may_cross_tasks();
         let fanned = ran_on();
         crate::forget_frames_are_per_carrier();
+        crate::memory::forget_values_may_cross_tasks();
         assert!(
             fanned.iter().any(|id| *id != me),
             "the steps stayed on the calling carrier: {fanned:?}"

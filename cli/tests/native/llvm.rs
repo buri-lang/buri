@@ -984,6 +984,74 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **The marking statement is emitted for a program that has tasks in it, and
+/// for no other program.**
+///
+/// `cli/runtime/lib.rs` §6's second optional call. Two directions, because
+/// only the pair says anything: a backend that always made it would put every
+/// program on atomic reference counting, and one that never made it would let
+/// `Tasks.parallel` fan out over blocks nobody marked — the silent aliasing
+/// `design/native/MEMORY.md` §5.5 names and the reason the whole slice exists.
+///
+/// The negative half is the one worth having. `middle::rc::crosses_tasks` asks
+/// the whole post-monomorphization program, and "the whole program" is exactly
+/// the kind of question that answers `true` by accident as soon as something
+/// unrelated links `core/tasks` in. This asserts that a program that prints a
+/// string does not pay for a scheduler it never mentions.
+///
+/// Asserted on the **optimized** IR, like its `frames_are_per_carrier`
+/// neighbour: a call `default<O2>` decided to drop is a call the object does
+/// not make.
+#[test]
+fn the_marking_statement_is_emitted_only_for_a_program_with_tasks() {
+    skip_unless_executable!();
+    let plain = optimized_ir(&program(
+        r#"
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("no tasks here");
+  .Ok(())
+}
+"#,
+    ));
+    assert!(
+        !plain.contains("buri_rt_values_may_cross_tasks"),
+        "a program with no tasks in it marked every block it allocates:\n{plain}"
+    );
+    // …and it is not that this program has no entry point to put a call in.
+    assert!(plain.contains("buri_rt_argv_init"), "no entry point in:\n{plain}");
+
+    let tasks = optimized_ir(&format!(
+        "{}\n{}",
+        r#"
+from "core/effect/lib.buri" import { Alloc, Stdout, Tasks };
+from "core/host/lib.buri" import * as host;
+from "core/tasks/lib.buri" import * as tasks;
+"#,
+        r#"
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let doubled = tasks.parallel(ctx, [1, 2, 3], fn(c, i, n) => n * 2);
+  let _ = ctx.println("${doubled.len()}");
+  .Ok(())
+}
+"#,
+    ));
+    assert!(
+        tasks.contains("buri_rt_values_may_cross_tasks"),
+        "a program that fans out did not mark its blocks:\n{tasks}"
+    );
+    // The order is the contract (`lib.rs` §6): the latch decides the header of
+    // every block allocated *after* it, so a call that landed after the first
+    // allocation would mark a program's heap only from the middle. `main`'s
+    // body is where both calls are, and `argv_init` — which allocates no Buri
+    // block — is the only thing before it.
+    let shim = function_body(&tasks, "i32 @main(");
+    let init = shim.find("buri_rt_argv_init").expect("no argv_init in the emitted main");
+    let mark = shim.find("buri_rt_values_may_cross_tasks").expect("no mark in the emitted main");
+    assert!(init < mark, "the mark was made before the runtime was initialised:\n{shim}");
+}
+
 /// `memory(none)` on a function the effect system proved pure, and the
 /// correction this backend makes to CODEGEN-LLVM.md §3.1: a *pure* function
 /// that can abort does not get it.
