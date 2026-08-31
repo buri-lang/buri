@@ -168,7 +168,7 @@ fn options(target: Target) -> LinkOptions<'static> {
 #[test]
 fn two_objects_link_into_a_program_that_runs() {
     let Some(target) = linkable() else {
-        eprintln!("no C toolchain on this host: nothing to link with");
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let dir = workspace("links");
@@ -195,7 +195,10 @@ fn two_objects_link_into_a_program_that_runs() {
 /// §12.4).
 #[test]
 fn the_manifest_records_where_every_object_came_from() {
-    let Some(target) = linkable() else { return };
+    let Some(target) = linkable() else {
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        return;
+    };
     let dir = workspace("manifest");
     let units = vec![emit(&dir, "lib_answer", &library(1)), emit(&dir, "main", MAIN)];
     let linker = link::select(target).unwrap().in_dir(dir.join("link"));
@@ -219,7 +222,10 @@ fn the_manifest_records_where_every_object_came_from() {
 /// inputs were.
 #[test]
 fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
-    let Some(target) = linkable() else { return };
+    let Some(target) = linkable() else {
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        return;
+    };
     let dir = workspace("reproducible");
     let units = vec![emit(&dir, "lib_answer", &library(7)), emit(&dir, "main", MAIN)];
     let cached = vec![false, false];
@@ -253,7 +259,11 @@ fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
     };
     let dumped = load_commands(&dir.join("a/app"));
     if dumped.is_empty() {
-        eprintln!("no object dumper on this host: the uuid assertion is skipped");
+        crate::ci::skipped(
+            "link",
+            "neither `otool` nor `readelf` answered, so the build-id assertion has nothing to \
+             read",
+        );
         return;
     }
     match target.platform {
@@ -274,7 +284,10 @@ fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
 /// `unchanged` parameter buys.
 #[test]
 fn an_unchanged_object_is_left_where_it_was() {
-    let Some(target) = linkable() else { return };
+    let Some(target) = linkable() else {
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        return;
+    };
     let dir = workspace("unchanged");
     let units = vec![emit(&dir, "lib_answer", &library(3)), emit(&dir, "main", MAIN)];
     let linker = link::select(target).unwrap().in_dir(dir.join("link"));
@@ -339,11 +352,15 @@ int main(int argc, char **argv) {
 #[test]
 fn the_archive_is_staged_and_linked_only_when_the_objects_name_it() {
     let Some(target) = linkable() else {
-        eprintln!("no C toolchain on this host: nothing to link with");
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     if !buri::compiler::backend::runtime_native::AVAILABLE {
-        eprintln!("this toolchain carries no runtime archive: the decision is always `Omitted`");
+        crate::ci::skipped(
+            "link",
+            "this toolchain carries no runtime archive, so the decision is always `Omitted` and \
+             only one of the two branches below is reachable",
+        );
         return;
     }
     let dir = workspace("archive-decision");
@@ -398,7 +415,10 @@ fn the_archive_is_staged_and_linked_only_when_the_objects_name_it() {
 /// nothing to write, nothing to name.
 #[test]
 fn a_toolchain_with_no_archive_never_names_one() {
-    let Some(target) = linkable() else { return };
+    let Some(target) = linkable() else {
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        return;
+    };
     let dir = workspace("no-archive");
     let units = vec![emit(&dir, "main", MAIN_USING_THE_RUNTIME)];
     let decision = link::runtime_archive_for(&units);
@@ -532,7 +552,10 @@ fn a_missing_object_is_reported_against_its_unit() {
 /// and `mold` do not produce the same bytes from the same objects.
 #[test]
 fn the_link_key_is_the_ordered_units_and_the_linker() {
-    let Some(target) = linkable() else { return };
+    let Some(target) = linkable() else {
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        return;
+    };
     let linker = link::select(target).unwrap();
     let key = |units: &[&str]| {
         let keys: Vec<ActionKey> = units.iter().map(|u| ActionKey::of(u.as_bytes())).collect();
@@ -588,7 +611,10 @@ fn the_link_key_is_the_ordered_units_and_the_linker() {
 /// one is, the cache is already right about it.
 #[test]
 fn the_link_key_moves_with_the_archive_decision_and_not_otherwise() {
-    let Some(target) = linkable() else { return };
+    let Some(target) = linkable() else {
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        return;
+    };
     let linker = link::select(target).unwrap();
     let units = [ActionKey::of(b"a"), ActionKey::of(b"b")];
     let key = |runtime| {

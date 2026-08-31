@@ -297,7 +297,7 @@ fn program(body: &str) -> String {
 macro_rules! skip_unless_executable {
     () => {
         if let Some(why) = can_execute() {
-            println!("skipped: {why}");
+            crate::ci::skipped("llvm", &why);
             return;
         }
     };
@@ -499,7 +499,11 @@ export fn main(): Result<(), Str> {
 #[test]
 fn hello_world_references_the_runtime_archive() {
     if !buri::compiler::backend::runtime_native::AVAILABLE {
-        println!("skipped: this toolchain carries no runtime archive");
+        crate::ci::skipped(
+            "llvm",
+            "this toolchain carries no runtime archive, so there is nothing for the entry point \
+             to reference",
+        );
         return;
     }
     let lowered = lower(&program(

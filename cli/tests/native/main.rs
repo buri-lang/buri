@@ -46,6 +46,13 @@
 #[path = "../harness/sweep.rs"]
 mod sweep;
 
+// The other thing every suite in here wants, and for the same reason the sweep
+// is here: `ci::skipped` is what turns this domain's `if !supported()` guards
+// from "a quiet pass on a host without a backend" into "a red X on a runner
+// that was supposed to have one". Its own doc comment is the argument.
+#[path = "../harness/ci.rs"]
+mod ci;
+
 // What more than one backend suite needs: the allocation probe, the shape a
 // run produces, and the conformance corpus as a repository. One copy, because
 // what those suites assert is that the backends agree.

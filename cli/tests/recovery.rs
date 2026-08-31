@@ -20,23 +20,24 @@
 //!   the maintainer's example outwards.
 //!
 //! ```text
-//! cargo test -p buri --test recovery                     # the parser's four
-//! cargo test -p buri --test recovery -- --ignored        # R2's two as well
+//! cargo test -p buri --test recovery                     # all of it
 //! BURI_RECOVERY_PER_KIND=40 cargo test …                 # soak: more per file
 //! BURI_RECOVERY_SEED=0x1234 cargo test …                 # a different sample
 //! BURI_RECOVERY_ONLY="delete-closer" cargo test …        # one row of the report
 //! BURI_BLESS=1 cargo test -p buri --test recovery recorded
 //! ```
 //!
-//! # What is ignored, and why
+//! # Nothing here is ignored
 //!
 //! These were written **before** the parser that satisfies them, so every one
 //! of them was red on purpose and `#[ignore]` kept the default `cargo test`
-//! green while that was true. The four the parser owns — (a) one mistake is
-//! one diagnostic, (b) the caret is on the mistake, (c) the fix names the
-//! missing token, (d) a syntax error stays a syntax error — and the curated
-//! set now run by default. The two the formatter owns are still ignored, and
-//! their attributes name **R2**.
+//! green while that was true. That is over: the four the parser owns — (a) one
+//! mistake is one diagnostic, (b) the caret is on the mistake, (c) the fix
+//! names the missing token, (d) a syntax error stays a syntax error — the two
+//! the formatter owns, the curated set, and [`message_audit_corpus`] all run by
+//! default. This section is kept as the record of why the attributes were here,
+//! because a file whose header still explains an `#[ignore]` it no longer
+//! carries is how the next one gets added.
 //!
 //! # The ceilings
 //!
@@ -74,6 +75,7 @@ use buri::formatting::{token_shape, Shape};
 use harness::{case_dirs, indent, require_annotation, tests_dir, Golden, Scratch};
 use mutation::{Kind, Mutation, Source};
 use std::collections::BTreeMap;
+use std::path::Path;
 
 // ---------------------------------------------------------------------------
 // The sample
@@ -919,27 +921,38 @@ fn position(text: &str, at: u32) -> (usize, usize) {
 // The message audit
 // ---------------------------------------------------------------------------
 
-/// Writes every diagnostic the audit grades, and nothing else.
+/// Writes every diagnostic the audit grades, in the shape the audit reads.
 ///
 /// `cli/tests/message-audit/run.sh` reads the file this leaves behind and puts
 /// each record to a model with a one-question rubric: does this message name
 /// exactly what to fix, and where? That is a judgement about English, which no
 /// assertion in this file can make and which is the whole of what "a better
-/// diagnostic" means.
+/// diagnostic" means. The script is what reaches the network; this never does,
+/// the way `cli/tests/proto/run.sh` keeps a foreign runner out of `cargo test`.
 ///
-/// It is a test only because the corpus lives here. It asserts nothing, writes
-/// nothing unless `BURI_MESSAGE_AUDIT` is set, and never reaches the network —
-/// the script does that, out of `cargo test`, the way `cli/tests/proto/run.sh`
-/// keeps a foreign runner out of it.
+/// **It used to be `#[ignore]`d and to return early unless `BURI_MESSAGE_AUDIT`
+/// was set**, which made it two skips wearing one coat: ignored by default, and
+/// a silent pass if you un-ignored it without the variable. What it actually
+/// costs is one parse of forty curated cases and sixty generated ones, which
+/// the file already pays for `the_corpus_is_present` — so it now runs like any
+/// other test, writes its corpus under `CARGO_TARGET_TMPDIR`, and **asserts the
+/// format**. That last part is the coverage this had none of: `run.sh` splits
+/// the file with `awk` on `--- <n>` and reads five named fields out of each
+/// record, and nothing anywhere noticed when one of them stopped being
+/// written. Now the generator and the reader of that format are held together
+/// by a test rather than by a comment.
+///
+/// `BURI_MESSAGE_AUDIT_CASES` still says where the file goes, because that is
+/// how the script asks for it, and `BURI_MESSAGE_AUDIT_SAMPLED` still says how
+/// many generated cases to spread over.
 #[test]
-#[ignore = "the message audit's corpus; `cli/tests/message-audit/run.sh` drives it"]
 fn message_audit_corpus() {
-    if std::env::var_os("BURI_MESSAGE_AUDIT").is_none() {
-        eprintln!("set BURI_MESSAGE_AUDIT=1 to write the audit corpus");
-        return;
-    }
-    let out = std::env::var("BURI_MESSAGE_AUDIT_CASES")
-        .unwrap_or_else(|_| String::from("/tmp/buri-message-audit-cases.txt"));
+    let out = std::env::var("BURI_MESSAGE_AUDIT_CASES").unwrap_or_else(|_| {
+        Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join("message-audit-cases.txt")
+            .to_string_lossy()
+            .into_owned()
+    });
     let want = env_num("BURI_MESSAGE_AUDIT_SAMPLED").unwrap_or(60);
 
     let mut records = String::new();
@@ -968,6 +981,25 @@ fn message_audit_corpus() {
 
     std::fs::write(&out, &records).unwrap();
     eprintln!("message audit: {n} records written to {out}");
+
+    // The curated forty are on disk, so anything under that is a corpus that
+    // stopped being reachable rather than a corpus that is small.
+    assert!(n >= 40, "the audit corpus is {n} records; the curated set alone is forty");
+
+    // The format `run.sh` reads, asserted here because it is generated here.
+    // `awk` splits on `--- <n>` and pulls five fields out of each record; a
+    // record missing one of them is a record the grader is asked about with a
+    // blank where the message should be, and the run before this assertion
+    // existed would have looked exactly as green.
+    let headers: Vec<&str> = records.lines().filter(|l| l.starts_with("--- ")).collect();
+    assert_eq!(headers.len(), n, "one `--- <n>` header per record");
+    for (i, header) in headers.iter().enumerate() {
+        assert_eq!(*header, format!("--- {}", i + 1), "the headers are 1..=n in order");
+    }
+    for field in ["where: ", "line: ", "code: ", "message: ", "fix: "] {
+        let count = records.lines().filter(|l| l.starts_with(field)).count();
+        assert_eq!(count, n, "every record carries a `{field}` line");
+    }
 }
 
 /// One record, in the shape the audit script reads with `awk`.
