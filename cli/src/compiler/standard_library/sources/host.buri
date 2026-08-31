@@ -150,11 +150,13 @@ impl Listen for HostListen {
         idleTimeoutMillis: Int,
     ): Result<Listener, ServeError>;
 
-    fn listenAccept(self, handle: Int): Result<Request, ServeError>;
+    fn listenAccept(self, handle: Int): Result<Int, ServeError>;
+
+    fn listenRequest(self, connection: Int): Result<Request, ServeError>;
 
     fn listenRespond(
         self,
-        handle: Int,
+        connection: Int,
         status: Int,
         headers: [Header],
         body: [U8],

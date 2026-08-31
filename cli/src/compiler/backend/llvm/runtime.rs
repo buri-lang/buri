@@ -323,14 +323,19 @@ pub const ENTRIES: &[Entry] = &[
     },
     // -- Listen, and Sockets beside it --------------------------------------
     //
-    // Four operations and no closure among them: the accept loop lives in
+    // Five operations and no closure among them: the accept loop lives in
     // `core/net/server`, in Buri, so none of these is an [`Arg::Step`] and the
-    // trampoline above is untouched by an entire server landing.
+    // trampoline above is untouched by an entire server landing — F3's worker
+    // per handler included, because that fan-out is `Tasks.parallel`'s row and
+    // not one of these.
     //
-    // Every one answers `Result<_, ServeError>` and `ServeError` is a
-    // **struct**, so all four take `lib.rs` §2.1's second shape: the error
-    // crosses whole through an out-pointer and the discriminant says only that
-    // it failed. `bytes.fromUtf8` is the other row shaped that way.
+    // Four of them answer `Result<_, ServeError>` and `ServeError` is a
+    // **struct**, so those take `lib.rs` §2.1's second shape: the error crosses
+    // whole through an out-pointer and the discriminant says only that it
+    // failed. `bytes.fromUtf8` is the other row shaped that way.
+    //
+    // `listenAccept` and `listenRequest` are two rows because only the first of
+    // them waits; `effect Listen` is where that is argued.
     //
     // Each knob is its own argument rather than an options struct, because
     // this table describes a C parameter list one *Buri argument* at a time:
@@ -346,6 +351,12 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         key: "host.HostListen.listenAccept",
         symbol: "buri_rt_host_listen_accept",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host.HostListen.listenRequest",
+        symbol: "buri_rt_host_listen_request",
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::Res,
     },

@@ -452,23 +452,31 @@ pub const ENTRIES: &[Entry] = &[
     cx(es("host.HostTasks.parallel", "buri_rt_host_tasks_parallel", Ret::Out), 1),
     // -- Listen, and Sockets beside it --------------------------------------
     //
-    // Four operations and no closure among them: the accept loop is
+    // Five operations and no closure among them: the accept loop is
     // `core/net/server`'s, in Buri, so nothing here is runtime-driven and none
     // of these rows is an [`Extra::Step`]. That is the whole reason `Listen`
-    // costs four ordinary rows where `Tasks` costs one with a trampoline
-    // behind it.
+    // costs five ordinary rows where `Tasks` costs one with a trampoline
+    // behind it — and it is why F3 could put a *worker per handler* on the
+    // carrier pool without touching the trampoline at all: the fan-out is
+    // `Tasks.parallel`'s, one row up, and these five neither know nor care how
+    // many callers they have.
     //
-    // Every one is `Result<_, ServeError>`, and `ServeError` is a **struct** —
-    // so all four take §2.1's *second* shape: the error crosses whole through
-    // an out-pointer of its own and the discriminant says only that it failed.
-    // `bytes.fromUtf8` is the other row with that shape, and `NetError`'s
-    // payload-carrying variants are why `ServeError` was declared a struct
-    // rather than a ninth and tenth `NetError` variant.
+    // Four of them are `Result<_, ServeError>`, and `ServeError` is a
+    // **struct** — so those take §2.1's *second* shape: the error crosses whole
+    // through an out-pointer of its own and the discriminant says only that it
+    // failed. `bytes.fromUtf8` is the other row with that shape, and
+    // `NetError`'s payload-carrying variants are why `ServeError` was declared
+    // a struct rather than a ninth and tenth `NetError` variant.
+    //
+    // **`listenAccept` and `listenRequest` are two rows and not one** because
+    // only the first of them waits: the accept is where a server spends its idle
+    // life and the read is of something the acceptor is already holding.
+    // `effect Listen` carries the argument.
     //
     // `self` is `HostListen`, an empty struct, so it flattens to nothing and
-    // no row here needs a `ctx` column: none of the four takes a context.
-    // `listenBind`'s `ListenOptions` and `listenRespond`'s `Response` flatten
-    // into their leaves by §2 rule 1, and `Listener` into its two `Int`s.
+    // no row here needs a `ctx` column: none of the five takes a context.
+    // `listenRespond`'s `Response` flattens into its leaves by §2 rule 1, and
+    // `Listener` and `Request` come back through an out-pointer whole.
     //
     // The bodies are in `cli/runtime/net.rs`, which is why
     // `runtime_native::net_intrinsic` names the `host.HostListen.*` family: a
@@ -476,6 +484,7 @@ pub const ENTRIES: &[Entry] = &[
     // before code generation rather than with a missing symbol from `cc`.
     e("host.HostListen.listenBind", "buri_rt_host_listen_bind", Ret::Res),
     e("host.HostListen.listenAccept", "buri_rt_host_listen_accept", Ret::Res),
+    e("host.HostListen.listenRequest", "buri_rt_host_listen_request", Ret::Res),
     e("host.HostListen.listenRespond", "buri_rt_host_listen_respond", Ret::Res),
     e("host.HostListen.listenClose", "buri_rt_host_listen_close", Ret::Void),
     // The socket half. `()` on all three, because a frame is enqueued rather

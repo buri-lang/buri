@@ -2938,3 +2938,38 @@ fn a_server_answers_a_request_on_a_socket() {
     // through a socket rather than through a unit test.
     crate::shared::served_the_path(&reply, "/ping");
 }
+
+/// **Eight requests at once, answered one at a time — and all eight answered.**
+///
+/// The frame-threaded backend's half of F3, and the honest one. `run` fans its
+/// accept loop out with `Tasks.parallel` on every backend, but `rt.rs` runs the
+/// steps of a fan-out on the calling carrier unless the artifact called
+/// `buri_rt_frames_are_per_carrier` — and this backend never does, because a
+/// program it builds has one Buri stack and a second worker would have nowhere
+/// to put a frame (`asm.rs`, where that call's absence is asserted). So the
+/// eight workers here run in index order and worker zero answers everything.
+///
+/// **That is a timing difference and not a behaviour difference**, which is the
+/// claim. Eight clients connect at once, the backlog holds them, and every one
+/// of them gets its own answer back: `each_answered_its_own` is the same
+/// assertion the LLVM row makes, and it passes here for the same reason. No
+/// clock is asserted, because there is nothing to assert — the sleep is zero and
+/// the row would be measuring the scheduler it does not have.
+#[test]
+fn eight_requests_at_once_are_each_answered_on_their_own_connection() {
+    if !supported() {
+        return;
+    }
+    const REQUESTS: usize = 8;
+    let source = crate::shared::concurrent_server(REQUESTS, 0);
+    let binary = build_with("server-concurrent", &source, None);
+    let (out, replies, _elapsed) = crate::shared::served_many(&binary, REQUESTS);
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "the server did not run to its own end:\n{}",
+        out.stdout
+    );
+    assert_eq!(replies.len(), REQUESTS);
+    crate::shared::each_answered_its_own(&replies);
+}

@@ -945,7 +945,7 @@ impl Net for TeapotNet {
 /// program's own code — and made the handler's first parameter a value granting
 /// only acceptance. `core/net/server` owns the loop now: it accepts, calls the
 /// handler under the caller's own context, and responds. So a fake acceptor is
-/// four small answers and nothing that calls back, and the interesting question
+/// five small answers and nothing that calls back, and the interesting question
 /// moved to whether the *library* drives them in the right order — which is
 /// what `served` below records.
 ///
@@ -968,17 +968,30 @@ impl Listen for OneShotListen {
         match (self.bindsTo) {
             "" => .Err(ServeError { cause: .PermissionDenied, detail: "no address" }),
             _ => {
-                .Ok(Listener { handle: 1, port: if (port == 0) { 8080 } else { port } })
+                .Ok(Listener {
+                    handle: 1,
+                    port: if (port == 0) { 8080 } else { port },
+                    handlers: 1,
+                })
             },
         }
     }
 
-    /// One request, and then the ordinary end of a server. The `url` is
-    /// `bindsTo`, so a handler that reads the request can tell which acceptor
-    /// it was serving.
-    fn listenAccept(self, handle: Int): Result<Request, ServeError> {
+    /// One connection, and then the ordinary end of a server. The number is a
+    /// constant because a fake with one request has nothing to tell two of them
+    /// apart by.
+    fn listenAccept(self, handle: Int): Result<Int, ServeError> {
         match (handle) {
-            1 => {
+            1 => .Ok(7),
+            _ => .Err(ServeError { cause: .Closed, detail: "" }),
+        }
+    }
+
+    /// The request on that connection. The `url` is `bindsTo`, so a handler
+    /// that reads the request can tell which acceptor it was serving.
+    fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+        match (connection) {
+            7 => {
                 .Ok(Request { method: .Get, url: self.bindsTo, headers: [], body: [] })
             },
             _ => .Err(ServeError { cause: .Closed, detail: "" }),
@@ -997,7 +1010,7 @@ impl Listen for OneShotListen {
     /// with no acceptor behind it.
     fn listenRespond(
         self,
-        handle: Int,
+        connection: Int,
         status: Int,
         headers: [Header],
         body: [U8],
@@ -1006,6 +1019,70 @@ impl Listen for OneShotListen {
             true => .Err(ServeError { cause: .Closed, detail: "" }),
             false => .Err(ServeError { cause: .Transport, detail: "bad status" }),
         }
+    }
+
+    fn listenClose(self, handle: Int): () {
+        ()
+    }
+}
+
+/// `OneShotListen`, except that its `Listener` says it will host `handlers` of
+/// them.
+///
+/// **The fake for the fan-out.** `core/net/server`'s `run` reads
+/// `listener.handlers` and starts that many workers, each running the whole
+/// accept loop; there is no way to see that from inside `Listen`, because an
+/// effect method takes only `self` and `self` is immutable, so nothing here can
+/// count. What can be seen is the *handler*: it runs under the caller's context,
+/// so a caller with a captured stdout counts the workers by counting the lines.
+///
+/// Every worker gets a request, answers it, and is told `.Closed` — which is a
+/// one-shot per worker rather than per listener, and is the only thing a
+/// stateless fake can be.
+export struct PoolListen {
+    export bindsTo: Str,
+    export handlers: Int,
+}
+
+impl Listen for PoolListen {
+    fn listenBind(
+        self,
+        address: Str,
+        port: Int,
+        protocols: [Protocol],
+        requestLimit: Int,
+        idleTimeoutMillis: Int,
+    ): Result<Listener, ServeError> {
+        match (self.bindsTo) {
+            "" => .Err(ServeError { cause: .PermissionDenied, detail: "no address" }),
+            _ => .Ok(Listener { handle: 1, port: 8080, handlers: self.handlers }),
+        }
+    }
+
+    fn listenAccept(self, handle: Int): Result<Int, ServeError> {
+        match (handle) {
+            1 => .Ok(7),
+            _ => .Err(ServeError { cause: .Closed, detail: "" }),
+        }
+    }
+
+    fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+        match (connection) {
+            7 => {
+                .Ok(Request { method: .Get, url: self.bindsTo, headers: [], body: [] })
+            },
+            _ => .Err(ServeError { cause: .Closed, detail: "" }),
+        }
+    }
+
+    fn listenRespond(
+        self,
+        connection: Int,
+        status: Int,
+        headers: [Header],
+        body: [U8],
+    ): Result<(), ServeError> {
+        .Err(ServeError { cause: .Closed, detail: "" })
     }
 
     fn listenClose(self, handle: Int): () {
@@ -1065,7 +1142,7 @@ impl Sockets for QuietSockets {
 /// The handler is handed `c` — the caller's *own* context — and uses it,
 /// which is the claim: a handler runs under the authority `serve` was called
 /// with, and nothing about that passes through `Listen`.
-export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
+export fn serveOnce<C: Alloc + Listen + Net + Sockets + Tasks>(ctx: C, url: Str): Int {
     let _ = server.sendText(ctx, 7, "opened");
     let _ = server.sendBytes(ctx, 7, []);
     let _ = server.close(ctx, 7, 1000, "done");
