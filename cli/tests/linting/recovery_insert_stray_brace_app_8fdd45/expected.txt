@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_app_8fdd45/main.buri:13:33
+   |
+13 |   io.println(ctx, "done").mapErr@ (fn(_e) => "could not write to standard output")
+   |                                 ^
+   |
+  --> lib/recovery_insert_stray_brace_app_8fdd45/main.buri:10:35
+   |
+10 | export fn main(): Result<(), Str> {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here

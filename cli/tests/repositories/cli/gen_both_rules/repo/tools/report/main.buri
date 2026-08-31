@@ -17,6 +17,5 @@ export fn main(): Result<(), Str> {
     Env:    host.env,
   };
   let flags = parseFlags(env.args(ctx));
-  let _ = io.println(ctx, "${render(ctx, 1905)} ${flags.title}").ignore();
-  .Ok(())
+  io.println(ctx, "${render(ctx, 1905)} ${flags.title}").mapErr(fn(_e) => "could not write to standard output")
 }

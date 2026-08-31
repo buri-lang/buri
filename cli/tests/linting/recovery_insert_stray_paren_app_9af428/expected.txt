@@ -1,0 +1,29 @@
+error: `println` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> lib/recovery_insert_stray_paren_app_9af428/main.buri:12:3
+   |
+12 |   io.println(ctx@ , describe()).mapErr(fn(_e) => "could not write to standard output")
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass the context: the convention is receiver first, context second, everything else after
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_app_9af428/main.buri:12:17
+   |
+12 |   io.println(ctx@ , describe()).mapErr(fn(_e) => "could not write to standard output")
+   |                 ^
+   |
+  --> lib/recovery_insert_stray_paren_app_9af428/main.buri:12:13
+   |
+12 |   io.println(ctx@ , describe()).mapErr(fn(_e) => "could not write to standard output")
+   |             ^ opened here
+   |
+   = fix: write `)` here
+warning: `ctx` is bound to something other than a context [ctx-rebinding]
+  --> lib/recovery_insert_stray_paren_app_9af428/main.buri:16:3
+   |
+16 |   let ctx = "not a context";
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `ctx` is where a function's effects arrive, and a repository in which it means that everywhere is one where a reader can tell what a function may do by reading its signature
+   = fix: give the binding a name of its own

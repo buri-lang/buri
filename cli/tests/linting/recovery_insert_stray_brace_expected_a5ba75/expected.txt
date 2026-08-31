@@ -1,9 +1,0 @@
-error: expected `;`, found `@` [unexpected-token]
-  --> lib/recovery_insert_stray_brace_expected_a5ba75/main.buri:54:16
-   |
-54 |   let _ = shout@ (ctx, label);
-   |                ^
-   |
-   = expected: `;`
-   = actual: `@`
-   = fix: write `;` here

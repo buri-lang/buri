@@ -14,6 +14,5 @@ export fn main(): Result<(), Str> {
   let trip: Trip = [widen(1.5), widen(2.5)];
   let total: Meters = (trip[0] ?? 0.0) + (trip[1] ?? 0.0);
   let deepest: Sample = sample(total);
-  let _ = io.println(ctx, str.format(ctx, "${depth(deepest)}")).ignore();
-  .Ok(())
+  io.println(ctx, str.format(ctx, "${depth(deepest)}")).mapErr(fn(_e) => "could not write to standard output")
 }

@@ -16,7 +16,7 @@ error: this is not a struct or an enum variant [not-a-struct-literal-head]
 error: there is nothing named `encodePoint` in scope [unresolved-name]
   --> cmd/app/main.buri:10:44
    |
-10 |   let _ = io.println(ctx, bytes.toHex(ctx, encodePoint(ctx, p))).ignore();
+10 |   let _ = io.println(ctx, bytes.toHex(ctx, encodePoint(ctx, p))).mapErr(fn(_e) => "could not write to standard output")?;
    |                                            ^^^^^^^^^^^
    |
    = fix: declare `encodePoint`, or import it — a name is in scope only from this module's own declarations and its imports
@@ -36,9 +36,9 @@ error: there is nothing named `encodePoint` in scope [unresolved-name]
      set the file put there.
 
 error: there is nothing named `decodePoint` in scope [unresolved-name]
-  --> cmd/app/main.buri:11:30
+  --> cmd/app/main.buri:11:22
    |
-11 |   let _ = io.println(ctx, "${decodePoint(ctx, encodePoint(ctx, p)) == .Ok(p)}").ignore();
-   |                              ^^^^^^^^^^^
+11 |   io.println(ctx, "${decodePoint(ctx, encodePoint(ctx, p)) == .Ok(p)}").mapErr(fn(_e) => "could not write to standard output")
+   |                      ^^^^^^^^^^^
    |
    = fix: declare `decodePoint`, or import it — a name is in scope only from this module's own declarations and its imports

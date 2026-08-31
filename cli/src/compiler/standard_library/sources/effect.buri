@@ -57,11 +57,15 @@ export effect Alloc {
 /// `()` was claiming they do not. The `Result` is not optional to look at —
 /// discarding one is `result-discarded`, in both of the two places a value can
 /// be dropped — so a program that does not care says so in the one greppable
-/// spelling there is:
+/// spelling there is, and `buri lint` reports every one of them as
+/// `discarded-result`, a print no differently from anything else:
 ///
 /// ```text
 /// io.println(ctx, "ready").ignore();
 /// ```
+///
+/// A program that does care answers instead, and `mapErr` is what carries the
+/// `IoError` into whatever its own error type is.
 ///
 /// That is the whole of the cost, and it buys the thing the old shape could not
 /// give: a program writing to a pipe its reader has gone away from can *notice*.

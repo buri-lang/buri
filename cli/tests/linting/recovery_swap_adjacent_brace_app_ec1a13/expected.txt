@@ -1,0 +1,16 @@
+error: expected `=`, found a string literal [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_ec1a13/main.buri:16:11
+   |
+16 |   let ctx "not a context" =;
+   |           ^^^^^^^^^^^^^^^
+   |
+   = expected: `=`
+   = actual: a string literal
+   = fix: write `=` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_ec1a13/main.buri:17:3
+   |
+17 |   ctx
+   |   ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

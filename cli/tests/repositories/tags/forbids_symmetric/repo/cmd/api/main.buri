@@ -6,6 +6,5 @@ from "//lib/widget" import { fromWidget };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, fromWidget()).ignore();
-  .Ok(())
+  io.println(ctx, fromWidget()).mapErr(fn(_e) => "could not write to standard output")
 }

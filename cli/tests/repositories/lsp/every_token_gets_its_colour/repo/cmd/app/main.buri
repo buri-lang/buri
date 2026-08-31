@@ -31,6 +31,5 @@ export fn main(): Result<(), Str> {
     };
     let pair = (restock(listing("apple", 300), 12), "shelf");
     let apple = first(pair);
-    let _ = io.println(ctx, edge(apple)).ignore();
-    .Ok(())
+    io.println(ctx, edge(apple)).mapErr(fn(_e) => "could not write to standard output")
 }

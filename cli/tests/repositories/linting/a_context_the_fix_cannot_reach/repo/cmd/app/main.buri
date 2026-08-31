@@ -26,6 +26,5 @@ fn apply<C: Alloc>(ctx: C, measure: fn(C, Str) => Int, label: Str): Int {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let label = "ledger";
-  let _ = io.println(ctx, "${apply(ctx, plain, label)} and ${stamp(ctx, label)}").ignore();
-  .Ok(())
+  io.println(ctx, "${apply(ctx, plain, label)} and ${stamp(ctx, label)}").mapErr(fn(_e) => "could not write to standard output")
 }

@@ -39,9 +39,11 @@ The normative text ships in the binary: `buri docs lang/lexical`,
    error (`result-discarded`), and so is a `_` further down the pattern —
    `let (n, _) = (1, someResult())` — and so is leaving the call standing as a
    statement. Consume it with `?`, `match` or `.withDefault(...)`, or drop it
-   on purpose with `.ignore()`. **A print answers one too**, so a line a
-   program does not care about is
-   `let _ = io.println(ctx, "hi").ignore();`.
+   on purpose with `.ignore()`, which `buri lint` reports as
+   `discarded-result`. **A print answers one too**, so a line a program does
+   not care about is `let _ = io.println(ctx, "hi").ignore();` — and a program
+   that does care answers instead, with `mapErr` to carry the `IoError` into
+   its own error type.
 10. **No relative imports.** A module path is `core/...`, `ui/...`, or
     `//...` from the repository root, and means the same module everywhere.
 11. **Methods live in an `impl` block in their type's own module**, and are

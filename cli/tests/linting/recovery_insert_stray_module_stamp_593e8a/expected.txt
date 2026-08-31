@@ -1,0 +1,22 @@
+error: `extra` is not a trait or effect [not-a-trait]
+  --> lib/recovery_insert_stray_module_stamp_593e8a/lib.buri:25:5
+   |
+25 |   + extra Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |     ^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `extra` as one
+error: a generic parameter ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_module_stamp_593e8a/lib.buri:25:10
+   |
+25 |   + extra Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |          ^
+   |
+   = fix: write `,` here
+error: `C` does not satisfy `Stdout` [unsatisfied-bound]
+  --> lib/recovery_insert_stray_module_stamp_593e8a/lib.buri:26:3
+   |
+26 |   io.println(ctx, ".. ${label}")
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Stdout`, or use a type that has one

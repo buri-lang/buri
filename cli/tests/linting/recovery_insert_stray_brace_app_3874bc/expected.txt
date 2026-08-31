@@ -1,0 +1,36 @@
+warning: `core/effect` is imported twice [duplicate-import]
+ --> lib/recovery_insert_stray_brace_app_3874bc/main.buri:9:6
+  |
+9 | from "core/effect" import { Stdout };
+  |      ^^^^^^^^^^^^^
+  |
+ --> lib/recovery_insert_stray_brace_app_3874bc/main.buri:8:6
+  |
+8 | from "core/effect" import { Alloc };
+  |      ^^^^^^^^^^^^^ first imported here
+  |
+  = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
+  = fix: merge the two into one import
+error: `println` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> lib/recovery_insert_stray_brace_app_3874bc/main.buri:17:3
+   |
+17 |   io.println(ctx, " and the rest"extra ).mapErr(fn(_e) => "could not write to standard output")
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_brace_app_3874bc/main.buri:17:34
+   |
+17 |   io.println(ctx, " and the rest"extra ).mapErr(fn(_e) => "could not write to standard output")
+   |                                  ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_3874bc/main.buri:17:34
+   |
+17 |   io.println(ctx, " and the rest"extra ).mapErr(fn(_e) => "could not write to standard output")
+   |                                  ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

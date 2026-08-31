@@ -19,9 +19,9 @@ error: this `if` branch is missing its closing `}` [unclosed-delimiter]
    |
    = fix: write `}` here
 error: this function body is missing its closing `}` [unclosed-delimiter]
-  --> lib/recovery_delete_closer_brace_app_a9830e/main.buri:30:1
+  --> lib/recovery_delete_closer_brace_app_a9830e/main.buri:29:1
    |
-30 | 
+29 | 
    | ^
    |
  --> lib/recovery_delete_closer_brace_app_a9830e/main.buri:9:22

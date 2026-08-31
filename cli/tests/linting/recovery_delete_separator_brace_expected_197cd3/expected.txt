@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-terminator]
-  --> lib/recovery_delete_separator_brace_expected_197cd3/main.buri:38:23
-   |
-38 |   let label = "ledger"
-   |                       ^
-   |
-   = fix: write `;` here

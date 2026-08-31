@@ -6,6 +6,5 @@ from "//cmd/app/banner.buri" import { banner };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, banner()).ignore();
-  .Ok(())
+  io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
 }

@@ -6,6 +6,5 @@ from "//lib/money" import { fromCents };
 
 export fn main(): Result<(), Str> {
     let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-    let _ = io.println(ctx, "cents: ${fromCents(450).show(ctx)}").ignore();
-    .Ok(())
+    io.println(ctx, "cents: ${fromCents(450).show(ctx)}").mapErr(fn(_e) => "could not write to standard output")
 }

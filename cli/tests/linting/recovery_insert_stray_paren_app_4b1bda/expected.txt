@@ -1,0 +1,17 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_insert_stray_paren_app_4b1bda/main.buri:16:20
+   |
+16 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: expected the rest of the string, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_app_4b1bda/main.buri:42:60
+   |
+42 |   let _ = io.println(ctx, "${banner(ctx, label)} is ${width@ (ctx, label)} wide").mapErr(fn(_e) => "could not write to standard output")?;
+   |                                                            ^
+   |
+   = expected: the rest of the string
+   = actual: `@`
+   = fix: close the template: every `${` needs a `}` and the string needs a closing quote

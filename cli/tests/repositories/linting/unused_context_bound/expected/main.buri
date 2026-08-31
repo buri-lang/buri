@@ -1,10 +1,10 @@
 // A `ctx` parameter says a function touches the world; its bounds say which
-// parts of it. There are three ways a body uses one — a method the bound
-// declares, a callee whose own bound names it, and a function-typed parameter
-// that is handed the whole context — and the three functions below the first
-// two use one each. The first two ask for capabilities they never exercise.
+// parts of it. There are two ways a body uses one — a callee whose own bound
+// names it, and a function-typed parameter that is handed the whole context —
+// and the three functions below the first two use one each. The first two ask
+// for capabilities they never exercise.
 
-from "core/effect" import { Alloc, Clock, Stdout };
+from "core/effect" import { Alloc, Clock, IoError, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
@@ -12,22 +12,22 @@ from "core/str" import * as str;
 /// The finding. `io.println` asks for `Stdout` and for nothing else, so
 /// `Alloc` here is a demand on every caller for a capability the body never
 /// uses.
-fn announce<C: Stdout>(ctx: C, label: Str): () {
-  io.println(ctx, "-- ${label}").ignore()
+fn announce<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {
+  io.println(ctx, "-- ${label}")
 }
 
 /// Two of them on one parameter, and one rewrite rather than two: the byte
 /// ranges that delete `Alloc` and `Clock` both claim the `+` between them, so
 /// the removal is computed once and both findings carry it.
-fn shout<C: Stdout>(ctx: C, label: Str): () {
-  io.println(ctx, "!! ${label}").ignore()
+fn shout<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {
+  io.println(ctx, "!! ${label}")
 }
 
-/// A method the bound itself declares. `println` comes from `Stdout` and from
-/// nowhere else — a method on a type parameter can only come from its bounds —
-/// so calling it is the use.
-fn whisper<C: Stdout>(ctx: C, label: Str): () {
-  io.println(ctx, ".. ${label}").ignore()
+/// The same use again, at the one bound that is not spare. `io.println` is
+/// declared `<C2: Stdout>`, so instantiating it at this `C` raises the `Stdout`
+/// obligation, and that obligation is the evidence.
+fn whisper<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {
+  io.println(ctx, ".. ${label}")
 }
 
 /// A callee that asks for one of its own. `str.format<C: Alloc>` puts `Alloc`
@@ -50,9 +50,8 @@ export fn main(): Result<(), Str> {
     Stdout: host.stdout,
   };
   let label = "ledger";
-  let _ = announce(ctx, label);
-  let _ = shout(ctx, label);
-  let _ = whisper(ctx, banner(ctx, label));
-  let _ = whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label));
-  .Ok(())
+  let _ = announce(ctx, label).mapErr(fn(_e) => "could not write to standard output")?;
+  let _ = shout(ctx, label).mapErr(fn(_e) => "could not write to standard output")?;
+  let _ = whisper(ctx, banner(ctx, label)).mapErr(fn(_e) => "could not write to standard output")?;
+  whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
 }

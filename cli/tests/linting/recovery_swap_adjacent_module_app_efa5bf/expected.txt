@@ -28,9 +28,9 @@ error: expected an expression, found `>` [unexpected-token]
    = actual: `>`
    = fix: write a value here
 error: there is nothing named `ctx` in scope [unresolved-name]
-  --> lib/recovery_swap_adjacent_module_app_efa5bf/main.buri:14:22
+  --> lib/recovery_swap_adjacent_module_app_efa5bf/main.buri:14:14
    |
-14 |   let _ = io.println(ctx, banner()).ignore();
-   |                      ^^^
+14 |   io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
+   |              ^^^
    |
    = fix: declare `ctx` as a parameter of this function

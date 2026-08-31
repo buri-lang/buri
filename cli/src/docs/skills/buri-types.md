@@ -193,7 +193,8 @@ An effect is a trait in every other respect but three:
   `effect-method-call`. Only `core/*` and an `impl` supplying an effect keep
   the method form, which is what lets a wrapper delegate with
   `self.0.readFile(path)`. **A print answers `Result<(), IoError>`**, so a
-  dropped one is `let _ = io.println(ctx, "hi").ignore();`.
+  dropped one is `let _ = io.println(ctx, "hi").ignore();` and `buri lint`
+  reports it like any other drop.
 
 ### The `ctx` rule
 

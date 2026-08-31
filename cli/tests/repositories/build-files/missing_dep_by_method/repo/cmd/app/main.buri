@@ -11,6 +11,5 @@ from "//lib/ledger" import { priceOf };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "price: ${priceOf(3).format(ctx)}").ignore();
-  .Ok(())
+  io.println(ctx, "price: ${priceOf(3).format(ctx)}").mapErr(fn(_e) => "could not write to standard output")
 }

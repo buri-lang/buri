@@ -24,10 +24,10 @@ error: this is a test-only module [test-only-import]
     test-only is the file's own name.
 
 error: there is nothing named `sample` in scope [unresolved-name]
-  --> cmd/app/main.buri:13:27
+  --> cmd/app/main.buri:13:19
    |
-13 |   let _ = io.println(ctx, sample().format(ctx)).ignore();
-   |                           ^^^^^^
+13 |   io.println(ctx, sample().format(ctx)).mapErr(fn(_e) => "could not write to standard output")
+   |                   ^^^^^^
    |
    = fix: declare `sample`, or import it — a name is in scope only from this module's own declarations and its imports
 

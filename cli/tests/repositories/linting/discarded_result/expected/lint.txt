@@ -1,7 +1,7 @@
 warning: this discards a `Result` [discarded-result]
-  --> cmd/app/main.buri:20:11
+  --> cmd/app/main.buri:21:11
    |
-20 |   let _ = record().ignore();
+21 |   let _ = record().ignore();
    |           ^^^^^^^^^^^^^^^^^
    |
    = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
@@ -19,15 +19,14 @@ warning: this discards a `Result` [discarded-result]
      and ignore is therefore what this reports. The rule is the grep, run for
      you.
 
-     A dropped print is passed over, and it is the exception that keeps the rule
-     usable. Stdout and Stderr answer Result<(), IoError> because a closed pipe
-     is a thing that happens, so nearly every line a program writes is a Result
-     — and the failure a print reports is the one a program can least act on,
-     because the stream it would report the failure *on* is the stream that
-     failed. io.println(ctx, x).ignore() is punctuation rather than a decision,
-     and a report dominated by it is a report nobody reads. Every other dropped
-     Result is still here, fs.writeText(...).ignore() included: a failed write
-     is a failure somebody chose not to look at.
+     A dropped print is no exception, and that is the whole of what a total
+     must-use costs. Stdout and Stderr answer Result<(), IoError> because a
+     closed pipe is a thing that happens, so nearly every line a program writes
+     is a Result and io.println(ctx, x).ignore() is a deliberate drop like any
+     other. Reporting it is the rule doing its job rather than the rule going
+     wrong: a program whose report is all prints is a program that decided that
+     many times, and the one that cares says so — match on the print and answer,
+     which is what buri init's template and the example monorepo do.
 
      If the failure does matter, the edit is match to handle it or ? to
      propagate it. If it genuinely does not — a cache write whose failure
@@ -35,3 +34,11 @@ warning: this discards a `Result` [discarded-result]
      and letting this warning stand is a legitimate outcome. The point of the
      rule is that somebody decided, not that the count reaches zero.
 
+warning: this discards a `Result` [discarded-result]
+  --> cmd/app/main.buri:22:11
+   |
+22 |   let _ = io.println(ctx, "done").ignore();
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
+   = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate

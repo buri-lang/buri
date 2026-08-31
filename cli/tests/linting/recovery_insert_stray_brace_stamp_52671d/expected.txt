@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_stamp_52671d/lib.buri:26:32
+   |
+26 |   io.println(ctx, ".. ${label}"@ )
+   |                                ^
+   |
+  --> lib/recovery_insert_stray_brace_stamp_52671d/lib.buri:26:13
+   |
+26 |   io.println(ctx, ".. ${label}"@ )
+   |             ^ opened here
+   |
+   = fix: write `)` here

@@ -1,0 +1,9 @@
+error: expected `=>`, found a string literal [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_app_def984/main.buri:13:41
+   |
+13 |   io.println(ctx, "done").mapErr(fn(_e) "could not write to standard output" =>)
+   |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: `=>`
+   = actual: a string literal
+   = fix: write `=>` here

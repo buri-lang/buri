@@ -1,0 +1,37 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_insert_stray_brace_app_55e0b2/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_brace_app_55e0b2/main.buri:14:3
+   |
+14 |   io.println(ctx, banner()).extra mapErr(fn(_e) => "could not write to standard output")
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: `Result<(), IoError>` has no field `extra` [no-such-field]
+  --> lib/recovery_insert_stray_brace_app_55e0b2/main.buri:14:29
+   |
+14 |   io.println(ctx, banner()).extra mapErr(fn(_e) => "could not write to standard output")
+   |                             ^^^^^
+   |
+   = fix: check the spelling, or name a field the type declares
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_brace_app_55e0b2/main.buri:14:34
+   |
+14 |   io.println(ctx, banner()).extra mapErr(fn(_e) => "could not write to standard output")
+   |                                  ^
+   |
+   = fix: write `;` here
+error: there is nothing named `mapErr` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_55e0b2/main.buri:14:35
+   |
+14 |   io.println(ctx, banner()).extra mapErr(fn(_e) => "could not write to standard output")
+   |                                   ^^^^^^
+   |
+   = fix: declare `mapErr`, or import it — a name is in scope only from this module's own declarations and its imports

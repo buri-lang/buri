@@ -1,0 +1,36 @@
+warning: `total` takes 6 parameters [too-many-parameters]
+ --> lib/recovery_delete_closer_brace_app_ab5995/main.buri:9:4
+  |
+9 | fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {
+  |    ^^^^^
+  |
+  = `self` and `ctx` are not counted, so 5 is the limit on the data a caller has to assemble
+  = fix: group the parameters that always travel together into a struct, and take that instead
+error: expected `Str`, found `IoError` [type-mismatch]
+  --> lib/recovery_delete_closer_brace_app_ab5995/main.buri:13:35
+   |
+13 | export fn main(): Result<(), Str> {
+   |                                   ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `IoError`
+   = fix: produce a `Str` here, or change what surrounds it to accept a `IoError`
+error: `Template` has no method `mapErr` [no-such-method]
+  --> lib/recovery_delete_closer_brace_app_ab5995/main.buri:15:48
+   |
+15 |   io.println(ctx, "${total(1, 2, 3, 4, 5, 6)}".mapErr(fn(_e) => "could not write to standard output")
+   |                                                ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/num` lists every method `Template` has, and one may not be added to it from outside `core/num`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_ab5995/main.buri:16:1
+   |
+16 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_app_ab5995/main.buri:15:13
+   |
+15 |   io.println(ctx, "${total(1, 2, 3, 4, 5, 6)}".mapErr(fn(_e) => "could not write to standard output")
+   |             ^ opened here
+   |
+   = fix: write `)` here

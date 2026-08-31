@@ -1,0 +1,17 @@
+error: expected the rest of the string, found `label` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_stamp_98ed37/lib.buri:18:31
+   |
+18 |   io.println(ctx, "-- ${extra label}")
+   |                               ^^^^^
+   |
+   = expected: the rest of the string
+   = actual: `label`
+   = fix: close the template: every `${` needs a `}` and the string needs a closing quote
+warning: bound `Alloc` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_insert_stray_paren_stamp_98ed37/lib.buri:24:19
+   |
+24 | export fn note<C: Alloc // it will allocate once the sink is real
+   |                   ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound

@@ -1,0 +1,51 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_delete_closer_module_app_bd1931/main.buri:12:3
+   |
+12 |   io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: consume it and bind what is left: `let _ = ....ignore();` — or `?` to propagate, `match` to handle both cases
+error: this statement has type `Result<(), Str>`, not `()` [statement-not-unit]
+  --> lib/recovery_delete_closer_module_app_bd1931/main.buri:12:3
+   |
+12 |   io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
+error: there is nothing named `describe` in scope [unresolved-name]
+  --> lib/recovery_delete_closer_module_app_bd1931/main.buri:12:19
+   |
+12 |   io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
+   |                   ^^^^^^^^
+   |
+   = fix: declare `describe`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_closer_module_app_bd1931/main.buri:12:85
+   |
+12 |   io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
+   |                                                                                     ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `describe` [unexpected-token]
+  --> lib/recovery_delete_closer_module_app_bd1931/main.buri:15:4
+   |
+15 | fn describe(): Str {
+   |    ^^^^^^^^
+   |
+   = expected: `(`
+   = actual: `describe`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_bd1931/main.buri:19:1
+   |
+19 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_app_bd1931/main.buri:10:35
+   |
+10 | export fn main(): Result<(), Str> {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here

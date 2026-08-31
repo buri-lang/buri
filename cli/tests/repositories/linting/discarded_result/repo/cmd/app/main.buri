@@ -3,11 +3,12 @@
 // hatch, and this lint is the grep — a warning, not an error, because dropping
 // the failure may well be what was meant.
 //
-// Both shapes are here, and only one of them is reported. A print answers
-// `Result<(), IoError>` too, and the failure it reports is the one a program
-// can least act on — the stream it would report the failure *on* is the stream
-// that failed — so `io.println(...).ignore()` is punctuation and is passed
-// over. `record()` is an ordinary fallible call, and dropping it is a decision.
+// **A print is not an exception**, and both shapes are here so that the rule's
+// totality is what is pinned rather than a habit. `record()` is an ordinary
+// fallible call; `io.println` is the commonest one there is, because `Stdout`
+// answers `Result<(), IoError>` — and the rule does not tell them apart. The
+// edits below remove both, one with `?` and one with `mapErr`, which are two of
+// the answers the diagnostic names.
 
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;

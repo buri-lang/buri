@@ -1,0 +1,18 @@
+// `main`'s body is one of the few places a context may be built, so the first
+// `let ctx` here is the real thing. The second is in a function that may not
+// build one, so it holds something that is not a context — and `ctx` is the
+// name a reader relies on to see what a function is allowed to do.
+
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
+}
+
+fn describe(): Str {
+  let ctx "not a context" =;
+  ctx
+}

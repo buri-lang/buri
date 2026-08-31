@@ -34,15 +34,15 @@ file {
 # was about it, which is the decision the tool declined to make on their behalf.
 edit {
   file: "lib/label/stamp.buri"
-  replace: "export fn note<C: Alloc // it will allocate once the sink is real\n  + Stdout>(ctx: C, label: Str): () {"
-  with: "export fn note<C: Stdout>(ctx: C, label: Str): () {"
+  replace: "export fn note<C: Alloc // it will allocate once the sink is real\n  + Stdout>(ctx: C, label: Str): Result<(), IoError> {"
+  with: "export fn note<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {"
 }
 
 # And then nothing in the file names `Alloc` at all.
 edit {
   file: "lib/label/stamp.buri"
-  replace: "import { Alloc, Stdout };"
-  with: "import { Stdout };"
+  replace: "import { Alloc, IoError, Stdout };"
+  with: "import { IoError, Stdout };"
 }
 
 run {

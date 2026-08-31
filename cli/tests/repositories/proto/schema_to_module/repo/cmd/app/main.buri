@@ -7,7 +7,6 @@ from "//lib/wire" import { Point, defaultPoint, encodePoint, decodePoint };
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let p = Point { ..defaultPoint(), x: .Some(1), y: .Some(300) };
-  let _ = io.println(ctx, bytes.toHex(ctx, encodePoint(ctx, p))).ignore();
-  let _ = io.println(ctx, "${decodePoint(ctx, encodePoint(ctx, p)) == .Ok(p)}").ignore();
-  .Ok(())
+  let _ = io.println(ctx, bytes.toHex(ctx, encodePoint(ctx, p))).mapErr(fn(_e) => "could not write to standard output")?;
+  io.println(ctx, "${decodePoint(ctx, encodePoint(ctx, p)) == .Ok(p)}").mapErr(fn(_e) => "could not write to standard output")
 }

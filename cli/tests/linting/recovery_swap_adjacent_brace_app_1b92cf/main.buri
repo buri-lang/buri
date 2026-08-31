@@ -10,6 +10,5 @@ from "core/io" import * as io;
 export fn main(): Result<(), Str> {
   ctx let = context { Alloc: host.alloc, Stdout: host.stdout };
   let total = 3 * 4;
-  let _ = io.println(ctx, "done").ignore();
-  .Ok(())
+  io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output")
 }

@@ -1,0 +1,32 @@
+error: `rendered` takes 3 arguments, but 4 were given [wrong-argument-count]
+  --> lib/recovery_insert_stray_paren_expected_cef30f/main.buri:43:19
+   |
+43 |   io.println(ctx, rendered(ctx, extra fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 4
+   = fix: pass exactly 3
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_expected_cef30f/main.buri:43:33
+   |
+43 |   io.println(ctx, rendered(ctx, extra fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                                 ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_paren_expected_cef30f/main.buri:43:38
+   |
+43 |   io.println(ctx, rendered(ctx, extra fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                                      ^
+   |
+   = fix: write `,` here
+error: expected `Str`, found `fn(_15, _13) => Str` [type-mismatch]
+  --> lib/recovery_insert_stray_paren_expected_cef30f/main.buri:43:39
+   |
+43 |   io.println(ctx, rendered(ctx, extra fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `Str`
+   |
+   = expected: `Str`
+   = actual: `fn(_15, _13) => Str`
+   = fix: produce a `Str` here, or change what surrounds it to accept a `fn(_15, _13) => Str`

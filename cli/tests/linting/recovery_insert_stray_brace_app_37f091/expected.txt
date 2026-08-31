@@ -1,9 +1,0 @@
-error: expected `(`, found `?` [unexpected-token]
-  --> lib/recovery_insert_stray_brace_app_37f091/main.buri:11:8
-   |
-11 |     if ? (n > 10) {
-   |        ^
-   |
-   = expected: `(`
-   = actual: `?`
-   = fix: write `(` here

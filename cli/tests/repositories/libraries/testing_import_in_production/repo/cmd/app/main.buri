@@ -10,6 +10,5 @@ from "//lib/money/testing" import { sample };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, sample().format(ctx)).ignore();
-  .Ok(())
+  io.println(ctx, sample().format(ctx)).mapErr(fn(_e) => "could not write to standard output")
 }

@@ -1,0 +1,21 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_paren_app_0eeb8d/main.buri:13:39
+   |
+13 |   io.println(ctx, "done").mapErr(fn(_e=> ) "could not write to standard output")
+   |                                       ^^
+   |
+  --> lib/recovery_swap_adjacent_paren_app_0eeb8d/main.buri:13:36
+   |
+13 |   io.println(ctx, "done").mapErr(fn(_e=> ) "could not write to standard output")
+   |                                    ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found a string literal [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_app_0eeb8d/main.buri:13:44
+   |
+13 |   io.println(ctx, "done").mapErr(fn(_e=> ) "could not write to standard output")
+   |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: `=>`
+   = actual: a string literal
+   = fix: write `=>` here
