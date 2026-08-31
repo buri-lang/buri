@@ -95,7 +95,7 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
 A function names the effects it needs as **bounds** on its context parameter:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Fs };
+# from "core/effect" import { Alloc, Fs };
 fn loadConfig<C: Alloc + Fs>(ctx: C, path: Str): Result<Config, ConfigError> {
   let text = fs.readText(ctx, path)?;
   parse(ctx, text)
@@ -112,7 +112,7 @@ must satisfy.
 name, never any other position, and at most one of each:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Fs, IoError, Net, Region };
+# from "core/effect" import { Alloc, Fs, IoError, Net, Region };
 fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>       // ok
 fn render<C: Alloc>(self, ctx: C): Str                                    // ok
 fn allocate(self, bytes: Int): Region                                     // ok
@@ -171,8 +171,8 @@ the module that exports `main`. `main` assembles them into the one context
 the program has:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
-from "core/host/lib.buri" import * as host;
+# from "core/effect" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
@@ -300,7 +300,7 @@ Tracking allocation is why `[T]`-returning combinators take a context at all, an
 it is what makes "does no I/O" and "does not allocate" separately expressible:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Fs, IoError };
+# from "core/effect" import { Alloc, Fs, IoError };
 fn sum(self): Int                                                     // pure
 fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B]              // deterministic
 fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>   // effectful
@@ -415,7 +415,7 @@ rather than merely conventional (Section 10.2). A free function that has no
 receiver therefore takes the context first:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Fs, IoError };
+# from "core/effect" import { Alloc, Fs, IoError };
 export fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B]
 export fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>
 ```
@@ -433,7 +433,7 @@ Two forms, giving different guarantees.
 same value and cannot use, or pass on, anything its bounds do not name:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Fs, Stdout };
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
   let _ = io.println(ctx, msg);
   // fs.readText(ctx, "/etc/passwd")     // ERROR: C is not bounded by Fs
@@ -455,7 +455,7 @@ downstream.
 the callee holds a value that genuinely lacks the rest:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Fs, IoError, Region };
+# from "core/effect" import { Alloc, Fs, IoError, Region };
 // module: safe/readonly
 export struct ReadOnly<C>(C);
 
@@ -491,7 +491,7 @@ interfaces, writing one is writing a struct with methods. The call site does not
 change, because there was never a global to stub.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Fs, IoError };
+# from "core/effect" import { Alloc, Fs, IoError };
 struct FakeFs { export files: [(Str, Str)] }
 
 impl Fs for FakeFs {

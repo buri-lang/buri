@@ -2967,10 +2967,10 @@ mod tests {
             // two — a declaration's and the module's — and the third is a
             // documented run that used to be split off as a file header while
             // another import's comments printed under it.
-            "from \"core/list/lib.buri\" export {\n  /// documented\n  fold,\n  // and a comment\n};\n",
-            "from \"core/list/lib.buri\" export {\n  fold,\n  /// stranded\n};\n// below everything\n",
-            "// a heading\n/// documented\n\nfrom \"core/str/lib.buri\" import * as s;\n\
-             // about the other one\nfrom \"core/list/lib.buri\" import * as l;\n",
+            "from \"core/list\" export {\n  /// documented\n  fold,\n  // and a comment\n};\n",
+            "from \"core/list\" export {\n  fold,\n  /// stranded\n};\n// below everything\n",
+            "// a heading\n/// documented\n\nfrom \"core/str\" import * as s;\n\
+             // about the other one\nfrom \"core/list\" import * as l;\n",
             // The same class again, in the blank line rather than in the
             // order: a comment with nowhere to go inside `[]`, printed by one
             // emission, and the mandatory blank line above the next
@@ -3081,9 +3081,9 @@ mod tests {
 // that the rules below are checked against something with one of everything in
 // it rather than against twelve snippets.
 
-from "//lib/semantics/lib.buri" import { identity, constant, swap, triple, twice, largest, smallest, between, showAll, sortedShow, Pair, pair, flip, Boxed, Slot, slotOr };
-from "core/str/lib.buri" import * as str;
-from "core/list/lib.buri" import * as list;
+from "//lib/semantics" import { identity, constant, swap, triple, twice, largest, smallest, between, showAll, sortedShow, Pair, pair, flip, Boxed, Slot, slotOr };
+from "core/str" import * as str;
+from "core/list" import * as list;
 
 // ---- types ------------------------------------------------------------------
 

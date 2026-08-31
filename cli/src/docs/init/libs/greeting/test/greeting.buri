@@ -1,8 +1,8 @@
 // The suite imports the library by label, exactly as a dependent does, so it
 // can only assert on what dependents can call.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "//libs/greeting/lib.buri" import { greeting };
+from "core/testing/assert" import * as assert;
+from "//libs/greeting" import { greeting };
 
 test "the greeting" {
     assert.eq(greeting(), "hello world");

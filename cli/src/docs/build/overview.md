@@ -64,7 +64,8 @@ from them:
    rule declares which outputs to produce — a Linux binary, a macOS binary, a JS
    module, or several at once.
 4. **Tests live in `test/` and see only the target's surface.** A library's
-   tests import `//lib/money/lib.buri`, not the files behind it. You test what
+   tests import `//lib/money` — its surface, the same name a dependent
+   writes — and not the files behind it. You test what
    dependents can call, so refactoring internals never rewrites a test. A
    library's fixtures *for other people's tests* live in `testing/`, and that
    segment in a path is what makes them unimportable from production code.
@@ -106,10 +107,10 @@ from "//lib/money/cents.buri" export { Cents, fromDollars, fromCents, add, isZer
 from "//lib/money/parse.buri" export { ParseError, parse };
 ```
 
-Module paths are absolute — there are no relative imports — and each one names
-a file, so `//lib/money/lib.buri` is the library's surface and
-`//lib/money/cents.buri` is one module inside it, which resolves only from
-within the library.
+Module paths are absolute — there are no relative imports. A surface is named
+as a module, so `//lib/money` is the library's surface; everything else is
+named by its file, so `//lib/money/cents.buri` is one module inside it, which
+resolves only from within the library.
 
 `lib/money/cents.buri`:
 
@@ -134,10 +135,10 @@ impl Cents {
 `lib/money/test/cents.buri`:
 
 ```buri repo=cli/tests/example role=test
-from "//lib/money/lib.buri" import { fromCents };
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
+from "//lib/money" import { fromCents };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
 
 test "pads the cents place" {
   let ctx = context { Alloc: alloc() };
@@ -152,8 +153,8 @@ withholds is not callable from another package, as a free function or as a
 method. `tools/report/test/render.buri`:
 
 ```buri repo=cli/tests/example role=test package=//tools/report
-# from "//lib/money/lib.buri" import { fromCents };
-# from "core/testing/assert/lib.buri" import * as assert;
+# from "//lib/money" import { fromCents };
+# from "core/testing/assert" import * as assert;
 test "the surface is the whole of what a dependent can call" {
   assert.eq(fromCents(1905).toCents(), 1905);   // ERROR: `toCents` is not on //lib/money's surface
 }

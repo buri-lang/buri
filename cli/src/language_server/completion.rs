@@ -831,19 +831,26 @@ fn lexical(text: &str, prefix: &str, replacing: (u32, u32), uri: &str) -> Vec<Va
 // Imports
 // ---------------------------------------------------------------------------
 
-/// Every module the file could legally import — **as a file**, because that is
-/// what an import path is.
+/// Every module the file could legally import, each in the one form an import
+/// of it is written in.
 ///
-/// Three sources, and the difference between them is a rule rather than a
-/// convenience:
+/// Three sources, and the difference between them is the import rule rather
+/// than a convenience:
 ///
-/// * the standard library, whose table already spells each module as a file;
+/// * the standard library, as the module paths its table holds — `core/list`,
+///   never `core/list/lib.buri`, because a surface is named as a module;
 /// * every package the target declares a dependency on, offered as its
-///   *surface* and nothing else — a dependency's inner modules are an
-///   `internal-import`, so offering one would be offering an error;
-/// * this package, offered as every file it owns, from the same walk `buri gen`
-///   derives `sources` from — inside a package every module is reachable, and
-///   the file being typed is as likely to be the one next door as the surface.
+///   **label** and nothing else — that label is the package's surface, and a
+///   dependency's inner modules are an `internal-import`, so offering one
+///   would be offering an error;
+/// * this package: its own surfaces as modules — `//lib/money`,
+///   `//lib/money/testing`, which is what a suite writes for the library it is
+///   the suite for — and every other file it owns as a file, from the same
+///   walk `buri gen` derives `sources` from.
+///
+/// So the rule is visible in the list itself: a `.buri` on the end means a
+/// file inside this package, and no extension means a surface, wherever it
+/// lives.
 ///
 /// A path the target does not depend on is left out: offering it would be
 /// offering a `missing-dep`.
@@ -865,16 +872,12 @@ fn module_paths(
     if let Some(package) = ws.owning_package(path) {
         for t in ws.targets().into_iter().filter(|t| t.package == package) {
             for d in ws.declared_deps(t) {
-                // A label names a package; what an import names is that
-                // package's surface file. `//lib/ledger/testing` is the
-                // testing surface's label and `testing/lib.buri` is its file,
-                // so the two spellings meet here and nowhere else.
-                let label = d.value.trim_end_matches('/');
-                let file = match label.strip_suffix("/testing") {
-                    Some(owner) => format!("{owner}/testing/lib.buri"),
-                    None => format!("{label}/lib.buri"),
-                };
-                out.push((file, Origin::Dependency));
+                // The label *is* the import path. That is the whole of the
+                // cross-package rule, and it is why this loop has no spelling
+                // to work out: `//lib/ledger` and `//lib/ledger/testing` are
+                // both a declared dependency and a module path, and they are
+                // the same string in both namespaces.
+                out.push((d.value.trim_end_matches('/').to_string(), Origin::Dependency));
             }
         }
         let own = ws.package(package);
@@ -884,6 +887,28 @@ fn module_paths(
         let own_rel = ws.rel_of(path);
         let package_prefix =
             if own.path.is_empty() { String::new() } else { format!("{}/", own.path) };
+        // This package's own surfaces, as modules. `lib.buri` and
+        // `testing/lib.buri` are dropped from the file list below and offered
+        // here instead, because a surface is named as a module from inside the
+        // package as well as from outside it — which is exactly what a test
+        // source reaching its own library writes.
+        //
+        // A package at the repository root is the exception, and it is the
+        // same exception it always was: its label is `//`, which is not a path
+        // anybody would type, so its surface stays on the file list as
+        // `//lib.buri`.
+        let surfaces: &[(&str, String)] = &match own.path.is_empty() {
+            true => Vec::new(),
+            false => vec![
+                ("lib.buri", format!("//{}", own.path)),
+                ("testing/lib.buri", format!("//{}/testing", own.path)),
+            ],
+        };
+        for (file, module) in surfaces {
+            if own.dir.join(file).is_file() && ws.rel_of(&own.dir.join(file)) != own_rel {
+                out.push((module.clone(), Origin::ThisPackage));
+            }
+        }
         for rel in sources.into_iter().chain(schemas) {
             // `REPO.buri` is a repository's declaration, not a module.
             if rel.ends_with("REPO.buri") {
@@ -893,6 +918,10 @@ fn module_paths(
             // and a file may not import itself.
             let inside = rel.strip_prefix(&package_prefix).unwrap_or(&rel);
             if inside.starts_with("test/") || rel == own_rel {
+                continue;
+            }
+            // A surface was offered above, in the form an import of it takes.
+            if !own.path.is_empty() && matches!(inside, "lib.buri" | "testing/lib.buri") {
                 continue;
             }
             out.push((format!("//{rel}"), Origin::ThisPackage));

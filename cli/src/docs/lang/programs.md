@@ -3,8 +3,8 @@
 A program is a module that exports `main`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Env, Stdout };
-from "core/host/lib.buri" import * as host;
+# from "core/effect" import { Alloc, Env, Stdout };
+from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
@@ -66,10 +66,10 @@ build file ([`cli/src/docs/build/testing.md`](./cli/src/docs/build/testing.md)).
 helpers are ordinary library code.
 
 ```buri repo=cli/tests/example role=test
-from "//lib/money/lib.buri" import { fromCents };
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
+from "//lib/money" import { fromCents };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
 
 test "pads the cents place" {
   let ctx = context { Alloc: alloc() };
@@ -127,7 +127,7 @@ keyword: the name comes from `import * as assert`, and a file is free to call it
 something else.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 ```
 
 | Function | Meaning |
@@ -194,7 +194,7 @@ implements it. There is one form, and `main` and a test use the same one.
 **As an expression**, anonymous:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Fs, Stdout };
 let ctx = context {
   Alloc:  host.alloc,
   Stdout: host.stdout,
@@ -206,7 +206,7 @@ let ctx = context {
 or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
+# from "core/effect" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
 context Sandbox {
   Alloc:  alloc(),
   Stdout: stdout(),
@@ -229,7 +229,7 @@ varies between call sites is expressed by overriding, not by arguments.
 context and lets the ones that follow replace them:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Fs };
+# from "core/effect" import { Fs };
 context Fixture {
   ..Sandbox(),
   Fs: fs().files([("config.toml", "port=8080")]),

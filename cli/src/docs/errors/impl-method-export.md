@@ -27,7 +27,7 @@ An `impl` block for the type's own methods is the other case, and `export`
 means something there.
 
 ```buri fail code=impl-method-export
-# from "core/order/lib.buri" import { Eq };
+# from "core/order" import { Eq };
 export struct Version { export major: Int }
 
 impl Eq for Version {

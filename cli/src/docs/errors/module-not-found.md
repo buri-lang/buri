@@ -6,7 +6,7 @@ fix: create the file the path names, or correct the path — a module path maps 
 # A module path names exactly one file
 
 ```text
-error: "//lib/nope/lib.buri" names no file (lib/nope/lib.buri) [module-not-found]
+error: "//lib/nope" is in no package of this repository [module-not-found]
 ```
 
 ## What to do
@@ -21,11 +21,10 @@ there is never a question of which of two candidates a path meant.
 ## A program that provokes it
 
 A module path resolves against the repository, so this one is compiled against
-the worked monorepo in `cli/tests/example`, where `lib/nope/lib.buri` is not a
-file.
+the worked monorepo in `cli/tests/example`, which has no `lib/nope` in it.
 
 ```buri fail code=module-not-found repo=cli/tests/example
-from "//lib/nope/lib.buri" import { Nope };
+from "//lib/nope" import { Nope };
 
 export fn main(): Result<(), Str> {
   .Ok(())

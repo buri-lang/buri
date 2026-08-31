@@ -7,9 +7,9 @@ fix: Accept a context variable as an argument, and pass it into the function fro
 
 ```buri fail code=context-declaration-not-allowed
 # //libs/print/lib.buri
-from "core/effect/lib.buri" import { Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/io/lib.buri" import * as io;
+from "core/effect" import { Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 context Console {
   Stdout: host.stdout,
@@ -23,8 +23,8 @@ export fn print(output: Str): () {
 To fix, just accept the context as an argument:
 
 ```buri
-from "core/effect/lib.buri" import { Stdout };
-from "core/io/lib.buri" import * as io;
+from "core/effect" import { Stdout };
+from "core/io" import * as io;
 
 export fn print<C: Stdout>(ctx: C, output: Str): () {
   io.println(ctx, output)

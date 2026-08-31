@@ -332,7 +332,7 @@ impl<'a> Checker<'a> {
             .loaded
             .modules
             .iter()
-            .position(|m| m.path == "ui/theme/lib.buri")
+            .position(|m| m.path == "ui/theme")
             .and_then(|i| self.scopes.get(i))
             .and_then(|s| s.own.get("Theme"))
             .and_then(|s| match s {
@@ -1759,7 +1759,7 @@ impl<'a> Checker<'a> {
         // `core/json` is loaded on import rather than eagerly, so these are
         // known exactly when a program could name them — which is the only
         // time a primitive needs an implementation of either to be found.
-        if let Some(m) = self.loaded.find("core/json/lib.buri") {
+        if let Some(m) = self.loaded.find("core/json") {
             for name in ["ToJson", "FromJson", "DecodeError", "Json"] {
                 match self.scope(m).exports.get(name) {
                     Some(Sym::Trait(t)) => {
@@ -1772,7 +1772,7 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        if let Some(m) = self.loaded.find("core/effect/lib.buri") {
+        if let Some(m) = self.loaded.find("core/effect") {
             for name in ["Alloc", "IoError", "Region"] {
                 match self.scope(m).exports.get(name) {
                     Some(Sym::Trait(t)) => {
@@ -2221,7 +2221,7 @@ impl<'a> Checker<'a> {
                 // `[T]` has no type constructor; its methods live in a table
                 // of their own, and only `core/list` may add to it.
                 None => {
-                    if self.module(module).path == "core/list/lib.buri" {
+                    if self.module(module).path == "core/list" {
                         self.tables.array_methods.insert(mname.to_string(), fid);
                     } else {
                         let at = self.tree(module).type_span(d.self_ty);
@@ -2812,7 +2812,7 @@ fn main(): () {}
     /// type's own methods — the three shapes a method signature comes in, each
     /// taking a context under a name that is not `ctx`.
     const SINKS: &str = r#"
-from "core/effect/lib.buri" import { Stdout };
+from "core/effect" import { Stdout };
 
 struct Ledger { lines: Int }
 
@@ -2848,7 +2848,7 @@ fn main(): () {}
     #[test]
     fn a_ctx_out_of_position_is_refused_in_every_kind_of_method() {
         let src = r#"
-from "core/effect/lib.buri" import { Stdout };
+from "core/effect" import { Stdout };
 
 struct Bell { tone: Str }
 
@@ -2904,7 +2904,7 @@ fn main(): () {}
     #[test]
     fn an_effect_carrying_parameter_after_a_ctx_is_still_refused() {
         let src = r#"
-from "core/effect/lib.buri" import { Stdout };
+from "core/effect" import { Stdout };
 
 struct Twice { n: Int }
 
@@ -2924,7 +2924,7 @@ fn main(): () {}
     #[test]
     fn a_method_that_follows_the_convention_is_admitted() {
         let src = r#"
-from "core/effect/lib.buri" import { Stdout };
+from "core/effect" import { Stdout };
 
 struct Quiet { n: Int }
 
@@ -3295,7 +3295,7 @@ fn main(): () {}
     /// [`Checker::ctx_decls_reached`] is the fix: a use checks its declaration
     /// if checking has not reached it yet.
     const SPREAD_BEFORE_ITS_BASE: &str = r#"
-from "core/effect/lib.buri" import { Clock };
+from "core/effect" import { Clock };
 
 struct Frozen { at: I64 }
 

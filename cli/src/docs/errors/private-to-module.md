@@ -32,8 +32,8 @@ Functional update still works, because it never names the hidden fields.
 ## A program that provokes it
 
 ```buri fail code=private-to-module
-# from "ui/effect/lib.buri" import { Scope };
-# from "ui/signal/lib.buri" import { Signal };
+# from "ui/effect" import { Scope };
+# from "ui/signal" import { Signal };
 fn peek(n: Signal<Int>): Int {
   n.get(Scope(0))
 }

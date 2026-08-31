@@ -5,7 +5,7 @@ message: "{path}" does not export `{name}`
 # A module exports what it says it exports
 
 ```text
-error: "core/list/lib.buri" does not export `notAThing` [no-such-export]
+error: "core/list" does not export `notAThing` [no-such-export]
 ```
 
 ## What to do
@@ -23,5 +23,5 @@ can never be wider than the modules it is built from.
 ## A program that provokes it
 
 ```buri fail code=no-such-export
-from "core/list/lib.buri" export { notAThing };
+from "core/list" export { notAThing };
 ```

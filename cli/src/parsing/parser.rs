@@ -3303,15 +3303,15 @@ mod tests {
 
     #[test]
     fn imports() {
-        ok(r#"from "core/list/lib.buri" import { map, filter };"#);
-        ok(r#"from "core/list/lib.buri" import { map as listMap };"#);
-        ok(r#"from "core/list/lib.buri" import * as list;"#);
+        ok(r#"from "core/list" import { map, filter };"#);
+        ok(r#"from "core/list" import { map as listMap };"#);
+        ok(r#"from "core/list" import * as list;"#);
         ok(r#"from "//lib/money/cents.buri" export { Cents, fromCents };"#);
     }
 
     #[test]
     fn bare_namespace_import_is_not_derivable() {
-        let e = bad(r#"from "core/list/lib.buri" import *;"#);
+        let e = bad(r#"from "core/list" import *;"#);
         assert!(e[0].message.contains("must be named"));
     }
 

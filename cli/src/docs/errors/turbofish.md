@@ -31,7 +31,7 @@ has it.
 ## A program that provokes it
 
 ```buri fail code=turbofish
-# from "core/list/lib.buri" import * as list;
+# from "core/list" import * as list;
 fn empty(): [Int] {
   list.empty::<Int>()
 }

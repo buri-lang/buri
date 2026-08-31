@@ -2036,7 +2036,10 @@ fn report_failure(
     let file = c.module.trim_start_matches("//");
     let file = file.strip_prefix(&session.workspace.package(target.package).path).unwrap_or(file);
     let file = file.trim_start_matches('/');
-    out.line(&format!("FAIL {label}  {file}.buri  {}", quote_title(&c.name)));
+    // No `.buri` appended: a module path is the file, so the name is already
+    // on it. Gluing one on produced `test/cents.buri.buri`, which this line
+    // did and which the goldens had recorded.
+    out.line(&format!("FAIL {label}  {file}  {}", quote_title(&c.name)));
     out.line(&indented(message));
     if let Some(d) = diff {
         out.line(&format!("    actual:   {}", d.actual));

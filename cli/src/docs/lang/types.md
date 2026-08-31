@@ -110,7 +110,7 @@ The unit type and its only value are both written `()`. Functions that exist
 only for their effect return `()`.
 
 ```buri
-# from "core/effect/lib.buri" import { Stdout };
+# from "core/effect" import { Stdout };
 fn log<C: Stdout>(ctx: C, msg: Str): () { ctx.println(msg) }
 ```
 
@@ -385,7 +385,7 @@ Type parameters are declared in angle brackets. There are no row parameters:
 row polymorphism went away with the structural records of Section 5.5.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc, Stdout };
+# from "core/effect" import { Alloc, Stdout };
 fn identity<T>(x: T): T { x }
 fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B] { ... }
 fn tee<T, C: Stdout>(ctx: C, x: T): T { ... }
@@ -395,7 +395,7 @@ A parameter may carry one or more **bounds**, naming traits the argument type
 must satisfy. Multiple bounds are joined with `+`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect/lib.buri" import { Alloc };
+# from "core/effect" import { Alloc };
 fn largest<T: Ord>(xs: [T]): Option<T> { ... }
 fn report<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str { ... }
 ```
@@ -474,7 +474,7 @@ A trait is an **interface**: a named set of method signatures that a type may
 satisfy.
 
 ```buri
-# from "core/effect/lib.buri" import { Alloc };
+# from "core/effect" import { Alloc };
 trait Ord {
   fn compare(self, other: Self): Order;
 }

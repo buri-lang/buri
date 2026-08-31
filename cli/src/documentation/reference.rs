@@ -546,14 +546,14 @@ mod tests {
     #[test]
     fn the_signatures_are_the_real_ones() {
         let modules = stdlib();
-        let (_, map_fn) = find_item(&modules, "core/list/lib.buri.map").expect("core/list/lib.buri.map");
+        let (_, map_fn) = find_item(&modules, "core/list.map").expect("core/list.map");
         assert!(map_fn.signature.contains("map<B, C: Alloc>"), "{}", map_fn.signature);
         assert_eq!(map_fn.api.effects(), ["Alloc".to_string()], "map allocates and says so");
 
-        let (_, len) = find_item(&modules, "core/list/lib.buri.len").expect("core/list/lib.buri.len");
+        let (_, len) = find_item(&modules, "core/list.len").expect("core/list.len");
         assert!(len.api.effects().is_empty(), "len is pure");
 
-        let (_, alloc) = find_item(&modules, "core/effect/lib.buri.Alloc").expect("core/effect/lib.buri.Alloc");
+        let (_, alloc) = find_item(&modules, "core/effect.Alloc").expect("core/effect.Alloc");
         assert_eq!(alloc.kind(), ItemKind::Effect);
         assert!(alloc.api.members().iter().any(|m| m.name == "allocate"));
     }
@@ -563,7 +563,7 @@ mod tests {
     #[test]
     fn methods_name_their_receiver() {
         let modules = stdlib();
-        let list = modules.iter().find(|m| m.path == "core/list/lib.buri").unwrap();
+        let list = modules.iter().find(|m| m.path == "core/list").unwrap();
         let get = list.items.iter().find(|i| i.name == "get").unwrap();
         assert_eq!(get.api.owner(), Some("[T]"));
     }

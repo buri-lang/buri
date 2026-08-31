@@ -49,9 +49,9 @@ impl Cents {
 From `//cmd/server`:
 
 ```buri repo=cli/tests/example package=//cmd/server
-from "//lib/money/lib.buri" import { Cents, format };        // fine
-from "//lib/money/lib.buri" import { toCents };           // ERROR: "//lib/money/lib.buri" does not export `toCents`
-from "//lib/money/cents.buri" import { toCents };        // ERROR: internal to //lib/money
+from "//lib/money" import { Cents, format };        // fine
+from "//lib/money" import { toCents };              // ERROR: "//lib/money" does not export `toCents`
+from "//lib/money/cents.buri" import { toCents };   // ERROR: internal to //lib/money
 ```
 
 The property this buys is that reviewing a library's API is reading one file.
@@ -64,23 +64,33 @@ There are no relative imports ([`SPEC.md` §4.1.1](../SPEC.md)). Every module
 path is absolute, so a path means the same module wherever it is written and a
 file can move between directories without its own imports changing.
 
-An import path names a *file*, so the left column below is also the right one:
+A **surface** is named as a module; everything else is a **file**, and only its
+own package may name it. Both columns below are that one rule:
 
 | Written | Resolves to | Legal from |
 |---|---|---|
-| `"core/list/lib.buri"` | A standard library module | Anywhere |
-| `"//lib/money/lib.buri"` | The library's surface | Anywhere the dependency is declared and visibility granted |
+| `"core/list"` | A standard library module | Anywhere |
+| `"//lib/money"` | The library's surface, `lib.buri` | Anywhere the dependency is declared and visibility granted — including the library's own suite |
+| `"//lib/money/testing"` | The library's test utilities | Only from a test source, anywhere |
+| `"core/testing/assert"` | The test platform | Only from a test source, anywhere |
 | `"//lib/money/cents.buri"` | One module inside it | Only from inside `//lib/money` |
 | `"//cmd/server/main.buri"` | A binary's entry point | Only from that binary's own test sources |
-| `"//lib/money/testing/lib.buri"` | The library's test utilities | Only from a test source, anywhere |
-| `"core/testing/assert/lib.buri"` | The test platform | Only from a test source, anywhere |
 
-So `//lib/money` is a package path in a `BUILD.buri` and an entry in
-`dependencies` — a *label*, naming a target — and `//lib/money/lib.buri` is the
-module path an import writes for that library's surface. They are two
-namespaces, and the second one now says which file it means. A path that names
-no file is `import-path-without-a-file`, and the diagnostic offers the file the
-old spelling meant.
+So `//lib/money` is a package path in a `BUILD.buri`, an entry in
+`dependencies` — a *label*, naming a target — and the module path an import
+writes for that library's surface. There is one spelling of a library in a
+repository, and a suite reaches the library it tests by the same name its
+dependents use.
+
+Written the wrong way round, each has its own answer. A path with a file name
+left off is `import-path-without-a-file`, and the diagnostic names the file it
+meant — no textual rule could, because `"//lib/money/testing"` and
+`"//lib/money/cents"` are the same shape and only the layout says that one is a
+surface and the other a file. A path that leaves the package and reaches a file
+inside it is `internal-import`. The surface written the long way round —
+`"//lib/money/lib.buri"` — is accepted and resolves to the same module; it is
+unidiomatic rather than wrong, nothing in the toolchain writes it, and nothing
+in this repository contains one.
 
 The rules the compiler enforces:
 
@@ -98,16 +108,17 @@ The rules the compiler enforces:
       |      ^^^^^^^^^^^^^^^^^^^^^^^^
       |
       = only names re-exported by lib/money/lib.buri are available
-      = fix: import the library instead: from "//lib/money/lib.buri" import { ... }
+      = fix: import the library instead: from "//lib/money" import { ... }
    ```
 3. **A file and a package of the same name are two different modules.** If
-   `lib/money/cents/` is a package, its surface is `//lib/money/cents/lib.buri`
-   and the file beside it is `//lib/money/cents.buri`. These used to be one
-   spelling and one of the two had to be renamed; they are two strings now, and
-   the layout is legal.
+   `lib/money/cents/` is a package, its surface is `//lib/money/cents` and the
+   file beside it is `//lib/money/cents.buri`. These used to be one spelling and
+   one of the two had to be renamed; they are two strings now — a surface named
+   as a module and a file named as a file — and the layout is legal.
 4. **Rules inside a package do not reach into each other.** A binary imports the
-   co-located library as `//pkg/lib.buri`, never `//pkg/render.buri`; the
-   library may not import `//pkg/main.buri` at all.
+   co-located library as `//pkg` — its surface, like any other dependent —
+   never `//pkg/render.buri`; the library may not import `//pkg/main.buri` at
+   all.
 5. **A path containing a `testing` segment is importable only from a test
    source.** See below.
 6. **Circular imports are an error** at the module level already; package cycles
@@ -127,9 +138,9 @@ That covers every case with no new field and nothing to remember to declare:
 
 | Path | What it is |
 |---|---|
-| `//lib/ledger/testing/lib.buri` | A library's own test utilities |
-| `//lib/testing/fakes/lib.buri` | A standalone package of shared test infrastructure |
-| `core/testing/assert/lib.buri` | The test platform |
+| `//lib/ledger/testing` | A library's own test utilities |
+| `//lib/testing/fakes` | A standalone package of shared test infrastructure |
+| `core/testing/assert` | The test platform |
 
 The restriction is in the import line, where the person writing the import is
 looking, rather than in a build file three directories away. A production module
@@ -139,8 +150,8 @@ that reaches for one gets:
 error: lib/store/file_store.buri imports a test-only module
   --> lib/store/file_store.buri:6:6
    |
- 6 | from "//lib/ledger/testing/lib.buri" import { sample };
-   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 6 | from "//lib/ledger/testing" import { sample };
+   |      ^^^^^^^^^^^^^^^^^^^^^^^
    |
    = a path containing `testing` may be imported only from a test source
    = lib/store/file_store.buri is in //lib/store's library sources
@@ -151,10 +162,10 @@ error: lib/store/file_store.buri imports a test-only module
 ```
 lib/ledger/
   BUILD.buri
-  lib.buri              <- //lib/ledger/lib.buri
+  lib.buri              <- //lib/ledger, from outside
   entry.buri
   testing/
-    lib.buri            <- //lib/ledger/testing/lib.buri
+    lib.buri            <- //lib/ledger/testing, from outside
     fixtures.buri
   test/
     ledger.buri
@@ -177,8 +188,8 @@ library {
 
 `testing/lib.buri` is a second entry point of the same package, and behaves
 exactly like the first one level down: it is the complete surface of
-`//lib/ledger/testing/lib.buri`, made of re-exports, and a name absent from it
-is unreachable.
+`//lib/ledger/testing`, made of re-exports, and a name absent from it is
+unreachable.
 
 ```buri repo=cli/tests/example package=//lib/ledger role=test
 // lib/ledger/testing/lib.buri — the surface of //lib/ledger/testing.
@@ -254,7 +265,7 @@ Three consequences worth stating outright:
 - **Methods are filtered by the surface, like everything else.** Method calls
   resolve through the receiver's defining module rather than through scope
   ([`SPEC.md` §6.7](../SPEC.md)), which means a type could otherwise smuggle
-  operations across the boundary: `from "//lib/money/lib.buri" import { Cents }` would
+  operations across the boundary: `from "//lib/money" import { Cents }` would
   make every method on `Cents` callable, including `toCents`, whether or not
   `lib.buri` mentioned it. So the rule is uniform — **a name is on the surface
   if `lib.buri` exports it, and a method call from outside the library resolves

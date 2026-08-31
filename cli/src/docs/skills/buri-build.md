@@ -164,7 +164,7 @@ library {}
 
 The `sources` sets are disjoint. The binary **implicitly depends on the
 co-located library** — do not list it — and reaches it only through
-`//tools/report/lib.buri`, never `//tools/report/render.buri`. The library may
+`//tools/report`, never `//tools/report/render.buri`. The library may
 not reach the binary at all.
 
 ## Visibility
@@ -195,17 +195,17 @@ a binary reaching the library in its own package.
 
 ## Module paths
 
-**A module path names a file.** It is a root — `//` for this repository,
-`core/` or `ui/` for the standard library — and then the path of a file under
-it, extension and all.
+**A surface is named as a module; everything else is a file, and only its own
+package may name it.** The root is `//` for this repository, `core/` or `ui/`
+for the standard library.
 
 | Written | Is | Legal from |
 |---|---|---|
-| `"core/list/lib.buri"` | a standard library module | anywhere |
-| `"//lib/money/lib.buri"` | the library's surface | where the dependency is declared and visibility granted |
+| `"core/list"` | a standard library module | anywhere |
+| `"//lib/money"` | the library's surface | where the dependency is declared and visibility granted, its own suite included |
+| `"//lib/money/testing"` | the testing surface | only from a test source |
 | `"//lib/money/cents.buri"` | one module inside it | only from inside `//lib/money` |
 | `"//cmd/server/main.buri"` | a binary's entry point | only from that binary's own test sources |
-| `"//lib/money/testing/lib.buri"` | the testing surface | only from a test source |
 | `"//proto/address.proto"` | a schema | as an ordinary module of its package |
 
 `//lib/money` is a *label* — it names a package in `dependencies` and on the

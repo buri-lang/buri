@@ -26,9 +26,9 @@
 //! exported — and is what to write when every field is known at once.
 //!
 //! ```buri
-//! from "core/effect/lib.buri" import { Alloc, Stdout };
-//! from "core/host/lib.buri" import * as host;
-//! from "core/net/http/lib.buri" import * as http;
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/net/http" import * as http;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -39,13 +39,13 @@
 //! }
 //! ```
 
-from "core/effect/lib.buri" import {
+from "core/effect" import {
   Alloc, Header, Method, Net, NetError, Request, Response,
 };
-from "core/effect/lib.buri" export { Header, Method, NetError, Request, Response };
-from "core/bytes/lib.buri" import * as bytes;
-from "core/bytes/lib.buri" import { Utf8Error };
-from "core/bytes/lib.buri" export { Utf8Error };
+from "core/effect" export { Header, Method, NetError, Request, Response };
+from "core/bytes" import * as bytes;
+from "core/bytes" import { Utf8Error };
+from "core/bytes" export { Utf8Error };
 
 // --- Building a request -------------------------------------------------------
 

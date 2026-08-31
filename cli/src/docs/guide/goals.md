@@ -27,8 +27,8 @@ compiled — `buri docs cli docs` says what that guarantees and how. The
 [README](../../../../README.md) says where each part lives.
 
 ```buri run
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Shape {
   Circle(Float),

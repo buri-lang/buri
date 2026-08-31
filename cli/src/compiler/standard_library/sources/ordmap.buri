@@ -50,9 +50,9 @@
 //! the shape follows the order the keys arrived in.
 //!
 //! ```buri run
-//! from "core/effect/lib.buri" import { Alloc, Stdout };
-//! from "core/host/lib.buri" import * as host;
-//! from "core/ordmap/lib.buri" import * as ordmap;
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/ordmap" import * as ordmap;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -70,8 +70,8 @@
 //! alice bob carol: 2 in [alice, carol)
 //! ```
 
-from "core/effect/lib.buri" import { Alloc };
-from "core/list/lib.buri" import * as list;
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
 
 /// The most entries a node may hold: minimum degree four, so `2 * 4 - 1`.
 /// The module comment says why four.

@@ -131,7 +131,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("impl-head-not-a-type", "An `impl` names a declared type"),
     e!("impl-method-export", "An `impl` method is not separately exported"),
     e!("impl-outside-its-module", "An `impl` or a `derive` lives in its type's own module"),
-    e!("import-path-without-a-file", "Every module path names a file", &["lang/modules"]),
+    e!("import-path-without-a-file", "A module that is not a surface is named by its file", &["lang/modules"]),
     e!("incomplete-impl", "An `impl` supplies every method of its trait"),
     e!("integer-not-in-base", "An integer literal is written in the base its prefix names"),
     e!("integer-too-wide", "An integer literal fits in 128 bits"),

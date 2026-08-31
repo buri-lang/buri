@@ -20,12 +20,12 @@ Import it from a file listed in a target's `test.sources`, or drop the import.
 The restriction is carried by the path rather than by a field, so it is visible
 where the import is written and there is nothing to remember to declare. Any
 module path with a `testing` *directory* segment is covered —
-`core/testing/assert/lib.buri`, `//lib/ledger/testing/lib.buri`,
-`//lib/testing/fakes/lib.buri`. A file called `testing.buri` is not one: the
+`core/testing/assert`, `//lib/ledger/testing`, `//lib/testing/fakes`. A file
+called `testing.buri` is not one: the
 segment that would have made it test-only is the file's own name.
 
 ## A program that provokes it
 
 ```buri fail code=test-only-import
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 ```

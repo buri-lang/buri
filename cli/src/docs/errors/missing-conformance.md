@@ -22,8 +22,8 @@ those methods and an `impl` block.
 ## A program that provokes it
 
 ```buri fail code=missing-conformance
-# from "core/effect/lib.buri" import { Alloc, Stdout };
-# from "core/host/lib.buri" import * as host;
+# from "core/effect" import { Alloc, Stdout };
+# from "core/host" import * as host;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.stdout, Stdout: host.stdout };
   let _ = ctx.println("ready");

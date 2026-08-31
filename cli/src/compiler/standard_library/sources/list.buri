@@ -9,8 +9,8 @@
 //! method with no import: receiver first, context second, everything else
 //! after (SPEC 10.7).
 
-from "core/effect/lib.buri" import { Alloc };
-from "core/order/lib.buri" import { Order, Ord };
+from "core/effect" import { Alloc };
+from "core/order" import { Order, Ord };
 
 // --- Pure: no context parameter at all --------------------------------------
 

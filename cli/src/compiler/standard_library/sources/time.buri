@@ -1,7 +1,7 @@
 //! core/time — the clock.
 
-from "core/effect/lib.buri" import { Clock };
-from "core/order/lib.buri" import { Eq, Ord, Show };
+from "core/effect" import { Clock };
+from "core/order" import { Eq, Ord, Show };
 
 /// A point in time, in milliseconds. A distinct type rather than an `I64`, so
 /// an instant cannot be added to a count by accident.

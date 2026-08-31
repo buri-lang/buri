@@ -43,10 +43,10 @@ there and nowhere else. `buri gen` maintains `test.sources` for you.
 ## A test
 
 ```buri
-from "//lib/money/lib.buri" import { fromCents, fromDollars };
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
+from "//lib/money" import { fromCents, fromDollars };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
 
 test "pads the cents place" {
     let ctx = context { Alloc: alloc() };
@@ -184,7 +184,7 @@ cannot open a socket at all, so no operating-system confinement is applied.
 
 ## What a test source may and may not do
 
-May import: the target under test (`//lib/money/lib.buri`, or
+May import: the target under test (`//lib/money`, or
 `//cmd/server/main.buri` for a binary), the target's `dependencies`, the suite's
 `test.dependencies`, `core/*` including the test platform, and any test-only path.
 
@@ -230,7 +230,7 @@ as soon as a second does — a fixture on a public surface is an API.
 Write a suite's filesystem in the suite, with `core/host/testing`'s `fs().files`:
 
 ```buri
-from "core/host/testing/lib.buri" import { alloc, fs as memory };
+from "core/host/testing" import { alloc, fs as memory };
 
 test "renders the statement" {
     let ctx = context { Alloc: alloc(), Fs: memory().files([("statement.txt", "coffee")]) };

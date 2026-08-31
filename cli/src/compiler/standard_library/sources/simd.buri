@@ -20,9 +20,9 @@
 //! a vector type is exactly the shape the purity rule was drawn around.
 //!
 //! ```buri run
-//! from "core/effect/lib.buri" import { Alloc, Stdout };
-//! from "core/host/lib.buri" import * as host;
-//! from "core/simd/lib.buri" import * as simd;
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/simd" import * as simd;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -40,7 +40,7 @@
 //! 2.0 1.0 30.0
 //! ```
 
-from "core/math/lib.buri" import * as math;
+from "core/math" import * as math;
 
 /// Four floats.
 export struct F32x4 {

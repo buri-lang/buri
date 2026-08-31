@@ -205,6 +205,14 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
             {
                 continue;
             }
+            // In *this* file. The analysis behind `lint` is the whole closure,
+            // so a second file with a finding of the same code would otherwise
+            // be offered here — an action titled for one file carrying an edit
+            // to another, under a cursor in neither. The code alone was enough
+            // to tell two actions apart only while no closure had two.
+            if d.span.is_none() || session.map.get(d.span.file).abs_path != path {
+                continue;
+            }
             let bytes: Vec<(u32, u32, u32, String)> = d
                 .edits
                 .iter()

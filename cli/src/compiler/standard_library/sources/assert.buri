@@ -14,7 +14,7 @@
 //!   - a failure ends that test and no other. The runner reports the file, the
 //!     line, and both values.
 
-from "core/order/lib.buri" import { Eq };
+from "core/order" import { Eq };
 
 /// Fails unless `a == b`. Requires `Eq`, and nothing else.
 ///

@@ -29,10 +29,10 @@ cut; Section 15 records why.
 ### 1.1 A taste
 
 ```buri run
-# from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
-from "core/io/lib.buri" import * as io;
-from "core/list/lib.buri" import * as list;
-from "core/host/lib.buri" import * as host;
+# from "core/effect" import { Alloc, Fs, Stdout };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/host" import * as host;
 
 struct Point {
   x: Float,
