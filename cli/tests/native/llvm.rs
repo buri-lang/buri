@@ -1032,6 +1032,7 @@ export fn main(): Result<(), Str> {
         r#"
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 "#,
         r#"
@@ -1673,6 +1674,14 @@ export fn main(): Result<(), Str> {
 /// CODEGEN-LLVM.md §2.2, as a test: nothing in the lowering emits an `alloca`
 /// for a local, a parameter, a temporary, a match binding or a loop variable,
 /// so a function built out of exactly those has none.
+///
+/// `walk` is that function and the claim is read out of **its** body, not out
+/// of the module. `main` is not built out of exactly those: a print answers a
+/// `Result` now, and §2.3's out-pointer boundary gives every runtime entry that
+/// does one entry-block buffer (`emit.rs`'s `scratch`, reached from
+/// `call_result`) — an `alloca` the section allows and this test is not about.
+/// The buffer never escapes, so `default<O2>` promotes it, which is why the
+/// *whole-module* claim is still the one made after the pipeline.
 #[test]
 fn a_hot_function_has_no_allocas() {
     skip_unless_executable!();
@@ -1709,8 +1718,13 @@ export fn main(): Result<(), Str> {
     // this particular loop into a closed form, which is the optimization doing
     // its job and would leave nothing to look at.
     let emitted = emitted_ir(&source);
-    assert!(!emitted.contains("alloca"), "no `alloca` before the pipeline either:\n{emitted}");
-    assert!(emitted.contains("phi "), "the loop must carry phis:\n{emitted}");
+    let walk = definitions(&emitted)
+        .into_iter()
+        .find(|(head, _)| head.contains("main_buri$walk"))
+        .map(|(_, body)| body)
+        .unwrap_or_else(|| panic!("no `main_buri$walk` was emitted; the IR is:\n{emitted}"));
+    assert!(!walk.contains("alloca"), "no `alloca` before the pipeline either:\n{walk}");
+    assert!(walk.contains("phi "), "the loop must carry phis:\n{walk}");
 }
 
 /// The pipeline is what it says it is, and the module carries the triple and
