@@ -1,0 +1,36 @@
+# The line a failure report writes about the order the tasks completed in.
+#
+# `Tasks.parallel` promises its results in the items' order and nothing about
+# the order the work runs in, so a test that fails under one order has failed
+# *at* an order — and a report that did not name it would be a report nobody
+# could act on. The three blocks are the three shapes the sentence takes:
+#
+#  * **A seeded order names its seed.** `seed(5)` is the last of the six orders
+#    of three tasks, and the line is one a reader pastes back over the
+#    `anyOrder()` that found it.
+#  * **An `everyOrder` run names which of the orders it is as well.** The block
+#    is true on the first run and false on the second, so the report is the
+#    second run's and says `order 2 of 6`: the count is how much of the space
+#    was explored and the seed is how to run that one order alone.
+#  * **A faulted task carries the order too.** That failure has a message and no
+#    rendered pair, which is the case that decided where the sentence goes: it
+#    rides the record beside `error` rather than inside it, because it is a fact
+#    about the run and not about the throw (`design/native/DECISIONS.md`).
+#
+# No block here says `anyOrder()`, and that is deliberate. Its order is derived
+# from the suite's action key — a hash of these very bytes — so a golden that
+# pinned one would pin its own hash, and the two runs
+# `the_default_backend_prints_the_report_the_javascript_one_does` compares would
+# be run on two platforms and therefore two keys.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a failure report names the order the tasks completed in and the seed that replays it"
+
+run {
+  args: ["test", "//lib/fan", "--force", "--output=js"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}
