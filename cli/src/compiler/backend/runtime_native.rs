@@ -135,9 +135,11 @@ fn declares_in(features: &str, feature: &str) -> bool {
 /// Whether this toolchain's runtime archive carries the networking crates.
 ///
 /// The runtime's `net` feature is on by default, so this is true of every
-/// ordinary toolchain. It is false in three ways, and the language-visible
-/// consequence is the same in all three: `BURI_RUNTIME_NET=0` at build time, a
-/// dependency tree that would not resolve, and a host with no archive at all.
+/// ordinary toolchain. It is false in four ways, and the language-visible
+/// consequence is the same in all four: `BURI_RUNTIME_NET=0` at build time, a
+/// dependency tree that would not resolve, a host with no C compiler (`ring`,
+/// the TLS provider, compiles C and assembly, so `cli/build.rs` probes and
+/// falls back), and a host with no archive at all.
 ///
 /// What reads it is [`super::networking_gap`], which turns it into a refusal
 /// naming the operations rather than a link error naming a symbol. That
@@ -174,10 +176,16 @@ pub fn net() -> bool {
 /// only ever consulted when [`net`] is false, and with `net` off the archive
 /// answers none of them.
 ///
-/// `host.HostNet.fetch` is deliberately **not** here: `cli/runtime/http.rs`
-/// writes its own cleartext client and reaches none of the four crates. The day
-/// `https://` is routed through hyper and rustls, that key joins this list and
-/// this paragraph goes with it.
+/// `host.HostNet.fetch` is deliberately **not** here, and it stayed out when
+/// `https://` landed. The earlier reason was that `cli/runtime/http.rs` reached
+/// none of the crates; the reason now is stronger. `http.rs` writes the
+/// cleartext client itself and only *wraps* the socket for `https://`, so a
+/// `net`-off runtime answers `http://` exactly as it always did. Putting the
+/// key here would refuse, at compile time, every program that mentions
+/// `Net.fetch` — including every program that was only ever going to ask for
+/// `http://`. What a `net`-off toolchain owes an `https://` URL is a run-time
+/// `NetError::Transport` naming the feature, and `http.rs`'s `parse` is where
+/// that sentence is written.
 pub fn net_intrinsic(key: &str) -> bool {
     let Some(rest) = key.strip_prefix("host.") else { return false };
     let Some((effect, _operation)) = rest.split_once('.') else { return false };

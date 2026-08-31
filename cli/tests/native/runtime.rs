@@ -1,11 +1,16 @@
 //! The native runtime, driven the way a generated program drives it.
 //!
-//! `cli/runtime` is not a cargo crate — it is built by `cli/build.rs` with a
-//! direct `rustc` invocation (BUILD-AND-WATCH.md §2.2) — so `cargo test` cannot
-//! reach inside it, and a `#[test]` in the runtime would prove nothing about
-//! the thing that matters anyway. What matters is the **C ABI**: whether a
-//! caller that knows only `cli/runtime/lib.rs`'s contract gets the answers the
-//! contract promises.
+//! What matters here is the **C ABI**: whether a caller that knows only
+//! `cli/runtime/lib.rs`'s contract gets the answers the contract promises. A
+//! `#[test]` inside the runtime cannot answer that — it agrees with the runtime
+//! about Rust's own layout by construction, which is the thing under test.
+//!
+//! `cli/runtime` *is* a cargo package (BUILD-AND-WATCH.md §2.2), and it does
+//! have unit tests of its own — for the float formatter, the UTF-16
+//! comparison, the handle table, and since `https://` for TLS, all of which are
+//! questions about Rust code rather than about a C ABI. Nothing ran them until
+//! `the_runtime_crate_answers_its_own_tests` at the bottom of this file, which
+//! is the second seam and the reason both are named.
 //!
 //! So the suite compiles a C driver against the embedded archive with `cc` and
 //! runs it. `cc` is not a new requirement: the link step already drives the
@@ -25,7 +30,7 @@
 //! 4. **The host capabilities work**, including the byte forms, the write
 //!    ordering between the buffered text stream and `writeBytes`, and the
 //!    append/rename/sync sequence a write-ahead log commits through.
-use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
+use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE, net};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -485,9 +490,13 @@ fn the_process_effect_exits() {
 ///
 /// A real HTTP server rather than a mock: the point of the client is that it
 /// speaks the protocol to something that did not come out of the same file.
-/// `http://` only, and the `https://` refusal is asserted too, because a
-/// refusal that silently became a cleartext request would be the worst possible
-/// regression in this file.
+///
+/// **`http://`, and it is unchanged by TLS landing** — which is the assertion
+/// this test now carries as well as its own. `http.rs` wraps the socket for
+/// `https://` and changes nothing else, so the request line, the four headers
+/// the client writes for itself, the caller's own header, the `Content-Length`
+/// an octet body earns and the dechunked response below are the same bytes they
+/// were before there was a TLS client at all.
 #[test]
 fn the_network_effect_fetches() {
     if skip() {
@@ -549,19 +558,114 @@ fn the_network_effect_fetches() {
     assert!(out.status.success());
 }
 
-/// The two refusals, which are the honest half of `fetch`'s scope.
+/// What `https://` does through the C ABI, in both of the runtime's feature
+/// states, and the refusal that is not about TLS at all.
+///
+/// The *contents* of the TLS story — a real handshake against a real server, a
+/// certificate refused for an unknown issuer, one refused for the wrong name —
+/// are in the runtime crate's own tests, because a TLS server has to come from
+/// somewhere and the only `rustls` in this repository is inside the archive.
+/// `the_runtime_crate_answers_its_own_tests` below is what runs them. What
+/// *this* test is for is the seam: that the scheme is no longer refused by name
+/// on a `net` toolchain, and that it is refused with the right sentence on one
+/// without.
+///
+/// The probe is a **closed port on the loopback interface**, so it is offline
+/// and it is deterministic: with TLS compiled in, `https://` gets as far as the
+/// socket and answers `Refused`; without it, the scheme never reaches a socket
+/// at all.
 #[test]
-fn the_network_effect_refuses_what_it_cannot_do() {
+fn the_network_effect_answers_https_according_to_its_features() {
     if skip() {
         return;
     }
-    let out = run(&["net", "https://example.invalid/"]);
-    assert_eq!(
-        stdout(&out).trim_end(),
-        "err=3 message=https is not supported by the native runtime \
-         (its TLS client is not written yet; `Net.fetch` speaks cleartext http only)"
-    );
+    // A port nothing is listening on: bound, read back, and dropped.
+    let port = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    };
+    let out = run(&["net", &format!("https://127.0.0.1:{port}/probe")]);
+    if net() {
+        assert_eq!(
+            stdout(&out).trim_end(),
+            "err=1 message=",
+            "`https://` reached the socket and found nothing there, which is `Refused`; \
+             stderr:\n{}",
+            stderr(&out)
+        );
+    } else {
+        assert_eq!(
+            stdout(&out).trim_end(),
+            "err=3 message=https is not supported by this toolchain's native runtime: it was \
+             built without the runtime's `net` feature, so it carries no TLS code. `Net.fetch` \
+             speaks cleartext http only"
+        );
+    }
 
     let out = run(&["net", "not-a-url"]);
     assert_eq!(stdout(&out).trim_end(), "err=2 message=not an absolute http URL: not-a-url");
+}
+
+/// The runtime crate's own unit tests — including the `https://` exchange
+/// against a locally-served `rustls` endpoint — run.
+///
+/// **They were written and never run.** `cli/runtime` is a cargo package that
+/// is deliberately not a workspace member and whose manifest is deliberately
+/// not called `Cargo.toml` (`cli/build.rs`'s header says why), so
+/// `cargo test -p buri` cannot reach inside it and no CI step did either. Fifty
+/// assertions about the float formatter, the UTF-16 comparison, the handle
+/// table and the allocator were dead. This is the seam that runs them, and the
+/// path comes from the build script — `BURI_RT_PKG` — because the package is
+/// *assembled* in `OUT_DIR` and only the script knows where.
+///
+/// The nested `cargo` gets the same treatment `cli/build.rs`'s does and for the
+/// same reasons: every `CARGO_*` but `CARGO_HOME` removed, so the outer
+/// invocation's target-directory lock and jobserver are not inherited, and an
+/// emptied `RUSTFLAGS`. `--offline` and `--no-default-features` mirror whatever
+/// the archive beside this binary was actually built with, so this runs the
+/// tests of *this* runtime rather than of a differently-featured one.
+#[test]
+fn the_runtime_crate_answers_its_own_tests() {
+    if skip() {
+        return;
+    }
+    let pkg = Path::new(env!("BURI_RT_PKG"));
+    assert!(
+        pkg.join("Cargo.toml").is_file(),
+        "the build script reported the runtime package at {} and there is no manifest there, so \
+         this test would have asserted nothing",
+        pkg.display()
+    );
+
+    let mut cargo =
+        Command::new(std::env::var("CARGO").unwrap_or_else(|_| String::from("cargo")));
+    for (name, _) in std::env::vars() {
+        if name.starts_with("CARGO_") && name != "CARGO_HOME" {
+            cargo.env_remove(&name);
+        }
+    }
+    cargo.env_remove("CARGO");
+    cargo.env("RUSTFLAGS", "");
+    cargo.arg("test").arg("--locked");
+    if env!("BURI_RT_OFFLINE") == "1" {
+        cargo.arg("--offline");
+    }
+    if !net() {
+        cargo.arg("--no-default-features");
+    }
+    cargo.arg("--manifest-path").arg(pkg.join("Cargo.toml"));
+    // Beside the other native scratch trees, and *not* named for the process:
+    // the dependency tree is a minute of `cc` and `rustc` the first time, and
+    // paying that once per checkout rather than once per run is the difference
+    // between a test that is run and one that is skipped. `harness/sweep.rs`
+    // collects it after two idle hours like everything else here.
+    cargo.arg("--target-dir").arg(Path::new(env!("CARGO_TARGET_TMPDIR")).join("runtime-crate"));
+
+    let out = cargo.output().expect("cargo could not be run for the runtime package");
+    assert!(
+        out.status.success(),
+        "the runtime crate's own tests did not pass:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
 }

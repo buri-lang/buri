@@ -1,38 +1,44 @@
-//! The networking stack's seam — **the crates, and nothing that calls them.**
+//! The networking stack's seam — **the crates, and what does or does not call
+//! them.**
 //!
-//! `manifest.toml`'s `net` feature brings `tokio`, `hyper`, `rustls` and
-//! `tungstenite` into the runtime's dependency tree. This file names one type
-//! from each, which for three of them is still the whole of what references
-//! them; `tokio` is the exception, and `rt.rs` is where it went. No intrinsic
-//! key mangles to a symbol declared *here* (`runtime_native::symbol_for` is
-//! the rule, and `backend/runtime_table.rs` is the table); neither backend
-//! emits a call into this file; nothing in `core/` reaches it.
+//! `manifest.toml`'s `net` feature brings `tokio`, `hyper`, `rustls`, `ring`
+//! and `tungstenite` into the runtime's dependency tree. This file names one
+//! type from each, which for two of them — `hyper` and `tungstenite` — is
+//! still the *whole* of what references them: no intrinsic key mangles to a
+//! symbol declared here (`runtime_native::symbol_for` is the rule, and
+//! `backend/runtime_table.rs` is the table); neither backend emits a call into
+//! this file; nothing in `core/` reaches it.
 //!
-//! That was deliberate and it was the whole of the slice that landed the four.
-//! Bringing crates into the archive that ships inside every `buri` binary is a
-//! decision with a measurable price, and the price was worth measuring
-//! *before* anything depended on the answer:
+//! The crates landed a slice ahead of any code that uses them so that the price
+//! could be measured *before* anything depended on the answer. Three of them
+//! have since been linked, each in the commit that needed it and each with its
+//! bytes written down: `tokio` by `rt.rs` (the reactor and its timer wheel,
+//! +185 424 bytes when B6 measured it), and `rustls` and `ring` by `tls.rs`,
+//! which `http.rs` calls for every `https://` URL (+1 804 592 when C7 did).
+//! Where that leaves the archive, measured on aarch64-apple-darwin on this
+//! tree:
 //!
 //! ```text
-//! aarch64-apple-darwin, libburi_rt.a
-//!   net off   5 987 472 bytes
-//!   net on    5 987 496 bytes      +24
+//! libburi_rt.a
+//!   net off                                       6 130 536 bytes
+//!   net on, the reactor and the TLS client linked 8 198 904   +2 068 368
 //! ```
 //!
-//! Twenty-four bytes, because `lto = "fat"` is whole-program across the
-//! dependency rlibs too and Rust code that nothing reaches does not reach the
-//! archive. `.github/scripts/assert-runtime-archive.sh` holds that claim in CI
-//! the direct way — it greps the archive's symbol table for the crates' names
-//! and requires **none** — so a slice that genuinely links one of them has to
-//! move the assertion deliberately rather than discover the growth in a binary
-//! size six months later.
+//! Twenty-four bytes was what four unreferenced crates cost, because
+//! `lto = "fat"` is whole-program across the dependency rlibs and Rust code
+//! that nothing reaches does not reach the archive. What LTO cannot touch is a
+//! dependency's **native** object code: about 845 KB of the TLS figure is
+//! `ring`'s C and AArch64 assembly, which a `staticlib` bundles whether the
+//! linker needs it or not.
 //!
-//! **`tokio` has been moved off that list, once, deliberately.** `rt.rs` is the
-//! carrier runtime and `Clock::sleepMillis` and `Net::fetch` wait on it, which
-//! put the reactor and its timer wheel — 185 424 bytes on
-//! aarch64-apple-darwin — into the archive on purpose. The other three are
-//! still reached by nothing but the `size_of` below, and the same paragraph in
-//! that script is what the slice linking one of *them* has to rewrite.
+//! `.github/scripts/assert-runtime-archive.sh` holds the remaining claim in CI
+//! the direct way — it greps the archive's symbol table, requires `tokio`,
+//! `rustls` and `ring` to be **present** when the feature file says `net`, and
+//! requires `hyper` and `tungstenite` to be **absent** either way. Each of the
+//! three crossed that line in the commit that linked it, which is the
+//! assertion being moved deliberately rather than the growth being discovered
+//! in a binary six months later, and the slice that links one of the other two
+//! moves it again the same way.
 //!
 //! ## What the two entries below are for
 //!
@@ -61,11 +67,10 @@
 pub const BURI_NET_TOKIO: i64 = 1 << 0;
 /// HTTP/1.1 and HTTP/2 framing — `hyper`.
 pub const BURI_NET_HYPER: i64 = 1 << 1;
-/// TLS 1.2 and 1.3 — `rustls`. **The bit says the crate is linked, not that a
-/// handshake would succeed:** the runtime carries no crypto provider yet
-/// (`manifest.toml` says why, and where the decision lives), so a `rustls`
-/// connection built today would fail for want of one. Nothing can build one,
-/// because nothing calls into this file at all.
+/// TLS 1.2 and 1.3 — `rustls` over the `ring` provider. Unlike its three
+/// neighbours this bit now means a working capability rather than a linked
+/// crate: `tls.rs` builds a client configuration from it and `http.rs` reaches
+/// that for every `https://` URL.
 pub const BURI_NET_TLS: i64 = 1 << 2;
 /// RFC 6455 framing and the handshake — `tungstenite`.
 pub const BURI_NET_WEBSOCKET: i64 = 1 << 3;
@@ -74,7 +79,7 @@ pub const BURI_NET_WEBSOCKET: i64 = 1 << 3;
 ///
 /// A `const` rather than a function body so that the answer is folded at the
 /// one place it is asked, and so that the `net`-off build has no branch and no
-/// data for the four crates at all.
+/// data for the five crates at all.
 #[cfg(feature = "net")]
 const LINKED: i64 = {
     // Naming a type is the whole reference. `size_of` is a constant, so this
@@ -84,6 +89,13 @@ const LINKED: i64 = {
     let _reactor = size_of::<tokio::sync::Semaphore>();
     let _http = size_of::<hyper::Method>();
     let _tls = size_of::<rustls::ClientConfig>();
+    // `ring` is reached through `rustls::crypto::ring` and never named in
+    // `tls.rs`, so without this line the manifest could lose the entry and
+    // nothing would stop compiling — while every binary would go on carrying
+    // its object code through `rustls`'s own feature. It is declared directly
+    // for `dependencies_stay_behind_the_bar` to see, and it is named here for
+    // the same reason the other four are.
+    let _provider = size_of::<ring::digest::Context>();
     let _websocket = size_of::<tungstenite::protocol::Role>();
     BURI_NET_TOKIO | BURI_NET_HYPER | BURI_NET_TLS | BURI_NET_WEBSOCKET
 };

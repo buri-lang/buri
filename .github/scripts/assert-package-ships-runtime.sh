@@ -38,10 +38,11 @@ for f in lib.rs manifest.toml manifest.lock; do
 done
 
 sources=$(grep -c '^runtime/.*\.rs$' <<<"$listed" || true)
-# Sixteen at the time of writing. The bar is a floor rather than an equality so
-# that adding a runtime source is not a CI failure, and it is not merely `> 0`
-# so that shipping one file out of sixteen is not a pass.
-if [ "$sources" -lt 16 ]; then
+# Seventeen at the time of writing — sixteen until `tls.rs`. The bar is a floor
+# rather than an equality so that adding a runtime source is not a CI failure,
+# and it is not merely `> 0` so that shipping one file out of seventeen is not a
+# pass. Raising it with each new source is what keeps the floor tight.
+if [ "$sources" -lt 17 ]; then
   echo "::error::the published buri crate carries $sources runtime sources; cli/runtime holds more than that. cargo package is dropping some of them."
   missing=1
 fi
