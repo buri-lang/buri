@@ -565,3 +565,254 @@ export fn main(): Result<(), Str> {
         symbols.len()
     );
 }
+
+/// **A callback that parks, called through a function value, is awaited.**
+///
+/// The generic wrapper below is four lines and holds the whole defect class:
+/// `body` is a `fn(C) => T`, so at `body(ctx)` the backend has no name to look
+/// the callee's parkability up under. The set of `async` functions used to be
+/// computed over direct edges only — an indirect call contributed nothing —
+/// which is sound exactly while no function *value* in the program parks. A
+/// lambda that takes a context parameter and sleeps on it is one, so the call
+/// was emitted without `await`, `wrapped` was not `async`, and `n` was bound to
+/// a `Promise`.
+///
+/// Two things fail when the `await` is missing and both are asserted, because
+/// either alone can be got right by accident:
+///
+///  * **the value.** `n=[object Promise]` rather than `n=7`.
+///  * **the order.** The line the callback prints lands *after* `main`'s,
+///    because `main` runs to the end while the sleep is still pending. Order
+///    is the assertion that says the caller waited rather than merely that
+///    something later awaited the promise for it.
+#[test]
+fn a_parking_callback_called_through_a_function_value_is_awaited() {
+    let program = "\
+from \"core/effect/lib.buri\" import { Alloc, Clock, Stdout };
+from \"core/host/lib.buri\" import * as host;
+
+fn wrapped<C, T>(ctx: C, body: fn(C) => T): T {
+  body(ctx)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let n = wrapped(ctx, fn(c) => {
+    let _ = c.sleepMillis(20);
+    let _ = c.println(\"inside\");
+    7
+  });
+  let _ = ctx.println(\"after ${n}\");
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("can-park-through-a-function-value");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let out = scratch.exec_js("cmd/x");
+    out.ok();
+    assert_eq!(out.stdout, "inside\nafter 7\n", "{}", out.stderr);
+
+    scratch.run(&["build", "//cmd/x", "--release", "--force"]).ok();
+    let release = scratch.exec_js("cmd/x");
+    release.ok();
+    assert_eq!(release.stdout, out.stdout, "release and debug disagree");
+}
+
+/// The G5 reproduction, byte for byte: a wrapper whose callback runs tasks.
+///
+/// `tasks.parallel` is on `rc::suspends` for a reason of its own — it waits on
+/// the program's own tasks rather than on the outside world — and it answers a
+/// list. So a dropped `await` here does not merely print a promise, it *aborts*
+/// on `xs.join is not a function`, which is how the gap was found (wave-8 G5
+/// §6). No `core/alloc` and no scope in it: the wrapper is written in the file.
+#[test]
+fn the_wrapper_reproduction_from_g5_answers_a_list_rather_than_a_promise() {
+    let program = "\
+from \"core/effect/lib.buri\" import { Alloc, Clock, Stdout, Tasks };
+from \"core/host/lib.buri\" import * as host;
+from \"core/tasks/lib.buri\" import * as tasks;
+from \"core/str/lib.buri\" import * as str;
+
+fn wrapped<C, T>(ctx: C, body: fn(C) => T): T {
+  body(ctx)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
+  };
+  let out = wrapped(ctx, fn(c) => tasks.parallel(c, [1, 2, 3], fn(d, i, n) => str.format(d, \"${n}\")));
+  let _ = ctx.println(out.join(ctx, \",\"));
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("can-park-g5-wrapper");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let out = scratch.exec_js("cmd/x");
+    out.ok();
+    assert_eq!(out.stdout, "1,2,3\n", "{}", out.stderr);
+}
+
+/// One function declaration out of the generated half, `async` and all.
+///
+/// `name` is a fragment of the symbol — `"$applyN"` — because a symbol carries
+/// an instantiation hash a test has no business spelling. The `async` keyword
+/// is ahead of the `function` this searches for, so it is read off the text
+/// before the match rather than from inside the slice.
+fn declaration(generated: &str, name: &str) -> String {
+    let sym = generated
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+        .find(|p| p.contains(name))
+        .unwrap_or_else(|| panic!("no `{name}` in\n\n{generated}"))
+        .to_string();
+    let at = generated
+        .find(&format!("function {sym}("))
+        .unwrap_or_else(|| panic!("no declaration of `{sym}` in\n\n{generated}"));
+    let rest = generated.get(at..).unwrap_or_default();
+    let end = rest[1..].find("\nfunction ").map_or(rest.len(), |i| i + 1);
+    let asynced = generated.get(..at).unwrap_or_default().ends_with("async ");
+    format!("{}{}", if asynced { "async " } else { "" }, &rest[..end])
+}
+
+/// And the `await` reaches only the indirect calls that need it.
+///
+/// The sound-but-blunt repair for the case above is to await *every* call
+/// through a function value as soon as the program builds one that parks. It
+/// would pass that test and cost a promise at every callback in the artifact —
+/// and, worse, print `async` on functions whose value JavaScript itself calls:
+/// a comparator, a `ui.each` row, the callback of `$list_mapCtx`.
+///
+/// So this program holds both kinds at once. `wrapped` is handed a callback
+/// that sleeps and has to be `async`; `applyN` is handed one that adds and must
+/// not be. Both take their callback as a parameter and call it through the
+/// value, and neither is ever used as a value itself — which is exactly the
+/// condition under which the argument at each call site is the whole story.
+///
+/// Both are recursive so that the inliner leaves a declaration to look at.
+#[test]
+fn a_callback_that_does_not_park_leaves_its_wrapper_synchronous() {
+    let program = "\
+from \"core/effect/lib.buri\" import { Alloc, Clock, Stdout };
+from \"core/host/lib.buri\" import * as host;
+
+fn sleepy<C: Clock>(ctx: C, n: Int, body: fn(C) => Int): Int {
+  if (n <= 0) { 0 } else { body(ctx) + sleepy(ctx, n - 1, body) }
+}
+
+fn applyN(n: Int, x: Int, f: fn(Int) => Int): Int {
+  if (n <= 0) { x } else { applyN(n - 1, f(x), f) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let slow = sleepy(ctx, 2, fn(c) => {
+    let _ = c.sleepMillis(1);
+    5
+  });
+  let fast = applyN(3, 1, fn(x) => x + 1);
+  let _ = ctx.println(\"${slow} ${fast}\");
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("can-park-precision");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let generated =
+        program_only(&std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap());
+
+    let sleepy = declaration(&generated, "$sleepy");
+    assert!(
+        sleepy.starts_with("async ") && sleepy.contains("await"),
+        "the wrapper whose callback sleeps is `async` and awaits it:\n\n{sleepy}"
+    );
+    let apply = declaration(&generated, "$applyN");
+    assert!(
+        !apply.starts_with("async ") && !apply.contains("await"),
+        "the wrapper whose callback only adds is untouched:\n\n{apply}"
+    );
+
+    let out = scratch.exec_js("cmd/x");
+    out.ok();
+    assert_eq!(out.stdout, "10 4\n", "{}", out.stderr);
+}
+
+/// A callback the pass could not follow is answered by its **type**.
+///
+/// This is the case the first draft of the repair got wrong, and the monorepo's
+/// page is what caught it: `Prop.read`'s third arm calls a function value out of
+/// an enum payload — no name, no parameter, nothing to follow — while somewhere
+/// else in the same program an `onPress` handler fetches. A program-wide
+/// "something here parks" made `Prop.read` `async`, and `Prop.read` is reached
+/// from a style thunk the *runtime* calls (`$tree_style_collect`,
+/// `style[1](scope)`), which cannot await. The page died on `{} is not
+/// iterable`: a promise where a list of styles belonged.
+///
+/// So the program below is that shape in miniature. `force` calls a
+/// `fn(Int) => Int` it took out of an enum payload, and `wrapped` is handed a
+/// `fn(C) => Int` that sleeps. Two function types that never meet, one of which
+/// parks: `wrapped` must be `async` and `force` must not.
+///
+/// `the_monorepo_page_builds_as_a_web_artifact` is the same claim at full size
+/// and would fail again first; this one names the reason.
+#[test]
+fn an_unfollowed_callback_is_answered_by_its_type() {
+    let program = "\
+from \"core/effect/lib.buri\" import { Alloc, Clock, Stdout };
+from \"core/host/lib.buri\" import * as host;
+
+enum Thunk {
+  Const(Int),
+  Computed(fn(Int) => Int),
+}
+
+fn force(t: Thunk, x: Int, n: Int): Int {
+  if (n <= 0) {
+    x
+  } else {
+    match (t) {
+      .Const(k) => force(t, x + k, n - 1),
+      .Computed(f) => force(t, f(x), n - 1),
+    }
+  }
+}
+
+fn wrapped<C: Clock>(ctx: C, n: Int, body: fn(C) => Int): Int {
+  if (n <= 0) { 0 } else { body(ctx) + wrapped(ctx, n - 1, body) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let slow = wrapped(ctx, 2, fn(c) => {
+    let _ = c.sleepMillis(1);
+    3
+  });
+  let a = force(.Const(1), 10, 3);
+  let b = force(.Computed(fn(x) => x + 5), 10, 3);
+  let _ = ctx.println(\"${slow} ${a} ${b}\");
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("can-park-by-type");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let generated =
+        program_only(&std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap());
+
+    let force = declaration(&generated, "$force");
+    assert!(
+        !force.starts_with("async ") && !force.contains("await"),
+        "a `fn(Int) => Int` out of an enum payload is not the `fn(C) => Int` that \
+         sleeps, so nothing here waits:\n\n{force}"
+    );
+    let wrapped = declaration(&generated, "$wrapped");
+    assert!(
+        wrapped.starts_with("async ") && wrapped.contains("await"),
+        "and the one that does still waits:\n\n{wrapped}"
+    );
+
+    let out = scratch.exec_js("cmd/x");
+    out.ok();
+    assert_eq!(out.stdout, "6 13 25\n", "{}", out.stderr);
+}
