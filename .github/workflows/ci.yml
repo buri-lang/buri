@@ -59,6 +59,7 @@ name: CI
 # `concurrency` group below still collapses superseded runs of each.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
