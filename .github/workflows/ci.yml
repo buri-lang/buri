@@ -155,8 +155,9 @@ jobs:
       # the same way — an empty archive on a host with no runtime, and since the
       # `net` feature on a dependency tree that cannot be resolved — and an
       # empty one makes every native test skip and the suite pass vacuously.
-      # It also asserts the size budget and that none of the four networking
-      # crates has been linked in; the script argues both.
+      # It also asserts the size budget, that the three linked networking crates
+      # are there, and that the three unreferenced ones — `hyper`,
+      # `tungstenite` and `quinn` — are not; the script argues each.
       - name: The runtime archive is not empty
         run: bash .github/scripts/assert-runtime-archive.sh
 
@@ -177,6 +178,42 @@ jobs:
       # held to staying under a second there.
       - if: runner.os == 'Linux'
         run: cargo bench -p buri --bench compiler -- --validate --quick
+
+      # The runtime's OTHER feature, on ONE job of the whole workflow.
+      #
+      # `net-h3` is off by default — `quinn`, QUIC, and the concurrency note's
+      # gate "behind configuration until the crate is trusted"
+      # (cli/runtime/manifest.toml argues it). What still has to be true is that
+      # the feature COMPILES and that turning it on does not quietly change what
+      # every user ships, and neither is a per-platform question: quinn is
+      # portable Rust, it reaches the archive through the same nested `cargo`
+      # the other five do, and the assertion is about symbols and bytes rather
+      # than about a syscall. One job is therefore the right number, and paying
+      # it on three would buy nothing but the minutes.
+      #
+      # x86_64 Linux because it is the leg the release job also uses, so the
+      # crates are in the same rust-cache the rest of this job warmed.
+      #
+      # LAST in the job, deliberately: it rebuilds the runtime archive and
+      # relinks `buri`, so running it earlier would leave every step after it
+      # measuring an h3 toolchain that no other job has.
+      - if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        name: The runtime builds with net-h3, and it costs what it says
+        env:
+          BURI_RUNTIME_NET_H3: "1"
+        run: |
+          set -euo pipefail
+          cargo build -p buri
+          # The same three assertions, on the h3 archive: not empty, inside the
+          # SAME size budget as the `net` one — quinn is referenced by nothing
+          # yet and fat LTO drops it whole, so an h3 archive that grew is a
+          # finding — and a symbol table with one crypto provider in it rather
+          # than two. The script reads `libburi_rt.a.features` and takes the h3
+          # branch on its own.
+          bash .github/scripts/assert-runtime-archive.sh
+          # And the toolchain agrees with its own archive about the feature:
+          # the C-ABI door against the file beside the bytes.
+          cargo test -p buri --test native runtime::the_networking_features_agree_across_the_abi
 
       # A failing test's scratch directory is its evidence (cli/tests/README.md).
       # `BURI_KEEP` is NOT set: a panicking test keeps its own tree regardless
@@ -224,8 +261,9 @@ jobs:
       # the same way — an empty archive on a host with no runtime, and since the
       # `net` feature on a dependency tree that cannot be resolved — and an
       # empty one makes every native test skip and the suite pass vacuously.
-      # It also asserts the size budget and that none of the four networking
-      # crates has been linked in; the script argues both.
+      # It also asserts the size budget, that the three linked networking crates
+      # are there, and that the three unreferenced ones — `hyper`,
+      # `tungstenite` and `quinn` — are not; the script argues each.
       - name: The runtime archive is not empty
         run: bash .github/scripts/assert-runtime-archive.sh
 
@@ -424,8 +462,9 @@ jobs:
       # the same way — an empty archive on a host with no runtime, and since the
       # `net` feature on a dependency tree that cannot be resolved — and an
       # empty one makes every native test skip and the suite pass vacuously.
-      # It also asserts the size budget and that none of the four networking
-      # crates has been linked in; the script argues both.
+      # It also asserts the size budget, that the three linked networking crates
+      # are there, and that the three unreferenced ones — `hyper`,
+      # `tungstenite` and `quinn` — are not; the script argues each.
       - name: The runtime archive is not empty
         run: bash .github/scripts/assert-runtime-archive.sh
 
