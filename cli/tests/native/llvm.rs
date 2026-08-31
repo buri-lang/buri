@@ -2089,7 +2089,7 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-use crate::shared::{probed, Ran, ALLOC_PROBE};
+use crate::shared::{probed, ALLOC_PROBE};
 
 /// MEMORY.md §5.3, pinned by allocation count on this backend too.
 ///

@@ -2404,6 +2404,128 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **A handler a wrapper rebuilt is entered, and is handed the wrapper.**
+///
+/// `core/alloc`'s `Scoped<C>` cannot forward `Listen` the way it forwards the
+/// other twelve effects: `listen` hands its handler `Self`, which is
+/// `Scoped<C>` at the wrapper and the acceptor inside it, so the wrapper has to
+/// *rebuild* the handler — put the scope back around whatever the acceptor
+/// hands out. Wave-8 G4 found that shape faulting under the stencil backend
+/// with SIGBUS before a line was flushed, and narrowed it with three flips: a
+/// zero-sized implementation passes, an acceptor that refuses passes, and the
+/// same wrapper reached without the generic callback passes.
+///
+/// The program below is that repro with `core/alloc` taken out of it — every
+/// implementation is written here, so what is being pinned is the language
+/// shape and not one module's wrapper. `Plain` carries a word for the first
+/// flip's sake: a context whose bindings are all zero-sized is zero words wide
+/// and `Wrap<ctx>` and `Wrap<OneShot>` are then the same bytes, which is what
+/// hid this.
+#[test]
+fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "rebuilt handler",
+        r#"
+from "core/effect/lib.buri" import {
+  Alloc, Listen, NetError, Region, Request, Response, Stdout,
+};
+from "core/host/lib.buri" import * as host;
+
+/// An `Alloc` that is not zero-sized, so the context binding it is a word wide.
+struct Plain {
+  n: I64,
+}
+
+impl Alloc for Plain {
+  fn allocate(self, bytes: Int): Region { Region(bytes + self.n) }
+}
+
+/// An acceptor that calls its handler once, with a request naming the address.
+struct OneShot {
+  bindsTo: Str,
+}
+
+impl Listen for OneShot {
+  fn listen(
+    self,
+    address: Str,
+    port: Int,
+    onRequest: fn(OneShot, Request) => Response,
+  ): Result<(), NetError> {
+    match (self.bindsTo) {
+      "" => .Err(.Refused),
+      _ => {
+        let reply = onRequest(self, Request {
+          method: .Get,
+          url: address,
+          headers: [],
+          body: [],
+        });
+        match (reply.status) { 200 => .Ok(()), _ => .Err(.Refused) }
+      },
+    }
+  }
+}
+
+/// The wrapper: unbounded in `C`, exactly like `Scoped<C>`.
+struct Wrap<C>(C, I64);
+
+impl<C> Alloc for Wrap<C> {
+  fn allocate(self, bytes: Int): Region { Region(bytes) }
+}
+
+impl<C: Stdout> Stdout for Wrap<C> {
+  fn print(self, text: Template): () { self.0.print(text) }
+  fn println(self, text: Template): () { self.0.println(text) }
+  fn writeBytes(self, b: [U8]): () { self.0.writeBytes(b) }
+}
+
+impl<C: Listen> Listen for Wrap<C> {
+  fn listen(
+    self,
+    address: Str,
+    port: Int,
+    onRequest: fn(Wrap<C>, Request) => Response,
+  ): Result<(), NetError> {
+    let tag = self.1;
+    self.0.listen(address, port, fn(c, request) => onRequest(Wrap(c, tag), request))
+  }
+}
+
+/// A handler written against a bound, which is what a request handler is.
+fn served<C: Listen + Stdout>(ctx: C): Int {
+  let answered = ctx.listen("10.0.0.1", 0, fn(server, request) => {
+    // The handler *uses* what it is handed, on a bound its own `C` declares
+    // and the acceptor does not. A handler that ignored its first parameter
+    // would pass whatever arrived.
+    let _ = server.println("handler on ${request.url}");
+    Response { status: 200, headers: [], body: [] }
+  });
+  match (answered) { .Ok(_) => 1, .Err(_) => 0 }
+}
+
+/// The generic callback `scoped` is: it builds the wrapper and hands it over.
+fn wrapped<C, T>(ctx: C, body: fn(Wrap<C>) => T): T {
+  body(Wrap(ctx, 7))
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: Plain { n: 0 },
+    Stdout: host.stdout,
+    Listen: OneShot { bindsTo: "10.0.0.1" },
+  };
+  let _ = host.stdout.println("entering");
+  let n = wrapped(ctx, fn(c) => served(c));
+  let _ = host.stdout.println("served ${n}");
+  .Ok(())
+}
+"#,
+        "entering\nhandler on 10.0.0.1\nserved 1\n",
+    );
+}
+
 /// A task that aborts stops the program, with the same message and the same
 /// status on every backend — and with what was printed before it flushed.
 ///

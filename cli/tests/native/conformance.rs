@@ -250,13 +250,14 @@ const PACKAGES: &[Case] = &[
     // and are asserted where they are visible — `cli/runtime/memory.rs`'s own
     // cases, through `buri_rt_heap_stats`.
     //
-    // **One call is missing from that file, and this backend is why.** An
-    // acceptor that *invokes* a handler a wrapper rebuilt faults here — see the
-    // comment beside its `Listen` cases, which carries the minimal repro. It
-    // reproduces with a hand-written wrapper and no `core/alloc` at all, so it
-    // is not a fact about scopes and the file is in the set rather than out of
-    // it; what the file does instead is exercise the forward's refusal path,
-    // which this backend gets right.
+    // **Its `Listen` cases were the last thing this backend could not run.** An
+    // acceptor that *invokes* a handler a wrapper rebuilt used to fault here,
+    // and on the LLVM backend too: `middle/monomorphize.rs` retyped the handler
+    // down to the implementation and rewrote the wrapper's own type on the way
+    // past. It adapts the call instead now, and both of the forward's paths are
+    // in the file. `agreement.rs`'s
+    // `a_handler_a_wrapper_rebuilt_is_entered_on_every_backend` is the same
+    // shape with no `core/alloc` in it at all.
     included("memory/scoped.buri"),
     // It was excluded for `list.fold` until the backend grew the loop
     // over a closure, and
