@@ -1,8 +1,8 @@
 error: `Pair<Int, Int>` has no method `second` [no-such-method]
-  --> cmd/method_on_a_generic_type_of_ones_own/main.buri:12:28
+  --> cmd/method_on_a_generic_type_of_ones_own/main.buri:13:32
    |
-12 |   let _ = ctx.println("${p.second()}");
-   |                            ^^^^^^
+13 |   let _ = io.println(ctx, "${p.second()}").ignore();
+   |                                ^^^^^^
    |
    = fix: check the spelling, or declare it in `impl<A, B> Pair<A, B> { ... }` in `//cmd/method_on_a_generic_type_of_ones_own/main.buri`, where the type is declared — a method may not be added from anywhere else
 

@@ -22,11 +22,19 @@ function __cmd_x_main_buri$main(){
   const ctx_0=[[],[],[],[]];
   const lit_1=[$host_HostUi_signal(ctx_0[2],false)];
   const width_2=[$host_HostUi_signal(ctx_0[2],120n)];
-  $host_HostStdout_println(ctx_0[1],'dynamic');
-  const $t1=ui_node$row$u3rqgv([[3,[1,lit_1],$k4,$k9]],[]);
-  const $t2=ui_node$row$u3rqgv([[4,scope_3=>[[24,[0,$ui_effect_Scope_read(scope_3,width_2[0])]]]]],[]);
-  const children_16=[$t1,$t2,ui_node$row$u3rqgv([[12,$host_HostWatch_read(ctx_0[3],width_2[0])]],[])];
-  return $ui_node_mount(ctx_0,[[3,[$k13,[0,[]]],children_16]],[]);
+  const self_11=$host_HostStdout_println(ctx_0[1],'dynamic');
+  let $t1;
+  if(self_11[0]===0){
+    $t1=0;
+  }else if(self_11[0]===1){
+    $t1=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const $t3=ui_node$row$u3rqgv([[3,[1,lit_1],$k4,$k9]],[]);
+  const $t4=ui_node$row$u3rqgv([[4,scope_3=>[[24,[0,$ui_effect_Scope_read(scope_3,width_2[0])]]]]],[]);
+  const children_19=[$t3,$t4,ui_node$row$u3rqgv([[12,$host_HostWatch_read(ctx_0[3],width_2[0])]],[])];
+  return $ui_node_mount(ctx_0,[[3,[$k13,[0,[]]],children_19]],[]);
 }
 function ui_node$row$u3rqgv(styles_0,children_1){
   return [[3,[$k17,[0,styles_0]],children_1]];

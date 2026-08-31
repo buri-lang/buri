@@ -1,5 +1,5 @@
 // EXPECT: cannot implement both the effect `Stdout` and the trait `Show`
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Alloc, IoError, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/order" import { Show };
@@ -8,9 +8,9 @@ from "core/str" import * as str;
 struct SilentOut {}
 
 impl Stdout for SilentOut {
-  fn print(self, text: Template): () { () }
-  fn println(self, text: Template): () { () }
-  fn writeBytes(self, b: [U8]): () { () }
+  fn print(self, text: Template): Result<(), IoError> { .Ok(()) }
+  fn println(self, text: Template): Result<(), IoError> { .Ok(()) }
+  fn writeBytes(self, b: [U8]): Result<(), IoError> { .Ok(()) }
 }
 
 impl Show for SilentOut {

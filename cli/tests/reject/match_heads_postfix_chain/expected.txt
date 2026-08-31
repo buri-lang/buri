@@ -1,7 +1,7 @@
 error: a `match` is an operand, not the head of a `.` [postfix-on-a-block]
-  --> cmd/match_heads_postfix_chain/main.buri:11:4
+  --> cmd/match_heads_postfix_chain/main.buri:12:4
    |
-11 |   }.x
+12 |   }.x
    |    ^
    |
    = fix: parenthesise it, or bind it with `let` and go on from the name

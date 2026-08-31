@@ -1,7 +1,7 @@
 error: `?` on an `Option` needs an `Option` return type, not `Result<I64, Str>` [question-mark-mismatch]
- --> cmd/question_option_in_result_fn/main.buri:6:11
+ --> cmd/question_option_in_result_fn/main.buri:7:11
   |
-6 |   let n = xs.first()?;
+7 |   let n = xs.first()?;
   |           ^^^^^^^^^^^
   |
   = fix: return an `Option` from this function, or turn absence into an error with `.okOr(e)?`

@@ -1,7 +1,7 @@
 error: `Str` does not implement `Add` [missing-conformance]
- --> cmd/string_addition/main.buri:6:3
+ --> cmd/string_addition/main.buri:7:3
   |
-6 |   a + b
+7 |   a + b
   |   ^^^^^
   |
   = conformance is nominal: a type satisfies a trait only where a declaration says so

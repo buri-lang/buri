@@ -1,12 +1,12 @@
 error: this alternative is unreachable [unreachable-alternative]
-  --> cmd/useless_or_alternative/main.buri:14:5
+  --> cmd/useless_or_alternative/main.buri:15:5
    |
-14 |     Hello.Now(_) | Hello.World => "now",
+15 |     Hello.Now(_) | Hello.World => "now",
    |     ^^^^^^^^^^^^
    |
-  --> cmd/useless_or_alternative/main.buri:13:5
+  --> cmd/useless_or_alternative/main.buri:14:5
    |
-13 |     Hello.Now(_) => "hello world",
+14 |     Hello.Now(_) => "hello world",
    |     ^^^^^^^^^^^^ already covered here
    |
    = an arm above already covers everything it matches

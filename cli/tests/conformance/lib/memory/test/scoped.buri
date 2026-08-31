@@ -133,7 +133,7 @@ fn firstLine<C: Stdin>(ctx: C): Str {
     io.readLine(ctx) ?? "none"
 }
 
-fn readBack<C: Fs>(ctx: C, path: Str): Str {
+fn readBack<C: Alloc + Fs>(ctx: C, path: Str): Str {
     match (fs.readText(ctx, path)) {
         .Ok(text) => text,
         .Err(_e) => "missing",
@@ -143,7 +143,7 @@ fn readBack<C: Fs>(ctx: C, path: Str): Str {
 /// The six writing methods of `Fs`, called by name so a missing forward is a
 /// build error. The answers are not asserted — a `TestFs` under a scope answers
 /// exactly what it answers without one — only that each call reaches one.
-fn wroteEveryWay<C: Fs>(ctx: C): Int {
+fn wroteEveryWay<C: Alloc + Fs>(ctx: C): Int {
     let wroteBytes = match (fs.writeBytes(ctx, "b", [1])) {
         .Ok(_u) => 8,
         .Err(_e) => 0,
@@ -174,7 +174,7 @@ fn wroteEveryWay<C: Fs>(ctx: C): Int {
 /// The four reading methods beyond `readFile`, on `wroteEveryWay`'s terms.
 /// `syncFile` is here rather than there because it is not a write — it is the
 /// commit point of one, and there is nothing it could be hiding.
-fn readEveryWay<C: Fs>(ctx: C): Int {
+fn readEveryWay<C: Alloc + Fs>(ctx: C): Int {
     let exists = if (fs.exists(ctx, "a")) { 1 } else { 0 };
     let dir = match (fs.listDir(ctx, ".")) {
         .Ok(_e) => 2,
@@ -192,7 +192,7 @@ fn readEveryWay<C: Fs>(ctx: C): Int {
 }
 
 /// Ten calls, ten bits. Writes first, so `syncFile` has a file to commit.
-fn touchedEveryFile<C: Fs>(ctx: C): Int {
+fn touchedEveryFile<C: Alloc + Fs>(ctx: C): Int {
     let wrote = wroteEveryWay(ctx);
     let read = readEveryWay(ctx);
     wrote + read
@@ -228,7 +228,7 @@ fn exited<C: Proc>(ctx: C): Int {
     1
 }
 
-fn indexed<C: Tasks>(ctx: C, items: [Int]): Int {
+fn indexed<C: Alloc + Tasks>(ctx: C, items: [Int]): Int {
     let out = tasks.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
     (out[0] ?? 0) + (out[1] ?? 0)
 }
@@ -240,12 +240,12 @@ fn pushed<C: Sockets>(ctx: C): Int {
     1
 }
 
-/// `listen` reached through a bound, with a handler written against the very
-/// type the acceptor's `Self` is at this call — a `Scoped<C>` when the caller
-/// is inside a scope, and the bare `C` when it is not.
+/// `listen` reached through `core/net/server`, with a handler written against
+/// the very type the call hands it — a `Scoped<C>` when the caller is inside a
+/// scope, and the bare `C` when it is not.
 fn served<C: Listen>(ctx: C): Bool {
-    ctx
-        .listen("127.0.0.1", 8080, fn(_c, _request) => {
+    server
+        .listen(ctx, "127.0.0.1", 8080, fn(_c, _request) => {
             Response { status: 200, headers: [], body: [] }
         })
         .isOk()
@@ -253,14 +253,16 @@ fn served<C: Listen>(ctx: C): Bool {
 
 /// The same call with a handler that **uses** what it is handed.
 ///
-/// Inside a generic body a `Self`-spelled handler is handed the receiver, so
-/// what arrives here is the `Scoped<C>` this was called on — and a handler may
+/// A `Self`-spelled handler reached through a wrapper is handed the wrapper's
+/// own context, so what arrives here is the `Scoped<C>` this was called on —
+/// `middle/monomorphize.rs`'s `rewrite_call_args` is what adapts it — and a
+/// handler may
 /// therefore charge the scope and print on the caller's stdout, neither of
 /// which the acceptor grants. A handler that ignored its first parameter, like
 /// `served` above, would pass whatever arrived.
 fn servedUsing<C: Alloc + Listen + Stdout>(ctx: C): Bool {
-    ctx
-        .listen("127.0.0.1", 8080, fn(c, request) => {
+    server
+        .listen(ctx, "127.0.0.1", 8080, fn(c, request) => {
             let _ = io.println(c, "handled ${request.url}").ignore();
             let _ = alloc.allocate(c, 16);
             Response { status: 200, headers: [], body: [] }

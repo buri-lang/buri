@@ -1,7 +1,7 @@
 error: nothing here says what this literal builds [struct-literal-type]
-  --> cmd/anonymous_struct_literal_with_no_expected_type/main.buri:14:11
+  --> cmd/anonymous_struct_literal_with_no_expected_type/main.buri:15:11
    |
-14 |   let w = { hi: "hi" };
+15 |   let w = { hi: "hi" };
    |           ^^^^^^^^^^^^
    |
    = a `{ ... }` with no type in front of it is given one by what it is checked against, and that is the only place it looks

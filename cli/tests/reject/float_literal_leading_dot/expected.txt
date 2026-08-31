@@ -1,7 +1,7 @@
 error: expected an identifier, found `5` [unexpected-token]
- --> cmd/float_literal_leading_dot/main.buri:7:15
+ --> cmd/float_literal_leading_dot/main.buri:8:15
   |
-7 |   let half = .5;
+8 |   let half = .5;
   |               ^
   |
   = expected: an identifier
@@ -20,10 +20,10 @@ error: expected an identifier, found `5` [unexpected-token]
     admits in a position where several things would have been admissible.
 
 error: there is nothing named `half` in scope [unresolved-name]
- --> cmd/float_literal_leading_dot/main.buri:8:26
+ --> cmd/float_literal_leading_dot/main.buri:9:30
   |
-8 |   let _ = ctx.println("${half}");
-  |                          ^^^^
+9 |   let _ = io.println(ctx, "${half}").ignore();
+  |                              ^^^^
   |
   = fix: declare `half`, or import it — a name is in scope only from this module's own declarations and its imports
 

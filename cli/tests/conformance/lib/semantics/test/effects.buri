@@ -1072,21 +1072,27 @@ test "one context binds Listen, Sockets and Net and every method is callable" {
 
 test "the same five methods resolve on the context value itself" {
   // `serveOnce` reaches them through a *bounded type parameter*; this reaches
-  // them through the context value, which is the other half of the lookup
-  // (`Ty::Param` and `Ty::Ctx` both land in `find_in_bounds`).
+  // them through a context value handed to the same wrappers, which is the
+  // other half of the lookup (`Ty::Param` and `Ty::Ctx` both land in
+  // `find_in_bounds`, one layer down, inside `core/net/server`).
   let ctx = context {
+    Alloc: alloc(),
     Listen: OneShotListen { bindsTo: "127.0.0.1" },
     Net: TeapotNet { body: [] },
     Sockets: QuietSockets {},
+    Stdout: stdout(),
   };
   let _ = server.sendText(ctx, 1, "hello");
   let _ = server.sendBytes(ctx, 1, []);
   let _ = server.close(ctx, 1, 1000, "bye");
-  // `c` is the `OneShotListen` the context binds — not the context — so its
-  // field is readable, and reading it is the assertion. `.Ok(())` back means
-  // the handler answered 200, which it can only do off the right bytes.
+  // `c` is the **caller's context**, which is what a handler reached through a
+  // wrapper is handed: `core/net/server`'s body is generic, and inside a
+  // generic body a `Self`-spelled handler receives the receiver
+  // (`rewrite_call_args`, `middle/monomorphize.rs`). So the assertion is that
+  // `c` can do what *this* context grants and the acceptor does not — printing
+  // — and `.Ok(())` back means the handler answered 200.
   assert.ok(server.listen(ctx, "127.0.0.1", 0, fn(c, request) => Response {
-    status: if (c.bindsTo == "127.0.0.1") { 200 } else { 500 },
+    status: if (str.format(c, "${request.url}") == "127.0.0.1") { 200 } else { 500 },
     headers: [],
     body: [],
   }));
@@ -1129,11 +1135,22 @@ test "a server that will not bind is the Listen answer and not the network's" {
 // claim about which type arrived, and that the whole file still runs, which is
 // the claim the segfault used to break.
 //
-// Both halves of the question are here. Called on the context value, the front
-// end can see the row and settles `Self` there. Called through a bounded `C`, it
-// cannot: a generic body is checked once for every instantiation at once, so
-// `Self` is `C` until monomorphization knows what `C` became. `serveOnce` is
-// the second half.
+// **Every call now goes through `core/net/server`**, because an effect method
+// is not called on a value outside the standard library and the `impl` that
+// supplies it (SPEC 10.2). `server.listen`'s body is generic, and inside a
+// generic body a `Self`-spelled handler is handed the *receiver*: nothing in
+// `C: Listen` names what implements `Listen` for `C`, so a handler written
+// there could do nothing with the acceptor, while the receiver satisfies every
+// bound `C` declares. `middle/monomorphize.rs`'s `rewrite_call_args` is what
+// makes the value agree with that type, and the two blocks below are its test —
+// a handler that uses an effect the *acceptor does not grant* can only be
+// working off the caller's context.
+//
+// The other half of the rule — `Self` is the implementation, everywhere the
+// implementation's type is in view — is `OneShotListen`'s own `impl` body,
+// which hands the handler `self`, and `semantics/expressions.rs`'s
+// `implementing_ty` tests, which are written as a platform module because that
+// is where the method form is still legal.
 //
 // **`Self` never means the caller's context**, and the section below this one
 // is that rule's other side: an effect that wants to hand a callback the
@@ -1141,31 +1158,44 @@ test "a server that will not bind is the Listen answer and not the network's" {
 // used to be the counter-example — spelled `Self`, documented as the context —
 // and it is a `ctx` parameter now.
 
-test "a handler through a context is handed the implementation, not the context" {
-  let ctx = context { Listen: OneShotListen { bindsTo: "10.0.0.1" } };
-  // `server.bindsTo` is a field of `OneShotListen`. A context has no fields at
-  // all, so this line does not compile if `Self` is the receiver — and before
-  // it was made to, the same line with the field left out compiled and then
-  // crashed the process.
-  assert.ok(server.listen(ctx, "10.0.0.1", 0, fn(server, request) => Response {
-    status: if (server.bindsTo == request.url) { 200 } else { 500 },
-    headers: [],
-    body: [],
+test "a handler reached through the wrapper is handed the caller's context" {
+  let sink = stdout();
+  let ctx = context {
+    Alloc: alloc(),
+    Listen: OneShotListen { bindsTo: "10.0.0.1" },
+    Stdout: sink,
+  };
+  // Printing is something this context grants and `OneShotListen` does not, so
+  // a handler handed the acceptor could not do it — and the capture below is
+  // what says the line ran at all.
+  assert.ok(server.listen(ctx, "10.0.0.1", 0, fn(c, request) => {
+    io.println(c, "hit ${request.url}").ignore();
+    Response {
+      status: if (request.url == "10.0.0.1") { 200 } else { 500 },
+      headers: [],
+      body: [],
+    }
   }));
+  assert.eq(sink.captured(), "hit 10.0.0.1\n");
   // The negation: the handler answers 500 when the two disagree, and
   // `OneShotListen` turns anything but 200 into `.Refused`. So the assertion
   // above is not passing by answering 200 whatever it was handed.
-  let _ = assert.err(server.listen(ctx, "127.0.0.1", 0, fn(server, request) => Response {
-    status: if (server.bindsTo == request.url) { 200 } else { 500 },
-    headers: [],
-    body: [],
+  let _ = assert.err(server.listen(ctx, "127.0.0.1", 0, fn(c, request) => {
+    io.println(c, "hit ${request.url}").ignore();
+    Response {
+      status: if (request.url == "10.0.0.1") { 200 } else { 500 },
+      headers: [],
+      body: [],
+    }
   }));
+  assert.eq(sink.captured(), "hit 10.0.0.1\nhit 127.0.0.1\n");
 }
 
 test "a context binding two effects reaches both through bounds" {
   // `serveOnce` and `runInOrder` over one context, so the two questions are
   // answered in the same instantiation and neither overwrites the other.
   let ctx = context {
+    Alloc: alloc(),
     Listen: OneShotListen { bindsTo: "127.0.0.1" },
     Net: TeapotNet { body: [] },
     Sockets: QuietSockets {},
@@ -1247,8 +1277,8 @@ test "an ordinary Buri implementation hands its steps the context" {
   // point: `parallel` is implementable by anyone (SPEC 10.9), rather than only
   // by the compiler's trampoline.
   let runner = SerialTasks { label: "s", bias: 0 };
-  let ctx = context { Clock: clock().at(11), Tasks: runner };
-  let out = tasks.parallel(ctx, [1, 2], fn(c, i, item) => c.nowMillis() + i * 10 + item)time.now(c).0 + i * 10 + item);
+  let ctx = context { Alloc: alloc(), Clock: clock().at(11), Tasks: runner };
+  let out = tasks.parallel(ctx, [1, 2], fn(c, i, item) => time.now(c).0 + i * 10 + item);
   assert.eq(out[0] ?? 0, 12);
   assert.eq(out[1] ?? 0, 23);
 }

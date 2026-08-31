@@ -1,7 +1,7 @@
 error: a lambda may not capture `self`, which carries an effect [lambda-captures-effect]
-  --> cmd/lambda_captures_effect_self/main.buri:13:20
+  --> cmd/lambda_captures_effect_self/main.buri:14:20
    |
-13 |     paths.map(ctx, fn(p) => fs.exists(self.inner, p))
+14 |     paths.map(ctx, fn(p) => fs.exists(self.inner, p))
    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = a lambda that could close over authority would make the capture rule meaningless

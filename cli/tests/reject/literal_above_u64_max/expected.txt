@@ -1,7 +1,7 @@
 error: 18_446_744_073_709_551_616 is not representable in `U64` [literal-out-of-range]
- --> cmd/literal_above_u64_max/main.buri:7:16
+ --> cmd/literal_above_u64_max/main.buri:8:16
   |
-7 |   let w: U64 = 18_446_744_073_709_551_616;
+8 |   let w: U64 = 18_446_744_073_709_551_616;
   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = expected: a value `U64` can hold

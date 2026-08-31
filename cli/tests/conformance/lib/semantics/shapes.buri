@@ -1087,7 +1087,7 @@ impl Tasks for SerialTasks {
 /// results so a caller sees one number. That is the half a bounded parameter
 /// used to lose: `Self` there was `C` until `C` was known, and the correction
 /// made at instantiation handed the step the implementation instead.
-export fn runInOrder<C: Tasks>(ctx: C, items: [Int]): Int {
+export fn runInOrder<C: Alloc + Tasks>(ctx: C, items: [Int]): Int {
   let out = tasks.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
   (out[0] ?? 0) + (out[1] ?? 0)
 }

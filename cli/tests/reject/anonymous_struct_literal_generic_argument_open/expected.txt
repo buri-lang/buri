@@ -1,7 +1,7 @@
 error: nothing here says what this literal builds [struct-literal-type]
-  --> cmd/anonymous_struct_literal_generic_argument_open/main.buri:16:17
+  --> cmd/anonymous_struct_literal_generic_argument_open/main.buri:17:17
    |
-16 |   let n = first({ only: 1 });
+17 |   let n = first({ only: 1 });
    |                 ^^^^^^^^^^^
    |
    = a `{ ... }` with no type in front of it is given one by what it is checked against, and that is the only place it looks

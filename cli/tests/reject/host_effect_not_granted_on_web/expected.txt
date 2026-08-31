@@ -1,7 +1,7 @@
 error: `WEB` does not grant `fs` [host-not-granted]
-  --> cmd/host_effect_not_granted_on_web/main.buri:23:14
+  --> cmd/host_effect_not_granted_on_web/main.buri:24:14
    |
-23 |     Fs: host.fs,
+24 |     Fs: host.fs,
    |              ^^
    |
    = a platform is the set of effects its host exports; a page has no filesystem to read

@@ -35,8 +35,35 @@ function $eqD3(a,b){
 }
 function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],$str($eqD0($k0,$k1))+' '+$str($eqD0($k0,$k0)));
-  $host_HostStdout_println(ctx_0[1],$show($k0,$D0)+' '+$show($k1,$D0));
-  $host_HostStdout_println(ctx_0[1],$str($eqD3($k2,$k3))+' '+$show($k3,$D3));
+  const text_4=$str($eqD0($k0,$k1))+' '+$str($eqD0($k0,$k0));
+  const self_5=$host_HostStdout_println(ctx_0[1],text_4);
+  let $t1;
+  if(self_5[0]===0){
+    $t1=0;
+  }else if(self_5[0]===1){
+    $t1=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const text_9=$show($k0,$D0)+' '+$show($k1,$D0);
+  const self_10=$host_HostStdout_println(ctx_0[1],text_9);
+  let $t3;
+  if(self_10[0]===0){
+    $t3=0;
+  }else if(self_10[0]===1){
+    $t3=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const text_14=$str($eqD3($k2,$k3))+' '+$show($k3,$D3);
+  const self_15=$host_HostStdout_println(ctx_0[1],text_14);
+  let $t5;
+  if(self_15[0]===0){
+    $t5=0;
+  }else if(self_15[0]===1){
+    $t5=0;
+  }else{
+    $abort('no arm matched');
+  }
   return $k4;
 }

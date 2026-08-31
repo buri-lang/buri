@@ -1,12 +1,12 @@
 error: this alternative is unreachable [unreachable-alternative]
-  --> cmd/useless_alternative_within_one_arm/main.buri:12:40
+  --> cmd/useless_alternative_within_one_arm/main.buri:13:40
    |
-12 |     Shape.Circle(true) | Shape.Empty | Shape.Circle(true) => 1,
+13 |     Shape.Circle(true) | Shape.Empty | Shape.Circle(true) => 1,
    |                                        ^^^^^^^^^^^^^^^^^^
    |
-  --> cmd/useless_alternative_within_one_arm/main.buri:12:5
+  --> cmd/useless_alternative_within_one_arm/main.buri:13:5
    |
-12 |     Shape.Circle(true) | Shape.Empty | Shape.Circle(true) => 1,
+13 |     Shape.Circle(true) | Shape.Empty | Shape.Circle(true) => 1,
    |     ^^^^^^^^^^^^^^^^^^ already covered here
    |
    = an earlier alternative of this arm already covers everything it matches

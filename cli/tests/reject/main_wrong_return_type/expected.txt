@@ -1,7 +1,7 @@
 error: `main` must return `Result<(), Str>` [main-signature]
- --> cmd/main_wrong_return_type/main.buri:5:19
+ --> cmd/main_wrong_return_type/main.buri:6:19
   |
-5 | export fn main(): Int {
+6 | export fn main(): Int {
   |                   ^^^
   |
   = `.Ok(())` exits 0; `.Err(msg)` prints `msg` to stderr and exits 1

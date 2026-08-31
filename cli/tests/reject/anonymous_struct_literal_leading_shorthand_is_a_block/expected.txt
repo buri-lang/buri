@@ -1,12 +1,12 @@
 error: this block is missing its closing `}` [unclosed-delimiter]
-  --> cmd/anonymous_struct_literal_leading_shorthand_is_a_block/main.buri:20:7
+  --> cmd/anonymous_struct_literal_leading_shorthand_is_a_block/main.buri:21:7
    |
-20 |   { hi, hello }
+21 |   { hi, hello }
    |       ^
    |
-  --> cmd/anonymous_struct_literal_leading_shorthand_is_a_block/main.buri:20:3
+  --> cmd/anonymous_struct_literal_leading_shorthand_is_a_block/main.buri:21:3
    |
-20 |   { hi, hello }
+21 |   { hi, hello }
    |   ^ opened here
    |
    = fix: write `}` here

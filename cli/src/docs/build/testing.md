@@ -393,7 +393,7 @@ from "core/effect" import { Alloc, Fs, IoError };
 # from "core/fs" import * as fs;
 from "core/host/testing" import { alloc, fs };
 # from "core/testing/assert" import * as assert;
-# fn archive<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
+# fn archive<C: Alloc + Fs>(ctx: C, path: Str): Result<(), IoError> {
 #   match (fs.readText(ctx, path)) {
 #     .Err(e) => .Err(e),
 #     .Ok(body) => fs.writeText(ctx, "{path}.bak", body),
@@ -756,11 +756,11 @@ remove, so a task runs to completion before the next one starts and `calls()`
 reports them in the order they finished:
 
 ```buri repo=cli/tests/example role=test
-# from "core/effect" import { Tasks };
-# from "core/host/testing" import { task, tasks };
+# from "core/effect" import { Alloc, Tasks };
+# from "core/host/testing" import { alloc, task, tasks };
 # from "core/tasks" import * as tasks;
 # from "core/testing/assert" import * as assert;
-# fn doubled<C: Tasks>(ctx: C, items: [Int]): [Int] {
+# fn doubled<C: Alloc + Tasks>(ctx: C, items: [Int]): [Int] {
 #   tasks.parallel(ctx, items, fn(_c, _i, item) => item * 2)
 # }
 test "the answer does not depend on the order the work finished in" {
@@ -768,7 +768,7 @@ test "the answer does not depend on the order the work finished in" {
   // program order. Named rather than reached through `anyOrder()`, because a
   // block that asserts on the order has to name the order it means.
   let scheduler = tasks().seed(5);
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   // The items' order, whatever order the work ran in.
   assert.eq(doubled(ctx, [1, 2, 3]), [2, 4, 6]);
   // And the order it ran in, which is the thing this double chose.

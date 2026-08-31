@@ -1,7 +1,7 @@
 error: `other` carries an effect, so it must be named `ctx` [effect-param-not-ctx]
- --> cmd/two_contexts_in_signature/main.buri:6:37
+ --> cmd/two_contexts_in_signature/main.buri:7:37
   |
-6 | fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): Bool {
+7 | fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): Bool {
   |                                     ^^^^^^^^
   |
   = a function is effectful if and only if it has a `ctx` parameter or an effect-carrying `self`, which is what lets a reader stop after the first two parameters

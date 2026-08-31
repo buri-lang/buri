@@ -1,7 +1,7 @@
 error: `return` is a reserved word and may not be used as an identifier [reserved-word]
- --> cmd/reserved_word_return_as_function/main.buri:5:4
+ --> cmd/reserved_word_return_as_function/main.buri:6:4
   |
-5 | fn return(n: Int): Int { n }
+6 | fn return(n: Int): Int { n }
   |    ^^^^^^
   |
   = reserved for a future version of Buri; see grammar.ebnf, ReservedWord

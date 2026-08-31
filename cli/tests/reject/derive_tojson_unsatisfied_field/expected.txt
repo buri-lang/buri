@@ -1,7 +1,7 @@
 error: `Outer` cannot derive `ToJson`: `inner` has type `Inner` [underivable]
-  --> cmd/derive_tojson_unsatisfied_field/main.buri:11:1
+  --> cmd/derive_tojson_unsatisfied_field/main.buri:12:1
    |
-11 | derive ToJson for Outer;
+12 | derive ToJson for Outer;
    | ^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = a derived implementation is a fold over the type's components, and `Inner` does not satisfy `ToJson`
@@ -22,10 +22,10 @@ error: `Outer` cannot derive `ToJson`: `inner` has type `Inner` [underivable]
      on.
 
 error: `Outer` does not satisfy `ToJson` [unsatisfied-bound]
-  --> cmd/derive_tojson_unsatisfied_field/main.buri:16:43
+  --> cmd/derive_tojson_unsatisfied_field/main.buri:17:47
    |
-16 |   let _ = ctx.println(json.stringify(ctx, json.encode(ctx, a)));
-   |                                           ^^^^^^^^^^^^^^^^^^^
+17 |   let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, a))).ignore();
+   |                                               ^^^^^^^^^^^^^^^^^^^
    |
    = `Outer` derives `ToJson`, but `Inner` does not satisfy it, and a derived implementation is a fold over the type's components
    = fix: make `Inner` satisfy `ToJson` first

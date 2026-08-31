@@ -1042,6 +1042,15 @@ impl<'a, 'b> Infer<'a, 'b> {
             Ty::Con(con, _) => {
                 if let Some(f) = self.c.tables.method(*con, name) {
                     self.check_method_visible(f, span);
+                    // A method an `impl` supplied lands in the type's ordinary
+                    // namespace, so `host.stdout.println(...)` — the effect's
+                    // implementation, named outright — is a `Direct` hit and
+                    // never reaches `find_in_bounds`. It is the same call
+                    // written the third way, and it is refused for the same
+                    // reason.
+                    if let Some((tid, _)) = self.c.tables.fn_info(f).impl_of {
+                        self.report_effect_method(tid, name, span);
+                    }
                     return Some(MethodTarget::Direct(f));
                 }
                 // Methods supplied by an `impl` land in the type's ordinary

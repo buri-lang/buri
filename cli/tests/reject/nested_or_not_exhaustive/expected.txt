@@ -1,7 +1,7 @@
 error: this `match` does not cover `.Empty` [match-not-exhaustive]
-  --> cmd/nested_or_not_exhaustive/main.buri:10:3
+  --> cmd/nested_or_not_exhaustive/main.buri:11:3
    |
-10 |   match (s) {
+11 |   match (s) {
    |   ^^^^^^^^^^^ not covered
    |
    = every `match` must cover its scrutinee's type

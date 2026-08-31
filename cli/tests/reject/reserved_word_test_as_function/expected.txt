@@ -1,7 +1,7 @@
 error: expected an identifier, found `test` [unexpected-token]
- --> cmd/reserved_word_test_as_function/main.buri:5:4
+ --> cmd/reserved_word_test_as_function/main.buri:6:4
   |
-5 | fn test(n: Int): Int { n }
+6 | fn test(n: Int): Int { n }
   |    ^^^^
   |
   = expected: an identifier
@@ -20,9 +20,9 @@ error: expected an identifier, found `test` [unexpected-token]
     admits in a position where several things would have been admissible.
 
 error: expected a string literal, found `(` [unexpected-token]
- --> cmd/reserved_word_test_as_function/main.buri:5:8
+ --> cmd/reserved_word_test_as_function/main.buri:6:8
   |
-5 | fn test(n: Int): Int { n }
+6 | fn test(n: Int): Int { n }
   |        ^
   |
   = expected: a string literal

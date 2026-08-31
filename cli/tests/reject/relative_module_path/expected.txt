@@ -1,7 +1,7 @@
 error: "./helper" is a relative module path [relative-import]
- --> cmd/relative_module_path/main.buri:4:6
+ --> cmd/relative_module_path/main.buri:2:6
   |
-4 | from "./helper" import { thing };
+2 | from "./helper" import { thing };
   |      ^^^^^^^^^^
   |
   = every module path is absolute, so a path means the same module wherever it is written and a file can move without its imports changing

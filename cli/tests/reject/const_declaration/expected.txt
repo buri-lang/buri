@@ -1,8 +1,8 @@
 error: there is no `const` declaration; a module-level binding is written with `let` [const-declaration]
- --> cmd/const_declaration/main.buri:9:1
-  |
-9 | const MAX_RETRIES: Int = 3;
-  | ^^^^^
-  |
-  = one keyword binds everywhere, and a module-level `let` still writes its type
-  = fix: write `let` in place of `const`
+  --> cmd/const_declaration/main.buri:10:1
+   |
+10 | const MAX_RETRIES: Int = 3;
+   | ^^^^^
+   |
+   = one keyword binds everywhere, and a module-level `let` still writes its type
+   = fix: write `let` in place of `const`

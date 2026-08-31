@@ -1,13 +1,16 @@
-// EXPECT: `fetch` takes 1 arguments, but 3 were given
+// EXPECT: `send` takes 2 arguments, but 4 were given
 //
-// `Net.fetch` took a method, a URL and a body, and takes a `Request` now. The
-// old spelling is not a subtle mistake — it is a different arity — so it is
-// refused at the call, with the count, rather than somewhere inside a type.
-// `http.request(.Get, url)` is what goes there instead, and the second
-// diagnostic names that: what belongs in the first position is a `Request`.
+// `Net.fetch` took a method, a URL and a body, and takes a `Request` now — and
+// it is reached through `http.send(ctx, request)`, because an effect is
+// performed by handing the context to a function. The old spelling is not a
+// subtle mistake, it is a different arity, so it is refused at the call with
+// the count rather than somewhere inside a type. `http.request(.Get, url)` is
+// what goes there instead, and the second diagnostic names that: what belongs
+// after the context is a `Request`.
 //
-// (`1 arguments` is the renderer's, not this fixture's: `wrong-argument-count`
-// does not inflect its count. The `EXPECT` line quotes what a user reads.)
+// (`2 arguments` counts the context, which is an ordinary parameter of an
+// ordinary function — that is the whole of what this rule changed about how a
+// call is counted.)
 from "core/effect" import { Alloc, Net };
 from "core/host" import * as host;
 from "core/net/http" import * as http;

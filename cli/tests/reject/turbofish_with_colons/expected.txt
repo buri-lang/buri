@@ -1,7 +1,7 @@
 error: type arguments in an expression are written without `::` [turbofish]
-  --> cmd/turbofish_with_colons/main.buri:11:13
+  --> cmd/turbofish_with_colons/main.buri:12:13
    |
-11 |   list.empty::<Int>()
+12 |   list.empty::<Int>()
    |             ^^
    |
    = `::` was needed when `<` in expression position was always a comparison; it no longer is

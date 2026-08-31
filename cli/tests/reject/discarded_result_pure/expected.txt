@@ -1,7 +1,7 @@
 error: a `Result` may not be discarded [result-discarded]
-  --> cmd/discarded_result_pure/main.buri:11:3
+  --> cmd/discarded_result_pure/main.buri:12:3
    |
-11 |   let _ = parse("hi");
+12 |   let _ = parse("hi");
    |   ^^^^^^^^^^^^^^^^^^^^
    |
    = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`

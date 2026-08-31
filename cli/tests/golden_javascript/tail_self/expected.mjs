@@ -1,8 +1,26 @@
 const $k0=[0,0];
 function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main_buri$sumTo(100n,0n))+' '+String(__cmd_x_main_buri$fib(30n,0n,1n))+' '+String(__cmd_x_main_buri$countDigits(12345n,0n)));
-  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main_buri$swapDown(1n,2n,3n))+' '+String(__cmd_x_main_buri$swapDown(1n,2n,4n)));
+  const text_2=String(__cmd_x_main_buri$sumTo(100n,0n))+' '+String(__cmd_x_main_buri$fib(30n,0n,1n))+' '+String(__cmd_x_main_buri$countDigits(12345n,0n));
+  const self_3=$host_HostStdout_println(ctx_0[1],text_2);
+  let $t1;
+  if(self_3[0]===0){
+    $t1=0;
+  }else if(self_3[0]===1){
+    $t1=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const text_7=String(__cmd_x_main_buri$swapDown(1n,2n,3n))+' '+String(__cmd_x_main_buri$swapDown(1n,2n,4n));
+  const self_8=$host_HostStdout_println(ctx_0[1],text_7);
+  let $t3;
+  if(self_8[0]===0){
+    $t3=0;
+  }else if(self_8[0]===1){
+    $t3=0;
+  }else{
+    $abort('no arm matched');
+  }
   return $k0;
 }
 function __cmd_x_main_buri$sumTo(n_0,acc_1){

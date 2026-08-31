@@ -1,7 +1,7 @@
 error: `self` may appear only as a function's first parameter [self-not-first]
-  --> cmd/self_not_first_parameter_in_a_method/main.buri:13:26
+  --> cmd/self_not_first_parameter_in_a_method/main.buri:14:26
    |
-13 |   fn scaled(factor: Int, self): Int;
+14 |   fn scaled(factor: Int, self): Int;
    |                          ^^^^
    |
    = fix: move it to the front, or rename it if this parameter is not the receiver
@@ -19,23 +19,23 @@ error: `self` may appear only as a function's first parameter [self-not-first]
      from the front of a signature.
 
 error: `self` may appear only as the first parameter [self-not-first]
-  --> cmd/self_not_first_parameter_in_a_method/main.buri:13:26
+  --> cmd/self_not_first_parameter_in_a_method/main.buri:14:26
    |
-13 |   fn scaled(factor: Int, self): Int;
+14 |   fn scaled(factor: Int, self): Int;
    |                          ^^^^
    |
    = fix: move it to the front, or rename it if this parameter is not the receiver
 error: `self` may appear only as a function's first parameter [self-not-first]
-  --> cmd/self_not_first_parameter_in_a_method/main.buri:17:26
+  --> cmd/self_not_first_parameter_in_a_method/main.buri:18:26
    |
-17 |   fn scaled(factor: Int, self): Int {
+18 |   fn scaled(factor: Int, self): Int {
    |                          ^^^^
    |
    = fix: move it to the front, or rename it if this parameter is not the receiver
 error: `self` may appear only as the first parameter [self-not-first]
-  --> cmd/self_not_first_parameter_in_a_method/main.buri:17:26
+  --> cmd/self_not_first_parameter_in_a_method/main.buri:18:26
    |
-17 |   fn scaled(factor: Int, self): Int {
+18 |   fn scaled(factor: Int, self): Int {
    |                          ^^^^
    |
    = fix: move it to the front, or rename it if this parameter is not the receiver

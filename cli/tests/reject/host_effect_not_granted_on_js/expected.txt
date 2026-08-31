@@ -1,7 +1,7 @@
 error: `JS` does not grant `ui` [host-not-granted]
-  --> cmd/host_effect_not_granted_on_js/main.buri:20:14
+  --> cmd/host_effect_not_granted_on_js/main.buri:21:14
    |
-20 |     Ui: host.ui,
+21 |     Ui: host.ui,
    |              ^^
    |
    = a platform is the set of effects its host exports; the reactive graph drives a document, and only a page has one
@@ -51,9 +51,9 @@ error: `JS` does not grant `ui` [host-not-granted]
      builds no output.
 
 error: `JS` does not grant `watch` [host-not-granted]
-  --> cmd/host_effect_not_granted_on_js/main.buri:21:17
+  --> cmd/host_effect_not_granted_on_js/main.buri:22:17
    |
-21 |     Watch: host.watch,
+22 |     Watch: host.watch,
    |                 ^^^^^
    |
    = a platform is the set of effects its host exports; reading the reactive graph is meaningless where nothing writes it

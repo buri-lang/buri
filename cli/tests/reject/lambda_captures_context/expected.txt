@@ -1,7 +1,7 @@
 error: a lambda may not capture `ctx`, which carries an effect [lambda-captures-effect]
- --> cmd/lambda_captures_context/main.buri:8:18
+ --> cmd/lambda_captures_context/main.buri:9:18
   |
-8 |   paths.map(ctx, fn(p) => fs.exists(ctx, p))
+9 |   paths.map(ctx, fn(p) => fs.exists(ctx, p))
   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = a lambda that could close over authority would make the capture rule meaningless

@@ -1,7 +1,7 @@
 error: variant `Yes` is declared twice [duplicate-declaration]
- --> cmd/duplicate_enum_variant/main.buri:5:24
+ --> cmd/duplicate_enum_variant/main.buri:6:24
   |
-5 | enum Choice { Yes, No, Yes }
+6 | enum Choice { Yes, No, Yes }
   |                        ^^^
   |
   = fix: rename one of them; `match` tells variants apart by name

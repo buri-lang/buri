@@ -1,7 +1,7 @@
 error: a rest pattern must come last [rest-pattern-not-last]
- --> cmd/array_rest_not_final/main.buri:7:14
+ --> cmd/array_rest_not_final/main.buri:8:14
   |
-7 |     [..init, last] => last,
+8 |     [..init, last] => last,
   |              ^^^^
   |
   = `[first, ..rest]` is legal; `[..init, last]` is not

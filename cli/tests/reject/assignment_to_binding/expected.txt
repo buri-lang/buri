@@ -1,7 +1,7 @@
 error: there is no assignment; a binding is given its value once, where it is declared [no-assignment]
- --> cmd/assignment_to_binding/main.buri:8:5
+ --> cmd/assignment_to_binding/main.buri:9:5
   |
-8 |   n = 2;
+9 |   n = 2;
   |     ^
   |
   = fix: bind the new value to a new name with `let`, or return it from the expression that computes it

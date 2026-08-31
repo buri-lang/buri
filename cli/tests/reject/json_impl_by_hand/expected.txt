@@ -1,34 +1,35 @@
 error: `ToJson` is derived, not implemented [derive-only-trait]
- --> cmd/json_impl_by_hand/main.buri:9:1
-  |
-9 | impl ToJson for Point {
-  | ^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = a derived encoder is a fold over the type's shape, and would encode a hand-written one structurally rather than calling it — so an `impl` would be obeyed at the top of a document and ignored inside it
-  = fix: write `derive ToJson for Point;` instead
+  --> cmd/json_impl_by_hand/main.buri:10:1
+   |
+10 | impl ToJson for Point {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a derived encoder is a fold over the type's shape, and would encode a hand-written one structurally rather than calling it — so an `impl` would be obeyed at the top of a document and ignored inside it
+   = fix: write `derive ToJson for Point;` instead
 
-    What to do
-    ──────────
+     What to do
+     ──────────
 
-    Write derive ToJson for Point; instead.
+     Write derive ToJson for Point; instead.
 
-    Why
-    ───
+     Why
+     ───
 
-    A derived encoder stands for the type's *shape*, which one walker in the
-    runtime reads — so a hand-written impl ToJson for Date would be called by
-    json.encode(ctx, date) and walked straight past by json.encode(ctx,
-    appointment), where Appointment holds a Date and derives its own. One value,
-    two encodings, depending on where it appeared. So there is one encoding and
-    it is the derived one; a type that needs a different document is a type you
-    convert to first, which is a function visible at the call site.
+     A derived encoder stands for the type's *shape*, which one walker in the
+     runtime reads — so a hand-written impl ToJson for Date would be called by
+     json.encode(ctx, date) and walked straight past by json.encode(ctx,
+     appointment), where Appointment holds a Date and derives its own. One
+     value, two encodings, depending on where it appeared. So there is one
+     encoding and it is the derived one; a type that needs a different document
+     is a type you convert to first, which is a function visible at the call
+     site.
 
-    core/json's ToJson and FromJson are the only two traits this applies to.
+     core/json's ToJson and FromJson are the only two traits this applies to.
 
 error: `Point` does not satisfy `ToJson` [unsatisfied-bound]
-  --> cmd/json_impl_by_hand/main.buri:18:43
+  --> cmd/json_impl_by_hand/main.buri:19:47
    |
-18 |   let _ = ctx.println(json.stringify(ctx, json.encode(ctx, p)));
-   |                                           ^^^^^^^^^^^^^^^^^^^
+19 |   let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, p))).ignore();
+   |                                               ^^^^^^^^^^^^^^^^^^^
    |
    = fix: add `derive ToJson for Point;` in that type's own module
