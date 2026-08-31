@@ -1122,13 +1122,14 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// An effect's methods are called through the module that wraps the
     /// effect, never on the value that carries it (SPEC 10.2).
     ///
-    /// `ctx.println(t)` is `io.println(ctx, t)`, and this is the one place
-    /// that says so, because [`Self::find_in_bounds`] is the one place a
-    /// method reaches a *bound* — which is what an effect's methods are only
-    /// ever reachable through. A context value, a `ctx: C` bounded by an
-    /// effect, and a `host.stdout` written out in `main` all arrive here, so
-    /// one check covers the three shapes rather than three checks covering one
-    /// each.
+    /// `ctx.println(t)` is `io.println(ctx, t)`, and this is what says so for
+    /// all three shapes a reader can write. Two of them — a `context` value
+    /// and a `ctx: C` bounded by an effect — reach a method through a *bound*,
+    /// which is [`Self::find_in_bounds`]. The third is `host.stdout.println(t)`
+    /// in `main`: an `impl`-supplied method lands in the type's ordinary
+    /// namespace, so that one is a `Direct` hit in [`Self::resolve_method`]'s
+    /// `Ty::Con` arm and is reported from there. Two call sites, one rule, one
+    /// message.
     ///
     /// **Two layers are below the line and keep the method form.** The
     /// standard library is where the wrappers are, so its bodies are the only
@@ -1161,6 +1162,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                     d.notes.push(import);
                 }
             }
+            // Unreachable for a declared effect —
+            // `every_effect_method_has_a_door` is what makes it so — and the
+            // sentence is here for the day somebody adds a method and runs the
+            // compiler before running that test.
             None => d.notes.push(format!(
                 "`{effect}` is an effect, and an effect is performed by handing the context to a \
                  function rather than by calling a method on it"
