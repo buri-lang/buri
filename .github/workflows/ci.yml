@@ -736,7 +736,12 @@ jobs:
   # time. A request has to take seven times longer than it does before this job
   # has an opinion, so a red X here is a regression and not a noisy neighbour —
   # which is the whole bar for a timing gate, because one that cries wolf gets
-  # deleted. If a future runner is genuinely slower,
+  # deleted. A shared runner can still desert one request for a whole
+  # timeslice, so neither test fails on a single reading: a run with a request
+  # over the bar measures its session again, up to three times, and holds each
+  # request to its fastest attempt (`best_of` in `repositories.rs`). The bar
+  # stays 50 ms, and something genuinely slower is slower in every attempt.
+  # If a future runner is genuinely slower,
   # the tests read `BURI_PERF_BUDGET_SCALE` — a multiplier on the 50 ms,
   # defaulting to 1 — so the widening is one `env:` line here rather than an
   # edit to the assertion. Nothing sets it today, and the numbers above are why.
@@ -780,6 +785,7 @@ jobs:
   # needs no job of its own: every `test` leg above is one.
   # ---------------------------------------------------------------------------
   minimal:
+    timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
@@ -801,6 +807,7 @@ jobs:
   # by formal/lean-toolchain; elan reads it.
   # ---------------------------------------------------------------------------
   lean:
+    timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
@@ -837,6 +844,7 @@ jobs:
   # named for it.
   # ---------------------------------------------------------------------------
   tree-sitter:
+    timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
@@ -863,6 +871,7 @@ jobs:
   # build but a green one that shipped a toolchain with no native backend.
   # ---------------------------------------------------------------------------
   nix:
+    timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4

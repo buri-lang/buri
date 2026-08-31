@@ -206,6 +206,14 @@ ninety-seven assertions. It does so two ways:
 No host loses the coverage; the minute moves out of a test report and into a
 step that has a cache.
 
+Neither fails on a single reading. A run holding a request over the bar
+measures its whole session again — a fresh server against a fresh copy of the
+repository, up to three times — and holds each request to the fastest time it
+was seen in (`best_of`). A request that got slower is slower every time and
+still fails; one that lost a timeslice on a shared runner is not. That is the
+measurement repeating, not the assertion: the bar is applied once, to the best
+readings, and it does not move.
+
 ### What the run costs
 
 Everything but the unit tests drives the real `buri`, so **the toolchain
