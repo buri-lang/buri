@@ -157,6 +157,14 @@ Both hold every editor request to 50 ms. CI runs them on its arm64 runner
 `BURI_PERF_BUDGET_SCALE` is what widens the bar for a machine slower than the
 one it was taken on.
 
+Neither fails on a single reading. A run holding a request over the bar
+measures its whole session again — a fresh server against a fresh copy of the
+repository, up to three times — and holds each request to the fastest time it
+was seen in (`best_of`). A request that got slower is slower every time and
+still fails; one that lost a timeslice on a shared runner is not. That is the
+measurement repeating, not the assertion: the bar is applied once, to the best
+readings, and it does not move.
+
 ### What the run costs
 
 Everything but the unit tests drives the real `buri`, so **the toolchain

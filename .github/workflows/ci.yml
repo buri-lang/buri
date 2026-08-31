@@ -644,7 +644,12 @@ jobs:
   # time. A request has to take seven times longer than it does before this job
   # has an opinion, so a red X here is a regression and not a noisy neighbour —
   # which is the whole bar for a timing gate, because one that cries wolf gets
-  # deleted. If a future runner is genuinely slower,
+  # deleted. A shared runner can still desert one request for a whole
+  # timeslice, so neither test fails on a single reading: a run with a request
+  # over the bar measures its session again, up to three times, and holds each
+  # request to its fastest attempt (`best_of` in `repositories.rs`). The bar
+  # stays 50 ms, and something genuinely slower is slower in every attempt.
+  # If a future runner is genuinely slower,
   # the tests read `BURI_PERF_BUDGET_SCALE` — a multiplier on the 50 ms,
   # defaulting to 1 — so the widening is one `env:` line here rather than an
   # edit to the assertion. Nothing sets it today, and the numbers above are why.
