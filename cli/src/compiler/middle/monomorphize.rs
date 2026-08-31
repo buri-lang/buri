@@ -1843,6 +1843,15 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 /// are one fact about every primitive rather than twenty-six, and
 /// [`prim_show_or_to_json`] states it once.
 const GENERIC_INTRINSICS: &[&str] = &[
+    // `core/alloc`'s copy out of a scope. The carrier is a fifth one, beside
+    // the stride, the by-address argument, the descriptor and the entry thunk:
+    // a **per-type copy walk**, generated at the call site where the
+    // instantiation is known (`stencil/glue.rs`'s `Helper::Copy`,
+    // `llvm/emit.rs`'s `Unit::copy_out`). No runtime table row exists for it,
+    // and none could — the archive is compiled once against no Buri type, and
+    // "copy everything inside this value" is a question only a layout can
+    // answer.
+    "alloc.copyOut",
     // `core/bool` and `core/char`: `show` and `toJson` are minted by
     // `semantics::builtins` at every primitive and both name `C: Alloc`,
     // because rendering allocates. The type is in the key already.
@@ -2246,6 +2255,7 @@ mod tests {
     /// duplication is legible at a glance instead of being seventy lines that
     /// look like the constant and might not be it.
     const PINNED: &str = "\
+        alloc.copyOut \
         bool.show bool.toJson \
         bytes.f32ToBytes bytes.f64ToBytes bytes.fromUtf8 bytes.toUtf8 \
         char.show char.toJson \

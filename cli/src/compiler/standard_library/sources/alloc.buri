@@ -11,10 +11,10 @@
 //!
 //! `scoped` and `Scoped<C>` at the end of this file are the fourth thing, and
 //! the one that is not only accounting: a scope's arena reserves the bytes it
-//! is charged and gives their pages back when the scope returns. What is and
-//! is not inside one is stated on `scoped` itself, because the answer is
-//! narrower than the word "arena" suggests and a reader should meet it at the
-//! function rather than infer it.
+//! is charged, serves the blocks the body allocates out of the same mappings,
+//! and gives every page back when the scope returns. The one value that leaves
+//! is `body`'s answer, and it is deep-copied out first — which is what makes
+//! the bulk free sound. `scoped` itself is where that is stated in full.
 //!
 //! ## The charge is defined, not measured
 //!
@@ -223,10 +223,10 @@ impl GeneralPurpose {
 /// for this one to answer "how much did parsing charge?" and for `scoped` to
 /// put a bound on a request.
 ///
-/// What is still missing from both is the same thing, and it is named on
-/// `scoped`: the values built inside a scope are on the reference-counted heap
-/// rather than in the arena, because the copy-out glue that would make a bulk
-/// free of *values* sound does not exist yet (MEMORY.md §4, §7.2).
+/// What separates them now is only that: `scoped` serves the body's blocks out
+/// of its own mappings and deep-copies the answer on the way out, which is what
+/// lets it free in bulk (MEMORY.md §7.2.1). This type has no boundary to copy
+/// at, so it stays a counter.
 export struct Arena {
   handle: I64,
 }
@@ -320,6 +320,33 @@ fn arenaCount(handle: I64): Int;
 /// How many bytes this arena has taken.
 fn arenaTotal(handle: I64): Int;
 
+/// Makes this arena the one the platform allocator serves blocks from, for the
+/// carrier this runs on, and answers whichever arena was active before —
+/// `arenaLeave` takes that number back.
+///
+/// This is the answer to the gap this module's header names: a context
+/// argument is dropped from every runtime call, so the function that builds a
+/// list cannot be *told* which allocator asked. Making the answer a property of
+/// the carrier for the dynamic extent of the scope is what tells it anyway.
+fn arenaEnter(handle: I64): I64;
+
+/// Puts back what `arenaEnter` answered.
+fn arenaLeave(previous: I64): I64;
+
+/// **A deep copy of `value`, on the platform allocator rather than on
+/// whichever one is active.**
+///
+/// Every counted block reachable from `value` is duplicated — a nested
+/// `[[Str]]`, an enum's payload, a closure's captured environment — so the
+/// answer shares nothing with the argument at any depth. It is a *copy* and
+/// not a second reference: the counts of the original's blocks do not move.
+///
+/// This is what makes a scope's bulk release sound for values as well as for
+/// charges. It is compiled rather than called: each backend generates the walk
+/// for the concrete `T` at the call site, which is what repairs the erasure a
+/// generic intrinsic's key suffers (`middle/monomorphize.rs`).
+fn copyOut<T>(value: T): T;
+
 /// **An attenuating wrapper whose `Alloc` is a scope's own arena and whose
 /// every other effect is the wrapped context's.**
 ///
@@ -358,32 +385,46 @@ export struct Scoped<C>(C, I64);
 /// unchanged — the body prints on the same stdout, reads the same filesystem
 /// and fans out onto the same tasks.
 ///
-/// ## What is actually in the arena today, and what is not
+/// ## What is in the arena
 ///
-/// **Charges, and the pages they reserve. Not values.** `c.allocate(n)` inside
-/// the scope reserves `n` bytes from the arena — a real anonymous mapping,
-/// bump-allocated, and `munmap`ed in bulk when `body` returns — and charges
-/// them to the arena rather than to `ctx`, so the caller's own allocator's
-/// totals do not move. That divergence is the observable difference between a
-/// `Scoped<C>` and the `C` inside it, and it is what `stats` below reports.
+/// **The charges, and the values.** `c.allocate(n)` inside the scope reserves
+/// `n` bytes from the arena — a real anonymous mapping, bump-allocated — and
+/// charges them to the arena rather than to `ctx`, so the caller's own
+/// allocator's totals do not move. That divergence is the observable
+/// difference between a `Scoped<C>` and the `C` inside it, and it is what
+/// `stats` below reports.
 ///
-/// A `[Str]` the body builds, on the other hand, is on the ordinary
-/// reference-counted heap and is freed when its last reference goes, exactly
-/// as it was outside the scope. The native ABI drops the context argument from
-/// every runtime call, so the operation that builds a list never learns which
-/// allocator asked for it — the same gap this module's header states about the
-/// cost model's list, string and closure rows, and this function does not
-/// close it.
+/// A `[Str]` the body builds is in the arena too, and that is the half this
+/// module could not do until the copy-out glue existed. The mechanism is
+/// dynamic rather than passed: `arenaEnter` makes the arena the one the
+/// platform allocator serves from, for this carrier and for the dynamic extent
+/// of `body`, and `arenaLeave` puts back whatever was there before. The native
+/// ABI drops the context argument from every runtime call, so the operation
+/// that builds a list cannot be *told* which allocator asked for it — but it
+/// can be arranged for there to be only one answer while the scope is running.
 ///
-/// **That is why the release is unconditional and sound.** `allocate` answers
-/// a `Region`, which carries the charge and not an address, so the language
-/// has no way to name a byte of an arena; nothing that survives the scope can
-/// be pointing into one. When the copy-out glue lands — a deep copy of the
-/// return value, of a message sent to an actor, of a `Reply.answer`, of a
-/// socket send — values can be served from the arena too, and the copy at the
-/// boundary is what will keep the bulk free sound for them. Until then a scope
-/// is a real reservation with a real bulk release and an allocator of its own,
-/// and it is **not** yet a lifetime for the values built inside it.
+/// A task started inside a scope runs on another carrier and allocates on the
+/// platform heap, not in this arena. That is the safe direction: a block on the
+/// heap outliving the scope is ordinary, and a block in the arena escaping it
+/// is what the copy below prevents.
+///
+/// ## The answer is copied out, and that is what makes the release sound
+///
+/// The single value that leaves a scope is `body`'s answer, and it is
+/// **deep-copied** onto the caller's allocator before the pages go back:
+/// `copyOut` duplicates every counted block reachable from it, at every depth,
+/// so what the caller receives points at nothing this arena mapped. A copy is
+/// not a share — the original's counts do not move, and the copy's are fresh —
+/// which is exactly the property a bulk `munmap` needs.
+///
+/// Everything else the body allocated is released the way it always was, by
+/// the reference count, before this function returns; the arena's bulk free is
+/// what reclaims the *address space* those blocks sat in. The invariant the
+/// whole arrangement rests on is one sentence: **a value's lifetime never
+/// exceeds the dynamic extent it was created in, except by being the answer —
+/// and the answer is copied.** Buri has no mutable global state and no way to
+/// stash a value where a scope cannot see it, which is what makes that
+/// checkable rather than hopeful.
 ///
 /// ## The handle dies with the scope
 ///
@@ -394,7 +435,10 @@ export struct Scoped<C>(C, I64);
 /// use of memory that has been given back.
 export fn scoped<C: Alloc, T>(ctx: C, body: fn(Scoped<C>) => T): T {
   let handle = arenaCreate();
-  let out = body(Scoped(ctx, handle));
+  let outer = arenaEnter(handle);
+  let inside = body(Scoped(ctx, handle));
+  let _ = arenaLeave(outer);
+  let out = copyOut(inside);
   let _ = arenaRelease(handle);
   out
 }

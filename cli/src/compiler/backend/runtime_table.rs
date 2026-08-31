@@ -452,6 +452,12 @@ pub const ENTRIES: &[Entry] = &[
     e("alloc.arenaRelease", "buri_rt_alloc_arena_release", Ret::Scalar),
     e("alloc.arenaCount", "buri_rt_alloc_arena_count", Ret::Scalar),
     e("alloc.arenaTotal", "buri_rt_alloc_arena_total", Ret::Scalar),
+    // G5's pair: the arena the platform allocator serves out of, for this
+    // carrier and for the dynamic extent of `scoped`'s body. `arenaEnter`
+    // answers the arena that was active before, so nesting is the caller's
+    // local and not a stack in the runtime.
+    e("alloc.arenaEnter", "buri_rt_alloc_arena_enter", Ret::Scalar),
+    e("alloc.arenaLeave", "buri_rt_alloc_arena_leave", Ret::Scalar),
     // -- core/testing/context's stateful half ---------------------------------
     //
     // `cli/runtime/testing.rs`'s header is the argument for these being in the

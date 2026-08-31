@@ -79,13 +79,23 @@ is a fresh arena and whose every other effect forwards, and the arena's pages
 are `munmap`ed when `body` returns. So the paragraph above is half answered:
 `Arena` is still attribution, and a *scope* now reserves and releases.
 
-What it does not yet reclaim is **values**, and the reason is one line: the
+**Amendment (G5): it reclaims the values too.** The gap G4 named was that the
 native ABI drops the context argument from every runtime call, so the operation
-that builds a list never learns which allocator asked for it (§7.3.1 of
-`design/native/MEMORY.md`). Serving blocks from an arena before that is fixed
-would also need a deep copy at the scope's boundary, so that what leaves a
-scope does not point into it. Both are named on `scoped` itself, where a reader
-of the function meets them.
+that builds a list cannot be *told* which allocator asked for it (§7.3.1 of
+`design/native/MEMORY.md`). It is not told: `scoped` makes its arena the one the
+platform allocator serves from, for that carrier and for the dynamic extent of
+`body`, and every block allocated in the extent is the scope's.
+
+The other half is the deep copy that half-answer already named. Exactly one
+value leaves a scope — `body`'s answer — and `core/alloc::copyOut` duplicates
+every counted block reachable from it onto the caller's allocator before the
+pages go back, at every depth: a nested `[[Str]]`, an enum's payload, a
+closure's captured environment. A copy is not a share, so the answer points at
+nothing the arena mapped and the bulk free cannot dangle.
+
+So the paragraph this section opens with is answered rather than half answered.
+`Arena` is still attribution — it has no boundary to copy at — and a **scope** is
+now a lifetime for the values built inside it.
 
 ## 5. Two rules for anything added to `core/*`
 

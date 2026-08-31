@@ -104,7 +104,14 @@ const HEAP_ALIGN: u32 = 16;
 
 /// The environment record starts one word into its block; the word before it is
 /// the block's own drop glue. See this file's header, "Closures".
-const ENV_FIELDS: u32 = 8;
+const ENV_FIELDS: u32 = 16;
+
+/// Where a closure environment block's **copy** function sits, beside the
+/// release function in the word before it.
+///
+/// `stencil/glue.rs`'s `ENV_COPY_WORD` is the same offset, and the two must
+/// agree because they write the same block.
+const ENV_COPY_WORD: u32 = 8;
 
 /// One module under construction.
 pub struct Unit<'ctx, 'a> {
@@ -150,9 +157,15 @@ pub struct Unit<'ctx, 'a> {
     releases: Map<Ty, FunctionValue<'ctx>>,
     release_elems: Map<Ty, FunctionValue<'ctx>>,
     retains: Map<Ty, FunctionValue<'ctx>>,
+    /// G5's twins of the two above: the per-type copy walk, and the per-element
+    /// one. Separate tables rather than a flag on the first, because a copy and
+    /// a release are two functions with the same argument and different bodies.
+    copies: Map<Ty, FunctionValue<'ctx>>,
+    copy_elems: Map<Ty, FunctionValue<'ctx>>,
     /// The C-ABI entry thunks of [`Job::Entry`], one per step signature.
     entries: Map<(Vec<Ty>, Ty, Option<usize>), FunctionValue<'ctx>>,
     env_glue: Option<FunctionValue<'ctx>>,
+    env_copy_glue: Option<FunctionValue<'ctx>>,
     /// Helper bodies still to be built. Drained by [`Unit::finish`] rather than
     /// built where they are asked for, because a helper is asked for in the
     /// middle of another function's body and the builder is positioned there.
@@ -193,8 +206,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             releases: Map::default(),
             release_elems: Map::default(),
             retains: Map::default(),
+            copies: Map::default(),
+            copy_elems: Map::default(),
             entries: Map::default(),
             env_glue: None,
+            env_copy_glue: None,
             pending: Vec::new(),
             helpers: 0,
             rc: None,
@@ -1731,12 +1747,29 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             Err(_) => self.ptr_ty().const_null(),
         };
-        let glue = self
-            .type_of(code.ty_of(env))
+        let captured = self.type_of(code.ty_of(env));
+        let glue = captured
+            .clone()
             .and_then(|t| self.release_glue(&t))
             .map(function_pointer)
             .unwrap_or_else(|| self.ptr_ty().const_null());
         if let Ok(store) = self.builder.build_store(block, glue) {
+            let _ = store.set_alignment(8);
+        }
+        // The second word: what copies the record, for the same reason the
+        // first exists (`ENV_FIELDS`).
+        let copy = captured
+            .and_then(|t| self.copy_glue(&t))
+            .map(function_pointer)
+            .unwrap_or_else(|| self.ptr_ty().const_null());
+        let copy_at = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            block,
+            i64::from(ENV_COPY_WORD),
+            "env.copy",
+        );
+        if let Ok(store) = self.builder.build_store(copy_at, copy) {
             let _ = store.set_alignment(8);
         }
         let record =
@@ -1892,6 +1925,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         span: Span,
     ) {
         if self.numeric(state, code, dests, key, args, span)
+            || self.copy_out(state, code, dests, key, args)
             || self.open_coded(state, code, dests, key, args)
             || self.list_closure(state, code, dests, key, args)
             || self.derive_array(state, code, dests, key, args)
@@ -2989,9 +3023,15 @@ enum Job<'ctx> {
     ReleaseElems { value: FunctionValue<'ctx>, elem: Ty },
     /// Take a reference on everything *one* element of a `[T]` holds.
     RetainElem { value: FunctionValue<'ctx>, elem: Ty },
+    /// Copy the contents of one value of this type, in place.
+    Copy { value: FunctionValue<'ctx>, ty: Ty },
+    /// Copy every element of a `[T]` block, in place.
+    CopyElems { value: FunctionValue<'ctx>, elem: Ty },
     /// Read a function pointer out of a block's first word and call it on the
     /// rest: the glue every closure environment shares.
     EnvGlue { value: FunctionValue<'ctx> },
+    /// The same out of the block's **second** word: the copy.
+    EnvCopy { value: FunctionValue<'ctx> },
     /// The C-ABI entry thunk a **runtime-driven step** is reached through:
     /// `void(state, index, arg, out)`, which runs one closure once on one
     /// element. `params` and `ret` are that closure's own signature, and
@@ -3088,6 +3128,38 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let f = self.glue_function("release_elems");
         self.release_elems.insert(elem.clone(), f);
         self.pending.push(Job::ReleaseElems { value: f, elem: elem.clone() });
+        Some(f)
+    }
+
+    /// The function that **copies** the contents of a block holding one value
+    /// of this type, or `None` where there is nothing inside it to copy.
+    ///
+    /// [`Unit::release_glue`]'s twin, memoised in its own table for the same
+    /// reason: one function per type, per unit.
+    fn copy_glue(&mut self, ty: &Ty) -> Option<FunctionValue<'ctx>> {
+        if !self.reprs.counted_type(ty) {
+            return None;
+        }
+        if let Some(f) = self.copies.get(ty) {
+            return Some(*f);
+        }
+        let f = self.glue_function("copy");
+        self.copies.insert(ty.clone(), f);
+        self.pending.push(Job::Copy { value: f, ty: ty.clone() });
+        Some(f)
+    }
+
+    /// The same for a `[T]` block, whose element count is `cap / stride`.
+    fn copy_elems_glue(&mut self, elem: &Ty) -> Option<FunctionValue<'ctx>> {
+        if !self.reprs.counted_type(elem) {
+            return None;
+        }
+        if let Some(f) = self.copy_elems.get(elem) {
+            return Some(*f);
+        }
+        let f = self.glue_function("copy_elems");
+        self.copy_elems.insert(elem.clone(), f);
+        self.pending.push(Job::CopyElems { value: f, elem: elem.clone() });
         Some(f)
     }
 
@@ -3314,12 +3386,37 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         f
     }
 
+    /// [`Unit::env_glue`] for the copy: the same indirection out of the
+    /// block's **second** word.
+    fn env_copy_glue(&mut self) -> FunctionValue<'ctx> {
+        if let Some(f) = self.env_copy_glue {
+            return f;
+        }
+        let f = self.glue_function("env_copy_glue");
+        self.env_copy_glue = Some(f);
+        self.pending.push(Job::EnvCopy { value: f });
+        f
+    }
+
     /// What `decref` calls before the block goes back.
     fn glue_pointer(&mut self, glue: &Glue) -> Option<PointerValue<'ctx>> {
         match glue {
-            Glue::None => None,
+            // A `Str`'s block holds bytes, so the *release* side of `Glue::Str`
+            // is `Glue::None`'s answer exactly; the two are told apart for the
+            // copy alone (`Unit::copy_rc`).
+            Glue::None | Glue::Str => None,
             Glue::Env => Some(function_pointer(self.env_glue())),
             Glue::Elems(t) => self.release_elems_glue(t).map(function_pointer),
+        }
+    }
+
+    /// What `buri_rt_copy_block` calls on the fresh block, once its bytes have
+    /// been duplicated: [`Unit::glue_pointer`]'s twin for the copy.
+    fn copy_glue_pointer(&mut self, glue: &Glue) -> Option<PointerValue<'ctx>> {
+        match glue {
+            Glue::None | Glue::Str => None,
+            Glue::Env => Some(function_pointer(self.env_copy_glue())),
+            Glue::Elems(t) => self.copy_elems_glue(t).map(function_pointer),
         }
     }
 
@@ -3380,7 +3477,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             | Job::Release { value, .. }
             | Job::ReleaseElems { value, .. }
             | Job::RetainElem { value, .. }
+            | Job::Copy { value, .. }
+            | Job::CopyElems { value, .. }
             | Job::EnvGlue { value }
+            | Job::EnvCopy { value }
             | Job::Entry { value, .. } => *value,
         };
         let entry = self.ctx.append_basic_block(value, "entry");
@@ -3427,29 +3527,21 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // elements of a block that holds a handful.
             Job::ReleaseElems { elem, .. } => {
                 let stride = self.reprs.stride_of(&elem);
-                let word = self.ctx.i64_type();
-                let cap_at = repr::byte_offset(
-                    self.ctx,
-                    &self.builder,
-                    first,
-                    i64::from(HEADER_CAP_OFFSET),
-                    "cap.p",
-                );
-                let raw = match self.builder.build_load(word, cap_at, "cap.raw") {
-                    Ok(BasicValueEnum::IntValue(v)) => v,
-                    _ => word.const_zero(),
-                };
-                let cap = self
-                    .builder
-                    .build_and(raw, word.const_int(CAP_MASK, false), "cap")
-                    .unwrap_or(raw);
-                let count = self
-                    .builder
-                    .build_int_unsigned_div(cap, word.const_int(u64::from(stride), false), "count")
-                    .unwrap_or(cap);
+                let count = self.block_element_count(first, stride);
                 self.each_element(&mut state, first, count, stride, &elem, false);
             }
-            Job::EnvGlue { .. } => self.build_env_glue(&mut state, first),
+            Job::Copy { ty, .. } => {
+                self.copy_rc(&mut state, &ty, first, 0, 0);
+            }
+            // The count is `cap / stride` exactly as `Job::ReleaseElems`
+            // reads it, and masked for the same reason.
+            Job::CopyElems { elem, .. } => {
+                let stride = self.reprs.stride_of(&elem);
+                let count = self.block_element_count(first, stride);
+                self.each_element_copy(&mut state, first, count, stride, &elem);
+            }
+            Job::EnvGlue { .. } => self.build_env_glue(&mut state, first, 0),
+            Job::EnvCopy { .. } => self.build_env_glue(&mut state, first, ENV_COPY_WORD),
         }
         let _ = self.builder.build_return(None);
     }
@@ -3574,9 +3666,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// The drop glue every closure environment shares: the block's first word
     /// is the type-specific release function, and the record follows it.
-    fn build_env_glue(&mut self, state: &mut Function<'ctx>, block: PointerValue<'ctx>) {
+    fn build_env_glue(
+        &mut self,
+        state: &mut Function<'ctx>,
+        block: PointerValue<'ctx>,
+        word_at: u32,
+    ) {
+        let slot =
+            repr::byte_offset(self.ctx, &self.builder, block, i64::from(word_at), "env.slot");
         let Ok(BasicValueEnum::PointerValue(f)) =
-            self.builder.build_load(self.ptr_ty(), block, "env.glue")
+            self.builder.build_load(self.ptr_ty(), slot, "env.glue")
         else {
             return;
         };
@@ -3592,6 +3691,253 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             attrs::set_call_convention(call, attrs::C);
         }
         let _ = self.builder.build_unconditional_branch(done);
+        self.builder.position_at_end(done);
+    }
+
+    /// `cap / stride` — a `[T]` block's element count, out of the second
+    /// header word (VALUE-MODEL.md §2).
+    ///
+    /// Bit 63 of that word is the multi-threaded mark
+    /// (`layout::CAP_SHARED_FLAG`), so the load is masked with [`CAP_MASK`]
+    /// before the divide: a set bit would turn a walk over a handful of
+    /// elements into one over 2^60.
+    fn block_element_count(
+        &mut self,
+        block: PointerValue<'ctx>,
+        stride: u32,
+    ) -> IntValue<'ctx> {
+        let word = self.ctx.i64_type();
+        let cap_at = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            block,
+            i64::from(HEADER_CAP_OFFSET),
+            "cap.p",
+        );
+        let raw = match self.builder.build_load(word, cap_at, "cap.raw") {
+            Ok(BasicValueEnum::IntValue(v)) => v,
+            _ => word.const_zero(),
+        };
+        let cap = self
+            .builder
+            .build_and(raw, word.const_int(CAP_MASK, false), "cap")
+            .unwrap_or(raw);
+        self.builder
+            .build_int_unsigned_div(cap, word.const_int(u64::from(stride), false), "count")
+            .unwrap_or(cap)
+    }
+
+    /// The **copy** walk: [`Unit::walk_rc`]'s recursion with every counted
+    /// pointer replaced, in place, by a pointer to a fresh block of its own.
+    ///
+    /// Memory-only, and that is not a restriction it suffers but the shape of
+    /// the operation: a copy writes its answers back where it found the
+    /// pointers, and an SSA value has no address to write to
+    /// (CODEGEN-LLVM.md §2.2). Every caller therefore has a block or an
+    /// `alloca` in hand — the glue functions are handed one, and
+    /// [`Unit::copy_out`] spills into one.
+    ///
+    /// Nothing here increments a count. *A copy is not a share* is the whole
+    /// property of the slice, and it is visible in the emitted IR rather than
+    /// argued for: there is no `buri_rt_incref` on any path below.
+    fn copy_rc(
+        &mut self,
+        state: &mut Function<'ctx>,
+        ty: &Ty,
+        base: PointerValue<'ctx>,
+        off: u32,
+        depth: u32,
+    ) {
+        if depth > repr::RC_DEPTH || !self.reprs.counted_type(ty) {
+            return;
+        }
+        for site in self.reprs.sites(ty) {
+            match site {
+                Site::Block { offset, glue, .. } => {
+                    let at = off.saturating_add(offset);
+                    let p = repr::byte_offset(self.ctx, &self.builder, base, i64::from(at), "cp.p");
+                    if matches!(glue, Glue::Str) {
+                        self.call_copy_str(p);
+                        continue;
+                    }
+                    let g = self.copy_glue_pointer(&glue);
+                    self.replace_with_copy(p, g);
+                }
+                Site::Nested { offset, ty } => {
+                    let at = off.saturating_add(offset);
+                    self.copy_rc(state, &ty, base, at, depth.saturating_add(1));
+                }
+                Site::Boxed { offset, ty } => {
+                    let at = off.saturating_add(offset);
+                    let p = repr::byte_offset(self.ctx, &self.builder, base, i64::from(at), "cp.b");
+                    let g = self.copy_glue(&ty).map(function_pointer);
+                    self.replace_with_copy(p, g);
+                }
+                Site::Tagged { tag, variants } => {
+                    self.tagged_copy(state, base, off, tag, &variants, depth);
+                }
+                // The niche: `.None` is the payload's own pointer set to null,
+                // so the payload is copied only where it is not — the same
+                // guard `Unit::walk_rc` puts in front of a release.
+                Site::Guarded { null_at, ty } => {
+                    let at = off.saturating_add(null_at);
+                    let p = repr::byte_offset(self.ctx, &self.builder, base, i64::from(at), "cp.g");
+                    let Ok(BasicValueEnum::PointerValue(v)) =
+                        self.builder.build_load(self.ptr_ty(), p, "cp.gv")
+                    else {
+                        continue;
+                    };
+                    let live = self.ctx.append_basic_block(state.value, "cp.some");
+                    let done = self.ctx.append_basic_block(state.value, "cp.done");
+                    let Ok(is_null) = self.builder.build_is_null(v, "cp.isnone") else { continue };
+                    let _ = self.builder.build_conditional_branch(is_null, done, live);
+                    self.builder.position_at_end(live);
+                    self.copy_rc(state, &ty, base, off, depth.saturating_add(1));
+                    let _ = self.builder.build_unconditional_branch(done);
+                    self.builder.position_at_end(done);
+                }
+            }
+        }
+    }
+
+    /// A tagged enum, copied: one `switch` on the discriminant and one arm per
+    /// variant that carries anything, exactly as [`Unit::tagged_rc`] releases
+    /// one.
+    fn tagged_copy(
+        &mut self,
+        state: &mut Function<'ctx>,
+        base: PointerValue<'ctx>,
+        off: u32,
+        tag: Scalar,
+        variants: &[(u32, Ty, u32, bool)],
+        depth: u32,
+    ) {
+        let word = repr::slot_type(self.ctx, SlotTy::Scalar(tag));
+        let tag_at = repr::byte_offset(self.ctx, &self.builder, base, i64::from(off), "cp.tag.p");
+        let Ok(raw) = self.builder.build_load(word, tag_at, "cp.tag") else { return };
+        let Ok(raw) = TryInto::<IntValue<'ctx>>::try_into(raw) else { return };
+        let i32t = self.ctx.i32_type();
+        let key = self
+            .builder
+            .build_int_z_extend_or_bit_cast(raw, i32t, "cp.key")
+            .unwrap_or_else(|_| i32t.const_zero());
+        let done = self.ctx.append_basic_block(state.value, "cp.join");
+        let mut by_variant: Vec<(u32, Vec<VariantField>)> = Vec::new();
+        for (v, ty, offset, boxed) in variants {
+            match by_variant.iter_mut().find(|(k, _)| *k == *v) {
+                Some((_, fields)) => fields.push((ty.clone(), *offset, *boxed)),
+                None => by_variant.push((*v, vec![(ty.clone(), *offset, *boxed)])),
+            }
+        }
+        let mut arms = Vec::with_capacity(by_variant.len());
+        for (v, fields) in &by_variant {
+            let bb = self.ctx.append_basic_block(state.value, "cp.arm");
+            arms.push((i32t.const_int(u64::from(*v), false), bb, fields.clone()));
+        }
+        let table: Vec<(IntValue<'ctx>, BasicBlock<'ctx>)> =
+            arms.iter().map(|(k, bb, _)| (*k, *bb)).collect();
+        let _ = self.builder.build_switch(key, done, &table);
+        for (_, bb, fields) in arms {
+            self.builder.position_at_end(bb);
+            for (ty, offset, boxed) in fields {
+                let at = off.saturating_add(offset);
+                if boxed {
+                    let p =
+                        repr::byte_offset(self.ctx, &self.builder, base, i64::from(at), "cp.vb");
+                    let g = self.copy_glue(&ty).map(function_pointer);
+                    self.replace_with_copy(p, g);
+                    continue;
+                }
+                self.copy_rc(state, &ty, base, at, depth.saturating_add(1));
+            }
+            let _ = self.builder.build_unconditional_branch(done);
+        }
+        self.builder.position_at_end(done);
+    }
+
+    /// `*p = buri_rt_copy_block(*p, glue)`.
+    fn replace_with_copy(&mut self, p: PointerValue<'ctx>, glue: Option<PointerValue<'ctx>>) {
+        let Ok(old) = self.builder.build_load(self.ptr_ty(), p, "cp.old") else { return };
+        let f = self.declare_rt(
+            runtime::COPY_BLOCK,
+            &[self.ptr_ty().into(), self.ptr_ty().into()],
+            Some(self.ptr_ty().into()),
+        );
+        let g = glue.unwrap_or_else(|| self.ptr_ty().const_null());
+        let Ok(call) = self.builder.build_call(f, &[old.into(), g.into()], "cp.new") else {
+            return;
+        };
+        attrs::set_call_convention(call, attrs::C);
+        if let Some(fresh) = call.try_as_basic_value().basic() {
+            if let Ok(store) = self.builder.build_store(p, fresh) {
+                let _ = store.set_alignment(8);
+            }
+        }
+    }
+
+    /// `buri_rt_copy_str(p)` — a `Str`'s block, and the rebase of the `ptr`
+    /// that points into it.
+    fn call_copy_str(&mut self, p: PointerValue<'ctx>) {
+        let f = self.declare_rt(runtime::COPY_STR, &[self.ptr_ty().into()], None);
+        if let Ok(call) = self.builder.build_call(f, &[p.into()], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
+    }
+
+    /// [`Unit::each_element`] for the copy: the same counted loop, replacing
+    /// each element in place.
+    fn each_element_copy(
+        &mut self,
+        state: &mut Function<'ctx>,
+        base: PointerValue<'ctx>,
+        count: IntValue<'ctx>,
+        stride: u32,
+        elem: &Ty,
+    ) {
+        let word = self.ctx.i64_type();
+        let Some(pre) = self.builder.get_insert_block() else { return };
+        let header = self.ctx.append_basic_block(state.value, "cpel.head");
+        let body = self.ctx.append_basic_block(state.value, "cpel.body");
+        let done = self.ctx.append_basic_block(state.value, "cpel.done");
+        let _ = self.builder.build_unconditional_branch(header);
+
+        self.builder.position_at_end(header);
+        let Ok(phi) = self.builder.build_phi(word, "i") else { return };
+        let Ok(index) = TryInto::<IntValue<'ctx>>::try_into(phi.as_basic_value()) else { return };
+        let more = self
+            .builder
+            .build_int_compare(IntPredicate::ULT, index, count, "cpel.more")
+            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let _ = self.builder.build_conditional_branch(more, body, done);
+
+        self.builder.position_at_end(body);
+        let scaled = self
+            .builder
+            .build_int_mul(index, word.const_int(u64::from(stride), false), "cpel.off")
+            .unwrap_or(index);
+        // SAFETY: inkwell marks `build_in_bounds_gep` unsafe because it cannot
+        // check the index; the loop bound is `cap / stride`, so every offset is
+        // inside the block this pointer names.
+        let at = unsafe {
+            self.builder
+                .build_in_bounds_gep(self.ctx.i8_type(), base, &[scaled], "cpel.at")
+                .unwrap_or(base)
+        };
+        self.copy_rc(state, elem, at, 0, 0);
+        let next = self
+            .builder
+            .build_int_add(index, word.const_int(1, false), "cpel.next")
+            .unwrap_or(index);
+        // The back edge names the block the copy *ended* in, for
+        // `Unit::each_element`'s reason: an enum or a niche inside the element
+        // leaves the builder in a join block it created.
+        let latch = self.builder.get_insert_block().unwrap_or(body);
+        let _ = self.builder.build_unconditional_branch(header);
+        phi.add_incoming(&[
+            (&word.const_zero() as &dyn BasicValue<'ctx>, pre),
+            (&next as &dyn BasicValue<'ctx>, latch),
+        ]);
+
         self.builder.position_at_end(done);
     }
 
@@ -4630,6 +4976,58 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// to fetch a word this backend already has the address of, or an
     /// allocation and two `memcpy`s wrapped in a `ccc` call. Answers `false`
     /// for a key it does not claim, so the caller falls through to the table.
+    /// `core/alloc`'s `copyOut(value)`: the value, and then every counted
+    /// block inside it, copied.
+    ///
+    /// The generic intrinsic's erasure is repaired here rather than in the
+    /// runtime: the key carries no type argument, and the *call site* is where
+    /// the instantiation is known, so this is where the per-type copy glue is
+    /// asked for (`middle/monomorphize.rs`'s `GENERIC_INTRINSICS`).
+    ///
+    /// A type with nothing counted in it — an `Int`, a `Point { x, y }` — is
+    /// copied by the move that is already there, and answers `true` with no
+    /// call emitted at all.
+    fn copy_out(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dests: &[ir::ValueId],
+        key: &str,
+        args: &[ir::ValueId],
+    ) -> bool {
+        if key != "alloc.copyOut" {
+            return false;
+        }
+        let (Some(dest), Some(arg)) = (dests.first().copied(), args.first().copied()) else {
+            return true;
+        };
+        let value = self.get(state, arg);
+        let counted = self.type_of(code.ty_of(arg)).filter(|t| self.reprs.counted_type(t));
+        let Some(ty) = counted else {
+            self.set(state, dest, value);
+            return true;
+        };
+        // The walk writes its replacements back where it found the pointers,
+        // so the value is spilled to an `alloca` first and read back after.
+        // Every load out of it is in the same block as the call that filled
+        // it, so SROA puts the pair back in registers wherever the glue did
+        // not escape the buffer — `Unit::scratch`'s own case.
+        let (slots, size, align) = self.dest_shape(code, dest);
+        let buf = self.scratch(state, size, align);
+        let pieces = repr::disassemble(&self.builder, &slots, value);
+        self.store_slots(buf, &slots, align, &pieces);
+        if let Some(f) = self.copy_glue(&ty) {
+            if let Ok(call) = self.builder.build_call(f, &[buf.into()], "") {
+                attrs::set_call_convention(call, attrs::C);
+            }
+        }
+        state.observed.allocates = true;
+        let back = self.load_slots(buf, &slots, align);
+        let out = repr::assemble(self.ctx, &self.builder, &slots, &back);
+        self.set(state, dest, out);
+        true
+    }
+
     fn open_coded(
         &mut self,
         state: &mut Function<'ctx>,
@@ -7745,6 +8143,9 @@ fn open_coded_key(key: &str) -> bool {
             | "host_testing.TestAlloc.allocate"
             | "list.zip"
             | "list.flatten"
+            // `core/alloc`'s copy-out, which is the per-type copy glue and a
+            // spill around it — no runtime table row (G5, `Unit::copy_out`).
+            | "alloc.copyOut"
             // Claimed for the shape, not for every call site: a counted
             // element declines and falls through to the table entry.
             | "list.get"

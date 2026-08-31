@@ -1512,6 +1512,42 @@ function $alloc_arenaTotal(h) {
   return a !== undefined && a.gen === gen ? BigInt(a.bytes) : 0n;
 }
 
+// --- core/alloc's copy out of a scope (G5) -----------------------------------
+//
+// **On this backend a copy-out is the identity, and that is the honest answer
+// rather than a stub.** The three things `copyOut` exists to do natively are
+// all facts about a reference-counted heap with a bump allocator beside it:
+//
+//   * a value in the arena would dangle when the pages went back — there are no
+//     pages here, `$alloc_arenaRelease` unmaps nothing, and a value the body
+//     built is kept alive by the reference the caller holds to it, which is
+//     what a garbage collector *is*;
+//   * a copy must not be a share, so that the original's counts stay put —
+//     there are no counts here, because `middle/mod.rs`'s pipeline does not run
+//     `rc` for this backend;
+//   * a copy must be freshly *unique*, so that a later in-place write is
+//     licensed — but uniqueness here is the sticky `$u` bit, which the value
+//     already carries or already lacks, and duplicating it would change nothing
+//     about the answer while making every scope cost the size of its result.
+//
+// So the two backends agree on every number and every value a program can
+// observe, and disagree only about pages and blocks, which no program can ask
+// about — the same division `$alloc_arenaRelease` above already draws.
+//
+// Entering and leaving a scope go the same way: there is one allocator here,
+// and nothing to switch it to.
+function $alloc_copyOut(v) {
+  return v;
+}
+
+function $alloc_arenaEnter(h) {
+  return h;
+}
+
+function $alloc_arenaLeave(previous) {
+  return previous;
+}
+
 function $host_HostStdout_print(self, t) {
   $host.out.push(t);
   if ($host.out.length > 64) $host.flush();

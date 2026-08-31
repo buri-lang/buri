@@ -1375,6 +1375,73 @@ permanently red: a budget nothing can meet is a budget nobody reads, and it
 would have gone on hiding a compile-time cost the runtime table in this section
 pays back.
 
+### 6.7 What a scope costs, 2026-08-31
+
+`core/alloc::scoped` serves the blocks its body allocates out of its own
+mappings and gives them back in bulk (MEMORY.md §7.2.1). Two questions, and
+this section answers both with the same program §6.6 used:
+
+**Stated budget: no more than 5% on `allocs`, and a scope must not be a
+pessimisation.** Both met, at **+3.7%** and **+8.7%** respectively.
+
+| program | before | after | Δ |
+|---|---:|---:|---:|
+| `allocs` — 50 M allocate-and-free pairs, **no scope in the program** | 1.0018 s | 1.0393 s | **+3.7%** |
+| the same 50 M allocations, **a scope per batch of 100** | 1.0444 s | 1.1357 s | **+8.7%** |
+
+The first row is A/B/A/B against a toolchain built from `HEAD`, medians of five
+alternating readings, dev/stencil, macOS arm64. The second is two binaries from
+the **same** toolchain — `cmd/plain` and `cmd/scoped`, identical but for the
+`alloc.scoped` around each batch — so it is not a before-and-after at all but
+what a scope costs the program that opens one: 500,000 scopes, **183 ns each**,
+which is `create`, `enter`, `leave`, `release` and two uncontended mutexes.
+
+#### 6.7.1 Three shapes were measured and two were thrown away
+
+Every number below is the first row of the table above, on the same machine in
+the same sitting. They are recorded because each rejection is a fact about this
+platform rather than a preference.
+
+| where the "which scope am I in" question lives | `allocs` |
+|---|---:|
+| a `thread_local!` of its own | **+12.0%** |
+| folded into G2's per-thread block cache | +4.1% |
+| the same, plus a process-wide "any scope ever" latch | **+3.7%** |
+
+**A second thread-local costs 2.4 ns on an allocate-and-free pair**, which is
+about a third of what the pair costs — on macOS a `thread_local!` access is a
+call to `tlv_get_addr` and not a register-relative load, and the allocation path
+was already making one for the block cache. Folding the arena into
+`Cache` makes it one access and a branch on a word already in a register, and it
+is the whole of the difference between the first two rows.
+
+The third row is **within the noise of the second, and is kept anyway.**
+`scopes_exist()` is a relaxed load of a word written at most once in a process's
+life — G3's marking-latch shape — and what it buys is not the 0.3% but the
+claim: a program that never calls `scoped` takes the two lines it took before
+this slice, and that is readable off `buri_rt_alloc` rather than reasoned about
+from a profile.
+
+#### 6.7.2 The pool is why the second row is 8.7% and not 116%
+
+The first working version of the scope **mapped and unmapped a 64 KiB block per
+scope**, and the second row measured **2.2554 s against 1.0444 s** — 2.2× the
+same program without scopes, or **2.4 µs a scope**, which is two system calls
+and nothing else. A feature whose cost is that shape is not a feature.
+
+`ARENA_POOL` is eight standard blocks — 512 KiB, stated and bounded — that a
+released scope hands to the next one instead of to the kernel. It is the third
+time this runtime makes that trade (G2's per-thread block caches, B7's
+carrier-stack pool) and the reason is the same each time: **the common path
+should make no system call.** With it, a scope's 2.4 µs becomes 183 ns.
+
+One correctness consequence is worth stating beside the number, because it is
+the kind that would not have shown up in a benchmark: a mapping fresh from the
+kernel is zero-filled and an arena's window only moves forward, so before the
+pool existed `buri_rt_alloc_zeroed` inside a scope could be a bump and nothing
+else. A **pooled** block holds the last scope's bytes, so it zeroes.
+`a_zeroed_block_in_a_scope_is_zero_even_out_of_the_pool` is that, as a test.
+
 ---
 
 ## 7. Profiling, on this platform

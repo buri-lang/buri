@@ -119,8 +119,20 @@ pub const HEADER_CAP_OFFSET: i32 = -8;
 /// way (VALUE-MODEL.md §3.1). `design/native/VALUE-MODEL.md` §2 records both.
 pub const CAP_SHARED_FLAG: u64 = 1 << 63;
 
-/// The usable payload bytes of a block, once [`CAP_SHARED_FLAG`] is off.
-pub const CAP_MASK: u64 = !CAP_SHARED_FLAG;
+/// Bit 62 of `cap`: the block was served out of a `core/alloc::scoped` arena
+/// and is not the platform allocator's to give back.
+///
+/// Set and read by the **runtime** alone
+/// (`cli/runtime/memory.rs`'s `BURI_RT_CAP_ARENA`): a scope's `free` does the
+/// accounting and returns, and the pages go back in one `munmap` when the scope
+/// ends. Nothing a backend emits tests it. It is declared here because
+/// [`CAP_MASK`] is, and every reader of a `cap` word in emitted code masks with
+/// that — so the bit cannot be spent twice and an element count cannot pick it
+/// up.
+pub const CAP_ARENA_FLAG: u64 = 1 << 62;
+
+/// The usable payload bytes of a block, once the flag bits are off.
+pub const CAP_MASK: u64 = !(CAP_SHARED_FLAG | CAP_ARENA_FLAG);
 
 /// `rc == IMMORTAL` is a value that is never counted and never freed: every
 /// literal, every interned constant aggregate, every zero-sized value.
@@ -1364,14 +1376,19 @@ mod tests {
     #[test]
     fn the_shared_flag_is_the_top_bit_of_the_capacity() {
         assert_eq!(CAP_SHARED_FLAG, 1 << 63);
-        assert_eq!(CAP_MASK, u64::MAX >> 1);
+        assert_eq!(CAP_ARENA_FLAG, 1 << 62);
+        assert_eq!(CAP_MASK, u64::MAX >> 2);
         assert_eq!(CAP_SHARED_FLAG & CAP_MASK, 0);
+        assert_eq!(CAP_ARENA_FLAG & CAP_MASK, 0);
+        assert_eq!(CAP_SHARED_FLAG & CAP_ARENA_FLAG, 0);
         // The three boundaries a reader has to survive: an empty block, the
         // largest capacity the low 63 bits can spell, and the same capacity
         // with the flag on.
         for cap in [0u64, 1, GROWTH_FLOOR, CAP_MASK] {
             assert_eq!(cap & CAP_MASK, cap);
             assert_eq!((cap | CAP_SHARED_FLAG) & CAP_MASK, cap);
+            assert_eq!((cap | CAP_ARENA_FLAG) & CAP_MASK, cap);
+            assert_eq!((cap | CAP_SHARED_FLAG | CAP_ARENA_FLAG) & CAP_MASK, cap);
         }
         // It is a different bit from the one `Str::len` already spends, but the
         // same bit position — the precedent, not a collision: the two words are

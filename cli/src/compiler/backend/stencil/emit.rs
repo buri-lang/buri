@@ -33,7 +33,7 @@ enum RSrc {
     Slot(u32),
 }
 use super::jit::{Fn2, Jit, Plan, V};
-use super::rtcall::{Src, EQUAL, GREATER, LESS};
+use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::layout::{EnumRepr, Repr, Scalar};
 use crate::compiler::semantics::types::{Prim, Ty};
@@ -973,6 +973,226 @@ impl<'a> Jit<'a> {
                 self.emit("decref/free", &[("JIT_A", V::I(u64::from(at))), ("JIT_CONT0", V::Fall)])
             }
         }
+    }
+
+    /// One value's counted blocks again, and this time each of them is
+    /// **replaced** by a copy of itself.
+    ///
+    /// [`Jit::walk_rc`]'s recursion, arm for arm, with `decref` replaced by
+    /// `buri_rt_copy_block` and the answer stored back where the pointer was.
+    /// Keeping the two the same shape is the point: a new `Repr` case is two
+    /// arms rather than a second traversal that has to be kept in step, and a
+    /// reader who knows one knows the other.
+    ///
+    /// Nothing here increments a count. That is the property the whole slice
+    /// exists to have — *a copy is not a share* — and it is visible in the
+    /// emitted code rather than argued for: there is no `incref` stencil in any
+    /// path below.
+    pub(crate) fn copy_rc(
+        &mut self,
+        st: &mut Fn2,
+        ty: &Ty,
+        at: u32,
+        depth: u32,
+    ) -> Result<(), String> {
+        if depth > RC_DEPTH {
+            return Err(String::from("a reference-counted type nested past the copy's depth"));
+        }
+        let l = self.layouts_of(ty.clone());
+        match l.repr.clone() {
+            // A `Str` is `{ base, ptr, len }` and `ptr` points *into* `base`,
+            // so the copy has to rebase as well as replace — which is one
+            // runtime call over the whole value rather than three
+            // instructions in each of two backends (`buri_rt_copy_str`).
+            Repr::Str => self.copy_str(st, at),
+            Repr::List => {
+                let Ty::Array(elem) = ty else {
+                    return Err(String::from("a list layout on a type that is not one"));
+                };
+                let glue = self
+                    .rc_counted(elem)
+                    .then(|| self.helper(super::glue::Helper::CopyElems { ty: (**elem).clone() }));
+                self.copy_block(st, at, glue)
+            }
+            // A closure's environment block carries its own copy function in
+            // its second word, for the same reason it carries its release
+            // function in the first: `Ty::Fn` does not record what was
+            // captured (`glue.rs`'s `ENV_FIELDS`).
+            Repr::Closure => {
+                let glue = self.helper(super::glue::Helper::EnvCopy);
+                self.copy_block(st, at + super::glue::ENV_WORD, Some(glue))
+            }
+            Repr::Zero | Repr::Scalar(_) => Ok(()),
+            Repr::Aggregate => {
+                for (i, f) in field_types(self.tables, ty).iter().enumerate() {
+                    let off = l.fields.get(i).copied().unwrap_or(0);
+                    if self.boxes(ty, f) {
+                        self.copy_box(st, at + off, f)?;
+                        continue;
+                    }
+                    if !self.rc_counted(f) {
+                        continue;
+                    }
+                    self.copy_deep(st, f, at + off, depth)?;
+                }
+                Ok(())
+            }
+            Repr::Enum { repr, variants } => {
+                let tag = match repr {
+                    EnumRepr::Tagged { tag, .. } => tag,
+                    EnumRepr::Bare { .. } => return Ok(()),
+                    EnumRepr::Niche { null_at } => {
+                        return self.niche_copy(st, ty, at, null_at, depth)
+                    }
+                };
+                self.tagged_copy(st, ty, at, &variants, tag, depth)
+            }
+        }
+    }
+
+    /// A niche `Option<T>`: the payload is copied only where the pointer the
+    /// niche spends is not null, for [`Jit::niche_rc`]'s reason — every other
+    /// byte of a `.None` is whatever the frame last held.
+    fn niche_copy(
+        &mut self,
+        st: &mut Fn2,
+        ty: &Ty,
+        at: u32,
+        null_at: u32,
+        depth: u32,
+    ) -> Result<(), String> {
+        let Ty::Con(_, args) = ty else { return Ok(()) };
+        let Some(payload) = args.first().cloned() else { return Ok(()) };
+        if !self.rc_counted(&payload) {
+            return Ok(());
+        }
+        let skip = st.label();
+        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+        self.emit(
+            &key,
+            &[
+                ("JIT_A", V::I(u64::from(at + null_at))),
+                ("JIT_K", V::I(0)),
+                ("JIT_T", V::Blk(skip)),
+                ("JIT_F", V::Fall),
+            ],
+        );
+        self.copy_rc(st, &payload, at, depth + 1)?;
+        let here = self.region.code_addr();
+        st.place(skip, here);
+        Ok(())
+    }
+
+    /// A tagged enum: one arm per variant that owns something, dispatched on
+    /// the tag exactly as [`Jit::tagged_rc`] does.
+    fn tagged_copy(
+        &mut self,
+        st: &mut Fn2,
+        ty: &Ty,
+        at: u32,
+        variants: &[Vec<u32>],
+        tag: Scalar,
+        depth: u32,
+    ) -> Result<(), String> {
+        let done = st.label();
+        for (v, offsets) in variants.iter().enumerate() {
+            let fields = variant_types(self.tables, ty, v);
+            let owned: Vec<(u32, Ty, bool)> = fields
+                .iter()
+                .enumerate()
+                .filter_map(|(i, f)| {
+                    let boxed = self.boxes(ty, f);
+                    (boxed || self.rc_counted(f))
+                        .then(|| (offsets.get(i).copied().unwrap_or(0), f.clone(), boxed))
+                })
+                .collect();
+            if owned.is_empty() {
+                continue;
+            }
+            let next = st.label();
+            let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
+            self.load_w(scr, at, tag.size());
+            let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+            self.emit(
+                &key,
+                &[
+                    ("JIT_A", V::I(u64::from(scr))),
+                    ("JIT_K", V::I(v as u64)),
+                    ("JIT_T", V::Fall),
+                    ("JIT_F", V::Blk(next)),
+                ],
+            );
+            for (off, f, boxed) in owned {
+                if boxed {
+                    self.copy_box(st, at + off, &f)?;
+                    continue;
+                }
+                self.copy_deep(st, &f, at + off, depth)?;
+            }
+            self.emit("jump", &[("JIT_T", V::Blk(done))]);
+            let here = self.region.code_addr();
+            st.place(next, here);
+        }
+        let here = self.region.code_addr();
+        st.place(done, here);
+        Ok(())
+    }
+
+    /// [`Jit::walk_deep`] for the copy, with the same threshold and the same
+    /// reason for it: a type graph is a DAG whose nodes are revisited along
+    /// every path, so a copy of a record of records of records expands once per
+    /// path rather than once per type unless it goes out of line.
+    fn copy_deep(&mut self, st: &mut Fn2, ty: &Ty, at: u32, depth: u32) -> Result<(), String> {
+        let compound = matches!(
+            self.layouts_of(ty.clone()).repr,
+            Repr::Aggregate | Repr::Enum { .. }
+        );
+        if compound && depth >= RC_INLINE {
+            let sym = self.helper(super::glue::Helper::Copy { ty: ty.clone() });
+            let addr = st.scratch + (super::rtcall::RAW_WORD + 3) * 8;
+            self.emit(
+                "lea",
+                &[
+                    ("JIT_D", V::I(u64::from(addr))),
+                    ("JIT_A", V::I(u64::from(at))),
+                    ("JIT_CONT", V::Fall),
+                ],
+            );
+            return self.c_call_sym(sym, st, &[Src::Word(addr)], &[], 0, "v");
+        }
+        self.copy_rc(st, ty, at, depth + 1)
+    }
+
+    /// A **boxed** field: the field is the block's pointer, so the copy is one
+    /// replacement and no descent — whatever is inside the block is the
+    /// block's own copy glue's business.
+    fn copy_box(&mut self, st: &mut Fn2, at: u32, ty: &Ty) -> Result<(), String> {
+        let glue = self
+            .rc_counted(ty)
+            .then(|| self.helper(super::glue::Helper::Copy { ty: ty.clone() }));
+        self.copy_block(st, at, glue)
+    }
+
+    /// `p = buri_rt_copy_block(p, glue)` at a frame offset holding a block
+    /// pointer.
+    ///
+    /// `glue` is what copies the block's *contents* once the bytes have been
+    /// duplicated, and is `None` for a block that holds only bytes — exactly
+    /// the set [`Jit::rc_block`]'s drop glue is `None` for. A null pointer
+    /// copies to a null pointer, so an `Option`'s niche and a static `Str`'s
+    /// absent base need no test here.
+    fn copy_block(&mut self, st: &mut Fn2, at: u32, glue: Option<String>) -> Result<(), String> {
+        let g = match glue {
+            Some(sym) => Src::Sym(sym),
+            None => Src::Imm(0),
+        };
+        self.c_call("buri_rt_copy_block", st, &[Src::Word(at), g], &[], at, "i")
+    }
+
+    /// `buri_rt_copy_str(&value)` — the block, and the rebase of the `ptr`
+    /// that points into it.
+    fn copy_str(&mut self, st: &mut Fn2, at: u32) -> Result<(), String> {
+        self.c_call("buri_rt_copy_str", st, &[Src::Addr(at)], &[], 0, "v")
     }
 
     fn variant_count(&self, ty: &Ty) -> usize {
@@ -2105,6 +2325,41 @@ impl<'a> Jit<'a> {
         let ret0 = fs.ret.first().copied().unwrap_or(0);
         let p = |i: usize| fs.params.get(i).copied().unwrap_or(0);
 
+        // `core/alloc`'s `copyOut(value)`: the value, and then every counted
+        // block inside it, copied. The type is the signature's — this function
+        // is one of `middle::monomorphize`'s instantiations, so the erasure the
+        // key suffers is repaired by the *body* being generated here, where the
+        // instantiation is known (`GENERIC_INTRINSICS`).
+        if key == "alloc.copyOut" {
+            let arg = prog
+                .funcs
+                .get(fi)
+                .and_then(|f| f.sig.params.first().copied())
+                .and_then(|t| source_ty(prog, t));
+            match arg {
+                Some(ty) => {
+                    let size = self.layouts_of(ty.clone()).size;
+                    self.mv(ret0, p(0), size);
+                    if self.rc_counted(&ty) {
+                        if let Err(why) = self.copy_rc(st, &ty, ret0, 0) {
+                            self.unsupported(why);
+                        }
+                    }
+                }
+                // A scalar or a unit: the move above is the whole copy, and
+                // there is no source type to walk.
+                None => {
+                    let size = prog
+                        .funcs
+                        .get(fi)
+                        .and_then(|f| f.sig.params.first().copied())
+                        .map_or(0, |t| self.width_of(prog, t));
+                    self.mv(ret0, p(0), size);
+                }
+            }
+            self.emit("ret", &[]);
+            return;
+        }
         if key == "testing_assert.report" {
             let ok = st.label();
             let brkey = self.arm_key("br/f", "JIT_F");
@@ -3696,6 +3951,10 @@ fn open_coded_key(key: &str) -> bool {
             | "testing_assert.failWith"
             | "testing_assert.failExpected"
             | "testing_assert.failExpectedShown"
+            // `core/alloc`'s copy-out: a move and the per-type copy glue, so
+            // it is emitted into its own generated body and reaches no runtime
+            // table row (G5, `glue.rs`'s `Helper::Copy`).
+            | "alloc.copyOut"
     )
 }
 

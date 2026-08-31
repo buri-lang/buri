@@ -259,6 +259,14 @@ const PACKAGES: &[Case] = &[
     // `a_handler_a_wrapper_rebuilt_is_entered_on_every_backend` is the same
     // shape with no `core/alloc` in it at all.
     included("memory/scoped.buri"),
+    // G5's half of the same slice: the value that *leaves* a scope. Every case
+    // in it builds its answer out of blocks the program allocated — never a
+    // literal, which is immortal and in no arena — and reads it after the
+    // scope has ended, so on this backend a pointer that still named the
+    // arena's mappings would be a read of unmapped memory rather than a wrong
+    // string. That is why the file is worth running here and not only on the
+    // reference backend, where the copy is the identity.
+    included("memory/copyout.buri"),
     // It was excluded for `list.fold` until the backend grew the loop
     // over a closure, and
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what

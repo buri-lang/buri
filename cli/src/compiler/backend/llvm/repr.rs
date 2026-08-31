@@ -414,7 +414,7 @@ impl<'a> Reprs<'a> {
                 // literal (VALUE-MODEL.md §3).
                 TyDef::Prim(Prim::Str | Prim::Template) => vec![Site::Block {
                     offset: self.of_ty(ty).layout.field(layout::STR_BASE),
-                    glue: Glue::None,
+                    glue: Glue::Str,
                     counted: Counted::Nullable,
                 }],
                 TyDef::Prim(_) => Vec::new(),
@@ -526,6 +526,12 @@ fn ptr() -> SlotTy {
 pub enum Glue {
     /// Bytes, with nothing inside them to release.
     None,
+    /// A `Str`'s bytes. Nothing to *release* — this is [`Glue::None`] on the
+    /// drop side and says so — but a copy has to rebase the `ptr` that points
+    /// into the block as well as replace the block, so the two sides need to
+    /// tell a `Str`'s allocation apart from an `[Int]`'s (G5,
+    /// `buri_rt_copy_str`).
+    Str,
     /// A closure environment, which carries its own (`emit.rs`'s header).
     Env,
     /// A `[T]` block, element by element.

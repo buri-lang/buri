@@ -7,7 +7,7 @@
 
 use crate::abort::{buri_rt_abort_alloc_budget, buri_rt_abort_oom};
 use std::alloc::{alloc, alloc_zeroed, dealloc, realloc, Layout};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 /// A reference count that is never decremented and never freed.
@@ -48,8 +48,32 @@ pub const BURI_RT_ALIGN: usize = 16;
 /// compiler's copy of this number.
 pub const BURI_RT_CAP_SHARED: u64 = 1 << 63;
 
-/// The usable payload bytes of a block, once [`BURI_RT_CAP_SHARED`] is off.
-pub const BURI_RT_CAP_MASK: u64 = !BURI_RT_CAP_SHARED;
+/// Bit 62 of `cap`: the block lives in a **scoped arena** and is not the
+/// platform allocator's to give back.
+///
+/// Set by [`finish_with`] for every block served out of a `core/alloc::scoped`
+/// arena, and read by exactly two functions: [`buri_rt_free`], which does the
+/// accounting and then returns rather than calling `dealloc`, and
+/// [`buri_rt_realloc`], which grows such a block by allocating a new one rather
+/// than by handing the old one to `realloc`.
+///
+/// **Bit 62 rather than a second word or a side table**, for
+/// [`BURI_RT_CAP_SHARED`]'s reason and one more: the question "whose is this
+/// block" has to be answerable on the `free` path, which is the hottest cold
+/// path there is, and a header word that is already loaded answers it for
+/// nothing. A side table would put a lookup in front of every free in the
+/// process to serve the scopes.
+///
+/// A capacity that reached 2^62 bytes would collide with it, which is four
+/// exabytes in one Buri value.
+pub const BURI_RT_CAP_ARENA: u64 = 1 << 62;
+
+/// The usable payload bytes of a block, once the two flag bits are off.
+pub const BURI_RT_CAP_MASK: u64 = !(BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA);
+
+/// The flag bits of a `cap` word, as a mask: what [`buri_rt_realloc`] carries
+/// across and what [`BURI_RT_CAP_MASK`] takes off.
+pub const BURI_RT_CAP_FLAGS: u64 = BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA;
 
 // ---------------------------------------------------------------------------
 // === G3 begin: the marking latch ==========================================
@@ -220,6 +244,17 @@ unsafe fn cap_of(h: *const Header) -> u64 {
     unsafe { (*h).cap & BURI_RT_CAP_MASK }
 }
 
+/// Whether `h`'s block was served out of a scoped arena
+/// ([`BURI_RT_CAP_ARENA`]) — the G5 fork on the free path.
+///
+/// # Safety
+/// `h` points at a live block header.
+#[inline]
+unsafe fn is_arena(h: *const Header) -> bool {
+    // SAFETY: the caller promises a live header.
+    unsafe { (*h).cap & BURI_RT_CAP_ARENA != 0 }
+}
+
 /// Whether `h`'s block carries [`BURI_RT_CAP_SHARED`] — the G2 fork.
 ///
 /// True for **every** block of a program whose artifact said its values may
@@ -377,10 +412,18 @@ unsafe fn header(p: *mut u8) -> *mut Header {
 /// caller does not write every byte.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc(payload: u64) -> *mut u8 {
-    // G2: this thread's cache first. A hit is a block of exactly `payload`
-    // usable bytes, so `finish` writes the same header it would have written
-    // over a fresh one.
-    if let Some(p) = cache_pop(payload) {
+    // G5: a process that has opened a scope asks which one it is in; one that
+    // has not takes the two lines below, which are the two lines it took
+    // before this slice. [`scopes_exist`] is the whole of the difference.
+    if scopes_exist() {
+        if let Some(p) = scoped_alloc(payload, false) {
+            return p;
+        }
+    } else if let Some(p) = cache_pop(payload) {
+        // G2: this thread's cache first. A hit is a block of exactly `payload`
+        // usable bytes, so `finish` writes the same header it would have
+        // written over a fresh one.
+        //
         // SAFETY: `p` is a payload pointer, so `p - 16` is its block.
         return finish(unsafe { p.sub(BURI_RT_HEADER) }, payload);
     }
@@ -393,9 +436,18 @@ pub extern "C" fn buri_rt_alloc(payload: u64) -> *mut u8 {
 /// [`buri_rt_alloc`], with the payload zeroed.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_zeroed(payload: u64) -> *mut u8 {
-    // G2: a cached block holds whatever the last value in it held, so this one
-    // zeroes what `alloc_zeroed` would have got from the allocator.
-    if let Some(p) = cache_pop(payload) {
+    // G5: as in `buri_rt_alloc`, and an arena block needs no zeroing — it is a
+    // range of a fresh anonymous mapping handed out exactly once, because the
+    // window only moves forward and a released arena's pages are unmapped
+    // rather than reused, and POSIX guarantees `MAP_ANON` is zero.
+    if scopes_exist() {
+        if let Some(p) = scoped_alloc(payload, true) {
+            return p;
+        }
+    } else if let Some(p) = cache_pop(payload) {
+        // G2: a cached block holds whatever the last value in it held, so this
+        // one zeroes what `alloc_zeroed` would have got from the allocator.
+        //
         // SAFETY: `p` is a payload pointer to a block with `payload` usable
         // bytes, which is exactly the range written.
         unsafe {
@@ -410,6 +462,12 @@ pub extern "C" fn buri_rt_alloc_zeroed(payload: u64) -> *mut u8 {
 }
 
 fn finish(raw: *mut u8, payload: u64) -> *mut u8 {
+    finish_with(raw, payload, 0)
+}
+
+/// [`finish`], with the block's own flag bits — G5's [`BURI_RT_CAP_ARENA`] for
+/// a block a scope served, and nothing for one the platform allocator did.
+fn finish_with(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
     if raw.is_null() {
         buri_rt_abort_oom(payload);
     }
@@ -423,7 +481,7 @@ fn finish(raw: *mut u8, payload: u64) -> *mut u8 {
         // into a store that was happening anyway. A recycled block comes
         // through here too, which is what keeps a cache hit and a fresh
         // `malloc` indistinguishable.
-        raw.cast::<Header>().write(Header { rc: 1, cap: payload | shared_mask() });
+        raw.cast::<Header>().write(Header { rc: 1, cap: payload | shared_mask() | flags });
     }
     LIVE_BLOCKS.fetch_add(1, Ordering::Relaxed);
     LIVE_BYTES.fetch_add(payload, Ordering::Relaxed);
@@ -550,6 +608,45 @@ struct Cache {
     published: u64,
     /// Cache operations since the last sweep.
     since_sweep: u32,
+    /// **G5: the `core/alloc::scoped` arena this carrier is inside, plus one;
+    /// `0` is none.**
+    ///
+    /// It is *here*, in a struct about free lists, for one reason and it is a
+    /// measured one. Both questions — "is this carrier inside a scope" and "has
+    /// this carrier a block of this size" — are asked on every allocation, and
+    /// on macOS a `thread_local!` access is a call to `tlv_get_addr`, not a
+    /// register-relative load. Two thread-locals therefore cost two of those:
+    /// the first draft of this slice put the arena in a `Cell<u64>` of its own
+    /// and measured **+12 %** on G2's `allocs` row — 2.4 ns on an
+    /// allocate-and-free pair — for a load that answers `0` in every program
+    /// that never opens a scope. Folding it into the cache makes it one access
+    /// and a branch on a word already in the register.
+    ///
+    /// The encoding is the handle plus one so that `0` means "no arena" and the
+    /// hot test is a compare against zero. `buri_rt_alloc_arena_enter` hands
+    /// the previous value back to `scoped`, which gives it to
+    /// `buri_rt_alloc_arena_leave` unread — so nesting is the caller's local
+    /// and this file keeps no stack.
+    arena: u64,
+    /// **The bump window this carrier is serving the scope's blocks out of**:
+    /// the next free byte, and one past the end of the mapping it is in.
+    ///
+    /// Here rather than in the arena for the same reason [`Cache::arena`] is
+    /// here, one step further on. The arena's own table is behind a `Mutex`, so
+    /// a block allocated through it would cost a lock acquisition *per
+    /// allocation* — twice what the whole allocate-and-free pair costs when it
+    /// is uncontended, and a queue when it is not. With the window on the
+    /// carrier, an allocation inside a scope is an add and a compare on a word
+    /// [`take_block`] has already loaded, and the lock is taken once per 64 KiB
+    /// to map the next one.
+    ///
+    /// The window is **abandoned rather than saved** when a scope is entered or
+    /// left, which costs at most the tail of one block per nesting event and
+    /// keeps what `scoped` carries between the two calls a single `I64`. The
+    /// mapping itself is in the arena's `blocks` list either way, so the
+    /// abandoned tail is still `munmap`ed with the rest.
+    arena_at: usize,
+    arena_end: usize,
 }
 
 /// One exact payload size's free list.
@@ -747,6 +844,9 @@ thread_local! {
             held: CACHE_UNARMED,
             published: 0,
             since_sweep: 0,
+            arena: 0,
+            arena_at: 0,
+            arena_end: 0,
         })
     };
 
@@ -786,6 +886,107 @@ fn cache_pop(payload: u64) -> Option<*mut u8> {
         })
         .ok()
         .flatten()
+}
+
+/// The allocation path of a process that has opened a scope at some point:
+/// **a finished payload pointer**, or `None` to fall through to the platform
+/// allocator.
+///
+/// Out of line from [`buri_rt_alloc`] on purpose. A program that never calls
+/// `core/alloc::scoped` never reaches here, and the cost of the feature to that
+/// program is [`scopes_exist`]'s relaxed load and a predictable branch — the
+/// same shape as G3's marking latch, and for the same reason.
+///
+/// Inside, **two questions and one `tlv_get_addr`**. See [`Cache::arena`]: the
+/// first draft of this slice put the arena in a thread-local of its own and
+/// measured 2.4 ns on an allocate-and-free pair, which is a third of what the
+/// pair costs.
+///
+/// The bump window is checked before the cache and the cache is not consulted
+/// at all inside a scope: a cached block is the platform allocator's, and
+/// handing one to a scope that will `munmap` around it would be a
+/// use-after-free at the *next* allocation of that size on some other carrier.
+fn scoped_alloc(payload: u64, zeroed: bool) -> Option<*mut u8> {
+    enum Take {
+        Bumped(*mut u8),
+        Arena(i64),
+        Cached(*mut u8),
+        Neither,
+    }
+    // `try_with` rather than `with`: an allocation while this thread's
+    // destructors run must not panic, and the answer there is "no cache".
+    let taken = CACHE
+        .try_with(|c| {
+            // SAFETY: `c` is this thread's own cell, and no reference derived
+            // from it escapes this closure or crosses a call that could
+            // re-enter.
+            let cache = unsafe { &mut *c.get() };
+            if cache.arena != 0 {
+                let need = block_bytes(payload);
+                if let Some(end) = cache.arena_at.checked_add(need) {
+                    if end <= cache.arena_end {
+                        let raw = cache.arena_at as *mut u8;
+                        cache.arena_at = end;
+                        return Take::Bumped(raw);
+                    }
+                }
+                return Take::Arena(cache.arena.wrapping_sub(1) as i64);
+            }
+            if payload > CACHE_MAX_PAYLOAD {
+                return Take::Neither;
+            }
+            let idx = payload as usize;
+            let Some(slot) = cache.slots.get_mut(idx) else { return Take::Neither };
+            let p = slot.head;
+            if p.is_null() {
+                return Take::Neither;
+            }
+            // SAFETY: every pointer in a slot is a block this file freed, of
+            // exactly `payload` usable bytes, whose `rc` holds the next one.
+            slot.head = unsafe { (*header(p)).rc as *mut u8 };
+            // G6: the program wanted this size in this period, so the sweep
+            // leaves the slot alone.
+            slot.hit = true;
+            cache.held = cache.held.saturating_sub(slot_bytes(payload));
+            Take::Cached(p)
+        })
+        .unwrap_or(Take::Neither);
+    match taken {
+        Take::Bumped(raw) => {
+            // **A pooled block holds the last scope's bytes.** `MAP_ANON` is
+            // zero-filled and the window only moves forward, so a mapping
+            // fresh from the kernel needs nothing here — but `ARENA_POOL`
+            // hands the same pages to the next scope, so the zeroing caller
+            // has to be given what it asked for.
+            //
+            // SAFETY: `raw` names `BURI_RT_HEADER + payload` bytes this
+            // carrier has just reserved and nothing else holds.
+            if zeroed {
+                unsafe { std::ptr::write_bytes(raw.add(BURI_RT_HEADER), 0, payload as usize) };
+            }
+            Some(finish_with(raw, payload, BURI_RT_CAP_ARENA))
+        }
+        Take::Arena(handle) => {
+            let p = arena_block(handle, payload)?;
+            // SAFETY: as above; `p` is the payload pointer of a block this
+            // call has just reserved.
+            if zeroed {
+                unsafe { std::ptr::write_bytes(p, 0, payload as usize) };
+            }
+            Some(p)
+        }
+        Take::Cached(p) => {
+            // SAFETY: `p` is a payload pointer to a block with `payload` usable
+            // bytes, which is exactly the range a zeroing caller wants written.
+            unsafe {
+                if zeroed {
+                    std::ptr::write_bytes(p, 0, payload as usize);
+                }
+                Some(finish(p.sub(BURI_RT_HEADER), payload))
+            }
+        }
+        Take::Neither => None,
+    }
 }
 
 /// Keep a dead block of `cap` usable bytes in this thread's cache, if there is
@@ -854,8 +1055,28 @@ pub unsafe extern "C" fn buri_rt_realloc(p: *mut u8, payload: u64) -> *mut u8 {
     // SAFETY: the caller promises a live payload pointer.
     let (old_cap, rc, flags) = unsafe {
         let h = header(p);
-        (cap_of(h), (*h).rc, (*h).cap & BURI_RT_CAP_SHARED)
+        (cap_of(h), (*h).rc, (*h).cap & BURI_RT_CAP_FLAGS)
     };
+    // G5: a bump allocator cannot grow the block it handed out last but one, so
+    // an arena block is grown the way a bump allocator grows anything —
+    // allocate, copy, abandon. The new block comes from whichever allocator is
+    // active *now*, which is the same rule `buri_rt_alloc` follows and the same
+    // one that makes the copy at the scope's boundary the only way out.
+    if flags & BURI_RT_CAP_ARENA != 0 {
+        let fresh = buri_rt_alloc(payload);
+        // SAFETY: `fresh` has `payload` usable bytes and `p` has `old_cap`;
+        // the two blocks do not overlap, because `fresh` is an allocation
+        // nothing else holds.
+        unsafe {
+            std::ptr::copy_nonoverlapping(p.cast_const(), fresh, old_cap.min(payload) as usize);
+            // The count travels with the value, exactly as it does below.
+            (*header(fresh)).rc = rc;
+            // Not a `dealloc`: this only takes the old block out of `LIVE_*`,
+            // because its pages belong to the scope.
+            buri_rt_free(p);
+        }
+        return fresh;
+    }
     let old = layout_for(old_cap);
     let new = layout_for(payload);
     // SAFETY: `p - 16` is the allocation `old` describes, and `new.size()` is
@@ -890,15 +1111,28 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
         return;
     }
     // SAFETY: the caller promises a live payload pointer.
-    let cap = unsafe {
+    let (cap, arena) = unsafe {
         let h = header(p);
         if (*h).rc == BURI_RT_IMMORTAL {
             return;
         }
-        cap_of(h)
+        (cap_of(h), is_arena(h))
     };
     LIVE_BLOCKS.fetch_sub(1, Ordering::Relaxed);
     LIVE_BYTES.fetch_sub(cap, Ordering::Relaxed);
+    // G5: a block a scope served is not the platform allocator's, and it is not
+    // this thread's cache's either. The accounting above has already run — so
+    // the block is not live and is not a leak — and the pages under it go back
+    // in one `munmap` when the scope ends (`buri_rt_alloc_arena_release`).
+    //
+    // The *glue* has already run, above this in `buri_rt_decref`, which is what
+    // makes this sound rather than a leak with a nicer name: a heap block held
+    // by a value in the arena is released by the ordinary count on the ordinary
+    // path, and the arena's bulk free reclaims only address space whose last
+    // reference has already gone.
+    if arena {
+        return;
+    }
     // G2: this thread's cache keeps a small block rather than returning it.
     // The accounting above has already run, so a cached block is not live and
     // is not a leak — it is memory this runtime holds, exactly as the
@@ -1355,18 +1589,43 @@ fn index(handle: i64) -> Option<usize> {
 // never released is not an arena, and it would have made the acceptance
 // property of this slice untrue.
 
-/// The block an arena maps when it needs more room: 64 KiB.
+/// The block an arena takes when it needs more room: 64 KiB.
 ///
 /// A multiple of 16 KiB, so it is a whole number of pages on arm64 macOS as
 /// well as everywhere else, and big enough that an ordinary scope's charges
 /// cost one `mmap` between them.
 const BURI_RT_ARENA_BLOCK: usize = 64 * 1024;
 
+/// **Whether this process has ever opened a scope.**
+///
+/// Set by [`buri_rt_alloc_arena_create`] and never cleared, and read on every
+/// allocation by [`take_block`] — one relaxed load of a word written at most
+/// once in a process's life, so it is in this core's cache from the first block
+/// onwards. A program with no `core/alloc::scoped` in it therefore allocates
+/// exactly as it did before G5.
+///
+/// The same device as G3's marking latch, for the same reason: the question is
+/// about the *program* and not about the allocation, so it is asked once and
+/// the answer is a word rather than a branch through a thread-local.
+static SCOPES_EXIST: AtomicBool = AtomicBool::new(false);
+
+#[inline]
+fn scopes_exist() -> bool {
+    SCOPES_EXIST.load(Ordering::Relaxed)
+}
+
 /// Bytes an arena has mapped and not yet given back, across every live arena.
 static ARENA_BYTES: AtomicU64 = AtomicU64::new(0);
 
-/// Bytes arenas have given back to the kernel since the process started,
-/// cumulative. Never falls.
+/// Bytes arenas have given up since the process started, cumulative. Never
+/// falls.
+///
+/// **Given up, not necessarily unmapped.** A standard block goes to
+/// [`ARENA_POOL`] rather than to the kernel, up to [`ARENA_POOL_MAX`]; past
+/// that bound, and for every mapping that is not a standard block, this is a
+/// `munmap`. Either way no live arena holds the bytes any more, which is what
+/// the pair with [`ARENA_BYTES`] is asserting — and the pool is bounded and
+/// stated, exactly as G2's block caches and B7's stack pool are.
 static ARENA_RELEASED_BYTES: AtomicU64 = AtomicU64::new(0);
 
 /// One scope's arena.
@@ -1393,6 +1652,36 @@ struct Arena {
 /// `allocate` and the body under it is arithmetic and at most one `mmap`, so
 /// the lock is not the cost of a scope.
 static ARENAS: Mutex<Vec<Arena>> = Mutex::new(Vec::new());
+
+/// **Blocks a released arena hands to the next one instead of the kernel.**
+///
+/// A scope per request is the workload this whole feature is for, and a scope
+/// that maps and unmaps a block is two system calls per request: measured at
+/// **2.4 µs a scope** on macOS, which made a 500,000-scope run 2.2× the same
+/// program without scopes — a pessimisation, not a feature. With the pool it
+/// is a `Vec::pop`.
+///
+/// Bounded at [`ARENA_POOL_MAX`], which is the same shape as G2's per-thread
+/// block caches and B7's carrier-stack pool next door: a small, stated amount
+/// of memory this runtime holds so that the common path makes no system call.
+/// Anything past the bound, and every mapping that is not a standard block, is
+/// `munmap`ed.
+static ARENA_POOL: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+/// How many standard blocks the pool keeps: 8, which is 512 KiB.
+///
+/// Small on purpose. What it has to cover is *concurrent* scopes plus a little
+/// slack, not a working set — a scope gives its block back the moment it ends,
+/// so a server answering one request per carrier needs one block per carrier.
+const ARENA_POOL_MAX: usize = 8;
+
+fn arena_pool<T>(f: impl FnOnce(&mut Vec<usize>) -> T) -> T {
+    let mut guard = match ARENA_POOL.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    f(&mut guard)
+}
 
 /// Slots whose arena has been released, for reuse.
 ///
@@ -1451,8 +1740,16 @@ fn arena_block_len(bytes: usize) -> usize {
     }
 }
 
-/// One anonymous private mapping of `len` bytes, counted into [`ARENA_BYTES`].
+/// `len` bytes for an arena, counted into [`ARENA_BYTES`]: out of
+/// [`ARENA_POOL`] where it is a standard block and the pool has one, and out of
+/// the kernel otherwise.
 fn arena_map(len: usize) -> usize {
+    if len == BURI_RT_ARENA_BLOCK {
+        if let Some(base) = arena_pool(Vec::pop) {
+            ARENA_BYTES.fetch_add(len as u64, Ordering::Relaxed);
+            return base;
+        }
+    }
     // SAFETY: a fresh anonymous private mapping; no fd, no fixed address.
     let p = unsafe {
         mmap(core::ptr::null_mut(), len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0)
@@ -1490,6 +1787,8 @@ fn arena_reserve(a: &mut Arena, bytes: usize) {
 /// call, which is what keeps `scoped` cheap enough to wrap a request in.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_create() -> i64 {
+    // From here on this process's allocations ask which scope they are in.
+    SCOPES_EXIST.store(true, Ordering::Relaxed);
     let reused = arena_free(Vec::pop).and_then(|slot| {
         arenas(|t| {
             let a = t.get_mut(slot)?;
@@ -1572,11 +1871,26 @@ pub extern "C" fn buri_rt_alloc_arena_release(handle: i64) -> i64 {
     };
     let mut freed: u64 = 0;
     for (base, len) in blocks {
-        // SAFETY: every pointer here came from `arena_map` with exactly this
-        // length, and nothing points into an arena block: `Region` is a byte
-        // count, so the language has no way to name one of these addresses.
-        unsafe { munmap(base as *mut core::ffi::c_void, len) };
         freed = freed.saturating_add(len as u64);
+        // A standard block goes to the pool for the next scope, up to the
+        // bound; everything else, and everything past the bound, goes back to
+        // the kernel.
+        let kept = len == BURI_RT_ARENA_BLOCK
+            && arena_pool(|pool| {
+                if pool.len() >= ARENA_POOL_MAX {
+                    return false;
+                }
+                pool.push(base);
+                true
+            });
+        if kept {
+            continue;
+        }
+        // SAFETY: every pointer here came from `arena_map` with exactly this
+        // length, and nothing outside the arena points into it: the values it
+        // held are dead — their counts reached zero before this — and the one
+        // that left was deep-copied out (`buri_rt_copy_block`).
+        unsafe { munmap(base as *mut core::ffi::c_void, len) };
     }
     if freed > 0 {
         ARENA_BYTES.fetch_sub(freed, Ordering::Relaxed);
@@ -1600,7 +1914,297 @@ pub extern "C" fn buri_rt_alloc_arena_total(handle: i64) -> i64 {
     arenas(|t| t.get(slot).filter(|a| a.generation == generation).map_or(0, |a| a.bytes))
 }
 
+
+// ---------------------------------------------------------------------------
+// === G5 begin: which arena a carrier is inside =============================
+// ---------------------------------------------------------------------------
+//
+// # The context the ABI drops, restored as a property of the carrier
+//
+// `core/alloc`'s module header states the gap this closes: the native ABI drops
+// the context argument from every `buri_rt_*` call, so the function that builds
+// a `[Str]` never learns which allocator asked for it. G4 lived with it and
+// held the arena to *charges*; G5 answers it, and not by putting the context
+// back — that would be an argument on every runtime entry in the table, for a
+// question all but one of them would ignore.
+//
+// **The answer is dynamic instead of passed.** `scoped` calls
+// [`buri_rt_alloc_arena_enter`] before it calls `body` and
+// [`buri_rt_alloc_arena_leave`] after, and for that dynamic extent — on that
+// carrier — [`buri_rt_alloc`] serves out of the arena. Every allocation in the
+// extent is the scope's, whoever asked for it and through whichever runtime
+// entry, including the ones this runtime makes for itself.
+//
+// That is an *over*-approximation of "charged to the `Scoped`", and it is the
+// safe end of the asymmetry MEMORY.md §5.5 states: a block that should have
+// been on the heap and is in the arena is copied out with the answer or dies
+// with the scope, which is correct and occasionally costs a copy; a block that
+// should have been in the arena and is on the heap is also correct, and merely
+// misses the optimisation. Neither direction dangles, because a value's
+// lifetime never exceeds the extent it was made in except by being the answer,
+// and the answer is deep-copied ([`buri_rt_copy_block`]).
+//
+// ## Per carrier, and what a task inside a scope gets
+//
+// The active arena is a thread-local, so a task started inside a scope and run
+// by another carrier allocates on the platform heap. That is the safe
+// direction again — a heap block outliving a scope is ordinary — and it is why
+// this is a `Cell<u64>` and not a global. `rt.rs`'s carrier loop saves and
+// restores it around a stack switch, because B9 runs two tasks on one thread
+// and the arena belongs to the *task*, not to the thread it is on this turn.
+//
+// ## The encoding, which is one word and one test
+//
+// The cell holds **the handle plus one**, so that `0` is "no arena" and the
+// hot path is a load and a branch on zero rather than two loads. `scoped` is
+// handed the previous value back and gives it to `arenaLeave` unread, so
+// nesting is the caller's local and this file keeps no stack. A handle of
+// `u64::MAX` would encode as `0` and be read as no arena — a scope that
+// allocated on the heap, which is slower and not wrong — and reaching it needs
+// four billion live arenas at generation four billion.
+
+/// The active arena's handle, or `None`. Off [`Cache::arena`], which is where
+/// the encoding and the reason for its home are written down.
+fn current_arena() -> Option<i64> {
+    let biased = arena_slot_of_carrier().biased;
+    (biased != 0).then(|| biased.wrapping_sub(1) as i64)
+}
+
+/// The scope a carrier is inside, as the three words that describe it.
+///
+/// `rt.rs` saves and restores one of these around a stack switch, because since
+/// B9 two tasks share a carrier's thread and the arena — and the bump window
+/// into it — belong to the task whose stack is running.
+#[derive(Clone, Copy, Default)]
+pub struct ArenaSlot {
+    biased: u64,
+    at: usize,
+    end: usize,
+}
+
+impl ArenaSlot {
+    /// A carrier that is inside no scope, which is what one between tasks is.
+    pub const NONE: ArenaSlot = ArenaSlot { biased: 0, at: 0, end: 0 };
+}
+
+/// This carrier's scope, for `rt.rs` to put aside.
+pub fn arena_slot_of_carrier() -> ArenaSlot {
+    // SAFETY: this thread's own cell, and nothing derived from it escapes.
+    CACHE
+        .try_with(|c| unsafe {
+            let cache = &*c.get();
+            ArenaSlot { biased: cache.arena, at: cache.arena_at, end: cache.arena_end }
+        })
+        .unwrap_or(ArenaSlot::NONE)
+}
+
+/// Puts back what [`arena_slot_of_carrier`] answered.
+pub fn set_arena_slot_of_carrier(slot: ArenaSlot) {
+    // SAFETY: as above.
+    let _ = CACHE.try_with(|c| unsafe {
+        let cache = &mut *c.get();
+        cache.arena = slot.biased;
+        cache.arena_at = slot.at;
+        cache.arena_end = slot.end;
+    });
+}
+
+/// `core/alloc`'s `arenaEnter(handle)` — serve this carrier's blocks out of
+/// `handle` until `arenaLeave` puts back what this answers.
+///
+/// Answers the *encoded* previous value rather than a handle, which is what
+/// makes "there was no arena" expressible in the same `I64` the Buri side
+/// carries. `scoped` never reads it; it hands it straight back.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_alloc_arena_enter(handle: i64) -> i64 {
+    let previous = arena_slot_of_carrier().biased;
+    // The window starts empty, so the first allocation of the new scope takes
+    // the mapping path. The window the *outer* scope had is abandoned, which
+    // is [`Cache::arena_at`]'s stated cost of nesting.
+    set_arena_slot_of_carrier(ArenaSlot {
+        biased: (handle as u64).wrapping_add(1),
+        at: 0,
+        end: 0,
+    });
+    previous as i64
+}
+
+/// `core/alloc`'s `arenaLeave(previous)` — the inverse, and the whole of it.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_alloc_arena_leave(previous: i64) -> i64 {
+    set_arena_slot_of_carrier(ArenaSlot { biased: previous as u64, at: 0, end: 0 });
+    previous
+}
+
+/// A block of `payload` usable bytes out of the arena this carrier is inside,
+/// or `None` where it is inside none.
+///
+/// The header goes in the arena with the payload — one bump, one range — so
+/// the block is bit-for-bit what `buri_rt_alloc` would have produced but for
+/// [`BURI_RT_CAP_ARENA`] in its `cap`. Everything downstream of the pointer
+/// therefore works unchanged: the walks, the glue, `incref`, `decref`, the
+/// uniqueness test and both backends' open-coded copies of all of them.
+///
+/// A **retired** handle answers `None` and the request goes to the platform
+/// allocator, which is the same quiet answer `index` gives an unknown counter
+/// and the same one `buri_rt_alloc_arena_allocate` gives a stale scope.
+///
+/// `handle` is the one [`take_block`] read out of this carrier's cache, rather
+/// than one read again here: the whole point of that function is that the
+/// thread-local is touched once.
+fn arena_block(handle: i64, payload: u64) -> Option<*mut u8> {
+    let need = block_bytes(payload);
+    let (slot, generation) = arena_slot(handle);
+    let (base, len) = arenas(|t| {
+        let a = t.get_mut(slot)?;
+        if !a.live || a.generation != generation {
+            return None;
+        }
+        let len = arena_block_len(need);
+        let base = arena_map(len);
+        a.blocks.push((base, len));
+        // **The charge path's cursor is moved to the end of this mapping**, so
+        // that `arena_reserve` maps one of its own rather than handing out
+        // bytes this window is about to. One arena, two bump pointers, and no
+        // overlap between them.
+        a.cursor = len;
+        Some((base, len))
+    })?;
+    // The rest of the mapping becomes this carrier's window.
+    set_window(base.saturating_add(need), base.saturating_add(len));
+    Some(finish_with(base as *mut u8, payload, BURI_RT_CAP_ARENA))
+}
+
+/// Points this carrier's bump window at `[at, end)`.
+fn set_window(at: usize, end: usize) {
+    // SAFETY: this thread's own cell, and nothing derived from it escapes.
+    let _ = CACHE.try_with(|c| unsafe {
+        let cache = &mut *c.get();
+        cache.arena_at = at;
+        cache.arena_end = end;
+    });
+}
+
+/// The bytes one block of `payload` usable bytes occupies in an arena: the
+/// header, the payload, and the rounding that keeps the next block aligned.
+#[inline]
+fn block_bytes(payload: u64) -> usize {
+    (payload as usize).saturating_add(BURI_RT_HEADER).next_multiple_of(BURI_RT_ALIGN)
+}
+
+
+// === G5 end ===============================================================
+
 // === G4 end ===============================================================
+
+// ---------------------------------------------------------------------------
+// === G5 begin: the copy out of a scope =====================================
+// ---------------------------------------------------------------------------
+//
+// # A value that leaves a scope is deep-copied, and this is the block half
+//
+// `core/alloc`'s `scoped` answers `copyOut(inside)`, and `copyOut` is compiled
+// rather than called: each backend generates a per-type **copy glue** the same
+// way it generates the per-type release walk (`backend/stencil/glue.rs`'s
+// `Helper::Copy`, `backend/llvm/emit.rs`'s `Job::Copy`), and that walk reaches
+// a heap block through the two functions below and through nothing else.
+//
+// The division is deliberate. Everything that depends on a *type* is in the
+// generated walk, where the type is known; everything that depends on a
+// *block* is here, where the header is. This runtime is compiled once against
+// no Buri type at all, so a copy that had to know a layout could not live in
+// it — and a walk that had to know a header would be four backends' worth of
+// arithmetic instead of one function.
+//
+// ## The copy is not a share, and that is the whole point
+//
+// [`buri_rt_copy_block`] does not increment anything. It allocates, memcpys
+// the payload, and hands the fresh block to the type's own glue so that every
+// pointer *inside* it is replaced in turn. So a value that has been copied out
+// shares no block with the value it came from, at any depth — which is what
+// makes the scope's bulk release sound, and what `a_copy_is_not_a_share`
+// asserts by reading both counts.
+//
+// ## The mark is asked again rather than carried
+//
+// The new block goes through [`buri_rt_alloc`] and therefore through
+// [`finish`], so its `cap` carries whatever `shared_mask()` says *now* — the
+// program-wide answer G3 latched — and not the source block's bit. A source
+// that was marked because it had crossed a task boundary does not hand that
+// history to its copy: the copy is a new value, reachable so far from one
+// place, and if the program can reach a task boundary at all it is marked for
+// that reason and not for this one.
+
+/// A fresh block holding the same payload bytes as `p`, with `rc == 1`.
+///
+/// `glue` is the type's **copy** glue — the generated walk that replaces every
+/// counted pointer *inside* the new block with a copy of its own. It is null
+/// for a block that holds only bytes (a `Str`'s allocation, an `[Int]`), which
+/// is the same set of types [`buri_rt_decref`]'s `drop_glue` is null for.
+///
+/// A null `p` copies to a null `p`: a `Str` with no base is a static, and an
+/// `Option`'s niche is a null pointer that means `.None`. An `IMMORTAL` block
+/// copies to an ordinary counted one, which is right — the copy is a new value
+/// and nothing about the original's immortality is a property of it.
+///
+/// # Safety
+/// `p` is null or a live payload pointer, and `glue`, where non-null, is the
+/// copy glue for the type `p` actually holds.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_copy_block(
+    p: *mut u8,
+    glue: Option<extern "C" fn(*mut u8)>,
+) -> *mut u8 {
+    if p.is_null() {
+        return p;
+    }
+    // SAFETY: the caller promises a live payload pointer.
+    let cap = unsafe { cap_of(header(p)) };
+    let fresh = buri_rt_alloc(cap);
+    // SAFETY: both blocks have `cap` usable bytes and they do not overlap —
+    // `fresh` is an allocation nothing else holds.
+    unsafe { std::ptr::copy_nonoverlapping(p.cast_const(), fresh, cap as usize) };
+    if let Some(g) = glue {
+        g(fresh);
+    }
+    fresh
+}
+
+/// The same for a `Str`, whose value is `{ base, ptr, len }` and whose `ptr`
+/// points **into** `base` rather than at it (VALUE-MODEL.md §3).
+///
+/// One function rather than three instructions in each backend because the
+/// rebase is the whole of the difference: a copied `Str` has to keep pointing
+/// at the same *offset* of a different block, and a walk that only replaced
+/// `base` would leave `ptr` addressing the block the scope is about to unmap.
+///
+/// A `Str` with no base is a static — a literal, or the empty string — and is
+/// copied by leaving it alone: there is no block under it to release, so there
+/// is none to duplicate either.
+///
+/// # Safety
+/// `s` points at a readable, writable [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_copy_str(s: *mut u8) {
+    if s.is_null() {
+        return;
+    }
+    let v = s.cast::<crate::value::BuriStr>();
+    // SAFETY: the caller promises a `BuriStr` here.
+    unsafe {
+        let base = (*v).base;
+        if base.is_null() {
+            return;
+        }
+        let offset = (*v).ptr.addr().wrapping_sub(base.addr());
+        let fresh = buri_rt_copy_block(base, None);
+        (*v).base = fresh;
+        (*v).ptr = fresh.wrapping_add(offset).cast_const();
+    }
+}
+
+// === G5 end ===============================================================
+
 
 // ---------------------------------------------------------------------------
 // The per-carrier Buri data stack (design/native track B, slice B7)
@@ -2379,8 +2983,12 @@ mod tests {
     #[test]
     fn the_shared_bit_is_the_top_bit_of_the_capacity() {
         assert_eq!(BURI_RT_CAP_SHARED, 1 << 63);
-        assert_eq!(BURI_RT_CAP_MASK, u64::MAX >> 1);
+        assert_eq!(BURI_RT_CAP_ARENA, 1 << 62);
+        assert_eq!(BURI_RT_CAP_MASK, u64::MAX >> 2);
         assert_eq!(BURI_RT_CAP_SHARED & BURI_RT_CAP_MASK, 0);
+        assert_eq!(BURI_RT_CAP_ARENA & BURI_RT_CAP_MASK, 0);
+        assert_eq!(BURI_RT_CAP_SHARED & BURI_RT_CAP_ARENA, 0);
+        assert_eq!(BURI_RT_CAP_FLAGS, BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA);
     }
 
     /// A real block's capacity round-trips through the header at the three
@@ -2394,7 +3002,12 @@ mod tests {
     #[test]
     fn a_masked_capacity_round_trips_at_the_boundaries() {
         for cap in [0u64, 1, BURI_RT_GROWTH_FLOOR, BURI_RT_CAP_MASK] {
-            for flag in [0u64, BURI_RT_CAP_SHARED] {
+            for flag in [
+                0u64,
+                BURI_RT_CAP_SHARED,
+                BURI_RT_CAP_ARENA,
+                BURI_RT_CAP_SHARED | BURI_RT_CAP_ARENA,
+            ] {
                 let word = cap | flag;
                 assert_eq!(word & BURI_RT_CAP_MASK, cap);
                 // The growth policy reads a header word and must not double a
@@ -3382,6 +3995,689 @@ mod tests {
     }
 
     // === G4 end ============================================================
+
+    // === G5 begin: the copy out of a scope =================================
+
+    /// The blocks [`a_returning_scope_gives_its_pages_back_and_leaks_nothing`]
+    /// puts inside a scope: 64 of a quarter-megabyte each, sixteen megabytes in
+    /// all.
+    ///
+    /// **Big on purpose.** `live_bytes` is process-wide and `cargo test` runs
+    /// its cases on many threads, so a claim about it is only as good as the
+    /// margin between what this case allocates and what the rest of the binary
+    /// is doing meanwhile. Sixteen megabytes against a suite whose other blocks
+    /// are kilobytes is a margin no scheduling can close, and it is the same
+    /// answer `an_arena_maps_nothing_the_heap_counts` gives to the same
+    /// problem: assert a magnitude, not an equality.
+    const SCOPE_BLOCKS: usize = 64;
+    const SCOPE_BLOCK_BYTES: u64 = 256 * 1024;
+    const SCOPE_TOTAL: i128 = (SCOPE_BLOCKS as i128) * (SCOPE_BLOCK_BYTES as i128);
+
+    /// Counts the calls a copy glue makes, so that a case can say *whether*
+    /// the type's own walk ran and not only that the bytes moved.
+    static GLUE_CALLS: AtomicU64 = AtomicU64::new(0);
+
+    /// A copy glue that records that it was called and copies nothing: a block
+    /// of bytes has nothing inside it, and what is under test here is the
+    /// dispatch.
+    extern "C" fn counting_glue(_p: *mut u8) {
+        GLUE_CALLS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Writes `n` bytes of a recognisable pattern into a payload.
+    ///
+    /// # Safety
+    /// `p` names at least `n` writable bytes.
+    unsafe fn fill(p: *mut u8, n: u64) {
+        for i in 0..n {
+            // SAFETY: the caller promises `n` writable bytes.
+            unsafe { p.add(i as usize).write((i % 251) as u8) };
+        }
+    }
+
+    /// **A copy is not a share**, which is the property the whole slice exists
+    /// to have.
+    ///
+    /// Three assertions and each is one of the ways the alternative would show
+    /// up: the two pointers differ, the *source's* count did not move — a
+    /// `buri_rt_incref` in the copy path would be the obvious wrong
+    /// implementation, and it would leave the source at three — and the copy's
+    /// count is one, which is what makes it uniquely owned and therefore
+    /// eligible for MEMORY.md §5.3's in-place write.
+    #[test]
+    fn a_copy_is_not_a_share() {
+        let p = buri_rt_alloc(64);
+        // SAFETY: live, just allocated.
+        unsafe {
+            fill(p, 64);
+            buri_rt_incref(p);
+            buri_rt_incref(p);
+            assert_eq!(buri_rt_rc(p), 3);
+
+            let q = buri_rt_copy_block(p, None);
+            assert_ne!(p, q, "a copy answered the block it was given");
+            assert_eq!(buri_rt_rc(p), 3, "the copy took a reference on the source");
+            assert_eq!(buri_rt_rc(q), 1, "a copy is not uniquely owned");
+            assert_eq!(buri_rt_cap(q), 64, "a copy did not keep the source's capacity");
+            for i in 0..64u64 {
+                assert_eq!(
+                    q.add(i as usize).read(),
+                    (i % 251) as u8,
+                    "a copy did not hold the source's bytes"
+                );
+            }
+
+            buri_rt_free(q);
+            buri_rt_decref(p, None);
+            buri_rt_decref(p, None);
+            buri_rt_decref(p, None);
+        }
+    }
+
+    /// The copy glue is what makes the copy *deep*, and it is called on the
+    /// **fresh** block: the walk's job is to replace the pointers the memcpy
+    /// duplicated, which are in the new block and not in the old one.
+    #[test]
+    fn the_copy_glue_runs_on_the_new_block() {
+        let p = buri_rt_alloc(32);
+        let before = GLUE_CALLS.load(Ordering::Relaxed);
+        // SAFETY: live, just allocated.
+        unsafe {
+            let q = buri_rt_copy_block(p, Some(counting_glue));
+            assert_eq!(
+                GLUE_CALLS.load(Ordering::Relaxed) - before,
+                1,
+                "the copy glue was not called"
+            );
+            buri_rt_free(q);
+            buri_rt_free(p);
+        }
+    }
+
+    /// A null block copies to a null block, which is what lets an `Option`'s
+    /// niche and a static `Str`'s absent base need no test in the emitted walk.
+    #[test]
+    fn a_null_block_copies_to_null() {
+        // SAFETY: null is an accepted argument.
+        let q = unsafe { buri_rt_copy_block(std::ptr::null_mut(), None) };
+        assert!(q.is_null());
+    }
+
+    /// An `IMMORTAL` block copies to an ordinary counted one.
+    ///
+    /// Right, and worth a case: the copy is a *new value*, and nothing about
+    /// the original's immortality is a property of it. A copy that inherited
+    /// the sentinel would be a block that could never be freed, once per
+    /// literal that ever left a scope.
+    #[test]
+    fn an_immortal_block_copies_to_a_counted_one() {
+        let p = buri_rt_alloc(16);
+        // SAFETY: live, just allocated.
+        unsafe {
+            buri_rt_make_immortal(p);
+            assert_eq!(buri_rt_rc(p), BURI_RT_IMMORTAL);
+            let q = buri_rt_copy_block(p, None);
+            assert_eq!(buri_rt_rc(q), 1);
+            buri_rt_free(q);
+        }
+    }
+
+    /// **A `Str`'s `ptr` is rebased onto the copy.**
+    ///
+    /// `Str` is `{ base, ptr, len }` and `ptr` points *into* `base`
+    /// (VALUE-MODEL.md §3), so a copy that replaced only the block would leave
+    /// the value addressing the block the scope is about to unmap — a
+    /// use-after-free that reads correctly until the pages go back, which is
+    /// the worst kind.
+    #[test]
+    fn copying_a_str_rebases_the_pointer_into_the_copy() {
+        let base = buri_rt_alloc(16);
+        // SAFETY: live, just allocated, and sixteen bytes wide.
+        unsafe { fill(base, 16) };
+        let mut v = crate::value::BuriStr {
+            base,
+            // A view four bytes into its own block, which is what `slice` and
+            // `splitOnce` hand back.
+            ptr: base.wrapping_add(4).cast_const(),
+            len: 8,
+        };
+        // SAFETY: `v` is a live, writable `BuriStr`.
+        unsafe { buri_rt_copy_str((&raw mut v).cast::<u8>()) };
+        assert_ne!(v.base, base, "the copy kept the source's block");
+        assert_eq!(v.len, 8, "the copy changed the length");
+        assert_eq!(
+            v.ptr.addr() - v.base.addr(),
+            4,
+            "the copy did not keep the view's offset"
+        );
+        // SAFETY: the copy is live and this test holds the only reference.
+        unsafe {
+            for i in 0..8u64 {
+                assert_eq!(v.ptr.add(i as usize).read(), (i + 4) as u8);
+            }
+            buri_rt_free(v.base);
+            buri_rt_free(base);
+        }
+    }
+
+    /// A `Str` with no base is a static — a literal, or the empty string — and
+    /// is copied by being left alone.
+    #[test]
+    fn copying_a_static_str_leaves_it_alone() {
+        static BYTES: [u8; 4] = [1, 2, 3, 4];
+        let mut v = crate::value::BuriStr {
+            base: std::ptr::null_mut(),
+            ptr: BYTES.as_ptr(),
+            len: 4,
+        };
+        // SAFETY: `v` is a live, writable `BuriStr`.
+        unsafe { buri_rt_copy_str((&raw mut v).cast::<u8>()) };
+        assert!(v.base.is_null());
+        assert_eq!(v.ptr, BYTES.as_ptr(), "a static's bytes moved");
+    }
+
+    // -- the arena a carrier is inside --------------------------------------
+
+    /// **A scope serves the blocks its body allocates**, which is the half of
+    /// G4's interim rule this slice lifts.
+    ///
+    /// Three claims: the block carries [`BURI_RT_CAP_ARENA`], the arena mapped
+    /// pages for it, and the platform allocator was not involved — which the
+    /// last assertion says by releasing the arena and finding the block's bytes
+    /// gone with it rather than returned to `malloc`.
+    #[test]
+    fn a_scope_serves_the_blocks_its_body_allocates() {
+        let _alone = arena_alone();
+        let (live_before, released_before) = arena_stats();
+        let a = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(a);
+
+        let p = buri_rt_alloc(128);
+        // SAFETY: live, just allocated.
+        unsafe {
+            assert!(is_arena(header(p)), "a block inside a scope is not the scope's");
+            assert_eq!(buri_rt_cap(p), 128, "the arena bit cost the block its capacity");
+            assert_eq!(buri_rt_rc(p), 1);
+            fill(p, 128);
+        }
+        let (live_open, _) = arena_stats();
+        assert_eq!(
+            live_open - live_before,
+            BURI_RT_ARENA_BLOCK as u64,
+            "a block inside a scope mapped no pages"
+        );
+
+        // A block made *outside* the scope again is the platform's.
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let q = buri_rt_alloc(128);
+        // SAFETY: live, just allocated.
+        unsafe {
+            assert!(!is_arena(header(q)), "a block outside a scope was charged to one");
+            buri_rt_free(q);
+        }
+
+        // SAFETY: the only reference, and its pages are still mapped.
+        unsafe { buri_rt_free(p) };
+        let freed = buri_rt_alloc_arena_release(a);
+        assert_eq!(freed, BURI_RT_ARENA_BLOCK as i64);
+        let (live_after, released_after) = arena_stats();
+        assert_eq!(live_after, live_before);
+        assert_eq!(released_after - released_before, BURI_RT_ARENA_BLOCK as u64);
+    }
+
+    /// **The acceptance property, for a scope that answers a value**: the pages
+    /// go back, and the platform heap is where it started.
+    ///
+    /// A megabyte of blocks inside the scope, one of them copied out, and then
+    /// the release. `arena_bytes` back where it started is the pages; the live
+    /// heap back where it started is the accounting — a block a scope served is
+    /// not a leak, and `buri_rt_free`'s early return has to take it out of
+    /// `live_blocks` on the way past or every scope in the process would look
+    /// like one.
+    #[test]
+    fn a_returning_scope_gives_its_pages_back_and_leaks_nothing() {
+        let _alone = arena_alone();
+        let (live_before, released_before) = arena_stats();
+        let mut heap = BuriHeapStats {
+            live_blocks: 0,
+            live_bytes: 0,
+            total_blocks: 0,
+            total_bytes: 0,
+            retained_bytes: 0,
+            decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
+        };
+        // SAFETY: a live, aligned destination.
+        unsafe { buri_rt_heap_stats(&raw mut heap) };
+        let total_before = i128::from(heap.total_bytes);
+
+        let a = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(a);
+        let mut inside = Vec::new();
+        for _ in 0..SCOPE_BLOCKS {
+            let p = buri_rt_alloc(SCOPE_BLOCK_BYTES);
+            // SAFETY: live, just allocated.
+            unsafe { fill(p, 64) };
+            inside.push(p);
+        }
+        // A block a scope served is **counted like any other while it is
+        // alive**, which is what keeps the leak checks honest: a scope is not a
+        // way for sixteen megabytes to become invisible. `total_bytes` never
+        // falls, so this direction needs no margin at all.
+        // SAFETY: a live, aligned destination.
+        unsafe { buri_rt_heap_stats(&raw mut heap) };
+        let live_with = i128::from(heap.live_bytes);
+        assert!(
+            i128::from(heap.total_bytes) - total_before >= SCOPE_TOTAL,
+            "the blocks a scope served were not counted at all"
+        );
+        let (live_open, _) = arena_stats();
+        assert!(
+            live_open - live_before >= SCOPE_TOTAL as u64,
+            "sixteen megabytes of blocks inside a scope mapped {} bytes",
+            live_open - live_before
+        );
+
+        // The answer leaves the scope, and it leaves it as a copy.
+        let _ = buri_rt_alloc_arena_leave(outer);
+        // SAFETY: `inside[0]` is live and this test holds the only reference.
+        let answer = unsafe { buri_rt_copy_block(inside[0], None) };
+        // SAFETY: live, just allocated outside the scope.
+        unsafe { assert!(!is_arena(header(answer)), "the copy landed in the arena") };
+
+        for p in inside {
+            // SAFETY: each is live and this is its last reference.
+            unsafe { buri_rt_free(p) };
+        }
+        let freed = buri_rt_alloc_arena_release(a);
+        assert!(freed >= SCOPE_TOTAL as i64);
+        let (live_after, released_after) = arena_stats();
+        assert_eq!(live_after, live_before, "the scope's pages did not go back");
+        assert!(released_after - released_before >= SCOPE_TOTAL as u64);
+
+        // And it is **uncounted on the way out**, even though nothing was
+        // handed back to `malloc`: `buri_rt_free`'s early return does the
+        // accounting before it sees the arena bit, or every scope in the
+        // process would read as a leak.
+        //
+        // Not an equality, for `an_arena_maps_nothing_the_heap_counts`'s
+        // reason: `cargo test`'s other threads are allocating while this runs.
+        // The claim is about the *megabyte* — whatever else the binary did
+        // meanwhile, none of it was these 256 blocks staying live.
+        //
+        // SAFETY: a live, aligned destination.
+        unsafe { buri_rt_heap_stats(&raw mut heap) };
+        assert!(
+            live_with - i128::from(heap.live_bytes) >= SCOPE_TOTAL / 2,
+            "a scope's blocks stayed live after it released them: {} bytes went away",
+            live_with - i128::from(heap.live_bytes)
+        );
+        // SAFETY: the only reference to the copy.
+        unsafe { buri_rt_free(answer) };
+    }
+
+    /// **A scope's block never enters the platform allocator's free list.**
+    ///
+    /// The carrier cache is what would have taken it — `buri_rt_free` files a
+    /// small block on a thread-local list rather than calling `dealloc` — and
+    /// handing it a block whose pages are about to be unmapped would be a
+    /// use-after-free at the *next* allocation of that size, on a thread that
+    /// had nothing to do with the scope. The test is that a block of exactly
+    /// the size the arena served comes back from `malloc` and not from the
+    /// arena's mappings after the release.
+    #[test]
+    fn a_scope_block_does_not_reach_the_carrier_cache() {
+        let _alone = arena_alone();
+        let a = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(a);
+        let p = buri_rt_alloc(200);
+        let inside = p.addr();
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(p) };
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(a);
+
+        let q = buri_rt_alloc(200);
+        assert_ne!(q.addr(), inside, "a released arena's block came back from the cache");
+        // SAFETY: live, and the only reference.
+        unsafe {
+            assert!(!is_arena(header(q)));
+            buri_rt_free(q);
+        }
+    }
+
+    /// A bump allocator cannot grow what it handed out, so an arena block is
+    /// grown by allocating, copying and abandoning — and the abandoned one is
+    /// taken out of the live accounting rather than handed to `realloc`.
+    #[test]
+    fn growing_a_scope_block_allocates_a_new_one() {
+        let _alone = arena_alone();
+        let a = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(a);
+        let p = buri_rt_alloc(64);
+        // SAFETY: live, just allocated, and the only reference.
+        let grown = unsafe {
+            fill(p, 64);
+            buri_rt_incref(p);
+            buri_rt_realloc(p, 256)
+        };
+        assert_ne!(grown, p, "an arena block was grown in place");
+        // SAFETY: live.
+        unsafe {
+            assert!(is_arena(header(grown)), "a grown arena block left the arena");
+            assert_eq!(buri_rt_cap(grown), 256);
+            assert_eq!(buri_rt_rc(grown), 2, "the count did not travel with the value");
+            for i in 0..64u64 {
+                assert_eq!(grown.add(i as usize).read(), (i % 251) as u8);
+            }
+            buri_rt_decref(grown, None);
+            buri_rt_decref(grown, None);
+        }
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(a);
+    }
+
+    /// Scopes nest, and `arenaLeave` puts back exactly what `arenaEnter`
+    /// answered — including "there was no scope", which is what makes the
+    /// encoding a biased handle rather than a handle.
+    #[test]
+    fn scopes_nest_and_leave_puts_back_what_enter_answered() {
+        let _alone = arena_alone();
+        assert!(current_arena().is_none(), "a test began inside a scope");
+        let outer_arena = buri_rt_alloc_arena_create();
+        let inner_arena = buri_rt_alloc_arena_create();
+
+        let none = buri_rt_alloc_arena_enter(outer_arena);
+        assert_eq!(none, 0, "the encoding of `no arena` is not zero");
+        assert_eq!(current_arena(), Some(outer_arena));
+
+        let was_outer = buri_rt_alloc_arena_enter(inner_arena);
+        assert_eq!(current_arena(), Some(inner_arena));
+
+        let _ = buri_rt_alloc_arena_leave(was_outer);
+        assert_eq!(current_arena(), Some(outer_arena), "leaving the inner scope lost the outer");
+
+        let _ = buri_rt_alloc_arena_leave(none);
+        assert!(current_arena().is_none(), "leaving the outer scope left one behind");
+
+        let _ = buri_rt_alloc_arena_release(inner_arena);
+        let _ = buri_rt_alloc_arena_release(outer_arena);
+    }
+
+    /// A **retired** scope serves nothing: the request goes to the platform
+    /// allocator, which is the same quiet answer a stale handle gets from
+    /// `buri_rt_alloc_arena_allocate`. A body that handed its `Scoped` back out
+    /// and allocated through it afterwards is the shape.
+    #[test]
+    fn a_retired_scope_serves_no_blocks() {
+        let _alone = arena_alone();
+        let a = buri_rt_alloc_arena_create();
+        let _ = buri_rt_alloc_arena_release(a);
+        let outer = buri_rt_alloc_arena_enter(a);
+        let p = buri_rt_alloc(48);
+        // SAFETY: live, just allocated.
+        unsafe {
+            assert!(!is_arena(header(p)), "a retired scope served a block");
+            buri_rt_free(p);
+        }
+        let _ = buri_rt_alloc_arena_leave(outer);
+    }
+
+    /// **The arena is a property of the carrier, not of the process.** A second
+    /// thread inside no scope allocates from the platform heap while this one
+    /// is inside one — which is what makes a scope per request safe, and what
+    /// makes a task started inside a scope allocate on the heap.
+    #[test]
+    fn a_scope_is_this_carriers_and_no_other_threads() {
+        let _alone = arena_alone();
+        let a = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(a);
+        let mine = buri_rt_alloc(80);
+        // SAFETY: live, just allocated.
+        unsafe { assert!(is_arena(header(mine))) };
+
+        let elsewhere = std::thread::spawn(|| {
+            assert!(current_arena().is_none(), "a fresh carrier began inside a scope");
+            let p = buri_rt_alloc(80);
+            // SAFETY: live, just allocated on this thread.
+            let charged = unsafe { is_arena(header(p)) };
+            // SAFETY: the only reference.
+            unsafe { buri_rt_free(p) };
+            charged
+        })
+        .join();
+        assert_eq!(elsewhere.ok(), Some(false), "another carrier was inside this scope");
+
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(mine) };
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(a);
+    }
+
+    // -- G3's mark, and what a copy inherits of it --------------------------
+
+    /// **A copied-out value's mark is its own, not its source's.**
+    ///
+    /// The acceptance asks that a copy's mark reflect its *post*-copy
+    /// reachability, and this is what that means given G3: the mark is answered
+    /// per program by the latch, and the copy is a fresh allocation that goes
+    /// through `finish` like any other — so it asks the latch again rather than
+    /// inheriting a bit. A source marked because it had crossed a task boundary
+    /// does not hand that history to a copy that stays where it was made.
+    ///
+    /// Both directions, because either alone would pass for the wrong reason:
+    /// with the latch cold a copy of a marked block is **unmarked**, and with
+    /// the latch set a copy is marked whatever the source was.
+    #[test]
+    fn a_copy_asks_the_latch_again_rather_than_inheriting_a_mark() {
+        let _latch = latch();
+        assert!(!values_may_cross_tasks(), "the silent answer is the safe one");
+
+        // A source with the mark set by hand, as a value that had crossed a
+        // task boundary would carry it.
+        let source = buri_rt_alloc(64);
+        // SAFETY: live, just allocated.
+        unsafe {
+            (*header(source)).cap |= BURI_RT_CAP_SHARED;
+            assert_eq!(count_and_mark(source), (1, true));
+
+            let cold = buri_rt_copy_block(source, None);
+            assert_eq!(
+                count_and_mark(cold),
+                (1, false),
+                "a copy that stays task-local inherited its source's mark"
+            );
+            assert_eq!(buri_rt_cap(cold), 64, "the mark cost the copy its capacity");
+            // And it is therefore eligible for the in-place write its source is
+            // not, which is the whole practical consequence of the bit.
+            assert_eq!(buri_rt_unique_cap(cold), Some(64));
+            assert_eq!(buri_rt_unique_cap(source), None);
+            buri_rt_free(cold);
+        }
+
+        buri_rt_values_may_cross_tasks();
+        // SAFETY: live.
+        unsafe {
+            let warm = buri_rt_copy_block(source, None);
+            assert_eq!(
+                count_and_mark(warm),
+                (1, true),
+                "a copy in a program whose values cross tasks came back cold"
+            );
+            buri_rt_free(warm);
+
+            // An *unmarked* source in the same program copies to a marked
+            // block too: the question is the program's, not the block's.
+            (*header(source)).cap &= BURI_RT_CAP_MASK;
+            let second = buri_rt_copy_block(source, None);
+            assert_eq!(count_and_mark(second), (1, true));
+            buri_rt_free(second);
+        }
+
+        forget_values_may_cross_tasks();
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(source) };
+    }
+
+    /// **The two flag bits are independent, and neither costs the other its
+    /// meaning.**
+    ///
+    /// This is the one case that holds *both* locks, and it holds them because
+    /// it is the one case claiming the two mechanisms interact — which G4's
+    /// note about `arena_alone` says is the only reason to. The claim is that
+    /// they interact in exactly one place and no other: `buri_rt_unique_cap`
+    /// answers on `CAP_SHARED` and is blind to `CAP_ARENA`, so a scope's block
+    /// in an ordinary program is uniquely owned and eligible for the in-place
+    /// write, and the same block in a program whose values may cross tasks is
+    /// not. The capacity reads back under either.
+    #[test]
+    fn the_arena_bit_and_the_mark_are_independent() {
+        let _latch = latch();
+        let _alone = arena_alone();
+        assert!(!values_may_cross_tasks(), "the silent answer is the safe one");
+        let a = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(a);
+
+        // Cold: the scope's block is the scope's, and is unique.
+        let cold = buri_rt_alloc(72);
+        // SAFETY: live, just allocated.
+        unsafe {
+            assert!(is_arena(header(cold)), "a block inside a scope is not the scope's");
+            assert!(!is_shared(header(cold)), "an unmarked program marked a block");
+            assert_eq!(buri_rt_cap(cold), 72, "the arena bit cost the block its capacity");
+            assert_eq!(
+                buri_rt_unique_cap(cold),
+                Some(72),
+                "the arena bit was read as the multi-threaded mark"
+            );
+            buri_rt_free(cold);
+        }
+
+        // Latched: both bits, and the uniqueness test refuses.
+        buri_rt_values_may_cross_tasks();
+        let warm = buri_rt_alloc(72);
+        // SAFETY: live, just allocated.
+        unsafe {
+            assert!(is_arena(header(warm)), "a block inside a scope is not the scope's");
+            assert!(is_shared(header(warm)), "a block inside a scope escaped the mark");
+            assert_eq!(buri_rt_cap(warm), 72, "two flags cost the block its capacity");
+            assert_eq!(buri_rt_unique_cap(warm), None, "a marked block passed the unique test");
+            buri_rt_free(warm);
+        }
+
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(a);
+        forget_values_may_cross_tasks();
+    }
+
+    /// **A scope reuses the block the last scope gave back**, which is the
+    /// difference between the feature and a pessimisation.
+    ///
+    /// Without the pool, a scope is an `mmap` and a `munmap` — 2.4 µs a scope
+    /// measured, and 2.2× the run time of the same program without scopes over
+    /// 500,000 of them. With it, the common path makes no system call at all.
+    ///
+    /// The assertion is the address: a second scope that mapped its own block
+    /// would get one the kernel chose, and this one gets the block the first
+    /// scope was using.
+    #[test]
+    fn a_scope_takes_the_block_the_last_one_gave_back() {
+        let _alone = arena_alone();
+        // Drain whatever other cases left, so the first scope below maps
+        // rather than pops and the addresses are this case's own.
+        arena_pool(Vec::clear);
+
+        let first = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(first);
+        let p = buri_rt_alloc(64);
+        let was = p.addr();
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(p) };
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(first);
+
+        let second = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(second);
+        let q = buri_rt_alloc(64);
+        assert_eq!(q.addr(), was, "a scope mapped a block the pool was holding");
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(q) };
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(second);
+    }
+
+    /// The pool is **bounded**, and past the bound a release is a `munmap`.
+    ///
+    /// Nine standard blocks in one arena: eight go to the pool and the ninth
+    /// goes back to the kernel, so the pool holds what it says it holds and a
+    /// scope that took a megabyte does not leave a megabyte behind.
+    #[test]
+    fn the_arena_pool_is_bounded() {
+        let _alone = arena_alone();
+        arena_pool(Vec::clear);
+        let a = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(a);
+        // One allocation just under a block each time, so each takes a block
+        // of its own and none of them shares a window.
+        let mut held = Vec::new();
+        for _ in 0..(ARENA_POOL_MAX + 1) {
+            held.push(buri_rt_alloc((BURI_RT_ARENA_BLOCK - 64) as u64));
+        }
+        for p in held {
+            // SAFETY: each is live and this is its last reference.
+            unsafe { buri_rt_free(p) };
+        }
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(a);
+        assert_eq!(
+            arena_pool(|pool| pool.len()),
+            ARENA_POOL_MAX,
+            "the pool kept more or fewer blocks than it says it does"
+        );
+        arena_pool(Vec::clear);
+    }
+
+    /// **A pooled block holds the last scope's bytes**, so the zeroing
+    /// allocator has to zero it.
+    ///
+    /// The un-pooled case is why this is easy to get wrong: a mapping fresh
+    /// from the kernel is zero-filled and an arena's window only moves forward,
+    /// so before the pool existed `alloc_zeroed` in a scope could be a bump and
+    /// nothing else — and it was.
+    #[test]
+    fn a_zeroed_block_in_a_scope_is_zero_even_out_of_the_pool() {
+        let _alone = arena_alone();
+        arena_pool(Vec::clear);
+
+        let first = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(first);
+        let p = buri_rt_alloc(64);
+        // SAFETY: live, sixty-four writable bytes, and the only reference.
+        unsafe {
+            fill(p, 64);
+            buri_rt_free(p);
+        }
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(first);
+
+        let second = buri_rt_alloc_arena_create();
+        let outer = buri_rt_alloc_arena_enter(second);
+        let q = buri_rt_alloc_zeroed(64);
+        // SAFETY: live, just allocated.
+        unsafe {
+            for i in 0..64usize {
+                assert_eq!(q.add(i).read(), 0, "a zeroed block came back with byte {i} set");
+            }
+            buri_rt_free(q);
+        }
+        let _ = buri_rt_alloc_arena_leave(outer);
+        let _ = buri_rt_alloc_arena_release(second);
+        arena_pool(Vec::clear);
+    }
+
+    // === G5 end ============================================================
+
 
     // === G3 begin: the marking latch =======================================
 
