@@ -50,7 +50,7 @@ the bar means, already required by the link step, and absent from the lockfile.
 crate admitted to `cli/runtime/manifest.toml` is a crate admitted into
 strangers' programs. Same bar, one extra clause: the set is **closed by an exact
 list**, asserted as an equality by `dependencies_stay_behind_the_bar`, so that a
-sixth crate — and equally a removal — is a failing test rather than a review
+seventh crate — and equally a removal — is a failing test rather than a review
 comment.
 
 | Crate | Feature | Why it clears the bar |
@@ -60,6 +60,7 @@ comment.
 | `rustls` | `net` | TLS 1.2 and 1.3, and **linked**: `cli/runtime/tls.rs` builds its client configuration and `http.rs` reaches that for every `https://` URL. |
 | `ring` | `net` | `rustls`'s crypto provider. Reached only through `rustls::crypto::ring`, and declared directly anyway — see §1.1.2. |
 | `tungstenite` | `net` | RFC 6455 framing and the handshake: a protocol with a specification and a conformance suite, not an algorithm. |
+| `quinn` | `net-h3` | QUIC, which is what HTTP/3 runs on: congestion control, loss recovery, stream multiplexing and connection migration over UDP. The only entry behind a feature that is **off by default** — §1.1.3. |
 
 `net` is **on by default**, which is the opposite of `backend-llvm` and for a
 reason the bar's third clause makes: turning `backend-llvm` off costs a release
@@ -76,8 +77,8 @@ answer "was this toolchain built with the networking stack"; no intrinsic key
 mangles to a symbol in that file. On `aarch64-apple-darwin` the archive was
 5 987 472 bytes with `net` off and 5 987 496 with it on: twenty-four bytes,
 because `lto = "fat"` is whole-program across the dependency rlibs and Rust code
-nothing reaches does not reach the archive. Two of the five are still in exactly
-that state — `hyper` and `tungstenite` — and three are not.
+nothing reaches does not reach the archive. Three of the six are still in exactly
+that state — `hyper`, `tungstenite` and `quinn` — and three are not.
 
 **`tokio` was linked first, once and deliberately.** `cli/runtime/rt.rs` is the
 carrier runtime — the reactor handle, the carrier pool with its 512 KiB stacks
@@ -157,9 +158,9 @@ lines, and forty lines this repository can reasonably write is the definition of
 
 `.github/scripts/assert-runtime-archive.sh` holds all of it in CI: the size
 budget, a symbol table that **must** mention `tokio`, `rustls` and `ring` when
-the feature file says `net`, and one that must mention neither `hyper` nor
-`tungstenite` — nor `aws_lc`, a provider that was never a dependency — either
-way.
+the feature file says `net`, and one that must mention none of `hyper`,
+`tungstenite` and `quinn` — nor `aws_lc`, a provider that was never a
+dependency — on any leg.
 
 **How the toolchain knows.** `cli/build.rs` writes `libburi_rt.a.features`
 beside the archive and beside its digest — the Cargo features the archive was
@@ -190,6 +191,100 @@ argued for. `host.HostListen.*` and `host.HostSockets.*` are still ahead of
 their first key: both effects are declared in `core/effect` and granted by no
 platform, so the host values their operations hang off cannot be constructed,
 and what exists for them is the refusal alone.
+
+### 1.1.3 `net-h3`: the one feature that is off, and what a toolchain without it says
+
+HTTP/3 is behind a feature of its own and that feature is **not** in `default`.
+The concurrency note gated h3 "behind configuration until the crate is trusted",
+and a cargo feature outside the default set is what that gate is.
+
+The bar admits `quinn` on the same grounds as the other five — QUIC is
+congestion control, loss recovery, stream multiplexing and connection migration
+over UDP, which is a transport protocol and not something this repository would
+write — but the *default* is the opposite of `net`'s, and the reason is who
+pays. `net`'s five are what a program that speaks the network at all needs, so a
+toolchain that could not would make `Net` a build-flag question for every user.
+`quinn` is what a program that has **asked for HTTP/3** needs, and asking is the
+difference: a user who never mentions `.Http3` should not resolve, compile or
+ship a QUIC stack.
+
+`BURI_RUNTIME_NET_H3=1` is the switch, and `cli/build.rs` turns it into
+`--features net-h3` on the nested `cargo` and a second line in
+`libburi_rt.a.features`. **`net-h3` implies `net`** — QUIC carries TLS 1.3
+inside the transport and wants the same reactor — so the two are never
+independent, and an h3 features file without `net` in it is a state Cargo cannot
+produce and the CI script refuses.
+
+**It costs the archive nothing, and that is measured rather than assumed.**
+`aarch64-apple-darwin`:
+
+| `libburi_rt.a` | bytes |
+|---|---:|
+| `net` off | 6 130 608 |
+| `net` on | 8 199 032 |
+| `net` and `net-h3` on | 8 198 992 |
+
+**What it does cost, and it is not bytes, is the lockfile.** `manifest.lock`
+grows by **23 entries** — `quinn`, `quinn-proto`, `quinn-udp` and their tree —
+and Cargo records an optional dependency in the lock whether or not the feature
+is on, so `cargo fetch --locked` walks them on a default build too. Measured
+against an empty `CARGO_HOME`: **89 crates, 19 MB** where it used to be 66.
+That is paid once per cold registry, by the resolution probe rather than by the
+compile — nothing in the 23 is *built* unless `net-h3` is on — and the case
+where it is not paid at all is the case §2.2's degradation covers: a host that
+cannot reach them gets an empty archive and a `cargo:warning`, exactly as it did
+with five crates.
+
+The h3 archive is **forty bytes smaller** than the one without it. `quinn` is
+named by one `size_of` in `cli/runtime/net.rs` and reached by nothing else, so
+`lto = "fat"` drops the crate whole — verified with `nm`, which finds no quinn
+symbol in an h3 archive at all — and the forty bytes are the HTTP/3 refusal
+string an h3 build has no use for. So `assert-runtime-archive.sh` holds the h3
+leg to the **same** size budget as the `net` one rather than inventing a larger
+number with nothing behind it, and `quinn` is on that script's *absent* list on
+every leg beside `hyper` and `tungstenite`. F2 is the slice that moves both, in
+the commit that first calls into the crate.
+
+**The provider is `ring`, by name.** `quinn`'s own defaults are
+`rustls-aws-lc-rs` and `platform-verifier`; both are off in
+`cli/runtime/manifest.toml` and `rustls-ring` is on, so an h3 binary carries one
+cryptography implementation rather than two. The `aws_lc` grep C7 added as a
+tripwire is what checks it, and `quinn` is exactly the crate it was watching
+for.
+
+**What a toolchain without it does is return, not refuse.** `Server`'s
+`protocols` field accepts `.Http3` on every toolchain; `serve` answers
+`.Err(Unsupported)` on one whose archive has no QUIC in it. Three things follow
+from that being a value:
+
+* It is **not an abort.** A toolchain built without a feature is a
+  configuration the program can report, log or fall back from — `lib.rs` §5
+  reserves aborting for an invariant that is already broken, and this is not
+  one.
+* It is **not a compile-time refusal**, unlike `net`. The keys an HTTP/3 server
+  is reached through are `host.HostListen.*`, which `missing_intrinsics`
+  already covers for `net`; the protocol is a *field of a value*, so there is no
+  key for a key-shaped rule to match. Refusing every program that mentions
+  `serve` would refuse every server that was only ever going to speak
+  HTTP/1.1 — the same argument `host.HostNet.fetch` and `https://` already
+  carry.
+* It is **one line at the call site.** `cli/runtime/net.rs::serves` takes a
+  `Protocol` and answers `Result<(), &'static str>`; F2's `serve` walks the
+  field with `net::serves(protocol)?`. The feature, the file beside the archive,
+  the capability bit, the `buri_rt_net_h3_available` door and the sentence all
+  landed in this slice so that the slice with a server in it spends them rather
+  than designs them.
+
+`runtime_native::h3()` is the toolchain's half, read from the same feature file
+by the same whole-line rule `net()` uses — which is why the rule is whole lines:
+`net-h3` contains `net`. Nothing in the compiler branches on it yet, and the
+first thing that does is F2. What reads it today is a test, and it is worth
+naming because it is the property this slice actually holds:
+`the_networking_features_agree_across_the_abi` in `cli/tests/native/runtime.rs`
+links the archive, calls `buri_rt_net_h3_available` through the C ABI, and
+compares the answer with `h3()`. Those two paths — a `#[cfg]` folded into a
+constant, and a build script writing a line into a file — cannot see each other,
+so their agreement is what says the flag round-trips.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 
@@ -506,9 +601,19 @@ is eight jobs. The three that this document is about:
   native tests silently skipped, and that is the one shape of green this
   workflow exists to refuse.
   `.github/scripts/assert-runtime-archive.sh` is the same gate for the runtime
-  archive — non-empty, under a per-OS size budget, and carrying no symbol from
-  any of §1.1.1's four crates — and it runs on all four native jobs, `release`
-  included.
+  archive — non-empty, under a per-OS size budget, carrying a symbol from each
+  of §1.1.1's linked crates and none from the ones nothing reaches — and it runs
+  on all four native jobs, `release` included.
+
+  **`net-h3` is built on exactly one of them**, the `x86_64` leg of `test`, as
+  its last step: `BURI_RUNTIME_NET_H3=1 cargo build -p buri`, the same archive
+  script over the h3 archive, and the one test that compares the C-ABI door with
+  the feature file. One job rather than four because nothing about the question
+  is per-platform — `quinn` is portable Rust reaching the archive through the
+  same nested `cargo` the other five do, and the assertions are about symbols
+  and bytes rather than about a syscall — and it is the job's last step because
+  it rebuilds the archive and relinks `buri`, so anything after it would be
+  measuring a toolchain no other job has. §1.1.3 is what it is holding.
 - **`minimal`** — `cargo build -p buri --no-default-features` on
   `ubuntu-latest`, plus
   `.github/scripts/assert-package-ships-runtime.sh`, which is the other half of

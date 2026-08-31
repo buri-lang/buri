@@ -51,7 +51,7 @@ export fn everything<C: Alloc>(ctx: C, b: [U8], o: Option<Int>): Str { let hexed
 
 test "everything" {
     assert.eq(
-        everything(Hermetic(), [1, 2, 3], .Some(6)),
+        everything(Everything(), [1, 2, 3], .Some(6)),
         "a string long enough that the call around it cannot stay on one line",
     );
 }

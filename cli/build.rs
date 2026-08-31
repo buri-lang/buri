@@ -27,10 +27,11 @@
 //!   already has (VALUE-MODEL.md §10).
 //!
 //!   The *runtime* is a different set and a different bar, and since the `net`
-//!   feature it is no longer empty: `tokio`, `hyper`, `rustls` and
-//!   `tungstenite`, closed by an exact list. The root `Cargo.toml` states both
+//!   feature it is no longer empty: `tokio`, `hyper`, `rustls`, `ring` and
+//!   `tungstenite` behind `net`, and `quinn` behind `net-h3`, closed by an
+//!   exact list. The root `Cargo.toml` states both
 //!   halves of the bar, `cli/runtime/manifest.toml` argues each entry, and
-//!   `dependencies_stay_behind_the_bar` asserts the equality — so a fifth crate
+//!   `dependencies_stay_behind_the_bar` asserts the equality — so a seventh crate
 //!   is a failing test rather than a review comment. What the toolchain's build
 //!   inherits from that set is one thing only: the nested `cargo` now has a
 //!   dependency tree to resolve, which is the degradation path below.
@@ -84,7 +85,7 @@
 //! * **A dependency tree that cannot be resolved degrades; one that cannot be
 //!   compiled does not.** The second half of the same clause, and the two
 //!   halves are deliberately not the same answer. A host that cannot *reach*
-//!   the four crates — no network and a cold registry, a sandbox whose
+//!   the runtime's crates — no network and a cold registry, a sandbox whose
 //!   vendoring covers the toolchain's lockfile and not the runtime's, a
 //!   lockfile this manifest has outgrown — is a host with no archive: empty,
 //!   `AVAILABLE == false`, a `cargo:warning` naming which of the three it was,
@@ -117,13 +118,34 @@
 //!
 //! * **The archive says which features it was built with.** `libburi_rt.a.features`
 //!   is written beside the archive and beside its digest, holding the feature
-//!   names one to a line — `net`, today — and empty when there is no archive at
-//!   all. `runtime_native::net()` reads it, and `Backend::missing_intrinsics`
-//!   turns it into a diagnostic naming the effect rather than a link error
-//!   naming a symbol. A file rather than a `cargo:rustc-env` for the reason
-//!   `digest_beside` already gives: the bytes, their digest and their feature
-//!   list are written by one run of this script into one `OUT_DIR`, so a stale
-//!   directory cannot pair one build's archive with another's answer.
+//!   names one to a line — `net`, and `net-h3` beneath it on a toolchain built
+//!   with `BURI_RUNTIME_NET_H3=1` — and empty when there is no archive at all.
+//!   `runtime_native::net()` and `::h3()` read it, and for `net`
+//!   `Backend::missing_intrinsics` turns it into a diagnostic naming the effect
+//!   rather than a link error naming a symbol. A file rather than a
+//!   `cargo:rustc-env` for the reason `digest_beside` already gives: the bytes,
+//!   their digest and their feature list are written by one run of this script
+//!   into one `OUT_DIR`, so a stale directory cannot pair one build's archive
+//!   with another's answer. The list generalised to two entries without the
+//!   mechanism changing, which is what it was a list for.
+//!
+//! * **`net` is on by default and `net-h3` is not.** The two switches are
+//!   `BURI_RUNTIME_NET=0`, which takes the networking stack out, and
+//!   `BURI_RUNTIME_NET_H3=1`, which puts QUIC in. The asymmetry is the
+//!   dependency bar's: `net`'s five crates are what a program that speaks the
+//!   network at all needs, while `quinn` is what a program that asked for
+//!   HTTP/3 needs, and the concurrency note gated h3 behind configuration until
+//!   the crate is trusted. A toolchain without it answers `.Http3` with an
+//!   `.Err(Unsupported)` at run time — `cli/runtime/net.rs`'s `serves` — rather
+//!   than refusing the program, because refusing would also refuse every server
+//!   that was only ever going to speak HTTP/1.1.
+//!
+//!   What an off-by-default optional dependency still costs is the **lockfile**:
+//!   Cargo records `quinn`'s tree in `manifest.lock` whether the feature is on
+//!   or not, so the `resolves` probe below fetches 89 crates on a cold registry
+//!   where it used to fetch 66. Nothing in the 23 is *compiled* without
+//!   `--features net-h3`, and a host that cannot reach them degrades exactly as
+//!   the bullet above describes.
 
 #![allow(
     clippy::print_stderr,
@@ -227,9 +249,11 @@ fn digest_beside(out: &Path) {
 /// `OUT_DIR`, one run of this script, so the answer cannot be paired with
 /// another build's bytes.
 ///
-/// A list rather than a bool because `net-h3` is already planned: a second
-/// feature is a second line here and a second `runtime_native::declares` call
-/// there, and nothing about the file's shape has to change.
+/// A list rather than a bool because of `net-h3`, and that generalisation has
+/// now been spent: the second feature is a second line here and a second
+/// `runtime_native::declares` call there, and nothing about the file's shape
+/// had to change. Whole lines are what makes it work — `net-h3` contains `net`,
+/// so a substring lookup would read an h3-only archive as a networking one.
 fn features_beside(out: &Path, features: &[&str]) {
     let path = out.with_file_name(format!(
         "{}.features",
@@ -445,9 +469,13 @@ fn runtime_archive(manifest: &Path) {
     // the package, which would put a rustc invocation in front of every edit to
     // the compiler.
     println!("cargo:rerun-if-changed={}", runtime.display());
-    for name in
-        ["BURI_RUNTIME_CARGO", "BURI_RUNTIME_RUSTC", "BURI_RUNTIME_NET", "BURI_RUNTIME_RELOCK"]
-    {
+    for name in [
+        "BURI_RUNTIME_CARGO",
+        "BURI_RUNTIME_RUSTC",
+        "BURI_RUNTIME_NET",
+        "BURI_RUNTIME_NET_H3",
+        "BURI_RUNTIME_RELOCK",
+    ] {
         println!("cargo:rerun-if-env-changed={name}");
     }
 
@@ -514,6 +542,32 @@ fn runtime_archive(manifest: &Path) {
             );
             false
         });
+    // `net-h3` — `quinn`, QUIC, and therefore HTTP/3 — is the **opt-in** half,
+    // and the asymmetry with `net` above is the point. `net`'s five crates are
+    // what a program that speaks the network at all needs, so they are on
+    // unless something says otherwise; `quinn` is what a program that has asked
+    // for HTTP/3 needs, and the concurrency note's gate was "behind
+    // configuration until the crate is trusted". `manifest.toml`'s feature
+    // block argues it; this line is the configuration.
+    //
+    // `BURI_RUNTIME_NET_H3=1` and nothing else, so that an empty value or a
+    // stale `0` reads as off rather than as on.
+    let h3 = matches!(std::env::var("BURI_RUNTIME_NET_H3").as_deref(), Ok("1"));
+    // And it cannot outlive `net`. `net-h3` implies `net` in the manifest —
+    // QUIC carries TLS 1.3 inside the transport and wants the same reactor — so
+    // asking for h3 on a host that just lost `net` is a contradiction, and the
+    // honest answer is the smaller runtime plus a sentence saying which of the
+    // two reasons took it.
+    let h3 = h3
+        && (net || {
+            println!(
+                "cargo:warning=`BURI_RUNTIME_NET_H3=1` was asked for and the runtime's `net` \
+                 feature is off, so HTTP/3 is off too: `net-h3` implies `net` because QUIC \
+                 carries TLS inside the transport. Either BURI_RUNTIME_NET=0 is set or no C \
+                 compiler was found."
+            );
+            false
+        });
     // The opt-in write-back path. Without `--locked` Cargo resolves and updates
     // the assembled package's `Cargo.lock`; this is what carries the result back
     // to the file a reviewer reads.
@@ -566,6 +620,12 @@ fn runtime_archive(manifest: &Path) {
     if !net {
         command.arg("--no-default-features");
     }
+    // Additive to the default set rather than replacing it: `net-h3` implies
+    // `net` in the manifest, so this one flag is the whole of what an h3
+    // toolchain's command line differs by.
+    if h3 {
+        command.args(["--features", "net-h3"]);
+    }
     command.arg("--").args(RUNTIME_RUSTC_ARGS);
 
     match command.status() {
@@ -594,9 +654,19 @@ fn runtime_archive(manifest: &Path) {
     }
     digest_beside(&out);
     // What the build asked for and got: `--no-default-features` above is the
-    // only way `net` is off, and a tree that resolved and compiled is one whose
-    // features are the ones named on the command line.
-    let features: &[&str] = if net { &["net"] } else { &[] };
+    // only way `net` is off, `--features net-h3` the only way h3 is on, and a
+    // tree that resolved and compiled is one whose features are the ones named
+    // on the command line.
+    //
+    // `net` first and `net-h3` second, one per line, which is the order the
+    // manifest declares them in and the order a reader of the file would
+    // expect. Nothing reads them positionally — `runtime_native::declares` is a
+    // whole-line lookup — so the order is legibility rather than contract.
+    let features: &[&str] = match (net, h3) {
+        (true, true) => &["net", "net-h3"],
+        (true, false) => &["net"],
+        (false, _) => &[],
+    };
     features_beside(&out, features);
 }
 

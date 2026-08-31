@@ -23,7 +23,9 @@
 )]
 
 use super::abi::Loc;
-use crate::compiler::backend::intrinsic_keys::{bits_op, prim_trait_op};
+use crate::compiler::backend::intrinsic_keys::{
+    bits_op, json_arm, json_variant, prim_trait_op, JsonArm,
+};
 use crate::compiler::semantics::types::{field_types, variant_types};
 
 /// Where an edge's register half reads from.
@@ -607,6 +609,92 @@ impl<'a> Jit<'a> {
                 continue;
             }
             self.store_w(d + o, st.at(*f), w);
+        }
+    }
+
+    /// `derivePrimJson.<T>` — one primitive as a `Json`, which is
+    /// `middle::derives`' third type-directed leaf.
+    ///
+    /// `llvm/emit.rs::json_prim` is the twin, and the two agree because the
+    /// three decisions are made in one place each: [`json_arm`] says which arm
+    /// a primitive encodes to, [`json_variant`] says where that arm sits in
+    /// `core/json`'s declaration, and `middle::layout` says where its payload
+    /// sits in the value. Nothing here reads a variant number or an offset it
+    /// wrote down itself.
+    ///
+    /// The `Str` arm is the one with a count in it. `middle::rc`'s contract is
+    /// that a runtime intrinsic **borrows** its arguments and returns a fresh
+    /// count (`rc.rs`'s header), and this one's result *keeps* the argument's
+    /// block — so the retain is the difference between that contract and a
+    /// double free, and it is the whole walk rather than one `incref` for the
+    /// same reason `lists.rs::retain_value` is.
+    fn json_prim(
+        &mut self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        st: &mut Fn2,
+        prim: Prim,
+        arg: ir::ValueId,
+        dest: ir::ValueId,
+    ) -> Result<(), String> {
+        let ir::Type::Agg(id) = code.ty_of(dest) else {
+            return Err(String::from("a `derive ToJson` whose result is not an aggregate"));
+        };
+        let owner = prog.type_info(id).ty.clone();
+        let arm = json_arm(prim);
+        let Some(variant) = json_variant(self.tables, &owner, arm) else {
+            return Err(format!(
+                "a `derive ToJson` answering `{}`, which is not `core/json`'s `Json`",
+                prog.type_info(id).name
+            ));
+        };
+        let l = self.layout_of(prog, id);
+        let Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, variants } = l.repr.clone() else {
+            return Err(String::from("a `Json` whose layout is not a tagged enum"));
+        };
+        let Some(off) = variants.get(variant).and_then(|v| v.first()).copied() else {
+            return Err(String::from("a `Json` arm that carries no payload"));
+        };
+        let (d, a) = (st.at(dest), st.at(arg));
+        self.imm_w(d, tag.size(), variant as u64);
+        match arm {
+            JsonArm::Bool => {
+                let w = self.width_of(prog, code.ty_of(arg));
+                self.store_w(d + off, a, w);
+                Ok(())
+            }
+            // JSON's one number type is a double, so every numeric primitive
+            // widens to `F64` — the same narrowing `$json_of` does with
+            // `Number(v)`, and lossy in the same place. A 128-bit value is
+            // refused here rather than rounded, because `convert` has no
+            // sixteen-byte-to-float step and inventing one at the call site is
+            // how two backends stop agreeing.
+            JsonArm::Num => {
+                let scratch = st.scratch;
+                self.convert(st, prim, Prim::F64, a, scratch)?;
+                self.store_w(d + off, scratch, 8);
+                Ok(())
+            }
+            JsonArm::Str => match prim {
+                Prim::Str | Prim::Template => {
+                    self.rc(prog, code, st, arg, true);
+                    let w = self.width_of(prog, code.ty_of(arg));
+                    self.mv(d + off, a, w);
+                    Ok(())
+                }
+                // A `Char` is a one-scalar string, and the runtime already
+                // builds it: `buri_rt_char_to_str` is the unquoted half of
+                // `show_prim`'s `Char` arm, and the block it answers is fresh,
+                // so this arm needs no retain.
+                _ => self.c_call(
+                    "buri_rt_char_to_str",
+                    st,
+                    &[Src::Word(a), Src::Addr(d + off)],
+                    &[],
+                    d + off,
+                    "v",
+                ),
+            },
         }
     }
 
@@ -1545,6 +1633,20 @@ impl<'a> Jit<'a> {
                         return self.unsupported(format!("derivePrimShow.{t}"));
                     };
                     if let Err(why) = self.show_prim(st, prim, arg(st, 0), d, true) {
+                        self.unsupported(why);
+                    }
+                    return;
+                }
+                if let Some(t) = key.strip_prefix("derivePrimJson.") {
+                    let (Some(dest), Some(a)) =
+                        (dests.first().copied(), args.first().copied())
+                    else {
+                        return;
+                    };
+                    let Some(prim) = prim_of_name(t) else {
+                        return self.unsupported(format!("derivePrimJson.{t}"));
+                    };
+                    if let Err(why) = self.json_prim(prog, code, st, prim, a, dest) {
                         self.unsupported(why);
                     }
                     return;
@@ -3672,6 +3774,7 @@ pub fn implemented(key: &str) -> bool {
         || prim_trait_op(key)
         || key.strip_prefix("derivePrimShow.").is_some_and(|t| prim_of_name(t).is_some())
         || key.strip_prefix("derivePrimHash.").is_some_and(|t| prim_of_name(t).is_some())
+        || key.strip_prefix("derivePrimJson.").is_some_and(|t| prim_of_name(t).is_some())
         || numeric_key(key)
 }
 

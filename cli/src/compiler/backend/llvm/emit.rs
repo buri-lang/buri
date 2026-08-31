@@ -70,7 +70,8 @@ use inkwell::values::{
 use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::compiler::backend::intrinsic_keys::{
-    bits_op, derive_key, list_call, list_closure_key, step_call, Step,
+    bits_op, derive_key, json_arm, json_variant, list_call, list_closure_key, step_call, JsonArm,
+    Step,
 };
 use crate::compiler::backend::carrier;
 use crate::compiler::backend::Profile;
@@ -4524,6 +4525,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 .first()
                 .copied()
                 .is_some_and(|arg| self.show_prim(state, code, dest, prim, arg, true)),
+            "derivePrimJson" => args
+                .first()
+                .copied()
+                .is_some_and(|arg| self.json_prim(state, code, dest, prim, arg)),
             _ => {
                 let (Some(h), Some(x)) = (args.first().copied(), args.get(1).copied()) else {
                     return true;
@@ -4539,6 +4544,82 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 "report it: this is a toolchain bug, not a problem with your program",
             );
         }
+        true
+    }
+
+    /// `derivePrimJson.<T>` — one primitive as a `Json`.
+    ///
+    /// `stencil/emit.rs::json_prim` is the twin, and the two agree because
+    /// neither decides anything on its own: [`json_arm`] says which arm a
+    /// primitive encodes to, [`json_variant`] reads that arm's position off
+    /// `core/json`'s declaration, and the payload's **own declared type** —
+    /// `variant_types`, not a shape guessed here — supplies the slots
+    /// `build_variant` fills. `.Num`'s field is `Float`, which is why every
+    /// numeric arm is one `cast` and not a per-width table.
+    ///
+    /// The `Str` arm carries the one count. `middle::rc`'s contract is that a
+    /// runtime intrinsic **borrows** its arguments and returns a fresh count
+    /// (`rc.rs`'s header), and this result *keeps* the argument's block — so
+    /// the `incref` is the difference between that contract and a double free.
+    /// A `Char` needs none: `buri_rt_char_to_str` answers a block of its own.
+    fn json_prim(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        prim: Prim,
+        arg: ir::ValueId,
+    ) -> bool {
+        let ir::Type::Agg(id) = code.ty_of(dest) else { return false };
+        let owner = self.program.type_info(id).ty.clone();
+        let arm = json_arm(prim);
+        let Some(variant) = json_variant(self.tables, &owner, arm) else { return false };
+        let Some(field) = types::variant_types(self.tables, &owner, variant).first().cloned()
+        else {
+            return false;
+        };
+        let (slots, size, align) = {
+            let r = self.reprs.of_ty(&field);
+            (r.slots.clone(), r.layout.size, r.layout.align)
+        };
+        let pieces = match arm {
+            JsonArm::Bool => {
+                repr::disassemble(&self.builder, &slots, self.get(state, arg))
+            }
+            JsonArm::Num => {
+                let want = self.ctx.f64_type().as_basic_type_enum();
+                let x = self.cast(self.get(state, arg), prim, Prim::F64, want);
+                vec![x]
+            }
+            JsonArm::Str if matches!(prim, Prim::Str | Prim::Template) => {
+                self.incref(state, code, arg);
+                repr::disassemble(&self.builder, &slots, self.get(state, arg))
+            }
+            // The `Char` arm, which is the one that builds a value the IR
+            // never named: `runtime::CHAR_TO_STR` writes a `Str` through an
+            // out-pointer, exactly as `show_prim`'s unquoted `Char` does, and
+            // the three words are loaded back at the payload's own slots.
+            JsonArm::Str => {
+                let buf = self.scratch(state, size, align);
+                let value = self.get(state, arg);
+                let argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![value.into(), buf.into()];
+                let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
+                    argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
+                let f = self.declare_rt(runtime::CHAR_TO_STR, &param_types, None);
+                if let Ok(call) = self.builder.build_call(f, &argv, "") {
+                    attrs::set_call_convention(call, attrs::C);
+                }
+                // The block it writes is fresh, so this caller allocates and is
+                // not `memory(none)` — the same two flags `call_out` sets.
+                state.observed.allocates = true;
+                state.observed.opaque = true;
+                self.load_slots(buf, &slots, align)
+            }
+        };
+        let Some(value) = self.build_variant(id, variant, &[(slots, pieces)]) else {
+            return false;
+        };
+        self.set(state, dest, value);
         true
     }
 

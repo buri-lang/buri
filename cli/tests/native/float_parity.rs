@@ -156,7 +156,14 @@ fn engine() -> Option<&'static str> {
 }
 
 fn supported() -> bool {
-    AVAILABLE && cfg!(any(target_os = "macos", target_os = "linux"))
+    if !AVAILABLE {
+        return !crate::ci::skipped(
+            "float parity",
+            "no runtime archive was built for this host, so there is nothing to render a float \
+             with",
+        );
+    }
+    true
 }
 
 /// Every bit pattern the corpus covers, in a fixed order.
@@ -257,16 +264,19 @@ fn corpus() -> Vec<u64> {
 
 /// The corpus, rendered natively, checked against JavaScript.
 #[test]
-#[cfg_attr(
-    not(any(target_os = "macos", target_os = "linux")),
-    ignore = "no runtime archive is built for this host"
-)]
+// COMPILED OUT, not ignored, on a host no runtime is built for. An `ignore`
+// here reported one skipped test per such host for as long as the host
+// existed, and a skipped test is a line in a summary that nobody ever acts on;
+// a `cfg` says the same thing by the test not being there. macOS and Linux are
+// every host `cli/build.rs` writes an archive for, and every host this
+// workflow runs on, so nothing that CI could reach is removed by this.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn a_native_float_renders_as_javascript_renders_it() {
     if !supported() {
         return;
     }
     let Some(engine) = engine() else {
-        eprintln!("float parity: no JavaScript engine on PATH; skipping");
+        crate::ci::skipped("float parity", "no JavaScript engine (`bun` or `node`) is on PATH");
         return;
     };
     let dir = workspace();
@@ -364,10 +374,10 @@ fn the_javascript_side_is_the_runtimes_own() {
 /// hash, the JavaScript whitespace set — are worth testing in Rust, where a
 /// failure names the line.
 #[test]
-#[cfg_attr(
-    not(any(target_os = "macos", target_os = "linux")),
-    ignore = "the runtime is only built for macOS and Linux"
-)]
+// Compiled out rather than ignored, for the reason the corpus test above
+// states: `cli/runtime` is written for macOS and Linux and a third host has no
+// question to answer here, so it gets no test rather than a skipped one.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn the_runtimes_own_unit_tests_pass() {
     let dir = workspace();
     let binary = dir.join("runtime-tests");

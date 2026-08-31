@@ -40,6 +40,16 @@
 #      measurements: about 15 % of headroom over the figure measured here, and
 #      about a fifth over the projected Linux one.
 #
+#      THE `net-h3` ARCHIVE IS HELD TO THE SAME BUDGET, and that is a measured
+#      claim rather than an omission. `quinn` is referenced by nothing but
+#      `net.rs`'s `size_of`, so fat LTO drops it whole: on aarch64-apple-darwin
+#      the h3 archive is 8 198 992 bytes against the `net` one's 8 199 032 — the
+#      h3 build is the SMALLER of the two by forty bytes, which is the refusal
+#      string it does not need. A separate, larger h3 budget would therefore be
+#      a number with nothing behind it, and would hide exactly the growth this
+#      shared one catches: the slice that first CALLS into quinn has to come
+#      back here and move a number, the same way B6 and C7 did.
+#
 #   3. THE NETWORKING CRATES, ON WHICHEVER SIDE OF THE LINE THEY ARE ON.
 #      `net` brings five crates in. Three of them are now reached and the
 #      archive MUST carry them: `tokio`, by `rt.rs`, since B6; `rustls` and
@@ -53,15 +63,32 @@
 #      moves it across the same way, deliberately, in the commit that does it.
 #
 #      `mio` and `socket2` reach the archive through tokio and are deliberately
-#      on neither list: they are that crate's platform layer, not a sixth and
-#      seventh dependency, and `dependencies_stay_behind_the_bar` is what holds
-#      the direct set to five.
+#      on neither list: they are that crate's platform layer, not a seventh and
+#      eighth dependency, and `dependencies_stay_behind_the_bar` is what holds
+#      the direct set to six. The same goes for the twenty-odd crates `quinn`
+#      brings with it, which is why it is named here and they are not.
+#
+#      `quinn` is the sixth crate and it is on the ABSENT list on every leg,
+#      h3 included, for exactly the reason `hyper` and `tungstenite` are: the
+#      feature brings the crate in and nothing calls it yet. F2 is the slice
+#      that moves it, and it moves the budget above at the same time.
 #
 #      Which side is which is read from `libburi_rt.a.features`, written beside
 #      the archive by the same run of `cli/build.rs` that produced it: a
 #      `net`-off archive (no C compiler, an unresolvable tree, or
-#      `BURI_RUNTIME_NET=0`) must carry none of the five, and the file is how
-#      this script knows which of the two claims to make.
+#      `BURI_RUNTIME_NET=0`) must carry none of the six, and the file is how
+#      this script knows which of the claims to make. `net-h3` is a second whole
+#      line in that file, never a substring of the first: `grep -qx` is what
+#      keeps `net` and `net-h3` from reading as each other.
+#
+#   4. ONE CRYPTO PROVIDER, ON THE h3 LEG ESPECIALLY. `aws_lc` has been on the
+#      absent list since C7 although it was never a dependency, because a second
+#      provider appearing means a feature was enabled somewhere that quietly
+#      doubled the cryptography in every binary. `quinn` is precisely the crate
+#      that would do it — its own defaults are `rustls-aws-lc-rs` and
+#      `platform-verifier` — and `manifest.toml` turns both off and asks for
+#      `rustls-ring` instead. This script is what says so when quinn's defaults
+#      next change.
 #
 # Usage: bash .github/scripts/assert-runtime-archive.sh [target-dir]
 # Runs on macOS and Linux, unchanged.
@@ -71,7 +98,7 @@ set -euo pipefail
 target=${1:-target}
 
 case "$(uname -s)" in
-  # 8 198 904 measured; 9 MiB leaves ~15 %.
+  # 8 199 032 measured (8 198 992 with `net-h3`); 9 MiB leaves ~15 %.
   Darwin) budget=9437184 ;;
   # 8 469 832 was measured on the larger of the two Linux triples before either
   # the reactor or TLS; the macOS deltas put it near 10.5 MB and CI is where
@@ -107,6 +134,25 @@ if [ "$best" -eq 0 ]; then
   exit 1
 fi
 echo "libburi_rt.a: $best bytes ($best_file)"
+
+# What the build script said it built, beside the bytes it built. Read before
+# the budget rather than after, because since `net-h3` the feature list is what
+# selects the budget as well as the symbol lists. Absent is not a pass: an
+# archive with no feature file is an archive this script cannot make any claim
+# about.
+features="$best_file.features"
+if [ ! -f "$features" ]; then
+  echo "::error::$features is missing, so which networking crates this archive should carry is unknown and the assertions below would be a guess."
+  exit 1
+fi
+
+if grep -qx "net-h3" "$features"; then
+  echo "libburi_rt.a: built with \`net-h3\`"
+  if ! grep -qx "net" "$features"; then
+    echo "::error::$features names \`net-h3\` without \`net\`, and the manifest makes net-h3 imply net. Either cli/build.rs wrote a state cargo cannot produce, or the file belongs to a different archive."
+    exit 1
+  fi
+fi
 
 if [ "$best" -gt "$budget" ]; then
   echo "::error::libburi_rt.a is $best bytes, over the $budget-byte budget for $(uname -s). Every buri binary carries these bytes. Find out what grew — the usual answer is a dependency whose code now reaches the archive, or a native library a crate compiled in — then fix it, or re-measure and re-state the budget in this script."
@@ -146,15 +192,6 @@ present() {
   done
 }
 
-# What the build script said it built, beside the bytes it built. Absent is not
-# a pass: an archive with no feature file is an archive this script cannot make
-# either claim about.
-features="$best_file.features"
-if [ ! -f "$features" ]; then
-  echo "::error::$features is missing, so which networking crates this archive should carry is unknown and the assertion below would be a guess."
-  exit 1
-fi
-
 # `$status` may already be 1 from the budget, so the "and it was fine" line is
 # guarded by the status *these* checks left rather than printed unconditionally
 # — a green sentence under a red one is how a reader ends up believing the wrong
@@ -165,12 +202,14 @@ if grep -qx "net" "$features"; then
   # `aws_lc` is here although it was never a dependency: it is the OTHER
   # provider `rustls` ships, and a second one appearing means a feature was
   # enabled somewhere that quietly doubled the cryptography in every binary.
-  absent hyper tungstenite aws_lc
+  # `quinn` is the crate most likely to do it, and it is on this list on both
+  # legs anyway because nothing calls into it yet.
+  absent hyper tungstenite quinn aws_lc
   if [ "$status" -eq "$before" ]; then
-    echo "libburi_rt.a: the reactor and TLS are linked, and the two unreferenced crates are still unreferenced"
+    echo "libburi_rt.a: the reactor and TLS are linked, and the unreferenced crates are still unreferenced"
   fi
 else
-  absent tokio hyper rustls tungstenite ring_core aws_lc
+  absent tokio hyper rustls tungstenite quinn ring_core aws_lc
   if [ "$status" -eq "$before" ]; then
     echo "libburi_rt.a: built without \`net\`, and carries none of the networking crates"
   fi

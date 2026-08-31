@@ -55,10 +55,10 @@ path = "lib.rs"
 # platform C driver alongside the objects the backend emitted.
 crate-type = ["staticlib"]
 
-# The runtime's admitted set, in full, and it is **closed**: these five and
-# nothing else, each optional, each behind the one feature below.
+# The runtime's admitted set, in full, and it is **closed**: these six and
+# nothing else, each optional, each behind one of the two features below.
 #
-# Five crates for one capability — an asynchronous networking stack — which is
+# Six crates for one capability — an asynchronous networking stack — which is
 # a platform interface in exactly the sense the root manifest's bar means, and
 # is the largest single thing in this design that the repository could not
 # reasonably write. Each clears all three clauses, and each is named for what it
@@ -84,8 +84,13 @@ crate-type = ["staticlib"]
 #   reason it names one from each of the others.
 # * **`tungstenite`** — RFC 6455 framing and the handshake, which is a
 #   protocol with a specification and a test suite rather than an algorithm.
+# * **`quinn`** — QUIC, which is what HTTP/3 runs on: congestion control, loss
+#   recovery, stream multiplexing and connection migration over UDP, which is a
+#   transport protocol rather than a framing. It is the only entry behind
+#   `net-h3` rather than `net`, and the only one that is **off by default**;
+#   the feature block below is where that is argued.
 #
-# **Three of the five are linked; two are still referenced by nothing.** When
+# **Three of the six are linked; three are still referenced by nothing.** When
 # the crates landed, none of them was: `net.rs` named one type from each and
 # stopped, `lto = "fat"` below is whole-program over the dependency rlibs, and
 # Rust code nothing reaches is not in the archive — measured on
@@ -94,9 +99,10 @@ crate-type = ["staticlib"]
 # `tokio` by `rt.rs`, the carrier runtime whose reactor and timer wheel
 # `Clock::sleepMillis` and `Net::fetch` wait on (+185 424 bytes), and `rustls`
 # and `ring` by `tls.rs`, which `http.rs` calls for every `https://` URL
-# (+1 804 592). `hyper` and `tungstenite` are reached by nothing still.
+# (+1 804 592). `hyper`, `tungstenite` and `quinn` are reached by nothing still.
 # `.github/scripts/assert-runtime-archive.sh` is where all of that is asserted
-# rather than assumed: three names its symbol table must carry, two it must not.
+# rather than assumed: three names its symbol table must carry, three it must
+# not.
 #
 # ## The provider, and what it costs
 #
@@ -140,22 +146,61 @@ hyper = { version = "1", optional = true, default-features = false, features = [
 rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12", "ring"] }
 ring = { version = "0.17", optional = true, default-features = false }
 tungstenite = { version = "0.30", optional = true, default-features = false, features = ["handshake"] }
+quinn = { version = "0.11", optional = true, default-features = false, features = ["rustls-ring", "runtime-tokio"] }
 
-# One feature, on by default, and the default is the point: a `cargo install
-# buri` gets a toolchain whose runtime *can* speak the network, because a
-# toolchain that could not would make `Net` a build-flag question for every
-# user rather than a capability question for every program.
+# Two features, and they have **opposite defaults**, which is the whole of the
+# argument here.
 #
-# Off, the five crates resolve to nothing, the archive is the one this
+# `net` is on, and the default is the point: a `cargo install buri` gets a
+# toolchain whose runtime *can* speak the network, because a toolchain that
+# could not would make `Net` a build-flag question for every user rather than a
+# capability question for every program.
+#
+# Off, the five crates it names resolve to nothing, the archive is the one this
 # repository had before the feature existed, and `https://` goes back to the
 # refusal `http.rs` writes for it — which names this feature, because with the
 # feature off it is the true reason. `cli/build.rs` reads `BURI_RUNTIME_NET=0`
 # and passes `--no-default-features`, which is how the numbers above were
 # measured, what a host that cannot fetch a dependency tree can fall back to by
 # hand, and what a host with no C compiler gets automatically.
+#
+# ## `net-h3`, which is off, and stays off until the crate is trusted
+#
+# HTTP/3 is behind its own feature and that feature is **not** in `default`.
+# The concurrency note gated h3 behind configuration "until the crate is
+# trusted", and a cargo feature is what that gate is: `quinn` is a QUIC
+# implementation — a transport protocol with congestion control, loss recovery
+# and its own packet cryptography, reached from the network by anything that
+# can send a UDP datagram — and this archive is linked into every native binary
+# this compiler produces. `net`'s five earn their default by being what a
+# program that speaks the network at all needs; `quinn` is what a program that
+# has *asked for HTTP/3* needs, and asking is the difference.
+#
+# So the default toolchain carries no QUIC code and `serve` answers `.Http3`
+# with an `.Err(Unsupported)` — a value, not an abort — while a toolchain built
+# with `BURI_RUNTIME_NET_H3=1` carries it and does not. `cli/runtime/net.rs`
+# holds both halves: the capability bit, the `buri_rt_net_h3_available` door a
+# linked program asks through, and `net::serves`, the one line F2's `serve`
+# calls. `libburi_rt.a.features` gains a second line and `runtime_native::h3()`
+# reads it, which is the same mechanism `net` already uses rather than a new
+# one.
+#
+# **`net-h3` implies `net`**, and that is a dependency rather than a
+# convenience: QUIC carries TLS 1.3 inside the transport, so `quinn` is built
+# on `rustls`, and it wants the same reactor `rt.rs` already holds. A `net-h3`
+# without `net` would be a QUIC stack with no crypto provider and nowhere to
+# run.
+#
+# **The provider is `ring`, deliberately and by name.** `quinn`'s own defaults
+# are `rustls-aws-lc-rs` and `platform-verifier`; both are turned off here and
+# `rustls-ring` is turned on, so the h3 archive has exactly one cryptography
+# implementation in it rather than two. `assert-runtime-archive.sh` greps for
+# `aws_lc` on every leg, h3 included, which is what keeps that true when
+# `quinn`'s defaults next change.
 [features]
 default = ["net"]
 net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:ring", "dep:tungstenite"]
+net-h3 = ["net", "dep:quinn"]
 
 # The flags that used to be spelled out in `cli/build.rs`'s `rustc` command
 # line, in the one place a `cargo build --release` reads them from. Each is a

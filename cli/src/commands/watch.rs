@@ -310,7 +310,31 @@ impl Watch {
     /// admit for a status code. So the exit status of a watch session says
     /// nothing about the suites, `cli/src/docs/cli/test.md` says so, and `buri
     /// test` without the flag is what a script branches on.
-    pub fn drive<F: FnMut(&Trigger) -> Pass>(&self, mut pass: F) -> i32 {
+    pub fn drive<F: FnMut(&Trigger) -> Pass>(&self, pass: F) -> i32 {
+        self.drive_armed(pass, |_| {})
+    }
+
+    /// The same loop, with the instant it arms handed to a second closure.
+    ///
+    /// `armed` is called with the pass number the moment that pass's stamps are
+    /// taken and before the first sweep of them, which is the boundary the
+    /// whole loop turns on: an edit that lands before it is one the loop has
+    /// already accounted for, and an edit that lands after it wakes the next
+    /// pass. Production has nothing to say there and calls [`Watch::drive`].
+    ///
+    /// It exists because a test that scripts an edit onto the far side of that
+    /// boundary can otherwise only *guess* where the boundary is — sleep long
+    /// enough to be past the stamp, and hope. Both halves of the guess are
+    /// wrong on a loaded machine: sleep too little and the edit is absorbed by
+    /// the stamp, leaving a loop with nothing to wake it; sleep enough and the
+    /// write is still racing the poller, which can stat the file between the
+    /// truncate and the bytes and settle on a version nobody wrote. Handed the
+    /// instant, a test writes whole files into a loop that has not yet swept.
+    pub fn drive_armed<F: FnMut(&Trigger) -> Pass, G: FnMut(usize)>(
+        &self,
+        mut pass: F,
+        mut armed: G,
+    ) -> i32 {
         let mut watched = Snapshot::default();
         let mut changed: Vec<PathBuf> = Vec::new();
         let mut n: usize = 1;
@@ -334,6 +358,7 @@ impl Watch {
             // for. Every pass after it keeps the stamps it already held, so an
             // edit that lands mid-run is seen on the next sweep.
             watched.rebase(&result.inputs);
+            armed(n);
             if self.passes.is_some_and(|k| n >= k) || watched.is_empty() {
                 return result.code;
             }
@@ -560,14 +585,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// An edit that lands while the loop is sweeping wakes it, and the next
-    /// pass is told which file it was.
+    /// An edit that lands on the far side of the stamp wakes the loop, and the
+    /// next pass is told which file it was.
     ///
-    /// The edit is scheduled rather than made inline, and that is the shape of
-    /// the thing rather than a trick: the loop stamps the declared set the
-    /// moment a pass hands it back, so an edit made *before* that stamp has
-    /// already been accounted for. What has to be tested is an edit that lands
-    /// after it.
+    /// Which side of the stamp the edit falls on is the whole of the claim: the
+    /// loop stamps the declared set the moment a pass hands it back, so an edit
+    /// made *before* that stamp has already been accounted for. So the edit
+    /// hangs off [`Watch::drive_armed`], which is that instant — not off a
+    /// sleeping thread aimed at roughly that instant, which is a coin flip on a
+    /// machine that is busy.
     #[test]
     fn an_edit_while_sweeping_triggers_the_next_pass() {
         let dir = scratch("edit");
@@ -581,17 +607,17 @@ mod tests {
             root: dir.clone(),
         };
         let mut triggers: Vec<Vec<String>> = Vec::new();
-        w.drive(|t| {
-            triggers.push(t.changed.iter().map(|p| w.relative(p)).collect());
-            if t.pass == 1 {
-                let scheduled = path.clone();
-                let _ = std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(60));
-                    let _ = std::fs::write(&scheduled, "one two three");
-                });
-            }
-            Pass { code: 0, inputs: vec![path.clone()], output: String::new(), quiet: true }
-        });
+        w.drive_armed(
+            |t| {
+                triggers.push(t.changed.iter().map(|p| w.relative(p)).collect());
+                Pass { code: 0, inputs: vec![path.clone()], output: String::new(), quiet: true }
+            },
+            |pass| {
+                if pass == 1 {
+                    let _ = std::fs::write(&path, "one two three");
+                }
+            },
+        );
         assert_eq!(triggers.len(), 2, "the loop did not run a second pass");
         assert!(triggers[0].is_empty());
         assert_eq!(triggers[1], vec!["a.buri".to_string()]);
