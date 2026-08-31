@@ -6,8 +6,8 @@
 // prove its own implementation is the one that ran.
 
 from "core/effect/lib.buri" import {
-  Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Request, Response, Sockets, Stdout,
-  Tasks,
+  Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Region, Request, Response, Sockets,
+  Stdout, Tasks,
 };
 from "core/net/http/lib.buri" import * as http;
 from "core/num/lib.buri" import { Add, Div, Mul, Neg, Rem, Sub };
@@ -921,11 +921,12 @@ impl Net for TeapotNet {
 /// parameter hid the context from the front end, corrected at instantiation
 /// (`rewrite_call_args`, `middle/monomorphize.rs`).
 ///
-/// The shape is not this file's invention: `Tasks.parallel` takes
-/// `fn(Self, Int, A) => B` and `ui/effect`'s `Fetch.fetch` takes
-/// `fn(Self, …) => ()`. `SerialTasks` below is the first of those two as a
-/// fake, so the generic half of the same signature is exercised beside this
-/// one.
+/// The shape is not this file's invention: `ui/effect`'s `Fetch.fetch` takes
+/// `fn(Self, …) => ()` too. `Tasks.parallel` deliberately does **not** — its
+/// step is handed the caller's context, which the declaration names `ctx: C`
+/// rather than spelling `Self` — and `SerialTasks` below is that other answer
+/// as a fake, so the two readings sit in one file and cannot be confused for
+/// each other.
 ///
 /// The handler is handed `self`, so a test's handler can read `bindsTo` off it
 /// — which is the assertion a wrong `Self` fails rather than refuses: reading a
@@ -1033,39 +1034,47 @@ export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
 
 /// A `Tasks` that runs everything on the calling thread, in order.
 ///
-/// `Tasks.parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B]` is
-/// the *generic* member of the `fn(Self, …)` family — a method with type
-/// parameters of its own whose callback names `Self`, which is two questions
-/// at once: the type arguments have to reach `instantiate`, and `Self` has to
-/// be the implementation. It is answered here as a fake because no platform
-/// grants `Tasks` and an effect is an ordinary interface (SPEC 10.9).
+/// `Tasks.parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B)`
+/// is the *generic* member of the callback family — a method with type
+/// parameters of its own, one of which is the caller's context — which is two
+/// questions at once: the type arguments have to reach `instantiate`, and the
+/// step has to be handed `ctx` rather than `self`. It is answered here as a
+/// fake because an effect is an ordinary interface and anyone may write a type
+/// satisfying it (SPEC 10.9).
+///
+/// **This fake is the rule's proof.** The step's first parameter is named in
+/// the signature — `C` — so an ordinary Buri body has a value to pass, and
+/// this one passes `ctx`. Had the parameter been spelled `Self` and meant "the
+/// caller's context", no implementation written in Buri could ever have called
+/// its own callback: the value would have had no name here. An effect whose
+/// callback only the compiler could invoke would not be an ordinary interface.
 ///
 /// It answers up to three items because a `[B]` longer than a literal needs
-/// `Alloc` and `parallel` takes no context — fixed-size construction never
-/// does (SPEC 10.5), which is exactly what an array literal is. Two is what
-/// the tests use; the third arm is there so the `match` is not a two-case
-/// special.
+/// `Alloc` and this fake's `C` is unbounded — fixed-size construction never
+/// needs a context (SPEC 10.5), which is exactly what an array literal is. Two
+/// is what the tests use; the third arm is there so the `match` is not a
+/// two-case special.
 ///
-/// `bias` and `label` are what a handler reads off the runner it is handed, so
-/// a test's assertion is about *which type* arrived and not only about how many
-/// bytes it was — and the two are an `Int` and a `Str`, which are a word and a
-/// pointer, so a handler reading both would not survive being handed a
-/// differently shaped value by luck.
+/// `bias` and `label` are what a *test* reads off the runner, through
+/// `runnerLabel` below rather than off a step's first parameter — the step's
+/// is the context now. The two are an `Int` and a `Str`, a word and a pointer,
+/// so a reader of both would not survive being handed a differently shaped
+/// value by luck.
 export struct SerialTasks {
   export label: Str,
   export bias: Int,
 }
 
 impl Tasks for SerialTasks {
-  // Written `Self` rather than `SerialTasks`, which `OneShotListen` above
-  // spells the other way: an `impl` may write either and they are the same
-  // type, so the pair keeps the two spellings from drifting.
-  fn parallel<A, B>(self, items: [A], f: fn(Self, Int, A) => B): [B] {
+  // `ctx` is passed to every step, and `self` to none of them: the two are
+  // different values and this body is where the difference is visible, because
+  // it holds both at once.
+  fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B] {
     match (items) {
       [] => [],
-      [a] => [f(self, 0, a)],
-      [a, b] => [f(self, 0, a), f(self, 1, b)],
-      [a, b, c, ..] => [f(self, 0, a), f(self, 1, b), f(self, 2, c)],
+      [a] => [f(ctx, 0, a)],
+      [a, b] => [f(ctx, 0, a), f(ctx, 1, b)],
+      [a, b, c, ..] => [f(ctx, 0, a), f(ctx, 1, b), f(ctx, 2, c)],
     }
   }
 }
@@ -1073,12 +1082,132 @@ impl Tasks for SerialTasks {
 /// `parallel` reached through a **bounded type parameter**, which is
 /// `serveOnce`'s question at a generic method.
 ///
-/// The handler ignores its runner for `serveOnce`'s reason — inside a generic
-/// body nothing names what implements `Tasks` for `C` — and the answer folds
-/// the first two results so a caller sees one number.
+/// The step is handed `ctx` — the same `C` this function was called with, with
+/// every bound it declared still in view — and the answer folds the first two
+/// results so a caller sees one number. That is the half a bounded parameter
+/// used to lose: `Self` there was `C` until `C` was known, and the correction
+/// made at instantiation handed the step the implementation instead.
 export fn runInOrder<C: Tasks>(ctx: C, items: [Int]): Int {
-  let out = ctx.parallel(items, fn(runner, i, item) => i * 100 + item);
+  let out = ctx.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
   (out[0] ?? 0) + (out[1] ?? 0)
+}
+
+/// The same call, with the step **using** the context it is handed.
+///
+/// `runInOrder` above would pass with a step handed anything at all, because
+/// its closure ignores its first parameter. This one cannot: `str.format`
+/// needs the `Alloc` that only the caller's context carries, and a `SerialTasks`
+/// or a `HostTasks` does not have it. It is the compile-time half of the claim
+/// — a step's first parameter has the caller's bounds — and `test/effects.buri`
+/// runs it for the answer.
+export fn runInOrderNamed<C: Alloc + Tasks>(ctx: C, items: [Int]): [Str] {
+  ctx.parallel(ctx, items, fn(c, i, item) => str.format(c, "${i}:${item}"))
+}
+
+// =============================================================================
+// 11.4 A context-bounded parameter is an ordinary bound (SPEC 10.1, 10.8)
+// =============================================================================
+//
+// `<C: Alloc>` and `<T: Ord>` are one feature — "a list of interfaces a type
+// parameter must satisfy" — so the argument at `C` need not be a
+// `context { … }` record. Anything that *implements* `Alloc` satisfies it, and
+// SPEC 10.8's attenuation is the reason the language wants that: `ReadOnly<C>`
+// below is a value that genuinely lacks the effects it does not forward, which
+// is the trust-boundary answer confinement cannot give.
+//
+// The functions here are the plainest calls that reach the runtime through a
+// `C`, one per shape the native ABI has: a table row whose context is its
+// **second** argument, one whose context is its **first**, and `str.concat`,
+// which has no row at all. Each of them dropped that argument by asking whether
+// its type was a context, which is the right answer only while every `C` is one
+// — so a bare implementing value spread to a leaf the C signature has no
+// parameter for and shifted every argument after it one register down.
+
+/// `list.push` — a table row whose context is its second argument.
+export fn pushedWith<C: Alloc>(ctx: C, item: Int, into: [Int]): [Int] {
+  into.push(ctx, item)
+}
+
+/// `list.repeat` — a table row whose context is its **first**, so the two
+/// indices the column can take are both exercised.
+export fn repeatedWith<C: Alloc>(ctx: C, item: Int): [Int] {
+  list.repeat(ctx, item, 2)
+}
+
+/// `str.concat` — the one allocating operation with no table row, whose
+/// argument list is narrowed at the call site instead.
+export fn joinedWith<C: Alloc>(ctx: C, a: Str, b: Str): Str {
+  a.concat(ctx, b)
+}
+
+/// SPEC 10.8's attenuating wrapper: a plain struct that satisfies `Alloc` by
+/// forwarding to whatever it holds.
+///
+/// It is *not* a context, and that is the whole point of it — a callee handed
+/// one holds a value that lacks every effect this type does not forward,
+/// whatever the caller's own context could do.
+export struct ReadOnly<C> {
+  export inner: C,
+}
+
+impl<C: Alloc> Alloc for ReadOnly<C> {
+  fn allocate(self, bytes: Int): Region {
+    self.inner.allocate(bytes)
+  }
+}
+
+/// An implementor carrying a **counted pointer**, so that the argument the C
+/// signature drops is one reference counting still has to balance — and two
+/// leaves rather than one, which is the width `ReadOnly` above does not reach.
+export struct Logged<C> {
+  export inner: C,
+  export prefix: Str,
+}
+
+impl<C: Alloc> Alloc for Logged<C> {
+  fn allocate(self, bytes: Int): Region {
+    self.inner.allocate(bytes)
+  }
+}
+
+/// Builds one and uses it, so the wrapper is allocated *through* the very
+/// context it wraps and then stands in for it.
+export fn loggedWith<C: Alloc>(ctx: C, into: [Int]): [Int] {
+  let wrapped = Logged { inner: ctx, prefix: "ab".concat(ctx, "cd") };
+  into.push(wrapped, wrapped.prefix.len())
+}
+
+/// One value satisfying **two** effects, which is what makes `C: Alloc + Clock`
+/// a different question from `C: Alloc`: the bound is a list, and a single
+/// implementing value discharges all of it.
+export struct Ticking<C> {
+  export inner: C,
+}
+
+impl<C: Alloc> Alloc for Ticking<C> {
+  fn allocate(self, bytes: Int): Region {
+    self.inner.allocate(bytes)
+  }
+}
+
+impl<C: Clock> Clock for Ticking<C> {
+  fn nowMillis(self): Int {
+    self.inner.nowMillis()
+  }
+  fn sleepMillis(self, millis: Int): () {
+    self.inner.sleepMillis(millis)
+  }
+}
+
+/// A `Ticking`, built where the two bounds are in view.
+export fn ticking<C: Alloc + Clock>(ctx: C): Ticking<C> {
+  Ticking { inner: ctx }
+}
+
+/// Both bounds used through one parameter: the clock's answer, appended with
+/// the allocator's.
+export fn stampedWith<C: Alloc + Clock>(ctx: C, into: [Int]): [Int] {
+  into.push(ctx, ctx.nowMillis())
 }
 
 // =============================================================================

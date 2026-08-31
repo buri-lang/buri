@@ -1,0 +1,16 @@
+// EXPECT: this statement has type `Result<I64, Str>`, not `()`
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+
+fn parse(text: Str): Result<Int, Str> {
+  if (text == "") { .Err("empty") } else { .Ok(1) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  // Dropping a `Result` in statement position. Neither diagnostic may answer
+  // it with `let _ = ...`, which is the other half of the same rule.
+  parse("hi");
+  let _ = ctx.println("done");
+  .Ok(())
+}

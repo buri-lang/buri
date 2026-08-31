@@ -175,9 +175,37 @@ Deliberately absent, and not by oversight:
 
 `core/effect` declares the effects; `core/host` implements them and may be
 imported only by the module that exports `main`. `core/io`, `core/fs`,
-`core/env`, `core/random`, `core/net/http` are the interfaces those effects
-are used through. `core/testing/assert`, `core/host/testing` and
+`core/env`, `core/random`, `core/net/http`, `core/tasks` are the interfaces
+those effects are used through. `core/testing/assert`, `core/host/testing` and
 `core/testing/context` are importable only from a test source.
+
+`core/tasks` is one function. `parallel(ctx, items, f)` runs `f` over every item
+and answers the results **in the items' order**, whatever order the work
+finished in, handing each call the item's own index. Every task has finished
+before it returns, so nothing outlives the context that granted it:
+
+```buri
+from "core/effect/lib.buri" import { Alloc, Tasks };
+from "core/tasks/lib.buri" import * as tasks;
+
+fn squares<C: Alloc + Tasks>(ctx: C, ns: [Int]): [Int] {
+  tasks.parallel(ctx, ns, fn(c, i, n) => n * n)
+}
+```
+
+The `c` a task is handed is the **caller's whole context** — every effect `ctx`
+carried, so a task can do anything its caller could and nothing it could not.
+It arrives as a parameter because a lambda may not capture a context
+(Section 10.6).
+
+How much actually runs at once is the platform's business and not the
+signature's. JavaScript starts the tasks together and awaits them together; a
+native `--release` build gives each task a carrier of its own, so two that wait
+overlap; `buri run` runs them in index order on one carrier, because a program
+its backend builds has a single Buri stack to hold their frames in. All three
+answer the same list, which is the point of fixing the order. Two tasks that
+*compute* do not yet overlap on either native backend: `parallel` buys
+overlapped waiting rather than more processors.
 
 `core/net/http` is where `Request` and `Response` are documented — the two types
 `Net.fetch` speaks in, re-exported from `core/effect` where the effect's own
@@ -215,7 +243,16 @@ a response that needs one is built before it and captured. `fs()`, `net()` and
 `stdin()` each keep a log of what they were asked: `calls()` answers it in the
 order the calls completed, and a test writes down what it expects with the
 constructor of the same name (`readFile(path)`, `writeFile(path, body)`,
-`fetch(request)`, `readBytes(n)`, one per method). See
+`fetch(request)`, `readBytes(n)`, one per method). Those same constructors say
+what **breaks**: `fs().faults([readFile(p).fails(.PermissionDenied)])` fails
+every matching call and `failsOnCall(n, e)` the `n`th, so success comes from the
+fixture and failure comes from the plan — and a fault whose call never happens
+fails the test. `tasks()` is the one double whose subject is not state but
+**scheduling**: `Tasks.parallel` promises its results in the items' order and
+nothing about the order the work runs in, so `tasks()` runs the tasks in program
+order, `tasks().anyOrder()` in one seeded order, and `tasks().everyOrder()` runs
+the whole `test` body once per completion order. A seed is the order's own
+number, so a failure names a line that replays it. See
 [testing](../build/testing.md).
 
 ### Allocators

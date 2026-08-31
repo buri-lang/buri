@@ -1,0 +1,103 @@
+//! core/tasks — running a piece of a program more than once at a time.
+//!
+//! One function. `parallel(ctx, items, f)` runs `f` over every item and answers
+//! the results **in the items' order**, whatever order the work finished in,
+//! and hands each call the item's own index.
+//!
+//! ## What the order promise is worth
+//!
+//! It is the whole reason this module has a signature rather than a family of
+//! them. A concurrent operation whose answer depended on which task won is one
+//! no test can pin: this language has no way to say "assert one of these six
+//! outputs", so a result list in completion order would be untestable by
+//! construction. Fixing the order costs a `[B]` that is filled in rather than
+//! appended to, which is what the runtime does, and buys a program whose answer
+//! is the same on every backend and on every run.
+//!
+//! ## What a task may do, and how long it lives
+//!
+//! `f` receives the caller's whole context as its first parameter, so a task
+//! can do anything its caller could — read a file, make a request, sleep — and
+//! nothing its caller could not. It receives it as a *parameter* rather than by
+//! capture because a lambda may not capture an effect-carrying value (SPEC
+//! 10.6).
+//!
+//! That is `C` in the signature below and `C` again in `effect Tasks`, and it
+//! is **not** `Self`. `Self` is whatever implements `Tasks` — `host.tasks`, or
+//! a test's double — which grants that one effect and nothing else; a step
+//! handed it could not read a clock or allocate. The one line of this module's
+//! body is `ctx.parallel(ctx, items, f)`, and the repetition is the whole
+//! point: the first is who does the scheduling, the second is what the work is
+//! done with.
+//!
+//! There is no detached spawn and no handle to join. Every task has finished
+//! before `parallel` returns, so a task cannot outlive the context that granted
+//! it — which is what keeps "a program that never names `host.fs` cannot read a
+//! file" true of the program's lifetime and not only of its call graph.
+//!
+//! ## How much of it actually runs at once
+//!
+//! That is a property of the platform and deliberately not of the signature:
+//!
+//! | Backend | Today |
+//! |---|---|
+//! | JavaScript | genuinely concurrent — the tasks are started together and awaited together, so two that wait overlap |
+//! | native, `--release` | genuinely concurrent — each task runs on a carrier of its own, so two that wait overlap |
+//! | native, `buri run` | sequential, in index order, on the calling carrier |
+//!
+//! All three answer the same list, and that is the whole of what this module
+//! promises. Two tasks that *compute* do not overlap on either native backend
+//! yet — one runs at a time, whichever of them is waiting — so `parallel` buys
+//! overlapped waiting rather than more processors.
+//!
+//! The development backend is sequential because a program it builds has one
+//! Buri stack: a task that is waiting is a task still holding a frame in it, so
+//! a second task could not have one. That is a fact about where its frames live
+//! and not a scheduler that has not been written, and it changes no signature,
+//! no result and no test — which is the point of writing the order promise down
+//! before any of this rather than after.
+//!
+//! ## Why this module is not `core/list`
+//!
+//! `parallel` is `mapCtx` with an index and a scheduler, and it is not a
+//! `core/list` combinator, because it is not a fact about lists. Its bound
+//! carries `Tasks`, which is authority: a signature that names it says the
+//! caller was granted the right to run its own work concurrently, and that has
+//! to be visible where a reader looks for a program's capabilities.
+//!
+//! ## An example
+//!
+//! ```buri
+//! from "core/effect/lib.buri" import { Alloc, Stdout, Tasks };
+//! from "core/host/lib.buri" import * as host;
+//! from "core/list/lib.buri" import * as list;
+//! from "core/str/lib.buri" import * as str;
+//! from "core/tasks/lib.buri" import * as tasks;
+//!
+//! export fn main(): Result<(), Str> {
+//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+//!   let labelled = tasks.parallel(ctx, ["a", "b", "c"], fn(c, i, name) =>
+//!     str.format(c, "${i}:${name}"));
+//!   let _ = ctx.println(labelled.join(ctx, " "));
+//!   .Ok(())
+//! }
+//! ```
+//!
+//! prints `0:a 1:b 2:c` — the items' order, whichever task finished first.
+
+from "core/effect/lib.buri" import { Alloc, Tasks };
+
+/// Runs `f` over every item and answers the results in the items' order.
+///
+/// The `Int` `f` receives is the item's own index, so a task can name where it
+/// is without the closure counting for itself — which it could not do anyway,
+/// since a lambda has nowhere to keep a counter.
+///
+/// An empty list answers an empty list and runs nothing.
+export fn parallel<C: Alloc + Tasks, A, B>(
+  ctx: C,
+  items: [A],
+  f: fn(C, Int, A) => B,
+): [B] {
+  ctx.parallel(ctx, items, f)
+}

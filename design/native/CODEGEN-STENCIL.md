@@ -401,6 +401,65 @@ Two details that are easy to get wrong and are not:
   are actually carried rather than the families having quietly stopped needing
   them.
 
+### 3.3 A stencil is a whole function, and all three targets now say so
+
+A stencil is one contiguous run of bytes copied out of the code section and
+patched, and every hole in it names a symbol the generated C **declared**:
+`_JIT_A`, a `buri_rt_*` entry point, a compiler-rt helper like `__divti3`. A
+compiler that splits a stencil in two breaks both halves of that sentence at
+once — the body copied out is no longer the whole function, and the branch left
+behind names a symbol the library will never carry.
+
+The G2 reference-counting arm was spelled `__builtin_expect(cap < 0, 0)`, a
+1-in-2000 hint. At that ratio **Apple's** clang runs `HotColdSplitting` at
+`-O2`, where upstream's does not, and it outlined the atomic arm as
+`st_decref_drop.cold.1`. What each target did with that was three different
+things, and only one of them was an error:
+
+| target | what the split looked like | before |
+|---|---|---|
+| `linux-arm64` | a second section, `.text.unlikely.`, 72 bytes | refused — `extract_elf_arm64` allows no section but `.text` |
+| `linux-x86_64` | the same section, 83 bytes, and a `PLT32` **against the section symbol** with a `+0x2c` addend | *accepted* — the reader has to allow other sections, because that is where a spilled SSE constant lives, so the cold half was read as a constant and one `jmp` was aimed at the unit's constant pool |
+| `macos-arm64` | **no second section at all** — Mach-O has no section prefixes, so the outlined half landed inside `__text` and the body kept an `ARM64_RELOC_BRANCH26` to it | *accepted* — a `Branch` hole named `st_decref_drop.cold.1` shipped in the host library, and no emitter fills it |
+
+Two guards close it, and they are deliberately not the same guard, because the
+two containers hide the split in different places:
+
+* **A hole's target must be a name the source could have written**
+  (`library::refuse_hole_name`, applied by `extract.rs`'s `finish_arm64` and by
+  `x86.rs`). The rule is structural rather than a list: a declared name is a C
+  identifier, and every name a compiler synthesises for a piece it carved out
+  contains a `.` for the precise reason that a C identifier cannot.
+  `library::ARTIFACT_SEGMENTS` names the families it recognises — `cold`,
+  `unlikely`, `part`, `isra`, `constprop`, `specialized`, the three `CoroSplit`
+  funclets, `llvm`, `lto_priv` — so the refusal can say *what* was carved out,
+  and an unrecognised one is refused all the same. `OUTLINED_FUNCTION_<n>`, the
+  MachineOutliner's, is the one artifact that *is* a valid identifier and is
+  named separately. The two ELF spellings the reader legitimately relocates
+  against — an empty section symbol, and a `.L` label on a spilled constant —
+  are explicitly not artifacts. The stencil's *own* name is checked the same
+  way, which catches a compiler that resolved the branch without leaving a
+  relocation behind at all.
+* **On x86-64, a second section of _code_ is a spill** (`elfobj::Other::exec`).
+  The row above is why the name check cannot do this job alone: the assembler
+  relocated against the section symbol, whose name is empty, so there was no
+  artifact name to see. This is `extract_elf_arm64`'s refusal narrowed to the
+  half of the sections that could be half of a function, and it leaves the
+  read-only ones — the sign masks and the conversion biases — alone.
+
+Both were checked against the reproducer rather than argued for: with the G2
+source restored to `__builtin_expect(…, 0)` and `CC` pointed at Apple clang,
+`macos-arm64` fails with *"st_decref_drop: a stencil reaches
+st_decref_drop.cold.1, which is a hot/cold split of it; every hole must be a
+symbol the source declared"* and `linux-x86_64` with *"a stencil spilled 83
+bytes of code into .text.unlikely.; every hole must be a symbol the source
+declared"* — the same 72 and 83 bytes the ELF/arm64 check had been reporting
+alone. `stencil::no_shipped_hole_names_a_function_the_compiler_invented` is the
+standing assertion over the three baked libraries;
+`the_hot_cold_split_that_shipped_is_refused` and
+`every_outlining_family_is_named_rather_than_lumped_together` are the unit
+checks on the rule itself.
+
 ## 4. From a JIT to a backend
 
 The prototype this backend grew out of wrote into an `mmap`ed, `PROT_EXEC`able
@@ -837,6 +896,36 @@ There is no in-process JIT mode to guard separately — this backend writes
 objects and the linker makes the artifact (§4) — so `main` is the only place a
 stack is established at all, and `install_guard` is in both of `main`'s forms.
 
+### 8.1.1 A second carrier, and its own block
+
+Everything above is about *one* stack, because until slice B7 there was one:
+`main` establishes it and `main` is the only way into Buri code. A **carrier**
+— an OS thread from `cli/runtime/rt.rs`'s pool — is a second way in, and it
+cannot share the block. Two carriers on one upward-growing stack write their
+frames into each other, and the guard at the top belongs to whichever recursion
+reached it first.
+
+So a carrier asks for its own. `buri_rt_stack_acquire` (`cli/runtime/memory.rs`)
+`mmap`s 65 MiB — **the same 64 + 1 as above**, in a constant each side names and
+each side's tests assert — and `mprotect`s the top megabyte to `PROT_NONE`, for
+all three of §8.1's reasons and by the same arithmetic. `buri_rt_stack_release`
+puts the block on that carrier's free list rather than unmapping it, because a
+carrier is reused and address space is what this whole mechanism spends.
+Nesting gets a *different* block, so an entry inside an entry does not write
+over the outer entry's live locals.
+
+The door itself is `asm::carrier_entry`: `void(void *state, void *out)` at the
+platform ABI, `backend/carrier.rs`'s signature, emitted in the unit that owns
+the root next to `main`. It is `program_entry` with one line changed — the
+frame pointer comes from the runtime instead of from `adrp buri$stencil$stack`
+— and everything else about it, including the return area copied through
+`out`, follows from that. `-dead_strip` deletes it from a program that never
+references it, so a single-threaded artifact pays nothing: no door, no `mmap`,
+no page.
+
+`main` keeps the `__bss` block. That is deliberate and is what keeps every
+number in §8.2 true of the program a user actually runs.
+
 ### 8.2 What a program does when it runs out
 
 The same thing a Cranelift-compiled one did, which is what parity meant while
@@ -961,6 +1050,7 @@ is linked and nothing is run in any native row.
 | the two Linux libraries build, cross, from this host's clang | `cli/build.rs`, three blobs in `OUT_DIR` |
 | the arm64 libraries cover the same 13,904 operations | `the_two_arm64_libraries_cover_the_same_operations` |
 | the three libraries cover the same operations, x86-64 included | `the_x86_64_library_covers_what_the_arm64_ones_do`, `the_spilled_constant_families_carry_their_bytes` |
+| no baked library holds a hole naming a function the compiler carved out of a stencil, and the rule that refuses one is right about every name a hole is really bound to | `no_shipped_hole_names_a_function_the_compiler_invented`, `the_hot_cold_split_that_shipped_is_refused`, `every_outlining_family_is_named_rather_than_lumped_together`, `the_names_holes_are_really_bound_to_all_pass` (§3.3) |
 | `elf.rs`'s output reads back through an independent ELF reader | `elf::tests::what_is_written_is_what_the_reader_reads` |
 | `b`/`bl` and `add`/`ldr` get the right *split* relocation type | `a_branch_is_split_by_its_instruction`, `a_low_twelve_is_split_by_its_instruction` |
 | `ld.lld` **accepts** real unit objects for **both** Linux targets, statically links them, and **every relocation resolves** with none left in the image | `linux_arm64_objects_link_and_every_relocation_resolves`, `linux_x86_64_objects_link_and_every_relocation_resolves` |

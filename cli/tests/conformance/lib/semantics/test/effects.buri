@@ -27,12 +27,15 @@ from "core/fs/lib.buri" import * as fs;
 from "core/io/lib.buri" import * as io;
 from "core/net/http/lib.buri" import * as http;
 from "core/random/lib.buri" import * as random;
+from "core/str/lib.buri" import * as str;
+from "core/tasks/lib.buri" import * as tasks;
 from "core/time/lib.buri" import * as time;
 
 from "//lib/semantics/lib.buri" import {
   loadText, saveText, roundTrip, greet, shout, stamp, elapsed, fetchBody,
   StaticFs, FrozenClock, EchoEnv, TeapotNet, OneShotListen, QuietSockets, serveOnce, guarded,
-  SerialTasks, runInOrder,
+  SerialTasks, runInOrder, runInOrderNamed,
+  pushedWith, repeatedWith, joinedWith, stampedWith, ReadOnly, loggedWith, ticking,
 };
 
 // -----------------------------------------------------------------------------
@@ -1106,9 +1109,8 @@ test "a server that will not bind is the Listen answer and not the network's" {
 // A context satisfies an effect without implementing it — it names a value that
 // does — so through a context the two are different types, and a method whose
 // signature spells `Self` is where the difference is observable:
-// `Listen.listen` takes `onRequest: fn(Self, Request) => Response` and
-// `Tasks.parallel` takes `f: fn(Self, Int, A) => B`, and the `impl` body hands
-// that handler *itself*.
+// `Listen.listen` takes `onRequest: fn(Self, Request) => Response`, and the
+// `impl` body hands that handler *itself*.
 //
 // Substituting the receiver instead gave the handler the context's layout while
 // the implementation's arrived. JavaScript never noticed, because nothing there
@@ -1121,8 +1123,14 @@ test "a server that will not bind is the Listen answer and not the network's" {
 // Both halves of the question are here. Called on the context value, the front
 // end can see the row and settles `Self` there. Called through a bounded `C`, it
 // cannot: a generic body is checked once for every instantiation at once, so
-// `Self` is `C` until monomorphization knows what `C` became. `serveOnce` and
-// `runInOrder` are the second half.
+// `Self` is `C` until monomorphization knows what `C` became. `serveOnce` is
+// the second half.
+//
+// **`Self` never means the caller's context**, and the section below this one
+// is that rule's other side: an effect that wants to hand a callback the
+// caller's context takes it as a `ctx` parameter and names it. `Tasks.parallel`
+// used to be the counter-example — spelled `Self`, documented as the context —
+// and it is a `ctx` parameter now.
 
 test "a handler through a context is handed the implementation, not the context" {
   let ctx = context {
@@ -1148,53 +1156,9 @@ test "a handler through a context is handed the implementation, not the context"
   }));
 }
 
-test "a generic effect method's fn(Self, ...) parameter is the implementation" {
-  // `Tasks.parallel<A, B>` is the same shape with type parameters of its own:
-  // `A` and `B` are inferred at the call, `Self` is not written at the call at
-  // all, and all three have to arrive at the handler together.
-  let ctx = context { Alloc: alloc(), Tasks: SerialTasks { label: "serial", bias: 7 } };
-  let out = ctx.parallel([1, 2], fn(runner, i, item) => runner.bias + i * 10 + item);
-  assert.eq(out[0] ?? 0, 8);
-  assert.eq(out[1] ?? 0, 19);
-}
-
-test "two effects in one context each resolve Self to their own implementation" {
-  // One context, two rows, two different implementing types — and `Self` is a
-  // different type in each of the two calls below. A fix that carried one type
-  // for the whole context, or the receiver for both, gets exactly one of these
-  // right.
-  let ctx = context {
-    Alloc: alloc(),
-    Listen: OneShotListen { bindsTo: "127.0.0.1" },
-    Tasks: SerialTasks { label: "serial", bias: 100 },
-  };
-  assert.ok(ctx.listen("127.0.0.1", 0, fn(server, request) => Response {
-    status: if (server.bindsTo == "127.0.0.1") { 200 } else { 500 },
-    headers: [],
-    body: [],
-  }));
-  // Both fields of the runner, an `Int` and a `Str`: a word and a pointer, so
-  // a handler that got the wrong value would have to have been handed
-  // something shaped exactly like a `SerialTasks` to answer this.
-  let out = ctx.parallel([5], fn(runner, i, item) => {
-    if (runner.label == "serial") { runner.bias + item } else { 0 }
-  });
-  assert.eq(out[0] ?? 0, 105);
-}
-
-test "a bounded type parameter instantiated at a context reaches the same answer" {
-  // `runInOrder<C: Tasks>` is checked once, with `Self` still `C`; this call is
-  // what makes `C` a context, and monomorphization is where that is put right.
-  // The handler cannot read a field here — nothing in the body names what
-  // implements `Tasks` for `C` — so what this block asserts is that the call
-  // *happens at all*, which is what the wrong layout took away.
-  let ctx = context { Alloc: alloc(), Tasks: SerialTasks { label: "serial", bias: 0 } };
-  assert.eq(runInOrder(ctx, [3, 4]), 107);
-}
-
-test "a context binding two effects with fn(Self, ...) reaches both through bounds" {
-  // `serveOnce` and `runInOrder` over one context, so the two corrections are
-  // made in the same instantiation and neither overwrites the other.
+test "a context binding two effects reaches both through bounds" {
+  // `serveOnce` and `runInOrder` over one context, so the two questions are
+  // answered in the same instantiation and neither overwrites the other.
   let ctx = context {
     Alloc: alloc(),
     Listen: OneShotListen { bindsTo: "127.0.0.1" },
@@ -1204,4 +1168,147 @@ test "a context binding two effects with fn(Self, ...) reaches both through boun
   };
   assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
   assert.eq(runInOrder(ctx, [3, 4]), 107);
+}
+
+// -----------------------------------------------------------------------------
+// A task is handed the caller's context (SPEC 10.6, 10.9)
+// -----------------------------------------------------------------------------
+//
+// `Tasks.parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B)`
+// promises every step the caller's *whole* context, and these blocks are that
+// promise as assertions. A step's first parameter is not the scheduler and not
+// `Self`: it carries every bound the caller declared, so a step can do anything
+// its caller could and nothing it could not.
+//
+// This is a recorded compiler bug written out. `parallel` used to spell the
+// step's first parameter `Self` while documenting it as the context, and the
+// trampoline delivered what the signature said: the implementation. Where the
+// implementation was `core/host`'s empty `HostTasks` nothing was visibly wrong,
+// because an empty struct and a context of empty structs are both zero words.
+// The moment a context bound something stateful the two backends *disagreed* —
+// natively the scheduler's handle was read as a clock and answered `0`, and on
+// JavaScript a one-element array was indexed past its end and threw — which is
+// the shape of a wrong answer rather than a refused one, and is why every block
+// below reads a **value** out of the context rather than only calling through
+// it.
+//
+// A step that ignores its first parameter passes whatever it is handed, so
+// none of these do.
+
+test "a step reads an effect out of the context it is handed" {
+  // The reduced repro. `clockAt(5)` is stateful, so the answer says which value
+  // arrived and not only how wide it was: a step handed the scheduler read `0`.
+  let runner = SerialTasks { label: "s", bias: 0 };
+  let ctx = context { Alloc: alloc(), Clock: clockAt(5), Tasks: runner };
+  let out = tasks.parallel(ctx, [7, 9], fn(c, i, x) => c.nowMillis() + x);
+  assert.eq(out, [12, 14]);
+}
+
+test "a step uses two effects from its context in one expression" {
+  // `Alloc` and `Clock` together, through `str.format`, which needs the first
+  // and reads the second: a step handed one effect's implementation could
+  // satisfy neither, and a step handed a context missing one would not compile.
+  let runner = SerialTasks { label: "s", bias: 0 };
+  let ctx = context { Alloc: alloc(), Clock: clockAt(5), Tasks: runner };
+  let out = tasks.parallel(ctx, [7, 9], fn(c, i, x) => str.format(c, "${c.nowMillis()}:${i}:${x}"));
+  assert.eq(out, ["5:0:7", "5:1:9"]);
+}
+
+test "a nested parallel is made with the context the outer step was handed" {
+  // The context has to survive being handed *out* to a step and then handed
+  // back *in* as the receiver of a second call — which is the whole of what
+  // "the full context" means, since a value that only looked right at the first
+  // boundary would lose its clock at the second.
+  let runner = SerialTasks { label: "s", bias: 0 };
+  let ctx = context { Alloc: alloc(), Clock: clockAt(5), Tasks: runner };
+  let out = tasks.parallel(ctx, [7], fn(c, i, x) =>
+    tasks.parallel(c, [x, x], fn(d, j, y) => d.nowMillis() + y + j)
+      .fold(fn(a, m) => a + m, 0));
+  assert.eq(out, [25]);
+}
+
+test "a step through a bounded type parameter has the caller's bounds" {
+  // `runInOrderNamed<C: Alloc + Tasks>` allocates *inside* the step, which is a
+  // compile-time claim before it is a runtime one: nothing in that body names
+  // what implements `Tasks` for `C`, so a step's first parameter typed as the
+  // implementation would have no `Alloc` and the function would not build.
+  let ctx = context { Alloc: alloc(), Tasks: SerialTasks { label: "s", bias: 0 } };
+  assert.eq(runInOrderNamed(ctx, [3, 4]), ["0:3", "1:4"]);
+}
+
+test "an ordinary Buri implementation hands its steps the context" {
+  // `SerialTasks` is written in Buri and calls its own callback — which it can
+  // only do because the parameter is *named*. This is the rule's cost and its
+  // point: `parallel` is implementable by anyone (SPEC 10.9), rather than only
+  // by the compiler's trampoline.
+  let runner = SerialTasks { label: "s", bias: 0 };
+  let ctx = context { Alloc: alloc(), Clock: clockAt(11), Tasks: runner };
+  let out = ctx.parallel(ctx, [1, 2], fn(c, i, item) => c.nowMillis() + i * 10 + item);
+  assert.eq(out[0] ?? 0, 12);
+  assert.eq(out[1] ?? 0, 23);
+}
+
+// -----------------------------------------------------------------------------
+// A context-bounded parameter, satisfied by something that is not a context
+// (SPEC 10.1, 10.8)
+// -----------------------------------------------------------------------------
+//
+// `<C: Alloc>` is an ordinary bound, so the argument at `C` need not be a
+// `context { … }` record — anything that implements `Alloc` satisfies it, and
+// `core/testing/context`'s `alloc()` is a `struct TestAlloc(I64)` that does.
+// Every block above passes a context, and every one of these deliberately does
+// not.
+//
+// This is a recorded compiler bug written out as assertions. The native ABI
+// drops a call's context argument, because the runtime allocates through
+// `buri_rt_alloc` and has no use for one — and it asked *which* argument that
+// was by looking at the value's type. A bare implementing value is not a
+// `Ty::Ctx`, so it spread to a leaf the C signature has no parameter for and
+// shifted every argument after it one register down: the reduced case died in
+// `memmove` before the first block ran. Which argument is the context is now
+// read off the declaration (`backend/runtime_table.rs`'s `Entry::ctx`).
+
+test "a bare implementing value satisfies a context bound" {
+  // The reduced repro. `alloc()` is not a context and never was one.
+  assert.eq(pushedWith(alloc(), 7, [1]), [1, 7]);
+}
+
+test "a bare implementing value reaches a context in first position" {
+  // `list.repeat(ctx, item, times)` has no receiver, so its context is
+  // argument zero — the other index the rule can take.
+  assert.eq(repeatedWith(alloc(), 5), [5, 5]);
+}
+
+test "a bare implementing value reaches str.concat, which has no table row" {
+  assert.eq(joinedWith(alloc(), "ab", "cd"), "abcd");
+}
+
+test "an attenuating wrapper is a context bound's argument" {
+  // SPEC 10.8's shape, and the reason the language wants the bound to be
+  // ordinary: `ReadOnly` forwards `Alloc` and nothing else, so a callee holding
+  // one genuinely cannot do the rest.
+  assert.eq(pushedWith(ReadOnly { inner: alloc() }, 7, [1]), [1, 7]);
+}
+
+test "an implementor carrying a counted pointer is a context bound's argument" {
+  // Two leaves and a `Str` among them, so the argument the C signature drops is
+  // wider than one word and is one reference counting still has to balance.
+  assert.eq(loggedWith(alloc(), [1]), [1, 4]);
+}
+
+test "one value satisfying two effects discharges a two-effect bound" {
+  // `C: Alloc + Clock` through a single implementing value rather than a
+  // context binding two rows, so the bound being a *list* is exercised.
+  let both = ticking(context { Alloc: alloc(), Clock: clockAt(5) });
+  assert.eq(stampedWith(both, [1]), [1, 5]);
+}
+
+test "a context holding the same double still reaches the same answer" {
+  // The shape every other block in this file uses, asserted next to the bare
+  // one: a `context { … }` whose binding is the very same `TestAlloc` handle.
+  // The two are different types and must reach one answer.
+  let ctx = context { Alloc: alloc() };
+  assert.eq(pushedWith(ctx, 7, [1]), [1, 7]);
+  assert.eq(repeatedWith(ctx, 5), [5, 5]);
+  assert.eq(joinedWith(ctx, "ab", "cd"), "abcd");
 }

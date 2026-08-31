@@ -2070,6 +2070,226 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// `Tasks.parallel` answers the same list on all three backends, and it is the
+/// same list in the same order.
+///
+/// This is the assertion half of `core/tasks`, and it is here rather than in
+/// the conformance corpus for a reason that is a fact about the language: a
+/// `test` block lives in a test source, a test source is not the module that
+/// exports `main`, and `core/host` is importable only from that module. There
+/// is no `Tasks` double yet either — `TestTasks` is a later slice — so the only
+/// honest way to run `parallel` at all is a real program with a real granted
+/// host, which is exactly what this file compiles.
+///
+/// **The two sides share the program and nothing else**, which is what makes
+/// the comparison worth something. `$host_HostTasks_parallel` starts every task
+/// before it awaits any of them and collects `Promise.all`'s array;
+/// `buri_rt_host_tasks_parallel` walks the block in index order calling a
+/// generated C-ABI entry thunk. Two implementations with nothing in common,
+/// asked for one answer.
+///
+/// What each case is for:
+///
+///  * **the index** — the second closure parameter, which is neither in the
+///    state record nor in the element and reaches the step in its own register.
+///    Asserted as an *answer* rather than as a count, so a step told the wrong
+///    index prints the wrong list rather than passing.
+///  * **input order** — the answer is `[A]`'s order and not completion order.
+///    On JavaScript the tasks are genuinely in flight together, so this is a
+///    real promise being kept rather than an artefact of a sequential loop.
+///  * **a counted result** at a wider stride — every element the step answers
+///    is a block the new list owns.
+///  * **a counted source** — the retain the entry thunk takes before entering
+///    Buri code, read back afterwards, which a missing retain turns into a
+///    use-after-free.
+///  * **the empty list** — no task, no entry, and a `[B]` that allocates
+///    nothing.
+///  * **nested** — `parallel` inside `parallel`, because the entry thunk works
+///    in the frame the call site reserved and a call site inside a running step
+///    is where two of them would meet.
+#[test]
+fn the_task_scheduler_answers_in_input_order_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.parallel",
+        r#"
+from "core/effect/lib.buri" import { Alloc, Stdout, Tasks };
+from "core/host/lib.buri" import * as host;
+from "core/tasks/lib.buri" import * as tasks;
+from "core/list/lib.buri" import * as list;
+from "core/str/lib.buri" import * as str;
+
+fn show<C: Alloc>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+
+  // The index is the item's own, and the answer is in the items' order.
+  let ns = [10, 20, 30, 40];
+  let indexed = tasks.parallel(ctx, ns, fn(c, i, n) => n + i);
+  let _ = ctx.println(show(ctx, indexed.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))));
+
+  // A counted answer, at a stride the source does not have.
+  let named = tasks.parallel(ctx, ns, fn(c, i, n) => "n".repeat(c, i + 1));
+  let _ = ctx.println(show(ctx, named));
+
+  // A counted source: the step is handed a count of its own, so the source is
+  // still readable after the walk.
+  let louder = tasks.parallel(ctx, named, fn(c, i, s) => str.format(c, "<${s}>"));
+  let _ = ctx.println(show(ctx, louder));
+  let _ = ctx.println(show(ctx, named));
+
+  // An aggregate answer, through the out-pointer.
+  let pairs = tasks.parallel(ctx, ns, fn(c, i, n) => (i, n));
+  let _ = ctx.println(show(ctx, pairs.mapCtx(ctx, fn(c, p) => str.format(c, "${p.0}^${p.1}"))));
+
+  // Nested: a task that itself runs tasks.
+  let nested = tasks.parallel(ctx, ns, fn(c, i, n) =>
+    tasks.parallel(c, [n, n, n], fn(d, j, m) => m + j).fold(fn(a, m) => a + m, 0));
+  let _ = ctx.println(show(ctx, nested.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))));
+
+  let empty: [Int] = [];
+  let _ = ctx.println("${tasks.parallel(ctx, empty, fn(c, i, n) => n + 1).len()}");
+  .Ok(())
+}
+"#,
+        concat!(
+            "10,21,32,43\n",
+            "n,nn,nnn,nnnn\n",
+            "<n>,<nn>,<nnn>,<nnnn>\n",
+            "n,nn,nnn,nnnn\n",
+            "0^10,1^20,2^30,3^40\n",
+            "33,63,93,123\n",
+            "0\n",
+        ),
+    );
+}
+
+/// A task is handed the **caller's context**, and reads a value out of it, on
+/// all three backends.
+///
+/// The test above cannot see this and never could. Every implementation in
+/// `core/host` is an empty struct, so a context built entirely out of them is
+/// zero words wide — and so is any one of its bindings — which makes "the step
+/// was handed the context" and "the step was handed the scheduler" the same
+/// bytes. The step's first parameter was the second of those for as long as
+/// `parallel` spelled it `Self`, and nothing above would have noticed.
+///
+/// So this program binds a `Clock` **it wrote itself**, carrying an `I64`. An
+/// effect is an ordinary interface and anyone may write a type satisfying it
+/// (SPEC 10.9), so a program may, and now the context is a word wide and the
+/// scheduler is not: a step handed the wrong one answers `0` where it should
+/// answer `7`, or reads a pointer that is not one.
+///
+/// Four claims, and each of them fails differently if the wrong value arrives:
+///
+///  * **one effect out of the context** — `c.nowMillis()` inside a step. The
+///    reduced repro: `[7, 9]` where `[12, 14]` was promised.
+///  * **two effects at once** — `str.format` needs the `Alloc` and reads the
+///    `Clock`, so a step handed a value satisfying only `Tasks` could satisfy
+///    neither.
+///  * **nested** — the inner `parallel`'s receiver is the context the outer
+///    step was handed, so the value has to survive going out to a step and
+///    coming back in as a receiver.
+///  * **the same context afterwards** — read once more in the caller's own
+///    frame, so a step that consumed or moved what it was handed shows up
+///    here rather than as a leak nobody looks at.
+#[test]
+fn a_task_is_handed_the_callers_context_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.parallel context",
+        r#"
+from "core/effect/lib.buri" import { Alloc, Clock, Stdout, Tasks };
+from "core/host/lib.buri" import * as host;
+from "core/tasks/lib.buri" import * as tasks;
+from "core/str/lib.buri" import * as str;
+
+/// A `Clock` a program wrote, carrying a word — so the context that binds it is
+/// a word wide and is not the same value as the scheduler beside it.
+struct Ticker {
+  at: I64,
+}
+
+impl Clock for Ticker {
+  fn nowMillis(self): I64 { self.at }
+  fn sleepMillis(self, millis: Int): () { () }
+}
+
+fn show<C: Alloc>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Clock: Ticker { at: 5 },
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+
+  // One effect, read inside the step.
+  let stamped = tasks.parallel(ctx, [7, 9], fn(c, i, x) => c.nowMillis() + x);
+  let _ = ctx.println(show(ctx, stamped.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))));
+
+  // Two effects in one expression: `Alloc` to build the string, `Clock` to
+  // fill it.
+  let both = tasks.parallel(ctx, [7, 9], fn(c, i, x) => str.format(c, "${c.nowMillis()}:${i}:${x}"));
+  let _ = ctx.println(show(ctx, both));
+
+  // The context handed out to a step and back in as a receiver.
+  let nested = tasks.parallel(ctx, [7], fn(c, i, x) =>
+    tasks.parallel(c, [x, x], fn(d, j, y) => d.nowMillis() + y + j).fold(fn(a, m) => a + m, 0));
+  let _ = ctx.println(show(ctx, nested.mapCtx(ctx, fn(c, n) => str.fromInt(c, n))));
+
+  // And the caller's own copy still answers.
+  let _ = ctx.println("${ctx.nowMillis()}");
+  .Ok(())
+}
+"#,
+        concat!("12,14\n", "5:0:7,5:1:9\n", "25\n", "5\n"),
+    );
+}
+
+/// A task that aborts stops the program, with the same message and the same
+/// status on every backend — and with what was printed before it flushed.
+///
+/// An abort is a write to standard error and an exit, never an unwind (SPEC
+/// 6.10), so there is nothing for the trampoline to do about one and that is
+/// precisely the claim: the entry thunk is a frame in the middle, and a frame
+/// in the middle that had *anything* to do with an abort would be a frame that
+/// could get it wrong. Natively the abort happens inside a call the runtime
+/// made, several frames below Buri code, and `cli/runtime/abort.rs` exits from
+/// there; on JavaScript it is a throw out of a promise inside a `Promise.all`,
+/// which the entry epilogue catches.
+///
+/// The task that aborts is **not the first**, which is what makes the flushed
+/// output above the message meaningful: the earlier line was printed by a task
+/// that had already finished.
+#[test]
+fn an_abort_inside_a_task_stops_the_program_the_same_way() {
+    rows_or_skip!();
+    abort_agrees(
+        "tasks.parallel abort",
+        r#"
+from "core/effect/lib.buri" import { Alloc, Stdout, Tasks };
+from "core/host/lib.buri" import * as host;
+from "core/tasks/lib.buri" import * as tasks;
+from "core/list/lib.buri" import * as list;
+
+fn ratio(a: Int, b: Int): Int { a / b }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let _ = ctx.println("before");
+  let answers = tasks.parallel(ctx, [4, 2, 0], fn(c, i, n) => ratio(8, n));
+  let _ = ctx.println("${answers.len()}");
+  .Ok(())
+}
+"#,
+        "before\n",
+        "division by zero",
+    );
+}
+
 // -------------------------------------------------------------------
 // The table itself
 // -------------------------------------------------------------------

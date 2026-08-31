@@ -1,0 +1,31 @@
+# `tasks()` makes three claims that no *passing* block can make about itself,
+# and this is the report all three write.
+#
+#  * **`everyOrder` reruns the body once per completion order.** A block asserts
+#    at the end of its body, so it can say what the order was — but "there was a
+#    sixth run" is a claim the sixth run is inside. The first block here is true
+#    on runs one to five and false on run six, so this golden holding its failure
+#    is the body having run six times, and a golden without it would be the
+#    reruns having stopped early.
+#  * **A fault ends the block at the task it names.** A task has no error channel
+#    — `parallel` answers `[B]` and every `B` comes from the closure — so a task
+#    the plan fails is a task that ends the run, which is what a task that died
+#    would do for real. The report is where the reason the test wrote comes back.
+#  * **A fault whose task is never reached fails the test**, which is E6's
+#    post-condition (`buri_rt_test_leave`) at the third double.
+#
+# The failure/seed line D6 adds will land in this golden: the runtime records the
+# order and the seed today (`testing.rs`'s `task_order_note`) and nothing prints
+# it yet, so re-blessing this case is part of that slice.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "everyOrder reruns the body, and a task the plan fails ends the block"
+
+run {
+  args: ["test", "//lib/fan", "--force", "--output=js"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

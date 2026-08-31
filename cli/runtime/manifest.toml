@@ -5,7 +5,7 @@
 # package that contains a `Cargo.toml` of its own — unconditionally, before
 # `include`/`exclude` are consulted, in both its git-driven and its
 # filesystem-driven file listers. A manifest here would therefore delete the
-# whole of `cli/runtime/` from the published `buri` crate: the sixteen sources
+# whole of `cli/runtime/` from the published `buri` crate: the seventeen sources
 # the archive is built from would not ship, and a `cargo install buri` from a
 # registry tarball would fail in `cli/build.rs` with nothing to compile.
 #
@@ -48,7 +48,7 @@ publish = false
 # than a preference.
 name = "buri_rt"
 # The sources sit directly beside this file rather than under `src/`, because
-# they predate the manifest and moving sixteen files to gain a level of nesting
+# they predate the manifest and moving seventeen files to gain a level of nesting
 # would be churn in every doc link and every git blame.
 path = "lib.rs"
 # A static library and nothing else: `build/link.rs` hands the archive to the
@@ -77,12 +77,19 @@ crate-type = ["staticlib"]
 # * **`tungstenite`** — RFC 6455 framing and the handshake, which is a
 #   protocol with a specification and a test suite rather than an algorithm.
 #
-# **Referenced by nothing, and that is this slice.** No intrinsic key reaches
-# any of them yet — `net.rs` names one type from each and stops — so what the
-# archive gains is *nothing that runs*. Measured, aarch64-apple-darwin:
-# 5 987 472 bytes with `net` off, 5 987 496 with it on. Twenty-four bytes, and
-# the reason is that `lto = "fat"` below is whole-program over the dependency
-# rlibs as well: Rust code nothing reaches is not in the archive.
+# **Three of the four are referenced by nothing.** `net.rs` names one type from
+# each and stops, and `lto = "fat"` below is whole-program over the dependency
+# rlibs as well, so Rust code nothing reaches is not in the archive: measured on
+# aarch64-apple-darwin when the four landed, 5 987 472 bytes with `net` off and
+# 5 987 496 with it on. Twenty-four bytes.
+#
+# `tokio` is the exception, since `rt.rs`. That file is the carrier runtime —
+# the reactor, the run baton, the carrier pool and the task table — and
+# `Clock::sleepMillis` and `Net::fetch` wait on it, so the reactor and its timer
+# wheel are in the archive on purpose: 6 035 480 bytes before and 6 220 904
+# after, +185 424, aarch64-apple-darwin.
+# `.github/scripts/assert-runtime-archive.sh` is where that is asserted rather
+# than assumed, and it names the other three still.
 #
 # The one thing that would *not* be dropped is a dependency's **native**
 # object code, which `rustc` bundles into a `staticlib` whether anything

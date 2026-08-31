@@ -535,7 +535,8 @@ impl<'a> Monomorphizer<'a> {
                 let Some(body) = self.checked.bodies.get(&fid) else { return };
                 let mut b = body.clone();
                 self.locals = std::mem::take(&mut b.locals);
-                b.expr = self.rewrite(b.expr, &[]);
+                let rewritten = self.rewrite(b.expr, &[]);
+                b.expr = self.leaving(i, slot, rewritten);
                 b.locals = std::mem::take(&mut self.locals);
                 let f = self.func_mut(slot);
                 f.params = b.params;
@@ -543,6 +544,101 @@ impl<'a> Monomorphizer<'a> {
                 f.set_body(b.expr);
             }
         }
+    }
+
+    /// A `test` body, with the runner's end-of-block hook after it.
+    ///
+    /// `buri_rt_test_leave(index)` is the other half of `core/host/testing`'s
+    /// fault plan: *a fault whose call never happens fails the test*, which is a
+    /// claim only something that outlives the block can check. Its twin
+    /// `buri_rt_test_enter` is emitted by the two native test entry points
+    /// instead, and the asymmetry is the difference between the two questions —
+    /// `enter` answers *whether to run this block*, which is the runner's
+    /// protocol and belongs where the blocks are called from, and this is the
+    /// *program's* rule about what the block promised, which belongs to the
+    /// block. Putting it here is also what gives all three backends one
+    /// implementation: the JavaScript generator reads the same tree.
+    ///
+    /// A block that aborts never reaches the hook, which is the order a reader
+    /// wants: the failed assertion is the failure, and an unused plan is a
+    /// consequence of stopping early rather than a second complaint.
+    fn leaving(&self, index: usize, slot: usize, body: typed::Expr) -> typed::Expr {
+        let span = body.span;
+        let leave = self.hook("test.leave", index, Ty::Unit, span);
+        // And then: is there another order to try? `TestTasks.everyOrder` runs
+        // the body once per completion order, and this is where a rerun
+        // happens — the block calls **itself**, in tail position, so a rerun is
+        // an ordinary self-call that `middle::tail_calls` turns into a jump.
+        //
+        // A self-call rather than a loop this pass builds, and a loop here
+        // rather than one in the three places blocks are called from. The
+        // second choice is `test.leave`'s and for its reason: the two native
+        // entry points are hand-written machine code and the JavaScript one is
+        // a string, so a rerun spelled there would be three implementations of
+        // one rule. The first is because `ExprKind::Loop` is `tail_calls`'
+        // shape — it rebinds a function's parameters and is entered from
+        // outside — and a `test` block has no parameters to rebind, so the
+        // honest spelling of "run it again" is the call the language already
+        // has.
+        //
+        // The order of the two is the order a reader wants: *did this run keep
+        // what it promised* is asked of the run that just ended, and only a run
+        // that kept it goes round again.
+        let again = typed::Expr::new(
+            ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args: Vec::new() },
+            Ty::Unit,
+            span,
+        );
+        let replay = typed::Expr::new(
+            ExprKind::If {
+                cond: Box::new(self.hook(
+                    "test.replay",
+                    index,
+                    self.tables().prim(Prim::Bool),
+                    span,
+                )),
+                then: Box::new(again),
+                else_: Box::new(typed::Expr::new(ExprKind::Unit, Ty::Unit, span)),
+            },
+            Ty::Unit,
+            span,
+        );
+        typed::Expr::new(
+            ExprKind::Block {
+                stmts: vec![typed::Stmt::Expr(body), typed::Stmt::Expr(leave)],
+                tail: Some(Box::new(replay)),
+            },
+            Ty::Unit,
+            span,
+        )
+    }
+
+    /// One of the two runner hooks around a `test` body, called with the
+    /// block's index.
+    ///
+    /// Neither is produced by a Buri declaration — both runtime tables say so —
+    /// so this is where their argument list is written down, once for the two of
+    /// them.
+    fn hook(
+        &self,
+        name: &str,
+        index: usize,
+        ret: Ty,
+        span: crate::diagnostics::Span,
+    ) -> typed::Expr {
+        typed::Expr::new(
+            ExprKind::Intrinsic {
+                name: String::from(name),
+                targs: Vec::new(),
+                args: vec![typed::Expr::new(
+                    ExprKind::Int(index as u128, false),
+                    self.tables().prim(Prim::I64),
+                    span,
+                )],
+            },
+            ret,
+            span,
+        )
     }
 
     fn build_fn(&mut self, f: FnId, targs: Vec<Ty>, slot: usize) {
@@ -716,11 +812,20 @@ impl<'a> Monomorphizer<'a> {
     /// when `C` is the implementation, and wrong when `C` turns out to be a
     /// context, which satisfies an effect by *naming* an implementation rather
     /// than by being one. Here `C` is known, so here is where that is put
-    /// right: a method whose signature names `Self` — `Tasks`'
-    /// `f: fn(Self, Int, A) => B`, `Listen`'s
+    /// right: a method whose signature names `Self` — `Listen`'s
     /// `onRequest: fn(Self, Request) => Response` — otherwise hands the
     /// caller's handler the context's layout while the `impl` body hands it the
     /// implementation's, which typechecks and then reads the wrong bytes.
+    ///
+    /// **A callback meant to receive the caller's context is not spelled
+    /// `Self` and never reaches this correction.** `Tasks.parallel` takes
+    /// `ctx: C` beside `self` and its step is `fn(C, Int, A) => B`, so `C` is
+    /// an ordinary type argument, already the caller's context at every
+    /// instantiation, with nothing here to fix. That is the difference this
+    /// pass used to erase: it retyped `parallel`'s step down to the
+    /// implementation, and the step then read the scheduler where it expected a
+    /// clock. Only `Self` is corrected, because only `Self` means the
+    /// implementation (SPEC 10.6).
     ///
     /// **Only the arguments the declaration spells with `Self`.** A trait
     /// method's other parameters cannot be a context — an effect-carrying
@@ -1605,6 +1710,34 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "bytes.toUtf8",
     "char.show",
     "char.toJson",
+    // `Tasks.parallel<C, A, B>` — the closure trampoline's second key, and the
+    // one it was built for. It is on this list for the same reason
+    // `list.mapCtxStep` is, which is A4's rule and not an exception to it: an
+    // entry lands alongside the carriers that make it sound, and this one has
+    // both of the two a step needs.
+    //
+    // `C` — the caller's context, which every step is handed — needs no carrier
+    // at all: it is `Arg::Dropped` in both native tables and crosses nothing.
+    // What it reaches is the state record the entry thunk reads, which is
+    // generated here where `C` is known, so the erasure this list asserts is
+    // about `A` and `B` exactly as it was before the parameter existed.
+    //
+    //  * **Two strides**, `[A]`'s and `[B]`'s, which `middle::layout` computed
+    //    and which are immediates at the call site. A `map` reads one element
+    //    type and writes another, so one stride would be the wrong carrier
+    //    rather than a narrow one.
+    //  * **A function the backend generated** — the entry thunk, emitted where
+    //    `A` and `B` are known, which is the only thing that can call a Buri
+    //    closure from C. It is `Extra::Element`'s retain glue answering a
+    //    harder question: not "what does one element hold" but "how is one
+    //    closure called".
+    //
+    // Nothing about `A` or `B` reaches `cli/runtime/rt.rs`. It walks bytes at a
+    // stride and calls a pointer, which is what every generic entry in the
+    // archive does. D1 refused this key and said why — it supplied none of the
+    // carriers, so an entry then would have asserted an erasure nobody had
+    // established. D2 built them; this commit is the one that uses them.
+    "host.HostTasks.parallel",
     // `core/host`'s two reactive impls, on WEB. `Ui.signal<T>`/`read<T>` name
     // a slot in the host's own table by `Int`, and the value never crosses in
     // a shape the runtime reads: `runtime.js` stores whatever it was handed.
@@ -1613,6 +1746,12 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "host.HostUi.signal",
     "host.HostUi.write",
     "host.HostWatch.read",
+    // `core/host/testing`'s scheduler, which is `host.HostTasks.parallel`'s
+    // entry read once more: the same two strides and the same generated entry
+    // thunk, because the double drives the same trampoline. A test double that
+    // reached its steps some other way would be testing a different mechanism
+    // from the one that ships.
+    "host_testing.TestTasks.parallel",
     // The one operation whose subject is in neither a parameter nor the
     // receiver: `decode` is asked for a `T` and handed a `Json`. `T` reaches
     // the runtime as a descriptor, built in `build_fn`.
@@ -1963,8 +2102,10 @@ mod tests {
         bool.show bool.toJson \
         bytes.f32ToBytes bytes.f64ToBytes bytes.fromUtf8 bytes.toUtf8 \
         char.show char.toJson \
+        host.HostTasks.parallel \
         host.HostUi.memo host.HostUi.read host.HostUi.signal host.HostUi.write \
         host.HostWatch.read \
+        host_testing.TestTasks.parallel \
         json.decode \
         list.all list.any list.concat list.count list.drop list.empty \
         list.filter list.filterCtx list.find list.findIndex list.flatten \
@@ -2005,22 +2146,19 @@ mod tests {
     /// the concurrency work wants — and each would be type-erased at the
     /// boundary with nothing carrying the element type across.
     ///
-    /// **`host.HostTasks.parallel` is refused on purpose, and it exists.**
-    /// `core/host` declares `impl Tasks for HostTasks` today, and the method is
-    /// generic in `A` and `B`. It stays off the list because none of the three
-    /// carriers has been chosen for it: there is no runtime body, no stride and
-    /// no descriptor, so an entry here would be this file asserting an erasure
-    /// is sound when nobody has yet made it sound. Nothing reaches the key —
-    /// no platform grants `Tasks`, so no program can construct a `HostTasks` —
-    /// and the day one does, the ice names the exact question to answer. The
-    /// entry lands in the same commit as the carrier, which is the discipline
-    /// the whole list exists for.
+    /// **`tasks.parallel` is refused, and `core/tasks` exists.** That module's
+    /// `parallel` is ordinary Buri — it forwards to the effect method — so it
+    /// is a `Body`, not an `Intrinsic`, and this key is never minted. It stays
+    /// here because it is the shape a later slice would reach for if it moved
+    /// the forwarding into the runtime, and the answer would still be no until
+    /// that slice brought a carrier with it. The key that *is* minted is
+    /// `host.HostTasks.parallel`, which is on the list — with two strides and a
+    /// generated entry thunk behind it, in the commit that put them there.
     #[test]
     fn a_generic_intrinsic_outside_the_list_is_refused() {
         for key in [
             "list.chunk",
             "tasks.parallel",
-            "host.HostTasks.parallel",
             "str.splitInto",
             "host.HostUi.observe",
             "json.encodeAs",
@@ -2100,8 +2238,11 @@ mod tests {
     /// Everything else is out of scope, including the method's own generics.
     ///
     /// This is what keeps the correction from touching an argument that is
-    /// genuinely at the context's type: `Tasks.parallel<A, B>`'s `items: [A]`
-    /// is an ordinary use of `A`, whatever `A` was instantiated at.
+    /// genuinely at the context's type: `Tasks.parallel<C, A, B>`'s `ctx: C` is
+    /// an ordinary use of `C`, instantiated at the caller's context and meant to
+    /// stay there, and a correction that read the shape of a type rather than
+    /// the declaration would rewrite it to the implementation and hand every
+    /// step the scheduler.
     #[test]
     fn a_declaration_without_self_is_out_of_scope() {
         assert!(!mentions_self(&int()));
