@@ -188,11 +188,11 @@ fn check_const(c: &mut Checker, cid: ConstId) {
 /// (`expressions.rs`'s `Static::Context`). The second caller is what makes the
 /// order the ids were minted in stop mattering: a declaration built from
 /// another reads the base's recorded type, and the minting order is the order
-/// the modules were discovered in — so `context Fixture { ..Hermetic() }` in a
-/// file that is the first in its package to import `core/testing/context`
-/// used to be checked *before* `Hermetic` was, and quietly kept only the
-/// bindings it wrote itself. Every use of it then failed `unsatisfied-bound`
-/// for an effect the spread was supposed to supply.
+/// the modules were discovered in — so `context Fixture { ..Base() }` in a file
+/// that is the first in its package to import the module `Base` comes from used
+/// to be checked *before* `Base` was, and quietly kept only the bindings it
+/// wrote itself. Every use of it then failed `unsatisfied-bound` for an effect
+/// the spread was supposed to supply.
 ///
 /// [`Checker::ctx_decls_reached`] is what keeps this to once each: a second
 /// call returns, and so does a call that arrives round a cycle

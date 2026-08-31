@@ -2953,7 +2953,7 @@ export fn main(): Result<(), Str> {
 /// one — it allocates through `buri_rt_alloc` and reads no capability. The two
 /// readings agree for every context built from `core/host`, whose
 /// implementations are all empty structs, and they part company at
-/// `core/testing/context`, whose `TestAlloc` is `struct TestAlloc(I64)` and
+/// `core/host/testing`, whose `TestAlloc` is `struct TestAlloc(I64)` and
 /// carries a handle. Spreading that word into a C signature with no parameter
 /// for it shifts every argument after it by one register, which links and runs
 /// and answers garbage.
@@ -2971,9 +2971,9 @@ fn a_stateful_context_is_dropped_at_the_runtime_boundary() {
 from "core/effect/lib.buri" import { Region };
 from "core/list/lib.buri" import * as list;
 
-/// The shape `core/testing/context`'s `TestAlloc` has: a handle, because Buri
+/// The shape `core/host/testing`'s `TestAlloc` has: a handle, because Buri
 /// has no mutation and the state an allocator names lives elsewhere. Written
-/// out here rather than imported, because `core/testing/context` is importable
+/// out here rather than imported, because `core/host/testing` is importable
 /// only from a test source and the hazard is the *weight*, not the module.
 struct Arena { handle: Int }
 impl Alloc for Arena {

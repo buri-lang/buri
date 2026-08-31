@@ -406,7 +406,7 @@ fn the_filesystem_effect_works() {
 /// filesystem.
 ///
 /// `conformance/lib/semantics/test/effects.buri` runs the same sequence against
-/// `MemFs` on both backends. Two implementations of one story is the whole
+/// the `fs()` double on both backends. Two implementations of one story is the whole
 /// argument for a fake: a divergence is a failure in one of them rather than a
 /// difference between two sets of assertions.
 #[test]

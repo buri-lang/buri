@@ -1184,7 +1184,7 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
 ///
 /// This is the seed of the `can_park` column, and it is a list of *keys*
 /// rather than of effects on purpose. `Fs` is an effect; `host.HostFs` and
-/// `testing_context.MemFs` are two implementations of it, and only the first
+/// `host_testing.TestFs` are two implementations of it, and only the first
 /// one waits. A per-instantiation answer can tell them apart because they are
 /// different `Func` slots, and that difference is the whole point of asking
 /// the question here rather than at the signature.
@@ -1232,7 +1232,7 @@ fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
 /// The graph is the *post-monomorphization* one, so every column is per
 /// instantiation. `can_park` is the one that needs that: `fs.readText` at a
 /// context binding `host.HostFs` and `fs.readText` at one binding
-/// `testing_context.MemFs` are two `Func` slots reached from two `Key::Fn`
+/// `host_testing.TestFs` are two `Func` slots reached from two `Key::Fn`
 /// entries, and only the first reaches a call that waits.
 fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>, Vec<bool>) {
     let mut purity: Vec<ir::Purity> = program
@@ -4327,7 +4327,7 @@ export fn main(): Result<(), Str> {
     ///
     /// `fs.readText<C: Alloc + Fs>` at a context binding `host.HostFs` reaches
     /// a call that waits on a disk; the same source at the hermetic test
-    /// context reaches `testing_context.MemFs`, which is a page of memory.
+    /// context reaches `host_testing.TestFs`, which is a page of memory.
     /// Monomorphization has already made them two `Func` slots, so the
     /// fixpoint separates them with no further analysis.
     #[test]
@@ -4335,9 +4335,9 @@ export fn main(): Result<(), Str> {
         let program = hand_built(vec![
             body_func("main", calls(&[1, 2])),
             body_func("fs:readText<HostFs>", calls(&[3])),
-            body_func("fs:readText<MemFs>", calls(&[4])),
+            body_func("fs:readText<TestFs>", calls(&[4])),
             intrinsic_func("HostFs.readFile", "host.HostFs.readFile"),
-            intrinsic_func("MemFs.readFile", "testing_context.MemFs.readFile"),
+            intrinsic_func("TestFs.readFile", "host_testing.TestFs.readFile"),
         ]);
         let parks = parked(&program);
         assert!(parks[1], "`readText` at `host.HostFs` waits on the disk");
@@ -4365,8 +4365,8 @@ export fn main(): Result<(), Str> {
             "host.HostClock.nowMillis",
             "host.HostStdout.println",
             "host.HostRand.nextInt",
-            "testing_context.MemFs.readFile",
-            "testing_context.TestClock.sleepMillis",
+            "host_testing.TestFs.readFile",
+            "host_testing.TestClock.sleepMillis",
             "derivePrimHash",
         ] {
             assert!(!suspends(key), "{key} does not block");
@@ -4415,7 +4415,7 @@ export fn main(): Result<(), Str> {
             body_func("waits", calls(&[3])),
             body_func("does not", calls(&[4])),
             intrinsic_func("HostFs.readFile", "host.HostFs.readFile"),
-            intrinsic_func("MemFs.readFile", "testing_context.MemFs.readFile"),
+            intrinsic_func("TestFs.readFile", "host_testing.TestFs.readFile"),
         ]);
         for plan in [run(&program), sharing(&program)] {
             let waits = plan.func(FuncIdx(1)).expect("a plan");

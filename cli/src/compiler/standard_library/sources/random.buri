@@ -1,7 +1,7 @@
 //! core/random — randomness.
 //!
 //! A seeded implementation is what makes a failing test reproduce, which is why
-//! the test platform's `randSeed(Int)` is an ordinary implementation of the
+//! the test platform's `rand().seed(Int)` is an ordinary implementation of the
 //! same effect.
 
 from "core/effect/lib.buri" import { Rand };

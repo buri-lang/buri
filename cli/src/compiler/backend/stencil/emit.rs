@@ -1572,14 +1572,13 @@ impl<'a> Jit<'a> {
             }
             // The test allocator is a **handle**, and `TestAlloc.allocate`
             // answers the byte count it was asked for. Both are
-            // `llvm/emit.rs`'s arms exactly: `core/testing/context`'s
-            // `alloc` reads no state, so the handle is zero and the allocation
-            // is the request.
-            "testing_context.alloc" | "host_testing.alloc" => {
+            // `llvm/emit.rs`'s arms exactly: `alloc` reads no state, so the
+            // handle is zero and the allocation is the request.
+            "host_testing.alloc" => {
                 let Some(d) = dests.first().map(|v| st.at(*v)) else { return };
                 self.imm_to(d, 0);
             }
-            "testing_context.TestAlloc.allocate" | "host_testing.TestAlloc.allocate" => {
+            "host_testing.TestAlloc.allocate" => {
                 let (Some(d), Some(n)) = (
                     dests.first().map(|v| st.at(*v)),
                     args.get(1).map(|v| st.at(*v)),
@@ -2502,16 +2501,14 @@ impl<'a> Jit<'a> {
             return;
         }
         // The test allocator, as a runtime-supplied body rather than as an
-        // intrinsic call: `core/testing/context`'s `alloc` reads no state, so
-        // the handle is zero and `allocate` answers the request.
-        if key == "testing_context.alloc" || key == "host_testing.alloc" {
+        // intrinsic call: `alloc` reads no state, so the handle is zero and
+        // `allocate` answers the request.
+        if key == "host_testing.alloc" {
             self.imm_to(ret0, 0);
             self.emit("ret", &[]);
             return;
         }
-        if key == "testing_context.TestAlloc.allocate"
-            || key == "host_testing.TestAlloc.allocate"
-        {
+        if key == "host_testing.TestAlloc.allocate" {
             self.mv(ret0, p(1), 8);
             self.emit("ret", &[]);
             return;
@@ -3785,8 +3782,6 @@ fn open_coded_key(key: &str) -> bool {
         "list.len"
             | "list.empty"
             | "str.concat"
-            | "testing_context.alloc"
-            | "testing_context.TestAlloc.allocate"
             | "host_testing.alloc"
             | "host_testing.TestAlloc.allocate"
             | "str.len"
