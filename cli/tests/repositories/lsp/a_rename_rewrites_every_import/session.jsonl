@@ -4,7 +4,7 @@
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # The binary imports `//lib/shop`, which the rename does not move — so nothing
 # the server is about to return touches this buffer.
-{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "from \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\nfrom \"//lib/shop\" import { Item, listing, subtotal, defaultPrice };\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let plain: Item = listing(\"plain\", defaultPrice);\n  let _ = ctx.println(\"total: ${subtotal([plain]).show(ctx)}\");\n  .Ok(())\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "from \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\nfrom \"core/io\" import * as io;\n\nfrom \"//lib/shop\" import { Item, listing, subtotal, defaultPrice };\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let plain: Item = listing(\"plain\", defaultPrice);\n  let _ = io.println(ctx, \"total: ${subtotal([plain]).show(ctx)}\").ignore();\n  .Ok(())\n}\n"}}}
 # `catalog.buri` is about to become `inventory.buri`. Two files name it —
 # `cart.buri` imports it and `lib.buri` re-exports it — and `lib/shop`'s build
 # file lists it. All three are the server's answer.

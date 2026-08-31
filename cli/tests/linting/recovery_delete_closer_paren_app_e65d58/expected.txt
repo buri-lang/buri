@@ -1,0 +1,52 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_delete_closer_paren_app_e65d58/main.buri:16:20
+   |
+16 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: a `Result` may not be discarded [result-discarded]
+  --> lib/recovery_delete_closer_paren_app_e65d58/main.buri:41:3
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label)).ignore();
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
+error: `rendered` takes 3 arguments, but 2 were given [wrong-argument-count]
+  --> lib/recovery_delete_closer_paren_app_e65d58/main.buri:41:27
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label)).ignore();
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 2
+   = fix: pass the context: the convention is receiver first, context second, everything else after
+error: `format` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> lib/recovery_delete_closer_paren_app_e65d58/main.buri:41:53
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label)).ignore();
+   |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
+error: `Str` has no method `ignore` [no-such-method]
+  --> lib/recovery_delete_closer_paren_app_e65d58/main.buri:41:85
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label)).ignore();
+   |                                                                                     ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_e65d58/main.buri:41:93
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label)).ignore();
+   |                                                                                             ^
+   |
+  --> lib/recovery_delete_closer_paren_app_e65d58/main.buri:41:21
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>", label)).ignore();
+   |                     ^ opened here
+   |
+   = fix: write `)` here

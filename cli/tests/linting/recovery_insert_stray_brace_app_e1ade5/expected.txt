@@ -28,7 +28,7 @@ error: `Stdout` is not a declared effect [not-an-effect]
 error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
   --> lib/recovery_insert_stray_brace_app_e1ade5/main.buri:14:11
    |
-14 |   let _ = io.println(ctx, banner());
+14 |   let _ = io.println(ctx, banner()).ignore();
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Stdout`, or use a type that has one

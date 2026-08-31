@@ -3463,7 +3463,7 @@ fn go(n: Int, acc: Int): Int {{
     let h = "ab".repeat(host.alloc, 3);
     let p = (h, h);
     let s = str.format(host.alloc, "[${{p.0}}][${{p.1}}]");
-    let _ = host.stdout.println("${{n}}");
+    let _ = io.println(host.stdout, "${{n}}").ignore();
     go(n - 1, acc + s.len())
   }}
 }}

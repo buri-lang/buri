@@ -1,0 +1,28 @@
+error: there is no type `fnextra` [unresolved-type]
+  --> lib/recovery_insert_stray_paren_expected_d6f05d/main.buri:32:39
+   |
+32 | fn rendered<C: Alloc>(ctx: C, render: fnextra (C, Str) => Str, label: Str): Str {
+   |                                       ^^^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_expected_d6f05d/main.buri:32:47
+   |
+32 | fn rendered<C: Alloc>(ctx: C, render: fnextra (C, Str) => Str, label: Str): Str {
+   |                                               ^
+   |
+  --> lib/recovery_insert_stray_paren_expected_d6f05d/main.buri:32:22
+   |
+32 | fn rendered<C: Alloc>(ctx: C, render: fnextra (C, Str) => Str, label: Str): Str {
+   |                      ^ opened here
+   |
+   = fix: write `)` here
+error: `rendered` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> lib/recovery_insert_stray_paren_expected_d6f05d/main.buri:41:27
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).ignore();
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2

@@ -6,15 +6,29 @@ warning: this branch is nested 5 levels deep [deep-nesting]
    |
    = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
    = fix: pull the inner branch into a named function, or replace the ladder with one `match`
-error: this call is missing its closing `)` [unclosed-delimiter]
-  --> lib/recovery_delete_closer_brace_app_946214/main.buri:27:55
+error: a `Result` may not be discarded [result-discarded]
+  --> lib/recovery_delete_closer_brace_app_946214/main.buri:27:3
    |
-27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1)}";
-   |                                                       ^
+27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1)}".ignore();
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
+error: `Template` has no method `ignore` [no-such-method]
+  --> lib/recovery_delete_closer_brace_app_946214/main.buri:27:56
+   |
+27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1)}".ignore();
+   |                                                        ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/num` lists every method `Template` has, and one may not be added to it from outside `core/num`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_946214/main.buri:27:64
+   |
+27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1)}".ignore();
+   |                                                                ^
    |
   --> lib/recovery_delete_closer_brace_app_946214/main.buri:27:21
    |
-27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1)}";
+27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1)}".ignore();
    |                     ^ opened here
    |
    = fix: write `)` here

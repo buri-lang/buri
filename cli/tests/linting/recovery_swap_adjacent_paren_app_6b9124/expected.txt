@@ -1,0 +1,29 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_swap_adjacent_paren_app_6b9124/main.buri:16:20
+   |
+16 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_paren_app_6b9124/main.buri:41:48
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l=> ) str.format(c, "<${l}>"), label)).ignore();
+   |                                                ^^
+   |
+  --> lib/recovery_swap_adjacent_paren_app_6b9124/main.buri:41:43
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l=> ) str.format(c, "<${l}>"), label)).ignore();
+   |                                           ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `str` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_app_6b9124/main.buri:41:53
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l=> ) str.format(c, "<${l}>"), label)).ignore();
+   |                                                     ^^^
+   |
+   = expected: `=>`
+   = actual: `str`
+   = fix: write `=>` here

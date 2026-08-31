@@ -1,0 +1,37 @@
+error: expected `=`, found `extra` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_expected_687fde/main.buri:38:13
+   |
+38 |   let label extra = "ledger";
+   |             ^^^^^
+   |
+   = expected: `=`
+   = actual: `extra`
+   = fix: write `=` here
+error: there is nothing named `label` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_expected_687fde/main.buri:39:25
+   |
+39 |   let _ = announce(ctx, label);
+   |                         ^^^^^
+   |
+   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `label` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_expected_687fde/main.buri:40:42
+   |
+40 |   let _ = io.println(ctx, "${banner(ctx, label)} is ${width(label)} wide").ignore();
+   |                                          ^^^^^
+   |
+   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `label` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_expected_687fde/main.buri:40:61
+   |
+40 |   let _ = io.println(ctx, "${banner(ctx, label)} is ${width(label)} wide").ignore();
+   |                                                             ^^^^^
+   |
+   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `label` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_expected_687fde/main.buri:41:78
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).ignore();
+   |                                                                              ^^^^^
+   |
+   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports

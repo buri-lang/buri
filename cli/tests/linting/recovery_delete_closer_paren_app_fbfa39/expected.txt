@@ -9,20 +9,20 @@ warning: this branch is nested 5 levels deep [deep-nesting]
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_paren_app_fbfa39/main.buri:27:52
    |
-27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1}");
+27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1}").ignore();
    |                                                    ^^
    |
   --> lib/recovery_delete_closer_paren_app_fbfa39/main.buri:27:50
    |
-27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1}");
+27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1}").ignore();
    |                                                  ^ opened here
    |
    = fix: write `)` here
 error: expected the rest of the string, found `;` [unexpected-token]
-  --> lib/recovery_delete_closer_paren_app_fbfa39/main.buri:27:55
+  --> lib/recovery_delete_closer_paren_app_fbfa39/main.buri:27:64
    |
-27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1}");
-   |                                                       ^
+27 |   let _ = io.println(ctx, "${size(5000)} ${ladder(1}").ignore();
+   |                                                                ^
    |
    = expected: the rest of the string
    = actual: `;`

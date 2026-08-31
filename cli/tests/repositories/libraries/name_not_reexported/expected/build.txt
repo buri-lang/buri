@@ -1,7 +1,7 @@
 error: "//lib/money" does not export `rawValue` [no-such-export]
- --> cmd/app/main.buri:8:40
+ --> cmd/app/main.buri:9:40
   |
-8 | from "//lib/money" import { fromCents, rawValue };
+9 | from "//lib/money" import { fromCents, rawValue };
   |                                        ^^^^^^^^
   |
   = fix: check the spelling, or re-export `rawValue` from "//lib/money"'s `lib.buri`
@@ -21,10 +21,10 @@ error: "//lib/money" does not export `rawValue` [no-such-export]
     surface can never be wider than the modules it is built from.
 
 error: there is nothing named `rawValue` in scope [unresolved-name]
-  --> cmd/app/main.buri:12:26
+  --> cmd/app/main.buri:13:30
    |
-12 |   let _ = ctx.println("${rawValue(fromCents(450))}");
-   |                          ^^^^^^^^
+13 |   let _ = io.println(ctx, "${rawValue(fromCents(450))}").ignore();
+   |                              ^^^^^^^^
    |
    = fix: declare `rawValue`, or import it — a name is in scope only from this module's own declarations and its imports
 

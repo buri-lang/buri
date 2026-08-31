@@ -10,6 +10,6 @@ from "core/io" import * as io;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   total let = 3 * 4;
-  let _ = io.println(ctx, "done");
+  let _ = io.println(ctx, "done").ignore();
   .Ok(())
 }

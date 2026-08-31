@@ -1,0 +1,50 @@
+error: there is nothing named `describe` in scope [unresolved-name]
+  --> lib/recovery_delete_closer_module_app_86c1ba/main.buri:12:27
+   |
+12 |   let _ = io.println(ctx, describe()).ignore();
+   |                           ^^^^^^^^
+   |
+   = fix: declare `describe`, or import it — a name is in scope only from this module's own declarations and its imports
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_delete_closer_module_app_86c1ba/main.buri:13:3
+   |
+13 |   .Ok(())
+   |   ^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: `.Ok` needs a known expected type [unannotated-variant]
+  --> lib/recovery_delete_closer_module_app_86c1ba/main.buri:13:3
+   |
+13 |   .Ok(())
+   |   ^^^
+   |
+   = fix: write the qualified form, as in `Option.Ok(...)`, or annotate what this value is being used as
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_closer_module_app_86c1ba/main.buri:13:10
+   |
+13 |   .Ok(())
+   |          ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `describe` [unexpected-token]
+  --> lib/recovery_delete_closer_module_app_86c1ba/main.buri:16:4
+   |
+16 | fn describe(): Str {
+   |    ^^^^^^^^
+   |
+   = expected: `(`
+   = actual: `describe`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_86c1ba/main.buri:20:1
+   |
+20 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_app_86c1ba/main.buri:10:35
+   |
+10 | export fn main(): Result<(), Str> {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here

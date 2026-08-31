@@ -12,6 +12,11 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
     };
 
-    let _ = io.println(ctx, greeting()).ignore();
-    .Ok(())
+    // An effect is performed by handing the context to a function, and printing
+    // answers `Result<(), IoError>` — a closed pipe is a thing that happens. A
+    // program that does not care writes `.ignore()`; this one says so instead.
+    match (io.println(ctx, greeting())) {
+        .Ok(_) => .Ok(()),
+        .Err(_) => .Err("could not write to standard output"),
+    }
 }

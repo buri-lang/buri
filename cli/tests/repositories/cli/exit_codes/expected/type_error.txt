@@ -1,8 +1,8 @@
 error: there is nothing named `notAName` in scope [unresolved-name]
- --> cmd/ok/main.buri:6:23
+ --> cmd/ok/main.buri:7:27
   |
-6 |   let _ = ctx.println(notAName);
-  |                       ^^^^^^^^
+7 |   let _ = io.println(ctx, notAName).ignore();
+  |                           ^^^^^^^^
   |
   = fix: declare `notAName`, or import it — a name is in scope only from this module's own declarations and its imports
 

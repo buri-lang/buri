@@ -10,7 +10,7 @@ error: expected a pattern, found `,` [unexpected-token]
 error: there is nothing named `ctx` in scope [unresolved-name]
   --> lib/recovery_insert_stray_brace_app_51ced2/main.buri:13:22
    |
-13 |   let _ = io.println(ctx, "done");
+13 |   let _ = io.println(ctx, "done").ignore();
    |                      ^^^
    |
    = fix: declare `ctx` as a parameter of this function

@@ -9,7 +9,7 @@ warning: `total` takes 6 parameters [too-many-parameters]
 error: a call argument ends with `,` [missing-separator]
   --> lib/recovery_delete_separator_paren_app_9474ad/main.buri:15:37
    |
-15 |   let _ = io.println(ctx, "${total(1 2, 3, 4, 5, 6)}");
+15 |   let _ = io.println(ctx, "${total(1 2, 3, 4, 5, 6)}").ignore();
    |                                     ^
    |
    = fix: write `,` here

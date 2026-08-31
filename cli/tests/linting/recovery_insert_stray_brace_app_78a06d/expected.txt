@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_78a06d/main.buri:13:42
+   |
+13 |   let _ = io.println(ctx, "done").ignore(@ );
+   |                                          ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

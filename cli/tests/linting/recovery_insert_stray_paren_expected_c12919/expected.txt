@@ -1,0 +1,9 @@
+error: expected an identifier, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_expected_c12919/main.buri:41:47
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, ? l) => str.format(c, "<${l}>"), label)).ignore();
+   |                                               ^
+   |
+   = expected: an identifier
+   = actual: `?`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

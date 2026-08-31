@@ -1,7 +1,7 @@
 warning: `leftover` is bound and never used [unused-variable]
-  --> cmd/app/main.buri:12:7
+  --> cmd/app/main.buri:13:7
    |
-12 |   let leftover = 1;
+13 |   let leftover = 1;
    |       ^^^^^^^^
    |
    = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not

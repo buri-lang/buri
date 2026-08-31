@@ -1,0 +1,16 @@
+error: expected an identifier, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_app_f85b93/main.buri:9:18
+  |
+9 | fn total(a: I64, , b: I64, c: I64, d: I64, e: I64, f: I64): I64 {
+  |                  ^
+  |
+  = expected: an identifier
+  = actual: `,`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `total` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_app_f85b93/main.buri:15:30
+   |
+15 |   let _ = io.println(ctx, "${total(1, 2, 3, 4, 5, 6)}").ignore();
+   |                              ^^^^^
+   |
+   = fix: declare `total`, or import it — a name is in scope only from this module's own declarations and its imports

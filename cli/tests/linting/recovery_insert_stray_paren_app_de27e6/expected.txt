@@ -10,7 +10,7 @@ error: expected a type, found `@` [unexpected-token]
 error: there is nothing named `total` in scope [unresolved-name]
   --> lib/recovery_insert_stray_paren_app_de27e6/main.buri:15:30
    |
-15 |   let _ = io.println(ctx, "${total(1, 2, 3, 4, 5, 6)}");
+15 |   let _ = io.println(ctx, "${total(1, 2, 3, 4, 5, 6)}").ignore();
    |                              ^^^^^
    |
    = fix: declare `total`, or import it — a name is in scope only from this module's own declarations and its imports

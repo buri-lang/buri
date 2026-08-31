@@ -2468,14 +2468,68 @@ fn only_separators(text: &str, from: usize, to: usize, spans: &[Span]) -> bool {
 /// `core/result.ignore` — the greppable escape hatch. This is the grep,
 /// promoted to a warning so it appears in a report rather than only when
 /// somebody thinks to look.
+///
+/// **A print is the exception, and it is the exception that keeps the rule
+/// usable.** `Stdout` and `Stderr` answer `Result<(), IoError>` because a
+/// closed pipe is a thing that happens, so almost every line a program writes
+/// is now a `Result` — and the failure a print reports is the one a program
+/// can least act on, because the stream it would report the failure *on* is
+/// the stream that failed. `io.println(ctx, x).ignore()` is therefore
+/// punctuation rather than a decision, and a report dominated by it is a
+/// report nobody reads. `fs.writeText(...).ignore()` is still reported: a
+/// failed write is a failure somebody chose not to look at.
 fn check_discarded_results(
     own: PackageId,
     analysis: &crate::compiler::driver::Analysis,
     diagnostics: &mut Diagnostics,
 ) {
-    for (span, _) in calls_into(analysis, own, "core/result", &["ignore"]) {
+    let mine = modules_of(analysis, own);
+    let mut spans = Vec::new();
+    for (fid, body) in &analysis.checked.bodies {
+        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) {
+            continue;
+        }
+        crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
+            let typed::ExprKind::CallFn { func, args } = &e.kind else { return };
+            let Some(called) = func.decl() else { return };
+            if !names_function(analysis, called, "core/result", "ignore") {
+                return;
+            }
+            // The receiver is `ignore`'s `self`, so a dropped print is a call
+            // into `core/io` sitting in the first argument.
+            if args.first().is_some_and(|recv| calls_core_io(analysis, recv)) {
+                return;
+            }
+            spans.push(e.span);
+        });
+    }
+    spans.sort_by_key(|s| (s.file.0, s.start));
+    for span in spans {
         diagnostics.push(Diagnostic::templated("discarded-result", span));
     }
+}
+
+/// Whether `fid` is the named function of the named module.
+fn names_function(
+    analysis: &crate::compiler::driver::Analysis,
+    fid: FnId,
+    module: &str,
+    name: &str,
+) -> bool {
+    let info = analysis.checked.tables.fn_info(fid);
+    if info.name != name {
+        return false;
+    }
+    analysis.loaded.modules.get(info.module.index()).is_some_and(|m| m.path == module)
+}
+
+/// Whether this expression is a call to one of `core/io`'s functions — the
+/// receiver shape [`check_discarded_results`] exempts.
+fn calls_core_io(analysis: &crate::compiler::driver::Analysis, e: &typed::Expr) -> bool {
+    let typed::ExprKind::CallFn { func, .. } = &e.kind else { return false };
+    let Some(called) = func.decl() else { return false };
+    let info = analysis.checked.tables.fn_info(called);
+    analysis.loaded.modules.get(info.module.index()).is_some_and(|m| m.path == "core/io")
 }
 
 /// `test-without-assertion`. Read syntactically — "the body contains no
@@ -2541,36 +2595,6 @@ fn check_tests_assert(
                 .with_bind("quoted_title", format!("{:?}", case.name)),
         );
     }
-}
-
-/// Every call site in `own`'s code that lands on one of `names` in `module`.
-fn calls_into(
-    analysis: &crate::compiler::driver::Analysis,
-    own: PackageId,
-    module: &str,
-    names: &[&str],
-) -> Vec<(Span, String)> {
-    let mine = modules_of(analysis, own);
-    let mut out = Vec::new();
-    for (fid, body) in &analysis.checked.bodies {
-        if !mine.contains(&analysis.checked.tables.fn_info(*fid).module) {
-            continue;
-        }
-        crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
-            let called = match &e.kind {
-                typed::ExprKind::CallFn { func, .. } => func.decl(),
-                _ => return,
-            };
-            let Some(called) = called else { return };
-            let info = analysis.checked.tables.fn_info(called);
-            let Some(m) = analysis.loaded.modules.get(info.module.index()) else { return };
-            if m.path == module && names.contains(&info.name.as_str()) {
-                out.push((e.span, info.name.clone()));
-            }
-        });
-    }
-    out.sort_by_key(|(session, _)| (session.file.0, session.start));
-    out
 }
 
 /// Every library a package's own code reaches through a resolved call, which

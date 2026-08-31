@@ -1,0 +1,33 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_expected_0607a5/main.buri:41:49
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l => str.format(c, "<${l}>"), label)).ignore();
+   |                                                 ^^
+   |
+  --> lib/recovery_delete_closer_paren_expected_0607a5/main.buri:41:43
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l => str.format(c, "<${l}>"), label)).ignore();
+   |                                           ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `)` [unexpected-token]
+  --> lib/recovery_delete_closer_paren_expected_0607a5/main.buri:41:83
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l => str.format(c, "<${l}>"), label)).ignore();
+   |                                                                                   ^
+   |
+   = expected: `=>`
+   = actual: `)`
+   = fix: write `=>` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_expected_0607a5/main.buri:44:1
+   |
+44 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_expected_0607a5/main.buri:36:35
+   |
+36 | export fn main(): Result<(), Str> {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here

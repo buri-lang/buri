@@ -1,7 +1,7 @@
 error: expected an expression, found `,` [unexpected-token]
   --> lib/recovery_insert_stray_paren_stamp_cc469f/lib.buri:18:19
    |
-18 |   io.println(ctx, , "-- ${label}")
+18 |   io.println(ctx, , "-- ${label}").ignore()
    |                   ^
    |
    = expected: an expression

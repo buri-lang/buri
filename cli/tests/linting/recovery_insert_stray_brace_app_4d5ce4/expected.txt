@@ -1,0 +1,12 @@
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_app_4d5ce4/main.buri:15:9
+   |
+15 |         , } else { "big" }
+   |         ^
+   |
+  --> lib/recovery_insert_stray_brace_app_4d5ce4/main.buri:13:23
+   |
+13 |         if (n > 1000) {
+   |                       ^ opened here
+   |
+   = fix: write `}` here

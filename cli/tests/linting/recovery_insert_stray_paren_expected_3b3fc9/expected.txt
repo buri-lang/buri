@@ -1,0 +1,16 @@
+error: expected `fn(a context, Str) => Str`, found `fn(_8, _12, _10) => Str` [type-mismatch]
+  --> lib/recovery_insert_stray_paren_expected_3b3fc9/main.buri:41:41
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(extra c, l) => str.format(c, "<${l}>"), label)).ignore();
+   |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `fn(a context, Str) => Str`
+   |
+   = expected: `fn(a context, Str) => Str`
+   = actual: `fn(_8, _12, _10) => Str`
+   = fix: produce a `fn(a context, Str) => Str` here, or change what surrounds it to accept a `fn(_8, _12, _10) => Str`
+error: a lambda parameter ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_paren_expected_3b3fc9/main.buri:41:49
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(extra c, l) => str.format(c, "<${l}>"), label)).ignore();
+   |                                                 ^
+   |
+   = fix: write `,` here

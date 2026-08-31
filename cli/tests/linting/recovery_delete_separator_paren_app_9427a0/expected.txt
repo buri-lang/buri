@@ -9,7 +9,7 @@ warning: this comment is marked `TODO` [warning-comment]
 error: a call argument ends with `,` [missing-separator]
   --> lib/recovery_delete_separator_paren_app_9427a0/main.buri:14:25
    |
-14 |   let _ = io.println(ctx banner());
+14 |   let _ = io.println(ctx banner()).ignore();
    |                         ^
    |
    = fix: write `,` here
