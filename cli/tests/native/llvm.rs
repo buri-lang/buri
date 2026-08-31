@@ -1479,6 +1479,61 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// `derivePrimJson.Str` takes a count of its own, and it balances.
+///
+/// The twin of `stencil.rs::nothing_is_leaked`'s fourth shape, and it is here
+/// rather than folded into a wider test because the count is *this backend's*
+/// decision: `middle::rc`'s plan releases the argument at its last use, because
+/// its contract is that a runtime intrinsic borrows (`rc.rs`'s header), and
+/// `emit::json_prim` is what makes the `Json` that kept the block own one. Miss
+/// the `incref` and this is a double free of a block `noteText` still reads;
+/// add one with no matching release and the probe reports a leak. One test
+/// sees both, because both move `live` off zero.
+///
+/// The `Str` is `repeat`'s and not a literal, for the reason
+/// `the_two_pipelines_agree_about_a_shared_heap_strings_count` says: a
+/// literal's `base` is null and its count is nobody's, so a literal here would
+/// pass with no `incref` at all.
+#[test]
+fn a_json_string_leaf_balances_its_own_count() {
+    skip_unless_executable!();
+    let (out, err, code) = build_and_run_with(
+        "tojson-count",
+        &program(
+            r#"
+from "core/json/lib.buri" import { Json, ToJson };
+
+export struct Note { text: Str }
+derive ToJson for Note;
+
+fn noteText(j: Json): Str {
+  match (j) {
+    .Object(entries) => match (entries) {
+      [] => "none",
+      [first, ..] => {
+        let (_k, v) = first;
+        match (v) { .Str(s) => s, _ => "not a string" }
+      },
+    },
+    _ => "not an object",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let encoded = Note { text: "ab".repeat(ctx, 3) }.toJson(ctx);
+  let _ = ctx.println(noteText(encoded));
+  .Ok(())
+}
+"#,
+        ),
+        Some(LIVE_PROBE),
+    );
+    assert_eq!(out, "ababab\n", "stderr was: {err}");
+    assert_eq!(code, Some(0), "stderr was: {err}");
+    assert_eq!(live_blocks(&err), 0, "a `Json` holding a heap `Str` leaked: {err:?}");
+}
+
 /// G2: a reference operation is two counts behind one branch on `cap`'s bit 63.
 ///
 /// The assertion is on the *emitted* IR rather than the optimized IR, because
@@ -2025,7 +2080,7 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-use crate::shared::{probed, Ran, ALLOC_PROBE};
+use crate::shared::{probed, ALLOC_PROBE};
 
 /// MEMORY.md §5.3, pinned by allocation count on this backend too.
 ///
