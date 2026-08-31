@@ -2521,23 +2521,33 @@ export fn main(): Result<(), Str> {
     );
 }
 
-/// **A handler a wrapper rebuilt is entered, and is handed the wrapper.**
+/// **A request handler entered through a wrapper is handed the wrapper.**
 ///
-/// `core/alloc`'s `Scoped<C>` cannot forward `Listen` the way it forwards the
-/// other twelve effects: `listen` hands its handler `Self`, which is
-/// `Scoped<C>` at the wrapper and the acceptor inside it, so the wrapper has to
-/// *rebuild* the handler — put the scope back around whatever the acceptor
-/// hands out. Wave-8 G4 found that shape faulting under the stencil backend
-/// with SIGBUS before a line was flushed, and narrowed it with three flips: a
-/// zero-sized implementation passes, an acceptor that refuses passes, and the
-/// same wrapper reached without the generic callback passes.
+/// This row was written for a fault, and it outlived it. Wave-8 G4 found
+/// `core/alloc`'s `Scoped<C>` faulting under the stencil backend with SIGBUS
+/// before a line was flushed, because `Listen.listen` then took its request
+/// handler as a `Self`-spelled callback and *invoked* it: `Self` is `Scoped<C>`
+/// at the wrapper and the acceptor inside it, so the wrapper had to rebuild the
+/// handler, and monomorphization used to rebuild it at the wrong type. Three
+/// flips narrowed it — a zero-sized implementation passes, an acceptor that
+/// refuses passes, and the same wrapper without the generic callback passes.
 ///
-/// The program below is that repro with `core/alloc` taken out of it — every
-/// implementation is written here, so what is being pinned is the language
-/// shape and not one module's wrapper. `Plain` carries a word for the first
-/// flip's sake: a context whose bindings are all zero-sized is zero words wide
-/// and `Wrap<ctx>` and `Wrap<OneShot>` are then the same bytes, which is what
-/// hid this.
+/// **The effect no longer carries a handler.** `core/net/server`'s `run` owns
+/// the accept loop and calls `onRequest` itself, under the caller's own
+/// context, so no `Self`-spelled callback is left in the standard library and
+/// the compiler rule that fixed the fault — `middle/monomorphize.rs`'s
+/// `rewrite_call_args`, and `implementing_ty` beside it — is guarded by their
+/// own unit tests and by `semantics/expressions.rs`'s snippets, which declare
+/// an effect of their own for the purpose.
+///
+/// What stays testable here, and is what this row now pins, is the *value* the
+/// handler receives with the wrapper on the path: a `Wrap<C>` forwarding an
+/// effect whose results are aggregates, a handler written against a bound its
+/// own `C` declares and the acceptor does not, and a generic `wrapped(ctx,
+/// body)` in front of the whole thing. `Plain` still carries a word for the
+/// first flip's sake: a context whose bindings are all zero-sized is zero words
+/// wide, and `Wrap<ctx>` and `Wrap<OneShot>` are then the same bytes, which is
+/// what hid the original fault.
 #[test]
 fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
     rows_or_skip!();
@@ -2545,7 +2555,8 @@ fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
         "rebuilt handler",
         r#"
 from "core/effect" import {
-  Alloc, IoError, Listen, NetError, Region, Request, Response, Stdout,
+  Alloc, Header, IoError, Listen, Listener, Protocol, Region, Request, Response,
+  ServeError, Stdout,
 };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -2560,31 +2571,48 @@ impl Alloc for Plain {
   fn allocate(self, bytes: Int): Region { Region(bytes + self.n) }
 }
 
-/// An acceptor that calls its handler once, with a request naming the address.
+/// An acceptor that hands out one request naming the address it bound, takes
+/// one answer, and closes.
 struct OneShot {
   bindsTo: Str,
 }
 
 impl Listen for OneShot {
-  fn listen(
+  fn listenBind(
     self,
     address: Str,
     port: Int,
-    onRequest: fn(OneShot, Request) => Response,
-  ): Result<(), NetError> {
+    protocols: [Protocol],
+    requestLimit: Int,
+    idleTimeoutMillis: Int,
+  ): Result<Listener, ServeError> {
     match (self.bindsTo) {
-      "" => .Err(.Refused),
-      _ => {
-        let reply = onRequest(self, Request {
-          method: .Get,
-          url: address,
-          headers: [],
-          body: [],
-        });
-        match (reply.status) { 200 => .Ok(()), _ => .Err(.Refused) }
-      },
+      "" => .Err(ServeError { cause: .PermissionDenied, detail: "" }),
+      _ => .Ok(Listener { handle: 1, port: 8080 }),
     }
   }
+
+  fn listenAccept(self, handle: Int): Result<Request, ServeError> {
+    match (handle) {
+      1 => .Ok(Request { method: .Get, url: self.bindsTo, headers: [], body: [] }),
+      _ => .Err(ServeError { cause: .Closed, detail: "" }),
+    }
+  }
+
+  fn listenRespond(
+    self,
+    handle: Int,
+    status: Int,
+    headers: [Header],
+    body: [U8],
+  ): Result<(), ServeError> {
+    match (status) {
+      200 => .Err(ServeError { cause: .Closed, detail: "" }),
+      _ => .Err(ServeError { cause: .Transport, detail: "not 200" }),
+    }
+  }
+
+  fn listenClose(self, handle: Int): () { () }
 }
 
 /// The wrapper: unbounded in `C`, exactly like `Scoped<C>`.
@@ -2601,25 +2629,46 @@ impl<C: Stdout> Stdout for Wrap<C> {
 }
 
 impl<C: Listen> Listen for Wrap<C> {
-  fn listen(
+  fn listenBind(
     self,
     address: Str,
     port: Int,
-    onRequest: fn(Wrap<C>, Request) => Response,
-  ): Result<(), NetError> {
-    let tag = self.1;
-    self.0.listen(address, port, fn(c, request) => onRequest(Wrap(c, tag), request))
+    protocols: [Protocol],
+    requestLimit: Int,
+    idleTimeoutMillis: Int,
+  ): Result<Listener, ServeError> {
+    self.0.listenBind(address, port, protocols, requestLimit, idleTimeoutMillis)
   }
+
+  fn listenAccept(self, handle: Int): Result<Request, ServeError> {
+    self.0.listenAccept(handle)
+  }
+
+  fn listenRespond(
+    self,
+    handle: Int,
+    status: Int,
+    headers: [Header],
+    body: [U8],
+  ): Result<(), ServeError> {
+    self.0.listenRespond(handle, status, headers, body)
+  }
+
+  fn listenClose(self, handle: Int): () { self.0.listenClose(handle) }
 }
 
 /// A handler written against a bound, which is what a request handler is.
 fn served<C: Listen + Stdout>(ctx: C): Int {
-  let answered = server.listen(ctx, "10.0.0.1", 0, fn(c, request) => {
+  let answered = server.serve(ctx, server.Server {
+    port: 0,
+    address: .Some("10.0.0.1"),
     // The handler *uses* what it is handed, on a bound its own `C` declares
     // and the acceptor does not. A handler that ignored its first parameter
     // would pass whatever arrived.
-    let _ = io.println(c, "handler on ${request.url}").ignore();
-    Response { status: 200, headers: [], body: [] }
+    onRequest: fn(c, request) => {
+      let _ = io.println(c, "handler on ${request.url}").ignore();
+      Response { status: 200, headers: [], body: [] }
+    },
   });
   match (answered) { .Ok(_) => 1, .Err(_) => 0 }
 }

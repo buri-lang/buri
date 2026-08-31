@@ -1249,6 +1249,15 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
 /// a new blocking host operation belongs here on the day it is added.
 pub fn suspends(key: &str) -> bool {
     key.starts_with("host.HostFs.")
+        // Every `Listen` operation waits on something outside the program: a
+        // bind resolves a name, an accept waits for a client — the longest wait
+        // a program can make — and a respond writes to a socket a peer may be
+        // reading slowly. By prefix for `host.HostFs`'s reason, and because a
+        // fifth operation added here should not need an edit there to be
+        // correct. `host.HostSockets` is deliberately absent: a frame is
+        // enqueued rather than delivered, which is the whole of what
+        // `socketSendText` promises.
+        || key.starts_with("host.HostListen.")
         || matches!(
             key,
             "host.HostNet.fetch"

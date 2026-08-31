@@ -3022,24 +3022,22 @@ mod tests {
 
     /// Every error one snippet reports, through the real front end.
     ///
-    /// `analyze_snippet` loads the whole standard library, which is where
-    /// `Listen` and `Net` come from: an `effect` may be declared only by a
-    /// platform module, so a snippet cannot mint one, and these two are
-    /// granted by no platform — which does not stop an ordinary type from
-    /// satisfying them (SPEC 10.9) or a `context` from binding one.
+    /// **`Role::Platform` rather than `Role::Entry`**, and it buys these tests
+    /// two things at once. What they are about is `implementing_ty` — which
+    /// type `Self` stands for when an effect method is reached *through a
+    /// context value* — and the only way to write that call down is the method
+    /// form, which is legal in the standard library and in an `impl` that
+    /// supplies an effect, and nowhere else (`report_effect_method`). A
+    /// platform module is one of those two, and it may build a context
+    /// (SPEC 11.3), so the claim is written where it is still writable.
     ///
-    /// **`Role::Platform` rather than `Role::Entry`**, and that is the whole of
-    /// what the "no methods on a context" rule costs these tests. What they are
-    /// about is `implementing_ty` — which type `Self` stands for when an effect
-    /// method is reached *through a context value* — and the only way to write
-    /// that call down is the method form, which is now legal in the standard
-    /// library and in an `impl` that supplies an effect, and nowhere else
-    /// (`report_effect_method`). A platform module is one of those two, and it
-    /// may build a context (SPEC 11.3), so the claim is written where it is
-    /// still writable. Going through `core/net/server`'s wrapper instead would
-    /// test the wrapper: inside a generic body `Self` is the receiver, which is
-    /// the *other* half of the question and the one `shapes.buri`'s `serveOnce`
-    /// already pins.
+    /// The second thing is that a platform module may **declare an effect**,
+    /// which is why the snippet mints its own `Accept` rather than borrowing
+    /// one from `core/effect`. No standard-library effect spells `Self` in a
+    /// callback any more — `Listen` used to, and its request handler moved
+    /// into `core/net/server`'s own loop — so the rule outlived its last
+    /// in-tree instance, and a test that depended on one would have died with
+    /// it. The rule is about `Self`, not about servers.
     fn errors_of(src: &str) -> Vec<String> {
         let mut map = SourceMap::new();
         let analysis = crate::compiler::driver::analyze_snippet(
@@ -3067,18 +3065,17 @@ mod tests {
     fn snippet(handler: &str) -> String {
         format!(
             r#"
-from "core/effect" import {{ Listen, Net, NetError, Request, Response }};
+from "core/effect" import {{ Net, NetError, Request, Response }};
+
+effect Accept {{
+  fn accept(self, address: Str, onRequest: fn(Self, Request) => Response): Bool;
+}}
 
 struct Server {{ mark: Int }}
 
-impl Listen for Server {{
-  fn listen(
-    self,
-    address: Str,
-    port: Int,
-    onRequest: fn(Self, Request) => Response,
-  ): Result<(), NetError> {{
-    .Ok(())
+impl Accept for Server {{
+  fn accept(self, address: Str, onRequest: fn(Self, Request) => Response): Bool {{
+    true
   }}
 }}
 
@@ -3091,14 +3088,14 @@ impl Net for Caller {{
 }}
 
 export fn main(): Result<(), Str> {{
-  let ctx = context {{ Listen: Server {{ mark: 7 }}, Net: Caller {{}} }};
-  match (ctx.listen("a", 0, fn(acceptor, request) => Response {{
+  let ctx = context {{ Accept: Server {{ mark: 7 }}, Net: Caller {{}} }};
+  match (ctx.accept("a", fn(acceptor, request) => Response {{
     status: {handler},
     headers: [],
     body: [],
   }})) {{
-    .Ok(_) => .Ok(()),
-    .Err(_) => .Err("refused"),
+    true => .Ok(()),
+    false => .Err("refused"),
   }}
 }}
 "#

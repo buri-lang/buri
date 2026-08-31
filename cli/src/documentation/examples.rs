@@ -552,15 +552,14 @@ pub fn rendered(body: &str) -> String {
 /// The set is what a fence's generated `main` can actually *bind*, which is a
 /// smaller thing than what `core/effect` declares. The three UI effects are
 /// absent because a fence builds no output and so has no platform, and a fence
-/// naming one would fail at a line its author never wrote. `Listen` and
-/// `Sockets` are absent for a neighbouring reason: they are declared and granted
-/// by nobody, so `__host.listen` resolves on no platform at all. Refusing
-/// `ctx=listen` up front, with the list below, says so at the fence instead, and
-/// each row lands here when a platform grants that effect.
+/// naming one would fail at a line its author never wrote.
 ///
-/// `Tasks` is here, and was not: it was withheld while its row named no
-/// platform, for the same reason those two are, and the row landed the day the
-/// grant did. A fence may write `ctx=tasks` and call `core/tasks`.
+/// `Tasks`, `Listen` and `Sockets` are all here now and none of them was: each
+/// was withheld while its row named no platform, and each row landed here the
+/// day the grant did. A fence may write `ctx=listen` and call
+/// `core/net/server` — though a fence that actually *served* would never
+/// return, so what the rows buy is the shape of a call rather than a running
+/// server.
 fn effect_binding(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
         "alloc" => ("Alloc", "alloc"),
@@ -574,9 +573,12 @@ fn effect_binding(name: &str) -> Option<(&'static str, &'static str)> {
         "env" => ("Env", "env"),
         "proc" => ("Proc", "proc"),
         "tasks" => ("Tasks", "tasks"),
+        "listen" => ("Listen", "listen"),
+        "sockets" => ("Sockets", "sockets"),
         _ => return None,
     })
 }
+
 
 pub struct Compiland {
     pub text: String,

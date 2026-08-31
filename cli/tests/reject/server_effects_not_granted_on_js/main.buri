@@ -1,0 +1,31 @@
+// EXPECT: `JS` does not grant `listen`
+//
+// The two halves of being a server, refused together. `Listen` and `Sockets`
+// are declared in `core/effect`, implemented in `core/host`, granted on the two
+// native platforms and withheld from both JavaScript ones — so this is refused
+// here and under WEB, and each refusal says why rather than "no such name".
+//
+// Both bindings are written on purpose. The grant table's rule for this pair
+// is that they move together, and a fixture naming only one would still pass
+// on the day somebody granted the other by itself.
+//
+// The fix names the two platforms that *would* answer, which is the ordinary
+// shape of this diagnostic and not the shape this fixture was written for: both
+// rows were empty when it landed, and the clause after the colon was empty with
+// them. What the pair pins now is that "a page is served rather than serving"
+// stayed a refusal when the runtime arrived — an empty row filling is not the
+// same event as a withheld platform changing its mind.
+from "core/effect" import { Alloc, Listen, Sockets, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Listen: host.listen,
+    Sockets: host.sockets,
+  };
+  let _ = io.println(ctx, "a page is served rather than serving").ignore();
+  .Ok(())
+}

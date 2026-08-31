@@ -1,5 +1,13 @@
-//! The networking stack's seam — **the crates, and what does or does not call
-//! them.**
+//! The networking stack's seam, and **the acceptor**.
+//!
+//! Two things live here and they are related the way a question is related to
+//! the answer it made possible. The first half is the seam: which crates the
+//! `net` and `net-h3` features bring in, which of them anything actually calls,
+//! and the doors a linked program asks those questions through. The second half
+//! is `effect Listen`'s implementation — the HTTP/1.1 server a Buri program
+//! reaches through `core/net/server`.
+//!
+//! ## The crates, and what does or does not call them
 //!
 //! `manifest.toml`'s `net` feature brings `tokio`, `hyper`, `rustls`, `ring`
 //! and `tungstenite` into the runtime's dependency tree, and its `net-h3`
@@ -8,7 +16,19 @@
 //! references them: no intrinsic key mangles to a symbol declared here
 //! (`runtime_native::symbol_for` is the rule, and
 //! `backend/runtime_table.rs` is the table); neither backend emits a call into
-//! this file; nothing in `core/` reaches it.
+//! them; nothing in `core/` reaches them.
+//!
+//! **The acceptor below does not change that, and that is a decision.** A
+//! server is the obvious first caller of `hyper`, and the acceptor frames
+//! HTTP/1.1 itself instead — for `http.rs`'s reason, read from the other side
+//! of the wire. A synchronous exchange over one connection at a time is the
+//! whole of what is being asked for here, and reaching a framing layer through
+//! `hyper` would mean standing up a reactor per connection to get at something
+//! two hundred lines already do. The day handlers run on tasks of their own —
+//! many connections in flight, h2 multiplexing, ALPN — is the day that decision
+//! is worth taking again, and it is the day the archive starts carrying
+//! `hyper`'s bytes and `.github/scripts/assert-runtime-archive.sh` moves
+//! `hyper` from its absent list to its present one.
 //!
 //! The crates landed a slice ahead of any code that uses them so that the price
 //! could be measured *before* anything depended on the answer. Three of them
@@ -56,7 +76,7 @@
 //! an h3 archive has one cryptography implementation in it rather than two —
 //! and that grep is what says so when quinn's defaults next change.
 //!
-//! ## What the entries below are for
+//! ## What the three doors are for
 //!
 //! They are not scaffolding in the sense of a stub to be filled in — the
 //! carrier runtime is `rt.rs` (design/native, track B) and the HTTP client is
@@ -78,20 +98,31 @@
 //! `snake_case`, `extern "C"`, scalar parameters and a scalar result. Nothing
 //! here allocates, so §3's ownership rules have nothing to say about it.
 //!
-//! ## And one thing below is not a door at all
+//! ## And one thing is not a door at all
 //!
 //! [`serves`] is a plain Rust function with no `no_mangle` on it, because its
-//! caller is inside this crate: F2's `serve` walks `Server`'s `protocols` field
-//! and its loop body is `net::serves(protocol)?`. That is the whole of C4's
-//! handoff — the feature, the file beside the archive, the capability bit, the
-//! door and the sentence all land here, and the slice that adds a server spends
-//! them in one line.
+//! caller is inside this crate: [`bind`] walks the protocol list a `Server`'s
+//! `protocols` field became, and the loop body is `serves(protocol)`. That is
+//! the whole of what the HTTP/3 slice built and this one spends — the feature,
+//! the file beside the archive, the capability bit, the door and the sentence.
 //!
 //! It answers a `Result` rather than aborting, and the reason is `lib.rs` §5's
 //! division: a toolchain built without a feature is a *configuration* a program
 //! can report, retry or fall back from, while an abort is for an invariant that
 //! is already broken. Asking a runtime with no QUIC in it for HTTP/3 is the
-//! first of those.
+//! first of those. [`accepts`] asks the narrower question beside it — does the
+//! acceptor in this file *drive* that protocol — and the two are separate
+//! because a crate being linked and a server being written against it are two
+//! different facts.
+
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::{Duration, Instant};
+
+use crate::value::{BuriList, BuriStr, list_of_bytes, list_of_headers, str_of};
 
 /// The reactor, the timer wheel and the carrier pool — `tokio`. The one bit
 /// whose crate is genuinely linked: `rt.rs` is what reaches it.
@@ -280,6 +311,814 @@ pub fn serves(protocol: Protocol) -> Result<(), &'static str> {
     }
 }
 
+/// Whether **this acceptor** speaks a protocol the toolchain carries the code
+/// for, which is a second and narrower question than [`serves`].
+///
+/// The two are different because a crate being linked and a server being
+/// written against it are different facts. [`serves`] answers "does this
+/// archive carry the code" — the `net-h3` feature, the QUIC stack — and is the
+/// one C4 built. This answers "does the acceptor below drive it", and today the
+/// acceptor is [`Acceptor`]: an HTTP/1.1 server that frames its own messages,
+/// one connection at a time.
+///
+/// Both are asked, in that order, so that a program asking for HTTP/3 on a
+/// toolchain without `net-h3` gets the message that names the build switch
+/// rather than this one — a user can act on the first and can only wait for the
+/// second.
+fn accepts(protocol: Protocol) -> Result<(), String> {
+    serves(protocol).map_err(str::to_string)?;
+    match protocol {
+        Protocol::Http1 => Ok(()),
+        Protocol::Http2 | Protocol::Http3 => Err(format!(
+            "{} is not spoken by this runtime's acceptor: it frames HTTP/1.1 and answers one \
+             connection at a time. Serve HTTP/1.1, or leave `protocols` unset",
+            protocol.name()
+        )),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The acceptor
+// ---------------------------------------------------------------------------
+//
+// `effect Listen` is four operations — bind, accept, respond, close — and the
+// loop over the middle two is `core/net/server`'s, in Buri. What lives here is
+// therefore not a server framework but the three steps a loop needs, and that
+// division is the reason this file can be as small as it is: the runtime never
+// holds a Buri value between calls, never calls back into generated code, and
+// never has to know what a handler is.
+//
+// **HTTP/1.1, framed here rather than by `hyper`.** `http.rs` made the same
+// choice for the client and gives the reason: a synchronous exchange over one
+// connection is the whole of what is being asked for, and reaching a framing
+// layer through `hyper` would mean standing up a reactor per connection to get
+// at something these two hundred lines already do. The day handlers run on
+// tasks of their own — many connections in flight, h2 multiplexing, ALPN — is
+// the day that decision is worth taking again, and it is the day the archive
+// starts carrying `hyper`'s bytes.
+//
+// **One request per connection.** The response carries `connection: close` and
+// the socket is dropped after it, which is what makes "the request `accept`
+// last handed out" a well-defined thing to respond to without an identifier.
+// Keep-alive is a multiplexing question and belongs with the tasks.
+//
+// **Every wait is bounded except the one a server is for.** Reads and writes
+// carry `SO_RCVTIMEO`/`SO_SNDTIMEO` from `headerTimeoutMillis`; the wait for a
+// connection carries `idleTimeoutMillis` when the caller set one. A caller that
+// sets neither gets a server that waits for a client indefinitely and reads
+// with a thirty-second deadline, which is what a server is; a *test* sets both,
+// and every test in this repository does.
+
+/// How long one connection may take to send its request line, its headers and
+/// its body, when the caller named no deadline. [`crate::http::DEADLINE`]'s
+/// argument, from the other side of the wire.
+const HEAD_DEADLINE: Duration = Duration::from_secs(30);
+
+/// The largest request body read when the caller named no limit. A request
+/// declaring more is answered `413` by the acceptor and never reaches a
+/// handler: a limit that a handler had to enforce would be a limit every
+/// handler had to remember.
+const BODY_LIMIT: usize = 8 * 1024 * 1024;
+
+/// How long to sleep between polls of a non-blocking accept.
+///
+/// Only reached when the caller set an idle deadline, because that is the only
+/// case that needs the listener to be interruptible. Ten milliseconds costs a
+/// hundred wakeups a second on an idle port and bounds the overshoot on the
+/// deadline by the same amount, which is the right trade for a knob whose whole
+/// purpose is that a test does not run forever.
+const POLL: Duration = Duration::from_millis(10);
+
+/// `ServeFailure`'s variants, in declaration order in `effect.buri`. The index
+/// is what crosses the ABI, so this order is the contract — `NetFail`'s
+/// comment, one file over, is the same sentence about the same rule.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ServeFail {
+    AddressInUse,
+    AddressNotAvailable,
+    PermissionDenied,
+    Unsupported,
+    Timeout,
+    Closed,
+    Transport,
+}
+
+impl ServeFail {
+    /// The variant index, which is what the `.Err` arm carries across.
+    pub fn tag(&self) -> i8 {
+        match self {
+            ServeFail::AddressInUse => 0,
+            ServeFail::AddressNotAvailable => 1,
+            ServeFail::PermissionDenied => 2,
+            ServeFail::Unsupported => 3,
+            ServeFail::Timeout => 4,
+            ServeFail::Closed => 5,
+            ServeFail::Transport => 6,
+        }
+    }
+
+    /// The failure an `io::Error` is, by kind. Anything the six named causes do
+    /// not cover is `Transport` with the platform's own words, which is the
+    /// same division `http.rs::io_fail` makes for the client.
+    fn of(e: &std::io::Error) -> ServeFail {
+        match e.kind() {
+            std::io::ErrorKind::AddrInUse => ServeFail::AddressInUse,
+            std::io::ErrorKind::AddrNotAvailable => ServeFail::AddressNotAvailable,
+            std::io::ErrorKind::PermissionDenied => ServeFail::PermissionDenied,
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => ServeFail::Timeout,
+            _ => ServeFail::Transport,
+        }
+    }
+}
+
+/// A `ServeError` — the cause, and what the platform said.
+#[derive(Debug)]
+pub struct ServeErr {
+    pub cause: ServeFail,
+    pub detail: String,
+}
+
+impl ServeErr {
+    fn new(cause: ServeFail, detail: impl Into<String>) -> ServeErr {
+        ServeErr { cause, detail: detail.into() }
+    }
+
+    fn io(e: &std::io::Error, what: &str) -> ServeErr {
+        ServeErr::new(ServeFail::of(e), format!("{what}: {e}"))
+    }
+
+    /// The listener will answer no more. Carries no detail: it is not a
+    /// failure, and `core/net/server` turns it into `.Ok(())` without ever
+    /// showing it to a program.
+    fn closed() -> ServeErr {
+        ServeErr::new(ServeFail::Closed, String::new())
+    }
+}
+
+/// One request, as the acceptor read it off the wire.
+#[derive(Debug)]
+pub struct ServerRequest {
+    /// A `Method` tag — the index into [`crate::http::METHODS`].
+    pub method: i32,
+    /// The request target, exactly as the client sent it: `/ping?x=1`. Not an
+    /// absolute URL, because the client did not send one and reconstructing one
+    /// would mean trusting `Host` to say where the request really went.
+    /// `Request.path()` and `Request.query()` read it the same either way.
+    pub target: String,
+    /// Field names lowercased, as `Header` states they are.
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+/// Everything `listenBind` was asked for that outlives the bind, decoded.
+///
+/// The address and the port are not here: they are what the `TcpListener` was
+/// built from and the socket is the one that remembers them, so a copy beside
+/// it would be a second answer to a question `local_addr` already answers.
+struct Plan {
+    limit: Option<u64>,
+    idle: Option<Duration>,
+    head: Duration,
+    body_limit: usize,
+}
+
+/// An open port, and the one connection it is in the middle of.
+struct Acceptor {
+    listener: TcpListener,
+    plan: Plan,
+    served: u64,
+    /// The connection whose request `listenAccept` last handed out, waiting for
+    /// its response. `None` between requests, which is what makes a second
+    /// `listenRespond` a no-op rather than a write onto a dead socket.
+    pending: Option<TcpStream>,
+}
+
+/// The open listeners, by handle.
+///
+/// A table rather than a pointer across the ABI: a handle is an `Int` in Buri
+/// and an index here, so a program cannot hand the runtime an address, and a
+/// stale one is a lookup that misses rather than a use-after-free.
+static ACCEPTORS: Mutex<Option<HashMap<i64, Acceptor>>> = Mutex::new(None);
+
+/// The next handle. Never reused, so a handle closed and a handle never opened
+/// are the same answer — `.Err(.Closed)` — and neither is another server's.
+static NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
+
+fn acceptors<T>(with: impl FnOnce(&mut HashMap<i64, Acceptor>) -> T) -> T {
+    let mut guard = match ACCEPTORS.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    with(guard.get_or_insert_with(HashMap::new))
+}
+
+/// `Listen::listenBind`, without the ABI around it.
+pub fn bind(
+    address: &str,
+    port: i64,
+    protocols: &[u8],
+    limit: i64,
+    idle_millis: i64,
+) -> Result<(i64, u16), ServeErr> {
+    // C4's handoff, spent: the walk over `Server`'s `protocols` field, one
+    // `serves` per named protocol, with the acceptor's own answer after it.
+    // An empty list is `.None` — the caller chose nothing — and HTTP/1.1 is
+    // what the acceptor picks, so there is nothing to refuse.
+    for index in protocols.iter().map(|b| i64::from(*b)) {
+        let Some(protocol) = Protocol::from_index(index) else {
+            return Err(ServeErr::new(
+                ServeFail::Unsupported,
+                format!(
+                    "this runtime does not know protocol {index}: the program and the runtime \
+                     disagree about `Protocol`'s variants"
+                ),
+            ));
+        };
+        accepts(protocol).map_err(|detail| ServeErr::new(ServeFail::Unsupported, detail))?;
+    }
+    let host = if address.is_empty() { "127.0.0.1" } else { address };
+    let Ok(port) = u16::try_from(port.clamp(0, i64::from(u16::MAX))) else {
+        return Err(ServeErr::new(ServeFail::AddressNotAvailable, format!("bad port: {port}")));
+    };
+    let listener = TcpListener::bind((host, port))
+        .map_err(|e| ServeErr::io(&e, &format!("listening on {host}:{port}")))?;
+    let bound = listener
+        .local_addr()
+        .map_err(|e| ServeErr::io(&e, "asking the socket which port it got"))?
+        .port();
+    let plan = Plan {
+        limit: (limit >= 0).then_some(limit as u64),
+        idle: (idle_millis >= 0).then_some(Duration::from_millis(idle_millis.max(0) as u64)),
+        head: HEAD_DEADLINE,
+        body_limit: BODY_LIMIT,
+    };
+    // Interruptible only where the caller asked for it: an idle deadline is the
+    // one thing a blocking `accept` cannot answer, and polling for a server
+    // that never wanted a deadline would be a hundred wakeups a second bought
+    // for nothing.
+    if plan.idle.is_some() {
+        listener
+            .set_nonblocking(true)
+            .map_err(|e| ServeErr::io(&e, "making the listener interruptible"))?;
+    }
+    let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
+    acceptors(|table| table.insert(handle, Acceptor { listener, plan, served: 0, pending: None }));
+    Ok((handle, bound))
+}
+
+/// `Listen::listenAccept` — the next request, once one has arrived and been
+/// read whole.
+///
+/// The loop is over *connections* and not over requests: a connection that
+/// speaks nonsense, or asks for more body than the plan allows, is answered
+/// here and the next one is waited for, so a handler is never handed a message
+/// the acceptor could not make sense of.
+pub fn accept(handle: i64) -> Result<ServerRequest, ServeErr> {
+    loop {
+        let socket = acceptors(|table| {
+            let Some(a) = table.get_mut(&handle) else { return Err(ServeErr::closed()) };
+            if a.plan.limit.is_some_and(|n| a.served >= n) {
+                return Err(ServeErr::closed());
+            }
+            Ok(())
+        });
+        socket?;
+        let stream = wait_for_connection(handle)?;
+        let plan = acceptors(|table| {
+            table.get(&handle).map(|a| (a.plan.head, a.plan.body_limit)).ok_or_else(ServeErr::closed)
+        })?;
+        let mut stream = stream;
+        if let Err(e) = deadlines(&stream, plan.0) {
+            let _ = refuse(&mut stream, 500, "");
+            return Err(e);
+        }
+        match read_request(&mut stream, plan.1) {
+            Ok(request) => {
+                acceptors(|table| {
+                    if let Some(a) = table.get_mut(&handle) {
+                        a.pending = Some(stream);
+                    }
+                });
+                return Ok(request);
+            }
+            // A malformed or oversized request is the transport's problem: it
+            // is answered here and the acceptor waits for the next connection.
+            // Surfacing it would make every handler a parser's error path.
+            Err(status) => {
+                let _ = refuse(&mut stream, status, "");
+            }
+        }
+    }
+}
+
+/// Wait for one connection, honouring the idle deadline where there is one.
+fn wait_for_connection(handle: i64) -> Result<TcpStream, ServeErr> {
+    let idle = acceptors(|table| {
+        table.get(&handle).map(|a| a.plan.idle).ok_or_else(ServeErr::closed)
+    })?;
+    let Some(idle) = idle else {
+        // No deadline: an ordinary blocking accept, which is what a server that
+        // did not ask to be interruptible is.
+        return acceptors(|table| {
+            let a = table.get(&handle).ok_or_else(ServeErr::closed)?;
+            a.listener.accept().map(|(s, _)| s).map_err(|e| ServeErr::io(&e, "accepting"))
+        });
+    };
+    let until = Instant::now() + idle;
+    loop {
+        let attempt = acceptors(|table| {
+            let a = table.get(&handle).ok_or_else(ServeErr::closed)?;
+            match a.listener.accept() {
+                Ok((s, _)) => Ok(Some(s)),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+                Err(e) => Err(ServeErr::io(&e, "accepting")),
+            }
+        })?;
+        if let Some(stream) = attempt {
+            return Ok(stream);
+        }
+        if Instant::now() >= until {
+            return Err(ServeErr::new(
+                ServeFail::Timeout,
+                format!("no connection arrived within {} ms", idle.as_millis()),
+            ));
+        }
+        std::thread::sleep(POLL.min(until.saturating_duration_since(Instant::now())));
+    }
+}
+
+/// Both socket deadlines, from the plan's one number. Per step, as
+/// `http.rs::DEADLINE` is and for its reason: `SO_RCVTIMEO` is per read.
+fn deadlines(stream: &TcpStream, head: Duration) -> Result<(), ServeErr> {
+    stream
+        .set_read_timeout(Some(head))
+        .and_then(|()| stream.set_write_timeout(Some(head)))
+        .map_err(|e| ServeErr::io(&e, "setting the connection's deadlines"))
+}
+
+/// Read one request off a connection, or answer with the status it deserves.
+///
+/// The `Err` is a status code rather than a `ServeErr` on purpose: nothing here
+/// is the *server's* failure, so none of it is a reason for `serve` to return.
+fn read_request(stream: &mut TcpStream, body_limit: usize) -> Result<ServerRequest, u16> {
+    let mut buffer = Vec::with_capacity(1024);
+    let head = loop {
+        if let Some(at) = find(&buffer, b"\r\n\r\n") {
+            break at;
+        }
+        if buffer.len() > 64 * 1024 {
+            return Err(431);
+        }
+        let mut chunk = [0u8; 1024];
+        match stream.read(&mut chunk) {
+            Ok(0) => return Err(400),
+            Ok(n) => buffer.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+            Err(_) => return Err(408),
+        }
+    };
+    let Head { method, target, headers } = parse_head(buffer.get(..head).unwrap_or(&[]))?;
+    let declared = headers
+        .iter()
+        .find(|(n, _)| n == "content-length")
+        .map(|(_, v)| v.trim().parse::<usize>().map_err(|_| 400u16))
+        .transpose()?
+        .unwrap_or(0);
+    if declared > body_limit {
+        return Err(413);
+    }
+    // A `transfer-encoding` this acceptor does not frame is refused rather than
+    // guessed at: a body read with the wrong framing is a body that belongs to
+    // the next request.
+    if headers.iter().any(|(n, v)| n == "transfer-encoding" && !v.trim().is_empty()) {
+        return Err(501);
+    }
+    let mut body = buffer.split_off(head.saturating_add(4));
+    while body.len() < declared {
+        let want = declared.saturating_sub(body.len());
+        let mut chunk = vec![0u8; want.min(64 * 1024)];
+        match stream.read(&mut chunk) {
+            Ok(0) => return Err(400),
+            Ok(n) => body.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+            Err(_) => return Err(408),
+        }
+    }
+    body.truncate(declared);
+    Ok(ServerRequest { method, target, headers, body })
+}
+
+/// A request line and the header fields after it: everything a
+/// [`ServerRequest`] is except its body, which is read afterwards and whose
+/// length the fields decide.
+struct Head {
+    method: i32,
+    target: String,
+    headers: Vec<(String, String)>,
+}
+
+/// The request line and the header fields.
+fn parse_head(head: &[u8]) -> Result<Head, u16> {
+    let text = std::str::from_utf8(head).map_err(|_| 400u16)?;
+    let mut lines = text.split("\r\n");
+    let request_line = lines.next().ok_or(400u16)?;
+    let mut parts = request_line.split(' ');
+    let (verb, target, version) =
+        match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some(v), Some(t), Some(p), None) => (v, t, p),
+            _ => return Err(400),
+        };
+    if !version.starts_with("HTTP/1.") {
+        return Err(505);
+    }
+    // The wire spelling is the runtime's business and never Buri's: this is the
+    // only place a server reads one, exactly as `METHODS` is the only place a
+    // client writes one.
+    let method = crate::http::METHODS
+        .iter()
+        .position(|m| *m == verb)
+        .ok_or(501u16)
+        .and_then(|i| i32::try_from(i).map_err(|_| 501u16))?;
+    let mut headers = Vec::new();
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        let (name, value) = line.split_once(':').ok_or(400u16)?;
+        // Lowercased on the way in, which is what `Header`'s declaration
+        // promises a reader: `request.header("content-type")` is an exact
+        // comparison and never a case-insensitive scan.
+        headers.push((name.trim().to_ascii_lowercase(), value.trim().to_string()));
+    }
+    Ok(Head { method, target: target.to_string(), headers })
+}
+
+/// A status and nothing else, for a connection the acceptor is refusing.
+fn refuse(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<()> {
+    let head = format!(
+        "HTTP/1.1 {status} {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        reason(status),
+        body.len()
+    );
+    stream.write_all(head.as_bytes())?;
+    stream.write_all(body.as_bytes())?;
+    stream.flush()
+}
+
+/// `Listen::listenRespond` — the answer to the request `accept` last handed
+/// out.
+///
+/// A response with no request outstanding is `.Ok(())` and writes nothing: the
+/// pairing is positional, so "there is nothing to answer" is a state a loop can
+/// be in without having done anything wrong.
+pub fn respond(
+    handle: i64,
+    status: i64,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> Result<(), ServeErr> {
+    let taken = acceptors(|table| {
+        let Some(a) = table.get_mut(&handle) else { return Err(ServeErr::closed()) };
+        a.served = a.served.saturating_add(1);
+        Ok(a.pending.take())
+    })?;
+    let Some(mut stream) = taken else { return Ok(()) };
+    let status = status.clamp(100, 599) as u16;
+    let mut head = format!("HTTP/1.1 {status} {}\r\n", reason(status));
+    for (name, value) in headers {
+        // A header the acceptor writes for itself is not a header the caller
+        // may write twice: framing is the transport's and a second
+        // `content-length` is a request smuggling primitive.
+        if name == "content-length" || name == "connection" || name == "transfer-encoding" {
+            continue;
+        }
+        head.push_str(&format!("{name}: {value}\r\n"));
+    }
+    head.push_str(&format!("content-length: {}\r\nconnection: close\r\n\r\n", body.len()));
+    stream
+        .write_all(head.as_bytes())
+        .and_then(|()| stream.write_all(body))
+        .and_then(|()| stream.flush())
+        .map_err(|e| ServeErr::io(&e, "writing the response"))
+}
+
+/// `Listen::listenClose`. Closing twice has nothing to do, which is what lets a
+/// loop unwinding out of a failure tidy up without remembering how far it got.
+pub fn close(handle: i64) {
+    acceptors(|table| table.remove(&handle));
+}
+
+/// The reason phrase for a status, for the statuses this acceptor writes.
+///
+/// A phrase the client mostly ignores — HTTP/2 has none at all — so the list is
+/// the ones written here plus a range fallback, rather than a table of every
+/// code IANA has registered.
+fn reason(status: u16) -> &'static str {
+    match status {
+        200 => "OK",
+        201 => "Created",
+        204 => "No Content",
+        301 => "Moved Permanently",
+        302 => "Found",
+        304 => "Not Modified",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        408 => "Request Timeout",
+        413 => "Content Too Large",
+        431 => "Request Header Fields Too Large",
+        500 => "Internal Server Error",
+        501 => "Not Implemented",
+        505 => "HTTP Version Not Supported",
+        // The class, for a status this list does not name. Guards rather than
+        // ranges, because a range overlapping the arms above is a lint even
+        // where the order settles it, and "the arms above win" is a claim
+        // better made by the condition than by the ordering.
+        s if s < 200 => "Informational",
+        s if s < 300 => "OK",
+        s if s < 400 => "Redirection",
+        s if s < 500 => "Client Error",
+        _ => "Server Error",
+    }
+}
+
+/// The first occurrence of `needle` in `haystack`. `http.rs`'s, on this side of
+/// the wire; two of them rather than one shared helper because the two files
+/// are each other's mirror and neither owns the other's framing.
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    (0..=haystack.len() - needle.len()).find(|i| haystack.get(*i..i + needle.len()) == Some(needle))
+}
+
+// ---------------------------------------------------------------------------
+// The C ABI
+// ---------------------------------------------------------------------------
+//
+// Four `Listen` entries and three `Sockets` ones, at `lib.rs` §1's naming rule
+// and §2's shapes. Three Buri values cross whole here — `Listener`, `Request`,
+// `Response`, and `ServeError` beside them — and each is transcribed below as a
+// `#[repr(C)]` struct rather than written field by field through separate
+// out-pointers, for `BuriHeader`'s reason in `host.rs`: **the shape gets a name
+// a reader can check against the Buri declaration.**
+//
+// What makes that legal is VALUE-MODEL.md §5, which lays a struct out as its
+// fields back to back at their own alignments and never reorders them —
+// `middle/layout.rs::record` is the function, and `#[repr(C)]` is the same
+// rule. `the_transcribed_shapes_match_the_value_model` below asserts every size
+// and offset, so a layout change that moved one of these is a failing unit test
+// in this crate rather than a program reading the wrong bytes.
+
+/// `Listener` — `{ handle: Int, port: Int }`.
+#[repr(C)]
+pub struct BuriListener {
+    handle: i64,
+    port: i64,
+}
+
+/// `Request` — `{ method: Method, url: Str, headers: [Header], body: [U8] }`.
+///
+/// `Method` is a seven-variant enum with no payloads, which `middle/layout.rs`
+/// gives a bare `i8` tag: the value *is* the index. `url` therefore starts at
+/// offset 8 and not at 1, which is `#[repr(C)]`'s own padding rule and the
+/// value model's alignment rule agreeing.
+#[repr(C)]
+pub struct BuriRequest {
+    method: i8,
+    url: BuriStr,
+    headers: BuriList,
+    body: BuriList,
+}
+
+/// `Response` — `{ status: Int, headers: [Header], body: [U8] }`.
+#[repr(C)]
+pub struct BuriResponse {
+    status: i64,
+    headers: BuriList,
+    body: BuriList,
+}
+
+/// `ServeError` — `{ cause: ServeFailure, detail: Str }`, `Method`'s tag rule
+/// applied to a seven-variant enum a second time.
+///
+/// It crosses as a value rather than as a discriminant because it is a
+/// **struct**: `lib.rs` §2.1's second shape gives a non-enum error its own
+/// out-pointer, so the platform's own words reach the program whole. That is
+/// the whole reason `ServeError` is a struct wrapping an enum instead of an
+/// enum with payloads, and `effect.buri` says so where it is declared.
+#[repr(C)]
+pub struct BuriServeError {
+    cause: i8,
+    detail: BuriStr,
+}
+
+impl BuriServeError {
+    fn of(e: &ServeErr) -> BuriServeError {
+        BuriServeError { cause: e.cause.tag(), detail: str_of(&e.detail) }
+    }
+}
+
+/// `Listen::listenBind(…) -> Result<Listener, ServeError>`.
+///
+/// Ten integer parameters, which is exactly the budget a runtime call has
+/// (`backend/stencil/abi.rs`'s `MAX_INT_ARGS`): the address's three `Str`
+/// leaves, the port, the protocol list's `(ptr, len)`, two `Int` knobs, and
+/// `Result`'s two out-pointers. An empty address, an empty protocol list and a
+/// negative knob are all "the caller chose nothing" — the encoding
+/// `core/net/server` renders a `Server`'s `.None` fields into, and the reason
+/// [`HEAD_DEADLINE`] and [`BODY_LIMIT`] are this file's constants rather than
+/// two more parameters.
+///
+/// # Safety
+/// The address view and the `[Protocol]` must be live; both out-pointers
+/// writable and aligned.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn buri_rt_host_listen_bind(
+    _abase: *mut u8,
+    aptr: *const u8,
+    alen: u64,
+    port: i64,
+    pptr: *const u8,
+    plen: u64,
+    limit: i64,
+    idle: i64,
+    out: *mut BuriListener,
+    err: *mut BuriServeError,
+) -> i32 {
+    // SAFETY: forwarded.
+    let address = unsafe { crate::host::text(aptr, alen) };
+    let protocols: &[u8] = if pptr.is_null() || plen == 0 {
+        &[]
+    } else {
+        // SAFETY: the caller promises `plen` live elements, and a `Protocol`'s
+        // stride is one byte because its tag is one byte.
+        unsafe { std::slice::from_raw_parts(pptr, plen as usize) }
+    };
+    // **A suspension point** (`rt.rs` §2), for `buri_rt_host_net_fetch`'s
+    // reason: the bind is a syscall that can block on name resolution, and a
+    // carrier is not the caller's to lose. The Buri blocks below are built
+    // after the park returns, on the carrier and under the baton.
+    let outcome = park(|| bind(&address, port, protocols, limit, idle));
+    match outcome {
+        Ok((handle, bound)) => {
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out.write(BuriListener { handle, port: i64::from(bound) }) };
+            crate::BURI_OK
+        }
+        Err(e) => {
+            // SAFETY: as above.
+            unsafe { err.write(BuriServeError::of(&e)) };
+            0
+        }
+    }
+}
+
+/// `Listen::listenAccept(listener) -> Result<Request, ServeError>`.
+///
+/// # Safety
+/// Both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_listen_accept(
+    handle: i64,
+    out: *mut BuriRequest,
+    err: *mut BuriServeError,
+) -> i32 {
+    // **A suspension point**, and the one that waits longest: this is where a
+    // server sits between requests.
+    match park(|| accept(handle)) {
+        Ok(request) => {
+            let value = BuriRequest {
+                method: i8::try_from(request.method).unwrap_or(0),
+                url: str_of(&request.target),
+                headers: list_of_headers(&request.headers),
+                body: list_of_bytes(&request.body),
+            };
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out.write(value) };
+            crate::BURI_OK
+        }
+        Err(e) => {
+            // SAFETY: as above.
+            unsafe { err.write(BuriServeError::of(&e)) };
+            0
+        }
+    }
+}
+
+/// `Listen::listenRespond(listener, response) -> Result<(), ServeError>`.
+///
+/// `Response`'s three fields arrive flattened, and `.Ok`'s payload is `()` — so
+/// there is no out-pointer for it, on `lib.rs` §2.1's zero-sized rule.
+///
+/// # Safety
+/// The `[Header]` and the `[U8]` must be live; `err` writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_listen_respond(
+    handle: i64,
+    status: i64,
+    hptr: *const u8,
+    hlen: u64,
+    bptr: *const u8,
+    blen: u64,
+    err: *mut BuriServeError,
+) -> i32 {
+    // SAFETY: forwarded.
+    let fields = unsafe { crate::host::headers(hptr, hlen) };
+    let body: &[u8] = if bptr.is_null() || blen == 0 {
+        &[]
+    } else {
+        // SAFETY: the caller promises `blen` readable bytes; a `[U8]`'s stride
+        // is one, so the payload is the bytes themselves.
+        unsafe { std::slice::from_raw_parts(bptr, blen as usize) }
+    };
+    // **A suspension point**: writing a response is a write to a socket the
+    // peer may be reading slowly.
+    match park(|| respond(handle, status, &fields, body)) {
+        Ok(()) => crate::BURI_OK,
+        Err(e) => {
+            // SAFETY: the caller promises a writable destination.
+            unsafe { err.write(BuriServeError::of(&e)) };
+            0
+        }
+    }
+}
+
+/// `Listen::listenClose(listener)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_listen_close(handle: i64) {
+    close(handle);
+}
+
+// The three `Sockets` entries. Nothing hands out a socket yet — `Listen`
+// performs no WebSocket upgrade — so every handle these can be given is one a
+// program made up, and an unknown socket is one that has already gone away.
+// That is the behaviour `effect Sockets` declares for a closed socket, which is
+// what makes granting the authority beside `Listen` honest rather than a hole:
+// the bodies are here, they are reached through the ordinary door, and what
+// they do to a handle that names nothing is what they will do to a handle whose
+// socket closed while a message was in flight.
+
+/// `Sockets::socketSendText(socket, text)`.
+///
+/// # Safety
+/// The text view must be live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_sockets_socket_send_text(
+    _socket: i64,
+    _base: *mut u8,
+    _ptr: *const u8,
+    _len: u64,
+) {
+}
+
+/// `Sockets::socketSendBytes(socket, body)`.
+///
+/// # Safety
+/// The `[U8]` must be live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_sockets_socket_send_bytes(
+    _socket: i64,
+    _ptr: *const u8,
+    _len: u64,
+) {
+}
+
+/// `Sockets::socketClose(socket, code, reason)`.
+///
+/// # Safety
+/// The reason view must be live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_sockets_socket_close(
+    _socket: i64,
+    _code: i64,
+    _base: *mut u8,
+    _ptr: *const u8,
+    _len: u64,
+) {
+}
+
+/// Run one blocking step off the run baton where there is a reactor to park on,
+/// and inline where there is not.
+///
+/// The three `Listen` entries all want the same two lines and the same
+/// paragraph of reasoning (`host.rs`'s `buri_rt_host_net_fetch` is where it is
+/// written out), so they say it once here. The transport underneath is
+/// synchronous either way — the future completes on this thread — and what
+/// `park_on` adds is that the carrier is not holding the baton while a server
+/// waits for a client, which is the longest wait in this file.
+fn park<T: Send>(work: impl FnOnce() -> T + Send) -> T {
+    #[cfg(feature = "net")]
+    {
+        crate::rt::park_on(async { work() })
+    }
+    #[cfg(not(feature = "net"))]
+    {
+        work()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,5 +1183,249 @@ mod tests {
                 "the refusal does not say how to turn it on: {message}"
             );
         }
+    }
+
+    /// The acceptor speaks HTTP/1.1 and says so about the other two, and the
+    /// two refusals are different sentences.
+    ///
+    /// [`serves`] is about the *archive* — was the QUIC code compiled in — and
+    /// [`accepts`] is about this file. A user can act on the first (rebuild the
+    /// toolchain) and can only wait for the second, so HTTP/3 on a toolchain
+    /// without `net-h3` has to produce the first message and not the second.
+    #[test]
+    fn the_acceptor_speaks_http1_and_names_what_it_does_not() {
+        assert_eq!(accepts(Protocol::Http1), Ok(()));
+        let two = accepts(Protocol::Http2).expect_err("HTTP/2 is not framed here");
+        assert!(two.contains("HTTP/2"), "{two}");
+        assert!(two.contains("one connection at a time"), "{two}");
+        let three = accepts(Protocol::Http3).expect_err("HTTP/3 is not framed here either");
+        if cfg!(feature = "net-h3") {
+            assert!(three.contains("HTTP/3"), "{three}");
+        } else {
+            assert!(
+                three.contains("BURI_RUNTIME_NET_H3=1"),
+                "an h3 refusal on a toolchain with no QUIC should name the switch: {three}"
+            );
+        }
+    }
+
+    /// **The transcribed shapes are the value model's**, checked one size and
+    /// one offset at a time.
+    ///
+    /// `BuriRequest`, `BuriResponse`, `BuriListener` and `BuriServeError` are
+    /// hand-written transcriptions of four Buri declarations, and the C ABI has
+    /// no way to notice a disagreement — a runtime writing a `Str` eight bytes
+    /// early is a program reading a pointer out of a tag. So the numbers are
+    /// asserted here, on this side, against what VALUE-MODEL.md §5's layout
+    /// gives those declarations: fields back to back at their own alignments,
+    /// in declaration order, with a payload-free enum occupying its `i8` tag.
+    /// The compiler states the same numbers from the other side by *being* the
+    /// layout, and `cli/tests/native/` runs a request through both.
+    #[test]
+    fn the_transcribed_shapes_match_the_value_model() {
+        let str_bytes = std::mem::size_of::<BuriStr>();
+        let list_bytes = std::mem::size_of::<BuriList>();
+        assert_eq!(str_bytes, 24, "a `Str` is `{{ base, ptr, len }}` (§3)");
+        assert_eq!(list_bytes, 16, "a `[T]` is `{{ ptr, len }}` (§4)");
+
+        // `Request { method: Method, url: Str, headers: [Header], body: [U8] }`.
+        // `Method` has seven payload-free variants, so its layout is a bare
+        // `i8` tag — one byte, aligned to one — and `url` starts at the next
+        // multiple of eight rather than at offset 1.
+        assert_eq!(std::mem::size_of::<BuriRequest>(), 64);
+        assert_eq!(std::mem::align_of::<BuriRequest>(), 8);
+        assert_eq!(std::mem::offset_of!(BuriRequest, method), 0);
+        assert_eq!(std::mem::offset_of!(BuriRequest, url), 8);
+        assert_eq!(std::mem::offset_of!(BuriRequest, headers), 32);
+        assert_eq!(std::mem::offset_of!(BuriRequest, body), 48);
+
+        // `Response { status: Int, headers: [Header], body: [U8] }`.
+        assert_eq!(std::mem::size_of::<BuriResponse>(), 40);
+        assert_eq!(std::mem::offset_of!(BuriResponse, status), 0);
+        assert_eq!(std::mem::offset_of!(BuriResponse, headers), 8);
+        assert_eq!(std::mem::offset_of!(BuriResponse, body), 24);
+
+        // `Listener { handle: Int, port: Int }`.
+        assert_eq!(std::mem::size_of::<BuriListener>(), 16);
+        assert_eq!(std::mem::offset_of!(BuriListener, port), 8);
+
+        // `ServeError { cause: ServeFailure, detail: Str }`, `Method`'s tag
+        // rule a second time.
+        assert_eq!(std::mem::size_of::<BuriServeError>(), 32);
+        assert_eq!(std::mem::offset_of!(BuriServeError, cause), 0);
+        assert_eq!(std::mem::offset_of!(BuriServeError, detail), 8);
+    }
+
+    /// `ServeFailure`'s variant indices, which are what the `.Err` arm carries
+    /// across, in `effect.buri`'s declaration order.
+    ///
+    /// Written out rather than derived, because the order *is* the contract and
+    /// a derivation would agree with whatever it was derived from.
+    #[test]
+    fn a_serve_failure_tag_is_its_declaration_order() {
+        assert_eq!(ServeFail::AddressInUse.tag(), 0);
+        assert_eq!(ServeFail::AddressNotAvailable.tag(), 1);
+        assert_eq!(ServeFail::PermissionDenied.tag(), 2);
+        assert_eq!(ServeFail::Unsupported.tag(), 3);
+        assert_eq!(ServeFail::Timeout.tag(), 4);
+        assert_eq!(ServeFail::Closed.tag(), 5);
+        assert_eq!(ServeFail::Transport.tag(), 6);
+    }
+
+    /// A request line, its headers and its body, off the wire and back.
+    ///
+    /// The parser is fed a whole request through a loopback socket rather than
+    /// a `&[u8]`, because what is being checked is the *read loop* as much as
+    /// the parse: a head that arrives in two writes, a `content-length` body
+    /// that arrives after it, and a deadline on both.
+    #[test]
+    fn a_request_is_read_off_a_socket_whole() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let port = listener.local_addr().expect("an address").port();
+        // Every wait here is bounded, and the test joins the writer, so a
+        // client that never connects is a failing assertion rather than a suite
+        // that runs until CI kills it.
+        let client = std::thread::spawn(move || {
+            let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+            socket.set_write_timeout(Some(Duration::from_secs(10))).expect("a deadline");
+            socket.write_all(b"POST /a/b?x=1 HTTP/1.1\r\nHost: h\r\nContent-Length").expect("head");
+            socket.write_all(b": 5\r\nX-Mixed-Case: Yes\r\n\r\nhello").expect("rest");
+            socket.flush().expect("flush");
+            socket
+        });
+        let (mut accepted, _) = listener.accept().expect("accept");
+        deadlines(&accepted, Duration::from_secs(10)).expect("deadlines");
+        let request = read_request(&mut accepted, 1024).expect("a whole request");
+        let _client = client.join().expect("the writer finished");
+
+        assert_eq!(crate::http::method_name(request.method), "POST");
+        assert_eq!(request.target, "/a/b?x=1");
+        assert_eq!(request.body, b"hello");
+        // Lowercased on the way in, which is what `Header`'s declaration
+        // promises: `request.header("x-mixed-case")` is an exact comparison.
+        assert!(
+            request.headers.iter().any(|(n, v)| n == "x-mixed-case" && v == "Yes"),
+            "{:?}",
+            request.headers
+        );
+    }
+
+    /// Four shapes the acceptor answers itself, so that a handler is never
+    /// handed a message the framing could not make sense of.
+    fn refused_status(head: &[u8], limit: usize) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let port = listener.local_addr().expect("an address").port();
+        let head = head.to_vec();
+        let client = std::thread::spawn(move || {
+            let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+            socket.set_write_timeout(Some(Duration::from_secs(10))).expect("a deadline");
+            let _ = socket.write_all(&head);
+            let _ = socket.flush();
+            socket
+        });
+        let (mut accepted, _) = listener.accept().expect("accept");
+        deadlines(&accepted, Duration::from_secs(10)).expect("deadlines");
+        let status = read_request(&mut accepted, limit).unwrap_err();
+        let _client = client.join().expect("the writer finished");
+        status
+    }
+
+    #[test]
+    fn the_acceptor_answers_a_request_it_cannot_serve() {
+        assert_eq!(refused_status(b"not a request line\r\n\r\n", 1024), 400);
+        assert_eq!(refused_status(b"GET / HTTP/2.0\r\n\r\n", 1024), 505);
+        assert_eq!(refused_status(b"BREW / HTTP/1.1\r\n\r\n", 1024), 501);
+        assert_eq!(refused_status(b"POST / HTTP/1.1\r\ncontent-length: 99\r\n\r\n", 8), 413);
+        // A framing this acceptor does not drive is refused rather than
+        // guessed at: a body read with the wrong framing belongs to the next
+        // request.
+        assert_eq!(
+            refused_status(b"POST / HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n", 1024),
+            501
+        );
+    }
+
+    /// The whole of `bind`, `accept`, `respond` and `close`, against a real
+    /// client on a loopback port.
+    ///
+    /// Every wait is bounded — an idle deadline on the accept, socket
+    /// deadlines on the exchange, and a joined writer thread — for the reason
+    /// `cli/tests/native/runtime.rs` states about its own mirror of this: a
+    /// server test that could hang is a suite that runs until CI kills it.
+    #[test]
+    fn a_bound_listener_answers_one_request_and_then_says_it_is_closed() {
+        let (handle, port) =
+            bind("127.0.0.1", 0, &[Protocol::Http1 as u8], 1, 10_000).expect("a bound port");
+        assert!(port > 0, "port 0 should have been replaced by the one the OS chose");
+
+        let client = std::thread::spawn(move || {
+            let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+            socket.set_read_timeout(Some(Duration::from_secs(10))).expect("a deadline");
+            socket.set_write_timeout(Some(Duration::from_secs(10))).expect("a deadline");
+            socket.write_all(b"GET /ping HTTP/1.1\r\nhost: h\r\n\r\n").expect("request");
+            socket.flush().expect("flush");
+            let mut reply = Vec::new();
+            let _ = socket.read_to_end(&mut reply);
+            reply
+        });
+
+        let request = accept(handle).expect("one request");
+        assert_eq!(request.target, "/ping");
+        respond(handle, 200, &[("x-from".into(), "buri".into())], b"pong").expect("a response");
+
+        let reply = String::from_utf8_lossy(&client.join().expect("the client finished")).to_string();
+        assert!(reply.starts_with("HTTP/1.1 200 OK\r\n"), "{reply}");
+        assert!(reply.contains("x-from: buri\r\n"), "{reply}");
+        assert!(reply.contains("content-length: 4\r\n"), "{reply}");
+        assert!(reply.ends_with("\r\n\r\npong"), "{reply}");
+
+        // The limit is spent, so the listener says it will answer no more —
+        // which is the ordinary end of a bounded server and what
+        // `core/net/server`'s `run` turns into `.Ok(())`.
+        let closed = accept(handle).expect_err("the request limit is spent");
+        assert_eq!(closed.cause, ServeFail::Closed);
+
+        close(handle);
+        // And a handle that names nothing is the same answer rather than a
+        // crash: closing twice has nothing to do, and a stale handle is a
+        // lookup that misses.
+        close(handle);
+        assert_eq!(accept(handle).expect_err("closed").cause, ServeFail::Closed);
+    }
+
+    /// The idle deadline fires, and it is a `Timeout` rather than a hang.
+    ///
+    /// This is the knob every test in this repository sets, and it is the one
+    /// that makes a server testable at all: without it the accept below waits
+    /// for a client that is never coming.
+    #[test]
+    fn an_idle_listener_gives_up_when_it_was_told_to() {
+        let (handle, port) = bind("127.0.0.1", 0, &[], -1, 60).expect("a bound port");
+        assert!(port > 0);
+        let started = Instant::now();
+        let timed_out = accept(handle).expect_err("nobody connected");
+        assert_eq!(timed_out.cause, ServeFail::Timeout);
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the deadline did not bound the wait: {:?}",
+            started.elapsed()
+        );
+        assert!(timed_out.detail.contains("60"), "the message names no deadline: {}", timed_out.detail);
+        close(handle);
+    }
+
+    /// A protocol the acceptor does not frame is refused **at the bind**, with
+    /// a message rather than a tag, and no port is held.
+    #[test]
+    fn a_protocol_this_acceptor_does_not_frame_is_refused_at_the_bind() {
+        let refused = bind("127.0.0.1", 0, &[Protocol::Http2 as u8], -1, 60)
+            .expect_err("HTTP/2 is not framed here");
+        assert_eq!(refused.cause, ServeFail::Unsupported);
+        assert!(refused.detail.contains("HTTP/2"), "{}", refused.detail);
+        // And an index no variant has is a program and a runtime disagreeing
+        // about the enum, which is refused rather than transmuted.
+        let unknown = bind("127.0.0.1", 0, &[9], -1, 60).expect_err("there is no ninth protocol");
+        assert_eq!(unknown.cause, ServeFail::Unsupported);
+        assert!(unknown.detail.contains("disagree"), "{}", unknown.detail);
     }
 }

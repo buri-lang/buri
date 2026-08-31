@@ -1,0 +1,48 @@
+# Being a server is a platform's authority, and a build file is where a
+# platform is chosen — so this is the one place the two meet.
+#
+# `Listen` and `Sockets` are granted on `LINUX` and `MACOS` and on neither
+# JavaScript platform. That is not a row waiting to be filled: a page is served
+# rather than serving, and neither `JS` nor `WEB` will ever grant them. So a
+# program that binds `Listen` is refused *at the line that asked*, with the
+# reason and with the platforms that would have answered — and the only thing
+# that could change it is one field of a build file.
+#
+# This lives here rather than in `cli/tests/reject/` because the refusal is a
+# fact about the **graph**: the source below never changes, and only the rule's
+# `outputs` moves. A reject fixture is one package with one platform and could
+# not say that. What it deliberately does *not* do is build for a native
+# platform — that answer depends on how this toolchain was compiled, which is a
+# claim `cli/tests/native/` is where to make.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a program that binds Listen is refused on both JavaScript platforms, naming the two that grant it"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "js.txt"
+}
+
+run {
+  args: ["build", "//cmd/app", "--error-format=json"]
+  exit: 1
+  golden: "js.json"
+}
+
+# The other page platform, same source. `WEB` is the one that will never grant
+# it however long a runtime takes, so its refusal is the load-bearing half of
+# the pair.
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "{ platform: JS }"
+  with: "{ platform: WEB }"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "web.txt"
+}

@@ -450,6 +450,50 @@ pub const ENTRIES: &[Entry] = &[
     // toolchain built without the reactor refuses this key with a sentence
     // before code generation rather than with a missing symbol from `cc`.
     cx(es("host.HostTasks.parallel", "buri_rt_host_tasks_parallel", Ret::Out), 1),
+    // -- Listen, and Sockets beside it --------------------------------------
+    //
+    // Four operations and no closure among them: the accept loop is
+    // `core/net/server`'s, in Buri, so nothing here is runtime-driven and none
+    // of these rows is an [`Extra::Step`]. That is the whole reason `Listen`
+    // costs four ordinary rows where `Tasks` costs one with a trampoline
+    // behind it.
+    //
+    // Every one is `Result<_, ServeError>`, and `ServeError` is a **struct** —
+    // so all four take §2.1's *second* shape: the error crosses whole through
+    // an out-pointer of its own and the discriminant says only that it failed.
+    // `bytes.fromUtf8` is the other row with that shape, and `NetError`'s
+    // payload-carrying variants are why `ServeError` was declared a struct
+    // rather than a ninth and tenth `NetError` variant.
+    //
+    // `self` is `HostListen`, an empty struct, so it flattens to nothing and
+    // no row here needs a `ctx` column: none of the four takes a context.
+    // `listenBind`'s `ListenOptions` and `listenRespond`'s `Response` flatten
+    // into their leaves by §2 rule 1, and `Listener` into its two `Int`s.
+    //
+    // The bodies are in `cli/runtime/net.rs`, which is why
+    // `runtime_native::net_intrinsic` names the `host.HostListen.*` family: a
+    // toolchain built without the network refuses these keys with a sentence
+    // before code generation rather than with a missing symbol from `cc`.
+    e("host.HostListen.listenBind", "buri_rt_host_listen_bind", Ret::Res),
+    e("host.HostListen.listenAccept", "buri_rt_host_listen_accept", Ret::Res),
+    e("host.HostListen.listenRespond", "buri_rt_host_listen_respond", Ret::Res),
+    e("host.HostListen.listenClose", "buri_rt_host_listen_close", Ret::Void),
+    // The socket half. `()` on all three, because a frame is enqueued rather
+    // than delivered and "did this arrive" was never answerable — which is
+    // also what makes the runtime's current bodies, which drop what they are
+    // handed because nothing hands out a socket yet, the *declared* behaviour
+    // for a socket that has gone rather than a stub.
+    e(
+        "host.HostSockets.socketSendText",
+        "buri_rt_host_sockets_socket_send_text",
+        Ret::Void,
+    ),
+    e(
+        "host.HostSockets.socketSendBytes",
+        "buri_rt_host_sockets_socket_send_bytes",
+        Ret::Void,
+    ),
+    e("host.HostSockets.socketClose", "buri_rt_host_sockets_socket_close", Ret::Void),
     // -- core/alloc's counters ----------------------------------------------
     //
     // Four scalars in, one scalar out, and no context anywhere in them: the

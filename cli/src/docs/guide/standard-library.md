@@ -183,10 +183,22 @@ by handing the context to a function, never by calling a method on it
 `ctx.println(text)` is refused. `core/testing/assert` and `core/host/testing`
 are importable only from a test source.
 
-`core/net/server` and `core/proc` are the two thinnest. `proc.exit(ctx, code)`
-is `Proc`'s one operation. `core/net/server` is a door rather than a design: no
-platform grants `Listen` or `Sockets` yet, so nothing there has a caller, and
-the vocabulary a real server wants grows there when one does.
+`core/proc` is the thinnest of them: `proc.exit(ctx, code)` is `Proc`'s one
+operation. `core/net/server` is the other half of `core/net/http` — a program
+that *is* a server rather than one that talks to one, which is a second
+authority rather than a second spelling. A `Server<C>` is the whole
+configuration: a `port`, an `onRequest` handler taking the caller's own context,
+and `Option` knobs for the address, the protocols, a request limit and an idle
+timeout, each of which means "the runtime chooses" when it is left out of the
+literal. `serve` binds and answers until the listener closes; `bind` and `run`
+are the same thing in two halves, for a program that wants the port number
+before it starts answering; `errorText` turns a `ServeError` into a line. It
+speaks HTTP/1.1 and takes one connection at a time — the honest shape of a
+server with no task pool behind it — and it needs `Listen`, which only `LINUX`
+and `MACOS` grant, because a page is served rather than serving. `sendText`,
+`sendBytes` and `close` are the socket half, and nothing hands out a socket to
+call them on yet: `serve` performs no WebSocket upgrade, so they say what they
+will do rather than pretending to do it today.
 
 `core/tasks` is one function. `parallel(ctx, items, f)` runs `f` over every item
 and answers the results **in the items' order**, whatever order the work

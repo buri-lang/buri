@@ -321,6 +321,68 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped, Arg::Dropped, Arg::Elems, Arg::Step],
         ret: Ret::Out,
     },
+    // -- Listen, and Sockets beside it --------------------------------------
+    //
+    // Four operations and no closure among them: the accept loop lives in
+    // `core/net/server`, in Buri, so none of these is an [`Arg::Step`] and the
+    // trampoline above is untouched by an entire server landing.
+    //
+    // Every one answers `Result<_, ServeError>` and `ServeError` is a
+    // **struct**, so all four take `lib.rs` §2.1's second shape: the error
+    // crosses whole through an out-pointer and the discriminant says only that
+    // it failed. `bytes.fromUtf8` is the other row shaped that way.
+    //
+    // Each knob is its own argument rather than an options struct, because
+    // this table describes a C parameter list one *Buri argument* at a time:
+    // an aggregate argument has no `Arg` to be, and inventing one would be a
+    // shape only this backend could spell. `effect Listen` says the same thing
+    // from the declaration's side.
+    Entry {
+        key: "host.HostListen.listenBind",
+        symbol: "buri_rt_host_listen_bind",
+        args: &[Arg::Dropped, Arg::Str, Arg::Scalar, Arg::List, Arg::Scalar, Arg::Scalar],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host.HostListen.listenAccept",
+        symbol: "buri_rt_host_listen_accept",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host.HostListen.listenRespond",
+        symbol: "buri_rt_host_listen_respond",
+        args: &[Arg::Dropped, Arg::Scalar, Arg::Scalar, Arg::List, Arg::List],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host.HostListen.listenClose",
+        symbol: "buri_rt_host_listen_close",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    // The socket half: `()` on all three, because a frame is enqueued rather
+    // than delivered. The text is `Arg::Str` and the payload `Arg::List` for
+    // `writeBytes`'s reason — a runtime that keeps nothing needs no owning
+    // block — and the close reason is a `Str` for the same reason.
+    Entry {
+        key: "host.HostSockets.socketSendText",
+        symbol: "buri_rt_host_sockets_socket_send_text",
+        args: &[Arg::Dropped, Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host.HostSockets.socketSendBytes",
+        symbol: "buri_rt_host_sockets_socket_send_bytes",
+        args: &[Arg::Dropped, Arg::Scalar, Arg::List],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host.HostSockets.socketClose",
+        symbol: "buri_rt_host_sockets_socket_close",
+        args: &[Arg::Dropped, Arg::Scalar, Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
     // -- core/alloc's counters ----------------------------------------------
     //
     // `GeneralPurpose`, `Arena` and `FixedBuffer` carry a handle into a table

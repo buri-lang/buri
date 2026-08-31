@@ -11,8 +11,9 @@
 //! that asked for it.
 
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Proc, Rand, Region, Request,
-    Response, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Proc,
+    Protocol, Rand, Region, Request, Response, ServeError, Sockets, Stderr, Stdin,
+    Stdout, Tasks,
 };
 
 // One `Request` now. `ui/effect` used to declare a second — the
@@ -129,27 +130,51 @@ impl Tasks for HostTasks {
 
 /// Being a server rather than talking to one.
 ///
-/// **Granted by no platform**, on `HostTasks`'s terms and for the same kind of
-/// reason: there is no acceptor behind it yet. It is granted together with
-/// `HostSockets` when there is, and never on `JS` or `WEB` — a page does not
-/// hold a port open, and that is a fact about pages rather than a slice nobody
-/// has written.
+/// **Granted on LINUX and MACOS**, together with `HostSockets`, and never on
+/// `JS` or `WEB` — a page does not hold a port open, and that is a fact about
+/// pages rather than a slice nobody has written.
+///
+/// The acceptor is `cli/runtime/net.rs`: an HTTP/1.1 server that reads one
+/// request at a time on one connection at a time, with a deadline on every
+/// step. `core/net/server` is the module a program calls; this is what a
+/// context binds.
 export struct HostListen {}
 
 impl Listen for HostListen {
-    fn listen(
+    fn listenBind(
         self,
         address: Str,
         port: Int,
-        onRequest: fn(HostListen, Request) => Response,
-    ): Result<(), NetError>;
+        protocols: [Protocol],
+        requestLimit: Int,
+        idleTimeoutMillis: Int,
+    ): Result<Listener, ServeError>;
+
+    fn listenAccept(self, handle: Int): Result<Request, ServeError>;
+
+    fn listenRespond(
+        self,
+        handle: Int,
+        status: Int,
+        headers: [Header],
+        body: [U8],
+    ): Result<(), ServeError>;
+
+    fn listenClose(self, handle: Int): ();
 }
 
 /// Pushing on a connection that is already open.
 ///
-/// **Granted by no platform**, and granted with `HostListen` when it is: the
-/// two are the halves of one authority to be a server, and a platform that can
-/// accept a connection is exactly a platform that can write back on it.
+/// **Granted on LINUX and MACOS**, with `HostListen`: the two are the halves
+/// of one authority to be a server, and a platform that can accept a
+/// connection is exactly a platform that can write back on it.
+///
+/// Nothing hands out a socket yet — `Listen` performs no WebSocket upgrade —
+/// so every handle a program could pass these three is one it made up, and the
+/// runtime treats an unknown socket as one that has already gone away. That is
+/// the behaviour the effect declares for a closed socket anyway, which is what
+/// makes granting the authority ahead of the upgrade honest rather than a
+/// silent hole.
 export struct HostSockets {}
 
 impl Sockets for HostSockets {

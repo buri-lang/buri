@@ -1,0 +1,28 @@
+// A one-shot server: it binds a port the operating system chooses, answers a
+// single request and stops. Nothing here is JavaScript-specific and nothing
+// here is wrong — what decides whether it compiles is the platform its rule
+// names, which is the point of the case around it.
+from "core/effect" import { Alloc, Listen };
+from "core/host" import * as host;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Listen: host.listen,
+    };
+    server
+        .serve(ctx, server.Server {
+            port: 0,
+            onRequest: fn(c, request) => {
+                match (request.path()) {
+                    "/ping" => http.text(c, "pong"),
+                    _ => http.status(404),
+                }
+            },
+            requestLimit: .Some(1),
+            idleTimeoutMillis: .Some(20000),
+        })
+        .mapErr(server.errorText)
+}

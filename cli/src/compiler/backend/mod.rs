@@ -538,18 +538,20 @@ mod tests {
 
     // -- the networking gap -------------------------------------------------
     //
-    // `host.HostTasks.parallel` is the one key below a program reaches: `Tasks`
-    // is granted on the three non-page platforms and answered by
-    // `cli/runtime/rt.rs`. `host.HostListen.*` and `host.HostSockets.*` are
-    // declared — `core/effect` has both effects and `core/host` implements them
-    // — and granted by no platform, so nothing can construct the host value
-    // their operations hang off. What is being tested is the refusal, which has
-    // to be in place *before* a platform grants one, or the first toolchain
-    // built without networking meets these as an unresolved symbol from `cc`. A
-    // hand-built program is the honest seam for that: there is no source to
-    // compile that reaches the two server keys, and writing one that pretended
-    // to would be a fixture asserting a grant this repository deliberately
-    // withholds.
+    // Two of the three key families below are reachable from ordinary source
+    // now: `Tasks` is granted on the three non-page platforms and answered by
+    // `cli/runtime/rt.rs`, and `Listen` is granted on `LINUX` and `MACOS`, run
+    // from `core/net/server` and answered by `cli/runtime/net.rs`. Only
+    // `host.HostSockets.*` is still without a caller, because nothing performs
+    // a WebSocket upgrade and so no program can name a socket to write to.
+    //
+    // A hand-built program is still the honest seam, and now for a reason that
+    // has nothing to do with what is grantable. What is under test is the
+    // *refusal* — what a toolchain whose archive carries no `net` says about a
+    // program reaching these keys — and a fixture compiling a real server would
+    // exercise that only on a toolchain built without networking, which is not
+    // the one this suite runs on. Naming the keys directly checks the rule
+    // wherever the suite runs, against the toolchain that is actually there.
 
     /// A program holding one intrinsic key, and nothing else.
     fn program_using(keys: &[&str]) -> Program {

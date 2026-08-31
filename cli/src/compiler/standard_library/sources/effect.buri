@@ -234,67 +234,133 @@ export effect Tasks {
 /// because the two are granted together: a platform that accepts connections
 /// is a platform that can write back on them.
 ///
+/// **Four operations, and none of them is the loop.** `listenBind` opens the
+/// port, `listenAccept` answers with the next request that arrives on it,
+/// `listenRespond` answers that request, and `listenClose` gives the port
+/// back. The loop over the three is `core/net/server`'s, written in Buri, and
+/// that is what decides every other shape here:
+///
+///   * **the handler runs under the caller's own context.** `serve` calls it
+///     directly, so a handler may allocate, print, read a clock or start a
+///     task — every authority its `C` carries — without any of that crossing
+///     this effect. The alternative was one `listen` taking the handler, which
+///     makes the handler something the *acceptor* invokes; and an acceptor
+///     grants acceptance and nothing else, so the handler would have been
+///     handed a value it could do nothing with.
+///   * **the loop is a tail call.** There are no loops (SPEC 15.1), and
+///     `middle/tail_calls.rs` rewrites a self tail call into one, so the
+///     accept loop costs no stack however long the server runs.
+///   * **the runtime keeps no Buri value between calls.** Every value here is
+///     built, handed over and finished with inside one call, which is what
+///     lets the acceptor be an ordinary blocking implementation rather than a
+///     scheduler holding a program's heap.
+///
 /// **What is fixed here is the authority, not the argument list.** `Tasks` is
 /// the other shape — `parallel` is what a program calls, so its signature was
-/// the expensive thing and it is pinned above. Nothing calls `listen`
+/// the expensive thing and it is pinned above. Nothing calls these four
 /// directly: `core/net/server` does, and a program hands *that* module a
 /// `Server` value carrying every knob. So the split of authority is the
-/// commitment here, and the parameters below are plumbing that grows a knob at
-/// a time as the runtime learns to honour one — which costs nothing while no
-/// platform grants the effect, because there is no caller anywhere to update.
+/// commitment, and the parameters are plumbing that grows a knob at a time as
+/// the runtime learns to honour one.
 ///
-/// The handler arrives as a parameter rather than as a capture, for
-/// `Tasks.parallel`'s reason: an effect-carrying value may be passed only as
-/// `self` or `ctx` (SPEC 10.6), so a request handler is *handed* what it needs
-/// and captures nothing effectful.
+/// The methods are prefixed for `Sockets`' reason, one declaration down: a
+/// bare `bind`, `accept`, `respond` or `close` would claim four ordinary verbs
+/// out of the namespace every effect bound beside this one shares, and the
+/// language has no way to un-claim a name once programs exist.
 ///
-/// **What it is handed here is `Self`** — the type implementing this effect,
-/// which is the acceptor itself and not the context the call came through;
-/// those are two different types wherever the call goes through a `context`
-/// value, and telling them apart is what `semantics/expressions.rs`'s
-/// `implementing_ty` is for. That is the *other* answer from `Tasks.parallel`'s
-/// and it is deliberate on both sides: `Self` means the implementation
-/// everywhere it is written, and an effect that wants to hand a callback the
-/// caller's context takes that context as a `ctx` parameter and names it, the
-/// way `parallel` does. This one hands the acceptor, so it writes `Self`.
+/// **A `Listener` is inert data, not a resource.** It is `{ handle, port }`:
+/// two integers, copied freely, meaningful only to the acceptor that minted
+/// them — the arrangement `Ui` already uses, where the effect speaks in signal
+/// ids and `ui/signal` hands out `Signal<T>`. `port` rides on it because the
+/// port is not known until the bind returns: a `ListenOptions.port` of `0`
+/// asks the operating system to choose one, and a program that has to tell
+/// somebody which port it got reads it there. A handle from another acceptor,
+/// or one already closed, is a `.Err(ServeError)` and never a crash.
 ///
-/// **Inside a generic body it is the receiver instead**, and that is the same
-/// rule read where the implementation has no name. In
-/// `fn serve<C: Listen>(ctx: C, …)` nothing in `C`'s bounds says what
-/// implements `Listen` for `C`, so a handler written there could do nothing
-/// with the acceptor — while the receiver satisfies every bound `C` declares.
-/// `middle/monomorphize.rs`'s `rewrite_call_args` adapts the call so that the
-/// receiver is what arrives, which is what lets a wrapper such as
-/// `core/alloc`'s `Scoped<C>` rebuild a handler at all.
+/// **Every knob is its own parameter, and "unset" is part of the encoding.**
+/// A `Server`'s `.None` fields become an empty `Str` and a negative `Int` on
+/// the way here, and `core/net/server`'s header is where that convention is
+/// argued for the people who write them. The encoding is at this boundary
+/// rather than a default being in the library because a default is a decision,
+/// and the runtime is the side that knows which defaults it can honour.
 ///
-/// **It will want a `ctx` too**, and that is a signature change rather than a
-/// rule change. `core/net/server`'s hooks — `onRequest`, and the websocket's
-/// `onOpen`/`onMessage`/`onClose` — are written against the caller's `C`: they
-/// start actors, push on sockets and allocate, none of which an acceptor
-/// grants. `serve` cannot bridge a `fn(C, …)` hook to a `fn(Self, …)` handler,
-/// because building one would mean capturing an effect-carrying value. So the
-/// day a platform grants this, `listen` gains `ctx: C` beside `self` and
-/// `onRequest` becomes `fn(C, Request) => Response`; nothing calls it today, so
-/// the change costs one line and no caller.
+/// The knobs are parameters rather than one options struct, and that is the C
+/// ABI showing through rather than a taste. `cli/runtime/lib.rs` §2 rule 1
+/// flattens an aggregate argument into its leaves, and one of the two native
+/// backends describes a runtime call one *Buri argument* at a time rather than
+/// one leaf at a time, so a struct here would be a shape only half the
+/// toolchain can spell. It is the same reason `listenRespond` takes a
+/// `Response`'s three fields instead of a `Response`.
 ///
-/// **No platform grants this yet.** `core/host` declares `HostListen` and
-/// `listen`, and the grant table gives them no platform at all, so every
-/// `Listen: host.listen` is refused today with the reason. The acceptor that
-/// answers it lands with `core/net/server`; granting it is then one row of
-/// that table rather than a new name a program has to be rewritten to use.
+/// **The parameter list has a budget, and `listenBind` is at it.** A runtime
+/// call carries ten integer arguments — `backend/stencil/abi.rs`'s
+/// `MAX_INT_ARGS`, which is AAPCS64's register half plus two — and this one
+/// spends all ten: three for the address, one for the port, two for the
+/// protocol list, two knobs, and the two out-pointers `Result` needs. The
+/// knobs that do *not* cross are the acceptor's own constants — how long one
+/// connection may take to send its head, and the largest body it will read —
+/// and they are the runtime's rather than the program's until the budget grows
+/// or a knob earns its place ahead of one that is here.
+///
+/// **Granted on LINUX and MACOS**, together with `Sockets`, and never on `JS`
+/// or `WEB`: a page does not hold a port open, and that is a fact about pages
+/// rather than a slice nobody has written yet.
 export effect Listen {
-    /// Accepts connections on `address:port`, answers each request with
-    /// `onRequest`, and returns when the process is asked to shut down.
+    /// Opens a port, and answers with it.
     ///
-    /// Answering `.Ok(())` for "the server stopped" rather than never returning
-    /// is what keeps `serve` an ordinary call: a `main` that runs a server ends
-    /// by falling off the end of a function, not by being killed.
-    fn listen(
+    /// `address` is `""` for "the runtime chooses", `port` is `0` for "the
+    /// operating system chooses", `protocols` is `[]` for the same, and each
+    /// `Int` knob is negative for it. `Listener.port` is what the operating
+    /// system actually gave.
+    ///
+    /// `.AddressInUse`, `.AddressNotAvailable` and `.PermissionDenied` are the
+    /// three the operating system reports by name. `.Unsupported` is a
+    /// protocol this toolchain's runtime does not speak, which is a fact about
+    /// how the toolchain was built rather than about the program.
+    fn listenBind(
         self,
         address: Str,
         port: Int,
-        onRequest: fn(Self, Request) => Response,
-    ): Result<(), NetError>;
+        protocols: [Protocol],
+        requestLimit: Int,
+        idleTimeoutMillis: Int,
+    ): Result<Listener, ServeError>;
+
+    /// The next request on this listener, once one has arrived and been read
+    /// whole.
+    ///
+    /// Waits. `.Err(.Closed)` is how a listener says it will answer no more —
+    /// its request limit is spent, or it has been closed — and it is the
+    /// ordinary end of a server rather than a failure, which is why
+    /// `core/net/server`'s `run` turns that one cause into `.Ok(())`.
+    /// `.Err(.Timeout)` is the idle deadline expiring with nobody connected.
+    ///
+    /// A connection that speaks nonsense never surfaces here: a malformed
+    /// request is the transport's problem and the runtime answers it, because
+    /// a handler that had to defend against one would be writing a parser.
+    fn listenAccept(self, handle: Int): Result<Request, ServeError>;
+
+    /// Answers the request `listenAccept` last handed out on this listener,
+    /// with a `Response`'s three fields.
+    ///
+    /// One response per accepted request, in that order. The pairing is
+    /// positional rather than by an identifier because there is only ever one
+    /// request outstanding — which is what "one connection at a time" means,
+    /// and is the thing that changes when handlers get tasks of their own.
+    fn listenRespond(
+        self,
+        handle: Int,
+        status: Int,
+        headers: [Header],
+        body: [U8],
+    ): Result<(), ServeError>;
+
+    /// Gives the port back.
+    ///
+    /// Closing twice is not an error: the second call has nothing to do, and a
+    /// server unwinding out of a failed loop should not have to remember how
+    /// far it got before it can tidy up.
+    fn listenClose(self, handle: Int): ();
 }
 
 /// Writing to a connection somebody else accepted.
@@ -336,8 +402,12 @@ export effect Listen {
 /// and "wire codes never appear in Buri code" is a rule about the code people
 /// write, which is why the mapping lives one layer up from here.
 ///
-/// **No platform grants this yet**, on `Listen`'s terms, with which it is
-/// granted and withheld together.
+/// **Granted on LINUX and MACOS**, on `Listen`'s terms, with which it is
+/// granted and withheld together. There is no acceptor behind these three
+/// today — a WebSocket upgrade is not something `Listen` can perform yet — so
+/// what a program gets by binding this is the authority and, for now, a
+/// runtime that drops what it is handed. That is the honest state and
+/// `core/net/server` says so where the functions are.
 export effect Sockets {
     /// Enqueues a text frame. Never waits: the frame goes to the socket's
     /// outbound buffer, and a socket whose buffer is full is closed rather than
@@ -387,6 +457,87 @@ export enum NetError {
     /// not. A page's requests are `Net`'s now, so there is one list of reasons
     /// a request produced no response.
     Aborted,
+}
+
+derive Eq, Show for Protocol;
+/// An HTTP version a server may be asked to speak.
+///
+/// The **declaration order is the ABI**: the variant index is what crosses to
+/// the runtime — `cli/runtime/net.rs`'s `Protocol` is this list transcribed —
+/// so a variant may be appended and never reordered. `Method` travels the same
+/// way and for the same reason.
+///
+/// A `Server` naming a protocol its toolchain's runtime was not built with is
+/// refused when it binds, with `.Unsupported` and a message naming the build
+/// switch. That is a *run-time* refusal on purpose: HTTP/3 is a field of a
+/// value rather than an intrinsic key, so nothing about the program is wrong,
+/// and refusing every program that mentions `serve` would refuse every server
+/// that was only ever going to speak HTTP/1.1.
+export enum Protocol {
+    Http1,
+    Http2,
+    Http3,
+}
+
+derive Eq, Show for ServeFailure;
+/// Why a server stopped, as a closed set.
+///
+/// Separate from `NetError` because being a server fails in different ways
+/// from talking to one: a client is refused, redirected or timed out, while a
+/// server finds the port taken, the privilege missing, or its own protocol
+/// list unbuildable. Two enums rather than one union of nine, so that a `match`
+/// on either covers cases that can actually happen.
+///
+/// The **declaration order is the ABI**, as `Protocol`'s is.
+export enum ServeFailure {
+    /// Somebody else holds the port.
+    AddressInUse,
+    /// The address does not name an interface on this machine.
+    AddressNotAvailable,
+    /// A privileged port, or a sandbox that forbids listening.
+    PermissionDenied,
+    /// A protocol this toolchain's runtime does not speak. The message names
+    /// the build switch that would add it.
+    Unsupported,
+    /// The listener waited its idle deadline and nobody connected.
+    Timeout,
+    /// The listener will answer no more: its request limit is spent, or it has
+    /// been closed. **Not a failure** — `core/net/server`'s `run` turns this
+    /// one cause into `.Ok(())`, and it is the ordinary way a bounded server
+    /// ends.
+    Closed,
+    /// Anything the operating system or the wire reported that the six above
+    /// do not name. The message is the platform's own.
+    Transport,
+}
+
+derive Eq, Show for ServeError;
+/// Why a server stopped, and what the platform said about it.
+///
+/// A **struct** rather than an enum with payloads, and the shape is load
+/// bearing on both sides. For a reader, `cause` is what a program branches on
+/// and `detail` is what it prints, which keeps the two questions apart —
+/// `NetError` answers them with one enum and a `match` that binds a `Str` it
+/// mostly ignores. For the runtime, `cli/runtime/lib.rs` §2.1 gives a
+/// non-enum error its own out-pointer, so the message crosses the C ABI
+/// whole; an enum error is named by a variant index and its payload does not
+/// cross at all.
+export struct ServeError {
+    export cause: ServeFailure,
+    export detail: Str,
+}
+
+derive Eq, Show for Listener;
+/// An open port. Inert data: two integers the acceptor understands and nobody
+/// else does.
+///
+/// `port` is the port actually bound, which is the reason this is a pair
+/// rather than a handle. `ListenOptions.port` of `0` asks the operating system
+/// to choose, and a program that has to tell somebody where to connect — a
+/// test, a supervisor, a line on standard output — reads the answer here.
+export struct Listener {
+    export handle: Int,
+    export port: Int,
 }
 
 derive Eq, Show for Method;
