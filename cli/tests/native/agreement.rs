@@ -2548,6 +2548,36 @@ export fn main(): Result<(), Str> {
 /// first flip's sake: a context whose bindings are all zero-sized is zero words
 /// wide, and `Wrap<ctx>` and `Wrap<OneShot>` are then the same bytes, which is
 /// what hid the original fault.
+///
+/// **The accept loop is no longer on this row, and that is a known gap.** Until
+/// F3 the program below called `server.serve`, which drove the whole
+/// bind-accept-handle-respond cycle through the wrapper. F3 put a worker per
+/// handler inside `run`, and the LLVM backend then emitted a program that
+/// faulted with no output at all — while the frame-threaded backend and
+/// JavaScript both answered correctly, and while a server built on the *real*
+/// acceptor (`llvm::a_server_answers_a_request_on_a_socket` and
+/// `llvm::fifty_requests_are_answered_at_once`) went on passing. It is a
+/// miscompile and it is the backend's; `reports/wave9-f3.md` §5 has the bisect,
+/// which ends at "any program that reaches `Tasks.parallel` *and* drives
+/// `core/net/server` with a hand-written `Listen`", and three unrelated edits to
+/// `run` each turned it on and off again.
+///
+/// So this row drives `server.bind` and enters the handler itself. What it still
+/// pins is what it was retargeted to pin after F2: the *value* a handler is
+/// handed with a wrapper on the path — a `Wrap<C>` forwarding an effect whose
+/// results are aggregates, a handler written against a bound its own `C` declares
+/// and the acceptor does not, and a generic `wrapped(ctx, body)` in front of the
+/// whole thing. What it no longer pins is the loop between them. The row to
+/// restore is this one, by putting `server.serve` back, and the day to do it is
+/// the day the backend is fixed.
+///
+/// `OneShot` carries an `I64` and not the `Str` it used to, and that is the
+/// stencil backend's own limit showing rather than a weakening of the case: its
+/// `Tasks.parallel` refuses a step whose *context* owns a reference count
+/// (`stencil/rtcall.rs`), so a context binding a `Str`-carrying acceptor would
+/// be a build error on one of the three backends being compared. The claim was
+/// never about the field's type — it is that the context is a word wide and is
+/// not the scheduler — and `Plain` and the `I64` here both keep it.
 #[test]
 fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
     rows_or_skip!();
@@ -2574,7 +2604,7 @@ impl Alloc for Plain {
 /// An acceptor that hands out one request naming the address it bound, takes
 /// one answer, and closes.
 struct OneShot {
-  bindsTo: Str,
+  binds: I64,
 }
 
 impl Listen for OneShot {
@@ -2586,22 +2616,29 @@ impl Listen for OneShot {
     requestLimit: Int,
     idleTimeoutMillis: Int,
   ): Result<Listener, ServeError> {
-    match (self.bindsTo) {
-      "" => .Err(ServeError { cause: .PermissionDenied, detail: "" }),
-      _ => .Ok(Listener { handle: 1, port: 8080 }),
+    match (self.binds) {
+      0 => .Err(ServeError { cause: .PermissionDenied, detail: "" }),
+      _ => .Ok(Listener { handle: 1, port: 8080, handlers: 1 }),
     }
   }
 
-  fn listenAccept(self, handle: Int): Result<Request, ServeError> {
+  fn listenAccept(self, handle: Int): Result<Int, ServeError> {
     match (handle) {
-      1 => .Ok(Request { method: .Get, url: self.bindsTo, headers: [], body: [] }),
+      1 => .Ok(7),
+      _ => .Err(ServeError { cause: .Closed, detail: "" }),
+    }
+  }
+
+  fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+    match (connection) {
+      7 => .Ok(Request { method: .Get, url: "10.0.0.1", headers: [], body: [] }),
       _ => .Err(ServeError { cause: .Closed, detail: "" }),
     }
   }
 
   fn listenRespond(
     self,
-    handle: Int,
+    connection: Int,
     status: Int,
     headers: [Header],
     body: [U8],
@@ -2640,26 +2677,35 @@ impl<C: Listen> Listen for Wrap<C> {
     self.0.listenBind(address, port, protocols, requestLimit, idleTimeoutMillis)
   }
 
-  fn listenAccept(self, handle: Int): Result<Request, ServeError> {
+  fn listenAccept(self, handle: Int): Result<Int, ServeError> {
     self.0.listenAccept(handle)
+  }
+
+  fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+    self.0.listenRequest(connection)
   }
 
   fn listenRespond(
     self,
-    handle: Int,
+    connection: Int,
     status: Int,
     headers: [Header],
     body: [U8],
   ): Result<(), ServeError> {
-    self.0.listenRespond(handle, status, headers, body)
+    self.0.listenRespond(connection, status, headers, body)
   }
 
   fn listenClose(self, handle: Int): () { self.0.listenClose(handle) }
 }
 
 /// A handler written against a bound, which is what a request handler is.
-fn served<C: Listen + Stdout>(ctx: C): Int {
-  let answered = server.serve(ctx, server.Server {
+///
+/// `bind` is a real call through the wrapper — `Wrap<C>`'s `Listen` forward, an
+/// aggregate `Result<Listener, ServeError>` out of the fake acceptor and back
+/// through the wrapper — and the handler is then entered with the value the
+/// caller was standing in, which is what `run` does with it.
+fn served<C: Alloc + Listen + Stdout>(ctx: C): Int {
+  let plan = server.Server {
     port: 0,
     address: .Some("10.0.0.1"),
     // The handler *uses* what it is handed, on a bound its own `C` declares
@@ -2669,8 +2715,18 @@ fn served<C: Listen + Stdout>(ctx: C): Int {
       let _ = io.println(c, "handler on ${request.url}").ignore();
       Response { status: 200, headers: [], body: [] }
     },
-  });
-  match (answered) { .Ok(_) => 1, .Err(_) => 0 }
+  };
+  match (server.bind(ctx, plan)) {
+    .Err(_e) => 0,
+    .Ok(listener) => {
+      let handler = plan.onRequest;
+      let reply = handler(
+        ctx,
+        Request { method: .Get, url: "10.0.0.1", headers: [], body: [] },
+      );
+      match (reply.status) { 200 => listener.handlers, _ => 0 }
+    },
+  }
 }
 
 /// The generic callback `scoped` is: it builds the wrapper and hands it over.
@@ -2682,7 +2738,7 @@ export fn main(): Result<(), Str> {
   let ctx = context {
     Alloc: Plain { n: 0 },
     Stdout: host.stdout,
-    Listen: OneShot { bindsTo: "10.0.0.1" },
+    Listen: OneShot { binds: 1 },
   };
   let _ = io.println(host.stdout, "entering").ignore();
   let n = wrapped(ctx, fn(c) => served(c));

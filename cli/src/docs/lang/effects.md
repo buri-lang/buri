@@ -468,12 +468,16 @@ caller had: an acceptor grants `Listen` and nothing else, so a handler handed
 one cannot allocate, print, or start a task. That is the right answer where the
 callback is meant to inspect the implementation, and the wrong one for a request
 handler, which is why the choice is written down per method rather than
-inferred — and why `Listen` carries no callback at all today. It is four
-operations now — bind a listener, accept a request, respond to one, close the
-listener — and the loop that calls a handler between the second and the third
-lives in `core/net/server`, written in Buri against the caller's own `C`. A
-handler there may allocate, print, read a clock and start a task, because the
-authority it runs with never crossed the effect boundary to be narrowed.
+inferred — and why `Listen` carries no callback at all today. It is five
+operations now — bind a listener, accept a connection, read the request on it,
+respond to it, close the listener — and the loop that calls a handler between
+the third and the fourth lives in `core/net/server`, written in Buri against the
+caller's own `C`. A handler there may allocate, print, read a clock and start a
+task, because the authority it runs with never crossed the effect boundary to be
+narrowed. There is more than one of that loop, in fact: `run` fans it out over
+the carrier pool, one worker per handler the acceptor said it would host, so
+"the handler runs under the caller's context" is now also "on a task of the
+caller's own".
 
 ### 10.7 Calling convention
 

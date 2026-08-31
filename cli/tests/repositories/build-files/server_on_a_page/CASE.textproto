@@ -8,6 +8,13 @@
 # reason and with the platforms that would have answered — and the only thing
 # that could change it is one field of a build file.
 #
+# The source binds `Tasks` beside `Listen`, because a server runs its handlers
+# on tasks and `core/net/server`'s `serve` says so in its bound. That makes the
+# two platforms answer differently, and the difference is worth having: `JS`
+# grants `Tasks` and refuses only the port, while `WEB` grants neither and
+# refuses both. A page cannot serve, and it cannot block on work either — two
+# facts about pages, and the pair of goldens below now says both.
+#
 # This lives here rather than in `cli/tests/reject/` because the refusal is a
 # fact about the **graph**: the source below never changes, and only the rule's
 # `outputs` moves. A reject fixture is one package with one platform and could

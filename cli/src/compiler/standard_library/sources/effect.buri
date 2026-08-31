@@ -234,10 +234,11 @@ export effect Tasks {
 /// because the two are granted together: a platform that accepts connections
 /// is a platform that can write back on them.
 ///
-/// **Four operations, and none of them is the loop.** `listenBind` opens the
-/// port, `listenAccept` answers with the next request that arrives on it,
-/// `listenRespond` answers that request, and `listenClose` gives the port
-/// back. The loop over the three is `core/net/server`'s, written in Buri, and
+/// **Five operations, and none of them is the loop.** `listenBind` opens the
+/// port and says how many handlers it will host on it, `listenAccept` waits for
+/// the next connection with a whole request on it, `listenRequest` reads that
+/// request, `listenRespond` answers it, and `listenClose` gives the port back.
+/// The loop over the middle three is `core/net/server`'s, written in Buri, and
 /// that is what decides every other shape here:
 ///
 ///   * **the handler runs under the caller's own context.** `serve` calls it
@@ -250,6 +251,30 @@ export effect Tasks {
 ///   * **the loop is a tail call.** There are no loops (SPEC 15.1), and
 ///     `middle/tail_calls.rs` rewrites a self tail call into one, so the
 ///     accept loop costs no stack however long the server runs.
+///   * **there may be several of it at once.** `core/net/server`'s `run` fans
+///     the loop out with `Tasks.parallel`, one worker per handler the acceptor
+///     will host, so a slow handler holds up its own connection and nothing
+///     else. That is the whole of F3, and what it cost this effect is one
+///     `Listener` field and an identifier: a worker has to be able to say
+///     *which* request it is answering, so `listenAccept` answers a connection
+///     and `listenRespond` names that connection instead of the listener. A
+///     handler still runs on the caller's own context; what is new is which
+///     task the caller is.
+///
+/// **Accepting and reading are two calls**, and the reason is that they are two
+/// different things to whatever is scheduling the worker. `listenAccept` is
+/// where a server spends its idle life: it waits, it is the one call in this
+/// effect that can wait forever, and it is the one a shutdown has to be able to
+/// interrupt. `listenRequest` waits on nothing — the request was framed and read
+/// whole before the connection was handed out — so it is an ordinary read of
+/// something the acceptor is already holding.
+///
+/// Folding them into one call answering a connection *and* its request is the
+/// obvious alternative and it was written that way first. What it costs is that
+/// the value crossing the boundary grows by a `Request`, and that every
+/// implementation of this effect — including a fake in a test — has to build one
+/// before it can say which connection it accepted. Two calls keep the widest
+/// thing this effect answers exactly what it answered before F3.
 ///   * **the runtime keeps no Buri value between calls.** Every value here is
 ///     built, handed over and finished with inside one call, which is what
 ///     lets the acceptor be an ordinary blocking implementation rather than a
@@ -268,9 +293,9 @@ export effect Tasks {
 /// out of the namespace every effect bound beside this one shares, and the
 /// language has no way to un-claim a name once programs exist.
 ///
-/// **A `Listener` is inert data, not a resource.** It is `{ handle, port }`:
-/// two integers, copied freely, meaningful only to the acceptor that minted
-/// them — the arrangement `Ui` already uses, where the effect speaks in signal
+/// **A `Listener` is inert data, not a resource**, and so is an `Accepted`'s
+/// connection. A `Listener` is `{ handle, port }`: two integers, copied freely,
+/// meaningful only to the acceptor that minted them — the arrangement `Ui` already uses, where the effect speaks in signal
 /// ids and `ui/signal` hands out `Signal<T>`. `port` rides on it because the
 /// port is not known until the bind returns: a `ListenOptions.port` of `0`
 /// asks the operating system to choose one, and a program that has to tell
@@ -302,6 +327,14 @@ export effect Tasks {
 /// and they are the runtime's rather than the program's until the budget grows
 /// or a knob earns its place ahead of one that is here.
 ///
+/// **`listenHandlers` is a knob that got a call of its own rather than a
+/// place in that queue**, and the arithmetic above is why: the bind had no
+/// eleventh argument to give it. A separate call is not a workaround for the
+/// budget so much as the shape the question already had — the number is asked
+/// for once, between the bind and the loop, and it is a *negotiation* rather
+/// than a setting. The program says what it wants, `-1` for "no preference",
+/// and the acceptor answers with what it will actually host.
+///
 /// **Granted on LINUX and MACOS**, together with `Sockets`, and never on `JS`
 /// or `WEB`: a page does not hold a port open, and that is a fact about pages
 /// rather than a slice nobody has written yet.
@@ -326,30 +359,48 @@ export effect Listen {
         idleTimeoutMillis: Int,
     ): Result<Listener, ServeError>;
 
-    /// The next request on this listener, once one has arrived and been read
-    /// whole.
+    /// The next connection on this listener with a whole request on it.
     ///
-    /// Waits. `.Err(.Closed)` is how a listener says it will answer no more —
-    /// its request limit is spent, or it has been closed — and it is the
-    /// ordinary end of a server rather than a failure, which is why
+    /// Waits. The `Int` is the connection, and it is opaque on `Listener`'s
+    /// terms: meaningful to the acceptor that minted it and to nobody else. It
+    /// is what `listenRequest` reads and what `listenRespond` answers, and it
+    /// is what makes several workers on one listener possible at all.
+    ///
+    /// `.Err(.Closed)` is how a listener says it will answer no more — its
+    /// request limit is spent, or it has been closed — and it is the ordinary
+    /// end of a server rather than a failure, which is why
     /// `core/net/server`'s `run` turns that one cause into `.Ok(())`.
     /// `.Err(.Timeout)` is the idle deadline expiring with nobody connected.
     ///
     /// A connection that speaks nonsense never surfaces here: a malformed
     /// request is the transport's problem and the runtime answers it, because
-    /// a handler that had to defend against one would be writing a parser.
-    fn listenAccept(self, handle: Int): Result<Request, ServeError>;
+    /// a handler that had to defend against one would be writing a parser. So
+    /// a connection this answers is one a whole request has already been read
+    /// off, and `listenRequest` is the reading of it and not a second wait.
+    fn listenAccept(self, handle: Int): Result<Int, ServeError>;
 
-    /// Answers the request `listenAccept` last handed out on this listener,
-    /// with a `Response`'s three fields.
+    /// The request that arrived on a connection `listenAccept` answered with.
     ///
-    /// One response per accepted request, in that order. The pairing is
-    /// positional rather than by an identifier because there is only ever one
-    /// request outstanding — which is what "one connection at a time" means,
-    /// and is the thing that changes when handlers get tasks of their own.
+    /// Does not wait: the request was read whole before the connection was
+    /// handed out. `.Err(.Closed)` is a connection that has already been
+    /// answered, or one whose listener was closed under it.
+    fn listenRequest(self, connection: Int): Result<Request, ServeError>;
+
+    /// Answers one accepted request, named by its connection, with a
+    /// `Response`'s three fields.
+    ///
+    /// One response per accepted request. The pairing is **by identifier and
+    /// not by position**, and that is what a worker per handler cost: while
+    /// there was one loop there was one outstanding request and the listener
+    /// named it, and with several loops on one listener there are as many
+    /// outstanding requests as there are workers.
+    ///
+    /// A connection nobody is holding — one already answered, or one whose
+    /// listener was closed under it — is `.Ok(())` and writes nothing. Neither
+    /// is something the loop did wrong.
     fn listenRespond(
         self,
-        handle: Int,
+        connection: Int,
         status: Int,
         headers: [Header],
         body: [U8],
@@ -528,16 +579,36 @@ export struct ServeError {
 }
 
 derive Eq, Show for Listener;
-/// An open port. Inert data: two integers the acceptor understands and nobody
+/// An open port. Inert data: three integers the acceptor understands and nobody
 /// else does.
 ///
-/// `port` is the port actually bound, which is the reason this is a pair
+/// `port` is the port actually bound, which is the reason this is a record
 /// rather than a handle. `ListenOptions.port` of `0` asks the operating system
 /// to choose, and a program that has to tell somebody where to connect — a
 /// test, a supervisor, a line on standard output — reads the answer here.
+///
+/// `handlers` is **how many handlers this acceptor will host at once on this
+/// listener**, and it is what `core/net/server`'s `run` fans its accept loop out
+/// to. It rides here rather than being asked for by a method of its own because
+/// the bind is where the acceptor learns everything else about the listener, and
+/// because a sixth method would have claimed a sixth name out of the namespace
+/// every effect bound beside this one shares. An acceptor that answers one drives
+/// exactly the server this effect described before F3.
+///
+/// The number is the *acceptor's* and not the program's, for `headerTimeout`'s
+/// reason one paragraph down: `listenBind` is at the ten-integer budget, so a
+/// program's own preference has no way across, and a knob nothing could carry
+/// would be a knob that silently did nothing. A program that has to bound its
+/// concurrency bounds it in its handler; the day the budget grows, this becomes
+/// a request as well as an answer.
+///
+/// It is inert like the rest of this value, so a program may write a `Listener`
+/// of its own with any number in it. `core/net/server` therefore believes it only
+/// inside a range it can host, and says so where the clamp is.
 export struct Listener {
     export handle: Int,
     export port: Int,
+    export handlers: Int,
 }
 
 derive Eq, Show for Method;

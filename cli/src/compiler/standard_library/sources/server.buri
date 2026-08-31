@@ -14,7 +14,7 @@
 //! `http.text` / `http.status` / `withHeader`.
 //!
 //! ```buri
-//! from "core/effect" import { Alloc, Listen };
+//! from "core/effect" import { Alloc, Listen, Tasks };
 //! from "core/host" import * as host;
 //! from "core/net/http" import * as http;
 //! from "core/net/server" import * as server;
@@ -23,6 +23,7 @@
 //!     let ctx = context {
 //!         Alloc: host.alloc,
 //!         Listen: host.listen,
+//!         Tasks: host.tasks,
 //!     };
 //!     server
 //!         .serve(ctx, server.Server {
@@ -68,13 +69,46 @@
 //! reader knows what to expect rather than so a program may rely on it. The
 //! second column is the contract.
 //!
+//! **How many handlers run at once is not on this list**, and that is the
+//! same argument reaching a different answer. It is not a `Server` field at all:
+//! `effect Listen`'s `listenBind` is at the ten-integer budget a runtime call
+//! has, so a program's preference has no way across, and a field nothing could
+//! carry would be a knob that silently did nothing — which is exactly why
+//! `headerTimeoutMillis` and `bodyLimitBytes` are absent too. The acceptor
+//! answers with the number it will host, on `Listener.handlers`, and `run` fans
+//! out to it. A program that has to bound its own concurrency bounds it inside
+//! its handler; the day the bind's budget grows, the field lands beside the
+//! four above and this paragraph becomes a row.
+//!
+//! ## A handler runs on a task, and that is why `Tasks` is in the bound
+//!
+//! `run` does not drive one accept loop; it fans out `listener.handlers` of them
+//! with `Tasks.parallel`, each on a carrier of its own, all accepting on the one
+//! listener. A slow handler therefore holds up its own connection and nothing
+//! else, which is what "many connections in flight" means here.
+//!
+//! **A worker pool and not a task per request**, and that is `effect Tasks`'s
+//! shape showing through rather than a compromise. `parallel` is the whole of
+//! that effect and it has no detached spawn: every task has finished before the
+//! call returns, which is what keeps a task from outliving the context that
+//! granted it. So there is no way to say "answer this one somewhere else and
+//! come back for the next" — the loop that accepts is the loop that answers, and
+//! running several of *those* is how they overlap. What a program gets is a
+//! bounded concurrency it can read off `Listener.handlers`, which is a better
+//! thing to have than an unbounded one: a server that starts a task per
+//! connection is a server whose worst day is decided by its clients.
+//!
+//! `Tasks` in the bound is the visible price and it is the right one. Handlers
+//! running at the same time is authority — the right to run a program's own work
+//! concurrently — and this language puts authority in the context where a reader
+//! looks for it. A program that grants `Listen` and not `Tasks` is not a slower
+//! server; it does not compile, and the message names what is missing.
+//!
 //! ## What is here, and what is not yet
 //!
-//! `serve` is one connection at a time: the acceptor reads one request, the
-//! handler answers it, and only then is the next connection accepted. That is
-//! the honest shape of an HTTP/1.1 server with no task pool behind it, and it
-//! is the thing that changes first — a handler on a task of its own, and many
-//! connections in flight, is the next slice and needs no change here.
+//! One request per connection: the response says `connection: close` and the
+//! socket is dropped after it. Keep-alive and HTTP/2's multiplexing are the same
+//! slice as TLS, and it is the next one.
 //!
 //! `sendText`, `sendBytes` and `close` are the socket half. Nothing hands out
 //! a `Socket` yet — a WebSocket upgrade is not something `serve` performs —
@@ -83,8 +117,11 @@
 //! they say what they will do rather than pretending to do it today.
 
 from "core/effect" import {
-    Listen, Listener, Protocol, Request, Response, ServeError, ServeFailure, Sockets,
+    Alloc, Listen, Listener, Protocol, Request, Response, ServeError, ServeFailure,
+    Sockets, Tasks,
 };
+from "core/list" import * as list;
+from "core/tasks" import * as tasks;
 
 from "core/effect" export {
     Listener, Protocol, Request, Response, ServeError, ServeFailure,
@@ -101,15 +138,15 @@ from "core/effect" export {
 /// `C` is the caller's own context, and it is what `onRequest` is handed. A
 /// handler may therefore do anything the context it was written beside can do:
 /// allocate a response body, print a line, read a clock, start a task. Nothing
-/// about that authority passes through `Listen` — `serve` calls the handler
-/// itself — which is the reason the effect has four small methods and not one
-/// big one.
+/// about that authority passes through `Listen` — `run`'s workers call the
+/// handler themselves — which is the reason the effect has five small methods
+/// and not one big one.
 export struct Server<C> {
     /// The port to hold. `0` asks the operating system to choose one, and
     /// `bind` answers with the number it chose.
     export port: Int,
-    /// What answers a request. Called once per request, on the calling task,
-    /// with the context `serve` was given.
+    /// What answers a request. Called once per request, on one of `run`'s
+    /// worker tasks, with the context `serve` was given.
     export onRequest: fn(C, Request) => Response,
     /// The interface to listen on. `.None` lets the runtime choose, which on
     /// every platform that grants `Listen` today means loopback — a server
@@ -152,10 +189,13 @@ export struct Server<C> {
 /// A program that needs the port *while* the server runs — anything binding
 /// `port: 0` — wants `bind` and `run` instead, which are this function's two
 /// halves and are exported for exactly that.
-export fn serve<C: Listen>(ctx: C, server: Server<C>): Result<(), ServeError> {
+export fn serve<C: Alloc + Listen + Tasks>(
+    ctx: C,
+    server: Server<C>,
+): Result<(), ServeError> {
     match (bind(ctx, server)) {
         .Err(e) => .Err(e),
-        .Ok(listener) => run(ctx, listener, server.onRequest),
+        .Ok(listener) => run(ctx, listener, server),
     }
 }
 
@@ -175,23 +215,107 @@ export fn bind<C: Listen>(ctx: C, server: Server<C>): Result<Listener, ServeErro
     )
 }
 
+/// The most workers this module will start, whatever a `Listener` says.
+///
+/// A `Listener` is inert data and a program may write one for itself, so `run`
+/// believes its `handlers` only inside a range it can host: a fan-out of a
+/// million would be a program that stops making progress rather than a fast one,
+/// and the number would have come from the program rather than from an acceptor.
+/// The runtime's own ceiling is the same sixty-four (`cli/runtime/net.rs`, where
+/// the reason is that a worker waiting for a connection holds a carrier), and
+/// the two agreeing is a fact about this toolchain rather than a promise — the
+/// clamp is here because this module cannot check what minted the value.
+let MAX_HANDLERS: Int = 64;
+
+/// `asked`, believed inside the range above. At least one: a server with no
+/// workers is a port nobody is listening on.
+fn hosted(asked: Int): Int {
+    if (asked < 1) {
+        1
+    } else {
+        if (asked > MAX_HANDLERS) { MAX_HANDLERS } else { asked }
+    }
+}
+
+/// One worker's whole job: which listener to answer on, and what to answer
+/// with.
+///
+/// It exists so that the fan-out's closure captures **nothing**. A task is
+/// handed its item and its context and takes nothing from the frame it was
+/// written in (SPEC 10.6), so the two things a worker needs travel as the item
+/// rather than as a capture — which is also why `run` can hand every worker the
+/// same value and let the acceptor decide who gets which request.
+struct Worker<C> {
+    handle: Int,
+    onRequest: fn(C, Request) => Response,
+}
+
 /// Answers requests on an already-open listener until it is done, then closes
 /// it.
 ///
-/// The loop is `answering` below, and it is a tail call: there are no loops
-/// (SPEC 15.1), and `middle/tail_calls.rs` rewrites a self tail call into one,
-/// so a server that answers a million requests uses one frame.
-export fn run<C: Listen>(
+/// **`listener.handlers` workers, each running the whole accept loop.** They all
+/// accept on the one listener and the acceptor hands each connection to
+/// whichever asks first, so a handler that takes a second holds up its own
+/// connection and no other. The loop itself is `answering` below and is a tail
+/// call: there are no loops (SPEC 15.1) and `middle/tail_calls.rs` rewrites a
+/// self tail call into one, so each worker costs one frame however long it runs.
+///
+/// **One handler is no fan-out at all**, and that is worth the branch: an
+/// acceptor that hosts one — every test double in this repository, and the
+/// development backend's own answer — gets the loop on the calling task, with no
+/// task started, no list built and no result folded. It is the server this
+/// module was before F3, reached by asking rather than by a flag.
+///
+/// It takes the whole `Server` rather than its `onRequest` so that the two halves
+/// of `serve` are the same value in and the same value out; `port`, `address` and
+/// the bind knobs were spent by `bind` and are ignored here.
+///
+/// The answer is the **first** failure any worker reported, and `.Ok(())` when
+/// every one of them ended the ordinary way. A worker that fails closes the
+/// listener on its way out (see `answering`), so the others are not left waiting
+/// out a server that has already stopped.
+export fn run<C: Alloc + Listen + Tasks>(
     ctx: C,
     listener: Listener,
-    onRequest: fn(C, Request) => Response,
+    server: Server<C>,
 ): Result<(), ServeError> {
-    let outcome = answering(ctx, listener.handle, onRequest);
+    let outcome = if (hosted(listener.handlers) <= 1) {
+        answering(ctx, listener.handle, server.onRequest)
+    } else {
+        together(ctx, listener, server.onRequest)
+    };
     let _closed = ctx.listenClose(listener.handle);
     outcome
 }
 
+/// The workers, fanned out, and the first failure any of them reported.
+fn together<C: Alloc + Listen + Tasks>(
+    ctx: C,
+    listener: Listener,
+    onRequest: fn(C, Request) => Response,
+): Result<(), ServeError> {
+    let worker = Worker { handle: listener.handle, onRequest: onRequest };
+    let outcomes = tasks.parallel(
+        ctx,
+        list.repeat(ctx, worker, hosted(listener.handlers)),
+        fn(c, _index, w) => answering(c, w.handle, w.onRequest),
+    );
+    outcomes.fold(
+        fn(sofar, outcome) => {
+            match (sofar) {
+                .Err(e) => .Err(e),
+                .Ok(_ok) => outcome,
+            }
+        },
+        .Ok(()),
+    )
+}
+
 /// One request, then the rest of them.
+///
+/// Four calls per turn — accept a connection, read its request, answer it, go
+/// round. The first two are two rather than one because only the first of them
+/// waits: `effect Listen` argues it where they are declared.
 ///
 /// `.Closed` is the ordinary end and becomes `.Ok(())` here — the one place
 /// that translation happens, so that no caller of this module ever has to know
@@ -208,24 +332,43 @@ fn answering<C: Listen>(
     onRequest: fn(C, Request) => Response,
 ): Result<(), ServeError> {
     match (ctx.listenAccept(handle)) {
-        .Err(e) => {
-            match (e.cause) {
-                .Closed => .Ok(()),
-                _ => .Err(e),
-            }
-        },
-        .Ok(request) => {
-            let handler = onRequest;
-            let reply = handler(ctx, request);
-            match (ctx.listenRespond(handle, reply.status, reply.headers, reply.body)) {
-                .Err(e) => {
-                    match (e.cause) {
-                        .Closed => .Ok(()),
-                        _ => .Err(e),
+        .Err(e) => ending(ctx, handle, e),
+        .Ok(connection) => {
+            match (ctx.listenRequest(connection)) {
+                .Err(e) => ending(ctx, handle, e),
+                .Ok(request) => {
+                    let handler = onRequest;
+                    let reply = handler(ctx, request);
+                    let answered = ctx.listenRespond(
+                        connection,
+                        reply.status,
+                        reply.headers,
+                        reply.body,
+                    );
+                    match (answered) {
+                        .Err(e) => ending(ctx, handle, e),
+                        .Ok(_ok) => answering(ctx, handle, onRequest),
                     }
                 },
-                .Ok(_ok) => answering(ctx, handle, onRequest),
             }
+        },
+    }
+}
+
+/// How a worker ends: the ordinary way, or by taking the listener down with it.
+///
+/// `.Closed` is the ordinary end and becomes `.Ok(())`. Anything else is a
+/// reason this worker cannot go on, and **the listener is closed before it is
+/// reported** — because the other workers are blocked in an accept that nothing
+/// else would interrupt, and a server whose first worker failed at nine in the
+/// morning should not still be holding a port at noon. Closing is idempotent, so
+/// every worker doing it is one close and n - 1 no-ops.
+fn ending<C: Listen>(ctx: C, handle: Int, e: ServeError): Result<(), ServeError> {
+    match (e.cause) {
+        .Closed => .Ok(()),
+        _ => {
+            let _closed = ctx.listenClose(handle);
+            .Err(e)
         },
     }
 }

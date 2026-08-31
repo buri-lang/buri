@@ -18,17 +18,26 @@
 //! `backend/runtime_table.rs` is the table); neither backend emits a call into
 //! them; nothing in `core/` reaches them.
 //!
-//! **The acceptor below does not change that, and that is a decision.** A
+//! **The acceptor below does not change that, and that is a decision** — one
+//! taken twice now, because F3 was the day it was due to be taken again. A
 //! server is the obvious first caller of `hyper`, and the acceptor frames
-//! HTTP/1.1 itself instead — for `http.rs`'s reason, read from the other side
-//! of the wire. A synchronous exchange over one connection at a time is the
-//! whole of what is being asked for here, and reaching a framing layer through
-//! `hyper` would mean standing up a reactor per connection to get at something
-//! two hundred lines already do. The day handlers run on tasks of their own —
-//! many connections in flight, h2 multiplexing, ALPN — is the day that decision
-//! is worth taking again, and it is the day the archive starts carrying
-//! `hyper`'s bytes and `.github/scripts/assert-runtime-archive.sh` moves
-//! `hyper` from its absent list to its present one.
+//! HTTP/1.1 itself instead, for `http.rs`'s reason read from the other side of
+//! the wire: a synchronous exchange over one connection is the whole of what is
+//! being asked for here, and reaching a framing layer through `hyper` would mean
+//! standing up a reactor per connection to get at something two hundred lines
+//! already do.
+//!
+//! What F2 wrote down as the day to re-take it was "the day handlers run on
+//! tasks of their own — many connections in flight, h2 multiplexing, ALPN", and
+//! that turned out to be three days rather than one. **Handlers run on tasks
+//! now** and the framing did not move an inch: a worker per handler is a fan-out
+//! over the same accept, the same head parser and the same response writer, all
+//! of which were already one connection's worth of work with no state between
+//! them. What is still ahead is the half that is genuinely `hyper`'s —
+//! multiplexing two requests over one connection, and negotiating which protocol
+//! that is — and it lands with TLS in F4, which is where `hyper` is linked and
+//! where `.github/scripts/assert-runtime-archive.sh` moves it from its absent
+//! list to its present one.
 //!
 //! The crates landed a slice ahead of any code that uses them so that the price
 //! could be measured *before* anything depended on the answer. Three of them
@@ -117,9 +126,9 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::sync::Mutex;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use crate::value::{BuriList, BuriStr, list_of_bytes, list_of_headers, str_of};
@@ -318,8 +327,8 @@ pub fn serves(protocol: Protocol) -> Result<(), &'static str> {
 /// written against it are different facts. [`serves`] answers "does this
 /// archive carry the code" — the `net-h3` feature, the QUIC stack — and is the
 /// one C4 built. This answers "does the acceptor below drive it", and today the
-/// acceptor is [`Acceptor`]: an HTTP/1.1 server that frames its own messages,
-/// one connection at a time.
+/// acceptor is [`Listening`] and the workers on it: an HTTP/1.1 server that
+/// frames its own messages, one request per connection.
 ///
 /// Both are asked, in that order, so that a program asking for HTTP/3 on a
 /// toolchain without `net-h3` gets the message that names the build switch
@@ -330,8 +339,8 @@ fn accepts(protocol: Protocol) -> Result<(), String> {
     match protocol {
         Protocol::Http1 => Ok(()),
         Protocol::Http2 | Protocol::Http3 => Err(format!(
-            "{} is not spoken by this runtime's acceptor: it frames HTTP/1.1 and answers one \
-             connection at a time. Serve HTTP/1.1, or leave `protocols` unset",
+            "{} is not spoken by this runtime's acceptor: it frames HTTP/1.1, one request per \
+             connection. Serve HTTP/1.1, or leave `protocols` unset",
             protocol.name()
         )),
     }
@@ -358,9 +367,18 @@ fn accepts(protocol: Protocol) -> Result<(), String> {
 // starts carrying `hyper`'s bytes.
 //
 // **One request per connection.** The response carries `connection: close` and
-// the socket is dropped after it, which is what makes "the request `accept`
-// last handed out" a well-defined thing to respond to without an identifier.
-// Keep-alive is a multiplexing question and belongs with the tasks.
+// the socket is dropped after it. Keep-alive is a multiplexing question and
+// belongs with h2.
+//
+// **A worker per handler, and a connection identifier because of it.** The loop
+// is still `core/net/server`'s and still in Buri; what F3 changed is that there
+// are several of it, fanned out by `Tasks.parallel` onto carriers of their own,
+// all accepting on the one listener. So "the request the accept last handed
+// out" stopped naming exactly one connection: [`accept`] answers a connection
+// id beside the request and [`respond`] takes that id instead of the listener's.
+// Everything else about the division survived — the runtime still holds no Buri
+// value between calls, still calls back into no generated code, and still does
+// not know what a handler is.
 //
 // **Every wait is bounded except the one a server is for.** Reads and writes
 // carry `SO_RCVTIMEO`/`SO_SNDTIMEO` from `headerTimeoutMillis`; the wait for a
@@ -482,15 +500,171 @@ struct Plan {
     body_limit: usize,
 }
 
-/// An open port, and the one connection it is in the middle of.
-struct Acceptor {
+/// How many handlers one listener hosts at once — the number `bind` answers on
+/// `Listener.handlers`, and the number `core/net/server`'s `run` fans out to.
+///
+/// **A worker waiting for a connection holds a carrier.** The accept below is a
+/// blocking call, and `rt.rs`'s `park_on` can only give a carrier back to a
+/// future that answers `Pending` — so a worker between requests costs an OS
+/// thread rather than a mapping. `rt::MAX_CARRIERS` is 256 and is what a whole
+/// *program* may have blocked at once, so a server may not be allowed to spend
+/// all of it: sixty-four leaves a program its own `parallel` and leaves the pool
+/// room to run the work the handlers themselves hand on.
+///
+/// **A constant and not a function of the processor count**, which is a
+/// deliberate choice about a number a program cannot ask for. A handler waits far
+/// more than it computes, so the useful number was never the core count; and a
+/// number nobody can pin should at least be one everybody can predict, including
+/// a test asserting that fifty requests overlap. The day `listenBind`'s
+/// ten-integer budget grows, a program says what it wants and this becomes the
+/// ceiling rather than the answer.
+///
+/// The day the acceptor is asynchronous — F4, which is the day `hyper` and its
+/// reactor are linked — a waiting worker costs a mapping again and this is the
+/// number that moves.
+const MAX_HANDLERS: i64 = 64;
+
+/// How long [`Listening::wake`] will wait for one of its own dials.
+///
+/// A bound rather than a timeout anything depends on: the connection is to a
+/// port this process is holding open, on loopback, so it either succeeds at once
+/// or the listener is already gone and there was nothing to wake.
+const WAKE_DEADLINE: Duration = Duration::from_secs(1);
+
+/// The listener's own state, and **the whole of what its workers share.**
+///
+/// Three questions under one lock, because they have to be answered together: a
+/// worker that takes the last request has to mark the listener finished and read
+/// how many workers are blocked in the same step. Split them and a worker that
+/// checked `finished` before the mark and blocked after the read waits for a
+/// connection nobody is going to make — the lost wakeup this lock rules out.
+struct Gate {
+    /// The listener will answer no more: its request limit is spent, or it has
+    /// been closed. Once true, never false again.
+    finished: bool,
+    /// How many workers are blocked in [`wait_for_connection`] right now, which
+    /// is exactly how many dials [`Listening::wake`] owes them.
+    waiting: usize,
+    /// Requests handed out, which is what `requestLimit` counts.
+    ///
+    /// **Counted at the accept and not at the response**, and the second worker
+    /// is what forced that. With one worker the two were the same number; with
+    /// many, a limit checked at the response lets every worker take a request
+    /// before any of them answers one, and a server told to serve one request
+    /// serves as many requests as it has handlers.
+    served: u64,
+}
+
+/// An open port, and everything the workers on it share.
+struct Listening {
     listener: TcpListener,
     plan: Plan,
-    served: u64,
-    /// The connection whose request `listenAccept` last handed out, waiting for
-    /// its response. `None` between requests, which is what makes a second
-    /// `listenRespond` a no-op rather than a write onto a dead socket.
-    pending: Option<TcpStream>,
+    gate: Mutex<Gate>,
+    /// **One worker inside the accept at a time.**
+    ///
+    /// Taking a connection off a listener is microseconds; answering it is the
+    /// part that takes a second, and answering is what the workers do
+    /// concurrently. So they queue here and take turns at the socket, which buys
+    /// two things that matter more than an overlapped accept would.
+    ///
+    /// The first is the idle deadline. A listener with one is polled rather than
+    /// blocked on (see [`POLL`]), and sixty-four workers polling the same socket
+    /// is sixty-four hundred wakeups a second and a machine that has better
+    /// things to do — which is measurable as a server that takes twenty seconds
+    /// to notice a client. With the turn, exactly one of them polls.
+    ///
+    /// The second is [`Listening::wake`]. One blocked accept is one dial, so a
+    /// shutdown costs a single loopback connection rather than one per worker,
+    /// and the workers behind it are woken by the lock rather than by the
+    /// network.
+    turn: Mutex<()>,
+    /// Where [`Listening::wake`] dials to interrupt a blocking accept: the bound
+    /// address, with an unspecified host replaced by loopback, because `0.0.0.0`
+    /// is an address to accept on and not one to connect to.
+    wake_at: SocketAddr,
+}
+
+impl Listening {
+    fn gate(&self) -> MutexGuard<'_, Gate> {
+        match self.gate.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// This worker's turn at the socket. See [`Listening::turn`].
+    fn turn(&self) -> MutexGuard<'_, ()> {
+        match self.turn.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// Mark the listener finished, and answer how many workers were waiting on
+    /// it — in one step, for [`Gate`]'s reason.
+    fn finish(&self) -> usize {
+        let mut gate = self.gate();
+        gate.finished = true;
+        gate.waiting
+    }
+
+    /// Wake `waiting` blocked accepts, by connecting to the port they are
+    /// blocked on.
+    ///
+    /// **A dial rather than a shutdown**, because there is no portable way to
+    /// make a blocking `accept(2)` return: closing the descriptor under a thread
+    /// that is inside the call is a use-after-free waiting for the number to be
+    /// reused, and the standard library gives a `TcpListener` no `shutdown`. One
+    /// connection wakes the one blocked accept — there is only ever one, because
+    /// of [`Listening::turn`] — and the worker that takes it reads `finished`,
+    /// gives the port back, and the socket is dropped unanswered.
+    ///
+    /// Nothing is dialled where the listener is interruptible already: a caller
+    /// that set an idle deadline made the accept a poll, and the poll reads
+    /// `finished` every [`POLL`].
+    fn wake(&self, waiting: usize) {
+        if self.plan.idle.is_some() {
+            return;
+        }
+        for _ in 0..waiting {
+            let _ = TcpStream::connect_timeout(&self.wake_at, WAKE_DEADLINE);
+        }
+    }
+}
+
+/// An address to *reach* a listener bound to `local`.
+///
+/// `0.0.0.0` and `::` are how a socket says "every interface", and they are not
+/// addresses a client connects to — every platform this runtime supports treats
+/// a connect to them as loopback, but writing that down is cheaper than relying
+/// on it.
+fn dial_address(local: SocketAddr) -> SocketAddr {
+    match local.ip() {
+        IpAddr::V4(host) if host.is_unspecified() => {
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), local.port())
+        }
+        IpAddr::V6(host) if host.is_unspecified() => {
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), local.port())
+        }
+        _ => local,
+    }
+}
+
+/// One accepted connection: the request already read off it, and the socket the
+/// answer goes back on.
+///
+/// The request is held here between [`accept`] and [`request`] because those are
+/// two calls — `effect Listen` argues why. What is held is a **Rust** value: the
+/// runtime still builds no Buri value it does not hand over inside the same
+/// call, which is the division that lets this acceptor be a blocking
+/// implementation rather than a scheduler.
+struct Pending {
+    /// Which listener accepted it, so that closing a listener drops the
+    /// connections no worker will be handed back.
+    listener: i64,
+    stream: TcpStream,
+    /// `None` once `listenRequest` has taken it.
+    request: Option<ServerRequest>,
 }
 
 /// The open listeners, by handle.
@@ -498,19 +672,59 @@ struct Acceptor {
 /// A table rather than a pointer across the ABI: a handle is an `Int` in Buri
 /// and an index here, so a program cannot hand the runtime an address, and a
 /// stale one is a lookup that misses rather than a use-after-free.
-static ACCEPTORS: Mutex<Option<HashMap<i64, Acceptor>>> = Mutex::new(None);
+///
+/// The value is an `Arc` rather than the [`Listening`] itself, and that is what
+/// makes `listenClose` safe to call while a worker is blocked: the closing
+/// worker takes the entry out of the table, the blocked one is still holding a
+/// clone, and the socket outlives the close by exactly as long as somebody is
+/// inside an accept on it.
+static ACCEPTORS: Mutex<Option<HashMap<i64, Arc<Listening>>>> = Mutex::new(None);
+
+/// The connections whose requests have been handed out and not yet answered.
+///
+/// **This table is why `listenRespond` names a connection and not a listener.**
+/// With one worker, "the request the accept last handed out" named exactly one
+/// connection and the listener was identifier enough; with a worker per handler
+/// there are as many outstanding requests as there are handlers. The id is
+/// minted at the accept, crosses to Buri inside `Accepted`, and comes back at
+/// the respond — the smallest change that could carry the fan-out, and what
+/// `Listener`'s handle being an opaque `Int` was for.
+static CONNECTIONS: Mutex<Option<HashMap<i64, Pending>>> = Mutex::new(None);
 
 /// The next handle. Never reused, so a handle closed and a handle never opened
 /// are the same answer — `.Err(.Closed)` — and neither is another server's.
 static NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 
-fn acceptors<T>(with: impl FnOnce(&mut HashMap<i64, Acceptor>) -> T) -> T {
+/// The next connection id, on [`NEXT_HANDLE`]'s terms and for its reason: a
+/// connection already answered and one that never existed are both a lookup that
+/// misses.
+static NEXT_CONNECTION: AtomicI64 = AtomicI64::new(1);
+
+fn acceptors<T>(with: impl FnOnce(&mut HashMap<i64, Arc<Listening>>) -> T) -> T {
     let mut guard = match ACCEPTORS.lock() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
     };
     with(guard.get_or_insert_with(HashMap::new))
 }
+
+fn connections<T>(with: impl FnOnce(&mut HashMap<i64, Pending>) -> T) -> T {
+    let mut guard = match CONNECTIONS.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    with(guard.get_or_insert_with(HashMap::new))
+}
+
+/// The listener behind a handle, or the answer for a handle that names nothing.
+///
+/// The `Arc` is cloned out of the table and held for the whole of the call, for
+/// the reason [`ACCEPTORS`] states: a worker inside an accept keeps the socket
+/// open even when another worker closes the listener underneath it.
+fn listening(handle: i64) -> Result<Arc<Listening>, ServeErr> {
+    acceptors(|table| table.get(&handle).map(Arc::clone).ok_or_else(ServeErr::closed))
+}
+
 
 /// `Listen::listenBind`, without the ABI around it.
 pub fn bind(
@@ -519,7 +733,7 @@ pub fn bind(
     protocols: &[u8],
     limit: i64,
     idle_millis: i64,
-) -> Result<(i64, u16), ServeErr> {
+) -> Result<(i64, u16, i64), ServeErr> {
     // C4's handoff, spent: the walk over `Server`'s `protocols` field, one
     // `serves` per named protocol, with the acceptor's own answer after it.
     // An empty list is `.None` — the caller chose nothing — and HTTP/1.1 is
@@ -542,10 +756,10 @@ pub fn bind(
     };
     let listener = TcpListener::bind((host, port))
         .map_err(|e| ServeErr::io(&e, &format!("listening on {host}:{port}")))?;
-    let bound = listener
+    let local = listener
         .local_addr()
-        .map_err(|e| ServeErr::io(&e, "asking the socket which port it got"))?
-        .port();
+        .map_err(|e| ServeErr::io(&e, "asking the socket which port it got"))?;
+    let bound = local.port();
     let plan = Plan {
         limit: (limit >= 0).then_some(limit as u64),
         idle: (idle_millis >= 0).then_some(Duration::from_millis(idle_millis.max(0) as u64)),
@@ -555,15 +769,23 @@ pub fn bind(
     // Interruptible only where the caller asked for it: an idle deadline is the
     // one thing a blocking `accept` cannot answer, and polling for a server
     // that never wanted a deadline would be a hundred wakeups a second bought
-    // for nothing.
+    // for nothing. A blocking accept is interrupted by [`Listening::wake`]'s
+    // dial instead, which costs nothing until there is something to interrupt.
     if plan.idle.is_some() {
         listener
             .set_nonblocking(true)
             .map_err(|e| ServeErr::io(&e, "making the listener interruptible"))?;
     }
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
-    acceptors(|table| table.insert(handle, Acceptor { listener, plan, served: 0, pending: None }));
-    Ok((handle, bound))
+    let listening = Listening {
+        listener,
+        plan,
+        gate: Mutex::new(Gate { finished: false, waiting: 0, served: 0 }),
+        turn: Mutex::new(()),
+        wake_at: dial_address(local),
+    };
+    acceptors(|table| table.insert(handle, Arc::new(listening)));
+    Ok((handle, bound, MAX_HANDLERS))
 }
 
 /// `Listen::listenAccept` — the next request, once one has arrived and been
@@ -573,69 +795,131 @@ pub fn bind(
 /// speaks nonsense, or asks for more body than the plan allows, is answered
 /// here and the next one is waited for, so a handler is never handed a message
 /// the acceptor could not make sense of.
-pub fn accept(handle: i64) -> Result<ServerRequest, ServeErr> {
+pub fn accept(handle: i64) -> Result<i64, ServeErr> {
+    let listening = listening(handle)?;
     loop {
-        let socket = acceptors(|table| {
-            let Some(a) = table.get_mut(&handle) else { return Err(ServeErr::closed()) };
-            if a.plan.limit.is_some_and(|n| a.served >= n) {
-                return Err(ServeErr::closed());
+        // One worker at a time from here to the accept — see `Listening::turn`.
+        // A worker behind the turn is asleep on a lock rather than polling a
+        // socket sixty-three others are already polling.
+        let waited = {
+            let _turn = listening.turn();
+            {
+                let mut gate = listening.gate();
+                if gate.finished {
+                    return Err(ServeErr::closed());
+                }
+                gate.waiting = gate.waiting.saturating_add(1);
             }
-            Ok(())
-        });
-        socket?;
-        let stream = wait_for_connection(handle)?;
-        let plan = acceptors(|table| {
-            table.get(&handle).map(|a| (a.plan.head, a.plan.body_limit)).ok_or_else(ServeErr::closed)
-        })?;
-        let mut stream = stream;
-        if let Err(e) = deadlines(&stream, plan.0) {
+            let waited = wait_for_connection(&listening);
+            {
+                let mut gate = listening.gate();
+                gate.waiting = gate.waiting.saturating_sub(1);
+            }
+            waited
+        };
+        let mut stream = waited?;
+        // The connection may be [`Listening::wake`]'s own dial rather than a
+        // client's: a worker that was blocked when the listener finished is
+        // woken by one, and what it has to do with it is give the port back.
+        if listening.gate().finished {
+            return Err(ServeErr::closed());
+        }
+        if let Err(e) = deadlines(&stream, listening.plan.head) {
             let _ = refuse(&mut stream, 500, "");
             return Err(e);
         }
-        match read_request(&mut stream, plan.1) {
-            Ok(request) => {
-                acceptors(|table| {
-                    if let Some(a) = table.get_mut(&handle) {
-                        a.pending = Some(stream);
-                    }
-                });
-                return Ok(request);
-            }
+        let request = match read_request(&mut stream, listening.plan.body_limit) {
+            Ok(request) => request,
             // A malformed or oversized request is the transport's problem: it
             // is answered here and the acceptor waits for the next connection.
             // Surfacing it would make every handler a parser's error path.
             Err(status) => {
                 let _ = refuse(&mut stream, status, "");
+                continue;
             }
-        }
+        };
+        // The request is claimed against the limit *here*, which is what makes
+        // `requestLimit` mean the same thing with sixty-four workers as with
+        // one — and the worker that takes the last one is the worker that ends
+        // the server, so it wakes the others on its way past.
+        let claimed = {
+            let mut gate = listening.gate();
+            if gate.finished {
+                None
+            } else {
+                gate.served = gate.served.saturating_add(1);
+                let spent = listening.plan.limit.is_some_and(|n| gate.served >= n);
+                // Set, never cleared: `finished` is a one-way door, and a claim
+                // that does not spend the limit must not reopen it.
+                gate.finished = gate.finished || spent;
+                Some(if spent { gate.waiting } else { 0 })
+            }
+        };
+        let Some(waiting) = claimed else {
+            // Another worker took the last slot while this one was reading, so
+            // there is no handler for this request. The client is told rather
+            // than left waiting for an answer nobody was handed.
+            let _ = refuse(&mut stream, 503, "");
+            return Err(ServeErr::closed());
+        };
+        listening.wake(waiting);
+        let connection = NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed);
+        connections(|table| {
+            table.insert(
+                connection,
+                Pending { listener: handle, stream, request: Some(request) },
+            )
+        });
+        return Ok(connection);
     }
 }
 
+/// `Listen::listenRequest` — the request read off a connection [`accept`]
+/// answered with.
+///
+/// **Does not wait**, and is not a second accept: the request was framed and
+/// read whole before the connection was handed out, so this is a table lookup
+/// and a move. A connection nobody is holding — already read, already answered,
+/// or its listener closed under it — is `.Closed`.
+pub fn request(connection: i64) -> Result<ServerRequest, ServeErr> {
+    connections(|table| {
+        table
+            .get_mut(&connection)
+            .and_then(|pending| pending.request.take())
+            .ok_or_else(ServeErr::closed)
+    })
+}
+
 /// Wait for one connection, honouring the idle deadline where there is one.
-fn wait_for_connection(handle: i64) -> Result<TcpStream, ServeErr> {
-    let idle = acceptors(|table| {
-        table.get(&handle).map(|a| a.plan.idle).ok_or_else(ServeErr::closed)
-    })?;
-    let Some(idle) = idle else {
+///
+/// **The listener's table lock is not held across the wait.** It used to be,
+/// when there was one worker and this wait was the only thing happening; a
+/// worker waiting here would otherwise hold every other worker out of
+/// `listenRespond` and `listenClose` too. The caller holds
+/// [`Listening::turn`] instead, which is a lock over *this* socket and nothing
+/// else.
+fn wait_for_connection(listening: &Listening) -> Result<TcpStream, ServeErr> {
+    let Some(idle) = listening.plan.idle else {
         // No deadline: an ordinary blocking accept, which is what a server that
-        // did not ask to be interruptible is.
-        return acceptors(|table| {
-            let a = table.get(&handle).ok_or_else(ServeErr::closed)?;
-            a.listener.accept().map(|(s, _)| s).map_err(|e| ServeErr::io(&e, "accepting"))
-        });
+        // did not ask to be interruptible is. [`Listening::wake`] is what gets
+        // it back out.
+        return listening
+            .listener
+            .accept()
+            .map(|(s, _)| s)
+            .map_err(|e| ServeErr::io(&e, "accepting"));
     };
     let until = Instant::now() + idle;
     loop {
-        let attempt = acceptors(|table| {
-            let a = table.get(&handle).ok_or_else(ServeErr::closed)?;
-            match a.listener.accept() {
-                Ok((s, _)) => Ok(Some(s)),
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
-                Err(e) => Err(ServeErr::io(&e, "accepting")),
-            }
-        })?;
-        if let Some(stream) = attempt {
-            return Ok(stream);
+        match listening.listener.accept() {
+            Ok((stream, _)) => return Ok(stream),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(e) => return Err(ServeErr::io(&e, "accepting")),
+        }
+        // An interruptible listener needs no dial: this poll is the check, which
+        // is why [`Listening::wake`] does nothing when there is a deadline.
+        if listening.gate().finished {
+            return Err(ServeErr::closed());
         }
         if Instant::now() >= until {
             return Err(ServeErr::new(
@@ -763,24 +1047,20 @@ fn refuse(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<()
     stream.flush()
 }
 
-/// `Listen::listenRespond` — the answer to the request `accept` last handed
-/// out.
+/// `Listen::listenRespond` — the answer to one accepted request, named by the
+/// connection id [`accept`] minted for it.
 ///
-/// A response with no request outstanding is `.Ok(())` and writes nothing: the
-/// pairing is positional, so "there is nothing to answer" is a state a loop can
-/// be in without having done anything wrong.
+/// A connection nobody is holding is `.Ok(())` and writes nothing: it has been
+/// answered already, or its listener was closed under it, and neither is
+/// something the loop did wrong.
 pub fn respond(
-    handle: i64,
+    connection: i64,
     status: i64,
     headers: &[(String, String)],
     body: &[u8],
 ) -> Result<(), ServeErr> {
-    let taken = acceptors(|table| {
-        let Some(a) = table.get_mut(&handle) else { return Err(ServeErr::closed()) };
-        a.served = a.served.saturating_add(1);
-        Ok(a.pending.take())
-    })?;
-    let Some(mut stream) = taken else { return Ok(()) };
+    let taken = connections(|table| table.remove(&connection));
+    let Some(Pending { mut stream, .. }) = taken else { return Ok(()) };
     let status = status.clamp(100, 599) as u16;
     let mut head = format!("HTTP/1.1 {status} {}\r\n", reason(status));
     for (name, value) in headers {
@@ -802,8 +1082,22 @@ pub fn respond(
 
 /// `Listen::listenClose`. Closing twice has nothing to do, which is what lets a
 /// loop unwinding out of a failure tidy up without remembering how far it got.
+///
+/// **It is also how one worker stops the others**, and that is new. A worker
+/// whose accept or respond failed calls this before it returns its error, so the
+/// workers blocked beside it are woken and answered `.Closed` rather than
+/// waiting out a server that has already failed. What makes it safe to call
+/// while somebody is inside an accept is [`ACCEPTORS`]'s `Arc`: the entry leaves
+/// the table now and the socket closes when the last worker leaves the call.
 pub fn close(handle: i64) {
-    acceptors(|table| table.remove(&handle));
+    let Some(listening) = acceptors(|table| table.remove(&handle)) else { return };
+    let waiting = listening.finish();
+    listening.wake(waiting);
+    // A connection no worker will be handed back is a socket nobody will answer,
+    // so it is dropped here rather than held until the process ends. The client
+    // sees the connection close, which is what a server going down looks like
+    // from the outside.
+    connections(|table| table.retain(|_, pending| pending.listener != handle));
 }
 
 /// The reason phrase for a status, for the statuses this acceptor writes.
@@ -856,12 +1150,13 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 // The C ABI
 // ---------------------------------------------------------------------------
 //
-// Four `Listen` entries and three `Sockets` ones, at `lib.rs` §1's naming rule
+// Five `Listen` entries and three `Sockets` ones, at `lib.rs` §1's naming rule
 // and §2's shapes. Three Buri values cross whole here — `Listener`, `Request`,
 // `Response`, and `ServeError` beside them — and each is transcribed below as a
 // `#[repr(C)]` struct rather than written field by field through separate
 // out-pointers, for `BuriHeader`'s reason in `host.rs`: **the shape gets a name
 // a reader can check against the Buri declaration.**
+
 //
 // What makes that legal is VALUE-MODEL.md §5, which lays a struct out as its
 // fields back to back at their own alignments and never reorders them —
@@ -870,11 +1165,12 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 // and offset, so a layout change that moved one of these is a failing unit test
 // in this crate rather than a program reading the wrong bytes.
 
-/// `Listener` — `{ handle: Int, port: Int }`.
+/// `Listener` — `{ handle: Int, port: Int, handlers: Int }`.
 #[repr(C)]
 pub struct BuriListener {
     handle: i64,
     port: i64,
+    handlers: i64,
 }
 
 /// `Request` — `{ method: Method, url: Str, headers: [Header], body: [U8] }`.
@@ -962,9 +1258,11 @@ pub unsafe extern "C" fn buri_rt_host_listen_bind(
     // after the park returns, on the carrier and under the baton.
     let outcome = park(|| bind(&address, port, protocols, limit, idle));
     match outcome {
-        Ok((handle, bound)) => {
+        Ok((handle, bound, handlers)) => {
             // SAFETY: the caller promises a writable destination.
-            unsafe { out.write(BuriListener { handle, port: i64::from(bound) }) };
+            unsafe {
+                out.write(BuriListener { handle, port: i64::from(bound), handlers })
+            };
             crate::BURI_OK
         }
         Err(e) => {
@@ -975,19 +1273,47 @@ pub unsafe extern "C" fn buri_rt_host_listen_bind(
     }
 }
 
-/// `Listen::listenAccept(listener) -> Result<Request, ServeError>`.
+/// `Listen::listenAccept(listener) -> Result<Int, ServeError>`.
 ///
 /// # Safety
 /// Both out-pointers writable and aligned.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_listen_accept(
     handle: i64,
-    out: *mut BuriRequest,
+    out: *mut i64,
     err: *mut BuriServeError,
 ) -> i32 {
     // **A suspension point**, and the one that waits longest: this is where a
-    // server sits between requests.
+    // worker sits between requests.
     match park(|| accept(handle)) {
+        Ok(connection) => {
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out.write(connection) };
+            crate::BURI_OK
+        }
+        Err(e) => {
+            // SAFETY: as above.
+            unsafe { err.write(BuriServeError::of(&e)) };
+            0
+        }
+    }
+}
+
+/// `Listen::listenRequest(connection) -> Result<Request, ServeError>`.
+///
+/// No `park`: the request was read off the socket before the connection was
+/// handed out, so this waits on nothing. It is the one `Listen` entry that
+/// allocates Buri blocks and does not wait.
+///
+/// # Safety
+/// Both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_listen_request(
+    connection: i64,
+    out: *mut BuriRequest,
+    err: *mut BuriServeError,
+) -> i32 {
+    match request(connection) {
         Ok(request) => {
             let value = BuriRequest {
                 method: i8::try_from(request.method).unwrap_or(0),
@@ -1007,16 +1333,20 @@ pub unsafe extern "C" fn buri_rt_host_listen_accept(
     }
 }
 
-/// `Listen::listenRespond(listener, response) -> Result<(), ServeError>`.
+/// `Listen::listenRespond(connection, response) -> Result<(), ServeError>`.
 ///
 /// `Response`'s three fields arrive flattened, and `.Ok`'s payload is `()` — so
 /// there is no out-pointer for it, on `lib.rs` §2.1's zero-sized rule.
+///
+/// The first argument is the **connection** `listenAccept` answered with and no
+/// longer the listener: with a worker per handler there is one outstanding
+/// request per worker, so a listener no longer names one of them.
 ///
 /// # Safety
 /// The `[Header]` and the `[U8]` must be live; `err` writable and aligned.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_listen_respond(
-    handle: i64,
+    connection: i64,
     status: i64,
     hptr: *const u8,
     hlen: u64,
@@ -1035,7 +1365,7 @@ pub unsafe extern "C" fn buri_rt_host_listen_respond(
     };
     // **A suspension point**: writing a response is a write to a socket the
     // peer may be reading slowly.
-    match park(|| respond(handle, status, &fields, body)) {
+    match park(|| respond(connection, status, &fields, body)) {
         Ok(()) => crate::BURI_OK,
         Err(e) => {
             // SAFETY: the caller promises a writable destination.
@@ -1102,7 +1432,7 @@ pub unsafe extern "C" fn buri_rt_host_sockets_socket_close(
 /// Run one blocking step off the run baton where there is a reactor to park on,
 /// and inline where there is not.
 ///
-/// The three `Listen` entries all want the same two lines and the same
+/// The three waiting `Listen` entries all want the same two lines and the same
 /// paragraph of reasoning (`host.rs`'s `buri_rt_host_net_fetch` is where it is
 /// written out), so they say it once here. The transport underneath is
 /// synchronous either way — the future completes on this thread — and what
@@ -1197,7 +1527,7 @@ mod tests {
         assert_eq!(accepts(Protocol::Http1), Ok(()));
         let two = accepts(Protocol::Http2).expect_err("HTTP/2 is not framed here");
         assert!(two.contains("HTTP/2"), "{two}");
-        assert!(two.contains("one connection at a time"), "{two}");
+        assert!(two.contains("one request per connection"), "{two}");
         let three = accepts(Protocol::Http3).expect_err("HTTP/3 is not framed here either");
         if cfg!(feature = "net-h3") {
             assert!(three.contains("HTTP/3"), "{three}");
@@ -1245,9 +1575,10 @@ mod tests {
         assert_eq!(std::mem::offset_of!(BuriResponse, headers), 8);
         assert_eq!(std::mem::offset_of!(BuriResponse, body), 24);
 
-        // `Listener { handle: Int, port: Int }`.
-        assert_eq!(std::mem::size_of::<BuriListener>(), 16);
+        // `Listener { handle: Int, port: Int, handlers: Int }`.
+        assert_eq!(std::mem::size_of::<BuriListener>(), 24);
         assert_eq!(std::mem::offset_of!(BuriListener, port), 8);
+        assert_eq!(std::mem::offset_of!(BuriListener, handlers), 16);
 
         // `ServeError { cause: ServeFailure, detail: Str }`, `Method`'s tag
         // rule a second time.
@@ -1354,7 +1685,7 @@ mod tests {
     /// server test that could hang is a suite that runs until CI kills it.
     #[test]
     fn a_bound_listener_answers_one_request_and_then_says_it_is_closed() {
-        let (handle, port) =
+        let (handle, port, _handlers) =
             bind("127.0.0.1", 0, &[Protocol::Http1 as u8], 1, 10_000).expect("a bound port");
         assert!(port > 0, "port 0 should have been replaced by the one the OS chose");
 
@@ -1369,9 +1700,19 @@ mod tests {
             reply
         });
 
-        let request = accept(handle).expect("one request");
-        assert_eq!(request.target, "/ping");
-        respond(handle, 200, &[("x-from".into(), "buri".into())], b"pong").expect("a response");
+        let connection = accept(handle).expect("one connection");
+        assert!(connection > 0, "a connection id is minted for every accepted request");
+        let read = request(connection).expect("the request on it");
+        assert_eq!(read.target, "/ping");
+        // Read once: the second call is a connection nobody is holding a
+        // request for, which is the same `.Closed` a stale connection gets.
+        assert_eq!(request(connection).expect_err("read twice").cause, ServeFail::Closed);
+        respond(connection, 200, &[("x-from".into(), "buri".into())], b"pong")
+            .expect("a response");
+        // Answering the same connection twice writes nothing and is not an
+        // error: it has been answered, which is a state a loop can be in
+        // without having done anything wrong.
+        respond(connection, 200, &[], b"again").expect("a second answer is a no-op");
 
         let reply = String::from_utf8_lossy(&client.join().expect("the client finished")).to_string();
         assert!(reply.starts_with("HTTP/1.1 200 OK\r\n"), "{reply}");
@@ -1400,7 +1741,7 @@ mod tests {
     /// for a client that is never coming.
     #[test]
     fn an_idle_listener_gives_up_when_it_was_told_to() {
-        let (handle, port) = bind("127.0.0.1", 0, &[], -1, 60).expect("a bound port");
+        let (handle, port, _handlers) = bind("127.0.0.1", 0, &[], -1, 60).expect("a bound port");
         assert!(port > 0);
         let started = Instant::now();
         let timed_out = accept(handle).expect_err("nobody connected");
@@ -1427,5 +1768,169 @@ mod tests {
         let unknown = bind("127.0.0.1", 0, &[9], -1, 60).expect_err("there is no ninth protocol");
         assert_eq!(unknown.cause, ServeFail::Unsupported);
         assert!(unknown.detail.contains("disagree"), "{}", unknown.detail);
+    }
+
+    /// The bind answers how many handlers it will host, and it is a number a
+    /// test can predict.
+    ///
+    /// The prediction is the point: a program cannot ask for a different one —
+    /// `listenBind` has no argument left to carry a preference — so the value of
+    /// this constant being a *constant* is what lets a test assert that fifty
+    /// requests overlap. [`MAX_HANDLERS`] says why it is sixty-four.
+    #[test]
+    fn a_bind_answers_the_handler_count_it_will_host() {
+        let (handle, _port, handlers) = bind("127.0.0.1", 0, &[], -1, 60).expect("a bound port");
+        assert_eq!(handlers, MAX_HANDLERS);
+        assert!(handlers >= 1, "a listener with no handlers is a port nobody answers");
+        close(handle);
+    }
+
+    /// **Many workers, many connections in flight** — the slice, in the runtime
+    /// crate.
+    ///
+    /// Eight workers accept on one listener at the same time; eight clients
+    /// connect at once; every worker holds its request without answering until
+    /// all eight have been handed out. A one-connection-at-a-time acceptor
+    /// cannot get past the first, so the barrier below is the assertion: it is
+    /// only released when the eighth request has been accepted.
+    ///
+    /// Every wait is bounded — an idle deadline on the listener, socket
+    /// deadlines on every exchange, a bounded barrier, and every thread joined —
+    /// which is the rule this file's other server cases already state.
+    #[test]
+    fn eight_workers_hold_eight_requests_at_once() {
+        const WORKERS: usize = 8;
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &[Protocol::Http1 as u8], WORKERS as i64, 20_000)
+                .expect("a bound port");
+
+        let clients: Vec<_> = (0..WORKERS)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+                    socket.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+                    socket.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+                    socket
+                        .write_all(format!("GET /{i} HTTP/1.1\r\nhost: h\r\n\r\n").as_bytes())
+                        .expect("request");
+                    socket.flush().expect("flush");
+                    let mut reply = Vec::new();
+                    let _ = socket.read_to_end(&mut reply);
+                    String::from_utf8_lossy(&reply).to_string()
+                })
+            })
+            .collect();
+
+        // Every worker accepts and *keeps* its request. Nothing is answered
+        // until all eight are in hand, so this only completes if eight
+        // connections are genuinely in flight.
+        let held: Vec<_> = (0..WORKERS)
+            .map(|_| {
+                let started = Instant::now();
+                let connection = accept(handle).expect("a connection");
+                assert!(
+                    started.elapsed() < Duration::from_secs(20),
+                    "an accept outlasted the listener's own idle deadline"
+                );
+                let read = request(connection).expect("the request on it");
+                (connection, read)
+            })
+            .collect();
+        let paths: std::collections::BTreeSet<String> =
+            held.iter().map(|(_, request)| request.target.clone()).collect();
+        assert_eq!(paths.len(), WORKERS, "two workers were handed the same request: {paths:?}");
+
+        // **Ordering independence**: the answers go out in the reverse of the
+        // order the requests came in, and every client still gets its own.
+        for (connection, request) in held.into_iter().rev() {
+            let body = request.target.clone().into_bytes();
+            respond(connection, 200, &[], &body).expect("a response");
+        }
+
+        for (i, client) in clients.into_iter().enumerate() {
+            let reply = client.join().expect("the client finished");
+            assert!(reply.starts_with("HTTP/1.1 200 OK\r\n"), "{reply}");
+            assert!(
+                reply.ends_with(&format!("\r\n\r\n/{i}")),
+                "client {i} was answered somebody else's request:\n{reply}"
+            );
+        }
+        close(handle);
+    }
+
+    /// **A blocking accept is interruptible**, which is what lets one worker
+    /// stop the others.
+    ///
+    /// The listener has no idle deadline, so its workers are inside a blocking
+    /// `accept(2)` with nothing to wake them; `close` from another thread has to
+    /// get them out, and [`Listening::wake`]'s dial is how. Without it this test
+    /// hangs, which is exactly the failure the wakeup exists to prevent — so the
+    /// wait is bounded by a joined thread and a deadline of its own.
+    #[test]
+    fn closing_a_listener_wakes_the_workers_blocked_on_it() {
+        let (handle, _port, _handlers) = bind("127.0.0.1", 0, &[], -1, -1).expect("a bound port");
+        let workers: Vec<_> = (0..3)
+            .map(|_| std::thread::spawn(move || accept(handle).err().map(|e| e.cause)))
+            .collect();
+        // Give the three time to reach the accept. A worker that has not blocked
+        // yet reads `finished` under the same lock instead, so this sleep is
+        // what makes the test exercise the *dial* rather than the check.
+        std::thread::sleep(Duration::from_millis(200));
+        close(handle);
+        for worker in workers {
+            let cause = worker.join().expect("a worker finished");
+            assert_eq!(
+                cause,
+                Some(ServeFail::Closed),
+                "a worker blocked in accept was not woken by the close"
+            );
+        }
+    }
+
+    /// The request limit counts requests **handed out**, so a limit of one is
+    /// one request however many workers are waiting for it.
+    ///
+    /// This is the case the counter moved for: while `served` was incremented at
+    /// the response, four workers could each take a request before any of them
+    /// answered, and a server told to answer one question answered four.
+    #[test]
+    fn a_limit_of_one_hands_out_one_request_however_many_workers_wait() {
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &[Protocol::Http1 as u8], 1, -1).expect("a bound port");
+        let workers: Vec<_> = (0..4)
+            .map(|_| std::thread::spawn(move || accept(handle)))
+            .collect();
+        std::thread::sleep(Duration::from_millis(200));
+        let client = std::thread::spawn(move || {
+            let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+            socket.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            socket.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            socket.write_all(b"GET /once HTTP/1.1\r\nhost: h\r\n\r\n").expect("request");
+            socket.flush().expect("flush");
+            let mut reply = Vec::new();
+            let _ = socket.read_to_end(&mut reply);
+            String::from_utf8_lossy(&reply).to_string()
+        });
+
+        let mut served = Vec::new();
+        let mut closed = 0;
+        for worker in workers {
+            match worker.join().expect("a worker finished") {
+                Ok(connection) => served.push(connection),
+                Err(e) => {
+                    assert_eq!(e.cause, ServeFail::Closed, "{}", e.detail);
+                    closed += 1;
+                }
+            }
+        }
+        assert_eq!(served.len(), 1, "the limit of one was spent more than once");
+        assert_eq!(closed, 3, "the other workers were not told the listener was finished");
+        let connection = served.pop().expect("the one connection");
+        let read = request(connection).expect("the request on it");
+        assert_eq!(read.target, "/once");
+        respond(connection, 200, &[], b"ok").expect("a response");
+        let reply = client.join().expect("the client finished");
+        assert!(reply.ends_with("\r\n\r\nok"), "{reply}");
+        close(handle);
     }
 }

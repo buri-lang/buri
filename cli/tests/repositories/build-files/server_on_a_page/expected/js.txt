@@ -1,7 +1,7 @@
 error: `JS` does not grant `listen` [host-not-granted]
-  --> cmd/app/main.buri:13:22
+  --> cmd/app/main.buri:17:22
    |
-13 |         Listen: host.listen,
+17 |         Listen: host.listen,
    |                      ^^^^^^
    |
    = a platform is the set of effects its host exports; holding a port open is a native program's authority; a page is served rather than serving, and its host has no way to accept a connection

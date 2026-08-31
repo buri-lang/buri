@@ -49,19 +49,29 @@ from "core/time" import * as time;
 // can *answer differently from nothing*, because a fake that returned the zero
 // value would pass whether or not the forward happened.
 
-/// Hands out one request naming the address it was bound to, takes one answer,
-/// and closes.
+/// Binds when it is told to, hands out one request, takes one answer, and
+/// closes.
+///
+/// `binds` is an `Int` rather than the address it used to be, and that is the
+/// stencil backend's limit rather than a preference: `serve` fans its accept
+/// loop out with `Tasks.parallel`, and that backend refuses a step whose
+/// *context* owns a reference count (`stencil/rtcall.rs`) — so a context
+/// binding a `Str`-carrying acceptor would drop this whole file out of the
+/// frame-threaded corpus. Nothing here was ever about the field's type.
 ///
 /// **This is the fake for the forward `Scoped` used to have to be clever
 /// about.** `Listen.listen` once took the request handler as a `Self`-spelled
 /// callback and invoked it, so a wrapper could not pass the handler along
 /// unchanged: it had to rebuild it, putting the scope back around the context
 /// the acceptor handed out. `core/net/server` owns the loop now and calls the
-/// handler itself, so all four forwards below are ordinary — and the case at
+/// handler itself, so all five forwards below are ordinary — and the case at
 /// the bottom of this file can make the call rather than only claim the bound.
 struct OneShot {
-    bindsTo: Str,
+    binds: Int,
 }
+
+/// The address `OneShot` answers with, since it no longer carries one.
+let SERVED_URL: Str = "127.0.0.1";
 
 impl Listen for OneShot {
     fn listenBind(
@@ -72,16 +82,23 @@ impl Listen for OneShot {
         requestLimit: Int,
         idleTimeoutMillis: Int,
     ): Result<Listener, ServeError> {
-        match (self.bindsTo) {
-            "" => .Err(ServeError { cause: .PermissionDenied, detail: "no address" }),
-            _ => .Ok(Listener { handle: 1, port: 8080 }),
+        match (self.binds) {
+            0 => .Err(ServeError { cause: .PermissionDenied, detail: "no address" }),
+            _ => .Ok(Listener { handle: 1, port: 8080, handlers: 1 }),
         }
     }
 
-    fn listenAccept(self, handle: Int): Result<Request, ServeError> {
+    fn listenAccept(self, handle: Int): Result<Int, ServeError> {
         match (handle) {
-            1 => {
-                .Ok(Request { method: .Get, url: self.bindsTo, headers: [], body: [] })
+            1 => .Ok(7),
+            _ => .Err(ServeError { cause: .Closed, detail: "" }),
+        }
+    }
+
+    fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+        match (connection) {
+            7 => {
+                .Ok(Request { method: .Get, url: SERVED_URL, headers: [], body: [] })
             },
             _ => .Err(ServeError { cause: .Closed, detail: "" }),
         }
@@ -93,7 +110,7 @@ impl Listen for OneShot {
     /// either call as the ordinary end.
     fn listenRespond(
         self,
-        handle: Int,
+        connection: Int,
         status: Int,
         headers: [Header],
         body: [U8],
@@ -266,7 +283,7 @@ fn pushed<C: Sockets>(ctx: C): Int {
 /// A whole server reached through `core/net/server`, with a handler written
 /// against the very type the call hands it — a `Scoped<C>` when the caller is
 /// inside a scope, and the bare `C` when it is not.
-fn served<C: Listen>(ctx: C): Bool {
+fn served<C: Alloc + Listen + Tasks>(ctx: C): Bool {
     server
         .serve(ctx, server.Server {
             port: 8080,
@@ -285,7 +302,7 @@ fn served<C: Listen>(ctx: C): Bool {
 /// therefore charge the scope and print on the caller's stdout, neither of
 /// which the acceptor grants. A handler that ignored its first parameter, like
 /// `served` above, would pass whatever arrived.
-fn servedUsing<C: Alloc + Listen + Stdout>(ctx: C): Bool {
+fn servedUsing<C: Alloc + Listen + Stdout + Tasks>(ctx: C): Bool {
     server
         .serve(ctx, server.Server {
             port: 8080,
@@ -520,7 +537,7 @@ test "a scope forwards sockets" {
     assert.eq(alloc.scoped(ctx, fn(c) => pushed(c)), 1);
 }
 
-// `Listen` is four ordinary forwards, and it is worth saying why that sentence
+// `Listen` is five ordinary forwards, and it is worth saying why that sentence
 // is short. The effect used to take the request handler as a `Self`-spelled
 // callback and *invoke* it, which made this the one `impl` in `core/alloc` that
 // could not pass its argument along: `Self` is `Scoped<C>` at the wrapper and
@@ -533,13 +550,20 @@ test "a scope forwards sockets" {
 // caller's context, so nothing crosses `Listen` but a handle, a request and a
 // response — and the property that mattered is unchanged and still asserted
 // below: a handler running inside a scope charges the scope.
+//
+// F3 put the loop on tasks, so `serve` now needs `Tasks` beside `Listen` and
+// the wrapper is on both paths at once: the fan-out goes through
+// `Scoped<C>`'s `Tasks` forward and every worker's accept through its `Listen`
+// one. Two forwards that used to be tested apart are tested together here, and
+// the handler still lands inside the scope.
 
 test "a scope forwards listening" {
     // A real server through the wrapper: the bind is refused, and the refusal
     // comes back out through the scope.
     let ctx = context {
         Alloc: alloc.generalPurpose(),
-        Listen: OneShot { bindsTo: "" },
+        Listen: OneShot { binds: 0 },
+        Tasks: testing.tasks(),
     };
     assert.isFalse(alloc.scoped(ctx, fn(c) => served(c)));
 }
@@ -551,8 +575,9 @@ test "a scope forwards listening onto a handler the loop calls" {
     let gp = alloc.generalPurpose();
     let ctx = context {
         Alloc: gp,
-        Listen: OneShot { bindsTo: "127.0.0.1" },
+        Listen: OneShot { binds: 1 },
         Stdout: out,
+        Tasks: testing.tasks(),
     };
     assert.isTrue(alloc.scoped(ctx, fn(c) => servedUsing(c)));
     assert.eq(out.captured(), "handled 127.0.0.1\n");
@@ -562,8 +587,20 @@ test "a scope forwards listening onto a handler the loop calls" {
 test "a server answers the handler it is given" {
     // The other half, with nothing wrapped: the handler runs, its `200` is what
     // the acceptor accepts, and `serve` ends `.Ok` on the listener's `.Closed`.
-    assert.isTrue(served(OneShot { bindsTo: "127.0.0.1" }));
-    assert.isFalse(served(OneShot { bindsTo: "" }));
+    // The context is the ordinary three now rather than the bare fake, because
+    // `serve` fans its loop out and a fan-out needs somewhere to run.
+    let ctx = context {
+        Alloc: alloc.generalPurpose(),
+        Listen: OneShot { binds: 1 },
+        Tasks: testing.tasks(),
+    };
+    assert.isTrue(served(ctx));
+    let refused = context {
+        Alloc: alloc.generalPurpose(),
+        Listen: OneShot { binds: 0 },
+        Tasks: testing.tasks(),
+    };
+    assert.isFalse(served(refused));
 }
 
 // -----------------------------------------------------------------------------
