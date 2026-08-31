@@ -5,6 +5,5 @@ library {
 
     test {
         sources: ["test/catalog.buri"]
-        data: ["prices.csv"]
     }
 }

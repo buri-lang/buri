@@ -12,9 +12,16 @@
 # first paint and the module has nothing left to do about them.
 #
 # **A platform is the set of effects its host exports.** `Ui: host.ui` resolves
-# under WEB and under nothing else; `Net: host.net` resolves everywhere else and
+# under WEB and under nothing else; `Fs: host.fs` resolves everywhere else and
 # not under WEB. Both directions are edited in below, because a rule that fires
 # in one direction is a rule nobody can rely on.
+#
+# It was `Net` on that second line until a request stopped blocking the thread
+# that asked. WEB withheld `net` because `Net.fetch` did not return until the
+# answer arrived and a page whose one thread is waiting is a frozen page; a
+# suspending call blocks nothing, so WEB grants `Net` now and `Fs` is what is
+# left on this side of the line — a page has no filesystem, and no wave of this
+# work changes that.
 #
 # The artifact is pinned with `contains` rather than a whole-file golden for the
 # reason the manifest schema gives: an `.mjs` is mostly runtime, so a golden of
@@ -78,34 +85,33 @@ edit {
   with: "platform: WEB"
 }
 
-# Direction two: a page reaching for a socket. `Net.fetch` blocks until the
-# response arrives, which freezes a page, so WEB grants `Fetch` instead and does
-# not export `net` at all.
+# Direction two: a page reaching for a file. There is no filesystem under a
+# page, so WEB does not export `fs` at all.
 edit {
   file: "cmd/counter/main.buri"
   replace: "    Ui: host.ui,"
-  with: "    Net: host.net,\n    Ui: host.ui,"
+  with: "    Fs: host.fs,\n    Ui: host.ui,"
 }
 
 edit {
   file: "cmd/counter/main.buri"
   replace: "import { Alloc, Stdout };"
-  with: "import { Alloc, Net, Stdout };"
+  with: "import { Alloc, Fs, Stdout };"
 }
 
 run {
   args: ["build", "//cmd/counter"]
   exit: 1
-  golden: "net_under_web.txt"
+  golden: "fs_under_web.txt"
 }
 
 # And the implementation struct goes with the value. A host struct has no
-# private field, so exporting `HostNet` while withholding `net` would leave the
-# authority one `Net: host.HostNet {}` away.
+# private field, so exporting `HostFs` while withholding `fs` would leave the
+# authority one `Fs: host.HostFs {}` away.
 edit {
   file: "cmd/counter/main.buri"
-  replace: "    Net: host.net,"
-  with: "    Net: host.HostNet {},"
+  replace: "    Fs: host.fs,"
+  with: "    Fs: host.HostFs {},"
 }
 
 run {
@@ -116,13 +122,13 @@ run {
 
 edit {
   file: "cmd/counter/main.buri"
-  replace: "    Net: host.HostNet {},\n"
+  replace: "    Fs: host.HostFs {},\n"
   with: ""
 }
 
 edit {
   file: "cmd/counter/main.buri"
-  replace: "import { Alloc, Net, Stdout };"
+  replace: "import { Alloc, Fs, Stdout };"
   with: "import { Alloc, Stdout };"
 }
 

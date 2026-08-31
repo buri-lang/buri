@@ -1,5 +1,5 @@
 # Captured output is captured and never printed. That is the contract, and
-# `core/testing/context` now says so: `captured()` is how a test reads it back,
+# `core/host/testing` now says so: `captured()` is how a test reads it back,
 # which makes what a program wrote something to assert on rather than something
 # to watch scroll past. `report_failure` writes the message, the diff and the
 # location, and the runner never reads a capture handle.

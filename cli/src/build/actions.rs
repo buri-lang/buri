@@ -464,7 +464,7 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
     };
     if let Some(suite) = suite {
         let mut files: Vec<String> =
-            suite.sources.iter().chain(suite.data.iter()).map(|x| x.value.clone()).collect();
+            suite.sources.iter().map(|x| x.value.clone()).collect();
         files.sort();
         k.rule_identity(&package.label(), "test", &files);
         for rel in &files {

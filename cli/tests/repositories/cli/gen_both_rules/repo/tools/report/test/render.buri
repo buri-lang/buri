@@ -1,5 +1,6 @@
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 from "//tools/report/lib.buri" import { render };
 
@@ -7,6 +8,6 @@ from "//tools/report/lib.buri" import { render };
 // stray.buri and what that adds is a suffix. What the suite is for here is
 // the placement of the sources, not the wording of the report.
 test "render puts the heading first" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.isTrue(render(ctx, 12).startsWith("report 12"));
 }

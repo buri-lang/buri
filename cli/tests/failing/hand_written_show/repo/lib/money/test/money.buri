@@ -8,7 +8,7 @@
 // what `Show` actually produces.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { alloc };
+from "core/host/testing/lib.buri" import { alloc };
 from "core/effect/lib.buri" import { Alloc };
 from "//lib/money/lib.buri" import { Money, render };
 

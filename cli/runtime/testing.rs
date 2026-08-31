@@ -35,7 +35,7 @@
 //! it was handed and reads no state at all, so both backends open-code it and
 //! the handle names nothing.
 //!
-//! ## `MemFs`'s eleven methods, and the one divergence they make readable
+//! ## `MemFs`'s eleven methods, and the divergence that used to be here
 //!
 //! Most answer a `Result<T, IoError>`, which was the shape neither native
 //! backend had a `Ret` for and the reason the original four were held back. It
@@ -47,24 +47,20 @@
 //! are `$t.h`'s shape written for a language that has statics, and `runtime.js`
 //! stores exactly the same two things.
 //!
-//! `fileExists` was never the hard one; it was held back *with* the other three
-//! on purpose, and the reason it was held back is still true and is now a
-//! stated divergence instead of an absence. `data()` is "rooted at the package
-//! directory, containing exactly `test { data: [...] }`", and a compiled test
-//! binary has no runner to be handed those entries by, so `data()` here is
-//! **empty**. On a package that declares no `data:`, that is not a divergence
-//! at all — it is the specified answer, and
-//! `conformance/lib/semantics/test/effects.buri` asserts it in those words. On
-//! a package that declares one, a native test binary reads `.Err(.NotFound)`
-//! where `buri test` reads the file.
+//! There was one answer this file and `runtime.js` gave differently, and it is
+//! worth recording that it is gone rather than leaving a reader to wonder. A
+//! suite's `BUILD.buri` could declare `test { data: [...] }`; the JavaScript
+//! runner read those files off disk and handed them to the suite as `data()`,
+//! and a linked test binary has no runner to be handed them by — so `data()`
+//! here was empty and a declared file read `.Err(.NotFound)` where `buri test`
+//! read its contents. The toolchain hid that by refusing to run such a suite
+//! natively at all.
 //!
-//! That was worth trading a gap for, and the trade is worth stating rather than
-//! assuming: the alternative kept **183 conformance test blocks** out of the
-//! native set — every one of them about effects and evaluation rather than
-//! about files — to protect a case the corpus does not contain and that a
-//! reader of `buri_rt_testing_context_data` is told about. Baking the runner's
-//! `data:` entries into the binary is the real fix and it is a build-system
-//! change, not a runtime one: nothing in this file can see a `BUILD.buri`.
+//! The field is retired (`retired-test-data`). `data()` is empty on both
+//! backends now, which is what it was always specified to be on a package that
+//! declared nothing, and a suite that wants a filesystem writes one with
+//! `files([...])` — text in the suite, read the same way by both. Nothing in
+//! this file can see a `BUILD.buri`, and nothing needs to.
 //!
 //! ## Ownership
 //!
@@ -624,17 +620,13 @@ fn fs_put(handle: i64, path: String, body: Vec<u8>) {
     });
 }
 
-/// `data()` — in-memory, and **empty**, because a compiled test binary has no
-/// runner to be handed `test { data: [...] }` by.
+/// `data()` — in-memory, and **empty**.
 ///
-/// This is the one place where a native test binary and `buri test` can answer
-/// differently, and it is now readable rather than unreachable: `readFile` and
-/// `fileExists` below will say a declared data file is missing. The module
-/// header states the divergence and its bound — a package that declares no
-/// `test { data: [...] }` cannot observe it, and `data()` on such a package is
-/// specified to be empty, which is exactly what
-/// `conformance/lib/semantics/test/effects.buri`'s "data is an empty package
-/// filesystem when no test data is declared" asserts on both backends.
+/// The specified answer, and now the only one: nothing seeds this any more, on
+/// either backend. `conformance/lib/semantics/test/effects.buri`'s "data is an
+/// empty package filesystem when no test data is declared" is what asserts it,
+/// and there is no longer a package for which the second half of that sentence
+/// is false. The module header has what used to be here.
 ///
 /// # Safety
 /// `out` must be writable and aligned for an `i64`.

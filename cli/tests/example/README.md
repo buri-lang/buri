@@ -38,8 +38,6 @@ lib/
     file_store.buri
     test/
       store.buri
-      golden/
-        log.txt
   kit/                        //lib/kit          tagged `client`, owns design tokens
     BUILD.buri
     lib.buri
@@ -128,7 +126,7 @@ links into all four binaries, which is what an untagged library is *for*.
 | [`lib/ledger/entry.buri`](./lib/ledger/entry.buri) | Why `total` is a free function and `add` is a method |
 | [`lib/store/BUILD.buri`](./lib/store/BUILD.buri) | Visibility and tags side by side, doing two different jobs |
 | [`lib/store/codec.buri`](./lib/store/codec.buri) | A dependency created by method resolution rather than by an import |
-| [`lib/store/test/store.buri`](./lib/store/test/store.buri) | `Hermetic`'s in-memory `Fs`, and `test { data: ... }` |
+| [`lib/store/test/store.buri`](./lib/store/test/store.buri) | `fs()` — a suite that writes its own filesystem, golden included |
 | [`lib/kit/tokens.buri`](./lib/kit/tokens.buri) | A package's own design-token vocabulary, and the one function only that package can write |
 | [`lib/kit/card.buri`](./lib/kit/card.buri) | Components as plain functions of no context at all, the static style tier, and the one place the computed tier earns its keep |
 | [`cmd/server/main.buri`](./cmd/server/main.buri) | The effect budget as the context `main` builds, and re-exporting for the test suite |
@@ -137,7 +135,7 @@ links into all four binaries, which is what an untagged library is *for*.
 | [`cmd/basket/main.buri`](./cmd/basket/main.buri) | A page's effect budget, and one theme per package whose tokens the program uses |
 | [`cmd/basket/theme.buri`](./cmd/basket/theme.buri) | The contract between a library's tokens and an app, as a `match` that stops compiling |
 | [`cmd/basket/view.buri`](./cmd/basket/view.buri) | Which of the three reactive constructors to reach for, and what each one re-runs |
-| [`cmd/basket/test/view.buri`](./cmd/basket/test/view.buri) | A page tested with no browser: a `Fetch` written for the test, a keyed row's identity across a change, and a theme switch that moves no element |
+| [`cmd/basket/test/view.buri`](./cmd/basket/test/view.buri) | A page tested with no browser: a `Net` written for the test, a keyed row's identity across a change, and a theme switch that moves no element |
 | [`tools/report/BUILD.buri`](./tools/report/BUILD.buri) | Two rules, one directory, one build file |
 | [`tools/report/main.buri`](./tools/report/main.buri) | A binary reaching its co-located library through `//tools/report` and nothing else |
 
@@ -160,9 +158,12 @@ links into all four binaries, which is what an untagged library is *for*.
   same sources, different platforms and different tags, and every difference
   between the two builds is visible in those two files.
 - **Then compare all three `main.buri`s at once.** `//cmd/server` binds `Fs` and
-  `Env`, `//cmd/web` binds neither, and `//cmd/basket` binds `Ui`, `Watch` and
-  `Fetch` — which `core/host` exports under `platform: WEB` and under no other.
-  None of the three would build for either of the others' outputs, and the error
+  `Env`, `//cmd/web` binds neither, and `//cmd/basket` binds `Ui` and `Watch` —
+  which `core/host` exports under `platform: WEB` and under no other, plus
+  `Net`, which every platform grants. `Net` is the newer half of the same
+  point: it was withheld from a page while a request did not return until the
+  answer arrived, and the reason went away when the wait stopped blocking. None
+  of the three would build for either of the others' outputs, and the error
   lands on the line that asked for the effect.
 - **Follow a token from `lib/kit/tokens.buri` to a colour.** `Token.Surface` is
   a name //lib/kit chose; `cmd/basket/theme.buri` says it is worth this app's

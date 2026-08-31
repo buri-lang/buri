@@ -50,14 +50,15 @@ the bar means, already required by the link step, and absent from the lockfile.
 crate admitted to `cli/runtime/manifest.toml` is a crate admitted into
 strangers' programs. Same bar, one extra clause: the set is **closed by an exact
 list**, asserted as an equality by `dependencies_stay_behind_the_bar`, so that a
-fifth crate — and equally a removal — is a failing test rather than a review
+sixth crate — and equally a removal — is a failing test rather than a review
 comment.
 
 | Crate | Feature | Why it clears the bar |
 |---|---|---|
-| `tokio` | `net` | The reactor and the timer wheel. `epoll` and `kqueue` behind one readiness API, per platform; getting it subtly wrong presents as a hang. |
+| `tokio` | `net` | The reactor and the timer wheel, and **linked**: `cli/runtime/rt.rs` is the carrier runtime and every suspending host call parks on it. `epoll` and `kqueue` behind one readiness API, per platform; getting it subtly wrong presents as a hang. |
 | `hyper` | `net` | HTTP/1.1 and HTTP/2 framing. `cli/runtime/http.rs` is a complete cleartext client, which is the easy half; HPACK, flow control and a correct server are not. |
-| `rustls` | `net` | TLS 1.2 and 1.3 — the crate `cli/runtime/http.rs`'s header named as the growth path when it refused `https://`. |
+| `rustls` | `net` | TLS 1.2 and 1.3, and **linked**: `cli/runtime/tls.rs` builds its client configuration and `http.rs` reaches that for every `https://` URL. |
+| `ring` | `net` | `rustls`'s crypto provider. Reached only through `rustls::crypto::ring`, and declared directly anyway — see §1.1.2. |
 | `tungstenite` | `net` | RFC 6455 framing and the handshake: a protocol with a specification and a conformance suite, not an algorithm. |
 
 `net` is **on by default**, which is the opposite of `backend-llvm` and for a
@@ -68,21 +69,21 @@ missing effect rather than a link error, which is why the toolchain learns the
 feature's state through `Backend::missing_intrinsics` instead of finding out at
 `cc` time.
 
-As of the slice that admitted them, **nothing referenced any of the four**.
+The crates were admitted a slice **ahead of any code that uses them**, so that
+what they cost could be measured before anything depended on the answer.
 `cli/runtime/net.rs` names one type from each and exports two entries that
 answer "was this toolchain built with the networking stack"; no intrinsic key
-mangles to a symbol in that file. That was deliberate, and it is what made the
-cost measurable before anything depended on the answer: on
-`aarch64-apple-darwin` the archive is 5 987 472 bytes with `net` off and
-5 987 496 with it on. Twenty-four bytes, because `lto = "fat"` is whole-program
-across the dependency rlibs and Rust code nothing reaches does not reach the
-archive.
+mangles to a symbol in that file. On `aarch64-apple-darwin` the archive was
+5 987 472 bytes with `net` off and 5 987 496 with it on: twenty-four bytes,
+because `lto = "fat"` is whole-program across the dependency rlibs and Rust code
+nothing reaches does not reach the archive. Two of the five are still in exactly
+that state — `hyper` and `tungstenite` — and three are not.
 
-**`tokio` has since been linked, once and deliberately.** `cli/runtime/rt.rs`
-is the carrier runtime — the reactor handle, the run baton, the carrier pool
-with its 512 KiB stacks and the task table — and `Clock::sleepMillis` and
-`Net::fetch` wait on it through `park_on`, so the reactor and its timer wheel
-are in the archive on purpose:
+**`tokio` was linked first, once and deliberately.** `cli/runtime/rt.rs` is the
+carrier runtime — the reactor handle, the run baton, the carrier pool with its
+512 KiB stacks and the task table — and `Clock::sleepMillis` and `Net::fetch`
+wait on it through `park_on`, so the reactor and its timer wheel are in the
+archive on purpose:
 
 | `aarch64-apple-darwin`, `libburi_rt.a` | bytes |
 |---|---|
@@ -91,19 +92,74 @@ are in the archive on purpose:
 | the reactor | +185 424 |
 
 `mio` and `socket2` arrive with it and are tokio's platform layer rather than a
-fifth and sixth dependency; the direct set is still four, and
-`dependencies_stay_behind_the_bar` is what holds it there. The other three
-crates are still reached by nothing, and the CI symbol check names them
-still.
+sixth and seventh dependency; the direct set is still five, and
+`dependencies_stay_behind_the_bar` is what holds it there.
 
-The one thing that would *not* be dropped is a dependency's **native** object
-code, which `rustc` bundles into a `staticlib` whether anything references it or
-not — measured at 842 544 bytes and twenty-four `.o` members for `rustls`'s
-obvious crypto provider, `ring`. So `rustls` is admitted with no provider, and
-picking one is the decision of the slice that makes `https://` work, where the
-bytes are bought rather than spent. `.github/scripts/assert-runtime-archive.sh`
-holds both halves in CI: a size budget, and a symbol table with none of the
-crates nothing calls into in it.
+### 1.1.2 What `https://` cost, and the budget it moved
+
+`rustls` and `ring` followed, and they are the expensive half.
+`aarch64-apple-darwin`, `libburi_rt.a`, as this tree stands:
+
+| | bytes | delta |
+|---|---:|---:|
+| `net` off | 6 130 536 | |
+| `net` on — the reactor and the TLS client | 8 198 904 | +2 068 368 |
+
+Of that delta, 185 424 bytes is the reactor above and **1.72 MiB** is TLS —
+1 804 592 as each was measured in the commit that linked it; the remaining
+~78 KB is the runtime's own code growing in the slices between. About 845 KB of
+the TLS figure is the one
+thing LTO cannot touch: a dependency's **native** object code, which `rustc`
+bundles into a `staticlib` whether the linker needs it or not. `ring`
+contributes twenty-odd `.o` members of C and AArch64 assembly, of which
+`curve25519.o` is 405 KB and `p256-nistz.o` is 173 KB.
+
+**That is over the budget this repository had written down.**
+`.github/scripts/assert-runtime-archive.sh` allowed 7 MiB on macOS and 10 MiB on
+Linux, measured before either the reactor or TLS. The budget is a ratchet whose
+stated response to being hit is "find out what grew, then fix it or re-measure
+and re-state" — this is the re-statement, 9 MiB and 12 MiB, and the growth is
+named rather than absorbed. Every `buri` binary is 1.72 MiB larger for having a
+TLS client in it.
+
+**`ring` rather than `aws-lc-rs`**, the other provider `rustls` ships:
+`aws-lc-rs` wants `cmake` at build time, which is a second tool to require of
+`cargo install buri`. `ring` wants a C compiler, which the toolchain already
+requires for the stencil library and which `build/link.rs` shells out to for
+every native artifact anyway — and `cli/build.rs` **probes** for it and falls
+back to `--no-default-features` with a `cargo:warning` when it is missing, so a
+host without one gets a working toolchain, working `http://`, and an `https://`
+that refuses at run time naming the feature. The pure-Rust providers were
+considered: `rustls-rustcrypto` says of itself that it is unaudited and not for
+production use, and a TLS stack in every binary this compiler produces is the
+last place to accept that.
+
+**`ring` is declared as a direct dependency although no line of the runtime
+names it.** The code reaches it through `rustls::crypto::ring`, so `rustls`'s
+own feature would have pulled it in silently — and `dependencies_stay_behind_the_bar`
+reads `cli/runtime/manifest.toml`, not the lockfile, so 845 KB of object code in
+every user's binary would have been invisible to the test that guards what
+ships. `net.rs` names a type from it for the same reason it names one from each
+of the others: removing the entry must stop compiling.
+
+**Trust anchors: the host's own PEM bundle, no crate.** `cli/runtime/tls.rs`
+reads `/etc/ssl/cert.pem` and the four Linux spellings beside it, and
+`SSL_CERT_FILE` replaces that — the variable OpenSSL, `curl` and `git` already
+honour. The two candidates that would have been crates both lost on the bar's
+first clause: `webpki-roots` is a quarter-megabyte of *data this repository
+would be shipping*, pinning trust to a crate version rather than to the machine,
+and `rustls-native-certs` costs three transitive crates plus a link-time
+`Security.framework` on macOS that a `staticlib` handed to `cc` cannot carry
+without every artifact's link line growing a flag. Reading a PEM file is forty
+lines, and forty lines this repository can reasonably write is the definition of
+"not a dependency". What it does not do — read the macOS keychain — is what
+`SSL_CERT_FILE` is for, and `tls.rs` says so.
+
+`.github/scripts/assert-runtime-archive.sh` holds all of it in CI: the size
+budget, a symbol table that **must** mention `tokio`, `rustls` and `ring` when
+the feature file says `net`, and one that must mention neither `hyper` nor
+`tungstenite` — nor `aws_lc`, a provider that was never a dependency — either
+way.
 
 **How the toolchain knows.** `cli/build.rs` writes `libburi_rt.a.features`
 beside the archive and beside its digest — the Cargo features the archive was
@@ -183,8 +239,9 @@ for:
 - **The build cannot re-trigger itself.** Only declared *sources* are polled, and
   the build writes to `.buri/`. Trunk needs a one-second post-build cooldown and
   bacon a grace period specifically to stop their own writes retriggering; here
-  there is nothing to cool down. (`--accept` is the exception — it writes golden
-  files into the source tree — and §4.3 refuses to combine it with `--watch`.)
+  there is nothing to cool down. (`--accept` was the exception — it wrote golden
+  files into the source tree, and §4.3 refused to combine it with `--watch`. It
+  is retired, so no mode of `buri test` writes to the source tree at all.)
 - **`.git/`, `target/` and `node_modules/` are not watched**, without an ignore
   file, because they are not declared. That is the single most common source of
   watcher pathology, absent by construction.
@@ -602,16 +659,19 @@ where this pays per sweep, so the number is a sweep interval rather than a
 debounce and is correspondingly larger. It is not configurable in v1. A flag
 here is a flag nobody can choose a value for.
 
-Three combinations are refused, at argument parsing, with exit 2:
+Two combinations are refused, at argument parsing, with exit 2:
 
 - **`--watch --force`.** `--force` turns every cache hit into a run
   (`test.rs`), so every keystroke would re-run every suite in the selection.
   That is the opposite of the mode.
-- **`--watch --accept`.** `--accept` is "the one mode that writes to the source
-  tree" (`test.rs`). A mode that rewrites golden files on a timer is a
-  mode that silently accepts a regression while you are reading the failure.
 - **`--watch` without a TTY.** A watch loop in CI is a hung job. The check is on
   stdout being a terminal, and the diagnostic says so and names `buri test`.
+
+There was a third. **`--watch --accept`** was refused because `--accept` was
+"the one mode that writes to the source tree", and rewriting golden files on a
+timer silently accepts a regression while you are reading the failure. The flag
+rewrote what a suite declared in `test { data }`; that field is retired, and the
+flag went with it.
 
 ### 4.4 The terminal
 

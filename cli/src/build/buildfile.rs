@@ -18,6 +18,19 @@ use crate::diagnostics::{Diagnostic, FileId, Invariant, Span};
 const BUILD_FILE_RULES: &[&str] = &["library", "binary"];
 const REPO_FILE_RULES: &[&str] = &["tag", "lint"];
 
+/// The fields a `test` block used to declare and no longer does.
+///
+/// A retired field is not an unknown one. `unknown-field` offers the nearest
+/// name it does know, and to somebody who wrote what the last release
+/// documented that reads as a typo they did not make; a retired field has a
+/// page of its own instead, saying what replaced it. `check_known` passes the
+/// names here over, and `test_suite` — which is where the block is known —
+/// emits the code.
+///
+/// Per block rather than one list for the file, because a `data` entry in a
+/// `library` rule is still an unknown field and still gets told so.
+const RETIRED_TEST_FIELDS: &[&str] = &["data"];
+
 #[derive(Clone, Debug)]
 pub struct Spanned<T> {
     pub value: T,
@@ -50,9 +63,8 @@ pub enum Platform {
     /// A page in a browser. The artifact is JavaScript, so it is built by the
     /// same backend `Js` is, but it is a different *platform* because a
     /// platform is the set of effects its host exports: `Web` grants the
-    /// reactive graph and the non-blocking request shape, and grants no
-    /// filesystem, no socket, no standard input, no environment and no
-    /// process to exit.
+    /// reactive graph, and grants no filesystem, no standard input, no
+    /// environment and no process to exit.
     Web,
 }
 
@@ -284,7 +296,6 @@ impl Output {
 pub struct TestSuite {
     pub sources: Vec<Spanned<String>>,
     pub dependencies: Vec<Spanned<String>>,
-    pub data: Vec<Spanned<String>>,
     pub timeout_seconds: Option<u32>,
     pub platforms: Vec<Spanned<Platform>>,
     pub span: Span,
@@ -398,8 +409,20 @@ impl Reader {
 
     /// Rejects any field the schema does not declare, naming the nearest
     /// known field when there is one.
-    fn check_known(&mut self, message: &Message, known: &[&str], what: &str) {
+    ///
+    /// `retired` is passed over here and answered where the block is read,
+    /// because a retired field is not an unknown one.
+    fn check_known(
+        &mut self,
+        message: &Message,
+        known: &[&str],
+        retired: &[&str],
+        what: &str,
+    ) {
         for f in &message.fields {
+            if retired.contains(&f.name.as_str()) {
+                continue;
+            }
             if !known.contains(&f.name.as_str()) {
                 let near = nearest(&f.name, known);
                 let d = self
@@ -550,15 +573,18 @@ impl Reader {
 
     fn test_suite(&mut self, parent: &Message) -> Option<TestSuite> {
         let (m, span) = self.sub_message(parent, "test")?;
-        self.check_known(
-            m,
-            textproto::schema_order("test"),
-            "a `test` block",
-        );
+        // Before `check_known`, and not one of its near misses: `data` is not a
+        // field this schema never had, it is one this schema *retired*, and
+        // "unknown field `data` in a `test` block" would send a reader looking
+        // for a typo. The page is the whole of the answer, so the emission
+        // carries no binds.
+        for f in m.all("data") {
+            self.templated("retired-test-data", f.name_span);
+        }
+        self.check_known(m, textproto::schema_order("test"), RETIRED_TEST_FIELDS, "a `test` block");
         Some(TestSuite {
             sources: self.strings(m, "sources"),
             dependencies: self.strings(m, "dependencies"),
-            data: self.strings(m, "data"),
             timeout_seconds: self.u32_field(m, "timeout_seconds"),
             platforms: self.platforms(m, "platforms"),
             span,
@@ -567,7 +593,7 @@ impl Reader {
 
     fn testing_surface(&mut self, parent: &Message) -> Option<TestingSurface> {
         let (m, span) = self.sub_message(parent, "testing")?;
-        self.check_known(m, textproto::schema_order("testing"), "a `testing` block");
+        self.check_known(m, textproto::schema_order("testing"), &[], "a `testing` block");
         Some(TestingSurface {
             sources: self.strings(m, "sources"),
             dependencies: self.strings(m, "dependencies"),
@@ -588,7 +614,7 @@ impl Reader {
                     self.wrong_kind(item.span(), "outputs", "a block", &kind);
                     continue;
                 };
-                self.check_known(m, textproto::schema_order("outputs"), "an output");
+                self.check_known(m, textproto::schema_order("outputs"), &[], "an output");
 
                 let platform = m.get("platform").and_then(|field| match &field.value {
                     Value::Ident(s, sp) => match Platform::parse(s) {
@@ -636,7 +662,7 @@ impl Reader {
                 let mut js_block: Option<Span> = None;
                 if let Some((js_message, js_span)) = self.sub_message(m, "js") {
                     js_block = Some(js_span);
-                    self.check_known(js_message, textproto::schema_order("js"), "a `js` block");
+                    self.check_known(js_message, textproto::schema_order("js"), &[], "a `js` block");
                     if let Some(module_field) = js_message.get("module") {
                         match &module_field.value {
                             Value::Ident(s, sp) => match s.as_str() {
@@ -770,10 +796,10 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     let parsed = textproto::parse(text, file);
     let mut reader = Reader { errors: parsed.errors };
     let message = parsed.document.as_message();
-    reader.check_known(&message, BUILD_FILE_RULES, "a build file");
+    reader.check_known(&message, BUILD_FILE_RULES, &[], "a build file");
 
     let library = reader.sub_message(&message, "library").map(|(m, span)| {
-        reader.check_known(m, textproto::schema_order("library"), "a `library` rule");
+        reader.check_known(m, textproto::schema_order("library"), &[], "a `library` rule");
         Library {
             sources: reader.strings(m, "sources"),
             proto_sources: reader.strings(m, "proto_sources"),
@@ -790,7 +816,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     let binary = reader.sub_message(&message, "binary").map(|(m, span)| {
         // A binary has no `platforms` field of its own — `outputs` already
         // says — and no `visibility`, because nothing can depend on a binary.
-        reader.check_known(m, textproto::schema_order("binary"), "a `binary` rule");
+        reader.check_known(m, textproto::schema_order("binary"), &[], "a `binary` rule");
         for bad in ["platforms", "visibility"] {
             if let Some(f) = m.get(bad) {
                 let note = if bad == "platforms" {
@@ -828,7 +854,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     let parsed = textproto::parse(text, file);
     let mut reader = Reader { errors: parsed.errors };
     let message = parsed.document.as_message();
-    reader.check_known(&message, REPO_FILE_RULES, "REPO.buri");
+    reader.check_known(&message, REPO_FILE_RULES, &[], "REPO.buri");
 
     let mut tags: Vec<Tag> = Vec::new();
     for f in parsed.document.all("tag") {
@@ -836,7 +862,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
             reader.templated("tag-not-a-block", f.value.span());
             continue;
         };
-        reader.check_known(m, textproto::schema_order("tag"), "a `tag` block");
+        reader.check_known(m, textproto::schema_order("tag"), &[], "a `tag` block");
 
         let name_field = m.get("name");
         let name = match name_field.map(|field| &field.value) {
@@ -855,7 +881,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         if let Some((forbids, _)) = reader.sub_message(m, "forbids") {
             // There is deliberately no `platforms` under `forbids`: a platform
             // restriction is always a whitelist under `requires`.
-            reader.check_known(forbids, textproto::schema_order("forbids"), "a `forbids` block");
+            reader.check_known(forbids, textproto::schema_order("forbids"), &[], "a `forbids` block");
             if let Some(p) = forbids.get("platforms") {
                 reader.templated("platforms-under-forbids", p.name_span);
             }
@@ -864,7 +890,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
 
         let mut requires_platforms = Vec::new();
         if let Some((requires, _)) = reader.sub_message(m, "requires") {
-            reader.check_known(requires, textproto::schema_order("requires"), "a `requires` block");
+            reader.check_known(requires, textproto::schema_order("requires"), &[], "a `requires` block");
             if let Some(t) = requires.get("tags") {
                 reader.templated("tags-under-requires", t.name_span);
             }
@@ -894,7 +920,7 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     // and an unwritten field is the same as the field written false.
     let mut lint = LintConfig::default();
     if let Some((m, _)) = reader.sub_message(&message, "lint") {
-        reader.check_known(m, textproto::schema_order("lint"), "a `lint` block");
+        reader.check_known(m, textproto::schema_order("lint"), &[], "a `lint` block");
         lint.check_during_build = reader.bool_field(m, "check_during_build").unwrap_or(false);
         lint.fail_on_finding = reader.bool_field(m, "fail_on_finding").unwrap_or(false);
     }

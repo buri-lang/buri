@@ -6,9 +6,10 @@
 // one. The authority arrives as a parameter, every time, and that split is what
 // the rest of this package is shaped around.
 
-from "core/effect/lib.buri" import { Alloc, NetResponse };
+from "core/effect/lib.buri" import { Alloc, Net, NetError, Response };
+from "core/net/http/lib.buri" import * as http;
 from "core/str/lib.buri" import * as str;
-from "ui/effect/lib.buri" import { Fetch, fetch, FetchError, Request, Ui, Watch };
+from "ui/effect/lib.buri" import { Ui, Watch };
 from "ui/signal/lib.buri" import { Signal, signal };
 
 from "//lib/ledger/lib.buri" import { Entry };
@@ -81,35 +82,36 @@ export fn tick<C: Alloc + Ui + Watch>(ctx: C, state: State, memo: Str): () {
 
 /// Asks the server for its ledger and shows whatever comes back.
 ///
-/// `Net.fetch` blocks until the response arrives, which on a page means
-/// freezing it, so a platform with an interface grants `Fetch` instead: it
-/// starts the request and returns immediately, and `done` runs later with the
-/// very context this call was made with. That is why the callback can write
-/// signals without capturing anything — the authority arrives as its first
-/// parameter, exactly as a press handler's does.
-export fn load<C: Alloc + Fetch + Ui>(ctx: C, state: State): () {
+/// Three statements in the order they happen: say what is about to be asked,
+/// ask it, show the answer. No callback, and nothing to capture.
+///
+/// This used to be an effect of its own. `Net.fetch` did not return until the
+/// server had answered, and a page whose one thread is waiting is a frozen
+/// page, so a browser granted a callback-shaped `Fetch` instead — it started
+/// the request, returned immediately, and ran `done` later with the very
+/// context the call was made with, because a lambda may not capture one. A
+/// suspending call no longer blocks the page, so a browser grants `Net` like
+/// every other platform and this line reads the way it always should have.
+export fn load<C: Alloc + Net + Ui>(ctx: C, state: State): () {
   let _ = state.notice.set(ctx, "asking the server for its ledger");
-  let request = Request { method: "GET", url: LEDGER_URL, headers: [], body: "" };
-  fetch(ctx, request, fn(c, result) => received(c, state, result))
+  received(ctx, state, http.get(ctx, LEDGER_URL))
 }
 
 /// What to do with a response, or with the reason there was not one.
 fn received<C: Alloc + Ui>(
   ctx: C,
   state: State,
-  result: Result<NetResponse, FetchError>,
+  result: Result<Response, NetError>,
 ): () {
   match (result) {
     .Err(why) => state.notice.set(ctx, refusal(why)),
     .Ok(response) => if (response.status == 200) {
-      let lines = entriesFrom(ctx, response.body);
-      let _ = state.items.set(ctx, lines);
-      let noMemos: [Str] = [];
-      let _ = state.ticked.set(ctx, noMemos);
-      if (lines.isEmpty()) {
-        state.notice.set(ctx, "the server's ledger is empty")
-      } else {
-        state.notice.set(ctx, "")
+      // A body is octets, because a response is not necessarily text; decoding
+      // it is a step the reader takes rather than one the platform guessed at.
+      // A ledger that is not UTF-8 is a broken ledger, and says so here.
+      match (http.bodyText(ctx, response.body)) {
+        .Err(_) => state.notice.set(ctx, "the server's ledger is not text"),
+        .Ok(body) => showing(ctx, state, entriesFrom(ctx, body)),
       }
     } else {
       state.notice.set(ctx, str.format(ctx, "the server answered ${response.status}"))
@@ -117,12 +119,27 @@ fn received<C: Alloc + Ui>(
   }
 }
 
+/// Replaces the basket with `lines`, and says so when there are none.
+fn showing<C: Ui>(ctx: C, state: State, lines: [Entry]): () {
+  let _ = state.items.set(ctx, lines);
+  let noMemos: [Str] = [];
+  let _ = state.ticked.set(ctx, noMemos);
+  if (lines.isEmpty()) {
+    state.notice.set(ctx, "the server's ledger is empty")
+  } else {
+    state.notice.set(ctx, "")
+  }
+}
+
 /// Why there was no response, in words a reader can act on.
 ///
-/// Exhaustive, and that is the point of `FetchError` being a closed enum: the
-/// day a fifth reason is added, this page stops compiling rather than quietly
-/// showing the wrong one.
-fn refusal(why: FetchError): Str {
+/// Exhaustive, and that is the point of `NetError` being a closed enum: the
+/// day a sixth reason is added, this page stops compiling rather than quietly
+/// showing the wrong one. `Aborted` is here because it is `NetError`'s fifth
+/// variant now — it used to be the one reason `FetchError` had that this
+/// enum did not, on the grounds that only a callback-shaped request could be
+/// called off, and it moved when the callback did.
+fn refusal(why: NetError): Str {
   match (why) {
     .Timeout => "the server took too long",
     .Refused => "the server refused the connection",

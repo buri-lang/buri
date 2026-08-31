@@ -3178,8 +3178,8 @@ export fn everything<C: Alloc>(ctx: C, b: [U8], t: (Int, Int), o: Option<Int>): 
 
 test "every construct, and the width they all have to fit inside" {
   // An assertion wide enough to wrap.
-  assert.eq(everything(Hermetic(), [1, 2, 3], (4, 5), .Some(6)), "a string that is long enough that the call around it cannot stay on one line");
-  assert.isTrue([1, 0, 3].foldResultCtx(Hermetic(), fn(c, acc: [Int], x) => if (x == 0) { .Err("zero") } else { .Ok(acc.push(c, 100 / x)) }, list.empty<Int>()).isOk());
+  assert.eq(everything(Everything(), [1, 2, 3], (4, 5), .Some(6)), "a string that is long enough that the call around it cannot stay on one line");
+  assert.isTrue([1, 0, 3].foldResultCtx(Everything(), fn(c, acc: [Int], x) => if (x == 0) { .Err("zero") } else { .Ok(acc.push(c, 100 / x)) }, list.empty<Int>()).isOk());
   // The last word in the test.
 }
 

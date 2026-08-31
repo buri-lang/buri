@@ -12,10 +12,10 @@
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/documentLink", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}}}
 # A re-export's path is a link on the same terms an import's is.
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/documentLink", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/lib.buri"}}}
-# A build file: every `sources` and `data` entry is the file beside it, and a
-# dependency label is a package, which is its `BUILD.buri`. The entries nested
-# inside the `test` block are found too. `//visibility:public` is in a label
-# field and names no package, so it gets nothing.
+# A build file: every `sources` entry is the file beside it, and a dependency
+# label is a package, which is its `BUILD.buri`. The entry nested inside the
+# `test` block is found too. `//visibility:public` is in a label field and names
+# no package, so it gets nothing.
 {"jsonrpc": "2.0", "id": 4, "method": "textDocument/documentLink", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/BUILD.buri"}}}
 # A file that imports nothing and writes no address: the empty answer, which is
 # an answer.

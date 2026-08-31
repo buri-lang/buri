@@ -1,34 +1,41 @@
 // This suite inherits //lib/store's `server` tag, so it is checked as server
 // code. It declares no `platforms`, so it runs once, on the host — which the
-// `server` tag admits.
+// `server` tag admits, and which is now a native binary rather than a
+// JavaScript one.
 //
-// `Hermetic`'s `Fs` is `data()`: an in-memory filesystem rooted at the package
-// directory and containing exactly the files in `test { data: [...] }`. Writes
-// are visible to this test and discarded when it ends.
+// `fs()` is an in-memory filesystem, rooted at the package directory and
+// holding exactly what this file gives it. Writes are visible to the test that
+// made them and discarded when it ends.
+//
+// The golden the third test reads used to be a file on disk, named in
+// `test { data: [...] }` and read by the runner. That field is retired: only a
+// runner could hand a suite those entries, so a suite declaring one was refused
+// a native run. The golden is a value here now, which is where the other two
+// expected values already were.
 
 from "//lib/store/lib.buri" import { append, readLog };
 from "//lib/ledger/lib.buri" import { entry };
 from "//lib/money/lib.buri" import { fromCents };
+from "core/host/testing/lib.buri" import { alloc, fs };
+from "core/effect/lib.buri" import { Alloc, Fs };
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
 
 test "append writes the log format" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc(), Fs: fs() };
   assert.ok(append(ctx, "ledger.log", [entry("coffee", fromCents(450))]));
   assert.eq(assert.ok(readLog(ctx, "ledger.log")), "coffee\t\$4.50");
 }
 
 test "reading a missing log is an error, not an abort" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc(), Fs: fs() };
   let _ = assert.err(readLog(ctx, "nope.log"));
 }
 
 test "the golden log round-trips" {
-  let ctx = Hermetic();
+  // As a file would hold it: ending in a newline, which the encoder does not
+  // emit.
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("test/golden/log.txt", "books\t\$32.00\n")]) };
   let want = assert.ok(readLog(ctx, "test/golden/log.txt"));
   assert.ok(append(ctx, "out.log", [entry("books", fromCents(3200))]));
-  // The golden file ends in a newline, as files do; the encoder does not emit
-  // a trailing one. `buri test --accept` would rewrite the golden file, and
-  // only files listed in `test { data: ... }`.
   assert.eq(assert.ok(readLog(ctx, "out.log")), want.trim());
 }

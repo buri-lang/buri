@@ -520,7 +520,7 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
             "testing",
         ],
         "binary" => &["sources", "proto_sources", "dependencies", "tags", "outputs", "test"],
-        "test" => &["sources", "dependencies", "data", "timeout_seconds", "platforms"],
+        "test" => &["sources", "dependencies", "timeout_seconds", "platforms"],
         "testing" => &["sources", "dependencies"],
         "outputs" => &["platform", "arch", "artifact_name", "js"],
         "js" => &["module"],
