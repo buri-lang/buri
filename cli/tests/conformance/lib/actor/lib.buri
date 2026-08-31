@@ -1,0 +1,11 @@
+// The actor conformance package. Its `test/` directory drives `core/actor`'s
+// whole surface — `start`, `send`, `ask`, `stop`, `Reply`, `onStop` and the
+// mailbox bound — and calls a `step` directly, which is what the module says
+// testing an actor is.
+//
+// The point is that the answers are the same on every backend, and they are
+// answers rather than timings: a message is stepped exactly once, one sender's
+// messages arrive in the order it sent them, `ask` sees what the sends before
+// it left, `onStop` runs once with the final state, and everything after
+// `stop` is `.Err(.Stopped)`. Nothing here asserts *when* an actor runs, which
+// is the platform's business and is where `core/tasks` draws the same line.

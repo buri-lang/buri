@@ -1,0 +1,493 @@
+//! core/actor — state that outlives one call, behind a mailbox.
+//!
+//! An actor is a **value**: an initial state and a step. `start` gives it a
+//! mailbox and answers an `Address`; `send` posts a message, `ask` posts one
+//! that carries a `Reply` and waits for the answer, and `stop` closes the
+//! mailbox and runs the actor's last hook. Nothing else in this module is
+//! addressable, and that is the point — the state is reachable only through
+//! the protocol its own enum declares.
+//!
+//! ```buri run
+//! from "core/actor" import * as actor;
+//! from "core/actor" import { Actor, Reply };
+//! from "core/effect" import { Alloc, Stdout, Tasks };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//!
+//! enum CounterMessage {
+//!     Increment,
+//!     Get(Reply<Int>),
+//! }
+//!
+//! fn counter<C: Alloc + Tasks>(initial: Int): Actor<C, Int, CounterMessage> {
+//!     Actor {
+//!         state: initial,
+//!         step: fn(c, count, message) => {
+//!             match (message) {
+//!                 .Increment => count + 1,
+//!                 .Get(reply) => {
+//!                     let _ = reply.answer(c, count).ignore();
+//!                     count
+//!                 },
+//!             }
+//!         },
+//!     }
+//! }
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!         Tasks: host.tasks,
+//!     };
+//!     let counted = actor.start(ctx, counter(0));
+//!     let _ = counted.send(ctx, .Increment).ignore();
+//!     let _ = counted.send(ctx, .Increment).ignore();
+//!     let total = counted.ask(ctx, fn(reply) => .Get(reply));
+//!     let _ = io.println(ctx, "count is ${total.withDefault(-1)}").ignore();
+//!     let _ = counted.stop(ctx).ignore();
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! count is 2
+//! ```
+//!
+//! ## The enum is the protocol
+//!
+//! A variant carrying no `Reply` is a `send`; a variant carrying a `Reply<R>`
+//! is an `ask` that yields an `R`. What `ask` takes is the *constructor*, so
+//! the pairing between a request and its answer is declared exactly once, in
+//! the enum. It is spelled `fn(reply) => .Get(reply)` rather than `.Get`: a
+//! bare variant name is checked against the type it is used at, and there it
+//! is used at a function type.
+//!
+//! ## Testing an actor is calling `step`
+//!
+//! `step` is an ordinary `fn(C, S, M) => S` in an ordinary struct field, so a
+//! test that wants to know what one message does calls it — no mailbox, no
+//! address, no context but the one the step itself needs:
+//!
+//! ```buri
+//! from "core/actor" import { Actor };
+//!
+//! enum Tick {
+//!     Tick,
+//! }
+//!
+//! fn ticker<C>(): Actor<C, Int, Tick> {
+//!     Actor { state: 0, step: fn(c, count, message) => count + 1 }
+//! }
+//!
+//! export fn oneTick<C>(ctx: C): Int {
+//!     let step = ticker().step;
+//!     step(ctx, 7, .Tick)
+//! }
+//! ```
+//!
+//! answers `8`.
+//!
+//! That is why this module ships **no test double**. There is nothing here to
+//! fake: a mailbox is a queue, the order is the order, and the one thing a
+//! double would be for — deciding when the actor runs — is decided below, in
+//! Buri, where a test can read it.
+//!
+//! ## When the actor runs, and why that is written down here
+//!
+//! **The actor steps on the task that drives it.** `send` posts and answers;
+//! `ask` posts, then runs the mailbox down until its reply is there; `stop`
+//! closes, discards what is left, and runs `onStop`. A mailbox at its bound is
+//! drained by the next `send` rather than growing, which is what `mailbox`
+//! buys.
+//!
+//! It is a *scheduling* decision and not a semantic one, and it is the same
+//! shape `core/tasks` already ships: `parallel` runs its steps on carriers of
+//! their own where the artifact says it may and one after another where it does
+//! not, and answers the same list either way. Here the answers are the same
+//! either way too — one sender's messages arrive in order, a message is stepped
+//! exactly once, `ask` sees the state its own message left behind, and `onStop`
+//! runs once with the final state.
+//!
+//! What it costs today is that an actor does not run *between* the calls that
+//! drive it, so an actor is not yet a way to get work done in the background.
+//! The arm that gives an actor a carrier of its own needs a step whose closure
+//! outlives the call that handed it over, which is a boundary neither native
+//! backend has yet — `cli/runtime/rt.rs` §2 is where that is written from the
+//! other side. Nothing in this module's surface changes on the day it lands.
+//!
+//! ## Where the messages live
+//!
+//! In the runtime, as whole blocks. A message is posted as a one-element
+//! `[Carried<M>]` and handed back as one; the runtime takes a reference on the
+//! block, keeps the pointer, and gives every one of them back — to the step, or
+//! to `stop`'s discard loop. That is the one place this language's runtime
+//! holds onto a value of the program between two calls, and
+//! `cli/runtime/lib.rs` §3 is where the rule it amends is stated.
+
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc, Tasks };
+
+// --- The vocabulary -----------------------------------------------------------
+
+/// An actor, whole: what it starts as, and what one message does to it.
+///
+/// `C` is the context the step is handed — the caller's own, exactly as
+/// `Tasks.parallel` hands a step the caller's own — so a step may do anything
+/// the code around it could: allocate, print, read a clock, ask another actor.
+/// `S` is the state and `M` is the protocol.
+///
+/// `onStop` and `mailbox` are `Option` fields, so a literal may leave them out
+/// and the checker fills in `.None` (SPEC 5.6). An omitted `onStop` is no hook
+/// at all; an omitted `mailbox` is [`MAILBOX`], **and this module names that
+/// number** where `core/net/server` deliberately leaves its own defaults to
+/// the runtime — see [`MAILBOX`], which is where the exception is argued.
+export struct Actor<C, S, M> {
+    /// What the state is before any message.
+    export state: S,
+    /// One message, applied. The answer is the state the next message sees.
+    export step: fn(C, S, M) => S,
+    /// Run once, with the final state, when the actor stops. `.None` is no
+    /// hook rather than an empty one, so nothing is called.
+    export onStop: Option<fn(C, S) => ()>,
+    /// How many messages may wait at once. `.None` is [`MAILBOX`].
+    export mailbox: Option<Int>,
+}
+
+/// Where messages go — the actor's public half.
+///
+/// It carries the mailbox's handle and the two functions `Actor` declared,
+/// because those are what `send`, `ask` and `stop` need and a handle alone
+/// could not supply them. That is the one difference from the note this module
+/// was designed against, which wrote `Address<M>`: a step reachable only
+/// through the address is a step whose closure would have to live in the
+/// runtime, past the frame of the call that handed it over, and neither native
+/// backend has a boundary for that (see the module header).
+///
+/// It is otherwise inert data. It holds no context, so a lambda may capture
+/// one (SPEC 10.6), which is what makes an address usable as another actor's
+/// state.
+export struct Address<C, S, M> {
+    /// The mailbox, as the runtime knows it.
+    export handle: Int,
+    /// `Actor::step`, carried.
+    step: fn(C, S, M) => S,
+    /// `Actor::onStop`, carried.
+    onStop: Option<fn(C, S) => ()>,
+    /// The bound the mailbox was opened with — a number, always, because it
+    /// is enforced from here.
+    bound: Int,
+}
+
+/// The handle an `ask` sends and its answer comes back through.
+///
+/// Phantom in `R`: the answer lives in the runtime, not here, which is why a
+/// `Reply` may sit inside a message enum without that enum carrying any
+/// authority.
+export struct Reply<R>(Int);
+
+derive Eq, Show for Stopped;
+/// The one way an actor operation fails: there is no actor any more.
+///
+/// One variant rather than none, because a `Result<(), Stopped>` a program can
+/// `match` is worth more than a `Bool`, and because a `send` that failed for a
+/// second reason later should be a second variant here rather than a second
+/// error type.
+export enum Stopped {
+    /// The mailbox is closed. `stop` did it, and nothing reopens it.
+    Stopped,
+}
+
+/// One value on its way through the runtime.
+///
+/// Everything this module hands the runtime is a one-element `[Carried<T>]`,
+/// because a `[T]` is two words whatever `T` is (VALUE-MODEL.md §4): nothing
+/// about the element crosses, so the runtime needs no stride, no glue and no
+/// descriptor to hold a message, queue it and give it back.
+///
+/// The `Int` is not decoration. A `[T]` whose element occupies **no** bytes has
+/// no block at all — `list.get` answers `.None` on a null block, at any index —
+/// so an actor whose state is `()` or whose protocol is a one-variant enum
+/// would hand over a carrier nothing could be read out of, and would never
+/// step. One word beside the value puts every carrier's stride above zero,
+/// which is a cheaper fix than a second shape for the empty case and a much
+/// cheaper one than teaching the runtime what `T` is.
+struct Carried<T> {
+    /// Zero, always. See above: it is here to be *some* bytes.
+    pad: Int,
+    /// The value itself.
+    value: T,
+}
+
+/// A value, wrapped for the crossing.
+fn carried<T>(value: T): Carried<T> {
+    Carried { pad: 0, value: value }
+}
+
+/// How many messages wait in a mailbox that asked for no number.
+///
+/// **This module names the number, where `core/net/server` deliberately does
+/// not.** The convention there is that `.None` is the absence of a choice and
+/// the runtime turns it into a default, and it holds because nothing but the
+/// runtime ever has to know what the default was. Here `send` is what enforces
+/// the bound — it runs the mailbox down when a post reaches it — so a bound
+/// only the runtime knew would be a bound the driver could not respect, and an
+/// actor that filled up would wait for a drain nobody was going to do.
+/// `cli/runtime/rt.rs`'s `MAILBOX` is the same number from the other side, and
+/// `the_default_mailbox_is_the_one_core_actor_names` is the two of them held
+/// together.
+export let MAILBOX: Int = 64;
+
+// --- Starting -----------------------------------------------------------------
+
+/// Gives the actor a mailbox and answers where to send it messages.
+///
+/// The initial state is moved into the runtime as a one-element `[Carried<S>]`
+/// and does not come back out until a step asks for it, which is what makes "the state
+/// is reachable only through the protocol" true of the value and not only of
+/// the reader's intent.
+export fn start<C: Alloc + Tasks, S, M>(ctx: C, actor: Actor<C, S, M>): Address<C, S, M> {
+    let bound = actor.mailbox.withDefault(MAILBOX);
+    Address {
+        handle: mailboxOpen(ctx, [carried(actor.state)], bound),
+        step: actor.step,
+        onStop: actor.onStop,
+        bound: bound,
+    }
+}
+
+impl<C: Alloc + Tasks, S, M> Address<C, S, M> {
+    /// Posts a message. `.Err(.Stopped)` once the actor has stopped.
+    ///
+    /// The message is deep-copied out of the caller's scope before it is
+    /// posted (`core/alloc`'s `copyOut`), so an actor that outlives an
+    /// `alloc.scoped` body shares no block with it. That is the same copy a
+    /// value leaving a scope takes, at a second site.
+    ///
+    /// **A mailbox at its bound is run down here**, before this call answers,
+    /// which is the whole of what `Actor::mailbox` buys: the queue is a bound
+    /// on how much work may wait, not on how much may arrive.
+    export fn send(self, ctx: C, message: M): Result<(), Stopped> {
+        match (mailboxPush(ctx, self.handle, [carried(alloc.copyOut(message))])) {
+            .None => .Err(.Stopped),
+            .Some(waiting) => {
+                match (crowded(waiting, self.bound)) {
+                    false => .Ok(()),
+                    true => {
+                        let _ = drive(ctx, self);
+                        .Ok(())
+                    },
+                }
+            },
+        }
+    }
+
+    /// Posts a message that carries a `Reply<R>`, and answers what came back.
+    ///
+    /// `make` builds the message around the reply — `fn(reply) => .Get(reply)`
+    /// — so the protocol enum is the only place the pairing between a request
+    /// and its answer is written down. It is a lambda rather than the bare
+    /// constructor `.Get` because a bare variant name is checked against the
+    /// type it is used at, and here that is a function type.
+    ///
+    /// `.Err(.Stopped)` covers three things and they are one sentence: the
+    /// actor was gone before the message was posted, it went before the answer
+    /// came, or the step never called `answer`. A caller that needs to tell
+    /// them apart has a `send` and a state of its own to do it with.
+    export fn ask<R>(self, ctx: C, make: fn(Reply<R>) => M): Result<R, Stopped> {
+        let reply = Reply(replyOpen(ctx));
+        let build = make;
+        match (self.send(ctx, build(reply))) {
+            .Err(e) => .Err(e),
+            .Ok(_posted) => {
+                let _ = drive(ctx, self);
+                match (replyTake(ctx, reply.0)) {
+                    .None => .Err(.Stopped),
+                    .Some(answered) => {
+                        match (answered.first()) {
+                            .None => .Err(.Stopped),
+                            .Some(carrier) => .Ok(carrier.value),
+                        }
+                    },
+                }
+            },
+        }
+    }
+
+    /// Closes the mailbox, discards what is still in it, and runs `onStop`
+    /// once with the final state.
+    ///
+    /// `.Err(.Stopped)` for a second `stop`, which is what makes "once" a
+    /// property of the actor rather than of the caller's discipline. Every
+    /// `send` and `ask` after this one answers `.Err(.Stopped)` too.
+    export fn stop(self, ctx: C): Result<(), Stopped> {
+        match (mailboxClose(ctx, self.handle)) {
+            .None => .Err(.Stopped),
+            .Some(held) => {
+                let _ = discarding(ctx, self);
+                match (held.first()) {
+                    .None => .Ok(()),
+                    .Some(last) => ending(ctx, self.onStop, last.value),
+                }
+            },
+        }
+    }
+}
+
+impl<R> Reply<R> {
+    /// Answers the `ask` this reply came from.
+    ///
+    /// `.Err(.Stopped)` where the answer has already been given or the asker
+    /// is gone. A step that never answers is not an error here — the `ask`
+    /// itself is what reports it.
+    export fn answer<C: Alloc + Tasks>(self, ctx: C, value: R): Result<(), Stopped> {
+        match (replyPut(ctx, self.0, [carried(alloc.copyOut(value))])) {
+            .None => .Err(.Stopped),
+            .Some(_stored) => .Ok(()),
+        }
+    }
+}
+
+// --- The loop -----------------------------------------------------------------
+//
+// Three small functions, and the middle one is the actor: `draining` holds the
+// state as a **local of its own frame** and threads it through `step`, so
+// nothing else in the program has a name for it and an update is a rebinding
+// rather than a write. It is a self tail call, so an actor that answers a
+// million messages uses one frame (`middle/tail_calls.rs`; SPEC 15.1 has no
+// loops).
+
+/// Every message now in the mailbox, in the order it arrived.
+fn draining<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>, state: S): S {
+    match (mailboxPop(ctx, address.handle)) {
+        .None => state,
+        .Some(posted) => {
+            match (posted.first()) {
+                // Unreachable: the runtime posts one element and hands back
+                // what it was posted. An empty block is answered with the
+                // state rather than an abort, because a total answer here
+                // costs nothing and a partial one would be a way for a
+                // toolchain bug to become a stopped program.
+                .None => state,
+                .Some(message) => {
+                    let step = address.step;
+                    draining(ctx, address, step(ctx, state, message.value))
+                },
+            }
+        },
+    }
+}
+
+/// Takes the state, runs the mailbox down, puts the state back.
+///
+/// `false` where there was no state to take — a stopped actor, or one another
+/// task is stepping. Both are "somebody else will run it", and neither is a
+/// failure a caller has anything to do about, which is why this answers a
+/// `Bool` and not a `Result`.
+fn drive<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>): Bool {
+    match (stateTake(ctx, address.handle)) {
+        .None => false,
+        .Some(held) => {
+            match (held.first()) {
+                .None => false,
+                .Some(state) => {
+                    let ended = draining(ctx, address, state.value);
+                    let _ = statePut(ctx, address.handle, [carried(ended)]);
+                    true
+                },
+            }
+        },
+    }
+}
+
+/// Pops what is left of a closed mailbox and lets it go.
+///
+/// The popped block is bound and dropped, which is what releases the message
+/// and everything under it: the runtime gives its reference back and the
+/// ordinary reference counting does the rest.
+fn discarding<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>): () {
+    match (mailboxPop(ctx, address.handle)) {
+        .None => (),
+        .Some(_dropped) => discarding(ctx, address),
+    }
+}
+
+/// `onStop`, where there is one.
+fn ending<C: Alloc + Tasks, S>(
+    ctx: C,
+    hook: Option<fn(C, S) => ()>,
+    last: S,
+): Result<(), Stopped> {
+    match (hook) {
+        .None => .Ok(()),
+        .Some(run) => {
+            let call = run;
+            let _ = call(ctx, last);
+            .Ok(())
+        },
+    }
+}
+
+/// Whether a mailbox holding `waiting` messages is at the bound it was opened
+/// with.
+fn crowded(waiting: Int, bound: Int): Bool {
+    waiting >= bound
+}
+
+// --- The runtime's half -------------------------------------------------------
+//
+// Nine operations, and every one of them moves a **whole block** rather than a
+// value: a message crosses as a one-element `[M]`, the state as a `[S]`, an
+// answer as an `[R]`. That is what makes them implementable against a runtime
+// that was compiled once and knows no Buri type — a `[T]` is two words whatever
+// `T` is (VALUE-MODEL.md §4), so nothing about the element crosses and no
+// stride, glue or descriptor is needed. `middle/monomorphize.rs`'s
+// `GENERIC_INTRINSICS` is where that argument is recorded, beside the four
+// carriers it is a fifth alternative to.
+//
+// The bound on each is `Tasks`, for `core/list`'s reason: the authority is in
+// the signature and the key is the module's. An actor is scheduling and memory
+// and not the outside world — there is no second implementation of it for a
+// test to bind, which is why these are module functions and not the methods of
+// an effect (SPEC 10.2 is about reaching *the outside world* through a context,
+// and `core/list`'s allocating combinators are the precedent).
+
+/// Opens a mailbox with `state` inside it and `bound` messages of room, and
+/// answers its handle. A negative bound asks the runtime for its own.
+fn mailboxOpen<C: Tasks, S>(ctx: C, state: [Carried<S>], bound: Int): Int;
+
+/// Posts one message and answers how many are now waiting. `.None` once the
+/// mailbox is closed, and the block is not taken on that path.
+///
+/// **Waits while the mailbox is full**, which is the one place a caller of this
+/// module can be suspended by another task's actor.
+fn mailboxPush<C: Tasks, M>(ctx: C, handle: Int, message: [Carried<M>]): Option<Int>;
+
+/// Takes the oldest message, or `.None` for an empty mailbox. A closed mailbox
+/// still hands back what was in it, which is what `stop`'s discard loop reads.
+fn mailboxPop<C: Tasks, M>(ctx: C, handle: Int): Option<[Carried<M>]>;
+
+/// Closes the mailbox and answers the final state, once. `.None` for a mailbox
+/// that was already closed.
+///
+/// **Waits for the state**, so a `stop` racing a step lets that step finish —
+/// which is the note's "lets the current message finish", enforced here rather
+/// than asked of the caller.
+fn mailboxClose<C: Tasks, S>(ctx: C, handle: Int): Option<[Carried<S>]>;
+
+/// Takes the state out. `.None` for a closed actor, or one whose state is
+/// already out.
+fn stateTake<C: Tasks, S>(ctx: C, handle: Int): Option<[Carried<S>]>;
+
+/// Puts a state back, and answers how many messages are waiting. `.None` for a
+/// closed actor, and the block is not taken on that path.
+fn statePut<C: Tasks, S>(ctx: C, handle: Int, state: [Carried<S>]): Option<Int>;
+
+/// A fresh reply slot, and its handle.
+fn replyOpen<C: Tasks>(ctx: C): Int;
+
+/// Fills a reply slot. `.None` where it was filled already or never existed.
+fn replyPut<C: Tasks, R>(ctx: C, handle: Int, value: [Carried<R>]): Option<Int>;
+
+/// Takes a reply slot's answer, once. `.None` where there is none.
+fn replyTake<C: Tasks, R>(ctx: C, handle: Int): Option<[Carried<R>]>;
