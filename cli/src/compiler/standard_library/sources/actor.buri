@@ -246,7 +246,10 @@ export let MAILBOX: Int = 64;
 /// and does not come back out until a step asks for it, which is what makes "the state
 /// is reachable only through the protocol" true of the value and not only of
 /// the reader's intent.
-export fn start<C: Alloc + Tasks, S, M>(ctx: C, actor: Actor<C, S, M>): Address<C, S, M> {
+export fn start<C: Alloc + Tasks, S, M>(
+    ctx: C,
+    actor: Actor<C, S, M>,
+): Address<C, S, M> {
     let bound = actor.mailbox.withDefault(MAILBOX);
     Address {
         handle: mailboxOpen(ctx, [carried(actor.state)], bound),

@@ -22,7 +22,10 @@ enum CounterMessage {
 
 /// The note's counter, with `Add` beside `Increment` so that ordering is
 /// visible in the answer rather than only in the count.
-fn counter<C: Alloc + Tasks>(initial: Int, box: Option<Int>): Actor<C, Int, CounterMessage> {
+fn counter<C: Alloc + Tasks>(
+    initial: Int,
+    box: Option<Int>,
+): Actor<C, Int, CounterMessage> {
     Actor {
         state: initial,
         step: fn(c, count, message) => {
