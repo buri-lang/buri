@@ -352,6 +352,38 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
+    // -- `core/alloc`'s scope (G4) ------------------------------------------
+    //
+    // `Scoped<C>` carries the wrapped context and an arena handle, and only the
+    // handle reaches these: the arena is named by its `I64`, so every one of
+    // them is scalars in and a scalar out with no `self` to drop, exactly like
+    // the counters above. `arenaCreate` is the one row in this table with no
+    // arguments at all.
+    Entry { key: "alloc.arenaCreate", symbol: "buri_rt_alloc_arena_create", args: &[], ret: Ret::Scalar },
+    Entry {
+        key: "alloc.arenaAllocate",
+        symbol: "buri_rt_alloc_arena_allocate",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "alloc.arenaRelease",
+        symbol: "buri_rt_alloc_arena_release",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "alloc.arenaCount",
+        symbol: "buri_rt_alloc_arena_count",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "alloc.arenaTotal",
+        symbol: "buri_rt_alloc_arena_total",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
     // -- core/str, the pure half (`cli/runtime/text.rs`) ---------------------
     //
     // Every one of these takes `self` as a full `Str`: the `base` is passed

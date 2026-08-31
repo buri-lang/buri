@@ -73,6 +73,20 @@ phase, without subtracting two totals.
 That is a language proposal, and it is tracked with the others rather than
 here.
 
+**Amendment (G4): the scope exists, and it reclaims reservations.**
+`core/alloc`'s `scoped(ctx, body)` hands the body a `Scoped<C>` whose `Alloc`
+is a fresh arena and whose every other effect forwards, and the arena's pages
+are `munmap`ed when `body` returns. So the paragraph above is half answered:
+`Arena` is still attribution, and a *scope* now reserves and releases.
+
+What it does not yet reclaim is **values**, and the reason is one line: the
+native ABI drops the context argument from every runtime call, so the operation
+that builds a list never learns which allocator asked for it (§7.3.1 of
+`design/native/MEMORY.md`). Serving blocks from an arena before that is fixed
+would also need a deep copy at the scope's boundary, so that what leaves a
+scope does not point into it. Both are named on `scoped` itself, where a reader
+of the function meets them.
+
 ## 5. Two rules for anything added to `core/*`
 
 1. **Every body-less declaration needs a conformance test that calls it.**

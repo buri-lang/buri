@@ -846,6 +846,44 @@ accounting policies over the one real allocator. They are not three allocators.
   feature, and it is worth naming precisely so nobody attempts the backend half
   first: without it, an arena in this language has no scope to end at (§4).
 
+#### 7.2.1 Amendment: the scope exists, and holds reservations rather than values
+
+The scoped context above is `core/alloc`'s **`scoped(ctx, body)`**, and the
+value it hands the body is **`Scoped<C>`** — an attenuating wrapper on
+`ReadOnly<C>`'s pattern (SPEC 10.8) whose type parameter carries no bound, so
+it is not effect-carrying by mention and is expressible at all. Every effect
+forwards to the wrapped `C`, one hand-written `impl<C: E> E for Scoped<C>` per
+effect, because this language has no blanket implementations and no delegation.
+`Alloc` is the one that does not.
+
+**The arena is a real bump allocator over its own `mmap`s.** `arenaCreate` maps
+nothing; a charge reserves its bytes from a 64 KiB block, mapping another when
+that one is full and a right-sized one of its own when the charge is bigger
+than a block; `arenaRelease` `munmap`s every block when `body` returns.
+`buri_rt_heap_stats` grew `arena_bytes` and `arena_released_bytes` so that "it
+reserved pages **and** gave them back" is one assertion rather than two
+half-ones.
+
+**What is *not* in it, yet, is values.** A `[Str]` built inside a scope is a
+`buri_rt_alloc` block on the reference-counted heap, exactly where it was
+before: §7.3.1's gap is the reason — the native ABI drops the context argument
+from every runtime call, so the operation that builds a list never learns which
+allocator asked for it. So the honest reading of a scope today is *a real,
+bounded, bulk-released reservation with an allocator of its own*, not a
+lifetime for the values built under it.
+
+**The interim soundness rule, stated so it can be checked:** `allocate` answers
+a `Region`, which carries the charge and not an address, so nothing the
+language can name points into an arena, so the bulk release cannot dangle —
+whatever the escape bit (§5.5) says about any block, and whatever G6's
+decommit does with the heap's or the carrier stacks' pages, which are different
+mappings. The alternative reading was considered and rejected: serving Buri
+blocks from the arena now would mean keeping every arena alive forever in case
+a marked block escaped, and an arena that is never released is not an arena.
+The copy-out glue — a `Helper::Copy` beside `Helper::Walk`, deep-copying the
+return value, an actor message, a `Reply.answer` and a socket send — is what
+closes it, and it is the next slice.
+
 ### 7.3 The hook is already there
 
 `design/STANDARD-LIBRARY.md` §2 records the non-obvious part, and it survives

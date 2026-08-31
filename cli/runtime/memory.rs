@@ -291,7 +291,7 @@ static TOTAL_BYTES: AtomicU64 = AtomicU64::new(0);
 static RETAINED_BYTES: AtomicU64 = AtomicU64::new(0);
 static DECOMMITTED_BYTES: AtomicU64 = AtomicU64::new(0);
 
-/// What [`buri_rt_heap_stats`] writes. Six `u64`s, in this order.
+/// What [`buri_rt_heap_stats`] writes. Eight `u64`s, in this order.
 ///
 /// **The order and the count are an ABI.** `cli/tests/native/driver.c` and
 /// `cli/tests/native/shared.rs`'s `ALLOC_PROBE` each declare this struct by
@@ -326,6 +326,22 @@ pub struct BuriHeapStats {
     /// the second is the operating system's number and this file has no
     /// portable way to ask for it. Never falls.
     pub decommitted_bytes: u64,
+    /// G4: bytes every live scoped arena has mapped and not yet given back.
+    ///
+    /// **Not part of the heap the four counts above measure**, and it is here
+    /// rather than added to them for that reason: an arena's blocks are its
+    /// own `mmap`s, no Buri value is inside one, and a `live_bytes` that
+    /// included them would stop meaning "what the program's blocks weigh".
+    /// This is what `core/alloc`'s `scoped` has reserved on behalf of the
+    /// scopes that are currently open.
+    pub arena_bytes: u64,
+    /// G4: bytes scoped arenas have `munmap`ed since the process started,
+    /// cumulative. Never falls.
+    ///
+    /// The pair is the assertion `scoped` exists to make: `arena_bytes` back
+    /// where it started **and** this one risen is a scope that reserved pages
+    /// and gave them back, which neither number says on its own.
+    pub arena_released_bytes: u64,
 }
 
 #[inline]
@@ -1039,6 +1055,8 @@ pub unsafe extern "C" fn buri_rt_heap_stats(out: *mut BuriHeapStats) {
             total_bytes: TOTAL_BYTES.load(Ordering::Relaxed),
             retained_bytes: RETAINED_BYTES.load(Ordering::Relaxed),
             decommitted_bytes: DECOMMITTED_BYTES.load(Ordering::Relaxed),
+            arena_bytes: ARENA_BYTES.load(Ordering::Relaxed),
+            arena_released_bytes: ARENA_RELEASED_BYTES.load(Ordering::Relaxed),
         });
     }
 }
@@ -1287,6 +1305,302 @@ pub extern "C" fn buri_rt_alloc_total(handle: i64) -> i64 {
 fn index(handle: i64) -> Option<usize> {
     usize::try_from(handle).ok()
 }
+
+// ---------------------------------------------------------------------------
+// === G4 begin: the scoped arena ==========================================
+// ---------------------------------------------------------------------------
+//
+// # `core/alloc`'s `scoped`, from the runtime's side
+//
+// `Scoped<C>` is the attenuating wrapper `core/alloc` declares: every effect
+// forwards to the `C` it holds except `Alloc`, which is served here. What
+// "served" means is the whole of this section, and it is narrower than the
+// word usually implies — narrower on purpose, and the narrowness is what makes
+// the release at the end of a scope sound today rather than after G5.
+//
+// **An arena is a bump allocator over its own mappings.** `arena_create` maps
+// nothing; each `arena_allocate(handle, n)` reserves `n` bytes from the
+// arena's current 64 KiB block, mapping another when the block is full and a
+// right-sized one of its own when `n` is bigger than a block; `arena_release`
+// unmaps every block the arena ever took. That is a real reservation with a
+// real bulk free, and it is the first `Alloc` in this language that maps a
+// page rather than only counting one.
+//
+// **What it does not do is hold Buri values, and that is deliberate.** A
+// `[Str]` built inside a scope is a block from [`buri_rt_alloc`], on the
+// reference-counted heap, exactly where it was before this slice. It could not
+// be otherwise in this tree: the native ABI drops the context argument from
+// every runtime call (`backend/runtime_table.rs`), so the function that builds
+// a list never learns which allocator asked for it — `core/alloc`'s own module
+// comment states that gap and this slice does not close it.
+//
+// **So the interim soundness rule is a short one: nothing that can escape a
+// scope is ever inside the arena.** `allocate` answers `Region`, and a
+// `Region` carries the *charge* — the byte count — and not a pointer; that is
+// true of `HostAlloc`, of `GeneralPurpose`, of `FixedBuffer`, and it stays
+// true here, so the number a scope hands out survives the scope by
+// construction. Nothing G3 can mark, and nothing G6 can decommit, is in these
+// mappings: they are this arena's own, they never enter the `malloc` heap or
+// the carrier-stack pool, and the release below is an unconditional `munmap`
+// of memory no Buri value has ever pointed into.
+//
+// **What G5 changes.** When `Helper::Copy` exists, a value that leaves a scope
+// can be deep-copied out of it, and *then* it is safe to serve Buri blocks
+// from these mappings — the copy at the boundary is what makes the bulk free
+// sound for values as well as for reservations. Until that lands, the honest
+// statement of what `scoped` buys is: a real, bounded, bulk-released
+// reservation, and an allocator whose charges do not reach the caller's. The
+// other reading — serve the blocks now, and keep the arena alive forever
+// because a marked block might have escaped — was rejected: an arena that is
+// never released is not an arena, and it would have made the acceptance
+// property of this slice untrue.
+
+/// The block an arena maps when it needs more room: 64 KiB.
+///
+/// A multiple of 16 KiB, so it is a whole number of pages on arm64 macOS as
+/// well as everywhere else, and big enough that an ordinary scope's charges
+/// cost one `mmap` between them.
+const BURI_RT_ARENA_BLOCK: usize = 64 * 1024;
+
+/// Bytes an arena has mapped and not yet given back, across every live arena.
+static ARENA_BYTES: AtomicU64 = AtomicU64::new(0);
+
+/// Bytes arenas have given back to the kernel since the process started,
+/// cumulative. Never falls.
+static ARENA_RELEASED_BYTES: AtomicU64 = AtomicU64::new(0);
+
+/// One scope's arena.
+///
+/// `blocks` are `(base, len)` as `usize` so the whole struct is `Send`: what
+/// travels is an address, and every use of it is inside this file.
+struct Arena {
+    blocks: Vec<(usize, usize)>,
+    /// Bytes handed out of the last block.
+    cursor: usize,
+    allocations: i64,
+    bytes: i64,
+    /// Bumped every time this slot is released, and carried in the high half
+    /// of every handle the slot issues. See [`arena_slot`].
+    generation: u32,
+    live: bool,
+}
+
+/// Every arena this process has issued a handle for, live or not.
+///
+/// A `Mutex` like `COUNTERS` next door, and unlike that one this may genuinely
+/// be contended: G3's carriers run Buri code beside each other, and a scope
+/// per task is the shape the note's server example has. It is taken once per
+/// `allocate` and the body under it is arithmetic and at most one `mmap`, so
+/// the lock is not the cost of a scope.
+static ARENAS: Mutex<Vec<Arena>> = Mutex::new(Vec::new());
+
+/// Slots whose arena has been released, for reuse.
+///
+/// **Reuse is what makes a scope per request affordable.** Without it the
+/// table would grow by one entry for every `scoped` call a process ever makes,
+/// which is a leak in exactly the workload the feature is for.
+static ARENA_FREE: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+fn arenas<T>(f: impl FnOnce(&mut Vec<Arena>) -> T) -> T {
+    let mut guard = match ARENAS.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    f(&mut guard)
+}
+
+fn arena_free<T>(f: impl FnOnce(&mut Vec<usize>) -> T) -> T {
+    let mut guard = match ARENA_FREE.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    f(&mut guard)
+}
+
+/// A handle's slot index and the generation it was issued at.
+///
+/// **The generation is the answer to a `Scoped` that outlives its scope.**
+/// `scoped(ctx, body)` releases the arena when `body` returns, and `body`'s
+/// return type is an unbounded `T` — so a body may hand its `Scoped<C>` back,
+/// and a caller may then allocate through a scope that has ended. Reusing the
+/// slot without a tag would charge that request to whatever *other* scope took
+/// the slot, which is a wrong number in somebody else's arena. With the tag,
+/// the stale handle matches no slot, and the request is answered the way
+/// [`index`] answers an unknown counter: quietly, charging nothing. Neither
+/// reading can touch memory, because a `Region` is a byte count.
+fn arena_slot(handle: i64) -> (usize, u32) {
+    let bits = handle as u64;
+    ((bits & 0xffff_ffff) as usize, (bits >> 32) as u32)
+}
+
+/// The handle for a slot at a generation.
+fn arena_handle(slot: usize, generation: u32) -> i64 {
+    let bits = (u64::from(generation) << 32) | (slot as u64 & 0xffff_ffff);
+    bits as i64
+}
+
+/// `bytes` rounded up to a whole number of [`BURI_RT_ARENA_BLOCK`]s.
+fn arena_block_len(bytes: usize) -> usize {
+    let blocks = bytes.div_ceil(BURI_RT_ARENA_BLOCK).max(1);
+    match blocks.checked_mul(BURI_RT_ARENA_BLOCK) {
+        Some(l) => l,
+        // A single request that cannot even be described in bytes is out of
+        // memory by any useful definition, and `allocate` has no value to
+        // report a failure with (`effect.buri`'s `Region`).
+        None => buri_rt_abort_oom(bytes as u64),
+    }
+}
+
+/// One anonymous private mapping of `len` bytes, counted into [`ARENA_BYTES`].
+fn arena_map(len: usize) -> usize {
+    // SAFETY: a fresh anonymous private mapping; no fd, no fixed address.
+    let p = unsafe {
+        mmap(core::ptr::null_mut(), len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0)
+    };
+    if p.is_null() || p as usize == MAP_FAILED {
+        buri_rt_abort_oom(len as u64);
+    }
+    ARENA_BYTES.fetch_add(len as u64, Ordering::Relaxed);
+    p as usize
+}
+
+/// Reserves `bytes` from `a`, mapping another block when the current one
+/// cannot hold them.
+///
+/// A request larger than a block gets a right-sized mapping of its own and the
+/// remainder of the previous block is abandoned, which is what every bump
+/// allocator does with the tail and what makes the cursor a single number.
+fn arena_reserve(a: &mut Arena, bytes: usize) {
+    if bytes == 0 {
+        return;
+    }
+    let room = a.blocks.last().map_or(0, |&(_, len)| len.saturating_sub(a.cursor));
+    if bytes <= room {
+        a.cursor = a.cursor.saturating_add(bytes);
+        return;
+    }
+    let len = arena_block_len(bytes);
+    a.blocks.push((arena_map(len), len));
+    a.cursor = bytes;
+}
+
+/// `core/alloc`'s `arenaCreate()` — a fresh scope's arena, and its handle.
+///
+/// Maps nothing: a scope that charges nothing costs a table slot and no system
+/// call, which is what keeps `scoped` cheap enough to wrap a request in.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_alloc_arena_create() -> i64 {
+    let reused = arena_free(Vec::pop).and_then(|slot| {
+        arenas(|t| {
+            let a = t.get_mut(slot)?;
+            a.live = true;
+            a.cursor = 0;
+            a.allocations = 0;
+            a.bytes = 0;
+            a.blocks.clear();
+            Some(arena_handle(slot, a.generation))
+        })
+    });
+    if let Some(handle) = reused {
+        return handle;
+    }
+    arenas(|t| {
+        t.push(Arena {
+            blocks: Vec::new(),
+            cursor: 0,
+            allocations: 0,
+            bytes: 0,
+            generation: 0,
+            live: true,
+        });
+        let slot = t.len().saturating_sub(1);
+        // A slot index that does not fit `u32` is a table with four billion
+        // *live* arenas, which is not reachable: a released slot is reused.
+        if slot > u32::MAX as usize {
+            buri_rt_abort_oom(slot as u64);
+        }
+        arena_handle(slot, 0)
+    })
+}
+
+/// `core/alloc`'s `arenaAllocate(handle, bytes)` — reserve, count, and answer
+/// what was asked for.
+///
+/// The answer is the request, exactly as `HostAlloc.allocate` and the three
+/// counting allocators answer it, so `Region` means the same number under a
+/// scope as outside one and the JavaScript backend agrees with the native one
+/// on every charge. A negative request reserves nothing; there is no value to
+/// refuse it with, and the counter records what it was told.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_alloc_arena_allocate(handle: i64, bytes: i64) -> i64 {
+    let (slot, generation) = arena_slot(handle);
+    arenas(|t| {
+        let Some(a) = t.get_mut(slot) else { return };
+        if !a.live || a.generation != generation {
+            return;
+        }
+        a.allocations = a.allocations.saturating_add(1);
+        a.bytes = a.bytes.saturating_add(bytes);
+        if let Ok(n) = usize::try_from(bytes) {
+            arena_reserve(a, n);
+        }
+    });
+    bytes
+}
+
+/// `core/alloc`'s `arenaRelease(handle)` — **unmap every page this arena took**
+/// and retire the slot. Answers the bytes given back.
+///
+/// This is the operation the whole of `scoped` exists for, and it is
+/// unconditional: there is nothing in these mappings for a reference count to
+/// own, for G3 to mark, or for G6 to decommit — see this section's header.
+/// Releasing twice releases nothing the second time, because the slot's
+/// generation has already moved past the handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_alloc_arena_release(handle: i64) -> i64 {
+    let (slot, generation) = arena_slot(handle);
+    let Some(blocks) = arenas(|t| match t.get_mut(slot) {
+        Some(a) if a.live && a.generation == generation => {
+            a.live = false;
+            a.cursor = 0;
+            a.generation = a.generation.wrapping_add(1);
+            Some(std::mem::take(&mut a.blocks))
+        }
+        _ => None,
+    }) else {
+        return 0;
+    };
+    let mut freed: u64 = 0;
+    for (base, len) in blocks {
+        // SAFETY: every pointer here came from `arena_map` with exactly this
+        // length, and nothing points into an arena block: `Region` is a byte
+        // count, so the language has no way to name one of these addresses.
+        unsafe { munmap(base as *mut core::ffi::c_void, len) };
+        freed = freed.saturating_add(len as u64);
+    }
+    if freed > 0 {
+        ARENA_BYTES.fetch_sub(freed, Ordering::Relaxed);
+        ARENA_RELEASED_BYTES.fetch_add(freed, Ordering::Relaxed);
+    }
+    arena_free(|f| f.push(slot));
+    i64::try_from(freed).unwrap_or(i64::MAX)
+}
+
+/// `core/alloc`'s `arenaCount(handle)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_alloc_arena_count(handle: i64) -> i64 {
+    let (slot, generation) = arena_slot(handle);
+    arenas(|t| t.get(slot).filter(|a| a.generation == generation).map_or(0, |a| a.allocations))
+}
+
+/// `core/alloc`'s `arenaTotal(handle)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_alloc_arena_total(handle: i64) -> i64 {
+    let (slot, generation) = arena_slot(handle);
+    arenas(|t| t.get(slot).filter(|a| a.generation == generation).map_or(0, |a| a.bytes))
+}
+
+// === G4 end ===============================================================
 
 // ---------------------------------------------------------------------------
 // The per-carrier Buri data stack (design/native track B, slice B7)
@@ -2359,8 +2673,8 @@ mod tests {
     /// the end of their stack slot. This test is the thing that fails when the
     /// three drift.
     #[test]
-    fn the_heap_stats_struct_is_six_words_in_one_order() {
-        assert_eq!(std::mem::size_of::<BuriHeapStats>(), 6 * 8);
+    fn the_heap_stats_struct_is_eight_words_in_one_order() {
+        assert_eq!(std::mem::size_of::<BuriHeapStats>(), 8 * 8);
         assert_eq!(std::mem::align_of::<BuriHeapStats>(), 8);
         let s = BuriHeapStats {
             live_blocks: 1,
@@ -2369,12 +2683,14 @@ mod tests {
             total_bytes: 4,
             retained_bytes: 5,
             decommitted_bytes: 6,
+            arena_bytes: 7,
+            arena_released_bytes: 8,
         };
         // SAFETY: `BuriHeapStats` is `repr(C)` and every field is a `u64`, so
-        // it is six `u64`s in declaration order and reading it as such is
+        // it is eight `u64`s in declaration order and reading it as such is
         // exactly what the C mirrors do.
-        let words = unsafe { std::slice::from_raw_parts(std::ptr::from_ref(&s).cast::<u64>(), 6) };
-        assert_eq!(words, &[1, 2, 3, 4, 5, 6]);
+        let words = unsafe { std::slice::from_raw_parts(std::ptr::from_ref(&s).cast::<u64>(), 8) };
+        assert_eq!(words, &[1, 2, 3, 4, 5, 6, 7, 8]);
     }
 
     /// **A burst and a drain leave the cache holding a sweep period, not a
@@ -2404,6 +2720,8 @@ mod tests {
             total_bytes: 0,
             retained_bytes: 0,
             decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
         };
         // SAFETY: a writable, aligned destination.
         unsafe { buri_rt_heap_stats(&raw mut before) };
@@ -2431,6 +2749,8 @@ mod tests {
             total_bytes: 0,
             retained_bytes: 0,
             decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
         };
         // SAFETY: as above.
         unsafe { buri_rt_heap_stats(&raw mut after) };
@@ -2473,6 +2793,8 @@ mod tests {
             total_bytes: 0,
             retained_bytes: 0,
             decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
         };
         // SAFETY: a writable, aligned destination.
         unsafe { buri_rt_heap_stats(&raw mut base) };
@@ -2508,6 +2830,8 @@ mod tests {
             total_bytes: 0,
             retained_bytes: 0,
             decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
         };
         // SAFETY: as above.
         unsafe { buri_rt_heap_stats(&raw mut after) };
@@ -2565,6 +2889,8 @@ mod tests {
             total_bytes: 0,
             retained_bytes: 0,
             decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
         };
         // SAFETY: a writable, aligned destination.
         unsafe { buri_rt_heap_stats(&raw mut before) };
@@ -2593,6 +2919,8 @@ mod tests {
             total_bytes: 0,
             retained_bytes: 0,
             decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
         };
         // SAFETY: as above.
         unsafe { buri_rt_heap_stats(&raw mut after) };
@@ -2704,6 +3032,8 @@ mod tests {
             total_bytes: 0,
             retained_bytes: 0,
             decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
         };
         // SAFETY: a writable, aligned destination.
         unsafe { buri_rt_heap_stats(&raw mut before) };
@@ -2722,6 +3052,8 @@ mod tests {
             total_bytes: 0,
             retained_bytes: 0,
             decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
         };
         // SAFETY: as above.
         unsafe { buri_rt_heap_stats(&raw mut after) };
@@ -2777,6 +3109,279 @@ mod tests {
     }
 
     // === G6 end ============================================================
+
+    // === G4 begin: the scoped arena ========================================
+
+    /// **The lock every case that opens a scope takes.**
+    ///
+    /// `arena_bytes` is process-wide and `cargo test` runs its cases on many
+    /// threads at once, so "the number came back to where it started" is only
+    /// an assertion while no other case has a scope open. That makes the rule
+    /// wider than "cases that read the global": *opening* an arena moves the
+    /// number too, so a case that only asserts about its own handle still has
+    /// to hold this while it does — otherwise the block it maps is the block
+    /// somebody else's delta is off by. Every case below that calls
+    /// `buri_rt_alloc_arena_create` takes it; the ones that only do arithmetic
+    /// on a handle do not.
+    ///
+    /// `memory::latch`'s shape, and independent of it: a scope has nothing to
+    /// do with the marking latch, and a case that took both would be claiming
+    /// they interact.
+    fn arena_alone() -> std::sync::MutexGuard<'static, ()> {
+        static ALONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        match ALONE.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// A snapshot of the two arena numbers, which is the only thing these
+    /// cases assert about — `cargo test` runs on many threads and another
+    /// case's scope may be open, so every claim here is a *difference*.
+    fn arena_stats() -> (u64, u64) {
+        let mut s = BuriHeapStats {
+            live_blocks: 0,
+            live_bytes: 0,
+            total_blocks: 0,
+            total_bytes: 0,
+            retained_bytes: 0,
+            decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
+        };
+        // SAFETY: `s` is a live, aligned `BuriHeapStats`.
+        unsafe { buri_rt_heap_stats(&raw mut s) };
+        (s.arena_bytes, s.arena_released_bytes)
+    }
+
+    /// **The acceptance property: a scope reserves pages and gives them back.**
+    ///
+    /// Both halves are needed and neither says it alone. `arena_bytes` back
+    /// where it started is also what "never mapped anything" looks like, and
+    /// `arena_released_bytes` rising is also what "released something it is
+    /// still holding elsewhere" looks like. Together they are a reservation
+    /// that was made and unmade.
+    #[test]
+    fn a_scope_maps_what_it_is_charged_and_unmaps_it_on_release() {
+        let _alone = arena_alone();
+        let (live_before, released_before) = arena_stats();
+        let a = buri_rt_alloc_arena_create();
+        // A create maps nothing: a scope that charges nothing costs no system
+        // call at all.
+        assert_eq!(arena_stats().0, live_before);
+
+        assert_eq!(buri_rt_alloc_arena_allocate(a, 1024), 1024);
+        let (live_open, _) = arena_stats();
+        assert_eq!(
+            live_open - live_before,
+            BURI_RT_ARENA_BLOCK as u64,
+            "a kilobyte inside a scope takes one block"
+        );
+
+        // The rest of the block is served without another mapping.
+        assert_eq!(buri_rt_alloc_arena_allocate(a, 4096), 4096);
+        assert_eq!(arena_stats().0, live_open);
+
+        let freed = buri_rt_alloc_arena_release(a);
+        assert_eq!(freed, BURI_RT_ARENA_BLOCK as i64);
+        let (live_after, released_after) = arena_stats();
+        assert_eq!(live_after, live_before, "the scope's pages went back");
+        assert_eq!(released_after - released_before, BURI_RT_ARENA_BLOCK as u64);
+    }
+
+    /// A charge bigger than a block gets a mapping of its own, rounded up to a
+    /// whole number of blocks — which is what keeps the cursor one number.
+    #[test]
+    fn a_charge_bigger_than_a_block_gets_its_own_mapping() {
+        let _alone = arena_alone();
+        let (live_before, _) = arena_stats();
+        let a = buri_rt_alloc_arena_create();
+        let big = (BURI_RT_ARENA_BLOCK * 3 + 1) as i64;
+        assert_eq!(buri_rt_alloc_arena_allocate(a, big), big);
+        assert_eq!(arena_stats().0 - live_before, (BURI_RT_ARENA_BLOCK * 4) as u64);
+        assert_eq!(buri_rt_alloc_arena_release(a), (BURI_RT_ARENA_BLOCK * 4) as i64);
+        assert_eq!(arena_stats().0, live_before);
+    }
+
+    /// A request for nothing is still a request. It maps nothing and counts
+    /// one, which is `core/alloc`'s rule for every allocator it has.
+    #[test]
+    fn a_charge_for_nothing_maps_nothing_and_counts_once() {
+        let _alone = arena_alone();
+        let (live_before, _) = arena_stats();
+        let a = buri_rt_alloc_arena_create();
+        assert_eq!(buri_rt_alloc_arena_allocate(a, 0), 0);
+        assert_eq!(arena_stats().0, live_before);
+        assert_eq!(buri_rt_alloc_arena_count(a), 1);
+        assert_eq!(buri_rt_alloc_arena_total(a), 0);
+        assert_eq!(buri_rt_alloc_arena_release(a), 0);
+    }
+
+    /// **A `Scoped` that outlives its scope charges nothing**, and this is the
+    /// generation tag doing it.
+    ///
+    /// `scoped`'s body returns an unbounded `T`, so a body may hand its
+    /// wrapper back. The slot is reused — it has to be, or a scope per request
+    /// leaks a table entry per request — so the tag is what keeps the stale
+    /// handle from charging somebody else's arena.
+    #[test]
+    fn a_handle_does_not_survive_its_release() {
+        let _alone = arena_alone();
+        let a = buri_rt_alloc_arena_create();
+        assert_eq!(buri_rt_alloc_arena_allocate(a, 32), 32);
+        assert_eq!(buri_rt_alloc_arena_release(a), BURI_RT_ARENA_BLOCK as i64);
+
+        // Charging a released arena moves nothing and maps nothing.
+        let (live, _) = arena_stats();
+        assert_eq!(buri_rt_alloc_arena_allocate(a, 64), 64);
+        assert_eq!(arena_stats().0, live);
+        assert_eq!(buri_rt_alloc_arena_count(a), 0);
+        assert_eq!(buri_rt_alloc_arena_total(a), 0);
+        // And releasing it twice releases nothing the second time.
+        assert_eq!(buri_rt_alloc_arena_release(a), 0);
+    }
+
+    /// A reused slot is a *different* arena: its handle differs and its totals
+    /// start at zero.
+    #[test]
+    fn a_reused_slot_issues_a_different_handle() {
+        let _alone = arena_alone();
+        let first = buri_rt_alloc_arena_create();
+        assert_eq!(buri_rt_alloc_arena_allocate(first, 8), 8);
+        assert_eq!(buri_rt_alloc_arena_count(first), 1);
+        let _ = buri_rt_alloc_arena_release(first);
+        let second = buri_rt_alloc_arena_create();
+        assert_ne!(first, second, "a handle is never issued twice");
+        assert_eq!(buri_rt_alloc_arena_count(second), 0);
+        assert_eq!(buri_rt_alloc_arena_total(second), 0);
+        let _ = buri_rt_alloc_arena_release(second);
+    }
+
+    /// Two scopes open at once are two arenas: neither sees the other's
+    /// charges, which is what makes a scope per task expressible.
+    #[test]
+    fn two_open_scopes_count_separately() {
+        let _alone = arena_alone();
+        let a = buri_rt_alloc_arena_create();
+        let b = buri_rt_alloc_arena_create();
+        assert_eq!(buri_rt_alloc_arena_allocate(a, 10), 10);
+        assert_eq!(buri_rt_alloc_arena_allocate(b, 20), 20);
+        assert_eq!(buri_rt_alloc_arena_allocate(b, 2), 2);
+        assert_eq!((buri_rt_alloc_arena_count(a), buri_rt_alloc_arena_total(a)), (1, 10));
+        assert_eq!((buri_rt_alloc_arena_count(b), buri_rt_alloc_arena_total(b)), (2, 22));
+        let _ = buri_rt_alloc_arena_release(a);
+        let _ = buri_rt_alloc_arena_release(b);
+    }
+
+    /// **A burst of scopes leaves nothing mapped and nothing in the table.**
+    ///
+    /// The workload `scoped` is for is one scope per request, so the slot
+    /// table has to be bounded rather than growing by an entry per call. A
+    /// thousand scopes here take at most as many slots as are open at once,
+    /// which is one.
+    #[test]
+    fn a_thousand_scopes_leave_no_pages_and_no_slots_behind() {
+        let _alone = arena_alone();
+        let (live_before, _) = arena_stats();
+        let table_before = arenas(|t| t.len());
+        for _ in 0..1000 {
+            let a = buri_rt_alloc_arena_create();
+            assert_eq!(buri_rt_alloc_arena_allocate(a, 4096), 4096);
+            assert_eq!(buri_rt_alloc_arena_release(a), BURI_RT_ARENA_BLOCK as i64);
+        }
+        assert_eq!(arena_stats().0, live_before, "every scope gave its pages back");
+        // Other cases on other threads may have grown the table meanwhile, so
+        // the claim is that *this* loop did not grow it by a thousand.
+        assert!(
+            arenas(|t| t.len()) < table_before + 1000,
+            "the slot table grew with the number of scopes"
+        );
+    }
+
+    /// A handle this runtime never issued is answered quietly, the way
+    /// [`index`] answers an unknown counter: a wrong number is a wrong number,
+    /// and an abort here would be a runtime that crashes on a value the
+    /// language says cannot exist.
+    #[test]
+    fn an_unknown_handle_is_quiet() {
+        assert_eq!(buri_rt_alloc_arena_allocate(i64::MAX, 16), 16);
+        assert_eq!(buri_rt_alloc_arena_count(i64::MAX), 0);
+        assert_eq!(buri_rt_alloc_arena_total(i64::MAX), 0);
+        assert_eq!(buri_rt_alloc_arena_release(i64::MAX), 0);
+    }
+
+    /// The packing is `cli/src/compiler/backend/js/runtime.js`'s too, so it is
+    /// pinned rather than left to two readers of one comment.
+    #[test]
+    fn a_handle_packs_the_generation_above_the_slot() {
+        assert_eq!(arena_slot(arena_handle(0, 0)), (0, 0));
+        assert_eq!(arena_slot(arena_handle(7, 3)), (7, 3));
+        assert_eq!(arena_slot(arena_handle(u32::MAX as usize, u32::MAX)), (u32::MAX as usize, u32::MAX));
+    }
+
+    /// The block length is a whole number of blocks and never zero: a mapping
+    /// of no bytes is a failed `mmap` on every platform this runtime admits.
+    #[test]
+    fn a_block_length_is_a_whole_number_of_blocks() {
+        assert_eq!(arena_block_len(0), BURI_RT_ARENA_BLOCK);
+        assert_eq!(arena_block_len(1), BURI_RT_ARENA_BLOCK);
+        assert_eq!(arena_block_len(BURI_RT_ARENA_BLOCK), BURI_RT_ARENA_BLOCK);
+        assert_eq!(arena_block_len(BURI_RT_ARENA_BLOCK + 1), BURI_RT_ARENA_BLOCK * 2);
+        // Sixteen kibibytes is arm64 macOS's page, so every block is a whole
+        // number of pages on both platforms.
+        assert_eq!(BURI_RT_ARENA_BLOCK % (16 * 1024), 0);
+    }
+
+    /// **Nothing an arena maps is a block the heap accounting knows about.**
+    ///
+    /// This is the interim soundness rule, as an assertion: an arena's pages
+    /// are its own mapping, no `buri_rt_alloc` block is inside one, and the
+    /// four counts above `arena_bytes` do not move when a scope reserves a
+    /// megabyte. It is what makes the release unconditional — there is nothing
+    /// in there for a reference count to own.
+    #[test]
+    fn an_arena_maps_nothing_the_heap_counts() {
+        let _alone = arena_alone();
+        let mut before = BuriHeapStats {
+            live_blocks: 0,
+            live_bytes: 0,
+            total_blocks: 0,
+            total_bytes: 0,
+            retained_bytes: 0,
+            decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
+        };
+        // SAFETY: a live, aligned destination.
+        unsafe { buri_rt_heap_stats(&raw mut before) };
+        let a = buri_rt_alloc_arena_create();
+        let _ = buri_rt_alloc_arena_allocate(a, 1024 * 1024);
+        let mut after = BuriHeapStats {
+            live_blocks: 0,
+            live_bytes: 0,
+            total_blocks: 0,
+            total_bytes: 0,
+            retained_bytes: 0,
+            decommitted_bytes: 0,
+            arena_bytes: 0,
+            arena_released_bytes: 0,
+        };
+        // SAFETY: as above.
+        unsafe { buri_rt_heap_stats(&raw mut after) };
+        // Not an equality: `cargo test`'s other threads are allocating while
+        // this runs. The claim is about the *megabyte* — whatever else the
+        // binary did meanwhile, none of it was this arena's reservation
+        // arriving on the heap.
+        assert!(
+            after.total_bytes - before.total_bytes < 1024 * 1024,
+            "an arena's reservation reached the heap: {} bytes of blocks",
+            after.total_bytes - before.total_bytes
+        );
+        assert!(after.arena_bytes >= before.arena_bytes + 1024 * 1024);
+        let _ = buri_rt_alloc_arena_release(a);
+    }
+
+    // === G4 end ============================================================
 
     // === G3 begin: the marking latch =======================================
 
