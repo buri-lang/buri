@@ -11,7 +11,7 @@
 //! |---|---|---|
 //! | [`conformance`] | `conformance/`, `reject/`, `crash/` | Does a program mean what SPEC says, and is a program that must not compile refused with the diagnostic recorded beside it? |
 //! | [`standard_library`] | `core/*` | Does the standard library typecheck against itself? |
-//! | [`corpus`] | every `.buri` in the repository | Does everything meant to compile parse, does every build file read, is formatting a fixed point, is the tree-sitter grammar generated? |
+//! | [`corpus`] | every `.buri` in the repository | Does everything meant to compile parse, does every build file read, **is every source already what `buri format` writes**, is formatting a fixed point, is the tree-sitter grammar generated? |
 //! | [`golden_javascript`] | `golden_javascript/` | What does the backend *compile to*, construct by construct? |
 //! | [`scoped_bodies`] | `repositories/lsp/*/repo`, `example/` | Does an analysis that checks one file's bodies answer what a whole-closure one answers, for that file? |
 //! | [`sharing`] | `runtime.js`, two generated programs | Is a list this backend did not allocate never written to, and is growing one in a loop linear? |

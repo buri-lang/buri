@@ -34,6 +34,7 @@ pub mod examples;
 pub mod frontmatter;
 pub mod grammar;
 pub mod harness;
+pub mod layout;
 pub mod lints;
 pub mod markdown;
 pub mod reference;

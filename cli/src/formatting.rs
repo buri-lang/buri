@@ -114,8 +114,36 @@ pub struct Formatted {
 /// because a recovered tree says where a mistake was and not what the author
 /// meant by the text around it.
 pub fn broken_regions(text: &str) -> Vec<(usize, usize)> {
-    let parsed = crate::parsing::parser::parse(text, FileId(0));
+    broken_regions_in(text, Dialect::Source)
+}
+
+/// The same, for text read as `dialect`.
+pub fn broken_regions_in(text: &str, dialect: Dialect) -> Vec<(usize, usize)> {
+    let parsed = read(text, dialect);
     regions(&parsed).into_iter().map(|s| (s.start as usize, s.end as usize)).collect()
+}
+
+/// Which of the two things a file is, which is the whole of what the formatter
+/// needs to know about a file's role.
+///
+/// A `fn` with no body is a syntax error in source and is the *point* of a
+/// standard-library module: the operations the backend supplies are declared
+/// for their signatures and implemented in the runtime. The printer has always
+/// known how to lay one out — `signature_doc` takes the `;` — and only the
+/// parser had to be told, so this is the one bit that says which.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Dialect {
+    /// A file somebody writes in a repository. Every `fn` has a body.
+    Source,
+    /// A module of signatures: `core/*`, and a documented signature list.
+    Std,
+}
+
+fn read(text: &str, dialect: Dialect) -> crate::parsing::parser::Parsed {
+    match dialect {
+        Dialect::Source => crate::parsing::parser::parse(text, FileId(0)),
+        Dialect::Std => crate::parsing::parser::parse_stdlib(text, FileId(0)),
+    }
 }
 
 /// The same, over a parse already in hand.
@@ -201,7 +229,7 @@ fn region_text(text: &str, regions: &[Span]) -> Vec<String> {
 
 /// The formatter without its safety check, for the toolchain's own tests.
 pub fn source_unchecked(text: &str) -> String {
-    let parsed = crate::parsing::parser::parse(text, FileId(0));
+    let parsed = read(text, Dialect::Source);
     let broken = regions(&parsed);
     let mut tv = Comments::read(text);
     render(
@@ -221,9 +249,27 @@ pub fn source(text: &str) -> Option<String> {
     source_with_regions(text).map(|f| f.text)
 }
 
+/// The canonical form of a **standard-library module**, where a `fn` may be
+/// declared without a body.
+///
+/// The same formatter and the same layout; only the parser differs, and it
+/// differs the way `parse_stdlib` differs from `parse`. Two callers need it and
+/// neither is `buri format`: this repository's own `core/*` sources, which are
+/// as much Buri as anything a user writes, and a ```buri sig fence, which is a
+/// signature list for exactly the same reason.
+pub fn std_source(text: &str) -> Option<String> {
+    formatted(text, Dialect::Std).map(|f| f.text)
+}
+
 /// The same, and which declarations came back verbatim.
 pub fn source_with_regions(text: &str) -> Option<Formatted> {
-    let parsed = crate::parsing::parser::parse(text, FileId(0));
+    formatted(text, Dialect::Source)
+}
+
+/// The canonical form of `text` read as `dialect`, and which declarations came
+/// back verbatim.
+pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
+    let parsed = read(text, dialect);
     let broken = regions(&parsed);
     if !placed(&parsed) {
         return None;
@@ -239,7 +285,7 @@ pub fn source_with_regions(text: &str) -> Option<Formatted> {
     // in it the output does not parse by construction, so the claim is the
     // stronger and honest one: it parses outside every region, and every
     // region is byte for byte what was written.
-    let check = crate::parsing::parser::parse(&out, FileId(0));
+    let check = read(&out, dialect);
     let after = regions(&check);
     if !placed(&check) || region_text(text, &broken) != region_text(&out, &after) {
         return None;
@@ -266,6 +312,17 @@ enum Doc {
     /// Never contains a newline: a comment written over several lines is
     /// several `Text`s with `HardLine` between them.
     Text(String),
+    /// Text that is printed and **not measured**: the comment somebody wrote at
+    /// the end of a line.
+    ///
+    /// The code on a line does not lay itself out around the aside beside it.
+    /// Measuring one would let a comment break the call it is written after —
+    /// which is a layout decided by prose, and, where the comment is an
+    /// `// ERROR:` annotation in a document, one that moves the annotation off
+    /// the line it is about. The formatter never rewraps a comment either, so
+    /// this is the same rule stated at the other end: the line is as long as the
+    /// author's comment makes it.
+    Aside(String),
     Concat(Vec<Doc>),
     /// A space when flat, a line break when broken.
     Line,
@@ -559,6 +616,8 @@ fn fits(
                 }
             }
             Doc::Text(s) => w = w.saturating_sub(s.chars().count() as isize),
+            // Not measured: see `Doc::Aside`.
+            Doc::Aside(_) => {}
             Doc::Concat(xs) => {
                 for x in xs.iter().rev() {
                     local.push((ind, mode, Cmd::One(x)));
@@ -674,7 +733,7 @@ fn render(doc: &Doc) -> String {
         };
         match d {
             Doc::Nil | Doc::BreakParent => {}
-            Doc::Text(s) => {
+            Doc::Text(s) | Doc::Aside(s) => {
                 out.push_str(s);
                 pos = pos.saturating_add(s.chars().count());
             }
@@ -926,6 +985,31 @@ impl Trivia {
         matches!(self, Trivia::Run { detached: true, .. })
     }
 
+    /// The first comment of this run, if it has one.
+    fn first_comment(&self) -> Option<&Comment> {
+        match self {
+            Trivia::Blank { .. } => None,
+            Trivia::Run { comments, .. } => comments.first(),
+        }
+    }
+
+    /// Takes it out, and moves the run's paragraph break onto whatever is now
+    /// first: the blank line above a run is a fact about its first line.
+    fn take_first_comment(&mut self) -> Option<Comment> {
+        let Trivia::Run { comments, blank, .. } = self else { return None };
+        if comments.is_empty() {
+            return None;
+        }
+        let taken = comments.remove(0);
+        *blank = comments.first().is_some_and(|c| c.blank_before);
+        Some(taken)
+    }
+
+    /// Whether this run has been emptied: every comment taken and no `///`.
+    fn is_empty_run(&self) -> bool {
+        matches!(self, Trivia::Run { comments, docs, .. } if comments.is_empty() && docs.lines().is_empty())
+    }
+
     /// Whether any `///` line was written in this run.
     fn documented(&self) -> bool {
         match self {
@@ -963,25 +1047,80 @@ struct Entry {
 /// the layout: there is no construct that has to ask whether it contains one.
 struct Comments {
     entries: Vec<Entry>,
+    /// Where every comment written at the end of a line of code begins.
+    ///
+    /// The lexer keys a comment to the token *after* it, which is right for
+    /// almost all of them and wrong for the one written beside code: that one
+    /// is about the line above it. The two are told apart by the bytes between
+    /// the previous token and the comment, which is a question about the source
+    /// and so is answered once, here.
+    ///
+    /// A comment on this list is still in its run. It is taken out of it by the
+    /// printer that puts it back beside the code it was written beside, and a
+    /// position no printer reaches keeps today's behaviour — the comment comes
+    /// back above the token below it, which is where it has always come back.
+    /// Losing one is not on offer.
+    beside_code: Vec<u32>,
 }
 
 impl Comments {
     fn read(text: &str) -> Comments {
         let lexed = lex(text, FileId(0));
         let tokens = lexed.tokens;
-        let entries = lexed
-            .trivia
-            .into_iter()
-            .filter_map(|(at, t)| {
-                let at = at as usize;
-                if at >= tokens.len() {
-                    return None;
+        let mut entries = Vec::new();
+        let mut beside_code = Vec::new();
+        for (at, t) in lexed.trivia {
+            let at = at as usize;
+            if at >= tokens.len() {
+                continue;
+            }
+            // Only the first comment of a run can be the one beside the code:
+            // everything after it is on a line of its own by construction.
+            //
+            // A `/* … */` is never it. It may be several lines long, and a
+            // comment the printer would have to end a line inside is not one
+            // it can put at the end of a line.
+            if let Some(c) = t.comments.first() {
+                let previous = at.checked_sub(1).map(|i| tokens.span(i).end as usize);
+                let same_line = previous.is_some_and(|end| {
+                    text.get(end..c.offset as usize).is_some_and(|gap| !gap.contains('\n'))
+                });
+                if same_line && c.text.starts_with("//") {
+                    beside_code.push(c.offset);
                 }
-                let start = tokens.span(at).start;
-                Some(Entry { trivia: Trivia::read(start, t), claimed: false })
-            })
-            .collect();
-        Comments { entries }
+            }
+            let start = tokens.span(at).start;
+            entries.push(Entry { trivia: Trivia::read(start, t), claimed: false });
+        }
+        Comments { entries, beside_code }
+    }
+
+    /// The comment written at the end of a line inside `lo .. hi`, taken out of
+    /// the run it was read as part of.
+    ///
+    /// The range is what stops a nested construct from claiming a comment
+    /// written after the one enclosing it: a caller passes the span it has just
+    /// laid out and the offset the next thing begins at.
+    fn take_beside(&mut self, lo: u32, hi: u32) -> Option<String> {
+        let beside = &self.beside_code;
+        let entry = self.entries.iter_mut().find(|e| {
+            !e.claimed
+                && e.trivia
+                    .first_comment()
+                    .is_some_and(|c| beside.contains(&c.offset) && (lo..hi).contains(&c.offset))
+        })?;
+        let taken = entry.trivia.take_first_comment()?;
+        // A run that was only that comment has nothing left to say, unless a
+        // blank line was written between it and the token below — which is a
+        // paragraph break somebody typed, and comes back.
+        if entry.trivia.is_empty_run() {
+            if entry.trivia.detached() {
+                entry.trivia = Trivia::Blank { at: entry.trivia.at() };
+            } else {
+                entry.claimed = true;
+            }
+        }
+        Some(taken.text)
     }
 
     /// Whether the run above the token at `at` is a comment about the file
@@ -1282,6 +1421,25 @@ impl<'t> Build<'t> {
     /// reason it always was: what is above the run belongs to the caller. The
     /// blanks above the later runs are on their own first comment, and
     /// `trivia_doc` prints those.
+    /// What the author wrote at the end of the line just printed, if anything.
+    ///
+    /// A comment written beside code is about that code, so it goes back beside
+    /// it. Everything else the printer does with a comment puts it above the
+    /// construct it was written above; this is the one comment position that is
+    /// not a line of its own, and it is the position an `// ERROR:` annotation
+    /// in the documentation and half the standard library's asides are written
+    /// in.
+    ///
+    /// One space between the code and the `//`, like every other gap the
+    /// formatter decides. Columns lined up by hand are a layout, and a layout
+    /// is what this file is for.
+    fn trailing(&mut self, lo: u32, hi: u32) -> Doc {
+        match self.tv.take_beside(lo, hi) {
+            Some(c) => Doc::Aside(format!(" {c}")),
+            None => Doc::Nil,
+        }
+    }
+
     fn flush(&mut self, lo: u32, hi: u32) -> Option<Doc> {
         let ts = self.tv.drain(lo, hi);
         self.flushed(&ts)
@@ -1424,6 +1582,10 @@ impl<'t> Build<'t> {
             parts.push(t);
             let d = self.item(item);
             parts.push(d);
+            // An import's own aside travels with it, the same way the comment
+            // above it does — and the run is sorted, so it has to.
+            let beside = self.trailing(item.span().end, written_after(&m.items, item.span().start));
+            parts.push(beside);
             parts.push(Doc::HardLine);
         }
 
@@ -1462,6 +1624,11 @@ impl<'t> Build<'t> {
                 parts.push(t);
                 let doc = self.item(d);
                 parts.push(doc);
+                // A `derive` is moved to sit on the type it is about, and what
+                // was written beside it goes with it. Left behind, it would end
+                // up at the bottom of the file explaining nothing.
+                let beside = self.trailing(d.span().end, written_after(&m.items, d.span().start));
+                parts.push(beside);
                 parts.push(Doc::HardLine);
             }
             // Likewise claimed already when there are no derives, and the run
@@ -1470,6 +1637,11 @@ impl<'t> Build<'t> {
             parts.push(t);
             let d = self.item(decl);
             parts.push(d);
+            // A one-line declaration often carries its explanation beside it —
+            // `type Int = I64;   // the default integer` — and that comment is
+            // about the line, not about whatever comes next.
+            let beside = self.trailing(decl.span().end, written_after(&m.items, decl.span().start));
+            parts.push(beside);
             parts.push(Doc::HardLine);
             stranded = Some((decl.span().start, decl.span().end));
         }
@@ -1797,11 +1969,15 @@ impl<'t> Build<'t> {
                     return text(format!("{head} {{}}"));
                 }
                 let mut items = Vec::new();
-                for f in fields {
+                for (i, f) in fields.iter().enumerate() {
                     // A field's documentation is trivia like any other, and
                     // comes back through the same path as a comment above it.
                     let c = self.flush(inside, f.span.start);
-                    items.push(with_comment(c, text(field_decl(t, f))));
+                    // And the one written beside it stays beside it, after the
+                    // comma the list puts there.
+                    let next = fields.get(i.saturating_add(1)).map_or(d.span.end, |n| n.span.start);
+                    let beside = self.trailing(f.span.end, next);
+                    items.push((with_comment(c, text(field_decl(t, f))), beside));
                 }
                 let trailing = self.flush(inside, d.span.end.saturating_sub(1));
                 record(&head, items, trailing)
@@ -1819,9 +1995,11 @@ impl<'t> Build<'t> {
             return text(format!("{head} {{}}"));
         }
         let mut items = Vec::new();
-        for v in &d.variants {
+        for (i, v) in d.variants.iter().enumerate() {
             let c = self.flush(inside, v.span.start);
-            items.push(with_comment(c, text(variant(t, v))));
+            let next = d.variants.get(i.saturating_add(1)).map_or(d.span.end, |n| n.span.start);
+            let beside = self.trailing(v.span.end, next);
+            items.push((with_comment(c, text(variant(t, v))), beside));
         }
         let trailing = self.flush(inside, d.span.end.saturating_sub(1));
         record(&head, items, trailing)
@@ -1846,7 +2024,19 @@ impl<'t> Build<'t> {
         let b = self.tree().block(id);
         let lo = b.span.start;
         let mut lines: Vec<Doc> = Vec::new();
-        for s in self.tree().stmts_at(b.stmts_start, b.stmts_len) {
+        // Where the *next* thing in the block begins, for each statement: a
+        // comment written between the two, on the statement's own line, is
+        // about the statement.
+        let stmts = self.tree().stmts_at(b.stmts_start, b.stmts_len);
+        let tail_at = self.tree().opt(b.tail).map(|x| self.tree().span(x).start);
+        let ends: Vec<u32> = stmts
+            .iter()
+            .skip(1)
+            .map(|n| n.span.start)
+            .chain(tail_at)
+            .chain(std::iter::once(b.span.end))
+            .collect();
+        for (i, s) in self.tree().stmts_at(b.stmts_start, b.stmts_len).iter().enumerate() {
             // A blank line between two statements is a paragraph break inside
             // a function, and grouping the steps of a long one is what it is
             // for. One of them, however many were typed, and none at all above
@@ -1859,7 +2049,7 @@ impl<'t> Build<'t> {
                 None if gap => lines.push(Doc::Blank),
                 None => {}
             }
-            lines.push(match s.kind {
+            let line = match s.kind {
                 StmtKind::Let => {
                     let name = if s.is_ctx {
                         "ctx".to_string()
@@ -1874,17 +2064,22 @@ impl<'t> Build<'t> {
                     self.assign(&format!("let {name}{annotation} = "), ExprId(s.value), ";")
                 }
                 StmtKind::Expr => self.assign("", ExprId(s.value), ";"),
-            });
+            };
+            let after = ends.get(i).copied().unwrap_or(b.span.end);
+            let beside = self.trailing(s.span.end, after);
+            lines.push(cat(vec![line, beside]));
         }
-        if let Some(t) = self.tree().opt(b.tail) {
-            let at = self.tree().span(t).start;
+        if let Some(x) = self.tree().opt(b.tail) {
+            let at = self.tree().span(x).start;
             let gap = self.tv.blank_at(at) && !lines.is_empty();
             match self.flush(lo, at) {
                 Some(c) => lines.push(c),
                 None if gap => lines.push(Doc::Blank),
                 None => {}
             }
-            lines.push(self.expr(t));
+            let d = self.expr(x);
+            let beside = self.trailing(self.tree().span(x).end, b.span.end);
+            lines.push(cat(vec![d, beside]));
         }
         // The last thing in a block may be a comment, written above the `}`.
         if let Some(c) = self.flush(lo, b.span.end.saturating_sub(1)) {
@@ -2144,7 +2339,14 @@ impl<'t> Build<'t> {
             text(") {"),
         ]));
         let mut lines = Vec::new();
-        for a in arms {
+        // Where the arm after this one begins, or the `}` of the match.
+        let ends: Vec<u32> = arms
+            .iter()
+            .skip(1)
+            .map(|n| n.span.start)
+            .chain(std::iter::once(span.end))
+            .collect();
+        for (i, a) in arms.iter().enumerate() {
             // A comment above an arm is about that arm, and a match is often
             // where the reasoning in a function lives.
             if let Some(c) = self.flush(span.start, a.span.start) {
@@ -2193,7 +2395,12 @@ impl<'t> Build<'t> {
                     cat(vec![head, text(" => "), block_doc(body)]),
                 )
             };
-            lines.push(cat(vec![arm, text(",")]));
+            // After the comma: the comma belongs to the list and the comment
+            // to the line, and a comment before it would be read as ending the
+            // arm the next time the file is laid out.
+            let after = ends.get(i).copied().unwrap_or(span.end);
+            let beside = self.trailing(a.span.end, after);
+            lines.push(cat(vec![arm, text(","), beside]));
         }
         if let Some(c) = self.flush(span.start, span.end.saturating_sub(1)) {
             lines.push(c);
@@ -2343,13 +2550,29 @@ fn braced(head: &str, body: Doc) -> Doc {
 /// line is the empty one — `struct S {}` — which has no member to give a line
 /// to and no list to put a comma on, and which `struct_decl` and `enum_decl`
 /// answer before they get here.
-fn record(head: &str, items: Vec<Doc>, trailing: Option<Doc>) -> Doc {
+fn record(head: &str, items: Vec<(Doc, Doc)>, trailing: Option<Doc>) -> Doc {
     // A body of nothing but a comment has no list to put a trailing comma on.
     if items.is_empty() {
         return braced(&format!("{head} {{"), trailing.unwrap_or(Doc::Nil));
     }
-    let mut inner =
-        vec![Doc::HardLine, join(cat(vec![text(","), Doc::HardLine]), items), text(",")];
+    // Each member, its comma, and then whatever was written beside it: the
+    // comma belongs to the list and the comment to the line, and a comment
+    // before the comma would be read as ending the member the next time the
+    // file is laid out.
+    let last = items.len().saturating_sub(1);
+    let lines: Vec<Doc> = items
+        .into_iter()
+        .enumerate()
+        .map(|(i, (member, beside))| {
+            let mut line = vec![member, text(",")];
+            line.push(beside);
+            if i != last {
+                line.push(Doc::HardLine);
+            }
+            cat(line)
+        })
+        .collect();
+    let mut inner = vec![Doc::HardLine, cat(lines)];
     if let Some(c) = trailing {
         inner.push(Doc::HardLine);
         inner.push(c);
@@ -2360,6 +2583,19 @@ fn record(head: &str, items: Vec<Doc>, trailing: Option<Doc>) -> Doc {
         Doc::HardLine,
         text("}"),
     ])
+}
+
+/// Where the item written after the one beginning at `start` begins, or the end
+/// of the file.
+///
+/// A comment beside a declaration must be claimed by that declaration and not
+/// by the one under it, and the leading import run is printed *sorted* — so the
+/// question is about the order the items were written in, which is the order
+/// they are in here.
+fn written_after(items: &[Item], start: u32) -> u32 {
+    let mut after = items.iter().skip_while(|i| i.span().start != start);
+    after.next();
+    after.next().map_or(u32::MAX, |i| i.span().start)
 }
 
 /// The declarations, with each `derive` moved to sit directly on the type it

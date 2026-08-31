@@ -35,5 +35,10 @@ comment is documentation, and an example in one has the same claim on being
 true. `buri docs test` reads a source file through its comments, and a failure
 names the `.buri` line the example is written on.
 
+Every fenced example is also held to the **layout** `buri format` writes, in
+the same run and by the same printer: what a reader copies out of a page is the
+house style, so it is the house style that is printed there. `buri format` over
+the documentation is what fixes one.
+
 `cli/src/docs/SPEC.md` is generated from these same topics, and a test fails if
 the checked-in file drifts from what the topics produce.

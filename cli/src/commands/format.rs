@@ -5,6 +5,21 @@
 //! finding the files and writing them back. The printing itself is
 //! `crate::formatting`, which the documentation renderer and `buri gen` use
 //! too.
+//!
+//! # Everywhere somebody wrote Buri
+//!
+//! Three kinds of file, one command, one layout:
+//!
+//!   * **source** and **build files**, through the two printers below;
+//!   * **markdown**, where every ```` ```buri ```` fence is laid out and the
+//!     prose around it is left exactly as it was written;
+//!   * **a source file's own documentation comments**, where an example is what
+//!     an editor shows on hover.
+//!
+//! The last two are `documentation::layout`, and they are here rather than in a
+//! command of their own because the alternative is a repository whose sources
+//! are formatted and whose examples are not — and the examples are what a
+//! newcomer copies. `--check` gates all three the same way.
 #![allow(
     clippy::print_stdout,
     clippy::print_stderr,
@@ -52,9 +67,9 @@ pub fn formatted(name: &str, text: &str) -> Option<crate::formatting::Formatted>
     crate::formatting::source_with_regions(text)
 }
 
-/// Formats `.buri` sources and build files, with no options and no
-/// configuration file. A formatter with options is a formatter whose output is
-/// a repository decision.
+/// Formats `.buri` sources, build files, and the Buri written in documentation,
+/// with no options and no configuration file. A formatter with options is a
+/// formatter whose output is a repository decision.
 pub fn command_format(args: &arguments::Args) -> i32 {
     let session = match session::open_or_exit(&args.flags) {
         Ok(session) => session,
@@ -97,13 +112,39 @@ pub fn command_format(args: &arguments::Args) -> i32 {
         if !out.regions.is_empty() {
             unread.push(session.workspace.rel_of(path));
         }
-        if out.text != text {
+        // And the examples in this file's documentation comments, through the
+        // same printer. The layout pass never reaches inside a comment, so the
+        // fences are still where they were when this looks for them.
+        let laid_out = match crate::documentation::layout::format_doc_comments(&out.text) {
+            Some(with_examples) => with_examples,
+            None => out.text,
+        };
+        if laid_out != text {
             changed.push(session.workspace.rel_of(path));
             if !args.flags.check {
-                let _ = std::fs::write(path, out.text);
+                let _ = std::fs::write(path, laid_out);
             }
         }
     }
+
+    // The documents. A fence body is laid out and nothing else on the page is
+    // touched — the prose is the author's.
+    let mut documents = Vec::new();
+    for r in &roots {
+        crate::documentation::layout::documents_under(r, &mut documents);
+    }
+    for path in &documents {
+        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let rel = session.workspace.rel_of(path);
+        let Some(out) = crate::documentation::layout::format_document(&rel, &text) else {
+            continue;
+        };
+        changed.push(rel);
+        if !args.flags.check {
+            let _ = std::fs::write(path, out);
+        }
+    }
+    changed.sort();
 
     if args.flags.check {
         // The CI form: exit non-zero on any file that would change, and on any

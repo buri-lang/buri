@@ -1,9 +1,15 @@
 ## What it does
 
 Formats `.buri` sources and build files — `BUILD.buri` and `REPO.buri` — in
-place. There are no options: one canonical layout, so formatting is never
-something to argue about in review and never something a repository has to
-configure.
+place, **and the Buri written in documentation**: every ```` ```buri ```` fence
+in a markdown file, and every example in a `///` or `//!` comment. There are no
+options: one canonical layout, so formatting is never something to argue about
+in review and never something a repository has to configure.
+
+A repository whose sources are formatted and whose examples are not has two
+house styles, and the one a newcomer copies is the one in the prose. So one
+command lays out all of it, and `--check` gates all of it. Only fence bodies
+change in a document: the prose around them is yours.
 
 Formatting is a fixed point — running it twice changes nothing the second time —
 which is what lets `buri gen` and `buri format` write the same file without
@@ -48,6 +54,18 @@ is left as it is.
 
 This is about *declarations*. A struct literal in an expression, and a match
 arm, break on the width like everything else.
+
+## A comment beside the code
+
+A comment written at the end of a line is about the code on that line, so it
+stays there — one space after the code, whatever column it was typed in.
+Everything else the formatter does with a comment puts it on a line of its own,
+above the thing it was written above.
+
+The layout of the code does not depend on it. A line is measured as if the
+comment were not there, so an aside can never break the call it is written
+after; the formatter does not rewrap a comment either, and both halves of that
+say the same thing — the line is as long as your sentence makes it.
 
 ## A file with a syntax error
 

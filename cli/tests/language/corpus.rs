@@ -171,6 +171,204 @@ fn formatting_build_files_is_a_fixed_point() {
     }
 }
 
+/// Where a `.buri` file is allowed not to be formatted, and why.
+///
+/// [`every_source_in_the_repository_is_formatted`] walks the whole tree, so a
+/// corpus that arrives tomorrow arrives enforced; this list is the whole of the
+/// permission to be exempt from it. Every row names a directory whose *subject*
+/// is a file nobody laid out — input the formatter is asked a question about,
+/// or a recording of what a command printed — and says which suite asks that
+/// question instead. A corpus that cannot write such a row is a corpus that
+/// should be formatted.
+const UNFORMATTED_BY_DESIGN: &[(&str, &str)] = &[
+    (
+        "cli/tests/formatting",
+        "the formatter's own cases. `input.buri` is badly laid out on purpose and \
+         `expected.buri` is the one answer recorded for it, both checked by \
+         `cargo test -p buri --test formatting`",
+    ),
+    (
+        "cli/tests/checking",
+        "seeds with one token deleted, inserted or exchanged. A file the parser could not \
+         read whole has no canonical form to be checked against",
+    ),
+    (
+        "cli/tests/recovery",
+        "the same mutated population, held to invariants about what one mistake reads as",
+    ),
+    (
+        "cli/tests/linting",
+        "what `buri lint` still finds in a file that did not parse whole, so every case is \
+         a file that did not",
+    ),
+    (
+        "cli/tests/fuzz",
+        "bytes drawn from the generator or spliced into a checked-in source. Nobody wrote \
+         them and nobody reads them",
+    ),
+    (
+        "cli/tests/reject",
+        "whole programs the front end must turn away, some of them by the parser, each with \
+         the diagnostics it draws recorded beside it at the column they point at",
+    ),
+    (
+        "cli/tests/crash",
+        "input that once crashed the toolchain, kept byte for byte. The bytes are the case",
+    ),
+    (
+        "cli/benches/corpora",
+        "a saved benchmark corpus is *output*: `benches/generate.rs` writes it and its \
+         `manifest.txt` pins the bytes and a digest of what was written \
+         (`design/PERFORMANCE.md` §3.1). Laying one out by hand would make it disagree with \
+         the generator that produced it, and would move every number pinned against it",
+    ),
+    (
+        "cli/tests/repositories/linting/a_bound_the_fix_cannot_reach",
+        "the case's subject is a comment written *between two bounds*, which is a position \
+         the formatter does not keep — it prints every comment on a line of its own, so \
+         laying this file out would delete the question the case asks",
+    ),
+    (
+        "cli/tests/repositories/cli/format_check",
+        "the case that runs `buri format` itself: its repository is checked in misformatted \
+         and its goldens record both halves of what the command did about that",
+    ),
+];
+
+/// Whether a file is a template rather than a file.
+///
+/// A repository case may hold a placeholder its harness fills in before the
+/// toolchain ever sees the file — the cross-compilation cases name a platform
+/// that is not the runner's that way. The bytes on disk are not Buri until that
+/// substitution happens, so there is nothing for a formatter to be right or
+/// wrong about.
+fn is_template(text: &str) -> bool {
+    text.contains("{{") && text.contains("}}")
+}
+
+/// Whether a path is a golden — a recording of what a command printed, checked
+/// by the case that records it.
+///
+/// A repository case keeps its expectations in `expected/`, and some of them are
+/// `.buri`: the file a command wrote, or the file it was asked to leave alone.
+/// Formatting one would edit the recording rather than the source it is a
+/// recording of.
+fn is_golden(rel: &str) -> bool {
+    rel.contains("/expected/")
+}
+
+/// The canonical form of one file, whichever of the three it is.
+///
+/// `commands::format::file` decides between source and textproto by the name,
+/// which is what `buri format` does. The third is the standard library, whose
+/// modules declare operations the backend supplies and so have `fn`s with no
+/// body — a syntax error anywhere else, and the reason this test knows a fact
+/// about a path that the command does not need to.
+fn canonical(rel: &str, name: &str, text: &str) -> Option<String> {
+    if rel.starts_with("cli/src/compiler/standard_library/sources/") {
+        return buri::formatting::std_source(text);
+    }
+    buri::commands::format::file(name, text)
+}
+
+/// Every `.buri` file in the repository, and the reason the exempt ones are
+/// exempt.
+fn every_buri_file(root: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut all = Vec::new();
+    text_files(root, &mut all);
+    let mut checked = Vec::new();
+    let mut exempt = Vec::new();
+    for path in all {
+        if path.extension().is_none_or(|x| x != "buri") {
+            continue;
+        }
+        let rel = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+        if UNFORMATTED_BY_DESIGN.iter().any(|(dir, _)| rel.starts_with(&format!("{dir}/")))
+            || is_golden(&rel)
+            || std::fs::read_to_string(&path).is_ok_and(|t| is_template(&t))
+        {
+            exempt.push(path);
+        } else {
+            checked.push(path);
+        }
+    }
+    (checked, exempt)
+}
+
+/// **Every `.buri` file in the repository is already what `buri format` would
+/// write.**
+///
+/// This is `buri format --check` over the tree, as a test: one indentation, one
+/// line width, one place a comment sits, in the standard library, in the
+/// corpora, in the fixtures a person reads to learn what a repository looks
+/// like. A repository whose own sources are laid out four different ways is one
+/// where the formatter's answer is a matter of which file you opened.
+///
+/// It goes through `commands::format::file`, which is the same entry point the
+/// command uses, so this and `buri format` cannot disagree about which of the
+/// two printers a file goes through — source or textproto, decided by the name.
+/// The one file this knows about and the command does not is a **standard
+/// library module**, where a `fn` may be declared without a body: no repository
+/// but this one holds one, and `formatting::Dialect` is what says so.
+///
+/// The walk is the enforcement and [`UNFORMATTED_BY_DESIGN`] is the whole of
+/// the exemption, so a corpus added tomorrow is checked without anybody
+/// remembering to add it here.
+///
+/// ```text
+/// buri format                                                   # in a repository
+/// BURI_BLESS=1 cargo test -p buri --test language corpus::       # over this tree
+/// ```
+#[test]
+fn every_source_in_the_repository_is_formatted() {
+    let root = repo_root();
+    let (files, exempt) = every_buri_file(&root);
+    assert!(files.len() > 300, "found {} files to check; the walk is broken", files.len());
+    assert!(!exempt.is_empty(), "nothing is exempt; the exemption list has stopped matching");
+    let blessing = std::env::var_os("BURI_BLESS").is_some();
+
+    let mut drifted = Vec::new();
+    let mut refused = Vec::new();
+    for path in &files {
+        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let rel = path.strip_prefix(&root).unwrap_or(path).display().to_string();
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        match canonical(&rel, &name, &text) {
+            Some(formatted) if formatted != text => {
+                if blessing {
+                    std::fs::write(path, &formatted).unwrap();
+                } else {
+                    drifted.push(rel);
+                }
+            }
+            Some(_) => {}
+            // What `buri format --check` says about the same file: a file the
+            // formatter could not read whole is not a file it has checked, and
+            // a check that passed one would be reporting a gate it did not run.
+            None => refused.push(rel),
+        }
+    }
+
+    assert!(
+        refused.is_empty(),
+        "the formatter cannot vouch for {} file(s), so nothing above checked them:\n  {}\n\
+         Either the file has a syntax error, or its corpus belongs in \
+         `UNFORMATTED_BY_DESIGN` with a row saying which suite asks it its question.",
+        refused.len(),
+        refused.join("\n  ")
+    );
+    assert!(
+        drifted.is_empty(),
+        "{} of {} `.buri` file(s) are not what `buri format` would write:\n  {}\n\
+         Run `buri format` in the repository, or add the corpus to \
+         `UNFORMATTED_BY_DESIGN` with the reason its files are laid out by hand.",
+        drifted.len(),
+        files.len(),
+        drifted.join("\n  ")
+    );
+    eprintln!("{} formatted, {} exempt by design", files.len(), exempt.len());
+}
+
 /// Formatting is a fixed point and never produces something that does not
 /// parse. That the *meaning* survives is
 /// `formatting_the_corpus_preserves_what_it_means`, below, which formats the
@@ -246,6 +444,17 @@ fn formatting_keeps_every_comment() {
 /// for a reason of its own fails the same way in both copies, and what this
 /// asks is only that formatting did not change the answer. The floor under the
 /// count is what stops that from being vacuous.
+///
+/// **The copy is unformatted first, and that is new.** This used to format the
+/// corpus as it was checked in, which worked while the corpus was laid out by
+/// hand and asks nothing now that
+/// [`every_source_in_the_repository_is_formatted`] holds: formatting a
+/// formatted file rewrites nothing, and a test that rewrote nothing was
+/// comparing a suite with itself. So every line's leading whitespace comes off
+/// first — a change to layout and to nothing else, because Buri has no
+/// multi-line string literal for an indent to be *inside* — and what is
+/// formatted is that. It is the input the formatter exists to answer, and the
+/// question is the one this test always asked.
 #[test]
 fn formatting_the_corpus_preserves_what_it_means() {
     let root = repo_root();
@@ -259,12 +468,14 @@ fn formatting_the_corpus_preserves_what_it_means() {
     let mut changed = 0;
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();
-        let once = buri::formatting::source(&text)
+        let flattened: String =
+            text.lines().map(|l| format!("{}\n", l.trim_start())).collect();
+        let once = buri::formatting::source(&flattened)
             .unwrap_or_else(|| panic!("{} does not format", path.display()));
-        if once != text {
+        if once != flattened {
             changed += 1;
-            std::fs::write(path, &once).unwrap();
         }
+        std::fs::write(path, &once).unwrap();
     }
     assert!(changed > 10, "formatting rewrote only {changed} of the suite's files");
 

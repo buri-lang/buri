@@ -528,7 +528,8 @@ fn every_error_page_is_provoked_by_its_own_example() {
     let mut failures = Vec::new();
     for e in buri::documentation::errors::ERRORS {
         let doc = format!("cli/src/docs/errors/{}.md", e.code);
-        failures.extend(buri::documentation::examples::run_file_at(&repo_root(), &doc, e.text));
+        let text = crate::examples::document(&repo_root(), &doc, e.text);
+        failures.extend(buri::documentation::examples::run_file_at(&repo_root(), &doc, &text));
     }
     assert!(
         failures.is_empty(),
@@ -594,6 +595,10 @@ fn every_rejected_program_names_the_rule_it_broke() {
 /// run and compared.
 #[test]
 fn a_repository_can_test_its_own_documentation() {
+    // The monorepo's own pages are documentation this suite enforces, and they
+    // are not compiled into anything — so a blessing run lays them out where
+    // they live, before the copy below is taken.
+    crate::examples::bless_documents_under(&repo_root(), "cli/tests/example");
     // A copy under `CARGO_TARGET_TMPDIR`, not the checked-in tree. The second
     // half of this test corrupts the README on purpose, and doing that in
     // place meant a panic between the write and the restore left a corrupted
