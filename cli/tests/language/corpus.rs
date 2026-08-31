@@ -299,11 +299,55 @@ fn canonical(rel: &str, name: &str, text: &str) -> Option<String> {
     buri::commands::format::file(name, text)
 }
 
+/// Every file the repository *has*, which is not the same question as every
+/// file under its directory.
+///
+/// A walk of the tree finds whatever is on disk when it runs, and on a runner
+/// that is more than the repository: `CARGO_TARGET_DIR` is `target/` **inside
+/// the checkout** there, and half the suites materialize a repository under it
+/// while they run — a reject case with a syntax error in it, a copy of the
+/// conformance tree with its indentation taken off, a scratch monorepo a
+/// command is about to rewrite. None of that is anybody's source, none of it
+/// outlives the test that wrote it, and which of it exists at the moment of the
+/// walk depends on which tests happen to be running beside this one. Four CI
+/// jobs went red on exactly that, each naming a different `target/tmp/…` file,
+/// and no run whose target directory lives outside the checkout could reproduce
+/// any of it.
+///
+/// So the question is asked of the repository, which already answers it: a file
+/// it **tracks**. Nothing a build writes is tracked, so the answer cannot be
+/// moved by a build, by a concurrent test, or by where `CARGO_TARGET_DIR`
+/// happens to point. It also cannot go quietly empty — an empty list fails the
+/// floor below.
+///
+/// This asks `git` for the list rather than reimplementing `.gitignore`, and it
+/// is the one place in the suite that shells out to it. The suite already reads
+/// `.github/`, `design/` and `formal/` off disk, so it already only runs inside
+/// this repository; needing the checkout those came from is that assumption
+/// said out loud.
+fn tracked_files(root: &Path) -> Vec<PathBuf> {
+    let out = std::process::Command::new("git")
+        .current_dir(root)
+        .args(["ls-files", "-z"])
+        .output()
+        .expect("`git ls-files` runs: this suite runs inside the repository's own checkout");
+    assert!(
+        out.status.success(),
+        "`git ls-files` failed in {}: {}",
+        root.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .filter(|line| !line.is_empty())
+        .map(|line| root.join(line))
+        .collect()
+}
+
 /// Every `.buri` file in the repository, and the reason the exempt ones are
 /// exempt.
 fn every_buri_file(root: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
-    let mut all = Vec::new();
-    text_files(root, &mut all);
+    let all = tracked_files(root);
     let mut checked = Vec::new();
     let mut exempt = Vec::new();
     for path in all {
@@ -1053,6 +1097,15 @@ fn text_files(dir: &Path, out: &mut Vec<PathBuf>) {
     for e in entries {
         let p = e.path();
         if p.is_dir() {
+            // Not into what a build writes. `CARGO_TARGET_DIR` may name a
+            // directory *inside* the checkout, and what is under it is output
+            // and scratch trees rather than anybody's source — see
+            // [`tracked_files`], which is how the file-list question is asked
+            // where the answer has to be exact.
+            let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+            if name.starts_with('.') || name == "target" || name == "node_modules" {
+                continue;
+            }
             text_files(&p, out);
         } else if p.extension().is_some_and(|x| KINDS.iter().any(|k| x == *k)) {
             out.push(p);
