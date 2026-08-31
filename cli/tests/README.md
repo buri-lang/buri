@@ -54,9 +54,6 @@ cli/tests/
                         page the front end prints for it, case by case
   linting.rs            AND WHAT THE RULES STILL SAY — a lint fixture with one
                         token wrong, through a one-package repository
-  migrate.rs            A CORPUS-WIDE EDIT — `Hermetic()` to `core/host/testing`:
-                        the rewriter is `harness/migrate.rs`, and the migration
-                        itself is `#[ignore]`d
 
   conformance/          a Buri repository: `test/` blocks on language semantics
   reject/               programs that must not compile, with their diagnostics
@@ -104,7 +101,6 @@ several sets of assertions.
 | `recovery` | That one mistake reads as one mistake: every compiling source in the repository with a token deleted, inserted or exchanged, held to invariants — one diagnostic per mistake, its caret at the mistake, its `fix` naming the token, no type error invented downstream, and the file still formatting — plus a hand-written case per list context pinning the exact message, span and edit. All six run by default. An invariant is held per mutation shape, against a ceiling rather than against zero where the mutated text has a second reading the grammar accepts — `ceiling()` states which rows those are and what each residue is. A ceiling is a **percentage of the row's population**, read off a `BURI_RECOVERY_CAP=0` run, so a source landing in the repository cannot tip a row whose per-case behaviour did not change; the two invariants that sample rather than sweep add the spread of a sample that size on top, and `a_ceiling_moves_with_the_row_and_not_with_the_corpus` is that property as a test. |
 | `checking` | The same mistakes, pinned rather than counted: seven hundred mutated sources with every error the front end reports about each one recorded beside it. A case whose errors are exactly the parser's lives under `clean/` and one the mistake led the checker into lives under `cascades/`, so a recovery that stops a cascade shows up as a file changing sides; the share that may cascade is a rate over the corpus. |
 | `linting` | What `buri lint` still finds in a file that did not parse whole: each lint fixture's source with one token wrong, through a repository of one package per case, with the whole report recorded. Two invariants over the population — the mistake invents no finding, and a finding whose evidence survived still fires — each against a rate ceiling. A third is a parity rather than a rate: the set `buri lint` prints and the set the language server publishes are compared over every case, because two halves that go quiet together keep any rate they like. |
-| `migrate` | That a corpus-wide edit is exact and finished. `harness/migrate.rs` rewrites `Hermetic()` and `core/testing/context`'s free functions into `core/host/testing`, taking every site from the parse tree and every context binding from the compiler — a fixpoint over `unsatisfied-bound`, which names the effect a context is short of. The cases here are one per rewrite the table states, plus a sweep asserting the corpora already moved have nothing left to rewrite, which is what "the script is idempotent" means written as a test. A corpus is a *repository* — the conformance tree, the example monorepo, and five of the fixture repositories under `repositories/` and `failing/` — because the diagnostics the fixpoint reads name files by their repository-relative path. The migration itself is `#[ignore]`d, because it is the one test in the tree that edits a checked-in corpus. |
 | `failing` | That a failing `buri test` fails *well*: the report a user reads — line, expected, got, counts, exit code — pinned byte for byte across every value shape, abort, title edge case and multi-module ordering, so the failure path is held to the same standard as the success path. |
 
 Everything but the unit tests drives the real `buri` binary, because that is
@@ -142,11 +138,39 @@ which no live run can manage, and it does not run at all under `BURI_KEEP` — s
 the contract above is unchanged for the run that produced the evidence and for
 hours after it.
 
-### The two tests that are off
+### Skips: none on CI, and each one on a host has a name
 
-`repositories::language_server_speed` and `repositories::language_server_open_cost`
-assert milliseconds rather than work, so they return early unless `BURI_PERF` is
-set and they mean nothing outside `--release`:
+A test that does not run proves nothing and costs what a running one costs to
+compile. There are three ways one can fail to run here, and each has an answer.
+
+**`#[ignore]`.** There are **none** in the whole repository, and
+`.github/known-skips.txt` is the empty list that says so. It shipped with two
+rows — the two agreement rows parked on missing compiler features — and both
+came out by the feature being written rather than by the row being deleted:
+`derivePrimJson` has a native body on both backends and
+`host.HostAlloc.allocate` has a runtime row.
+`cli/tests/ci.rs::the_only_ignored_tests_are_the_ones_named_here` walks the tree
+and fails if the set it finds is not exactly that file's, so the first new one
+cannot be added quietly; `.github/scripts/assert-no-skips.sh` holds the
+`N ignored` in a CI summary to the same number, which is now zero. The dispositions, in order of preference: fix
+it; `#[cfg]` it out on the host that genuinely cannot answer it, so it is absent
+rather than reported as not run; delete it, if the behaviour it asserts is no
+longer wanted. A row in that file is the last resort and is a named defect, not
+a permission.
+
+**`if !supported() { return; }`.** The native suites open with one, and it is
+load-bearing on a host with no C compiler or no stencil library for its triple:
+such a machine should get a suite that says so rather than a wall of red. On CI
+it is the one shape of green this repository refuses, because every runner
+installs the tools and asserts the stencil libraries and the runtime archive are
+real bytes before the suite starts. So `BURI_CI=1` — set in the workflow's
+`env:` block, and therefore in every job — makes `harness/ci.rs::skipped` PANIC
+instead of returning. Set it locally to see what a runner sees.
+
+**Deferrals.** `repositories::language_server_speed` and
+`repositories::language_server_open_cost` assert milliseconds rather than work,
+so they return early unless `BURI_PERF` is set and they mean nothing outside
+`--release`:
 
 ```
 BURI_PERF=1 cargo test --release -p buri --test build repositories::language_server_
@@ -155,7 +179,36 @@ BURI_PERF=1 cargo test --release -p buri --test build repositories::language_ser
 Both hold every editor request to 50 ms. CI runs them on its arm64 runner
 (`.github/workflows/ci.yml`, `language-server-budget`), where
 `BURI_PERF_BUDGET_SCALE` is what widens the bar for a machine slower than the
-one it was taken on.
+one it was taken on. They say so through `ci::deferred_to`, which names that
+job, and `cli/tests/ci.rs::every_deferral_names_a_job_that_still_asks_for_it`
+holds the name to a job that exists — a deferral whose job has been renamed is
+a plain skip and nothing else would have noticed.
+
+### The runtime crate's tests run in two places
+
+`cli/runtime` is a cargo package `cargo test -p buri` cannot reach, and
+`native::runtime::the_runtime_crate_answers_its_own_tests` is what runs its
+ninety-seven assertions. It does so two ways:
+
+* **Off a runner** it shells a nested `cargo test`, which cold-compiles tokio
+  and rustls the first time — about ten seconds here, a minute on a cold CI
+  macOS runner — into a target directory under `CARGO_TARGET_TMPDIR`.
+* **On a runner** (`BURI_CI=1`) `.github/scripts/test-runtime-crate.sh` runs the
+  same `cargo test` as its own step, with a cache key of its own and a duration
+  in the run summary, and the test asserts the stamp that step writes. The stamp
+  records the SHA-256 of every runtime it tested and the test looks for the one
+  baked into this binary, so a stale `$OUT_DIR` cannot satisfy it.
+
+No host loses the coverage; the minute moves out of a test report and into a
+step that has a cache.
+
+Neither fails on a single reading. A run holding a request over the bar
+measures its whole session again — a fresh server against a fresh copy of the
+repository, up to three times — and holds each request to the fastest time it
+was seen in (`best_of`). A request that got slower is slower every time and
+still fails; one that lost a timeslice on a shared runner is not. That is the
+measurement repeating, not the assertion: the bar is applied once, to the best
+readings, and it does not move.
 
 ### What the run costs
 

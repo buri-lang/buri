@@ -16,9 +16,9 @@
 //! Configuration is a **method on the value that answers a new handle**:
 //! `clock().at(1000)`, `rand().seed(7)`,
 //! `env().variables([...]).arguments([...])`.
-//! There are no free `clockAt`/`randSeed`/`envOf` constructors, because a
-//! reader who knows `clock()` should not have to learn a second name to start
-//! it somewhere else, and because a chain reads in the order it is applied.
+//! There is no second, free-function spelling of any of them, because a reader
+//! who knows `clock()` should not have to learn another name to start it
+//! somewhere else, and because a chain reads in the order it is applied.
 //!
 //! Most structs carry an `I64` handle rather than their state. A captured
 //! stdout accumulates what a test writes to it and Buri has no mutation, so the
@@ -316,16 +316,18 @@ impl TestFs {
   /// A **new** handle onto the *same* files, through which every write fails
   /// with `.ReadOnly`.
   ///
-  /// This is `core/testing/context`'s `ReadOnly<C>` folded into a method, and
-  /// the fold keeps what made the wrapper a wrapper: it holds the inner value
-  /// rather than a copy of it, so a read through the attenuated handle sees
-  /// whatever the filesystem holds *now*. `readFile`, `fileExists`, `readDir`,
+  /// An attenuator as a method rather than as a wrapper type, and it keeps
+  /// what made a wrapper a wrapper: it holds the inner filesystem rather than a
+  /// copy of it, so a read through the attenuated handle sees whatever that
+  /// filesystem holds *now*. `readFile`, `fileExists`, `readDir`,
   /// `readFileBytes` and `syncFile` are forwarded — `sync` is not a write and
   /// there is nothing this could be hiding — and the six that write are
   /// refused.
   ///
-  /// `ReadOnly<C>` itself stays: it attenuates *any* `Fs`, including one a test
-  /// wrote, and this method attenuates only this one.
+  /// It attenuates *this* filesystem and no other. A test that wants to
+  /// attenuate an `Fs` of its own writes the wrapper, which is an ordinary
+  /// `impl<C: Fs> Fs for Wrapper<C>` and needs nothing from this module
+  /// (SPEC 10.8).
   export fn readOnly(self): TestFs {
     TestFs { handle: fsReadOnly(self.handle), plan: self.plan }
   }
@@ -564,9 +566,8 @@ fn fsSyncFile(handle: I64, path: Str): Result<(), IoError>;
 ///
 /// The default is `.Err(.Refused)` and not a stub `200`: a test that reaches
 /// the network by accident should say so at its assertion rather than pass on
-/// an answer nobody wrote. `core/testing/context`'s `noNet()` is this double
-/// with the refusal made permanent; `net()` is the same starting point with a
-/// way forward.
+/// an answer nobody wrote. A test that wants the refusal and nothing else
+/// binds `net()` and says no more.
 ///
 /// ## The one double whose configuration is not a handle
 ///
@@ -1128,11 +1129,15 @@ impl NetCall {
 /// name one line a reader can paste back. A seed past the last one wraps, so a
 /// number derived from a program's content is a legal seed at every length.
 ///
-/// `anyOrder()` with no seed is the **reverse** of program order, which is the
-/// single order most likely to catch a program that depended on the order it
-/// was given. It is deliberately not a random one: a suite whose result changed
-/// between two runs of the same program could not be cached, and a failure
-/// nobody can reproduce is a failure nobody fixes.
+/// `anyOrder()` with no seed is the order **this suite's own content** names:
+/// the runner derives it from the suite's action key, the hash of every source
+/// in its closure that the result cache is already keyed on. So the order a
+/// suite schedules in changes exactly when the verdict that order produced
+/// stops being reusable, and never on a run that changed nothing. It is
+/// deliberately not a random one: a suite whose result changed between two runs
+/// of the same program could not be cached, and a failure nobody can reproduce
+/// is a failure nobody fixes. A block that means one particular order says
+/// `seed(n)`; the failure report names the seed that replays the one it hit.
 ///
 /// ## A bare handle, where `TestFs` and `TestNet` carry two things
 ///

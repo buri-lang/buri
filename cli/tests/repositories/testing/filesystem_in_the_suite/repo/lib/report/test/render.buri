@@ -1,7 +1,7 @@
 // A suite that reads files, running wherever `buri test` sends it.
 //
 // It used to be one of the two suites in this repository that could not: its
-// filesystem was `Hermetic()`'s `data()`, seeded by the runner from
+// filesystem was the one the runner handed the suite, seeded from
 // `test { data: [...] }`, and a linked test binary has no runner. `fs()` is the
 // same in-memory filesystem with its contents written here instead, so both
 // backends read the same bytes and neither needs a runner to be handed them.

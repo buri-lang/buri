@@ -30,7 +30,7 @@
 //! 4. **The host capabilities work**, including the byte forms, the write
 //!    ordering between the buffered text stream and `writeBytes`, and the
 //!    append/rename/sync sequence a write-ahead log commits through.
-use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE, net};
+use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE, h3, net};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -115,8 +115,11 @@ fn stderr(out: &Output) -> String {
 /// Every host we build a runtime for runs these; the rest have nothing to run.
 fn skip() -> bool {
     if !AVAILABLE {
-        eprintln!("runtime_native: no runtime archive on this host, nothing to test");
-        return true;
+        return crate::ci::skipped(
+            "runtime_native",
+            "no runtime archive was built for this host, so there is nothing to link a driver \
+             against",
+        );
     }
     false
 }
@@ -403,7 +406,7 @@ fn the_filesystem_effect_works() {
 /// filesystem.
 ///
 /// `conformance/lib/semantics/test/effects.buri` runs the same sequence against
-/// `MemFs` on both backends. Two implementations of one story is the whole
+/// the `fs()` double on both backends. Two implementations of one story is the whole
 /// argument for a fake: a divergence is a failure in one of them rather than a
 /// difference between two sets of assertions.
 #[test]
@@ -507,7 +510,30 @@ fn the_network_effect_fetches() {
     let port = listener.local_addr().unwrap().port();
 
     let server = std::thread::spawn(move || {
-        let (mut sock, _) = listener.accept().unwrap();
+        // Every wait this thread does is bounded, because the test joins it: a
+        // driver that never connects, or that connects and stops talking, has
+        // to become a failing assertion here rather than a suite that runs
+        // until CI kills it. `cli/runtime/tls.rs`'s own server was the same
+        // shape and was the hang that made the point.
+        let patience = std::time::Duration::from_secs(60);
+        let deadline = std::time::Instant::now() + patience;
+        listener.set_nonblocking(true).unwrap();
+        let mut sock = loop {
+            match listener.accept() {
+                Ok((sock, _)) => break sock,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "the driver did not connect within {patience:?}"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                Err(e) => panic!("the probe listener could not accept: {e}"),
+            }
+        };
+        sock.set_nonblocking(false).unwrap();
+        sock.set_read_timeout(Some(patience)).unwrap();
+        sock.set_write_timeout(Some(patience)).unwrap();
         let mut request = Vec::new();
         let mut buf = [0_u8; 1024];
         // Read until the headers are complete *and* the four-octet body the
@@ -606,6 +632,53 @@ fn the_network_effect_answers_https_according_to_its_features() {
     assert_eq!(stdout(&out).trim_end(), "err=2 message=not an absolute http URL: not-a-url");
 }
 
+/// **The `net-h3` flag round-trips**, across the C ABI and back.
+///
+/// There are two independent paths from "which features did Cargo build this
+/// archive with" to an answer, and this is the assertion that they agree:
+///
+/// * the **archive's**, which is `#[cfg(feature = "net-h3")]` folded into
+///   `net.rs`'s `LINKED` constant and exported as `buri_rt_net_h3_available`,
+///   read here by linking the archive and calling it; and
+/// * the **toolchain's**, which is `cli/build.rs` writing `net-h3` into
+///   `libburi_rt.a.features` and `runtime_native::h3()` reading that line back.
+///
+/// Neither can see the other. A build script that wrote the wrong feature line,
+/// a `--features` flag that did not reach the nested `cargo`, or a stale
+/// `OUT_DIR` pairing one build's bytes with another's answer all show up here
+/// as a disagreement, and nowhere else.
+///
+/// The same holds for `net` beside it, which is why both are checked: `net-h3`
+/// contains `net` as a substring, so a features file read by anything other
+/// than whole lines would report an h3-only archive as a networking one and
+/// this is where that would surface.
+#[test]
+fn the_networking_features_agree_across_the_abi() {
+    if skip() {
+        return;
+    }
+    let out = run(&["net-features"]);
+    let line = stdout(&out);
+    let line = line.trim_end();
+    let bit = |name: &str| -> i64 {
+        line.split_whitespace()
+            .find_map(|field| field.strip_prefix(name))
+            .unwrap_or_else(|| panic!("the driver printed no `{name}` field: {line}"))
+            .parse()
+            .unwrap_or_else(|e| panic!("`{name}` is not a number in {line}: {e}"))
+    };
+    assert_eq!(bit("net=") == 1, net(), "the archive and its feature file disagree about `net`");
+    assert_eq!(bit("h3=") == 1, h3(), "the archive and its feature file disagree about `net-h3`");
+    // The capability mask is the same fact a third way: bit 4 is `net-h3`, and
+    // it is above the four `net` ones so that neither can be read as the other.
+    let caps = bit("caps=");
+    assert_eq!(caps & (1 << 4) != 0, h3(), "the capability mask disagrees with the h3 door");
+    assert_eq!(caps != 0, net(), "the capability mask disagrees with the `net` door");
+    // And the implication the manifest states: `net-h3 = ["net", "dep:quinn"]`.
+    assert!(!h3() || net(), "this archive claims QUIC without a networking stack under it");
+    assert!(out.status.success());
+}
+
 /// The runtime crate's own unit tests — including the `https://` exchange
 /// against a locally-served `rustls` endpoint — run.
 ///
@@ -618,15 +691,44 @@ fn the_network_effect_answers_https_according_to_its_features() {
 /// path comes from the build script — `BURI_RT_PKG` — because the package is
 /// *assembled* in `OUT_DIR` and only the script knows where.
 ///
+/// # Two ways to run them, and this test is both
+///
+/// The nested `cargo` below cold-compiles tokio, hyper and rustls the first
+/// time it is asked, which is a minute of `cc` and `rustc` **inside one test**
+/// — invisible in a test report, and invisible to every cache CI has, because
+/// the target directory is under `CARGO_TARGET_TMPDIR` and `harness/sweep.rs`
+/// collects it. On a laptop that is a fair trade: it is paid once per checkout
+/// and it needs no workflow to have been written. On a runner it was sixty
+/// seconds a leg of unattributable time.
+///
+/// So on a runner the *step* runs them —
+/// `.github/scripts/test-runtime-crate.sh`, which is the same `cargo test` with
+/// a cache key and a line in the run summary — and this test asserts the step
+/// ran. Not that it is configured: that the stamp it writes on success is on
+/// disk. Delete the step from a job and this fails; leave `BURI_CI=1` set with
+/// no step and this fails; and nothing about it can pass while the runtime's
+/// tests have not run.
+///
+/// **No platform loses coverage.** Off a runner (`BURI_CI` unset) the nested
+/// `cargo` runs exactly as it always did, on every host that has a runtime —
+/// which is every host `AVAILABLE` is true on.
+///
 /// The nested `cargo` gets the same treatment `cli/build.rs`'s does and for the
 /// same reasons: every `CARGO_*` but `CARGO_HOME` removed, so the outer
 /// invocation's target-directory lock and jobserver are not inherited, and an
-/// emptied `RUSTFLAGS`. `--offline` and `--no-default-features` mirror whatever
-/// the archive beside this binary was actually built with, so this runs the
-/// tests of *this* runtime rather than of a differently-featured one.
+/// emptied `RUSTFLAGS`. `--offline`, `--no-default-features` and
+/// `--features net-h3` mirror whatever the archive beside this binary was
+/// actually built with, so this runs the tests of *this* runtime rather than of
+/// a differently-featured one. All three states are reachable from the outside:
+/// the default, `BURI_RUNTIME_NET=0`, and `BURI_RUNTIME_NET_H3=1`. The script
+/// makes the same two decisions from the same two files.
 #[test]
 fn the_runtime_crate_answers_its_own_tests() {
     if skip() {
+        return;
+    }
+    if crate::ci::on() {
+        the_ci_step_ran_them();
         return;
     }
     let pkg = Path::new(env!("BURI_RT_PKG"));
@@ -653,6 +755,9 @@ fn the_runtime_crate_answers_its_own_tests() {
     if !net() {
         cargo.arg("--no-default-features");
     }
+    if h3() {
+        cargo.args(["--features", "net-h3"]);
+    }
     cargo.arg("--manifest-path").arg(pkg.join("Cargo.toml"));
     // Beside the other native scratch trees, and *not* named for the process:
     // the dependency tree is a minute of `cc` and `rustc` the first time, and
@@ -668,6 +773,63 @@ fn the_runtime_crate_answers_its_own_tests() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+/// The runner's half: the hoisted step ran, and it passed.
+///
+/// `BURI_RT_TESTS_STAMP` is set in the workflow's `env:` block and the stamp is
+/// written by `.github/scripts/test-runtime-crate.sh` only after its `cargo
+/// test` exits zero, so its presence is the step's own report rather than a
+/// claim about the workflow's text. Both halves of that are failures here: a
+/// job with the variable and no step leaves no file, and a job with neither
+/// leaves no variable.
+///
+/// The stamp's contents are read, not just its existence — a `mkdir` or a
+/// truncated write would otherwise satisfy this — and what is checked is a
+/// **digest, not a path**. A target directory can hold several assembled
+/// packages (a restored cache's, a `--features` build's), only one of which is
+/// the one this binary was compiled against, and the file paths do not say
+/// which. `libburi_rt.a.sha256` does: the script records the digest of every
+/// distinct runtime it tested, `archive_hash()` is the digest of the archive
+/// baked into this binary, and the question "were the tests that ran the tests
+/// of THIS runtime" is exactly whether the second is among the first.
+fn the_ci_step_ran_them() {
+    let stamp = std::env::var("BURI_RT_TESTS_STAMP").unwrap_or_else(|_| {
+        panic!(
+            "BURI_CI=1 and BURI_RT_TESTS_STAMP is unset. On a runner this test does not shell a \
+             nested `cargo` — `.github/scripts/test-runtime-crate.sh` runs the runtime crate's \
+             tests as a step, and this variable is how the step and this test agree on where the \
+             step's stamp goes. Set it in the workflow's `env:` block, beside BURI_CI."
+        )
+    });
+    let text = std::fs::read_to_string(&stamp).unwrap_or_else(|e| {
+        panic!(
+            "BURI_CI=1 and there is no stamp at {stamp} ({e}). The runtime crate's own tests are \
+             run by `.github/scripts/test-runtime-crate.sh` on a runner, and that script writes \
+             this file only after its `cargo test` exits zero — so either the step is missing \
+             from this job or it has not run yet. Add it after the runtime-archive assertion and \
+             before the suite."
+        )
+    });
+    assert!(
+        text.starts_with("ok\n"),
+        "the stamp at {stamp} does not say the runtime crate's tests passed:\n{text}"
+    );
+    let tested: Vec<&str> =
+        text.lines().filter_map(|line| line.strip_prefix("runtime: ")).collect();
+    assert!(!tested.is_empty(), "the stamp at {stamp} names no runtime it tested:\n{text}");
+    let ours = buri::compiler::backend::runtime_native::archive_hash();
+    assert!(
+        tested.iter().any(|digest| *digest == ours),
+        "the step tested {} runtime(s) and none of them is the one in this binary. Tested:\n  \
+         {}\nThis binary's `libburi_rt.a`: {ours}\n\nThe usual cause is a stale `$OUT_DIR` under \
+         the target directory — a restored cache's, or a differently-featured build's — that the \
+         script found and this binary was not compiled against. It tests every DISTINCT runtime \
+         it finds, so a miss here means the one in this binary was not on disk when the step ran.",
+        tested.len(),
+        tested.join("\n  ")
+    );
+    eprintln!("runtime crate: tested by the CI step ({stamp})\n{text}");
 }
 
 // ---------------------------------------------------------------------------

@@ -176,8 +176,8 @@ Deliberately absent, and not by oversight:
 `core/effect` declares the effects; `core/host` implements them and may be
 imported only by the module that exports `main`. `core/io`, `core/fs`,
 `core/env`, `core/random`, `core/net/http`, `core/tasks` are the interfaces
-those effects are used through. `core/testing/assert`, `core/host/testing` and
-`core/testing/context` are importable only from a test source.
+those effects are used through. `core/testing/assert` and `core/host/testing`
+are importable only from a test source.
 
 `core/tasks` is one function. `parallel(ctx, items, f)` runs `f` over every item
 and answers the results **in the items' order**, whatever order the work
@@ -250,7 +250,8 @@ fixture and failure comes from the plan — and a fault whose call never happens
 fails the test. `tasks()` is the one double whose subject is not state but
 **scheduling**: `Tasks.parallel` promises its results in the items' order and
 nothing about the order the work runs in, so `tasks()` runs the tasks in program
-order, `tasks().anyOrder()` in one seeded order, and `tasks().everyOrder()` runs
+order, `tasks().anyOrder()` in the one order its own content seeds, and
+`tasks().everyOrder()` runs
 the whole `test` body once per completion order. A seed is the order's own
 number, so a failure names a line that replays it. See
 [testing](../build/testing.md).

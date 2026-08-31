@@ -40,14 +40,12 @@
 //!     754 does not fix their answers, so V8's fdlibm port and the platform's
 //!     libm differ in the last bit, and a rendered `Float` shows seventeen
 //!     digits of it;
-//!   * **the stateful half of `core/testing/context` and of
-//!     `core/host/testing`** ([`testing`]) — a captured stdout, a seeded
-//!     generator, a test clock, a fixture environment, and a stdin that was
-//!     handed its lines. Every one of them is mutable process state outliving the expression
-//!     that made it, which is why each implementation carries an `I64` handle
+//!   * **the stateful half of `core/host/testing`** ([`testing`]) — a captured
+//!     stdout, a seeded generator, a test clock, a fixture environment, and a
+//!     stdin that was handed its lines. Every one of them is mutable process state outliving the expression
+//!     that made it, which is why each double carries an `I64` handle
 //!     and puts the state on the runner's side; on JavaScript that side is
-//!     `runtime.js`'s `$t.h`, and here it is one table — one, not two, because
-//!     the two modules are two vocabularies over one handle store. `alloc()`
+//!     `runtime.js`'s `$t.h`, and here it is one table. `alloc()`
 //!     is the exception in both and both backends open-code it, because it
 //!     reads no state;
 //!   * **128-bit arithmetic** — [`buri_rt_i128_divmod`], [`buri_rt_i128_checked`]
@@ -199,7 +197,7 @@
 //!   * [`BURI_OK`], and `.Ok`'s payload written through the out-pointer — or,
 //!     where `T` is zero-sized, **no out-pointer at all**, because a parameter
 //!     for a value that occupies no bytes is a parameter the two sides can
-//!     disagree about for free. `MemFs.writeFile` answers `Result<(), IoError>`
+//!     disagree about for free. `TestFs.writeFile` answers `Result<(), IoError>`
 //!     and takes no `out`.
 //!   * `0 ..= n`, naming a variant of `E` in declaration order, **which must
 //!     carry no fields.** The out-pointer is untouched.
@@ -210,7 +208,7 @@
 //! per entry rather than the two stores it generates now. Nothing in the archive
 //! needs one — `IoError`'s seven variants are reached as `NotFound` and
 //! `AlreadyExists`, both payload-less, exactly as `runtime.js`'s
-//! `$testing_context_MemFs_readFile` returns `$err([0])`.
+//! `$host_testing_fsReadFile` returns `$err([0])`.
 //!
 //! **An error type that is not an enum at all is the other half, and it is
 //! not the same problem.** `bytes.fromUtf8` answers `Result<Str, Utf8Error>`
@@ -420,30 +418,52 @@
 //!
 //! ## 8. Features, and the manifest that is not called `Cargo.toml`
 //!
-//! One feature, `net`, on by default: `tokio`, `hyper`, `rustls`, `ring` and
-//! `tungstenite`, which is the runtime's whole admitted dependency set and is
-//! closed by an exact list rather than by a habit (`manifest.toml` argues each
-//! entry, the root `Cargo.toml` states the bar, and
-//! `dependencies_stay_behind_the_bar` asserts the equality).
+//! Two features. `net` is on by default: `tokio`, `hyper`, `rustls`, `ring`
+//! and `tungstenite`. `net-h3` is **off** by default and adds `quinn`. Together
+//! they are the runtime's whole admitted dependency set, closed by an exact
+//! list rather than by a habit (`manifest.toml` argues each entry, the root
+//! `Cargo.toml` states the bar, and `dependencies_stay_behind_the_bar` asserts
+//! the equality).
 //!
-//! **Three of the five are linked and two are not.** [`rt`] is the carrier
+//! **Three of the six are linked and three are not.** [`rt`] is the carrier
 //! runtime — the reactor, the run baton, the carrier pool and the task table —
 //! and `Clock::sleepMillis` and `Net::fetch` wait on it, so the archive carries
 //! the reactor's code on purpose; `rustls` over `ring` is what [`tls`] uses for
 //! `https://`, and it is why the archive grew by about 1.72 MiB, most of it
 //! `ring`'s native object code, which a `staticlib` carries whether the linker
-//! wants it or not. `hyper` and `tungstenite` are still referenced only by
-//! [`net`], which names one type from each and stops, so `lto = "fat"` leaves
-//! them out of the archive entirely.
+//! wants it or not. `hyper`, `tungstenite` and `quinn` are still referenced
+//! only by [`net`], which names one type from each and stops, so `lto = "fat"`
+//! leaves them out of the archive entirely — measurably: an archive built with
+//! `net-h3` is *forty bytes smaller* than one without it, because the QUIC
+//! crate does not reach it and the refusal string does not have to.
 //! `.github/scripts/assert-runtime-archive.sh` holds both halves in CI by
-//! grepping the symbol table — three names that must be there, two that must
+//! grepping the symbol table — three names that must be there, three that must
 //! not — and each of the three moved across that line in the commit that
-//! linked it. The slice that links one of the other two moves it again.
+//! linked it. The slice that links one of the other three moves it again.
 //!
 //! Nothing about the **feature's** shape changed with any of it: `net` off is
 //! still a runtime with no dependency at all, [`rt`] and [`tls`] do not
 //! compile, `Clock::sleepMillis` is `thread::sleep` as it always was, and
 //! `https://` goes back to a refusal that names this feature as the reason.
+//!
+//! **`net-h3` is the opposite default, and the asymmetry is the argument.**
+//! `net`'s five crates are what a program that speaks the network at all
+//! needs, so they are on unless something takes them away; `quinn` is what a
+//! program that has *asked for HTTP/3* needs, and the concurrency note gated h3
+//! behind configuration until the crate is trusted. `BURI_RUNTIME_NET_H3=1` is
+//! that configuration, `net-h3` implies `net` because QUIC carries TLS 1.3
+//! inside the transport, and the provider is pinned to `ring` by name so that
+//! an h3 archive has one cryptography implementation in it and not two.
+//!
+//! What a toolchain without it owes a program that asked for `.Http3` is a
+//! **value**: [`net::serves`] answers `Err`, `serve` returns
+//! `.Err(Unsupported)`, and the process keeps running. It is not an abort,
+//! because a toolchain built without a feature is a configuration the program
+//! can report or fall back from rather than a broken invariant (§5), and it is
+//! not a compile-time refusal, because the keys HTTP/3 is reached through are
+//! `HostListen`'s and refusing them would refuse every server that was only
+//! ever going to speak HTTP/1.1. `buri_rt_net_h3_available` is the door a
+//! linked program asks the same question through.
 //!
 //! **What a toolchain built without it owes the user.** `net` off is a
 //! *language capability* missing, not a code generator missing, so the

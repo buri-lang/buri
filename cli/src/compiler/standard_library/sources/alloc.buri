@@ -54,7 +54,7 @@
 //!
 //! Buri has no mutation, so a running total cannot live in the struct that
 //! reports it. Each of the three carries a handle and the total lives beside
-//! it, exactly as `core/testing/context`'s captured stdout does. Two
+//! it, exactly as `core/host/testing`'s captured stdout does. Two
 //! consequences, both deliberate:
 //!
 //!   * **A copy shares its counter.** Passing a `FixedBuffer` into a context

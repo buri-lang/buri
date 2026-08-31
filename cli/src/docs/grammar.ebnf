@@ -341,7 +341,7 @@ DeriveDecl      ::= "derive" NamedType ("," NamedType)* "for" type=NamedType ";"
 
    Two forms, told apart by one token of lookahead after `context`: an IDENT
    opens a declaration, a `{` opens an expression. A declaration takes no
-   parameters and is constructed by calling it -- `Hermetic()` -- so each use
+   parameters and is constructed by calling it -- `Fixture()` -- so each use
    gets a fresh one. Where either form may appear is a static rule, not a
    grammar one.
 

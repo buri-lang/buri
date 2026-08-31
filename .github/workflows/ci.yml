@@ -59,6 +59,7 @@ name: CI
 # `concurrency` group below still collapses superseded runs of each.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -71,9 +72,38 @@ concurrency:
 permissions:
   contents: read
 
+# Workflow-level, which is the definition of "every job": GitHub hands this
+# block to every job and every step in the file, and a job-level `env:`
+# overrides only the keys it names — so the jobs below that set `CC` or
+# `BURI_PERF` keep all of these.
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+
+  # **NEVER SKIP A TEST ON CI**, and this is the switch that enforces it.
+  #
+  # Half the native suite opens with `if !supported() { return; }`. That guard
+  # is right on a contributor's machine — a host with no C compiler, or a triple
+  # no stencil library is built for, should get a suite that says so rather than
+  # a wall of red — and it is wrong here, because every runner in this file
+  # installs the tools, asserts each is on `PATH`, and asserts the stencil
+  # libraries and the runtime archive are real bytes before the suite starts. A
+  # guard that fires on such a runner is not "this host cannot"; it is "a thing
+  # this workflow guarantees stopped being true", and the honest report of that
+  # is a failure.
+  #
+  # `BURI_CI=1` makes `cli/tests/harness/ci.rs::skipped` PANIC instead of
+  # returning, so those tests fail loudly rather than passing vacuously.
+  # `cli/tests/ci.rs` asserts this line is still here, because a mechanism that
+  # can be deleted without a test noticing is one that will be.
+  BURI_CI: 1
+
+  # Where `.github/scripts/test-runtime-crate.sh` leaves its receipt, and where
+  # `native::runtime::the_runtime_crate_answers_its_own_tests` looks for it.
+  # The test shells its own nested `cargo test` off a runner and asserts this
+  # file on one; the script writes it only after that `cargo test` exits zero.
+  # One variable so the step and the test cannot disagree about the path.
+  BURI_RT_TESTS_STAMP: ${{ github.workspace }}/target/runtime-crate-tests.ok
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -96,9 +126,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, arch: arm64 }
-          - { os: ubuntu-24.04, arch: x86_64 }
-          - { os: ubuntu-24.04-arm, arch: arm64 }
+          - { os: blacksmith-12vcpu-macos-latest, arch: arm64 }
+          - { os: blacksmith-4vcpu-ubuntu-2404, arch: x86_64 }
+          - { os: blacksmith-4vcpu-ubuntu-2404-arm, arch: arm64 }
     runs-on: ${{ matrix.os }}
     env:
       CC: clang
@@ -107,7 +137,7 @@ jobs:
     # files through an unoptimized backend. Add a cold runner's toolchain build
     # and the benchmark's LTO'd `bench` profile and an hour is a cap rather than
     # a target.
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -155,14 +185,45 @@ jobs:
       # the same way — an empty archive on a host with no runtime, and since the
       # `net` feature on a dependency tree that cannot be resolved — and an
       # empty one makes every native test skip and the suite pass vacuously.
-      # It also asserts the size budget and that none of the four networking
-      # crates has been linked in; the script argues both.
+      # It also asserts the size budget, that the three linked networking crates
+      # are there, and that the three unreferenced ones — `hyper`,
+      # `tungstenite` and `quinn` — are not; the script argues each.
       - name: The runtime archive is not empty
         run: bash .github/scripts/assert-runtime-archive.sh
 
+      # The runtime crate's own tests, hoisted out of the suite.
+      #
+      # `cli/runtime` is a cargo package `cargo test -p buri` cannot reach —
+      # `cli/build.rs`'s header argues why — and until now the only thing that
+      # ran its ninety-seven assertions was a test that shelled a nested
+      # `cargo test`. That cold-compiled tokio, hyper and rustls INSIDE ONE
+      # TEST: sixty seconds and more a leg, into a target directory under
+      # `CARGO_TARGET_TMPDIR` that no cache here has ever seen, reported as one
+      # line among the native binary's hundred and twenty.
+      #
+      # As a step it has a cache key of its own, a duration in the run summary,
+      # and its own red X. Nothing is skipped to buy that: the test still runs
+      # the nested `cargo` on a machine with `BURI_CI` unset, and on a runner it
+      # asserts the stamp this step writes — so a job that drops the step fails
+      # on the test rather than quietly testing nothing.
+      - uses: useblacksmith/cache@v5
+        with:
+          path: target/runtime-crate-tests
+          key: rt-tests-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('cli/runtime/manifest.lock', 'cli/runtime/manifest.toml') }}
+          restore-keys: rt-tests-${{ matrix.os }}-${{ matrix.arch }}-
+      - name: The runtime crate answers its own tests
+        run: bash .github/scripts/test-runtime-crate.sh
+
       # `--no-fail-fast` because the test binaries are domains, and one failing
-      # domain should not hide the others.
-      - run: cargo test -p buri --no-fail-fast
+      # domain should not hide the others. Through `tee`, because the assertion
+      # after it reads the summary rather than the exit status: an ignored test
+      # and a filtered-out one are both a green run, and `cargo test`'s status
+      # cannot tell either from a suite that ran.
+      - run: |
+          set -o pipefail
+          cargo test -p buri --no-fail-fast 2>&1 | tee suite.log
+      - name: Nothing was skipped
+        run: bash .github/scripts/assert-no-skips.sh suite.log
 
       # Deliberately NOT `-D warnings`. The bar this repository states is the
       # panic-free lint set in the workspace manifest, and every lint in it is
@@ -177,6 +238,42 @@ jobs:
       # held to staying under a second there.
       - if: runner.os == 'Linux'
         run: cargo bench -p buri --bench compiler -- --validate --quick
+
+      # The runtime's OTHER feature, on ONE job of the whole workflow.
+      #
+      # `net-h3` is off by default — `quinn`, QUIC, and the concurrency note's
+      # gate "behind configuration until the crate is trusted"
+      # (cli/runtime/manifest.toml argues it). What still has to be true is that
+      # the feature COMPILES and that turning it on does not quietly change what
+      # every user ships, and neither is a per-platform question: quinn is
+      # portable Rust, it reaches the archive through the same nested `cargo`
+      # the other five do, and the assertion is about symbols and bytes rather
+      # than about a syscall. One job is therefore the right number, and paying
+      # it on three would buy nothing but the minutes.
+      #
+      # x86_64 Linux because it is the leg the release job also uses, so the
+      # crates are in the same rust-cache the rest of this job warmed.
+      #
+      # LAST in the job, deliberately: it rebuilds the runtime archive and
+      # relinks `buri`, so running it earlier would leave every step after it
+      # measuring an h3 toolchain that no other job has.
+      - if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        name: The runtime builds with net-h3, and it costs what it says
+        env:
+          BURI_RUNTIME_NET_H3: "1"
+        run: |
+          set -euo pipefail
+          cargo build -p buri
+          # The same three assertions, on the h3 archive: not empty, inside the
+          # SAME size budget as the `net` one — quinn is referenced by nothing
+          # yet and fat LTO drops it whole, so an h3 archive that grew is a
+          # finding — and a symbol table with one crypto provider in it rather
+          # than two. The script reads `libburi_rt.a.features` and takes the h3
+          # branch on its own.
+          bash .github/scripts/assert-runtime-archive.sh
+          # And the toolchain agrees with its own archive about the feature:
+          # the C-ABI door against the file beside the bytes.
+          cargo test -p buri --test native runtime::the_networking_features_agree_across_the_abi
 
       # A failing test's scratch directory is its evidence (cli/tests/README.md).
       # `BURI_KEEP` is NOT set: a panicking test keeps its own tree regardless
@@ -201,10 +298,10 @@ jobs:
   # ---------------------------------------------------------------------------
   linux-arm64:
     name: linux arm64 (the programs run)
-    runs-on: ubuntu-24.04-arm
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     env:
       CC: clang
-    timeout-minutes: 75
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -224,8 +321,9 @@ jobs:
       # the same way — an empty archive on a host with no runtime, and since the
       # `net` feature on a dependency tree that cannot be resolved — and an
       # empty one makes every native test skip and the suite pass vacuously.
-      # It also asserts the size budget and that none of the four networking
-      # crates has been linked in; the script argues both.
+      # It also asserts the size budget, that the three linked networking crates
+      # are there, and that the three unreferenced ones — `hyper`,
+      # `tungstenite` and `quinn` — are not; the script argues each.
       - name: The runtime archive is not empty
         run: bash .github/scripts/assert-runtime-archive.sh
 
@@ -263,6 +361,12 @@ jobs:
           set -o pipefail
           cargo test -p buri --test native stencil:: -- --nocapture \
             --skip the_corpus_census_is_a_ratchet 2>&1 | tee suite.log
+      # `--allow-filtered` because this invocation asked for a part on purpose:
+      # `stencil::` and a `--skip` for the census, which the step above already
+      # ran. What is still asserted is that nothing in the part that WAS asked
+      # for was ignored, and that the part was not empty.
+      - name: Nothing was skipped
+        run: bash .github/scripts/assert-no-skips.sh suite.log --allow-filtered
 
       # Leak parity: heap-stats and NOT valgrind, deliberately. The claim is
       # that the code generator leaves *exactly the same* blocks live at two
@@ -401,10 +505,10 @@ jobs:
   # ---------------------------------------------------------------------------
   linux-x86_64:
     name: linux x86_64 (the programs run)
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       CC: clang
-    timeout-minutes: 75
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -424,8 +528,9 @@ jobs:
       # the same way — an empty archive on a host with no runtime, and since the
       # `net` feature on a dependency tree that cannot be resolved — and an
       # empty one makes every native test skip and the suite pass vacuously.
-      # It also asserts the size budget and that none of the four networking
-      # crates has been linked in; the script argues both.
+      # It also asserts the size budget, that the three linked networking crates
+      # are there, and that the three unreferenced ones — `hyper`,
+      # `tungstenite` and `quinn` — are not; the script argues each.
       - name: The runtime archive is not empty
         run: bash .github/scripts/assert-runtime-archive.sh
 
@@ -448,6 +553,10 @@ jobs:
           set -o pipefail
           cargo test -p buri --test native stencil:: -- --nocapture \
             --skip the_corpus_census_is_a_ratchet 2>&1 | tee suite.log
+      # `--allow-filtered` for the reason the arm64 job's copy states: this
+      # invocation asked for `stencil::` minus the census on purpose.
+      - name: Nothing was skipped
+        run: bash .github/scripts/assert-no-skips.sh suite.log --allow-filtered
 
       - name: Leak parity through buri_rt_heap_stats
         run: |
@@ -564,10 +673,10 @@ jobs:
   # ---------------------------------------------------------------------------
   release:
     name: release build (x86_64, advisory)
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       CC: clang
-    timeout-minutes: 75
+    timeout-minutes: 45
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -612,9 +721,32 @@ jobs:
       - name: The runtime archive is not empty
         run: bash .github/scripts/assert-runtime-archive.sh
 
+      # The stencil libraries too: with `BURI_CI=1` a stencil guard that fires
+      # is a panic rather than a quiet return, so this job wants the same
+      # before-the-fact diagnosis the others get rather than a native test
+      # panicking three minutes in.
+      - name: The stencil libraries are not empty
+        run: bash .github/scripts/assert-stencils.sh
+
+      # The runtime crate's own tests, for the reason the `test` matrix states.
+      # This job runs the whole suite, so it reaches
+      # `the_runtime_crate_answers_its_own_tests`, which under `BURI_CI=1`
+      # asserts this step's stamp.
+      - uses: useblacksmith/cache@v5
+        with:
+          path: target/runtime-crate-tests
+          key: rt-tests-ubuntu-24.04-x86_64-release-${{ hashFiles('cli/runtime/manifest.lock', 'cli/runtime/manifest.toml') }}
+          restore-keys: rt-tests-ubuntu-24.04-x86_64-release-
+      - name: The runtime crate answers its own tests
+        run: bash .github/scripts/test-runtime-crate.sh
+
       # The agreement test (ARCHITECTURE.md §4) is what makes the release
       # build's code generator worth turning on, and it only exists with both.
-      - run: cargo test -p buri --no-fail-fast --features backend-llvm
+      - run: |
+          set -o pipefail
+          cargo test -p buri --no-fail-fast --features backend-llvm 2>&1 | tee suite.log
+      - name: Nothing was skipped
+        run: bash .github/scripts/assert-no-skips.sh suite.log
 
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -643,7 +775,12 @@ jobs:
   # time. A request has to take seven times longer than it does before this job
   # has an opinion, so a red X here is a regression and not a noisy neighbour —
   # which is the whole bar for a timing gate, because one that cries wolf gets
-  # deleted. If a future runner is genuinely slower,
+  # deleted. A shared runner can still desert one request for a whole
+  # timeslice, so neither test fails on a single reading: a run with a request
+  # over the bar measures its session again, up to three times, and holds each
+  # request to its fastest attempt (`best_of` in `repositories.rs`). The bar
+  # stays 50 ms, and something genuinely slower is slower in every attempt.
+  # If a future runner is genuinely slower,
   # the tests read `BURI_PERF_BUDGET_SCALE` — a multiplier on the 50 ms,
   # defaulting to 1 — so the widening is one `env:` line here rather than an
   # edit to the assertion. Nothing sets it today, and the numbers above are why.
@@ -655,7 +792,7 @@ jobs:
   # ---------------------------------------------------------------------------
   language-server-budget:
     name: language server budget (arm64)
-    runs-on: ubuntu-24.04-arm
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     env:
       BURI_PERF: 1
     # The whole step — a cold, link-time-optimized release build of the
@@ -687,7 +824,8 @@ jobs:
   # needs no job of its own: every `test` leg above is one.
   # ---------------------------------------------------------------------------
   minimal:
-    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -708,7 +846,8 @@ jobs:
   # by formal/lean-toolchain; elan reads it.
   # ---------------------------------------------------------------------------
   lean:
-    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - name: Install elan
@@ -716,7 +855,7 @@ jobs:
           curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
           ./elan-init -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-      - uses: actions/cache@v4
+      - uses: useblacksmith/cache@v5
         with:
           path: formal/.lake
           key: lake-${{ runner.os }}-${{ hashFiles('formal/lean-toolchain', 'formal/lakefile.toml') }}
@@ -744,7 +883,8 @@ jobs:
   # named for it.
   # ---------------------------------------------------------------------------
   tree-sitter:
-    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -770,7 +910,8 @@ jobs:
   # build but a green one that shipped a toolchain with no native backend.
   # ---------------------------------------------------------------------------
   nix:
-    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v16
