@@ -108,6 +108,13 @@ buri_rt_task_launch:
     // once per task and it is the difference between a misaligned stack
     // *given* to this runtime and a crash inside somebody else's `movaps`.
     and  rsp, -16
+    // And *this* is why the pad is assembly. SysV wants an aligned pointer at
+    // the call instruction, so a C function's first instruction sees one eight
+    // bytes lower — the address the call pushed. A `ret` leaves an aligned
+    // pointer instead, which is the other state, and the eight bytes between
+    // them are the ones this `call` spends. A Rust `extern "C" fn` planted in
+    // a frame's return word would never spend them and would lay every frame
+    // it has eight bytes out; `switch.rs` §2.2 is the long version.
     call buri_rt_task_main
     ud2
 .size buri_rt_task_launch, .-buri_rt_task_launch
