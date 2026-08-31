@@ -106,6 +106,15 @@
 //!   different compiler under the same version. The degradation above is for a
 //!   contributor on a plane, not for a release.
 //!
+//!   There is a third answer beside those two, and it is a **probe** for the
+//!   same reason: `ring`, the TLS provider `https://` runs on, compiles C and
+//!   assembly, so a host with no C compiler cannot build the runtime with `net`
+//!   on. That host gets the `net`-off runtime and a `cargo:warning` — a real
+//!   archive, a working toolchain, cleartext HTTP, and an `https://` that
+//!   refuses at run time naming the feature — rather than a failed build or an
+//!   empty archive. `can_compile` is asked *before* the build so that a compile
+//!   failure still means what it means.
+//!
 //! * **The archive says which features it was built with.** `libburi_rt.a.features`
 //!   is written beside the archive and beside its digest, holding the feature
 //!   names one to a line — `net`, today — and empty when there is no archive at
@@ -401,6 +410,28 @@ fn resolves(cargo: &str, rustc: &str, pkg: &Path, target: &str) -> Option<bool> 
     None
 }
 
+/// Tells the toolchain's own test suite where the assembled runtime package is
+/// and whether its dependency tree is reachable offline.
+///
+/// `cli/tests/native/runtime.rs` runs the runtime crate's **own** unit tests —
+/// `cargo test` on this package — because nothing else in the repository can:
+/// the package is assembled here, at a path only this script knows, and it is
+/// not a workspace member, so `cargo test -p buri` cannot reach inside it. Its
+/// fifty-odd tests (and, since `https://`, the TLS ones) would otherwise be
+/// written and never run.
+///
+/// `cargo:rustc-env` rather than a file, unlike the digest and the feature list
+/// beside the archive: this is a *path on this machine*, not a fact about the
+/// bytes, so it has nothing to travel with. Empty on every path that writes an
+/// empty archive, which is what the test reads as "nothing to run".
+fn package_env(pkg: Option<&Path>, offline: bool) {
+    match pkg {
+        Some(p) => println!("cargo:rustc-env=BURI_RT_PKG={}", p.display()),
+        None => println!("cargo:rustc-env=BURI_RT_PKG="),
+    }
+    println!("cargo:rustc-env=BURI_RT_OFFLINE={}", u8::from(offline));
+}
+
 fn runtime_archive(manifest: &Path) {
     let runtime = manifest.join("runtime");
     let out_dir = PathBuf::from(env("OUT_DIR"));
@@ -429,6 +460,7 @@ fn runtime_archive(manifest: &Path) {
         // No archive is no features, and the file exists on every path because
         // the toolchain `include_str!`s it unconditionally.
         features_beside(&out, &[]);
+        package_env(None, true);
         return;
     }
 
@@ -454,6 +486,31 @@ fn runtime_archive(manifest: &Path) {
     // `manifest.toml` was measured and what a host with an unreachable registry
     // can fall back to by hand.
     let net = !matches!(std::env::var("BURI_RUNTIME_NET").as_deref(), Ok("0"));
+    // And the second way `net` can be off, which is not a choice anybody made.
+    //
+    // `ring` — `rustls`'s crypto provider, and the reason `https://` works —
+    // compiles C and assembly with a host C compiler. A machine without one
+    // cannot build the runtime with the feature on, and the third clause of the
+    // dependency bar says that must **degrade** rather than break: this host
+    // gets the same runtime `BURI_RUNTIME_NET=0` produces, cleartext HTTP still
+    // works, and `https://` refuses at run time with a message naming the
+    // feature. A probe rather than a retry-on-failure, deliberately: retrying a
+    // failed compile with the feature off would also mask a genuine bug in the
+    // runtime's own TLS code as a silently net-less toolchain, which is the
+    // exact silent-green `.github/scripts/assert-runtime-archive.sh` exists to
+    // refuse. This asks a question whose answer is known before the build.
+    println!("cargo:rerun-if-env-changed=CC");
+    let cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
+    let net = net
+        && (can_compile(&cc) || {
+            println!(
+                "cargo:warning=no C compiler was found ({cc}), so the runtime is built without \
+                 its `net` feature: `ring`, the TLS provider, compiles C and assembly. The \
+                 toolchain works and `http://` works; `https://` will refuse at run time naming \
+                 the feature. Set CC, or install the platform's compiler, and rebuild."
+            );
+            false
+        });
     // The opt-in write-back path. Without `--locked` Cargo resolves and updates
     // the assembled package's `Cargo.lock`; this is what carries the result back
     // to the file a reviewer reads.
@@ -479,10 +536,12 @@ fn runtime_archive(manifest: &Path) {
                 );
                 write_empty(&out);
                 features_beside(&out, &[]);
+                package_env(None, true);
                 return;
             }
         },
     };
+    package_env(Some(&pkg), offline == Some(true));
 
     let mut command = nested(&cargo, &rustc);
     // `cargo rustc`, not `cargo build`: the flags after `--` are for the crate

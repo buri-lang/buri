@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # The runtime archive this toolchain was built with is real, is the right size,
-# and carries no networking crate that nothing calls into.
+# carries every networking crate something calls into, and carries no networking
+# crate that nothing does.
 #
 # THE LIVENESS GATE, and it is the runtime's half of the one
 # `assert-stencils.sh` performs for the stencil libraries — for the same reason,
@@ -24,49 +25,43 @@
 #
 #   2. UNDER BUDGET. The archive is `include_bytes!`d into every `buri` binary,
 #      so its size is the toolchain's size. The budget is per-OS because the
-#      figure is: measured on this repository at the commit that added `net`,
-#      5 987 496 bytes on aarch64-apple-darwin, 8 210 866 on
-#      x86_64-unknown-linux-gnu and 8 469 832 on aarch64-unknown-linux-gnu —
-#      the difference is `std` and the platform, not anything of ours. Slice B6
-#      then linked the reactor, which is 185 424 bytes of the same code on all
-#      three: 6 220 904 measured on aarch64-apple-darwin, and the Linux pair
-#      rise by that. The budgets below are those numbers with room for the
-#      runtime to grow, and they are a RATCHET: when one is hit, the right
-#      response is to find out what grew, and then either fix it or re-measure
-#      and re-state the number here with the new one written down.
+#      figure is, and it is a RATCHET: when one is hit, the right response is to
+#      find out what grew, and then either fix it or re-measure and re-state the
+#      number here with the new one written down.
 #
-#   3. NO NETWORKING CODE THAT NOTHING CALLS. The `net` feature was landed on
-#      the claim that its four crates are referenced by NOTHING, so
-#      `lto = "fat"` drops all of it and the archive grows by twenty-four
-#      bytes. The claim is checkable directly — the archive's symbol table must
-#      not mention a crate nothing reaches, nor a crypto provider — and it is
-#      checked here rather than trusted, because the whole point of landing the
-#      crates ahead of the code was to know what they cost before anything
-#      depended on them.
+#      IT HAS BEEN HIT ONCE, and the budgets below are the re-statement. Two
+#      slices moved the archive after the one that measured it. B6 linked the
+#      carrier runtime — `cli/runtime/rt.rs`, the reactor and its timer wheel —
+#      which is 185 424 bytes of tokio on all three triples. C7 linked the TLS
+#      client, which is 1.72 MiB, about 845 KB of it `ring`'s own C and assembly
+#      object files, which a `staticlib` carries whether the linker needs them
+#      or not. Together they put aarch64-apple-darwin at 8 198 904 bytes, over
+#      the 7 MiB this script used to allow. The budgets below are the new
+#      measurements: about 15 % of headroom over the figure measured here, and
+#      about a fifth over the projected Linux one.
 #
-#      TOKIO IS NO LONGER ON THE LIST, and this is the deliberate move the
-#      previous version of this comment said would come. `cli/runtime/rt.rs`
-#      (design/native track B, slice B6) is the carrier runtime — the reactor,
-#      the run baton, the carrier pool and the task table — and
-#      `Clock::sleepMillis` and `Net::fetch` wait on it, so the reactor's code
-#      is in the archive on purpose. Measured on aarch64-apple-darwin at the
-#      commit that did it:
+#   3. THE NETWORKING CRATES, ON WHICHEVER SIDE OF THE LINE THEY ARE ON.
+#      `net` brings five crates in. Three of them are now reached and the
+#      archive MUST carry them: `tokio`, by `rt.rs`, since B6; `rustls` and
+#      `ring`, by `cli/runtime/tls.rs`, since C7. An archive built with the
+#      feature and carrying no TLS code would be a toolchain whose `https://`
+#      fails at run time for a reason no test here would have caught, and one
+#      carrying no reactor would be a toolchain whose every suspending host call
+#      does. Two of them — `hyper` and `tungstenite` — are still referenced by
+#      nothing but `net.rs`'s `size_of`, `lto = "fat"` drops them whole, and the
+#      archive must NOT carry them. The slice that first links one of THOSE
+#      moves it across the same way, deliberately, in the commit that does it.
 #
-#          before  6 035 480 bytes      (tokio in the tree, referenced by nothing)
-#          after   6 220 904 bytes      +185 424, the reactor and its timer wheel
+#      `mio` and `socket2` reach the archive through tokio and are deliberately
+#      on neither list: they are that crate's platform layer, not a sixth and
+#      seventh dependency, and `dependencies_stay_behind_the_bar` is what holds
+#      the direct set to five.
 #
-#      Which is 85 % of the Darwin budget below, so the budget does not move
-#      with it — see the ratchet in 2 for what to do when it does. `mio` and
-#      `socket2` reach the archive through tokio and are deliberately NOT on
-#      the list: they are that crate's platform layer, not a fifth and sixth
-#      dependency, and `dependencies_stay_behind_the_bar` is what holds the
-#      direct set to four.
-#
-#      The other three are still called by nothing but `net.rs`'s `size_of`,
-#      and the list is still meant to be MOVED — by the slice that first links
-#      one of THEM (design/native: C7 routes `https://` through hyper and
-#      rustls). Moving it deliberately is the point; discovering the growth in
-#      a binary six months later is what it prevents.
+#      Which side is which is read from `libburi_rt.a.features`, written beside
+#      the archive by the same run of `cli/build.rs` that produced it: a
+#      `net`-off archive (no C compiler, an unresolvable tree, or
+#      `BURI_RUNTIME_NET=0`) must carry none of the five, and the file is how
+#      this script knows which of the two claims to make.
 #
 # Usage: bash .github/scripts/assert-runtime-archive.sh [target-dir]
 # Runs on macOS and Linux, unchanged.
@@ -76,11 +71,12 @@ set -euo pipefail
 target=${1:-target}
 
 case "$(uname -s)" in
-  # 6 220 904 measured since the reactor was linked; 7 MiB leaves ~15 %.
-  Darwin) budget=7340032 ;;
-  # 8 469 832 measured before it, on the larger of the two Linux triples, and
-  # the reactor is 185 424 bytes of the same code there. 10 MiB leaves ~17 %.
-  Linux)  budget=10485760 ;;
+  # 8 198 904 measured; 9 MiB leaves ~15 %.
+  Darwin) budget=9437184 ;;
+  # 8 469 832 was measured on the larger of the two Linux triples before either
+  # the reactor or TLS; the macOS deltas put it near 10.5 MB and CI is where
+  # that is confirmed. 12 MiB is ~20 % on that projection.
+  Linux)  budget=12582912 ;;
   *)      echo "::error::this script knows macOS and Linux only" ; exit 1 ;;
 esac
 
@@ -130,16 +126,54 @@ fi
 
 # A here-string rather than a pipe into `grep -q`: `set -o pipefail` and a grep
 # that exits on its first match make the pipeline's status SIGPIPE, which reads
-# as "no match" — so a piped version of this loop would report a clean archive
+# as "no match" — so a piped version of these loops would report a clean archive
 # precisely when the archive is not clean.
-for crate in hyper rustls tungstenite ring_core aws_lc; do
-  if grep -qi -- "$crate" <<<"$symbols"; then
-    echo "::error::libburi_rt.a carries symbols from \`$crate\`. The net feature was landed on the claim that its crates are referenced by NOTHING and therefore cost twenty-four bytes; something now references this one. If that is deliberate, this list and the size budget above both move, in the commit that made it deliberate — as slice B6 moved \`tokio\` off it, with the measurement in this file's header."
-    status=1
+absent() {
+  for crate in "$@"; do
+    if grep -qi -- "$crate" <<<"$symbols"; then
+      echo "::error::libburi_rt.a carries symbols from \`$crate\`, and nothing in the runtime is supposed to reach it. Either something new does — in which case this list and the size budget above both move, in the commit that made it deliberate — or a crate was added to cli/runtime/manifest.toml without an argument for it."
+      status=1
+    fi
+  done
+}
+
+present() {
+  for crate in "$@"; do
+    if ! grep -qi -- "$crate" <<<"$symbols"; then
+      echo "::error::libburi_rt.a carries NO symbol from \`$crate\`, but it was built with the runtime's \`net\` feature, which is what links the reactor and the TLS client. An archive in this state has an \`https://\` or a suspending host call that fails at run time and a test suite that never noticed. Check cli/runtime/rt.rs and cli/runtime/tls.rs are still reached."
+      status=1
+    fi
+  done
+}
+
+# What the build script said it built, beside the bytes it built. Absent is not
+# a pass: an archive with no feature file is an archive this script cannot make
+# either claim about.
+features="$best_file.features"
+if [ ! -f "$features" ]; then
+  echo "::error::$features is missing, so which networking crates this archive should carry is unknown and the assertion below would be a guess."
+  exit 1
+fi
+
+# `$status` may already be 1 from the budget, so the "and it was fine" line is
+# guarded by the status *these* checks left rather than printed unconditionally
+# — a green sentence under a red one is how a reader ends up believing the wrong
+# half of a log.
+before=$status
+if grep -qx "net" "$features"; then
+  present tokio rustls ring_core
+  # `aws_lc` is here although it was never a dependency: it is the OTHER
+  # provider `rustls` ships, and a second one appearing means a feature was
+  # enabled somewhere that quietly doubled the cryptography in every binary.
+  absent hyper tungstenite aws_lc
+  if [ "$status" -eq "$before" ]; then
+    echo "libburi_rt.a: the reactor and TLS are linked, and the two unreferenced crates are still unreferenced"
   fi
-done
-if [ "$status" -eq 0 ]; then
-  echo "libburi_rt.a: no symbols from a networking crate nothing calls into"
+else
+  absent tokio hyper rustls tungstenite ring_core aws_lc
+  if [ "$status" -eq "$before" ]; then
+    echo "libburi_rt.a: built without \`net\`, and carries none of the networking crates"
+  fi
 fi
 
 exit "$status"

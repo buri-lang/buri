@@ -1713,6 +1713,17 @@ from the declarations above and are worth saying out loud:
   `core/bytes`' job and answers a `Result`, so a body that is not text says so
   where it is read.
 
+`https://` is checked, not merely accepted. The server's certificate is verified
+against your machine's own trust anchors — the PEM bundle the platform keeps,
+which on macOS is `/etc/ssl/cert.pem` and on Linux one of the four usual paths —
+and a certificate that does not check out is a `NetError::Transport` naming what
+was wrong and which trust set it was checked against. Setting `SSL_CERT_FILE` to
+a PEM bundle **replaces** those anchors, the same way it does for OpenSSL,
+`curl` and `git`; it is what a private or corporate authority is for, and on
+macOS it is also how a root that lives only in the keychain is reached. There is
+no way to turn verification off, and none is planned: a `Net` a program could
+ask to trust anybody is not a capability, it is a hole.
+
 An effect is a trait in every other respect — same declaration shape, same
 nominal conformance, same `impl`, same bounds. Two rules separate them:
 
