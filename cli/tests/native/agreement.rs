@@ -2877,6 +2877,107 @@ export fn main(): Result<(), Str> {
 /// with no test — or a test renamed out from under a row — is a failure
 /// here rather than a "pinned by" column that has quietly stopped being
 /// true. The same relationship `native/conformance.rs`'s
+/// **The note's counter, on every backend** — `core/actor`'s acceptance case.
+///
+/// It is here rather than only in the conformance corpus because the corpus's
+/// native run is the stencil backend alone, and the claim this row makes is
+/// about the *boundary*: nine runtime entries that move a Buri block by its two
+/// words and hand it back, with `middle::rc`'s `crosses_tasks` marking every
+/// one of those blocks. Each backend decides for itself where a `[T]` sits in a
+/// struct and how a niche `Option<[T]>` is spelled, so one green pipeline says
+/// nothing about the other.
+///
+/// Five claims in seven lines of output: two sends and an `ask` see the state
+/// the sends left; a mailbox of sixty-four holds three messages until the
+/// `ask` runs them down, in the order they were sent; a mailbox of one is run
+/// down by the sender that filled it; `onStop` runs once with the final state,
+/// and the two actors' hooks answer their own numbers; and every operation
+/// after `stop` — a `send`, an `ask`, and a second `stop` — is `.Err`.
+#[test]
+fn an_actor_counts_the_same_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "actor counter",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Reply, Stopped };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+enum CounterMessage {
+  Add(Int),
+  Get(Reply<Int>),
+}
+
+fn counter<C: Alloc + Stdout + Tasks>(bound: Int): Actor<C, Int, CounterMessage> {
+  Actor {
+    state: 0,
+    step: fn(c, count, message) => {
+      match (message) {
+        .Add(n) => count + n,
+        .Get(reply) => {
+          let _ = reply.answer(c, count).ignore();
+          count
+        },
+      }
+    },
+    onStop: .Some(fn(c, last) => io.println(c, "stopped at ${last}").ignore()),
+    mailbox: .Some(bound),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+
+  // A mailbox of one: the second `send` finds the box full and runs it down,
+  // which is what the bound buys and what makes the digits below `12`.
+  let counted = actor.start(ctx, counter(1));
+  let _ = counted.send(ctx, .Add(1)).ignore();
+  let _ = counted.send(ctx, .Add(2)).ignore();
+  let total = counted.ask(ctx, fn(reply) => .Get(reply));
+  let _ = io.println(ctx, "total ${total.withDefault(-1)}").ignore();
+
+  // A mailbox of sixty-four: nothing is stepped until the `ask` asks.
+  let queued = actor.start(ctx, counter(64));
+  let _ = queued.send(ctx, .Add(10)).ignore();
+  let _ = queued.send(ctx, .Add(20)).ignore();
+  let _ = queued.send(ctx, .Add(30)).ignore();
+  let batched = queued.ask(ctx, fn(reply) => .Get(reply));
+  let _ = io.println(ctx, "batched ${batched.withDefault(-1)}").ignore();
+
+  let _ = counted.stop(ctx).ignore();
+  let _ = queued.stop(ctx).ignore();
+
+  // Everything after the stop is `.Err(.Stopped)`, including a second stop.
+  let _ = io.println(ctx, "after ${gone(counted.send(ctx, .Add(1)))}").ignore();
+  let _ = io.println(ctx, "asked ${gone2(counted.ask(ctx, fn(reply) => .Get(reply)))}").ignore();
+  let _ = io.println(ctx, "again ${gone(counted.stop(ctx))}").ignore();
+  .Ok(())
+}
+
+fn gone(r: Result<(), Stopped>): Str {
+  match (r) {
+    .Ok(_ok) => "ran",
+    .Err(_e) => "stopped",
+  }
+}
+
+fn gone2(r: Result<Int, Stopped>): Str {
+  match (r) {
+    .Ok(_ok) => "ran",
+    .Err(_e) => "stopped",
+  }
+}
+"#,
+        "total 3\nbatched 60\nstopped at 3\nstopped at 60\nafter stopped\nasked stopped\nagain stopped\n",
+    );
+}
+
 /// `every_conformance_file_is_accounted_for` has to its own list, and it
 /// needs no backend, so it runs on every host.
 #[test]

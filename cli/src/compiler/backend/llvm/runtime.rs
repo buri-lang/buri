@@ -460,6 +460,81 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
+    // -- core/actor (F6) -----------------------------------------------------
+    //
+    // `Arg::Dropped` first on every row, and it is the *context*: `core/actor`
+    // declares these as `fn <name><C: Tasks, …>(ctx: C, …)`, a module function
+    // with the authority in its bound, so argument 0 crosses nothing.
+    // `runtime_table.rs` says the same thing with a `ctx: Some(0)` column, and
+    // `an_entry_names_the_context_the_other_table_drops` holds the two
+    // together.
+    //
+    // `Arg::List` and not `Arg::Elems` at every carrier, which is the shape
+    // decision this whole module rests on: a message crosses as a one-element
+    // `[Carried<M>]` and the runtime moves the **block**, so there is no
+    // element type to describe and no stride or retain glue to pass. What
+    // would need `Arg::Elems` is a runtime that looked *inside* one, and none
+    // of the nine bodies does.
+    //
+    // `Ret::Sum` on the six that answer an `Option`. The out-pointer is the
+    // dest's own `.Some` payload — an `i64` for the two depths, a `BuriList`
+    // for the four blocks — so a niche `Option<[T]>` is settled by the
+    // non-null pointer the runtime wrote, which is what `core/actor`'s
+    // `Carried<T>` guarantees.
+    Entry {
+        key: "actor.mailboxOpen",
+        symbol: "buri_rt_actor_mailbox_open",
+        args: &[Arg::Dropped, Arg::List, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "actor.mailboxPush",
+        symbol: "buri_rt_actor_mailbox_push",
+        args: &[Arg::Dropped, Arg::Scalar, Arg::List],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "actor.mailboxPop",
+        symbol: "buri_rt_actor_mailbox_pop",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "actor.mailboxClose",
+        symbol: "buri_rt_actor_mailbox_close",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "actor.stateTake",
+        symbol: "buri_rt_actor_state_take",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "actor.statePut",
+        symbol: "buri_rt_actor_state_put",
+        args: &[Arg::Dropped, Arg::Scalar, Arg::List],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "actor.replyOpen",
+        symbol: "buri_rt_actor_reply_open",
+        args: &[Arg::Dropped],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "actor.replyPut",
+        symbol: "buri_rt_actor_reply_put",
+        args: &[Arg::Dropped, Arg::Scalar, Arg::List],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "actor.replyTake",
+        symbol: "buri_rt_actor_reply_take",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Sum,
+    },
     // -- core/str, the pure half (`cli/runtime/text.rs`) ---------------------
     //
     // Every one of these takes `self` as a full `Str`: the `base` is passed

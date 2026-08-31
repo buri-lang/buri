@@ -2060,6 +2060,144 @@ function $host_HostProc_exitWith(self, code) {
   return 0;
 }
 
+// --- core/actor -------------------------------------------------------------
+//
+// The mailbox, the state and the reply slots. Nine functions, and between them
+// they are the same table `cli/runtime/rt.rs` holds — one queue per actor, one
+// state beside it, one baton that says who may step it, and a slot per `ask`.
+//
+// Everything crosses as a one-element list, which is what makes the native
+// half possible at all (a `[T]` is two words whatever `T` is) and costs nothing
+// here, where a list is an array. `$share` on the way in, because a value the
+// runtime holds onto is a second reference by definition and a list this
+// backend allocated must stop being writable in place the moment there are two
+// names for it.
+//
+// The two waits are `async` because `middle/rc.rs`'s `suspends` says they are,
+// and the two lists must agree: `mailboxPush` waits for room, `mailboxClose`
+// waits for the step in flight to give the state back. Nothing else here waits.
+const $actors = [];
+
+function $actor_mailboxOpen(c, state, bound) {
+  const room = Number(bound) > 0 ? Number(bound) : 1;
+  $actors.push({
+    queue: [],
+    state: $share(state),
+    closed: false,
+    bound: room,
+    room: [],
+    baton: true,
+    free: [],
+  });
+  return BigInt($actors.length - 1);
+}
+
+function $actorAt(handle) {
+  const i = Number(handle);
+  return i >= 0 && i < $actors.length ? $actors[i] : undefined;
+}
+
+async function $actor_mailboxPush(c, handle, message) {
+  const a = $actorAt(handle);
+  if (a === undefined || a.closed) return undefined;
+  while (a.queue.length >= a.bound) {
+    await new Promise((resolve) => a.room.push(resolve));
+    if (a.closed) return undefined;
+  }
+  a.queue.push($share(message));
+  return $some(BigInt(a.queue.length));
+}
+
+function $actor_mailboxPop(c, handle) {
+  const a = $actorAt(handle);
+  if (a === undefined || a.queue.length === 0) return undefined;
+  const held = a.queue.shift();
+  const wake = a.room.shift();
+  if (wake !== undefined) wake();
+  return $some(held);
+}
+
+async function $actor_mailboxClose(c, handle) {
+  const a = $actorAt(handle);
+  if (a === undefined || a.closed) return undefined;
+  a.closed = true;
+  for (const wake of a.room.splice(0)) wake();
+  while (!a.baton) {
+    await new Promise((resolve) => a.free.push(resolve));
+  }
+  // Kept, never given back: the baton is what a `stateTake` needs, so holding
+  // it forever is what makes a stopped actor unsteppable.
+  a.baton = false;
+  const held = a.state;
+  a.state = undefined;
+  return held === undefined ? undefined : $some(held);
+}
+
+function $actor_stateTake(c, handle) {
+  const a = $actorAt(handle);
+  if (a === undefined || a.closed || !a.baton || a.state === undefined) return undefined;
+  a.baton = false;
+  const held = a.state;
+  a.state = undefined;
+  return $some(held);
+}
+
+function $actor_statePut(c, handle, state) {
+  const a = $actorAt(handle);
+  if (a === undefined) return undefined;
+  a.state = $share(state);
+  a.baton = true;
+  for (const wake of a.free.splice(0)) wake();
+  return $some(BigInt(a.queue.length));
+}
+
+// The reply slots, reused behind a generation, exactly as the native table
+// reuses them: a server answering a million `ask`s would otherwise grow a
+// table for the length of its uptime, and a stale handle must name nothing
+// rather than somebody else's answer.
+const $replies = { slots: [], free: [] };
+const $REPLY_INDEX_BITS = 20n;
+const $REPLY_INDEX_MASK = (1n << $REPLY_INDEX_BITS) - 1n;
+
+function $actor_replyOpen(c) {
+  const index = $replies.free.pop();
+  if (index !== undefined) {
+    const slot = $replies.slots[index];
+    slot.state = 0;
+    slot.value = undefined;
+    return (slot.generation << $REPLY_INDEX_BITS) | BigInt(index);
+  }
+  $replies.slots.push({ generation: 0n, state: 0, value: undefined });
+  return BigInt($replies.slots.length - 1);
+}
+
+function $replyAt(handle) {
+  const index = Number(handle & $REPLY_INDEX_MASK);
+  const generation = handle >> $REPLY_INDEX_BITS;
+  const slot = $replies.slots[index];
+  if (slot === undefined || slot.generation !== generation) return undefined;
+  return slot;
+}
+
+function $actor_replyPut(c, handle, value) {
+  const slot = $replyAt(handle);
+  if (slot === undefined || slot.state !== 0) return undefined;
+  slot.state = 1;
+  slot.value = $share(value);
+  return $some(0n);
+}
+
+function $actor_replyTake(c, handle) {
+  const slot = $replyAt(handle);
+  if (slot === undefined || slot.state !== 1) return undefined;
+  const value = slot.value;
+  slot.state = 2;
+  slot.value = undefined;
+  slot.generation = slot.generation + 1n;
+  $replies.free.push(Number(handle & $REPLY_INDEX_MASK));
+  return $some(value);
+}
+
 // --- The reactive graph -----------------------------------------------------
 //
 // Auto-tracking, in the shape design/ui-reactivity.md commits to: the runtime
