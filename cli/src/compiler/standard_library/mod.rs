@@ -575,8 +575,9 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Tasks", "parallel", "core/tasks", "tasks.parallel(ctx, items, f)"),
     w("Listen", "listenBind", "core/net/server", "server.bind(ctx, aServer)"),
     w("Listen", "listenAccept", "core/net/server", "server.serve(ctx, aServer)"),
+    w("Listen", "listenRequest", "core/net/server", "server.serve(ctx, aServer)"),
     w("Listen", "listenRespond", "core/net/server", "server.serve(ctx, aServer)"),
-    w("Listen", "listenClose", "core/net/server", "server.run(ctx, listener, onRequest)"),
+    w("Listen", "listenClose", "core/net/server", "server.run(ctx, listener, aServer)"),
     w("Sockets", "socketSendText", "core/net/server", "server.sendText(ctx, socket, text)"),
     w("Sockets", "socketSendBytes", "core/net/server", "server.sendBytes(ctx, socket, bytes)"),
     w("Sockets", "socketClose", "core/net/server", "server.close(ctx, socket, code, reason)"),
@@ -942,9 +943,12 @@ mod tests {
     /// can be fixed now, so neither is asserted about here — what is asserted
     /// is that the two server effects do not add a third. `Listen` grew from
     /// one method to four when its accept loop moved into `core/net/server`,
-    /// and every one of the four kept the `listen` prefix for exactly this
-    /// reason: a namespace is claimed once, and four common verbs would have
-    /// been four names taken from every effect a server binds beside it.
+    /// and to five when that loop grew a worker per handler, and every one of
+    /// the five kept the `listen` prefix for exactly this reason: a namespace
+    /// is claimed once, and five common verbs would have been five names taken
+    /// from every effect a server binds beside it. `listenRequest` is the
+    /// clearest case of all — a bare `request` is a word half the standard
+    /// library could want, and `Net` is bound beside this one by design.
     #[test]
     fn the_server_effects_claim_no_method_name_another_effect_claims() {
         let mut mine: Vec<(&str, String)> = Vec::new();
@@ -969,7 +973,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(mine.len(), 7, "the two effects declare seven methods between them: {mine:?}");
+        assert_eq!(mine.len(), 8, "the two effects declare eight methods between them: {mine:?}");
         for (owner, method) in &mine {
             for (other, name) in &theirs {
                 assert!(

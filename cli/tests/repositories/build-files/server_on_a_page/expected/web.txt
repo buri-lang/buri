@@ -1,7 +1,7 @@
 error: `WEB` does not grant `listen` [host-not-granted]
-  --> cmd/app/main.buri:13:22
+  --> cmd/app/main.buri:17:22
    |
-13 |         Listen: host.listen,
+17 |         Listen: host.listen,
    |                      ^^^^^^
    |
    = a platform is the set of effects its host exports; holding a port open is a native program's authority; a page is served rather than serving, and its host has no way to accept a connection
@@ -56,3 +56,11 @@ error: `WEB` does not grant `listen` [host-not-granted]
      without one a snippet is checked with the whole host granted, because it
      builds no output.
 
+error: `WEB` does not grant `tasks` [host-not-granted]
+  --> cmd/app/main.buri:18:21
+   |
+18 |         Tasks: host.tasks,
+   |                     ^^^^^
+   |
+   = a platform is the set of effects its host exports; `parallel` returns only when the last task has finished, which freezes a page; a page's concurrency is its event loop, and the effect that reaches it lands with the servers
+   = fix: drop `Tasks` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS

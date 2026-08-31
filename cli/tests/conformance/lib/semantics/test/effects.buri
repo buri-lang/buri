@@ -31,9 +31,9 @@ from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 from "//lib/semantics" import {
     EchoEnv, elapsed, fetchBody, FrozenClock, greet, guarded, joinedWith, loadText,
-    loggedWith, OneShotListen, pushedWith, QuietSockets, ReadOnly, repeatedWith,
-    roundTrip, runInOrder, runInOrderNamed, saveText, SerialTasks, serveOnce, shout,
-    stamp, stampedWith, StaticFs, TeapotNet, ticking,
+    loggedWith, OneShotListen, PoolListen, pushedWith, QuietSockets, ReadOnly,
+    repeatedWith, roundTrip, runInOrder, runInOrderNamed, saveText, SerialTasks,
+    serveOnce, shout, stamp, stampedWith, StaticFs, TeapotNet, ticking,
 };
 
 // -----------------------------------------------------------------------------
@@ -1321,9 +1321,11 @@ test "my own attenuator may wrap the runner's attenuator" {
 
 test "one context binds Listen, Sockets and Net and every method is callable" {
     let ctx = context {
+        Alloc: alloc(),
         Listen: OneShotListen { bindsTo: "127.0.0.1" },
         Net: TeapotNet { body: [] },
         Sockets: QuietSockets { },
+        Tasks: SerialTasks { label: "s", bias: 0 },
     };
     // 418 back from the fake network, and positive because the fake server bound
     // its address — so both effects answered, and neither call was the other.
@@ -1341,6 +1343,7 @@ test "the same five methods resolve on the context value itself" {
         Net: TeapotNet { body: [] },
         Sockets: QuietSockets { },
         Stdout: stdout(),
+        Tasks: SerialTasks { label: "s", bias: 0 },
     };
     let _ = server.sendText(ctx, 1, "hello");
     let _ = server.sendBytes(ctx, 1, []);
@@ -1422,6 +1425,7 @@ test "bind answers the port the acceptor chose, and run is the rest of serve" {
         Alloc: alloc(),
         Listen: OneShotListen { bindsTo: "10.0.0.1" },
         Stdout: stdout(),
+        Tasks: SerialTasks { label: "s", bias: 0 },
     };
     let plan = server.Server {
         port: 0,
@@ -1429,7 +1433,82 @@ test "bind answers the port the acceptor chose, and run is the rest of serve" {
     };
     let listener = assert.ok(server.bind(ctx, plan));
     assert.eq(listener.port, 8080);
-    assert.ok(server.run(ctx, listener, plan.onRequest));
+    // The other half of what a bind answers: how many handlers the acceptor
+    // will host on this listener, which is what `run` fans out to.
+    assert.eq(listener.handlers, 1);
+    // `run` takes the whole `Server` and not its `onRequest`, because it needs
+    // two of the fields now: what to answer with, and how many handlers to ask
+    // the acceptor for. `port` and the bind knobs were spent above.
+    assert.ok(server.run(ctx, listener, plan));
+}
+
+test "run starts one worker per handler the listener says it will host" {
+    // `Listener.handlers` is what the loop fans out to, and the workers are
+    // counted where they can be: `PoolListen` hands every worker a request, and
+    // the handler prints on the caller's stdout, so three workers are three
+    // lines. The number travels *out* of the bind and never in — a program has
+    // no way to ask for a different one, which `core/net/server`'s header
+    // argues from the budget `listenBind` is already at.
+    let sink = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Listen: PoolListen { bindsTo: "10.0.0.1", handlers: 3 },
+        Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    assert.ok(
+        server.serve(ctx, server.Server {
+            port: 0,
+            onRequest: fn(c, request) => {
+                io.println(c, "worked ${request.url}").ignore();
+                Response { status: 200, headers: [], body: [] }
+            },
+        }),
+    );
+    assert.eq(sink.captured(), "worked 10.0.0.1\nworked 10.0.0.1\nworked 10.0.0.1\n");
+
+    // And one is one: the same server against a listener that hosts a single
+    // handler is the server this module was before handlers ran on tasks.
+    let alone = stdout();
+    let single = context {
+        Alloc: alloc(),
+        Listen: PoolListen { bindsTo: "10.0.0.1", handlers: 1 },
+        Stdout: alone,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    assert.ok(
+        server.serve(single, server.Server {
+            port: 0,
+            onRequest: fn(c, request) => {
+                io.println(c, "worked ${request.url}").ignore();
+                Response { status: 200, headers: [], body: [] }
+            },
+        }),
+    );
+    assert.eq(alone.captured(), "worked 10.0.0.1\n");
+
+    // A `Listener` is inert data, so a program can write one that claims more
+    // workers than anything could host. `run` believes it only inside its own
+    // range, and the range is what keeps a forged number from being a program
+    // that stops making progress rather than a fast one.
+    let many = stdout();
+    let forged = context {
+        Alloc: alloc(),
+        Listen: PoolListen { bindsTo: "10.0.0.1", handlers: 0 - 5 },
+        Stdout: many,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    assert.ok(
+        server.serve(forged, server.Server {
+            port: 0,
+            onRequest: fn(c, request) => {
+                io.println(c, "worked ${request.url}").ignore();
+                Response { status: 200, headers: [], body: [] }
+            },
+        }),
+    );
+    // Below one is one: a server with no workers is a port nobody answers.
+    assert.eq(many.captured(), "worked 10.0.0.1\n");
 }
 
 test "a bind that fails is an error with the platform's own words on it" {
@@ -1437,6 +1516,7 @@ test "a bind that fails is an error with the platform's own words on it" {
         Alloc: alloc(),
         Listen: OneShotListen { bindsTo: "" },
         Stdout: stdout(),
+        Tasks: SerialTasks { label: "s", bias: 0 },
     };
     let refused = assert.err(
         server.bind(ctx, server.Server {
@@ -1475,9 +1555,11 @@ test "a server that will not bind is the Listen answer and not the network's" {
     // The network still answers 418; the negation is the bind's refusal, so the
     // two effects are distinguishable through one context.
     let ctx = context {
+        Alloc: alloc(),
         Listen: OneShotListen { bindsTo: "" },
         Net: TeapotNet { body: [] },
         Sockets: QuietSockets { },
+        Tasks: SerialTasks { label: "s", bias: 0 },
     };
     assert.eq(serveOnce(ctx, "http://example.com/ping"), 0 - 418);
 }
@@ -1517,6 +1599,7 @@ test "a handler reached through the wrapper is handed the caller's context" {
         Alloc: alloc(),
         Listen: OneShotListen { bindsTo: "10.0.0.1" },
         Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
     };
     // Printing is something this context grants and `OneShotListen` does not, so
     // a handler handed the acceptor could not do it — and the capture below is

@@ -650,18 +650,22 @@ impl<C: Listen> Listen for Scoped<C> {
         self.0.listenBind(address, port, protocols, requestLimit, idleTimeoutMillis)
     }
 
-    fn listenAccept(self, handle: Int): Result<Request, ServeError> {
+    fn listenAccept(self, handle: Int): Result<Int, ServeError> {
         self.0.listenAccept(handle)
+    }
+
+    fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+        self.0.listenRequest(connection)
     }
 
     fn listenRespond(
         self,
-        handle: Int,
+        connection: Int,
         status: Int,
         headers: [Header],
         body: [U8],
     ): Result<(), ServeError> {
-        self.0.listenRespond(handle, status, headers, body)
+        self.0.listenRespond(connection, status, headers, body)
     }
 
     fn listenClose(self, handle: Int): () {

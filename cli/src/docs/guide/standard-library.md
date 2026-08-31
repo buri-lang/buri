@@ -193,9 +193,12 @@ timeout, each of which means "the runtime chooses" when it is left out of the
 literal. `serve` binds and answers until the listener closes; `bind` and `run`
 are the same thing in two halves, for a program that wants the port number
 before it starts answering; `errorText` turns a `ServeError` into a line. It
-speaks HTTP/1.1 and takes one connection at a time — the honest shape of a
-server with no task pool behind it — and it needs `Listen`, which only `LINUX`
-and `MACOS` grant, because a page is served rather than serving. `sendText`,
+speaks HTTP/1.1, one request per connection, and it answers as many connections
+at once as the acceptor said it would host — `run` puts each handler on a task
+of its own, which is why `serve` needs `Tasks` and `Alloc` beside `Listen`. Only
+`LINUX` and `MACOS` grant `Listen`, because a page is served rather than
+serving; `WEB` grants no `Tasks` either, so a server on a page is refused
+twice. `sendText`,
 `sendBytes` and `close` are the socket half, and nothing hands out a socket to
 call them on yet: `serve` performs no WebSocket upgrade, so they say what they
 will do rather than pretending to do it today.

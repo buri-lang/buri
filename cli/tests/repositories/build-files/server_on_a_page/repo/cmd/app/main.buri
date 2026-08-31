@@ -2,7 +2,11 @@
 // single request and stops. Nothing here is JavaScript-specific and nothing
 // here is wrong — what decides whether it compiles is the platform its rule
 // names, which is the point of the case around it.
-from "core/effect" import { Alloc, Listen };
+//
+// `Tasks` is bound because `serve` fans its accept loop out over the carrier
+// pool, one worker per handler the acceptor will host. On a page that is a
+// second refusal rather than a second problem: `WEB` grants neither.
+from "core/effect" import { Alloc, Listen, Tasks };
 from "core/host" import * as host;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
@@ -11,6 +15,7 @@ export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Listen: host.listen,
+        Tasks: host.tasks,
     };
     server
         .serve(ctx, server.Server {

@@ -3631,3 +3631,48 @@ fn a_server_answers_a_request_on_a_socket() {
     );
     crate::shared::served_the_path(&reply, "/ping");
 }
+
+/// **Fifty requests at once, against a handler that sleeps** — F3, end to end.
+///
+/// `run` fans its accept loop out with `Tasks.parallel`, one worker per handler
+/// the acceptor says it will host, so the fifty exchanges below overlap. The
+/// assertion is the clock and it is a wide one on purpose: fifty two-hundred
+/// millisecond sleeps one after another is ten seconds, the acceptor's
+/// sixty-four workers running them together is a little over two hundred
+/// milliseconds, and four seconds is a line no loaded machine crosses from the
+/// fast side and none stays under from the slow one.
+///
+/// **This row is the LLVM backend's alone**, and that is a fact about the
+/// artifact rather than a gap. `rt.rs` fans a `parallel` out only where the
+/// artifact called `buri_rt_frames_are_per_carrier`, which the frame-threaded
+/// backend deliberately does not (`stencil/asm.rs` asserts it never emits the
+/// call): a program built there has one Buri stack, so its workers run one after
+/// another and fifty sleeps take fifty sleeps. The stencil row beside this one
+/// asserts what *is* true there — every request answered, each with its own
+/// path — and says nothing about the clock.
+///
+/// The pairing is asserted beside the timing, because a fast server that
+/// answered the wrong client would be a worse failure than a slow one:
+/// `each_answered_its_own` is the ordering-independence half.
+#[test]
+fn fifty_requests_are_answered_at_once() {
+    skip_unless_executable!();
+    const REQUESTS: usize = 50;
+    const SLEEP_MILLIS: usize = 200;
+    let source = crate::shared::concurrent_server(REQUESTS, SLEEP_MILLIS);
+    let binary = build_at("server-concurrent", &source, None, Profile::Release);
+    let (out, replies, elapsed) = crate::shared::served_many(&binary, REQUESTS);
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "the server did not run to its own end:\n{}",
+        out.stdout
+    );
+    assert_eq!(replies.len(), REQUESTS);
+    crate::shared::each_answered_its_own(&replies);
+    assert!(
+        elapsed < std::time::Duration::from_secs(4),
+        "{REQUESTS} requests against a {SLEEP_MILLIS} ms handler took {elapsed:?}, which is \
+         one at a time rather than {REQUESTS} at once"
+    );
+}
