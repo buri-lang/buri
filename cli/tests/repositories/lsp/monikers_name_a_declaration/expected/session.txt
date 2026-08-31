@@ -6,7 +6,7 @@
 {"id":6,"jsonrpc":"2.0","result":[{"identifier":"//lib/shop:catalog.buri.Priced.cents","kind":"export","scheme":"buri","unique":"scheme"}]}
 {"id":7,"jsonrpc":"2.0","result":[{"identifier":"//lib/shop:catalog.buri.held","kind":"local","scheme":"buri","unique":"scheme"}]}
 {"id":8,"jsonrpc":"2.0","result":[{"identifier":"//lib/shop:lib.buri.currency","kind":"export","scheme":"buri","unique":"scheme"}]}
-{"id":9,"jsonrpc":"2.0","result":null}
+{"id":9,"jsonrpc":"2.0","result":[{"identifier":"core/effect:Alloc","kind":"export","scheme":"buri","unique":"scheme"}]}
 {"id":10,"jsonrpc":"2.0","result":null}
 {"id":11,"jsonrpc":"2.0","result":null}
 {"id":12,"jsonrpc":"2.0","result":null}

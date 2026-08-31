@@ -18,16 +18,16 @@
 // when a library adds a token, every consumer's `match` stops being exhaustive
 // until it maps it. `cli/tests/reject/ui_theme_unmapped_token/` pins that.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "ui/effect/lib.buri" import { Ui };
-from "ui/node/lib.buri" import * as ui;
-from "ui/node/lib.buri" import { Node };
-from "ui/signal/lib.buri" import { signal };
-from "ui/style/lib.buri" import * as style;
-from "ui/style/lib.buri" import { Color };
-from "ui/testing/lib.buri" import { headless, install, render, stylesheet, variables };
-from "ui/theme/lib.buri" import * as theme;
-from "ui/theme/lib.buri" import { Theme };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import * as style;
+from "ui/style" import { Color };
+from "ui/testing" import { headless, install, render, stylesheet, variables };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
 
 // --- a library's vocabulary ----------------------------------------------------------
 //

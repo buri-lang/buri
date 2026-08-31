@@ -1,7 +1,7 @@
 // EXPECT: expected a declaration, found `derive`
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/order/lib.buri" import { Eq };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/order" import { Eq };
+from "core/host" import * as host;
 
 export struct Version { export major: Int }
 

@@ -1,7 +1,0 @@
-error: an import name ends with `,` [missing-separator]
- --> main.buri:1:40
-  |
-1 | from "core/list/lib.buri" export { fold map };
-  |                                        ^
-  |
-  = fix: write `,` here

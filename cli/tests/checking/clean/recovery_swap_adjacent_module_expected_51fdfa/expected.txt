@@ -1,0 +1,18 @@
+error: expected `{`, found `fold` [unexpected-token]
+ --> main.buri:1:25
+  |
+1 | from "core/list" export fold {, map };
+  |                         ^^^^
+  |
+  = expected: `{`
+  = actual: `fold`
+  = fix: write `{` here
+error: expected a declaration, found `;` [unexpected-token]
+ --> main.buri:1:38
+  |
+1 | from "core/list" export fold {, map };
+  |                                      ^
+  |
+  = expected: a declaration
+  = actual: `;`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

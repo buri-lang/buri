@@ -2,8 +2,8 @@
 // emits `const t = param;` and then `const v = t[1];`, so both a name and a
 // projection through that name are removable at once — and the projection must
 // not be left naming a binding that went with it.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Wrapped { Full(Int), Blank }
 

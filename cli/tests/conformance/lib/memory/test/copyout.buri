@@ -22,10 +22,10 @@
 // a struct, a tagged enum with a payload, an `Option`'s niche, a closure's
 // captured environment, and a recursive type whose field is behind a box.
 
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc };
-from "core/host/testing/lib.buri" import * as testing;
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/host/testing" import * as testing;
+from "core/testing/assert" import * as assert;
 
 // -----------------------------------------------------------------------------
 // The shapes

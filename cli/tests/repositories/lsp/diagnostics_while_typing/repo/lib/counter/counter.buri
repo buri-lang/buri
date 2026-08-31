@@ -1,4 +1,4 @@
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 let myStr: Str = 1;
 

@@ -19,7 +19,7 @@
 {"jsonrpc": "2.0", "id": 4, "method": "completionItem/resolve", "params": {"label": "core/order", "kind": 9, "detail": "standard library", "sortText": "2core/order", "data": {"uri": "file://<scratch>/lib/money/cents.buri", "module": "core/order"}}}
 # Inside the `{ … }`, partway through a name. The range is the name, so
 # accepting an item replaces what was typed rather than inserting beside it.
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 4}, "contentChanges": [{"text": "from \"core/order/lib.buri\" import { Or"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 4}, "contentChanges": [{"text": "from \"core/order\" import { Or"}]}}
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 29}}}
 # A trait's `///` lines, resolved.
 {"jsonrpc": "2.0", "id": 6, "method": "completionItem/resolve", "params": {"label": "Ord", "kind": 8, "sortText": "0Ord", "data": {"uri": "file://<scratch>/lib/money/cents.buri", "module": "core/order", "name": "Ord"}}}

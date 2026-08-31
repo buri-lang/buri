@@ -1,8 +1,8 @@
 // Clean, and it depends on nothing. That is what makes //lib/money a package
 // the analysis of this file never reaches.
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

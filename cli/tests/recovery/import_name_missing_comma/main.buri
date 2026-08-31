@@ -1,5 +1,5 @@
 // EXPECT: an import name ends with `,`
-from "core/str/lib.buri" import { format fromInt };
+from "core/str" import { format fromInt };
 
 export fn greet(): Str {
   "hello"

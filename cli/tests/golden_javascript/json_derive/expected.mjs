@@ -56,14 +56,14 @@ function $eqD3(a,b){
 }
 function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],core_json_lib_buri$stringify$u3rqgv(ctx_0,$json_of($k0,$D1)));
-  $host_HostStdout_println(ctx_0[1],core_json_lib_buri$stringify$u3rqgv(ctx_0,$json_of($k1,$D5)));
-  $host_HostStdout_println(ctx_0[1],core_json_lib_buri$stringify$u3rqgv(ctx_0,$json_of($k2,$D5)));
+  $host_HostStdout_println(ctx_0[1],core_json$stringify$u3rqgv(ctx_0,$json_of($k0,$D1)));
+  $host_HostStdout_println(ctx_0[1],core_json$stringify$u3rqgv(ctx_0,$json_of($k1,$D5)));
+  $host_HostStdout_println(ctx_0[1],core_json$stringify$u3rqgv(ctx_0,$json_of($k2,$D5)));
   const back_3=$json_decode($json_of($k0,$D1),$D1);
   $host_HostStdout_println(ctx_0[1],$str($eqD0(back_3,[0,$k0])));
   return $k3;
 }
-function core_json_lib_buri$stringify$u3rqgv(ctx_0,v_1){
+function core_json$stringify$u3rqgv(ctx_0,v_1){
   switch(v_1[0]){
     case 0:
       {
@@ -80,20 +80,20 @@ function core_json_lib_buri$stringify$u3rqgv(ctx_0,v_1){
       }
     case 3:
       {
-        return core_json_lib_buri$quote$u3rqgv(ctx_0,v_1[1]);
+        return core_json$quote$u3rqgv(ctx_0,v_1[1]);
       }
     case 4:
       {
         const items_5=v_1[1];
         $share(items_5);
-        const parts_8=$list_mapCtx(items_5,ctx_0,(c_6,item_7)=>core_json_lib_buri$stringify$u3rqgv(c_6,item_7));
+        const parts_8=$list_mapCtx(items_5,ctx_0,(c_6,item_7)=>core_json$stringify$u3rqgv(c_6,item_7));
         return $str_format(ctx_0,'['+$list_join(parts_8,ctx_0,',')+']');
       }
     case 5:
       {
         const entries_9=v_1[1];
         $share(entries_9);
-        const parts_14=$list_mapCtx(entries_9,ctx_0,(c_10,e_11)=>$str_format(c_10,core_json_lib_buri$quote$u3rqgv(c_10,e_11[0])+':'+core_json_lib_buri$stringify$u3rqgv(c_10,e_11[1])));
+        const parts_14=$list_mapCtx(entries_9,ctx_0,(c_10,e_11)=>$str_format(c_10,core_json$quote$u3rqgv(c_10,e_11[0])+':'+core_json$stringify$u3rqgv(c_10,e_11[1])));
         return $str_format(ctx_0,'{'+$list_join(parts_14,ctx_0,',')+'}');
       }
     default:
@@ -103,7 +103,7 @@ function core_json_lib_buri$stringify$u3rqgv(ctx_0,v_1){
       break;
   }
 }
-function core_json_lib_buri$quote$u3rqgv(ctx_0,s_1){
+function core_json$quote$u3rqgv(ctx_0,s_1){
   const inner_4=$list_join($list_mapCtx($str_chars(s_1,ctx_0),ctx_0,(c_2,ch_3)=>{
     if(ch_3==='"'){
       return '\\"';

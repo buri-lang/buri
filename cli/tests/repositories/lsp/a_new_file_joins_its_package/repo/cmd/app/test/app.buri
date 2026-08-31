@@ -1,5 +1,5 @@
 from "//cmd/app/main.buri" import { main };
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 
 test "main returns ok" {
   assert.isTrue(main().isOk());

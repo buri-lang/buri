@@ -1,8 +1,8 @@
-// EXPECT: `buri docs core/result/lib.buri`
+// EXPECT: `buri docs core/result`
 // A user can never write `impl Result<I64, Str>`, so the fix may not ask for
 // one: a type the toolchain ships is pointed at its own documentation instead.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 fn addContext(value: Result<Int, Str>): Result<Int, Str> {
   value.mapErrContext(fn(e) => e)

@@ -3,8 +3,8 @@
 // `label` is declared `Option<Str>`, so leaving it out is writing `.None` for
 // it and the diagnostic must not ask for it. `y` is declared `Int`, so it is
 // still required — and it is the only field named here.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 struct Point { export x: Int, export y: Int, export label: Option<Str> }
 

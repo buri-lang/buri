@@ -1,5 +1,5 @@
-error [missing-terminator] 2:43-2:43
+error [missing-terminator] 2:34-2:34
 message: an import declaration ends with `;`
 fix: write `;` here
-edit: 2:43-2:43 ";"
+edit: 2:34-2:34 ";"
 

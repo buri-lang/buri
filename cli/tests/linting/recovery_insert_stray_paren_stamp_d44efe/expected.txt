@@ -1,9 +1,0 @@
-error: expected a type, found `,` [unexpected-token]
- --> lib/recovery_insert_stray_paren_stamp_d44efe/lib.buri:7:32
-  |
-7 | export fn stamp<C: Alloc>(ctx: , C, label: Str): Int {
-  |                                ^
-  |
-  = expected: a type
-  = actual: `,`
-  = fix: name a type here, as in `Int` or `[Str]`

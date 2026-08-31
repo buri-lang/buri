@@ -29,7 +29,7 @@ run {
 
 edit {
   file: "lib/counter/counter.buri"
-  replace: "from \"core/str/lib.buri\" import * as str;\n\n"
+  replace: "from \"core/str\" import * as str;\n\n"
   with: ""
 }
 

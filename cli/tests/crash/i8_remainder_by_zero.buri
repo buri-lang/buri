@@ -1,8 +1,8 @@
 // CRASH: division by zero
 // `%` at a narrow width, which is a different code path from `Int`.
-from "core/effect/lib.buri" import { Alloc, Stdout, Env };
-from "core/host/lib.buri" import * as host;
-from "core/env/lib.buri" import * as env;
+from "core/effect" import { Alloc, Stdout, Env };
+from "core/host" import * as host;
+from "core/env" import * as env;
 
 fn leftover(a: I8, b: I8): I8 { a % b }
 

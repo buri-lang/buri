@@ -10,13 +10,13 @@
 // `host.fs` does not compile for this one. The error lands on the line that
 // asked, at build time.
 
-from "core/effect/lib.buri" import { Alloc, Net };
-from "core/host/lib.buri" import * as host;
-from "ui/effect/lib.buri" import { Ui, Watch };
-from "ui/node/lib.buri" import * as ui;
-from "ui/theme/lib.buri" import * as theme;
+from "core/effect" import { Alloc, Net };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/theme" import * as theme;
 
-from "//lib/kit/lib.buri" import * as kit;
+from "//lib/kit" import * as kit;
 from "//cmd/basket/state.buri" import { newState };
 from "//cmd/basket/theme.buri" import { appThemed, day, kitTheme, night };
 from "//cmd/basket/view.buri" import { page };

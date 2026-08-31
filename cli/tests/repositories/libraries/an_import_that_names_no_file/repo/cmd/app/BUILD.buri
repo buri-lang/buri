@@ -3,4 +3,8 @@ binary {
     outputs: [
         { platform: JS },
     ]
+
+    test {
+        sources: ["test/main.buri"]
+    }
 }

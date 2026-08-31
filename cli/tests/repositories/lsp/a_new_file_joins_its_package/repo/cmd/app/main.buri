@@ -1,5 +1,5 @@
-from "//lib/counter/lib.buri" import { Tally, counter };
-from "//cmd/app/lib.buri" import { helper };
+from "//lib/counter" import { Tally, counter };
+from "//cmd/app" import { helper };
 
 export fn main(): Result<(), Str> {
   let _ = counter(Tally { total: helper() });

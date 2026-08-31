@@ -21,8 +21,8 @@ error: "//lib/money/nope.buri" names no file (lib/money/nope.buri) [module-not-f
     ──────────────────────────
 
     A module path resolves against the repository, so this one is compiled
-    against the worked monorepo in cli/tests/example, where lib/nope/lib.buri is
-    not a file.
+    against the worked monorepo in cli/tests/example, which has no lib/nope in
+    it.
 
 error: there is no type `Cents` [unresolved-type]
  --> cmd/app/routes.buri:6:10

@@ -4,10 +4,10 @@
 // tests after it still run. That last claim is the one a native run cannot
 // make, and it is why the passing test sits at the bottom of this file.
 
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc };
-from "core/testing/assert/lib.buri" import * as assert;
-from "//lib/arith/lib.buri" import { leftover, push, ratio };
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/arith" import { leftover, push, ratio };
 
 test "division by zero" {
     assert.eq(ratio(1, 0), 0);

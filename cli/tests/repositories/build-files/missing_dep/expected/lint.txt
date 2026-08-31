@@ -1,7 +1,7 @@
 warning: cmd/app/main.buri imports //lib/money, which is not in dependencies [missing-dep]
  --> cmd/app/main.buri:9:6
   |
-9 | from "//lib/money/lib.buri" import { fromCents };
-  |      ^^^^^^^^^^^^^^^^^^^^^^
+9 | from "//lib/money" import { fromCents };
+  |      ^^^^^^^^^^^^^
   |
   = fix: add "//lib/money" to dependencies in cmd/app/BUILD.buri — `buri gen //cmd/app` does this automatically

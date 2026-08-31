@@ -1,19 +1,34 @@
 # Every shape a module path takes, in one repository that builds.
 #
-#   //lib/money/lib.buri            a library's surface
-#   //lib/money/cents.buri          a module inside it, from inside it
-#   //lib/money/testing/lib.buri    the testing surface, from a test source
-#   //cmd/app/main.buri             a binary's entry point, from its own suite
-#   //lib/wire/point.proto          a schema — already a file, and unchanged
-#   core/effect/lib.buri            the standard library, bare root and all
-#   from "..." export { ... }       a re-export, which takes a path like any
-#                                   other import
+# There are two kinds of thing a path can name, and that is the whole rule:
 #
-# Then the two ways a path that *does* name a file can still name nothing:
-# a file that is not there, and a directory that has no `lib.buri` in it. Both
-# are `module-not-found` and both name the file they looked for, which is the
-# property the whole change is for — the diagnostic can say the file because
-# the path was the file.
+#   a surface is named as a module, by anyone allowed to name it at all
+#     //lib/money                    a library, from another package
+#     //lib/money                    the same library, from its own suite
+#     //lib/money/testing            a testing surface, from either
+#     //lib/wire                     a library whose surface is a schema
+#     core/effect, core/host         the standard library
+#
+#   everything else is a file, and only its own package may name it
+#     //cmd/app/routes.buri          a file beside the one importing it
+#     //cmd/app/main.buri            a binary's entry point, from its own suite
+#     //lib/money/cents.buri         a module inside the library, from inside
+#     //lib/money/notes/scratch.buri a file in a subdirectory of the package
+#     //lib/wire/point.proto         a schema — a file like any other
+#
+#   and either way
+#     from "..." export { ... }      a re-export takes a path like an import
+#
+# Two lines are worth reading together. `lib/money/test/cents.buri` writes
+# `//lib/money` and `cmd/app/routes.buri` writes `//lib/money`: a suite reaches
+# its own library by the same name its dependents use, so there is one spelling
+# of a library in the whole repository. And `cmd/app/test/main.buri` writes
+# `//lib/money/testing`, which is also the `test.dependencies` label that
+# target declares — the one point where the two namespaces are the same string.
+#
+# Then the two ways a path that names a file can still name nothing: a file
+# that is not there, and a directory that has no `lib.buri` in it. Both are
+# `module-not-found` and both name the file they looked for.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
@@ -34,7 +49,7 @@ run {
 # A file that is not there.
 edit {
   file: "cmd/app/routes.buri"
-  replace: "from \"//lib/money/lib.buri\" import { Cents, fromCents };"
+  replace: "from \"//lib/money\" import { Cents, fromCents };"
   with: "from \"//lib/money/nope.buri\" import { Cents, fromCents };"
 }
 

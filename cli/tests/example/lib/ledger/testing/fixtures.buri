@@ -3,7 +3,7 @@
 // no back door in the public surface.
 from "//lib/ledger/entry.buri" import { Entry, entry };
 
-from "//lib/money/lib.buri" import { fromCents, fromDollars };
+from "//lib/money" import { fromCents, fromDollars };
 
 /// A three-entry ledger, one of them zero, for anyone testing against ledgers.
 /// Total is $36.50.

@@ -4,8 +4,8 @@
 // binding four lines below is as readable as it would be in a file with
 // nothing wrong with it. Both are reported, because they are two things.
 
-from "core/effect/lib.buri" import { Alloc }
-from "core/str/lib.buri" import { fromInt };
+from "core/effect" import { Alloc }
+from "core/str" import { fromInt };
 
 export fn describe<C: Alloc>(ctx: C, n: I64): Str {
   let spare = 7;

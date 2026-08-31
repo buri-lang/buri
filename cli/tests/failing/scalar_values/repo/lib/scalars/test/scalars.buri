@@ -2,7 +2,7 @@
 // to any one rendering is a one-line diff rather than a suite that still
 // passes.
 
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 
 test "Int" {
     assert.eq(1, 2);

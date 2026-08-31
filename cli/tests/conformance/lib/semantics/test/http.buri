@@ -10,12 +10,12 @@
 // names them, and re-exported by `core/net/http`. They are imported here
 // through the re-export, which is where a program is meant to meet them.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc, net };
-from "core/effect/lib.buri" import { Alloc, Net };
-from "core/net/http/lib.buri" import { Header, Method, NetError, Request, Response };
-from "core/bytes/lib.buri" import * as bytes;
-from "core/net/http/lib.buri" import * as http;
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc, net };
+from "core/effect" import { Alloc, Net };
+from "core/net/http" import { Header, Method, NetError, Request, Response };
+from "core/bytes" import * as bytes;
+from "core/net/http" import * as http;
 
 // -----------------------------------------------------------------------------
 // Method — seven variants, and no wire spelling anywhere in Buri

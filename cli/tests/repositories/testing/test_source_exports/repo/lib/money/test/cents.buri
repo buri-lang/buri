@@ -2,8 +2,8 @@
 // `twice` is the second kind: not exported, because there is nowhere for an
 // export to go.
 
-from "//lib/money/lib.buri" import { fromCents, format };
-from "core/testing/assert/lib.buri" import * as assert;
+from "//lib/money" import { fromCents, format };
+from "core/testing/assert" import * as assert;
 
 fn twice(n: I64): I64 { n + n }
 

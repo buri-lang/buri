@@ -1,8 +1,8 @@
 error: this is a test-only module [test-only-import]
  --> cmd/testing_import_in_program/main.buri:4:6
   |
-4 | from "core/testing/assert/lib.buri" import * as assert;
-  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ importable only from a test source
+4 | from "core/testing/assert" import * as assert;
+  |      ^^^^^^^^^^^^^^^^^^^^^ importable only from a test source
   |
   = a path containing a `testing` segment may be imported only from a test source
   = //cmd/testing_import_in_program/main.buri is not one
@@ -19,7 +19,7 @@ error: this is a test-only module [test-only-import]
     The restriction is carried by the path rather than by a field, so it is
     visible where the import is written and there is nothing to remember to
     declare. Any module path with a testing *directory* segment is covered —
-    core/testing/assert/lib.buri, //lib/ledger/testing/lib.buri,
-    //lib/testing/fakes/lib.buri. A file called testing.buri is not one: the
-    segment that would have made it test-only is the file's own name.
+    core/testing/assert, //lib/ledger/testing, //lib/testing/fakes. A file
+    called testing.buri is not one: the segment that would have made it
+    test-only is the file's own name.
 

@@ -8,9 +8,9 @@
 // The budget arithmetic is the *defined* cost model, so the request that ends
 // this program is the same request on both backends: 32 fits in 64, and 40
 // more does not.
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
   let buffer = alloc.fixedBuffer(64);

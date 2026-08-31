@@ -2,7 +2,7 @@
 // module path — which only this package's own test sources may import.
 
 from "//cmd/server/main.buri" import { route };
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 
 test "known paths get their handler" {
   assert.eq(route("/entries").name, "entries");

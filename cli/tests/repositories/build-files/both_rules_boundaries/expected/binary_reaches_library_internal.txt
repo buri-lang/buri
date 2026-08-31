@@ -5,7 +5,7 @@ error: //tools/report/detail.buri is internal to the library //tools/report [bin
    |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the binary reaches the library only through its entry point
    |
    = only names re-exported by tools/report/lib.buri are available, and tools/report/main.buri belongs to the binary rule rather than the library's
-   = fix: import the library instead: from "//tools/report/lib.buri" import { ... }
+   = fix: import the library instead: from "//tools/report" import { ... }
 warning: verbose is imported but not used [unused-import]
   --> tools/report/main.buri:10:44
    |

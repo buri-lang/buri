@@ -1,7 +1,7 @@
 // EXPECT: would propagate `IoError`
-from "core/effect/lib.buri" import { Alloc, Fs, Stdout, IoError };
-from "core/host/lib.buri" import * as host;
-from "core/fs/lib.buri" import * as fs;
+from "core/effect" import { Alloc, Fs, Stdout, IoError };
+from "core/host" import * as host;
+from "core/fs" import * as fs;
 
 fn load<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, Str> {
   let text = fs.readText(ctx, path)?;

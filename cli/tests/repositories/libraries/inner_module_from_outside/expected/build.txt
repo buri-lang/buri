@@ -5,7 +5,7 @@ error: //lib/money/cents.buri is internal to //lib/money [internal-import]
   |      ^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = only names re-exported by lib/money/lib.buri are available
-  = fix: import the library instead: from "//lib/money/lib.buri" import { ... }
+  = fix: import the library instead: from "//lib/money" import { ... }
 error: there is nothing named `fromCents` in scope [unresolved-name]
   --> cmd/app/main.buri:12:23
    |

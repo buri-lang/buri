@@ -1,17 +1,17 @@
 error: expected a string literal, found `?` [unexpected-token]
  --> main.buri:1:6
   |
-1 | from ? "core/list/lib.buri" export {
+1 | from ? "core/list" export {
   |      ^
   |
   = expected: a string literal
   = actual: `?`
   = fix: quote it, as in `"core/list"`
 error: expected a declaration, found `{` [unexpected-token]
- --> main.buri:1:36
+ --> main.buri:1:27
   |
-1 | from ? "core/list/lib.buri" export {
-  |                                    ^
+1 | from ? "core/list" export {
+  |                           ^
   |
   = expected: a declaration
   = actual: `{`

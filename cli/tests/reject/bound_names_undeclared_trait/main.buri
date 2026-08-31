@@ -1,6 +1,6 @@
 // EXPECT: `Bogus` is not a trait or effect
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 fn measure<T: Bogus>(x: T): Int { 1 }
 

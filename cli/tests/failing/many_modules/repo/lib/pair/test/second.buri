@@ -1,6 +1,6 @@
 // The second of two test sources in one suite.
 
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 
 test "second: a failure" {
     assert.eq(3, 4);

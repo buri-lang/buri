@@ -4,7 +4,7 @@ error: `I64` has no method `doubled` [no-such-method]
 11 |   fromInt(ctx, amount.doubled())
    |                       ^^^^^^^
    |
-   = fix: check the spelling — `buri docs core/num/lib.buri` lists every method `I64` has, and one may not be added to it from outside `core/num/lib.buri`
+   = fix: check the spelling — `buri docs core/num` lists every method `I64` has, and one may not be added to it from outside `core/num`
 
      What to do
      ──────────

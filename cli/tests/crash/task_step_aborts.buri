@@ -12,11 +12,11 @@
 // `cli/tests/native/agreement.rs` runs the same shape through both native
 // backends and compares the message and the status; this file is what runs
 // wherever the JavaScript corpus runs.
-from "core/effect/lib.buri" import { Alloc, Env, Stdout, Tasks };
-from "core/host/lib.buri" import * as host;
-from "core/env/lib.buri" import * as env;
-from "core/tasks/lib.buri" import * as tasks;
-from "core/list/lib.buri" import * as list;
+from "core/effect" import { Alloc, Env, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/env" import * as env;
+from "core/tasks" import * as tasks;
+from "core/list" import * as list;
 
 fn ratio(a: Int, b: Int): Int { a / b }
 

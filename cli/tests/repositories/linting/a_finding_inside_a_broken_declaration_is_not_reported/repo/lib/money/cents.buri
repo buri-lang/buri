@@ -5,8 +5,8 @@
 // of anything. The edit in the manifest puts the comma back and both come
 // into view, which is what says the silence was scoped rather than lucky.
 
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import { fromInt };
+from "core/effect" import { Alloc };
+from "core/str" import { fromInt };
 
 export fn describe<C: Alloc>(ctx: C, n: I64): Str {
   let spare = 7;

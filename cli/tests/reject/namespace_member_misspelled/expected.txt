@@ -1,4 +1,4 @@
-error: "core/fs/lib.buri" has no member `readTxt` [no-such-member]
+error: "core/fs" has no member `readTxt` [no-such-member]
  --> cmd/namespace_member_misspelled/main.buri:8:14
   |
 8 |   let _ = fs.readTxt(ctx, "wal");
@@ -6,7 +6,7 @@ error: "core/fs/lib.buri" has no member `readTxt` [no-such-member]
   |
   = the module exports `IoError`, `append`, `exists`, `listDir`, `makeDir`, `readBytes`, `readText`, `remove`, `rename`, `sync`, `writeBytes` and `writeText`
   = did you mean `readText`?
-  = fix: correct the member name, or check `buri docs core/fs/lib.buri`
+  = fix: correct the member name, or check `buri docs core/fs`
 
     What to do
     ──────────

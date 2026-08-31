@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-terminator]
-  --> lib/recovery_delete_separator_brace_app_95048c/main.buri:11:63
-   |
-11 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout }
-   |                                                               ^
-   |
-   = fix: write `;` here

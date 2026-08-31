@@ -1,9 +1,0 @@
-error: expected an identifier, found `?` [unexpected-token]
- --> main.buri:4:38
-  |
-4 | from "core/str/lib.buri" import * as ? str;
-  |                                      ^
-  |
-  = expected: an identifier
-  = actual: `?`
-  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -8,5 +8,6 @@ binary {
 
     test {
         sources: ["test/main.buri"]
+        dependencies: ["//lib/money/testing"]
     }
 }

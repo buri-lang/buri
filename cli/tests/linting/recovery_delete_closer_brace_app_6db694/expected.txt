@@ -7,15 +7,15 @@ error: `if` requires an `else` branch [if-without-else]
    = `if` is an expression, so both branches must produce a value of the same type
    = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
 error: this `if` branch is missing its closing `}` [unclosed-delimiter]
-  --> lib/recovery_delete_closer_brace_app_6db694/main.buri:14:36
+  --> lib/recovery_delete_closer_brace_app_6db694/main.buri:15:10
    |
-14 |           if (n > 10000) { "huge"  else { "large" }
-   |                                    ^^^^
+15 |          else { "big" }
+   |          ^^^^
    |
-  --> lib/recovery_delete_closer_brace_app_6db694/main.buri:14:26
+  --> lib/recovery_delete_closer_brace_app_6db694/main.buri:13:23
    |
-14 |           if (n > 10000) { "huge"  else { "large" }
-   |                          ^ opened here
+13 |         if (n > 1000) {
+   |                       ^ opened here
    |
    = fix: write `}` here
 error: this function body is missing its closing `}` [unclosed-delimiter]

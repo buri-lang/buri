@@ -4,9 +4,9 @@
 // that every operation is lane-wise, that a mask is 1 and 0 rather than a
 // boolean, and that a horizontal reduction reduces across all four.
 
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 
-from "core/simd/lib.buri" import * as simd;
+from "core/simd" import * as simd;
 
 // --- construction ----------------------------------------------------------------
 

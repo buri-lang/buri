@@ -2,8 +2,8 @@
 // The moment a second one does, it belongs in a library listed in
 // `test.dependencies` — not in a file the other suite imports.
 
-from "//lib/money/lib.buri" import { fromCents };
-from "core/testing/assert/lib.buri" import * as assert;
+from "//lib/money" import { fromCents };
+from "core/testing/assert" import * as assert;
 
 fn digits(n: I64): I64 { n }
 

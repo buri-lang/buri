@@ -26,11 +26,11 @@
 // backends *and* JavaScript and compares the bytes; this file is the assertion
 // half, and it runs wherever the corpus runs.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
-from "core/list/lib.buri" import * as list;
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
+from "core/list" import * as list;
 
 test "a scalar step answers what the open-coded loop answers" {
   let ctx = context { Alloc: alloc() };

@@ -1,0 +1,38 @@
+warning: str is imported but not used [unused-import]
+ --> lib/recovery_insert_stray_brace_cents_b878c1/lib.buri:5:29
+  |
+5 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: an expression statement is legal only in a test source [expression-statement]
+ --> lib/recovery_insert_stray_brace_cents_b878c1/lib.buri:8:3
+  |
+8 |   "some"extra .concat(ctx, " cents")
+  |   ^^^^^^
+  |
+  = a block is `let`s followed by a result expression
+  = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `Str`, not `()` [statement-not-unit]
+ --> lib/recovery_insert_stray_brace_cents_b878c1/lib.buri:8:3
+  |
+8 |   "some"extra .concat(ctx, " cents")
+  |   ^^^^^^
+  |
+  = only an expression whose type is `()` may stand alone; bind anything else
+  = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+ --> lib/recovery_insert_stray_brace_cents_b878c1/lib.buri:8:9
+  |
+8 |   "some"extra .concat(ctx, " cents")
+  |         ^
+  |
+  = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+ --> lib/recovery_insert_stray_brace_cents_b878c1/lib.buri:8:9
+  |
+8 |   "some"extra .concat(ctx, " cents")
+  |         ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

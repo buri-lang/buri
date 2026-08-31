@@ -4,7 +4,7 @@
 // The colon is the reason this file exists: a title carrying one used to break
 // codegen, and a corpus that never wrote one would not have said so.
 
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 
 test "a title with: a colon" {
     assert.eq(1, 2);

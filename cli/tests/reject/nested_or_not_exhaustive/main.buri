@@ -1,8 +1,8 @@
 // EXPECT: this `match` does not cover `.Empty`
 // A nested alternation covers its own sub-type and nothing else. Splitting it
 // must not make the rest of the scrutinee's type look covered too.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Shape { Circle(Bool), Square(Int), Empty }
 

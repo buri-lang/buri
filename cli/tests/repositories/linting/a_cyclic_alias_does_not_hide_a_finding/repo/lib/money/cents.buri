@@ -6,8 +6,8 @@
 // The error sits at module level and inside no body, which used to be the
 // whole test, and every finding in the file went quiet behind it.
 
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import { fromInt };
+from "core/effect" import { Alloc };
+from "core/str" import { fromInt };
 
 export type Handle = Handle;
 

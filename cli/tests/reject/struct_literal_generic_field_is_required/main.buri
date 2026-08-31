@@ -3,8 +3,8 @@
 // Elidability is judged on the declared field type, not on the substituted
 // one. `only` is declared `T`, so it is required at every instantiation —
 // `Holder<Option<Int>>` included — while `slot`, declared `Option<T>`, is not.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 struct Holder<T> { export only: T, export slot: Option<T> }
 

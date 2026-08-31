@@ -1,9 +1,17 @@
-//! A binary's entry point is importable from its own suite and nowhere else,
-//! and the path names the file: `//cmd/app/main.buri`.
+//! Two forms, one file. A binary's entry point is importable from its own
+//! suite and nowhere else, and this file is inside //cmd/app, so it names it
+//! as a file: `//cmd/app/main.buri`. `//lib/money/testing` is somewhere else,
+//! so it is named as a module — and that string is also the label this
+//! target's `test.dependencies` declares, which is the two namespaces meeting.
 
 from "//cmd/app/main.buri" import { main };
-from "core/testing/assert/lib.buri" import * as assert;
+from "//lib/money/testing" import { sample };
+from "core/testing/assert" import * as assert;
 
 test "main is reachable from its own suite" {
   assert.isTrue(main() == .Ok(()));
+}
+
+test "and a dependency's testing surface is reachable by its label" {
+  assert.eq(sample().0, 1905);
 }

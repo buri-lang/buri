@@ -9,13 +9,13 @@
 // receives a `Scope`, which grants reading the graph and nothing else, so it
 // cannot print — `cli/tests/conformance/lib/ui/` is where the ordering and
 // re-run counts are asserted, through a recorder the runner owns.
-from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host/lib.buri" import * as host;
-from "core/io/lib.buri" import * as io;
-from "ui/effect/lib.buri" import { Scope, Ui, Watch };
-from "ui/prop/lib.buri" import { Prop, memo };
-from "ui/signal/lib.buri" import { Signal, signal, watch };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/prop" import { Prop, memo };
+from "ui/signal" import { Signal, signal, watch };
 
 fn ignore(value: Int): () {
   let _ = value;

@@ -1,9 +1,9 @@
 // FINDING 5: `satisfies` returns true for Ty::Var (infer.rs), so bounds are
 // discharged only AFTER default_numerics commits a literal to I64/F64. Is
 // there a bound that I64 fails but another integer type satisfies?
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/num/lib.buri" import { Neg, Wrapping };
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/num" import { Neg, Wrapping };
 
 fn negate<T: Neg>(x: T): T { -x }
 

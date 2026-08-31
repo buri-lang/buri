@@ -1,9 +1,0 @@
-error: expected `import`, found `,` [unexpected-token]
- --> main.buri:5:26
-  |
-5 | from "core/str/lib.buri" , import * as str;
-  |                          ^
-  |
-  = expected: `import`
-  = actual: `,`
-  = fix: write `import` here

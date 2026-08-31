@@ -1,5 +1,0 @@
-from "//lib/z/lib.buri" import { Zed };
-
-export fn f(): Int { 1 }
-
-from "core/str/lib.buri" * import as str;

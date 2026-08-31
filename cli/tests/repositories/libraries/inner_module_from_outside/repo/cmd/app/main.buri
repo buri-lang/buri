@@ -2,8 +2,8 @@
 // a real module and this is a real path; it is simply not this package's to
 // name (LIBRARIES.md:80-89).
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 from "//lib/money/cents.buri" import { fromCents };
 

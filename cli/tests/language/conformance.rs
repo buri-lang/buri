@@ -301,8 +301,8 @@ fn tail_calls_run_in_constant_stack_on_v8() {
     scratch.binary_package(
         "cmd/deep",
         r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 fn countDown(n: Int, acc: Int): Int {
   if (n == 0) { acc } else { countDown(n - 1, acc + 1) }
@@ -526,9 +526,9 @@ fn a_finding_never_names_a_file_the_author_cannot_edit() {
 /// `fs.readText<C: Alloc + Fs>` demands both of `read`'s bounds; `fs.exists<C:
 /// Fs>` demands one of `touch`'s. So exactly one finding is this repository's,
 /// and the six inside `core/fs` are nobody's.
-const FS_BOUNDS: &str = r#"from "core/effect/lib.buri" import { Alloc, Fs };
-from "core/fs/lib.buri" import * as fs;
-from "core/host/lib.buri" import * as host;
+const FS_BOUNDS: &str = r#"from "core/effect" import { Alloc, Fs };
+from "core/fs" import * as fs;
+from "core/host" import * as host;
 
 fn read<C: Alloc + Fs>(ctx: C, path: Str): Bool {
   fs.readText(ctx, path).isOk()

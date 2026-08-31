@@ -1,0 +1,9 @@
+error: expected `{`, found `as` [unexpected-token]
+ --> main.buri:4:24
+  |
+4 | from "core/str" import as * str;
+  |                        ^^
+  |
+  = expected: `{`
+  = actual: `as`
+  = fix: write `{` here

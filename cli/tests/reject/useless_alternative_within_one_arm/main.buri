@@ -2,8 +2,8 @@
 // Nothing above this arm covers anything. The alternative that kills the third
 // one is the first one, in the same arm — alternatives are tried left to right,
 // so each is asked about the ones to its left as well as about the arms above.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Shape { Empty, Circle(Bool) }
 

@@ -1,9 +1,9 @@
-// The old spelling of a library's surface: a path with the file left off.
-// The compiler knows which file it meant, because it can still resolve it the
-// old way, and the diagnostic says so.
+// This import is *correct*, and it is the same string the test source three
+// files away is refused for writing. A path that leaves the package names the
+// package; //cmd/app is not //lib/money, so //lib/money is what it writes.
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 from "//lib/money" import { fromCents };
 

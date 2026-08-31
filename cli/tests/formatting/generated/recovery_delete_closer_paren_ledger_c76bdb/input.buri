@@ -1,0 +1,30 @@
+// The suite for //lib/ledger. It may import the library under test, the
+// library's own dependencies (//lib/money), anything in `test.dependencies`,
+// and core/*.
+//
+// The fixture comes from this library's own testing surface rather than from a
+// private helper, because //tools/report's suite wants the same one.
+
+from "//lib/ledger" import { total, Rule, apply };
+from "//lib/ledger/testing" import { sample };
+from "//lib/money" import { fromCents };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
+
+test "total sums every entry" {
+  assert.eq(total(sample()), fromCents(3650));
+}
+
+test "DropZero removes zero-amount entries" {
+  let ctx = context { Alloc: alloc() };
+  let kept = apply(ctx, sample(), Rule.DropZero);
+  assert.eq(kept.len(), 2);
+  assert.eq(total(kept, fromCents(3650));
+}
+
+test "MemoPrefix keeps matching memos" {
+  let ctx = context { Alloc: alloc() };
+  let kept = apply(ctx, sample(), Rule.MemoPrefix { prefix: "co" });
+  assert.eq(kept.len(), 1);
+}

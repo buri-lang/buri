@@ -5,11 +5,11 @@
 // shape exists to prevent — a closure that has closed over the program's
 // effect budget and can be called from anywhere, including from inside a
 // reactive computation that was handed read authority and nothing else.
-from "core/effect/lib.buri" import { Alloc };
+from "core/effect" import { Alloc };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host/lib.buri" import * as host;
-from "ui/effect/lib.buri" import { Ui, Watch };
-from "ui/signal/lib.buri" import { Signal, signal };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/signal" import { Signal, signal };
 
 fn later<C: Ui>(ctx: C, n: Signal<Int>): fn(Int) => () {
   fn(by) => n.update(ctx, fn(v) => v + by)

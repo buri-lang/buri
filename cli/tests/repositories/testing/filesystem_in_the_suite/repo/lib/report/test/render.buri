@@ -6,11 +6,11 @@
 // same in-memory filesystem with its contents written here instead, so both
 // backends read the same bytes and neither needs a runner to be handed them.
 
-from "//lib/report/lib.buri" import { footer, render, trailer };
-from "core/fs/lib.buri" import * as fs;
-from "core/effect/lib.buri" import { Alloc, Fs };
-from "core/host/testing/lib.buri" import { alloc, fs as memory };
-from "core/testing/assert/lib.buri" import * as assert;
+from "//lib/report" import { footer, render, trailer };
+from "core/fs" import * as fs;
+from "core/effect" import { Alloc, Fs };
+from "core/host/testing" import { alloc, fs as memory };
+from "core/testing/assert" import * as assert;
 
 test "renders the statement" {
   let ctx = context {

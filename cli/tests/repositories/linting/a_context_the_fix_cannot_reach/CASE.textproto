@@ -33,8 +33,8 @@ file {
 # its own. So the answer is the other one the page offers: use the context.
 edit {
   file: "cmd/app/main.buri"
-  replace: "from \"core/host/lib.buri\" import * as host;\n"
-  with: "from \"core/host/lib.buri\" import * as host;\nfrom \"core/str/lib.buri\" import * as str;\n"
+  replace: "from \"core/host\" import * as host;\n"
+  with: "from \"core/host\" import * as host;\nfrom \"core/str\" import * as str;\n"
 }
 
 edit {
@@ -48,7 +48,7 @@ edit {
 # the ones `--fix` would have written had it been allowed to.
 edit {
   file: "lib/label/stamp.buri"
-  replace: "from \"core/effect/lib.buri\" import { Alloc };\n\n"
+  replace: "from \"core/effect\" import { Alloc };\n\n"
   with: ""
 }
 

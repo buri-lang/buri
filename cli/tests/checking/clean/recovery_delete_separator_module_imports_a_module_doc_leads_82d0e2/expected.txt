@@ -1,7 +1,0 @@
-error: an import declaration ends with `;` [missing-terminator]
- --> main.buri:4:41
-  |
-4 | from "core/str/lib.buri" import * as str
-  |                                         ^
-  |
-  = fix: write `;` here

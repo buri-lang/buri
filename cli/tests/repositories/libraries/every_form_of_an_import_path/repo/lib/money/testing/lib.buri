@@ -1,7 +1,8 @@
-//! The testing surface: a file two directories down that an import names in
-//! full, where it used to be spelled "//lib/money/testing".
+//! The testing surface. From outside this package it is `//lib/money/testing`
+//! — a module, and the same string as the label a `test.dependencies`
+//! declares. From here, inside the package, `lib.buri` is a file beside it.
 
-from "//lib/money/lib.buri" import { Cents, fromCents };
+from "//lib/money" import { Cents, fromCents };
 
 /// A round figure, for a suite that needs one and does not care which.
 export fn sample(): Cents { fromCents(1905) }

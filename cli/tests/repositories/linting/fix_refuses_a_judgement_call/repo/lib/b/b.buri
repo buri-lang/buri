@@ -2,7 +2,7 @@
 // cycle, and a cycle has no mechanical answer:
 // which of the two edges to cut is a design decision.
 
-from "//lib/a/lib.buri" import { callB };
+from "//lib/a" import { callB };
 
 export fn fromB(): Str { "b" }
 

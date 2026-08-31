@@ -28,7 +28,7 @@
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 1, "character": 10}}}
 # An import clause for a module that does not exist. There is nothing to list
 # and nothing to say about it — the missing module is a diagnostic's business.
-{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 4}, "contentChanges": [{"text": "from \"core/nowhere/lib.buri\" import { "}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 4}, "contentChanges": [{"text": "from \"core/nowhere\" import { "}]}}
 {"jsonrpc": "2.0", "id": 7, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "position": {"line": 0, "character": 29}}}
 {"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

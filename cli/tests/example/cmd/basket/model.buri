@@ -6,10 +6,10 @@
 // testable with no document, no renderer and no reactive graph, and the suite
 // in `test/model.buri` builds none of the three.
 
-from "core/effect/lib.buri" import { Alloc };
+from "core/effect" import { Alloc };
 
-from "//lib/ledger/lib.buri" import { Entry, entry };
-from "//lib/money/lib.buri" import { fromCents, parse };
+from "//lib/ledger" import { Entry, entry };
+from "//lib/money" import { fromCents, parse };
 
 /// Where the lines come from: //cmd/server's own route, in this repository.
 ///

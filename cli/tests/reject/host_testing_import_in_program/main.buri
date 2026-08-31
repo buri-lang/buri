@@ -5,9 +5,9 @@
 // it is the module that exports `main` — and that earns it nothing on the line
 // below, where the `testing` segment in the path is the whole of the second
 // rule.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/host/testing/lib.buri" import * as testing;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/host/testing" import * as testing;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

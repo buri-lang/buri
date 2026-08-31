@@ -9,9 +9,9 @@
 //
 // The bounds are compared as a set, so an `impl` that writes the same bounds
 // in another order is not reported.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/io/lib.buri" import * as io;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 export struct Ledger { export lines: Int }
 

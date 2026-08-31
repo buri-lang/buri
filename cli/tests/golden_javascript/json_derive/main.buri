@@ -2,10 +2,10 @@
 // descriptor each rather than an encoder and a decoder emitted per type. What
 // this pins is that the *program* holds neither: a descriptor, two calls, and
 // nothing else.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/json/lib.buri" import { DecodeError, ToJson, FromJson };
-from "core/json/lib.buri" import * as json;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/json" import { DecodeError, ToJson, FromJson };
+from "core/json" import * as json;
 
 struct Point { x: Int, y: Int }
 

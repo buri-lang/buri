@@ -7,7 +7,7 @@
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
 # The push, which is unchanged and still happens. Two files hear about it: the
 # one with the type error, and the build file the lint finding is about.
-{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "// The type error: `total` promises an `I64` and hands back a `Str`. That is\n// the front end's half of what a pull about this file answers with.\n\nfrom \"core/effect/lib.buri\" import { Alloc, Stdout };\nfrom \"core/host/lib.buri\" import * as host;\n\nexport fn total(): I64 { \"not a number\" }\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let _ = ctx.println(\"total: ${total().show(ctx)}\");\n  .Ok(())\n}\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "// The type error: `total` promises an `I64` and hands back a `Str`. That is\n// the front end's half of what a pull about this file answers with.\n\nfrom \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\nexport fn total(): I64 { \"not a number\" }\n\nexport fn main(): Result<(), Str> {\n  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  let _ = ctx.println(\"total: ${total().show(ctx)}\");\n  .Ok(())\n}\n"}}}
 # The pull, about the same file. `items` is the type error, byte for byte what
 # the publish above carried, and `relatedDocuments` holds the finding the same
 # two passes made about the build file.

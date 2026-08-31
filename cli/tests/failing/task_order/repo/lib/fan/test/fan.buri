@@ -7,10 +7,10 @@
 // that used it would pin this file's hash and go red the next time somebody
 // fixed a typo in this comment.
 
-from "core/effect/lib.buri" import { Tasks };
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { task, tasks };
-from "//lib/fan/lib.buri" import { labelled };
+from "core/effect" import { Tasks };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { task, tasks };
+from "//lib/fan" import { labelled };
 
 test "a seeded order names the seed that replays it" {
     let scheduler = tasks().seed(5);

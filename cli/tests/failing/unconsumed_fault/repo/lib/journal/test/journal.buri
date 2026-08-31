@@ -2,10 +2,10 @@
 // and passes; the second names a call the code under test never makes, and the
 // runner fails it on the way out of the block with the fault's own spelling.
 
-from "core/effect/lib.buri" import { Alloc, Fs };
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc, fs, readFile, writeFile };
-from "//lib/journal/lib.buri" import { record };
+from "core/effect" import { Alloc, Fs };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc, fs, readFile, writeFile };
+from "//lib/journal" import { record };
 
 test "a fault the code under test reaches is a fault that fired" {
     let disk = fs().faults([writeFile("log", "one").fails(.PermissionDenied)]);

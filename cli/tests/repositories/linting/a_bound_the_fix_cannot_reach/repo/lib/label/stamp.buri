@@ -9,8 +9,8 @@
 // The second is the one place it declines. What sits between two bounds is
 // the punctuation that joins them, and a comment is not that.
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/io/lib.buri" import * as io;
+from "core/effect" import { Alloc, Stdout };
+from "core/io" import * as io;
 
 /// Reported, and rewritten. `io.println<C: Stdout>` is the only demand this
 /// body makes, and `Alloc` is published in a signature that never uses it.

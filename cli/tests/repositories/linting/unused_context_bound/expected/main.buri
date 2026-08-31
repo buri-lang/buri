@@ -4,10 +4,10 @@
 // that is handed the whole context — and the three functions below the first
 // two use one each. The first two ask for capabilities they never exercise.
 
-from "core/effect/lib.buri" import { Alloc, Clock, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/io/lib.buri" import * as io;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc, Clock, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/str" import * as str;
 
 /// The finding. `io.println` asks for `Stdout` and for nothing else, so
 /// `Alloc` here is a demand on every caller for a capability the body never

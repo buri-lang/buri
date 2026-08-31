@@ -1,0 +1,103 @@
+0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
+error: "//cmd/app/main" names no file [import-path-without-a-file]
+ --> cmd/app/test/main.buri:6:6
+  |
+6 | from "//cmd/app/main" import { main };
+  |      ^^^^^^^^^^^^^^^^
+  |
+  = a surface is named as a module and everything else is a file, so this path is that file's name — the one you would type into an editor, extension and all
+  = fix: write "//cmd/app/main.buri"
+
+    What to do
+    ──────────
+
+    Add the file name the path already meant. The compiler works out which file
+    that is and offers the edit, so buri lint --fix and the editor's quick fix
+    will make it for you.
+
+    Why
+    ───
+
+    There are two kinds of thing an import path can name, and they are spelled
+    differently because they are different:
+
+      what                                                       written                                            who may write it
+      a surface — a library's lib.buri, or its testing/lib.buri  "//lib/money", "//lib/money/testing", "core/list"  anyone the
+                                                                                                                    dependency and
+                                                                                                                    visibility rules
+                                                                                                                    allow, including the
+                                                                                                                    package's own suite
+      a file inside a package                                    "//lib/money/cents.buri", "//cmd/app/main.buri"    only another file of
+                                                                                                                    that same package
+
+    A surface is the one thing a package publishes, so naming it is naming the
+    package: //lib/money is both the label its dependents declare in a
+    dependencies and the path they import, and it is what the library's own test
+    source writes too. Everything else is one file among many, so the path has
+    to say *which*, and the only honest answer is the name of the file.
+
+    The two cannot be told apart by their shape, which is why the fix is
+    resolved and not spelled. "//lib/money/testing" and "//lib/money/cents" are
+    the same string with one segment changed; the first is a surface and
+    correct, the second is a file with its name left off. What decides it is
+    lib/money/testing/lib.buri and lib/money/cents.buri being on disk, and only
+    the resolver can look.
+
+    A binary's entry point is a file for the same reason: //cmd/app would be
+    that package's lib.buri, and a package with only a binary has not got one.
+    So it is "//cmd/app/main.buri", from that binary's own test sources and
+    nowhere else.
+
+    A path that leaves the package and names a file inside it is a different
+    error: internal-import, because what it reaches for is not on the surface.
+
+error: there is nothing named `main` in scope [unresolved-name]
+  --> cmd/app/test/main.buri:10:17
+   |
+10 |   assert.isTrue(main() == .Ok(()));
+   |                 ^^^^
+   |
+   = fix: declare `main`, or import it — a name is in scope only from this module's own declarations and its imports
+
+     What to do
+     ──────────
+
+     Correct the spelling, or declare it. The diagnostic offers the nearest name
+     in scope.
+
+     Why
+     ───
+
+     There is no prelude and no ambient scope: the names available in a module
+     are the ones it declares plus the ones its own imports name. That is what
+     makes the suggestion trustworthy — the set it is drawn from is exactly the
+     set the file put there.
+
+error: "//lib/money/cents" names no file [import-path-without-a-file]
+ --> lib/money/parse.buri:5:6
+  |
+5 | from "//lib/money/cents" import { Cents };
+  |      ^^^^^^^^^^^^^^^^^^^
+  |
+  = a surface is named as a module and everything else is a file, so this path is that file's name — the one you would type into an editor, extension and all
+  = fix: write "//lib/money/cents.buri"
+error: there is no type `Cents` [unresolved-type]
+ --> lib/money/parse.buri:7:22
+  |
+7 | export fn isSmall(c: Cents): Bool { c.toCents() < 100 }
+  |                      ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+
+    What to do
+    ──────────
+
+    Declare it, import it, or correct the spelling.
+
+    Why
+    ───
+
+    Types are nominal throughout. There is no structural fallback and no
+    inference from shape, so a misspelling cannot quietly become a different
+    type that happens to fit.
+

@@ -21,14 +21,14 @@
 // block that was forgotten is a build error here rather than a surprise at the
 // call site of whoever needed it first.
 
-from "core/alloc/lib.buri" import * as alloc;
-from "core/alloc/lib.buri" import { Stats };
-from "core/effect/lib.buri" import {
+from "core/alloc" import * as alloc;
+from "core/alloc" import { Stats };
+from "core/effect" import {
     Alloc, Clock, Env, Fs, Listen, Net, NetError, Proc, Rand, Request, Response,
     Sockets, Stderr, Stdin, Stdout, Tasks,
 };
-from "core/host/testing/lib.buri" import * as testing;
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/host/testing" import * as testing;
+from "core/testing/assert" import * as assert;
 
 // -----------------------------------------------------------------------------
 // Fakes for the two effects that have no test double

@@ -7,13 +7,13 @@
 // and multi-block handling all have to be right at once, and a single wrong
 // bit changes the whole digest.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
 
-from "core/bytes/lib.buri" import * as bytes;
-from "core/crypto/lib.buri" import * as crypto;
-from "core/list/lib.buri" import * as list;
+from "core/bytes" import * as bytes;
+from "core/crypto" import * as crypto;
+from "core/list" import * as list;
 
 fn hex(text: Str): Str {
   let ctx = context { Alloc: alloc() };

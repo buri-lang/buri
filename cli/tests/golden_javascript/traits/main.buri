@@ -1,7 +1,7 @@
 // A trait with two implementations. Every call resolves at monomorphisation,
 // so what reaches the backend is a direct call — and a wrapper around it.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 trait Area {
   fn area(self): Int;

@@ -1,6 +1,6 @@
 // EXPECT: a context binding ends with `,`
-from "core/effect/lib.buri" import { Alloc, Clock };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Clock };
+from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc Clock: host.clock };

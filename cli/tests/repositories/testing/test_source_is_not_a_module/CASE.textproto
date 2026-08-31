@@ -25,8 +25,8 @@ run {
 # exists to catch, and the one a shared `testing` library is the answer to.
 edit {
   file: "lib/money/test/cents.buri"
-  replace: "from \"core/testing/assert/lib.buri\" import * as assert;"
-  with: "from \"//lib/money/test/parse.buri\" import { digits };\nfrom \"core/testing/assert/lib.buri\" import * as assert;"
+  replace: "from \"core/testing/assert\" import * as assert;"
+  with: "from \"//lib/money/test/parse.buri\" import { digits };\nfrom \"core/testing/assert\" import * as assert;"
 }
 
 edit {

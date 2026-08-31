@@ -2,7 +2,7 @@ argument_order: 1531 bytes artifact, 890 generated
 arithmetic: 1376 bytes artifact, 261 generated
 array_patterns: 1707 bytes artifact, 849 generated
 bool_logic: 1449 bytes artifact, 436 generated
-closures: 2146 bytes artifact, 634 generated
+closures: 2146 bytes artifact, 607 generated
 derives: 3260 bytes artifact, 919 generated
 enum_match: 1586 bytes artifact, 856 generated
 enum_payloadless: 1468 bytes artifact, 725 generated
@@ -12,7 +12,7 @@ guards: 1376 bytes artifact, 394 generated
 int_match: 1518 bytes artifact, 639 generated
 interpolation: 1517 bytes artifact, 435 generated
 interpreter: 4469 bytes artifact, 6298 generated
-json_derive: 9461 bytes artifact, 3926 generated
+json_derive: 9461 bytes artifact, 3845 generated
 literals: 1784 bytes artifact, 377 generated
 nested_match: 1545 bytes artifact, 809 generated
 nested_option: 6312 bytes artifact, 4792 generated
@@ -23,17 +23,17 @@ shared_constants: 1529 bytes artifact, 921 generated
 stdlib_chain: 2545 bytes artifact, 626 generated
 str_match: 1473 bytes artifact, 526 generated
 structs: 1332 bytes artifact, 217 generated
-tail_closure: 2764 bytes artifact, 1792 generated
+tail_closure: 2764 bytes artifact, 1747 generated
 tail_mutual: 1497 bytes artifact, 703 generated
 tail_self: 1761 bytes artifact, 1222 generated
 tail_short_circuit: 2290 bytes artifact, 1588 generated
 traits: 1353 bytes artifact, 238 generated
 ui_counter: 15878 bytes artifact, 1794 generated
 ui_signals: 4577 bytes artifact, 1158 generated
-ui_styles: 15925 bytes artifact, 1983 generated
-ui_styles_dynamic: 20610 bytes artifact, 1293 generated
-ui_theme: 18828 bytes artifact, 4155 generated
+ui_styles: 15925 bytes artifact, 1956 generated
+ui_styles_dynamic: 20610 bytes artifact, 1257 generated
+ui_theme: 18828 bytes artifact, 4101 generated
 ui_theme_and_computed: 22143 bytes artifact, 972 generated
 
-total: 165385 bytes artifact, 46180 generated
+total: 165385 bytes artifact, 45910 generated
 largest function: 3507 bytes, ui_styles_dynamic/$tree_declare

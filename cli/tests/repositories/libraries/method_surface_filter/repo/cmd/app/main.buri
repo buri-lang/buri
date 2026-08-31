@@ -1,10 +1,10 @@
 // The good half. `format` is on //lib/money's surface, so the method resolves
 // here. `toCents` is not, and the edit in CASE.textproto adds a call to it.
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
-from "//lib/money/lib.buri" import { fromCents };
+from "//lib/money" import { fromCents };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

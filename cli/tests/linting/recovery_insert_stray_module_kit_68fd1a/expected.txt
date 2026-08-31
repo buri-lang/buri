@@ -1,9 +1,0 @@
-error: expected `import`, found `,` [unexpected-token]
- --> lib/recovery_insert_stray_module_kit_68fd1a/lib.buri:4:27
-  |
-4 | from "core/list/lib.buri" , import * as list;
-  |                           ^
-  |
-  = expected: `import`
-  = actual: `,`
-  = fix: write `import` here

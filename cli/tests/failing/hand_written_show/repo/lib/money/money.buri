@@ -1,5 +1,5 @@
-from "core/effect/lib.buri" import { Alloc };
-from "core/order/lib.buri" import { Show };
+from "core/effect" import { Alloc };
+from "core/order" import { Show };
 
 derive Eq for Money;
 /// `Eq` is derived and `Show` is written by hand, so the two sides of a failure

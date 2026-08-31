@@ -1,9 +1,0 @@
-error: expected `=`, found `3` [unexpected-token]
-  --> lib/recovery_swap_adjacent_brace_app_996da1/main.buri:12:13
-   |
-12 |   let total 3 = * 4;
-   |             ^
-   |
-   = expected: `=`
-   = actual: `3`
-   = fix: write `=` here

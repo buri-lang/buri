@@ -1,0 +1,9 @@
+error: expected an identifier, found `:` [unexpected-token]
+ --> lib/recovery_swap_adjacent_paren_stamp_df1bbd/lib.buri:7:40
+  |
+7 | export fn stamp<C: Alloc>(ctx: Clabel ,: Str): Int {
+  |                                        ^
+  |
+  = expected: an identifier
+  = actual: `:`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

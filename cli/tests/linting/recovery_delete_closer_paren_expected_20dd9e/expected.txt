@@ -1,0 +1,33 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_expected_20dd9e/main.buri:39:62
+   |
+39 |   let _ = ctx.println("${banner(ctx, label)} is ${width(label} wide");
+   |                                                              ^^^^^^^
+   |
+  --> lib/recovery_delete_closer_paren_expected_20dd9e/main.buri:39:56
+   |
+39 |   let _ = ctx.println("${banner(ctx, label)} is ${width(label} wide");
+   |                                                        ^ opened here
+   |
+   = fix: write `)` here
+error: expected the rest of the string, found `;` [unexpected-token]
+  --> lib/recovery_delete_closer_paren_expected_20dd9e/main.buri:39:70
+   |
+39 |   let _ = ctx.println("${banner(ctx, label)} is ${width(label} wide");
+   |                                                                      ^
+   |
+   = expected: the rest of the string
+   = actual: `;`
+   = fix: close the template: every `${` needs a `}` and the string needs a closing quote
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_expected_20dd9e/main.buri:43:1
+   |
+43 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_expected_20dd9e/main.buri:35:35
+   |
+35 | export fn main(): Result<(), Str> {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here

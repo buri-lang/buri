@@ -4,11 +4,11 @@
 // bits to a word, so index 31 and index 32 land in different words and a
 // mistake in the division shows up there and nowhere else.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
 
-from "core/bitset/lib.buri" import * as bitset;
+from "core/bitset" import * as bitset;
 
 // --- empty / capacity ---------------------------------------------------------
 

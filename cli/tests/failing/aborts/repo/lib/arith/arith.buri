@@ -1,4 +1,4 @@
-from "core/bits/lib.buri" import * as bits;
+from "core/bits" import * as bits;
 
 export fn ratio(a: Int, b: Int): Int {
     a / b

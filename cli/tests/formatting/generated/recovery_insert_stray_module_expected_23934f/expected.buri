@@ -1,4 +1,4 @@
-from ? "//lib/z/lib.buri"
+from ? "//lib/z"
 
 export { apply as play, Banjo, Guitar, Zed }
 

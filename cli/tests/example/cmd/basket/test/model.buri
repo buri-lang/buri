@@ -9,11 +9,11 @@
 from "//cmd/basket/main.buri" import {
   draft, Draft, entriesFrom, flip, isTicked, pad, settledFraction,
 };
-from "//lib/ledger/lib.buri" import { entry, total };
-from "//lib/money/lib.buri" import { fromCents };
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
+from "//lib/ledger" import { entry, total };
+from "//lib/money" import { fromCents };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
 
 /// What //cmd/server's `/entries` route answers, recorded. The same text
 /// test/view.buri feeds through a stub `Net`, as the octets a body is made

@@ -1,8 +1,8 @@
-error: "//cmd/discarded_result/lib.buri" names no file (cmd/discarded_result/lib.buri) [module-not-found]
+error: "//cmd/discarded_result" names no file (cmd/discarded_result/lib.buri) [module-not-found]
  --> cmd/import_invisible_target/main.buri:4:6
   |
-4 | from "//cmd/discarded_result/lib.buri" import { main };
-  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4 | from "//cmd/discarded_result" import { main };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
@@ -21,6 +21,6 @@ error: "//cmd/discarded_result/lib.buri" names no file (cmd/discarded_result/lib
     ──────────────────────────
 
     A module path resolves against the repository, so this one is compiled
-    against the worked monorepo in cli/tests/example, where lib/nope/lib.buri is
-    not a file.
+    against the worked monorepo in cli/tests/example, which has no lib/nope in
+    it.
 

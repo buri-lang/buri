@@ -6,8 +6,8 @@
 // is the parameter, and the diagnostic is an ordinary mismatch rather than
 // anything about literals. `{ hi, }`, `{ hi: hi }` and `World { hi }` all
 // build the struct.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 struct World { export hi: Str, export hello: Option<Str> }
 

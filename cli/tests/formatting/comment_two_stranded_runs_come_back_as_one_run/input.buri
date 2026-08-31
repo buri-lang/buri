@@ -1,4 +1,4 @@
-from "core/list/lib.buri" export {
+from "core/list" export {
     /// the one that folds
     fold,
     // and the one that maps

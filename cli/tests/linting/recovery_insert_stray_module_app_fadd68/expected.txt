@@ -1,0 +1,17 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_insert_stray_module_app_fadd68/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected a type, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_module_app_fadd68/main.buri:12:19
+   |
+12 | export fn main(): , Result<(), Str> {
+   |                   ^
+   |
+   = expected: a type
+   = actual: `,`
+   = fix: name a type here, as in `Int` or `[Str]`

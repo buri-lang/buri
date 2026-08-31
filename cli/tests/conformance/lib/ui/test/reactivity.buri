@@ -14,11 +14,11 @@
 // receives a `Scope`, which grants reading the graph and nothing else, so it
 // cannot write a signal and it cannot print.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "ui/effect/lib.buri" import { Scope, Ui, Watch };
-from "ui/prop/lib.buri" import { memo, Prop };
-from "ui/signal/lib.buri" import { Signal, signal, watch };
-from "ui/testing/lib.buri" import { headless, observer, Recorder, recorder };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/prop" import { memo, Prop };
+from "ui/signal" import { Signal, signal, watch };
+from "ui/testing" import { headless, observer, Recorder, recorder };
 
 // --- helpers -----------------------------------------------------------------------
 

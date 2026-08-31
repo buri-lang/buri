@@ -1,9 +1,0 @@
-error: expected an expression, found `_` [unexpected-token]
-  --> lib/recovery_swap_adjacent_brace_app_20b7eb/main.buri:13:3
-   |
-13 |   _ let = io.println(ctx, "done");
-   |   ^
-   |
-   = expected: an expression
-   = actual: `_`
-   = fix: write a value here

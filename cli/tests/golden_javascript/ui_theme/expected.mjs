@@ -39,7 +39,7 @@ function __cmd_x_main_buri$main(){
     if(count_24[0]===0){
       $t1=count_24[1];
     }else if(count_24[0]===1){
-      $t1=ui_signal_lib_buri$Signal_get$ffq1hq(count_24[1],c_25);
+      $t1=ui_signal$Signal_get$ffq1hq(count_24[1],c_25);
     }else if(count_24[0]===2){
       $t1=count_24[1](c_25);
     }else{
@@ -47,8 +47,8 @@ function __cmd_x_main_buri$main(){
     }
     return String($t1);
   }];
-  const $t6=ui_node_lib_buri$column$u3rqgv($k5,[[[5,[0,label_7],(c_9,e_10)=>$host_HostUi_write(c_9[2],count_8[0],(n_11=>n_11+1n)($host_HostUi_read(c_9[2],count_8[0])))]],[[3,[$k18,[0,$k14]],[[[1,[0,label_7]]],[[1,content_32]]]]]]);
-  const $t5=ui_theme_lib_buri$themed([[__cmd_x_main_buri$Card_color(0),__cmd_x_main_buri$cardTheme(0)],[__cmd_x_main_buri$Card_color(1),__cmd_x_main_buri$cardTheme(1)],[__cmd_x_main_buri$Card_color(2),__cmd_x_main_buri$cardTheme(2)]]);
+  const $t6=ui_node$column$u3rqgv($k5,[[[5,[0,label_7],(c_9,e_10)=>$host_HostUi_write(c_9[2],count_8[0],(n_11=>n_11+1n)($host_HostUi_read(c_9[2],count_8[0])))]],[[3,[$k18,[0,$k14]],[[[1,[0,label_7]]],[[1,content_32]]]]]]);
+  const $t5=ui_theme$themed([[__cmd_x_main_buri$Card_color(0),__cmd_x_main_buri$cardTheme(0)],[__cmd_x_main_buri$Card_color(1),__cmd_x_main_buri$cardTheme(1)],[__cmd_x_main_buri$Card_color(2),__cmd_x_main_buri$cardTheme(2)]]);
   const whenTrue_14=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$night);
   const whenFalse_15=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$day);
   return $ui_node_mount(ctx_0,$t6,[$t5,[[1,[1,dark_1],[whenTrue_14],[whenFalse_15]]]]);
@@ -105,7 +105,7 @@ function __cmd_x_main_buri$App_color(self_0){
     $abort('no arm matched');
   }
 }
-function ui_theme_lib_buri$themed(bindings_0){
+function ui_theme$themed(bindings_0){
   return [[0,bindings_0]];
 }
 function __cmd_x_main_buri$Card_color(self_0){
@@ -129,9 +129,9 @@ function __cmd_x_main_buri$Card_color(self_0){
       break;
   }
 }
-function ui_node_lib_buri$column$u3rqgv(styles_0,children_1){
+function ui_node$column$u3rqgv(styles_0,children_1){
   return [[3,[$k26,[0,styles_0]],children_1]];
 }
-function ui_signal_lib_buri$Signal_get$ffq1hq(self_0,ctx_1){
+function ui_signal$Signal_get$ffq1hq(self_0,ctx_1){
   return $ui_effect_Scope_read(ctx_1,self_0[0]);
 }
