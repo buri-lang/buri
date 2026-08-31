@@ -880,9 +880,28 @@ mod tests {
             // not what the assertions rest on.
             thread::sleep(Duration::from_millis(20));
             assert!(BATON.held_here(), "the waiter took the baton off its holder");
+            // The first half of what the case is about, asserted rather than
+            // left to the final sequence: nothing of the waiter's has run, and
+            // the sleep above is long enough that it would have if it could.
+            assert_eq!(
+                *order.lock().unwrap(),
+                ["first in"],
+                "the waiter ran before the baton was given up",
+            );
 
-            let ticket = BATON.release();
+            // The entry goes in **before** the release, and that is not a
+            // cosmetic ordering. `release` is the instant the waiter may run,
+            // so an entry appended after it races the woken carrier's own two
+            // entries for the `order` mutex — and loses often enough to have
+            // failed CI once, and once in a few hundred runs on an eight-way
+            // arm64 machine. The log then read `["first in", "second in",
+            // "second out", "first parked", "first back"]` for a handoff that
+            // had happened in exactly the promised order: what was misordered
+            // was the record, not the baton. Written here, on the one thread
+            // that is running, this entry is ordered before the release by the
+            // program and before "second in" by the baton itself.
             order.lock().unwrap().push("first parked");
+            let ticket = BATON.release();
             waiter.join().unwrap();
             BATON.acquire(ticket);
             order.lock().unwrap().push("first back");
