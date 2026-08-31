@@ -1084,7 +1084,8 @@ test "a stdin of octets reads them, and readLine finds nothing there" {
 ///
 /// And the rule's other side, which is `Tasks.parallel`'s: a step is handed the
 /// caller's **context**, spelled `ctx: C` in the declaration rather than `Self`.
-/// `ctx.parallel(ctx, …)`'s step reads a clock the scheduler does not have, and
+/// `tasks.parallel(ctx, …)`'s step reads a clock the scheduler does not have,
+/// and
 /// `runInOrderNamed` allocates inside a step reached through a bound — the
 /// first is a wrong answer if the wrong value arrives, the second does not
 /// compile at all.

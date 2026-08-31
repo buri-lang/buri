@@ -2453,7 +2453,7 @@ export fn main(): Result<(), Str> {
 ///
 /// Four claims, and each of them fails differently if the wrong value arrives:
 ///
-///  * **one effect out of the context** — `c.nowMillis()` inside a step. The
+///  * **one effect out of the context** — `time.now(c)` inside a step. The
 ///    reduced repro: `[7, 9]` where `[12, 14]` was promised.
 ///  * **two effects at once** — `str.format` needs the `Alloc` and reads the
 ///    `Clock`, so a step handed a value satisfying only `Tasks` could satisfy

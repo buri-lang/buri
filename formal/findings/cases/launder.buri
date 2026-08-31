@@ -17,7 +17,7 @@ fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
 
-  // `fn(c) => c.println(..)` is the sanctioned `*Ctx` shape: the capability
+  // `fn(c) => io.println(c, ..)` is the sanctioned `*Ctx` shape: the capability
   // arrives as a PARAMETER, so the capture rule is silent.
   let sneaky = wrap(ctx, fn(c) => io.println(c, "SMUGGLED: I/O from fn() => ()").ignore());
 

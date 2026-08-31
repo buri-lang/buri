@@ -3569,7 +3569,7 @@ function $host_testing_alloc() {
 
 // `Region` is a newtype over `I64`, so the charge stays a `BigInt`: the count
 // is handed straight back, which is what both native backends open-code and
-// what makes `ctx.allocate(64) == Region(64)` true on every backend.
+// what makes `alloc.allocate(ctx, 64) == Region(64)` true on every backend.
 function $host_testing_TestAlloc_allocate(self, n) {
   return [n];
 }
