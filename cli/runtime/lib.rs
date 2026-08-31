@@ -40,14 +40,12 @@
 //!     754 does not fix their answers, so V8's fdlibm port and the platform's
 //!     libm differ in the last bit, and a rendered `Float` shows seventeen
 //!     digits of it;
-//!   * **the stateful half of `core/testing/context` and of
-//!     `core/host/testing`** ([`testing`]) — a captured stdout, a seeded
-//!     generator, a test clock, a fixture environment, and a stdin that was
-//!     handed its lines. Every one of them is mutable process state outliving the expression
-//!     that made it, which is why each implementation carries an `I64` handle
+//!   * **the stateful half of `core/host/testing`** ([`testing`]) — a captured
+//!     stdout, a seeded generator, a test clock, a fixture environment, and a
+//!     stdin that was handed its lines. Every one of them is mutable process state outliving the expression
+//!     that made it, which is why each double carries an `I64` handle
 //!     and puts the state on the runner's side; on JavaScript that side is
-//!     `runtime.js`'s `$t.h`, and here it is one table — one, not two, because
-//!     the two modules are two vocabularies over one handle store. `alloc()`
+//!     `runtime.js`'s `$t.h`, and here it is one table. `alloc()`
 //!     is the exception in both and both backends open-code it, because it
 //!     reads no state;
 //!   * **128-bit arithmetic** — [`buri_rt_i128_divmod`], [`buri_rt_i128_checked`]
@@ -199,7 +197,7 @@
 //!   * [`BURI_OK`], and `.Ok`'s payload written through the out-pointer — or,
 //!     where `T` is zero-sized, **no out-pointer at all**, because a parameter
 //!     for a value that occupies no bytes is a parameter the two sides can
-//!     disagree about for free. `MemFs.writeFile` answers `Result<(), IoError>`
+//!     disagree about for free. `TestFs.writeFile` answers `Result<(), IoError>`
 //!     and takes no `out`.
 //!   * `0 ..= n`, naming a variant of `E` in declaration order, **which must
 //!     carry no fields.** The out-pointer is untouched.
@@ -210,7 +208,7 @@
 //! per entry rather than the two stores it generates now. Nothing in the archive
 //! needs one — `IoError`'s seven variants are reached as `NotFound` and
 //! `AlreadyExists`, both payload-less, exactly as `runtime.js`'s
-//! `$testing_context_MemFs_readFile` returns `$err([0])`.
+//! `$host_testing_fsReadFile` returns `$err([0])`.
 //!
 //! **An error type that is not an enum at all is the other half, and it is
 //! not the same problem.** `bytes.fromUtf8` answers `Result<Str, Utf8Error>`

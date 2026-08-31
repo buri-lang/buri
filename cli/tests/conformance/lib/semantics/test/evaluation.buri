@@ -23,7 +23,7 @@ from "//lib/semantics/lib.buri" import {
   hypotenuse, shadowed, nestedShadow,
 };
 
-// A transcript needs the `CaptureOut` value itself, not just the context it is
+// A transcript needs the `TestStdout` value itself, not just the context it is
 // bound in, so each test builds both. `captured` is what reads it back.
 
 // -----------------------------------------------------------------------------

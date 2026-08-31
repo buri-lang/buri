@@ -2,7 +2,7 @@
 //
 // `buri run` is the one command that hands a program authority, so this is
 // where `core/fs`'s appending, renaming and syncing half meets a real disk
-// rather than `MemFs`. The same sequence runs against the fake in
+// rather than an in-memory one. The same sequence runs against the fake in
 // `conformance/lib/semantics/test/effects.buri`, and against the native
 // runtime in `cli/tests/native/runtime.rs`'s `wal` mode.
 

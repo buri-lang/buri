@@ -397,7 +397,7 @@ static int mode_fs(const char *dir) {
 /* The sequence issue #1 exists for, against a real filesystem: a log that is
  * appended to, a commit point that is a call, and a checkpoint that swaps in
  * atomically. `conformance/lib/semantics/test/effects.buri` runs the same
- * sequence against `MemFs`, and the two have to agree. */
+ * sequence against the `fs()` double, and the two have to agree. */
 static int mode_wal(const char *dir) {
   char root[4096], log[4096], tmp[4096], checkpoint[4096];
   snprintf(root, sizeof root, "%s/wal", dir);
