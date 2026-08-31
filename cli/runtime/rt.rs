@@ -2715,10 +2715,12 @@ mod tests {
     /// signalled, so adding `n` of them after the count has arrived cannot lose
     /// a wakeup however late a task reaches its first poll.
     ///
-    /// `#[ignore]` because it is a measurement and not a property: ten thousand
-    /// of anything is seconds of wall clock and hundreds of megabytes, and the
-    /// suite runs on every edit. `parked_tasks_do_not_cost_a_thread_each` below
-    /// is the property, at a size the suite can afford.
+    /// Two cases run this: `a_thousand_parked_tasks_do_not_cost_a_thousand_carriers`
+    /// at a thousand, and `the_resident_set_of_ten_thousand_parked_tasks` below
+    /// at ten thousand. Both are ordinary tests. The second was `#[ignore]`d on
+    /// the theory that ten thousand of anything is seconds of wall clock — it is
+    /// three tenths of a second and a hundred and sixty megabytes, which the
+    /// suite can afford on every edit, and an ignored test proves nothing.
     fn park_n(n: usize) -> (u64, u64, usize) {
         let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
         let arrived = std::sync::Arc::new(AtomicUsize::new(0));
@@ -2768,11 +2770,15 @@ mod tests {
     ///   code. G6 measured the pair at 14 ns and the row in
     ///   `reports/wave8-b9.md` is against that.
     ///
-    /// `#[ignore]`, like the resident-set row: a measurement is not a property,
-    /// and a suite that failed on a loaded machine's jitter would be worse than
-    /// no number at all.
+    /// **No threshold is asserted** — a suite that failed on a loaded machine's
+    /// jitter would be worse than no number at all — but the case is not
+    /// `#[ignore]`d for that. What it asserts instead is the property the two
+    /// million switches underneath the number are worth having run: that the
+    /// contexts on both sides are still stack pointers the ABI would accept
+    /// (`switch.rs` §2.1) after all of them. `switch::tests` makes that
+    /// statement about one switch; this makes it about a stack that has been
+    /// left and re-entered until the numbers settle.
     #[test]
-    #[ignore = "a measurement, not a property"]
     fn the_cost_of_the_switch_and_the_stack_seam() {
         use std::sync::atomic::AtomicUsize;
         static ONE: Mutex<()> = Mutex::new(());
@@ -2872,10 +2878,44 @@ mod tests {
             switches.as_nanos() as f64 / (ROUNDS as f64 * 2.0),
             seam.as_nanos() as f64 / ROUNDS as f64,
         );
+
+        // What the loops leave behind. Both words are written by the assembly
+        // on every round, so a null one is a ping-pong that never happened and
+        // a misaligned one is every frame either side pushes from here on
+        // sitting eight bytes off an aligned pointer.
+        // SAFETY: the two halves of the live cell, written by the switch.
+        let (mine, theirs) = unsafe { (home.read_volatile(), away.read_volatile()) };
+        for (whose, sp) in [("this thread's", mine), ("the pong's", theirs)] {
+            assert!(!sp.is_null(), "{whose} context was never saved: the ping-pong did not run");
+            assert!(
+                (sp as usize).is_multiple_of(16),
+                "{whose} saved stack pointer is {sp:?} after {} round trips, which is not \
+                 16-byte aligned",
+                ROUNDS * 5,
+            );
+        }
+        assert!(
+            switches > Duration::ZERO && seam > Duration::ZERO,
+            "a measurement of zero is a loop the optimiser removed, not a fast one",
+        );
     }
 
+    /// **The design's B9 row, at the size the row names**: what ten thousand
+    /// parked tasks cost in resident set, and what they cost in threads.
+    ///
+    /// The number is printed and no threshold is put on it — a resident set is
+    /// a measurement of a machine as much as of a runtime. The **thread** half
+    /// is asserted, and it is the one this size is for: at ten thousand,
+    /// thread-per-task does not merely cost more, it fails, because
+    /// `pthread_create` answers `EAGAIN` on the 8 192nd thread of a process and
+    /// `spawn_carrier` turns that into an abort. So a green run here is the
+    /// statement that ten thousand tasks in flight are not ten thousand
+    /// threads, which is the whole of the slice;
+    /// `a_thousand_parked_tasks_do_not_cost_a_thousand_carriers` is the same
+    /// statement one order of magnitude down and under the ratio.
+    ///
+    /// `BURI_B9_PARKED` sets the size, for a report that wants another one.
     #[test]
-    #[ignore = "a measurement, not a property: see parked_tasks_do_not_cost_a_thread_each"]
     fn the_resident_set_of_ten_thousand_parked_tasks() {
         let _alone = alone();
         let n: usize = std::env::var("BURI_B9_PARKED")
@@ -2888,6 +2928,16 @@ mod tests {
              delta={} KiB per_task={} B carriers_started={started}",
             parked.saturating_sub(before),
             (parked.saturating_sub(before) * 1024) / (n as u64),
+        );
+        assert!(
+            started <= MAX_CARRIERS,
+            "{n} parked tasks started {started} carriers, past the pool's own ceiling of \
+             {MAX_CARRIERS}",
+        );
+        assert!(
+            started * 8 < n,
+            "{n} parked tasks started {started} carriers: a task that parks is holding a \
+             thread, which is the arrangement this slice replaced",
         );
     }
 }
