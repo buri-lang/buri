@@ -2845,6 +2845,49 @@ const FS_CALL_NAMES: [&str; 11] = [
 /// index of the first block this process is to run.
 const RESUME: &str = "BURI_TEST_FROM";
 
+/// The environment variable holding the order `tasks().anyOrder()` schedules
+/// with — one number for every block, or a comma-separated list in the binary's
+/// own block numbering.
+///
+/// The list is what a batched binary needs: its blocks belong to several suites
+/// and each suite's seed is its own action key's ([`commands::test::seed_of`],
+/// on the other side of this protocol). **Absent means nothing is driving this
+/// process**, and the default is then the one D5 chose — the last rank, the
+/// reverse of program order — so a binary run by hand, and the conformance
+/// harness that drives the backends directly, are unchanged by any of this.
+const SEED: &str = "BURI_TEST_SEED";
+
+/// The seeds the runner supplied, in the binary's block numbering. Empty where
+/// nothing supplied any.
+///
+/// Read once, for [`resume_at`]'s reason: the environment cannot change under a
+/// process that has no way to set one.
+fn seeds() -> &'static [u128] {
+    static ASKED: std::sync::OnceLock<Vec<u128>> = std::sync::OnceLock::new();
+    ASKED.get_or_init(|| seeds_from(&std::env::var(SEED).unwrap_or_default()))
+}
+
+/// The list a `BURI_TEST_SEED` names. A malformed entry is no entry rather than
+/// a panic: this is a report's detail, and a runner that wrote nonsense should
+/// cost a suite its replay line and not its verdict.
+fn seeds_from(text: &str) -> Vec<u128> {
+    text.split(',').filter(|s| !s.trim().is_empty()).filter_map(|s| s.trim().parse().ok()).collect()
+}
+
+/// The seed for the block at `index`, or `None` where the runner supplied none.
+///
+/// One entry applies to every block — the single-suite case, which is almost
+/// every case — and a longer list is read at the block's own position. A list
+/// too short for the block it is asked about answers `None` rather than
+/// somebody else's seed.
+fn seed_at(seeds: &[u128], index: i64) -> Option<u128> {
+    match seeds {
+        [] => None,
+        [only] => Some(*only),
+        many => usize::try_from(index).ok().and_then(|i| many.get(i)).copied(),
+    }
+}
+
 /// Where this process is in the suite, and what the assertion that ended it
 /// had to say.
 struct Runner {
@@ -3056,6 +3099,16 @@ pub(crate) fn note_failure(parts: &[&[u8]]) {
         quote_into(&actual, &mut line);
         line.push_str(",\"expected\":");
         quote_into(&expected, &mut line);
+    }
+    // The order the tasks completed in, and the seed that replays it. Beside
+    // the message rather than inside a nested object, because it is a fact
+    // about the *run* and not about the abort: the same sentence is worth
+    // printing under a failure that carried no rendered values at all. Elided
+    // where a block scheduled nothing, which is almost every block, so a suite
+    // that never says `tasks()` writes the bytes it always wrote.
+    if let Some(note) = task_order_note() {
+        line.push_str(",\"order\":");
+        quote_into(&note, &mut line);
     }
     line.push_str("}\n");
     use std::io::Write;
@@ -3387,7 +3440,14 @@ fn task_order(handle: i64, count: usize) -> Vec<i64> {
             }
             replay.pass
         }
-        ORDER_SEEDED if seed < 0 => orders.saturating_sub(1),
+        // `anyOrder()` with no seed of its own: the program's content names the
+        // order (D-10), and the last rank — the reverse of program order —
+        // where nothing named a program. The rank wraps, which is what makes a
+        // content-derived number legal at every length.
+        ORDER_SEEDED if seed < 0 => match seed_at(seeds(), runner().at) {
+            Some(from_content) => from_content % orders.max(1),
+            None => orders.saturating_sub(1),
+        },
         ORDER_SEEDED => (seed as u128) % orders.max(1),
         _ => 0,
     };
@@ -3877,6 +3937,55 @@ fn probe_two_read_lines() {
                  — replay it with `tasks().seed(1)`"
             ))
         );
+    }
+
+    /// The seed protocol, as the two pure halves it is made of.
+    ///
+    /// Written against the functions rather than against the environment
+    /// because `BURI_TEST_SEED` is read once per process ([`seeds`]) and a test
+    /// that set it would be a test of `cargo test`'s thread scheduling.
+    /// `commands/test.rs` writes the other side of these two literals.
+    #[test]
+    fn a_seed_list_is_read_by_the_block_it_belongs_to() {
+        // Nothing, whitespace and rubbish are all "the runner said nothing":
+        // this is a report's detail, and a suite should not lose its verdict to
+        // one.
+        assert_eq!(seeds_from(""), Vec::<u128>::new());
+        assert_eq!(seeds_from(" , ,"), Vec::<u128>::new());
+        assert_eq!(seeds_from("7,not a number,9"), vec![7, 9]);
+        // A `u128` is the width the whole list is read at, because a rank is
+        // taken modulo `n!` and a `u128` holds `34!`.
+        assert_eq!(seeds_from(&u128::MAX.to_string()), vec![u128::MAX]);
+
+        // One entry is every block's — the single-suite case, which is almost
+        // every case.
+        assert_eq!(seed_at(&[7], 0), Some(7));
+        assert_eq!(seed_at(&[7], 40), Some(7));
+        // A list is read at the block's own position, which is what a batched
+        // binary needs: its blocks belong to several suites and each suite's
+        // seed is its own.
+        assert_eq!(seed_at(&[7, 8, 9], 2), Some(9));
+        // And nothing rather than somebody else's seed, for a block outside the
+        // list and for a process nothing is driving (`at` is then -1).
+        assert_eq!(seed_at(&[7, 8, 9], 3), None);
+        assert_eq!(seed_at(&[7, 8, 9], -1), None);
+        assert_eq!(seed_at(&[], 0), None);
+    }
+
+    /// A content-derived seed is a rank, so it is legal at every length — and
+    /// the order it names is the order `seed(n)` names, which is the whole
+    /// reason the report's line is worth pasting back.
+    #[test]
+    fn a_seed_past_the_last_rank_names_the_order_its_remainder_does() {
+        // Six orders of three tasks. A 128-bit digest is not a number anybody
+        // wrote down, and every one of them is a legal seed.
+        for seed in [0u128, 5, 6, 7, u128::MAX] {
+            assert_eq!(permutation(3, seed), permutation(3, seed % 6), "seed {seed}");
+        }
+        // The degenerate lengths, where `orders_of` is one and the remainder is
+        // zero however large the digest.
+        assert_eq!(permutation(0, u128::MAX), Vec::<i64>::new());
+        assert_eq!(permutation(1, u128::MAX), vec![0]);
     }
 
     /// A fault is matched here rather than in the program, because a task's

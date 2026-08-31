@@ -1524,6 +1524,13 @@ test "a plan whose entries all fire leaves the block passing" {
 // and the choice: the **result** is in the items' order, and `calls()` is the
 // order the work actually happened in.
 //
+// The order is **named**, with `seed(n)`, wherever a block asserts on it.
+// `anyOrder()`'s own order is derived from the suite's action key (D6, D-10),
+// which is a hash of this file among others — so a block that pinned it would
+// pin its own bytes and fail the next time somebody edited a comment. What the
+// two `anyOrder()` blocks below assert is what a content-derived order
+// promises: that it *is* an order, and that the results are the items'.
+//
 // Most closures here read their index and their item and never their first
 // parameter, because what those blocks are about is the *order*. The block
 // "a task run by the double is handed the caller's context" below is the one
@@ -1581,18 +1588,28 @@ test "tasks() runs its tasks in program order" {
 }
 
 test "the results are in the items' order whatever order the work ran in" {
-  let scheduler = tasks().anyOrder();
+  // `seed(5)` is the last of the six orders of three, which is the reverse of
+  // program order — named rather than reached through `anyOrder()`, because
+  // `anyOrder()`'s own order is now the program's content and no corpus can
+  // pin one of those.
+  let scheduler = tasks().seed(5);
   let ctx = context { Tasks: scheduler };
   // The same answer as the block above, from the opposite order.
   assert.eq(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
   assert.eq(scheduler.calls(), [task(2), task(1), task(0)]);
 }
 
-test "anyOrder with no seed is the reverse of program order" {
+test "anyOrder with no seed is an order the program's own bytes name" {
   let scheduler = tasks().anyOrder();
   let ctx = context { Tasks: scheduler };
-  let _ = labelled(ctx, [1, 2]);
-  assert.eq(scheduler.calls(), [task(1), task(0)]);
+  assert.eq(labelled(ctx, [1, 2]), [1, 102]);
+  // *Which* of the two orders is the runner's answer: the seed is derived from
+  // the suite's action key, so it moves when the suite moves and a corpus that
+  // pinned it would pin its own bytes. What is pinned here is that it is an
+  // order — every task ran, once each — and that the results are the items'.
+  // The failure report is where a reader learns which one it was, and
+  // `tasks().seed(n)` is how they replay it.
+  assert.eq(scheduler.calls().len(), 2);
 }
 
 test "a seed is the order's own number, counted from zero" {
@@ -1663,7 +1680,10 @@ test "one task has one order" {
 }
 
 test "two fan-outs in one run are scheduled the same way" {
-  let scheduler = tasks().anyOrder();
+  // The order is named, for the reason the block above gives; what is asserted
+  // is that the *second* fan-out is scheduled by the same rank rather than by
+  // the next one.
+  let scheduler = tasks().seed(5);
   let ctx = context { Tasks: scheduler };
   let _ = labelled(ctx, [1, 2, 3]);
   let _ = labelled(ctx, [4, 5, 6]);
@@ -1688,9 +1708,9 @@ test "a builder answers a new scheduler and a new log" {
 test "a task is handed its own index" {
   let scheduler = tasks().anyOrder();
   let ctx = context { Tasks: scheduler };
-  // Backwards through the list, and every task still gets the index of the item
-  // it was given — which is what `effect Tasks` promises and what makes the
-  // order safe to change.
+  // In whatever order the program's own bytes named, and every task still gets
+  // the index of the item it was given — which is what `effect Tasks` promises
+  // and what makes the order safe to change.
   assert.eq(labelled(ctx, [10, 20, 30]), [10, 120, 230]);
 }
 

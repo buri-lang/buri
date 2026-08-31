@@ -3383,7 +3383,21 @@ function $ui_testing_Rendered_identity(self, name, at) {
 // this is, how many there are, and the order the report would name. `$run`
 // resets all three as a block starts, which is what `buri_rt_test_enter` does
 // natively.
-const $t = { h: [], data: {}, fail: null, from: 0, pass: 0n, total: 1n, note: null };
+// `seed` is the order `tasks().anyOrder()` schedules with, spliced in by
+// `commands/test.rs` beside `$t.data` and the fixed clock: a constant of the
+// program, derived from the program's own action key (D-10). `null` is a run
+// nothing spliced one into — a hand-written driver, or an artifact run
+// directly — and the default is then the one D5 chose, the last rank.
+const $t = {
+  h: [],
+  data: {},
+  fail: null,
+  from: 0,
+  pass: 0n,
+  total: 1n,
+  note: null,
+  seed: null,
+};
 
 function $handle(v) {
   $t.h.push(v);
@@ -4083,7 +4097,13 @@ function $torder(self, n) {
     if ($t.total <= 1n) $t.total = orders;
     rank = $t.pass;
   } else if (s.mode === $TASKS_SEEDED) {
-    rank = s.seed < 0n ? (orders > 0n ? orders - 1n : 0n) : s.seed % (orders > 0n ? orders : 1n);
+    const wrap = orders > 0n ? orders : 1n;
+    // `anyOrder()` with no seed of its own: the program's content names the
+    // order, and the last rank — the reverse of program order — where nothing
+    // named a program. The rank wraps, which is what makes a content-derived
+    // number legal at every length.
+    const fallback = $t.seed === null ? (orders > 0n ? orders - 1n : 0n) : $t.seed % wrap;
+    rank = s.seed < 0n ? fallback : s.seed % wrap;
   }
   const order = $tpermutation(n, rank);
   // The first fan-out of the run, not the last: `everyOrder` enumerates the

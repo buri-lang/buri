@@ -775,7 +775,7 @@ it a value the test writes:
 | Builder | Answers |
 |---|---|
 | `tasks()` | A scheduler running its tasks in **program order** — the items' own |
-| `tasks().anyOrder()` | One seeded order per run: the **reverse** of program order unless a seed says otherwise |
+| `tasks().anyOrder()` | One seeded order per program: the one this suite's **content** names, unless a seed says otherwise |
 | `tasks().seed(n)` | The order numbered `n`, counted from zero, wrapping past the last |
 | `tasks().everyOrder()` | Every order — the whole `test` body runs once per completion order |
 | `tasks().faults([TaskFault])` | The tasks the plan names end the block, with the reason the test gave |
@@ -792,7 +792,10 @@ reports them in the order they finished:
 #   ctx.parallel(ctx, items, fn(_c, _i, item) => item * 2)
 # }
 test "the answer does not depend on the order the work finished in" {
-  let scheduler = tasks().anyOrder();
+  // `seed(5)` is the last of the six orders of three tasks — the reverse of
+  // program order. Named rather than reached through `anyOrder()`, because a
+  // block that asserts on the order has to name the order it means.
+  let scheduler = tasks().seed(5);
   let ctx = context { Tasks: scheduler };
   // The items' order, whatever order the work ran in.
   assert.eq(doubled(ctx, [1, 2, 3]), [2, 4, 6]);
@@ -806,9 +809,31 @@ seed is which of them, counted from zero in the order the orders themselves
 sort in — so `seed(0)` is program order, the last seed is the reverse, and a
 seed *replays* rather than merely re-randomising. `everyOrder`'s fourth run and
 `seed(3)` are the same order, which is what lets a failure name one line to
-paste back. `anyOrder()` with no seed is deliberately not random: a suite whose
-result changed between two runs of the same program could not be cached, and a
-failure nobody can reproduce is a failure nobody fixes.
+paste back.
+
+**`anyOrder()` with no seed is the order this suite's own content names**, and
+it is deliberately not random. The seed is derived from the suite's action key
+— the hash of every source in its closure that `buri` already keys the result
+cache on — so the order a suite schedules in changes exactly when the verdict
+that order produced stops being reusable, and never on a run that changed
+nothing. A random seed would be the shape that poisons the cache: a suite that
+passed under one order and was remembered as passing, re-running under another.
+And a failure nobody can reproduce is a failure nobody fixes, which is why the
+report names the order and the seed that replays it:
+
+```text
+FAIL //lib/merge  test/merge.buri  "the merge does not depend on which read finished first"
+  assert.eq failed
+    actual:   .Configuration { name: "demo", token: "" }
+    expected: .Configuration { name: "demo", token: "abc" }
+  the tasks completed in the order 1, 0 — replay it with `tasks().seed(1)`
+  --> lib/merge/test/merge.buri:14:1
+```
+
+Paste the `seed(...)` back over the `anyOrder()` and the run is the one that
+failed. A block asserting on the order it ran in should name one that way too:
+`anyOrder()` is for *finding* an order that breaks a program, and `seed(n)` is
+for keeping it.
 
 **`everyOrder()` re-runs the body, not the fan-out.** A task's effects are the
 point, and re-running only the loop would re-run them against a filesystem the
