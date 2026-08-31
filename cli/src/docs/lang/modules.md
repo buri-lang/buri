@@ -85,8 +85,7 @@ distinction is enforced with the visibility rules in
 
 One path segment is reserved: **`testing`**. A module path containing it is
 test-only, and may be imported only from a test source (Section 11.2). That
-covers `"core/testing/assert/lib.buri"`, `"core/host/testing/lib.buri"`,
-`"core/testing/context/lib.buri"`, a
+covers `"core/testing/assert/lib.buri"`, `"core/host/testing/lib.buri"`, a
 library's own utilities-for-testing-it at `"//lib/money/testing/lib.buri"`, and
 a whole package of shared fixtures at `"//lib/testing/fakes/lib.buri"` — one
 rule, visible in the import line, with nothing to declare. The segment is a

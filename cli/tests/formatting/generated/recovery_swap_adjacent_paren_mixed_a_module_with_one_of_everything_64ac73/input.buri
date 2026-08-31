@@ -13,4 +13,4 @@ impl Weigh for Working { fn grams<C: Alloc + Stdout>(self, ctx: Cscale ,: Str): 
 derive Eq, Ord for Working;
 export context Everything { Clock: Fixed(0), Alloc: System() }
 export fn everything<C: Alloc>(ctx: C, b: [U8], o: Option<Int>): Str { let hexed = b.mapCtx(ctx, fn(c, x) => { let n = x.toI64(); str.fromChars(c, [HEX.charAt(n)]) }).join(ctx, ""); let matched = match (o) { .None => 0, .Some(n) => n }; str.format(ctx, "${hexed} ${matched}") }
-test "everything" { assert.eq(everything(Hermetic(), [1, 2, 3], .Some(6)), "a string long enough that the call around it cannot stay on one line"); }
+test "everything" { assert.eq(everything(Everything(), [1, 2, 3], .Some(6)), "a string long enough that the call around it cannot stay on one line"); }

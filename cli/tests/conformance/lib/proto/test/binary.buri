@@ -296,7 +296,7 @@ test "a nested message is a type of its own, named for its nesting" {
 
 // --- the whole thing ------------------------------------------------------------
 
-fn everything<C: Alloc>(ctx: C): Everything {
+fn everything<C>(ctx: C): Everything {
   let _ = ctx;
   Everything {
     name: .Some("Ada"),

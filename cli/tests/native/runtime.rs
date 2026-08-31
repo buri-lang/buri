@@ -30,7 +30,7 @@
 //! 4. **The host capabilities work**, including the byte forms, the write
 //!    ordering between the buffered text stream and `writeBytes`, and the
 //!    append/rename/sync sequence a write-ahead log commits through.
-use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE, net};
+use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE, h3, net};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -629,6 +629,53 @@ fn the_network_effect_answers_https_according_to_its_features() {
     assert_eq!(stdout(&out).trim_end(), "err=2 message=not an absolute http URL: not-a-url");
 }
 
+/// **The `net-h3` flag round-trips**, across the C ABI and back.
+///
+/// There are two independent paths from "which features did Cargo build this
+/// archive with" to an answer, and this is the assertion that they agree:
+///
+/// * the **archive's**, which is `#[cfg(feature = "net-h3")]` folded into
+///   `net.rs`'s `LINKED` constant and exported as `buri_rt_net_h3_available`,
+///   read here by linking the archive and calling it; and
+/// * the **toolchain's**, which is `cli/build.rs` writing `net-h3` into
+///   `libburi_rt.a.features` and `runtime_native::h3()` reading that line back.
+///
+/// Neither can see the other. A build script that wrote the wrong feature line,
+/// a `--features` flag that did not reach the nested `cargo`, or a stale
+/// `OUT_DIR` pairing one build's bytes with another's answer all show up here
+/// as a disagreement, and nowhere else.
+///
+/// The same holds for `net` beside it, which is why both are checked: `net-h3`
+/// contains `net` as a substring, so a features file read by anything other
+/// than whole lines would report an h3-only archive as a networking one and
+/// this is where that would surface.
+#[test]
+fn the_networking_features_agree_across_the_abi() {
+    if skip() {
+        return;
+    }
+    let out = run(&["net-features"]);
+    let line = stdout(&out);
+    let line = line.trim_end();
+    let bit = |name: &str| -> i64 {
+        line.split_whitespace()
+            .find_map(|field| field.strip_prefix(name))
+            .unwrap_or_else(|| panic!("the driver printed no `{name}` field: {line}"))
+            .parse()
+            .unwrap_or_else(|e| panic!("`{name}` is not a number in {line}: {e}"))
+    };
+    assert_eq!(bit("net=") == 1, net(), "the archive and its feature file disagree about `net`");
+    assert_eq!(bit("h3=") == 1, h3(), "the archive and its feature file disagree about `net-h3`");
+    // The capability mask is the same fact a third way: bit 4 is `net-h3`, and
+    // it is above the four `net` ones so that neither can be read as the other.
+    let caps = bit("caps=");
+    assert_eq!(caps & (1 << 4) != 0, h3(), "the capability mask disagrees with the h3 door");
+    assert_eq!(caps != 0, net(), "the capability mask disagrees with the `net` door");
+    // And the implication the manifest states: `net-h3 = ["net", "dep:quinn"]`.
+    assert!(!h3() || net(), "this archive claims QUIC without a networking stack under it");
+    assert!(out.status.success());
+}
+
 /// The runtime crate's own unit tests — including the `https://` exchange
 /// against a locally-served `rustls` endpoint — run.
 ///
@@ -644,9 +691,11 @@ fn the_network_effect_answers_https_according_to_its_features() {
 /// The nested `cargo` gets the same treatment `cli/build.rs`'s does and for the
 /// same reasons: every `CARGO_*` but `CARGO_HOME` removed, so the outer
 /// invocation's target-directory lock and jobserver are not inherited, and an
-/// emptied `RUSTFLAGS`. `--offline` and `--no-default-features` mirror whatever
-/// the archive beside this binary was actually built with, so this runs the
-/// tests of *this* runtime rather than of a differently-featured one.
+/// emptied `RUSTFLAGS`. `--offline`, `--no-default-features` and
+/// `--features net-h3` mirror whatever the archive beside this binary was
+/// actually built with, so this runs the tests of *this* runtime rather than of
+/// a differently-featured one. All three states are reachable from the outside:
+/// the default, `BURI_RUNTIME_NET=0`, and `BURI_RUNTIME_NET_H3=1`.
 #[test]
 fn the_runtime_crate_answers_its_own_tests() {
     if skip() {
@@ -675,6 +724,9 @@ fn the_runtime_crate_answers_its_own_tests() {
     }
     if !net() {
         cargo.arg("--no-default-features");
+    }
+    if h3() {
+        cargo.args(["--features", "net-h3"]);
     }
     cargo.arg("--manifest-path").arg(pkg.join("Cargo.toml"));
     // Beside the other native scratch trees, and *not* named for the process:
