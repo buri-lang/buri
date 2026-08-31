@@ -1227,9 +1227,12 @@ by.
 ### 6.6 What the multi-threaded fork costs, 2026-08-30
 
 Reference counting became **two counts behind one branch** on bit 63 of the
-block's `cap` (MEMORY.md §5.1, "The shared fork"). Nothing sets the bit, so no
-program takes the atomic arm; what follows is the price of the *branch*, which
-is the only part any shipping program pays.
+block's `cap` (MEMORY.md §5.1, "The shared fork"). At the time of this
+measurement nothing set the bit, so no program took the atomic arm and what
+follows is the price of the *branch* alone. **§6.7 is what changed** — a program
+that can reach a task boundary now marks every block it allocates — and it
+leaves every number below standing, because a program with no `core/tasks` in
+it still takes the unshared arm and every corpus measured here is one.
 
 **The stated budget was 3% on every row of `--set=native`, and it is 3% on four
 of them.** The fifth, `lower+macos-arm64-release`, carries a budget of its own —
@@ -1355,8 +1358,9 @@ argued:
 - **What the shipping program pays is two instructions**, on both instruction
   sets and both backends, read off the objects: a load of the word beside the
   count and a bit test, on a cache line the operation was going to touch, on a
-  branch that is perfectly predicted because nothing sets the bit. That is the
-  unshared path, which is the only path any program compiled today takes.
+  branch that is perfectly predicted, because within one program its answer
+  never changes. That is the unshared path, and it is the path every program
+  that does not use `core/tasks` takes (§6.7).
 - **And it pays them into a profit.** Beside the per-thread caches of MEMORY.md
   §5.4, an allocation-heavy program's run time falls **39.8%** on the dev backend
   and **64.6%** on the release one, while the allocation-free control does not

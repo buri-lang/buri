@@ -52,7 +52,9 @@ Every heap allocation has a **16-byte header immediately before the payload**:
 
 ```
   ptr - 16   u64  rc     reference count, or IMMORTAL
-  ptr -  8   u64  cap    bit 63: shared (reserved, never set)
+  ptr -  8   u64  cap    bit 63: shared — every block of a program that can
+                                 reach a task boundary, and no block of one
+                                 that cannot (§2.1)
                          bits 0..62: usable payload bytes
   ptr        ...  payload
 ```
@@ -70,28 +72,35 @@ zero-sized value has it. `incref` is a saturating add, so it is branchless;
 `decref` tests for it, which is one well-predicted compare. MEMORY.md §5 has the
 sequences.
 
-### 2.1 Bit 63 of `cap` is reserved for the multi-threaded mark
+### 2.1 Bit 63 of `cap` is the multi-threaded mark
 
-`cap` holds the usable payload bytes in its **low 63 bits**. **Bit 63 is
-reserved** and **nothing in the tree sets it**. Set means *this block may be
-reached from more than one thread*, and it is the bit `incref` and `decref`
-branch on to choose an atomic count.
+`cap` holds the usable payload bytes in its **low 63 bits**. **Bit 63 is the
+mark**: set means *this block may be reached from more than one thread*, and it
+is the bit `incref` and `decref` branch on to choose an atomic count and the
+bit `buri_rt_unique_cap` refuses an in-place write on.
 
-The reservation is recorded — and every reader already masks — before anything
-sets it, so that turning it on later moves no code but the code that turns it
-on. `middle::layout::CAP_SHARED_FLAG` and `CAP_MASK` are the compiler's copy of
-the number; `cli/runtime/memory.rs`'s `BURI_RT_CAP_SHARED` and
-`BURI_RT_CAP_MASK` are the runtime's, spelled twice for the reason `BURI_OK` is.
+Every reader masks, which is what let the bit be reserved and the branch grown
+before anything set it. `middle::layout::CAP_SHARED_FLAG` and `CAP_MASK` are
+the compiler's copy of the number; `cli/runtime/memory.rs`'s
+`BURI_RT_CAP_SHARED` and `BURI_RT_CAP_MASK` are the runtime's, spelled twice for
+the reason `BURI_OK` is.
 
-**The branch is here; the bit is still dark.** Both backends and the runtime
-now fork on it (MEMORY.md §5.1, "The shared fork"), and every arm behind the
-fork is unreachable until a value is marked. What the fork costs a program that
-never takes it is **two instructions** per reference operation — a load of the
-word beside the count, on a cache line the operation was going to touch, and a
-bit test. What it costs the *compiler* is a different number and a larger one:
-a median **+21 %** of native release lowering, which is an amended budget on
-that row rather than a met one. Both numbers, and the amendment, are in
-`design/PERFORMANCE.md` §6.6.
+**Which blocks carry it: all of a program's, or none.** `middle::rc::crosses_tasks`
+asks the whole post-monomorphization program whether it can reach a task
+boundary; both native backends turn a `true` into one call in `main`,
+`buri_rt_values_may_cross_tasks()`, before anything allocates; and
+`memory.rs::finish` then ORs the bit into every `cap` it writes. A program with
+no `core/tasks` in it is bit for bit the program it was before track G. MEMORY.md
+§5.1, "Who sets the bit", is the argument for answering per program rather than
+per value — the short form is that a per-value mark would have to be transitive
+to be sound, and a shallow one is the silent aliasing §5.5 forbids.
+
+**What the fork costs a program that takes the unshared arm** is **two
+instructions** per reference operation — a load of the word beside the count, on
+a cache line the operation was going to touch, and a bit test. What it costs the
+*compiler* is a different number and a larger one: a median **+21 %** of native
+release lowering, which is an amended budget on that row rather than a met one.
+Both numbers, and the amendment, are in `design/PERFORMANCE.md` §6.6.
 
 **Why `cap` and not `rc`.** A bit of the count would cost both of the two
 properties §2 just gave the count. `IMMORTAL` is `u64::MAX` and `incref` is a
@@ -117,7 +126,9 @@ space. Both backends open-code a read and both mask it: the `[T]` element count
 `fits` test is a *room for the result* question and would otherwise report the
 whole address space as headroom. `buri_rt_realloc` also *preserves* the bit
 across a move rather than clearing it, so growing a block cannot silently
-un-share it.
+un-share it, and the LLVM `str.concat` probe reads it a **second** time for a
+different question — a marked block is never unique, so the in-place arm is not
+taken on one (MEMORY.md §5.1).
 
 ## 3. `Str`
 

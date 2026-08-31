@@ -2165,6 +2165,161 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **`Tasks.parallel` over a list every step shares**, on all three backends.
+///
+/// G3's acceptance case, and the first program in this file whose answer
+/// depends on the reference counts being right *under concurrency* rather than
+/// merely right. The two tests above hand each step its own element; this one
+/// hands every step the **same blocks**, three ways at once:
+///
+///  * **a captured list.** `shared` is one `[Str]` the closure's environment
+///    owns, and every step reads the whole of it. Sixteen carriers therefore
+///    `incref` and `decref` one list block and its four element blocks at the
+///    same time. A count that lost an update frees a block another carrier is
+///    still reading, and what that prints is not this file's business — it is
+///    a crash, a repeated line or a line of rubbish, and any of the three
+///    fails the comparison.
+///  * **elements that alias.** `twice` is built out of one `Str` value placed
+///    in four slots, so four steps that each look at "their own" element are
+///    four carriers counting **one block**. This is the case a per-element
+///    argument about ownership gets wrong.
+///  * **a value read back afterwards.** `shared` is printed once more in
+///    `main`'s own frame, so a step that over-released it shows up here as a
+///    wrong answer rather than as a leak nobody looks at.
+///
+/// Sixteen steps rather than four, because the window is what makes carriers
+/// overlap and four of them on a fast machine can finish one at a time by
+/// accident. The number is a *likelihood* knob, and the assertion does not
+/// depend on it: the answer is the same list either way.
+///
+/// **What makes this test able to fail is the marking latch.** Built against a
+/// tree whose `buri_rt_values_may_cross_tasks` is a no-op — the `[G3-RED]`
+/// experiment in `reports/wave8-g3.md` — the LLVM row of this case fails, and
+/// the report records how. Without the fan-out it would be a sequential walk
+/// and would pass for a reason that has nothing to do with counting.
+#[test]
+fn a_shared_list_is_counted_correctly_by_every_task() {
+    rows_or_skip!();
+    agree(
+        "tasks.parallel shared",
+        r#"
+from "core/effect/lib.buri" import { Alloc, Clock, Stdout, Tasks };
+from "core/host/lib.buri" import * as host;
+from "core/tasks/lib.buri" import * as tasks;
+from "core/list/lib.buri" import * as list;
+from "core/str/lib.buri" import * as str;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
+  };
+
+  // One list, read whole by every step. The closure captures it, so the
+  // environment owns the only reference and each carrier borrows it.
+  let shared = ["al", "be", "ga", "de"].mapCtx(ctx, fn(c, s) => str.format(c, "<${s}>"));
+  let ns = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  let spin = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  // The sleep is what makes the steps *overlap*, and the inner walk is what
+  // gives them something to overlap on. Sixteen carriers are dispatched in
+  // microseconds and then wait together, so they reach the shared list at the
+  // same instant and each of them counts it sixteen times over. Without the
+  // sleep a step finishes before the next is dispatched and gets handed the
+  // same carrier back, which is a sequential walk with extra steps.
+  let seen = tasks.parallel(ctx, ns, fn(c, i, n) => {
+    let _ = c.sleepMillis(20);
+    let each = spin.mapCtx(c, fn(d, k) => shared.join(d, ""));
+    str.format(c, "${n}:${each.len()}:${each.join(c, "|").len()}")
+  });
+  let _ = ctx.println(seen.join(ctx, " "));
+
+  // Read back in the caller's own frame: the list survived the walk.
+  let _ = ctx.println(shared.join(ctx, ","));
+
+  // One block in four slots: four steps counting the same allocation.
+  let one = "z".repeat(ctx, 3);
+  let twice = [one, one, one, one];
+  let sized = tasks.parallel(ctx, twice, fn(c, i, s) => str.format(c, "${i}${s}"));
+  let _ = ctx.println(sized.join(ctx, "|"));
+  let _ = ctx.println(twice.join(ctx, "+"));
+  .Ok(())
+}
+"#,
+        concat!(
+            "0:16:271 1:16:271 2:16:271 3:16:271 4:16:271 5:16:271 ",
+            "6:16:271 7:16:271 8:16:271 9:16:271 10:16:271 11:16:271 ",
+            "12:16:271 13:16:271 14:16:271 15:16:271\n",
+            "<al>,<be>,<ga>,<de>\n",
+            "0zzz|1zzz|2zzz|3zzz\n",
+            "zzz+zzz+zzz+zzz\n",
+        ),
+    );
+}
+
+/// **The data-race fixture**: a value every step *appends to*, which is the
+/// in-place write licence rather than the count.
+///
+/// The count is the half `a_shared_list_is_counted_correctly_by_every_task`
+/// stresses. This is the other half, and it is the one that fails
+/// **deterministically** without the mark rather than probabilistically:
+///
+///  * `seed` is a heap `Str` the closure's environment owns, with spare
+///    capacity — `buri_rt_grown_capacity`'s floor is 64 bytes and this one is
+///    four.
+///  * Each step evaluates `seed.concat(c, ...)`. On an *unmarked* block that
+///    reads `rc == 1`, takes MEMORY.md §5.3's in-place path, and writes the
+///    suffix into the shared block's spare capacity — so all sixteen steps
+///    write **the same bytes at the same offset**, and every step's answer is
+///    a view over whichever suffix landed last. The failure is not a timing
+///    accident: it is sixteen answers that are all the same string, where
+///    sixteen different ones were asked for.
+///  * On a **marked** block `buri_rt_unique_cap` answers `None`, the concat
+///    allocates, and each step gets its own bytes.
+///
+/// So this is the case that says what the mark *buys*, in a program, in one
+/// line of output. `[G3-RED]` in `reports/wave8-g3.md` is the same fixture on
+/// a tree with the latch neutered.
+#[test]
+fn a_shared_buffer_is_never_appended_to_in_place_by_two_tasks() {
+    rows_or_skip!();
+    agree(
+        "tasks.parallel in-place",
+        r#"
+from "core/effect/lib.buri" import { Alloc, Clock, Stdout, Tasks };
+from "core/host/lib.buri" import * as host;
+from "core/tasks/lib.buri" import * as tasks;
+from "core/list/lib.buri" import * as list;
+from "core/str/lib.buri" import * as str;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
+  };
+
+  // A heap Str with room to grow, owned by the closure's environment.
+  let seed = "ab".repeat(ctx, 2);
+  let ns = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  // The sleep is what makes the steps *overlap*: sixteen carriers are
+  // dispatched in microseconds, wait together, and reach the concat at the
+  // same instant. Without it a step finishes before the next is dispatched and
+  // its carrier is handed straight back, so a fan-out over trivial work is a
+  // sequential walk with extra steps and would prove nothing about sharing.
+  let grown = tasks.parallel(ctx, ns, fn(c, i, n) => {
+    let _ = c.sleepMillis(40);
+    seed.concat(c, str.fromInt(c, n))
+  });
+  let _ = ctx.println(grown.join(ctx, " "));
+  let _ = ctx.println(seed);
+  .Ok(())
+}
+"#,
+        concat!(
+            "abab0 abab1 abab2 abab3 abab4 abab5 abab6 abab7 abab8 abab9 ",
+            "abab10 abab11 abab12 abab13 abab14 abab15\n",
+            "abab\n",
+        ),
+    );
+}
+
 /// A task is handed the **caller's context**, and reads a value out of it, on
 /// all three backends.
 ///
