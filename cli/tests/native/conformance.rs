@@ -27,9 +27,11 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Thirty-one of the forty files are in it** — the number the
-//! harness prints, and one the prose had off by one before
-//! `semantics/generics.buri` joined them. `semantics/http.buri` is the
+//! **Thirty-two of the forty-one files are in it** — the number the
+//! harness prints, and one the prose has now had off by one twice: before
+//! `semantics/generics.buri` joined them, and again after
+//! `codegen/step_trampoline.buri` did. Both counts are re-derived from the
+//! harness rather than incremented by hand. `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
 //! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
 //! `semantics/host_testing.buri` is the
@@ -55,8 +57,14 @@
 //!     files, and `numbers/conversions.buri` carries a second problem behind
 //!     the first — two of its blocks assert the JavaScript *bound*, which
 //!     VALUE-MODEL.md §12 row 2 has already ruled is not the native one.
-//!  2. **`json.*` and `derivePrimJson`.** A descriptor-driven walker, which is
-//!     what `runtime.js` does. `json/decoding.buri` and `json/encoding.buri`.
+//!  2. **`json.*`, and `ToJson::toJson` at a primitive.** `json.decode` is a
+//!     descriptor-driven walker, which is what `runtime.js` does.
+//!     `json/decoding.buri` and `json/encoding.buri`. `derivePrimJson` was the
+//!     second half of this reason and is not any more — both native backends
+//!     build `Json`'s primitive arm now (VALUE-MODEL.md §12 row 10) — so what
+//!     holds `json/encoding.buri` out is the five keys a *direct* `x.toJson()`
+//!     produces, which is the same answer reached through the trait rather
+//!     than through the derive.
 //!  3. **`core/math`'s thirteen transcendentals**, which are refused rather
 //!     than unwritten — `cli/runtime/math.rs` argues it. `numbers/floats.buri`.
 //!  4. **The reactive graph.** `ui/effect`'s `Ui` entries and `ui/testing`'s
@@ -86,8 +94,9 @@
 //! **Neither batch moved a row of the table below.** The first batch's eight
 //! files were already in the native set. The second reaches three that are
 //! *out* — `json/decoding.buri`, `json/encoding.buri` and `proto/json.buri` —
-//! and not one of them was excluded for a context: the reasons are
-//! `json.decode`, `derivePrimJson` and an inexact `F64 -> I64`, and
+//! and not one of them was excluded for a context: the reasons were
+//! `json.decode`, `derivePrimJson` — now `ToJson::toJson` at a primitive, the
+//! derive's leaf having landed — and an inexact `F64 -> I64`, and
 //! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run on
 //! the migrated corpus and still reports each of them. So the census is the
 //! same thirty files and 1,393 blocks it was before.
@@ -116,6 +125,56 @@
 //! agrees: both refusals still name what they always named. So the census is
 //! unchanged again, and this is the honest report of it rather than a row moved
 //! to look like progress.
+//!
+//! # The narrowing pass, and the answer to the question this section asked
+//!
+//! The migration derived each *migrated* site's bindings from the compiler, so
+//! those were minimal the day they were written. What it could not reach was
+//! the contexts nobody migrated — the ones written by hand — and the bindings
+//! a **dead bound** kept alive. `unused-context-bound`'s fix over the two
+//! corpora settled both, in that order, because the second follows from the
+//! first: `fn note<C: Alloc + Stdout>` whose body only prints forces
+//! `Alloc: alloc()` into the context of every test that calls it.
+//!
+//! Fifteen dead bounds went, over three rounds (the rule has a fixed point and
+//! reaching it takes as many passes as the call graph is deep), and **two
+//! hundred and forty-seven contexts then shrank** — two hundred and thirty-nine
+//! here and eight in `cli/tests/example` — dropping 251 bindings: 176 `Alloc`,
+//! 72 `Watch` and 3 `Net`. Fifty-eight of them were reachable *only* after the
+//! bounds went, measured by running the same sweep against the tree before
+//! them.
+//!
+//! **The contexts the migration derived are almost exactly where it left
+//! them**, which is the measurement that says its fixpoint was minimal rather
+//! than merely settled. Of the six files that moved, three are `lib/ui`, a
+//! package `cli/tests/migrate.rs` never lists; `semantics/effects.buri` is one
+//! of the two files it was told to hold; and `semantics/host_testing.buri` was
+//! written by hand against `core/host/testing` rather than rewritten from a
+//! `Hermetic()` — no commit in its history contains the word. That leaves
+//! `semantics/evaluation.buri`, which is migrated and dropped fifty-one
+//! `Alloc`s: fifty of them are the dead bound on `note` and its nine
+//! neighbours, which the migration could not have seen, and the fifty-first is
+//! one binding it genuinely left behind, out of the four hundred and
+//! sixty-four sites its three batches wrote here.
+//!
+//! **The table below is unchanged, and this time the question was live.**
+//! Several exclusion reasons are written in terms of a context that
+//! instantiates everything, and the three `lib/ui` files are the ones that
+//! actually carried surplus bindings — 64 `Watch` between them.
+//! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run and
+//! every one of the nine still names what it named. One refusal did get
+//! shorter: `ui/theme.buri` no longer reaches `ui_testing.observer`, because
+//! none of its five contexts binds `Watch` any more. It is still out for
+//! `install`, `variables`, `render`, `stylesheet` and the `Headless` pair —
+//! the document and the reactive graph, which is a reason no wave of this
+//! backend retires. So the census is the same 32 files and 1,529 blocks, and
+//! `lib/ui`'s exclusion is now stated in terms of what it is really about.
+//!
+//! The half of this the corpus keeps for itself is
+//! `language::conformance::no_conformance_context_asks_for_a_bound_it_does_not_use`:
+//! this corpus is deliberately not lint-clean, and that one code is the one it
+//! is held to zero over, because a dead bound put back here is contexts put
+//! back everywhere that calls it.
 //!
 //! # The harness used to be the biggest exclusion, and it was never about the
 //! backend
@@ -389,7 +448,15 @@ const PACKAGES: &[Case] = &[
              every widening and every `wrapTo*`",
     ),
     excluded("json/decoding.buri", "`json.decode`, and core/char's classifiers"),
-    excluded("json/encoding.buri", "`derivePrimJson` at every primitive"),
+    // `derivePrimJson` was this row's reason and is not any more: both native
+    // backends have a body for it (VALUE-MODEL.md §12 row 10). What is left is
+    // its sibling — `ToJson::toJson` called *directly* on a primitive, which
+    // reaches a backend as `bool.toJson`, `char.toJson`, `str.toJson`,
+    // `num.I64.toJson` and `num.F64.toJson`, five ordinary intrinsic keys with
+    // no body. They are the same three-way answer `json_prim` already gives
+    // and are a slice of their own, because letting this file in moves the
+    // census ratchet.
+    excluded("json/encoding.buri", "`ToJson::toJson` at every primitive"),
     // `core/bytes` and `char.toDigit` are emitted now, and this file needs
     // nothing else.
     included("proto/failures.buri"),
@@ -472,13 +539,11 @@ fn skip_reason() -> Option<String> {
 ///
 /// The print is the point: the corpus is 26 files and 1187 test blocks, and a
 /// host that ran none of them reports the same four passing tests as a host
-/// that ran all of them.
+/// that ran all of them. On a runner it is not a print but a panic —
+/// `harness/ci.rs` reads `BURI_CI` and the workflow sets it everywhere.
 fn supported() -> bool {
     match skip_reason() {
-        Some(why) => {
-            eprintln!("native conformance: skipped ({why})");
-            false
-        }
+        Some(why) => !crate::ci::skipped("native conformance", &why),
         None => true,
     }
 }

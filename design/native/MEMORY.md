@@ -823,7 +823,7 @@ accounting policies over the one real allocator. They are not three allocators.
   **As built, the total is not *in* the type.** Buri has no mutation, so a
   running total cannot live in the struct that reports it; `GeneralPurpose` is
   a handle into a counter table in `memory.rs`, exactly as
-  `core/testing/context`'s captured stdout is a handle. The type still
+  `core/host/testing`'s captured stdout is a handle. The type still
   *exposes* the total — `gp.stats()` — which is what this row meant; where it
   lives is the part that had to change. One consequence is worth stating
   because a program can see it: a copy of an allocator shares its counter,
@@ -916,7 +916,7 @@ nearly free" and it is not.
 **A context argument is dropped from every `buri_rt_*` call, whatever it
 weighs** (`stencil/runtime.rs`, `llvm/runtime.rs`). That is not an oversight to
 undo: it was forced by the *first* program to bind a non-zero-sized allocator —
-`context { Alloc: alloc() }` from `core/testing/context` — which spread one
+`context { Alloc: alloc() }` from the test platform — which spread one
 extra argument into a C call that has no parameter for it and put every
 argument after it in the wrong register. So the intrinsics do **not** receive a
 counting allocator; the runtime function that builds the list never learns

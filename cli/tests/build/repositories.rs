@@ -534,6 +534,12 @@ fn best_of(
 #[test]
 fn language_server_speed() {
     if std::env::var("BURI_PERF").is_err() {
+        crate::harness::ci::deferred_to(
+            "language server budget",
+            "language server budget (arm64)",
+            "BURI_PERF is unset, and a millisecond in a debug profile is a fact about the \
+             profile",
+        );
         return;
     }
     let budget = language_server_budget();
@@ -615,6 +621,12 @@ const RESTORE_DRIFT: u32 = 3;
 #[test]
 fn language_server_open_cost() {
     if std::env::var("BURI_PERF").is_err() {
+        crate::harness::ci::deferred_to(
+            "language server budget",
+            "language server budget (arm64)",
+            "BURI_PERF is unset, and a millisecond in a debug profile is a fact about the \
+             profile",
+        );
         return;
     }
     let budget = language_server_budget();

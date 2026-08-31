@@ -301,7 +301,7 @@ fn skip_reason() -> Option<String> {
 macro_rules! rows_or_skip {
     () => {
         if let Some(why) = skip_reason() {
-            eprintln!("backend agreement: skipped ({why})");
+            crate::ci::skipped("backend agreement", &why);
             return;
         }
     };
@@ -447,12 +447,12 @@ fn run_js(row: &str, checked: &Checked, paths: &[String]) -> Ran {
 /// Both halves, because a backend refuses in two places and the gap tests
 /// care about either. `missing_intrinsics` answers *before* emission and is
 /// where an unimplemented `FuncKind::Intrinsic` shows up — that is the hook
-/// on the trait and it is what `host.HostAlloc.allocate` trips. But a
+/// on the trait, and a key with no runtime row is what trips it. But a
 /// structural operation is an `ir::Inst::Structural`, which exists only
 /// after lowering and is therefore not in the program that hook is handed
-/// (`llvm/mod.rs` says so where the hook is implemented), so
-/// a `deriveArray*` and `derivePrimJson` can only be discovered by asking the
-/// backend to emit and reading the diagnostic.
+/// (`llvm/mod.rs` says so where the hook is implemented), so a `deriveArray*`
+/// can only be discovered by asking the backend to emit and reading the
+/// diagnostic.
 fn native_refusal(row: &str, native: Native, checked: &Checked, paths: &[String]) -> String {
     let program = prepared(row, checked, paths, host_target());
     let opts = Options { profile: native.profile, target: host_target(), unit_prefix: "" };
@@ -637,10 +637,10 @@ fn gap(row: &str, source: &str, wanted: &[&str]) {
     for native in natives(row) {
         let refusal = native_refusal(row, native, &checked, &paths);
         // A [`Native::partial`] backend has its own reasons to refuse and
-        // its own reasons not to, and neither is what this row is about. It
-        // is reported rather than asserted on — `llvm` compiles
-        // `host.HostAlloc.allocate`, which the debug backends do not, and that
-        // is a fact about the two surfaces rather than about row 12.
+        // its own reasons not to, and neither is what a gap row is about — so
+        // its answer is reported rather than asserted on. The two surfaces are
+        // not the same set of keys, and a row's gap has to be the debug
+        // backend's to be this file's.
         if let Some(why) = native.partial {
             eprintln!(
                 "backend agreement: {row} on `{}` answered {refusal:?}; it is {why}",
@@ -1545,43 +1545,38 @@ export fn main(): Result<(), Str> {
 // Row 10 — derived `ToJson`
 // -------------------------------------------------------------------
 
-/// `derive ToJson` has no native body at all: `derivePrimJson` is missing
-/// at every primitive, so nothing downstream of it can be asked yet.
-///
-/// Rendering one is a second gap on top — `json.stringify` is `list.mapCtx`
-/// and `str.chars` over closures, which is the surface
-/// `native/conformance.rs` names against every package that has it — so
-/// even a landed `derivePrimJson` would leave this row half-reachable. The
-/// program below walks the `Json` tree by hand for that reason: `match`
-/// over `.Object`/`.Array` needs no closure, so the day the derive lands
-/// the row is pinnable without waiting for the whole of `core/json`.
-#[test]
-fn row_10_derived_tojson_is_a_gap() {
-    rows_or_skip!();
-    gap(
-        "row 10",
-        TOJSON,
-        &[
-            "derivePrimJson.Bool",
-            "derivePrimJson.F64",
-            "derivePrimJson.I64",
-            "derivePrimJson.Str",
-        ],
-    );
-}
+// `row_10_derived_tojson_is_a_gap` stood here and is gone, with the
+// `#[ignore]` it was paired to: it pinned `derivePrimJson` having no native
+// body at any primitive, and both native backends have one now
+// (`stencil/emit.rs::json_prim`, `llvm/emit.rs::json_prim`). A gap test that
+// outlives its gap fails — that is what it is for — so the pair was always
+// going to be deleted and un-ignored in one commit, and this is it.
+//
+// The *other* half of the row's old sentence still stands and is why the
+// program below walks the tree by hand: `json.stringify` is `list.mapCtx` and
+// `str.chars` over closures, which is the surface `native/conformance.rs`
+// names. A `match` over `.Object`/`.Array` needs no closure, which is what
+// makes the row pinnable without the whole of `core/json`.
 
-/// The agreement test that runs the day `derivePrimJson` lands. It is a
-/// wire format, so the bar is bytes.
+/// The agreement test `derivePrimJson` landing made runnable. It is a wire
+/// format, so the bar is bytes.
+///
+/// `"a":3.0` and not `"a":3`, and the reason is the renderer rather than the
+/// encoding: `a` is an `Int`, `derive ToJson` puts it in `.Num` — JSON has one
+/// number type and it is a double, which is what `json.buri`'s header and
+/// `$json_of`'s `Number(v)` both say — and the program below renders a `.Num`
+/// with `"${x}"`, which is `Show` for a `Float` and spells a whole number with
+/// its point. `json.stringify` is what would write `3`, and it is closures
+/// (`native/conformance.rs`), so the row walks the tree by hand and gets
+/// `Show`'s spelling. What the row is pinning is that **both** pipelines build
+/// the same tree and print the same bytes off it.
 #[test]
-#[ignore = "`derivePrimJson` has no native body at any primitive, so \
-                `derive ToJson` is refused by `missing_intrinsics`. Un-ignore \
-                this and delete `row_10_derived_tojson_is_a_gap` together."]
 fn row_10_derived_tojson() {
     rows_or_skip!();
     agree(
         "row 10",
         TOJSON,
-        "{\"a\":3,\"b\":\"hi\",\"c\":false,\"d\":1.5,\"e\":{\"flag\":true,\"note\":\"n\"}}\n",
+        "{\"a\":3.0,\"b\":\"hi\",\"c\":false,\"d\":1.5,\"e\":{\"flag\":true,\"note\":\"n\"}}\n",
     );
 }
 
@@ -1631,6 +1626,89 @@ fn entryText(e: (Str, Json)): Str {
 export fn main(): Result<(), Str> {
   let p = P { a: 3, b: "hi", c: false, d: 1.5, e: Inner { flag: true, note: "n" } };
   let _ = stdout.println(render(p.toJson(alloc)));
+  .Ok(())
+}
+"#;
+
+/// Row 10 at every primitive the leaf has an arm for, which is what
+/// `row_09_integer_show_at_every_width` is to row 9.
+///
+/// The row above pins four of them — `Bool`, `Str`, `Int`, `Float` — and four
+/// is not the claim. `derivePrimJson` is one function per backend with a
+/// three-way answer in it, and the arms that can differ are the ones the four
+/// do not reach: a `Char`, whose JSON is a **string** and whose native answer
+/// is a runtime call rather than a copy; and the narrow integers, which sit in
+/// a frame slot zero-extended, so a signed one has to be widened by its own
+/// signedness before it becomes a double. `-3` at `I8` arriving as `253.0` is
+/// the bug this test is shaped to catch, and it is the same bug
+/// `show_prim`'s `sext` comment describes at the other leaf.
+///
+/// An astral `Char` is here because `buri_rt_char_to_str` is the one arm that
+/// encodes UTF-8 rather than moving bytes that were already encoded.
+#[test]
+fn row_10_derived_tojson_at_every_primitive() {
+    rows_or_skip!();
+    agree(
+        "row 10 widths",
+        TOJSON_WIDTHS,
+        "{\"ch\":\"é\",\"em\":\"😀\",\"u8v\":255.0,\"i8v\":-3.0,\"u16v\":65535.0,\
+         \"i16v\":-300.0,\"u32v\":4294967295.0,\"i32v\":-70000.0,\"u64v\":7.0,\
+         \"f32v\":1.5}\n",
+    );
+}
+
+const TOJSON_WIDTHS: &str = r#"
+from "core/host/lib.buri" import { stdout, alloc };
+from "core/str/lib.buri" import * as str;
+from "core/json/lib.buri" import { Json, ToJson };
+
+export struct W {
+  ch: Char, em: Char,
+  u8v: U8, i8v: I8, u16v: U16, i16v: I16, u32v: U32, i32v: I32, u64v: U64,
+  f32v: F32,
+}
+derive ToJson for W;
+
+fn render(j: Json): Str {
+  match (j) {
+    .Null => "null",
+    .Bool(b) => str.format(alloc, "${b}"),
+    .Num(x) => str.format(alloc, "${x}"),
+    .Str(s) => str.format(alloc, "\"${s}\""),
+    .Array(items) => str.format(alloc, "[${renderList(items)}]"),
+    .Object(entries) => str.format(alloc, "{${renderEntries(entries)}}"),
+  }
+}
+
+fn renderList(items: [Json]): Str {
+  match (items) {
+    [] => "",
+    [h] => render(h),
+    [h, ..t] => str.format(alloc, "${render(h)},${renderList(t)}"),
+  }
+}
+
+fn renderEntries(entries: [(Str, Json)]): Str {
+  match (entries) {
+    [] => "",
+    [h] => entryText(h),
+    [h, ..t] => str.format(alloc, "${entryText(h)},${renderEntries(t)}"),
+  }
+}
+
+fn entryText(e: (Str, Json)): Str {
+  let (k, v) = e;
+  str.format(alloc, "\"${k}\":${render(v)}")
+}
+
+export fn main(): Result<(), Str> {
+  let w = W {
+    ch: 'é', em: '😀',
+    u8v: 255, i8v: -3, u16v: 65535, i16v: -300,
+    u32v: 4294967295, i32v: -70000, u64v: 7,
+    f32v: 1.5,
+  };
+  let _ = stdout.println(render(w.toJson(alloc)));
   .Ok(())
 }
 "#;
@@ -1740,27 +1818,23 @@ export fn main(): Result<(), Str> {
 // Row 12 — `Alloc` accounting
 // -------------------------------------------------------------------
 
-/// Row 12 says the two "must agree once both exist", and neither does.
-///
-/// On JavaScript `$host_HostAlloc_allocate` answers `[Number(n)]` — the
-/// byte count handed back as a `Region`, with nothing accumulated — and
-/// natively `host.HostAlloc.allocate` has no body at all, so the backend
-/// refuses the program. That is the honest state of the row: not a
-/// disagreement, an absence on both sides, named on the side where it is
-/// observable.
-#[test]
-fn row_12_alloc_accounting_is_a_gap() {
-    rows_or_skip!();
-    gap("row 12", ALLOCATE, &["host.HostAlloc.allocate"]);
-}
+// `row_12_alloc_accounting_is_a_gap` stood here and is gone with the
+// `#[ignore]` beside it, for the reason row 10's did: it pinned
+// `host.HostAlloc.allocate` having no native body, and the debug backend has
+// one now — `runtime_table.rs`'s row reaches
+// `buri_rt_host_alloc_allocate`, which is the same archive body the release
+// backend has always called.
 
-/// What agreement will mean when MEMORY.md §7's model exists on both.
+/// MEMORY.md §7's model, on both backends, at the one row that charges its
+/// own argument.
+///
+/// `HostAlloc` is zero-sized and unbounded (§7.2), so `allocate(64)` is
+/// `Region(64)` and nothing accumulates *in the allocator* — the accounting a
+/// program can read is `core/alloc`'s counters, which are a different four
+/// keys and a different question. So the agreement this pins is the one §7.1
+/// asks for: the charge is a function of the argument, defined rather than
+/// measured, and therefore the same number on both pipelines.
 #[test]
-#[ignore = "`Alloc` accounting is implemented on neither backend: \
-                `host.HostAlloc.allocate` has no native body, and the \
-                JavaScript one hands the byte count back without accumulating \
-                anything (MEMORY.md §7 is the model). Un-ignore together with \
-                `row_12_alloc_accounting_is_a_gap`."]
 fn row_12_alloc_accounting() {
     rows_or_skip!();
     agree("row 12", ALLOCATE, "64\n");

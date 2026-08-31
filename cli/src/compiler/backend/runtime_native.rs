@@ -155,6 +155,34 @@ pub fn net() -> bool {
     declares("net")
 }
 
+/// Whether this toolchain's runtime archive carries QUIC, and therefore
+/// HTTP/3.
+///
+/// **False on every ordinary toolchain**, which is the difference between this
+/// and [`net`] beside it: `net` is on unless something took it away, while
+/// `net-h3` is off unless somebody asked for it with `BURI_RUNTIME_NET_H3=1`.
+/// The concurrency note gated h3 behind configuration until the crate is
+/// trusted, and a cargo feature that is not in `default` is what that gate is;
+/// `cli/runtime/manifest.toml`'s feature block argues it in full.
+///
+/// **Nothing turns this into a compile-time refusal, and that is the
+/// decision.** `net-h3` is deliberately absent from [`net_intrinsic`]'s family
+/// below: the operations behind it are `serve`'s, and refusing every program
+/// that mentions `serve` would refuse every server that was only ever going to
+/// speak HTTP/1.1. What a toolchain without QUIC owes a program that asked for
+/// `.Http3` is a run-time `.Err(Unsupported)` — `cli/runtime/net.rs`'s `serves`
+/// is the one line F2's `serve` calls to produce it — which is the same
+/// asymmetry `host.HostNet.fetch` and `https://` already carry.
+///
+/// So what reads this today is a **test**, and that is the honest description:
+/// `cli/tests/native/runtime.rs` asserts it against the archive's own
+/// `buri_rt_net_h3_available` door, which is the round trip from the cargo
+/// feature through the compiled constant and back through the feature file. The
+/// first non-test reader is F2.
+pub fn h3() -> bool {
+    declares("net-h3")
+}
+
 /// Whether an intrinsic key is one only a `net` runtime answers.
 ///
 /// The three host effects the networking archive carries — `Listen` accepts
@@ -186,6 +214,15 @@ pub fn net() -> bool {
 /// `http://`. What a `net`-off toolchain owes an `https://` URL is a run-time
 /// `NetError::Transport` naming the feature, and `http.rs`'s `parse` is where
 /// that sentence is written.
+///
+/// **This asks about `net`, and there is deliberately no second version of it
+/// for `net-h3`.** [`h3`] is a feature of the same file with none of the same
+/// consequences: the keys an HTTP/3 server is reached through are
+/// `HostListen`'s, which are already covered here, and the protocol a server
+/// asks for is a *field* of a value rather than an operation a key names — so
+/// there is nothing for a key-shaped rule to match on. A toolchain without QUIC
+/// compiles the program and `serve` answers `.Err(Unsupported)`, which is the
+/// same choice as `HostNet.fetch` above and made for the same reason.
 pub fn net_intrinsic(key: &str) -> bool {
     let Some(rest) = key.strip_prefix("host.") else { return false };
     let Some((effect, _operation)) = rest.split_once('.') else { return false };
@@ -240,10 +277,12 @@ mod tests {
     /// archive rather than whatever else ended up at that path. `!<arch>\n` is
     /// the magic every `ar` format shares, including Apple's and GNU's.
     #[test]
-    #[cfg_attr(
-        not(any(target_os = "macos", target_os = "linux")),
-        ignore = "no runtime archive is built for this host"
-    )]
+    // COMPILED OUT on a host no archive is built for, rather than ignored. The
+    // two say the same thing about such a host and only one of them adds a
+    // line to every summary that a reader has to learn to disregard — and a
+    // summary with a skip in it is one nobody reads the skips of.
+    // `.github/scripts/assert-no-skips.sh` is the other half of that decision.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn the_archive_is_an_archive() {
         assert_eq!(
             ARCHIVE.get(..8),
@@ -268,6 +307,19 @@ mod tests {
         assert!(!net() || AVAILABLE, "the features file names `net` and there is no archive");
     }
 
+    /// `net-h3` implies `net`, in the manifest and therefore in the file.
+    ///
+    /// QUIC carries TLS 1.3 inside the transport and runs on the same reactor,
+    /// so `net-h3 = ["net", "dep:quinn"]`; a features file that named h3 alone
+    /// would mean `cli/build.rs` had written a state Cargo cannot produce.
+    /// One direction only, like its neighbour: `net` without h3 is the default
+    /// toolchain.
+    #[test]
+    fn http3_implies_networking() {
+        assert!(!h3() || net(), "the features file names `net-h3` without `net`");
+        assert!(!h3() || AVAILABLE, "the features file names `net-h3` and there is no archive");
+    }
+
     /// Whole lines, and nothing else: `net-h3` is the next feature this file
     /// will hold and it contains `net`.
     #[test]
@@ -281,6 +333,7 @@ mod tests {
         assert!(!declares_in("net", ""), "the empty string is not a feature");
         // And the toolchain's own file is read by the same rule.
         assert_eq!(net(), declares_in(FEATURES, "net"));
+        assert_eq!(h3(), declares_in(FEATURES, "net-h3"));
         assert!(!declares("no-such-feature"));
     }
 

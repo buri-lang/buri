@@ -1,0 +1,36 @@
+# EVERY `#[ignore]` IN THIS REPOSITORY, AND NOTHING ELSE MAY BE ONE.
+#
+# Two readers, so that "the summary shows no skip we did not sign for" is one
+# fact rather than two lists that drift:
+#
+#   * `cli/tests/ci.rs::the_only_ignored_tests_are_the_ones_named_here` walks
+#     the tree for `#[ignore`, and fails if the set it finds is not exactly the
+#     set below. That is the ratchet, and it runs on every machine.
+#   * `.github/scripts/assert-no-skips.sh` counts the lines here and holds the
+#     `N ignored` in a `cargo test` summary to that number. That is the runner's
+#     half, and it catches a skip that arrives some way the source scan cannot
+#     see.
+#
+# The format is `<path>::<test> — <why>`. `#` starts a comment; blank lines are
+# ignored. An entry is a DEFECT WITH A NAME, not a permission: a row here is a
+# thing somebody is expected to delete by fixing it, and the sentence after the
+# dash has to say what fixing it means.
+#
+# The bar for adding one: the test is red because the *product* is missing a
+# behaviour it is supposed to have, the fix is a change to the compiler rather
+# than to the test, and that change is a slice of its own. Everything else has
+# another disposition — a test that can be made to pass gets fixed, a test whose
+# host cannot answer it gets `#[cfg]`ed out for that host so it is absent rather
+# than skipped, and a test whose behaviour is no longer wanted gets deleted.
+#
+# THIS FILE IS EMPTY, AND THAT IS THE POINT OF IT. It shipped with two rows —
+# `row_10_derived_tojson` and `row_12_alloc_accounting`, the two agreement rows
+# parked on missing compiler features — and both were deleted the way a row here
+# is supposed to be: by writing the feature. `derivePrimJson` has a body on both
+# native backends (`stencil/emit.rs::json_prim`, `llvm/emit.rs::json_prim`), and
+# `host.HostAlloc.allocate` has a `runtime_table.rs` row reaching the archive
+# body the release backend already called.
+#
+# Empty is therefore the floor, not a starting state: both readers above hold
+# `ignored` to zero, so the next `#[ignore]` anybody writes fails the suite on
+# their own machine until it is either fixed or argued for here.

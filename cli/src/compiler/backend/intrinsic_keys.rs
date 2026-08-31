@@ -14,7 +14,7 @@
 //! [`super::stencil::lists::list_call`] for that reason, and each backend's
 //! `open_coded_key` names the keys it in particular turns into instructions.
 
-use crate::compiler::semantics::types::Prim;
+use crate::compiler::semantics::types::{Prim, Tables, Ty};
 
 /// The `Eq`/`Ord`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
 /// `Char::toU32`, and `Str`'s `show`.
@@ -62,15 +62,71 @@ pub fn bits_op(key: &str) -> bool {
     )
 }
 
-/// `derivePrimShow.I64` and `derivePrimHash.U8` and their siblings, split into
-/// the operation and the primitive it is at.
+/// `derivePrimShow.I64`, `derivePrimHash.U8` and `derivePrimJson.Bool` and
+/// their siblings, split into the operation and the primitive it is at.
+///
+/// The three type-directed leaves `middle::derives` bottoms out at, and the
+/// set is spelled here rather than in each backend because it is a fact about
+/// that pass: it emits these three names and no others (`derives.rs`'s table
+/// of eight, of which the other five are the `deriveArray*` loops).
 pub fn derive_key(key: &str) -> Option<(&str, Prim)> {
     let (name, target) = key.split_once('.')?;
-    if !matches!(name, "derivePrimShow" | "derivePrimHash") {
+    if !matches!(name, "derivePrimShow" | "derivePrimHash" | "derivePrimJson") {
         return None;
     }
     let prim = Prim::all().iter().copied().find(|p| p.name() == target)?;
     Some((name, prim))
+}
+
+/// Which arm of `core/json`'s `Json` a primitive encodes to.
+///
+/// `$json_of`'s primitive arm (`backend/js/runtime.js`) read as a three-way
+/// answer: a `Bool` is a JSON boolean; a `Str` or a `Char` is a JSON string,
+/// because a `Char` is a one-scalar string and JavaScript already makes it
+/// one; and everything else is JSON's single number type, a double.
+///
+/// VALUE-MODEL.md §12 row 10 is byte-for-byte agreement on that encoding, so
+/// the mapping is one function here rather than one `match` per backend.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum JsonArm {
+    Bool,
+    /// `.Num(Float)`. Every numeric primitive widens to the double JSON has,
+    /// which rounds above 2^53 — and rounds in the same place on JavaScript,
+    /// which is what `json.buri`'s header says a JSON number is.
+    Num,
+    Str,
+}
+
+/// The arm a primitive encodes to. Total: every primitive is one of the three.
+pub fn json_arm(prim: Prim) -> JsonArm {
+    match prim {
+        Prim::Bool => JsonArm::Bool,
+        Prim::Str | Prim::Template | Prim::Char => JsonArm::Str,
+        _ => JsonArm::Num,
+    }
+}
+
+/// Where that arm sits in `Json`'s variant list.
+///
+/// **By name**, for the reason `types::result_shape` is one: `core/json`
+/// declares `Null` first, and a backend that hard-coded `1`, `2`, `3` would be
+/// reading a declaration order out of a table that records it.
+/// `middle::derives` builds the *compound* arms of the same enum through its
+/// own `Env::json_variant`, asking the same question of the same declaration;
+/// this is the half a **backend** needs, because a primitive leaf is an
+/// intrinsic and never reaches that pass's builder.
+///
+/// `None` for a type that is not a declared enum with such a variant — a
+/// `derive ToJson` whose result is not `core/json`'s `Json`, which is refused
+/// rather than guessed at.
+pub fn json_variant(tables: &Tables, ty: &Ty, arm: JsonArm) -> Option<usize> {
+    let Ty::Con(id, _) = ty else { return None };
+    let name = match arm {
+        JsonArm::Bool => "Bool",
+        JsonArm::Num => "Num",
+        JsonArm::Str => "Str",
+    };
+    tables.tycon(*id).variants().iter().position(|v| v.name == name)
 }
 
 /// Which loop a closure-taking `list.*` key is.
@@ -253,6 +309,57 @@ pub const STEP_KEYS: &[&str] =
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The three type-directed leaves, and nothing else.
+    ///
+    /// Both directions, because both are wrong in a way nothing else reports:
+    /// a name this misses is an intrinsic a backend refuses at a key it
+    /// actually implements, and a name it accepts that `middle::derives` never
+    /// emits is a claim about a body that does not exist.
+    #[test]
+    fn the_derive_leaves_are_the_three_that_are_emitted() {
+        for name in ["derivePrimShow", "derivePrimHash", "derivePrimJson"] {
+            let key = format!("{name}.I64");
+            assert_eq!(derive_key(&key), Some((name, Prim::I64)), "{key}");
+        }
+        for key in [
+            // The array loops are not leaves and take a code pointer.
+            "deriveArrayShow",
+            "deriveArrayJson",
+            // Unqualified is what `middle::lower` produces for a `derivePrim*`
+            // at something that is not a primitive, which is a bug in
+            // `derives.rs` and is deliberately not claimed.
+            "derivePrimJson",
+            "derivePrimShow",
+            // A primitive that is not one.
+            "derivePrimJson.Point",
+            "str.concat",
+        ] {
+            assert!(derive_key(key).is_none(), "{key}");
+        }
+    }
+
+    /// [`json_arm`] is total, and it agrees with `$json_of`'s three tests.
+    ///
+    /// The `Char` row is the one worth an assertion of its own: it is a JSON
+    /// **string** and not a number, which is what `runtime.js` does with
+    /// `p === "c"` and what a reader expecting `Char::toU32` would get wrong.
+    #[test]
+    fn every_primitive_encodes_to_one_json_arm() {
+        assert_eq!(json_arm(Prim::Bool), JsonArm::Bool);
+        assert_eq!(json_arm(Prim::Str), JsonArm::Str);
+        assert_eq!(json_arm(Prim::Char), JsonArm::Str);
+        assert_eq!(json_arm(Prim::Template), JsonArm::Str);
+        // Everything else is a number, asserted over the whole roll rather
+        // than over a list here, so that a primitive added later cannot
+        // quietly acquire a fourth answer or fall through to the wrong one.
+        for prim in Prim::all() {
+            if matches!(*prim, Prim::Bool | Prim::Str | Prim::Char | Prim::Template) {
+                continue;
+            }
+            assert_eq!(json_arm(*prim), JsonArm::Num, "{}", prim.name());
+        }
+    }
 
     /// The invariant the two runtime tables rest on. See [`StepCall::func`].
     #[test]

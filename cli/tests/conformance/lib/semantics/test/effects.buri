@@ -292,16 +292,19 @@ test "two contexts from one declaration are two values, not one handle" {
 test "an inline context expression is fresh too" {
   let a = context { Alloc: alloc(), Fs: files([]) };
   assert.ok(saveText(a, "f", "1"));
-  let b = context { Alloc: alloc(), Fs: files([]) };
+  let b = context { Fs: files([]) };
   assert.isFalse(fs.exists(b, "f"));
 }
 
 test "freshness applies to a captured stream as well" {
   let first = captureOut();
-  let a = context { Alloc: alloc(), Stdout: first };
+  let a = context { Stdout: first };
   greet(a, "one");
   let second = captureOut();
-  let b = context { Alloc: alloc(), Stdout: second };
+  // The stream is bound into a context here rather than left loose: what this
+  // asserts is that a *reachable* second stream is still empty, and a binding
+  // nothing calls is the only way to say so.
+  let b = context { Stdout: second };
   assert.eq(second.captured(), "");
   assert.eq(first.captured(), "hello one\n");
 }
@@ -335,7 +338,7 @@ test "reading a path files does not have gives IoError.NotFound" {
 }
 
 test "files reports existence" {
-  let ctx = context { Alloc: alloc(), Fs: files([("a", "A")]) };
+  let ctx = context { Fs: files([("a", "A")]) };
   assert.isTrue(fs.exists(ctx, "a"));
   assert.isFalse(fs.exists(ctx, "b"));
 }
@@ -473,14 +476,14 @@ test "rename REPLACES the destination" {
 }
 
 test "rename leaves nothing at the source" {
-  let ctx = context { Alloc: alloc(), Fs: files([("new", "N")]) };
+  let ctx = context { Fs: files([("new", "N")]) };
   assert.ok(fs.rename(ctx, "new", "old"));
   assert.isFalse(fs.exists(ctx, "new"));
   assert.isTrue(fs.exists(ctx, "old"));
 }
 
 test "rename of a source that is not there is NotFound" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Fs: files([]) };
   assert.eq(assert.err(fs.rename(ctx, "missing", "other")), .NotFound);
 }
 
@@ -492,12 +495,12 @@ test "remove deletes the file" {
 }
 
 test "remove OF A MISSING FILE is NotFound, not a silent success" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Fs: files([]) };
   assert.eq(assert.err(fs.remove(ctx, "never-there")), .NotFound);
 }
 
 test "makeDir ON AN EXISTING DIRECTORY is Ok" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Fs: files([]) };
   assert.ok(fs.makeDir(ctx, "tenants/one"));
   assert.ok(fs.makeDir(ctx, "tenants/one"));
   assert.isTrue(fs.exists(ctx, "tenants/one"));
@@ -511,17 +514,17 @@ test "makeDir creates the parents too" {
 }
 
 test "makeDir where a file already sits is AlreadyExists" {
-  let ctx = context { Alloc: alloc(), Fs: files([("a", "A")]) };
+  let ctx = context { Fs: files([("a", "A")]) };
   assert.eq(assert.err(fs.makeDir(ctx, "a")), .AlreadyExists);
 }
 
 test "sync of a file that is there is Ok" {
-  let ctx = context { Alloc: alloc(), Fs: files([("a", "A")]) };
+  let ctx = context { Fs: files([("a", "A")]) };
   assert.ok(fs.sync(ctx, "a"));
 }
 
 test "sync of a path that is not there is NotFound" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Fs: files([]) };
   assert.eq(assert.err(fs.sync(ctx, "missing")), .NotFound);
 }
 
@@ -542,7 +545,7 @@ test "every writing half of the new surface FAILS through readOnly" {
 }
 
 test "sync is not a write, so readOnly forwards it" {
-  let ctx = context { Alloc: alloc(), Fs: readOnly(files([("a", "A")])) };
+  let ctx = context { Fs: readOnly(files([("a", "A")])) };
   assert.ok(fs.sync(ctx, "a"));
 }
 
@@ -579,14 +582,14 @@ test "a write-ahead log commits through append, sync and rename" {
 
 test "captured reads back what a function printed" {
   let sink = captureOut();
-  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let ctx = context { Stdout: sink };
   greet(ctx, "world");
   assert.eq(sink.captured(), "hello world\n");
 }
 
 test "a fresh capture is empty" {
   let sink = captureOut();
-  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let ctx = context { Stdout: sink };
   assert.eq(sink.captured(), "");
   greet(ctx, "x");
   assert.notEq(sink.captured(), "");
@@ -594,14 +597,14 @@ test "a fresh capture is empty" {
 
 test "captured accumulates in the order things were printed" {
   let sink = captureOut();
-  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let ctx = context { Stdout: sink };
   shout(ctx, ["a", "b", "c"]);
   assert.eq(sink.captured(), "abc");
 }
 
 test "print does not add a newline and println does" {
   let sink = captureOut();
-  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let ctx = context { Stdout: sink };
   io.print(ctx, "one");
   io.println(ctx, "two");
   io.print(ctx, "three");
@@ -611,8 +614,8 @@ test "print does not add a newline and println does" {
 test "two captures in one test are independent" {
   let a = captureOut();
   let b = captureOut();
-  let actx = context { Alloc: alloc(), Stdout: a };
-  let bctx = context { Alloc: alloc(), Stdout: b };
+  let actx = context { Stdout: a };
+  let bctx = context { Stdout: b };
   greet(actx, "one");
   assert.eq(a.captured(), "hello one\n");
   assert.eq(b.captured(), "");
@@ -623,7 +626,7 @@ test "two captures in one test are independent" {
 
 test "capturedErr reads back what went to stderr" {
   let sink = captureErr();
-  let ctx = context { Alloc: alloc(), Stderr: sink };
+  let ctx = context { Stderr: sink };
   io.eprintln(ctx, "to stderr");
   assert.eq(sink.capturedErr(), "to stderr\n");
 }
@@ -631,7 +634,7 @@ test "capturedErr reads back what went to stderr" {
 test "stdout and stderr are separate streams" {
   let out = captureOut();
   let err = captureErr();
-  let ctx = context { Alloc: alloc(), Stdout: out, Stderr: err };
+  let ctx = context { Stdout: out, Stderr: err };
   io.print(ctx, "O");
   io.eprint(ctx, "E");
   assert.eq(out.captured(), "O");
@@ -990,7 +993,7 @@ test "my Fs may be wrapped by the runner's readOnly attenuator" {
 
 test "a confined callee receives the same value" {
   // `stamp` names only Clock, so it can do nothing else with this context.
-  let ctx = context { Alloc: alloc(), Clock: FrozenClock { at: 9 }, Fs: files([]) };
+  let ctx = context { Clock: FrozenClock { at: 9 }, Fs: files([]) };
   assert.eq(stamp(ctx).0, 9);
   assert.isFalse(fs.exists(ctx, "anything"));
 }
@@ -1049,7 +1052,6 @@ test "my own attenuator may wrap the runner's attenuator" {
 
 test "one context binds Listen, Sockets and Net and every method is callable" {
   let ctx = context {
-    Alloc: alloc(),
     Listen: OneShotListen { bindsTo: "127.0.0.1" },
     Net: TeapotNet { body: [] },
     Sockets: QuietSockets {},
@@ -1064,7 +1066,6 @@ test "the same five methods resolve on the context value itself" {
   // them through the context value, which is the other half of the lookup
   // (`Ty::Param` and `Ty::Ctx` both land in `find_in_bounds`).
   let ctx = context {
-    Alloc: alloc(),
     Listen: OneShotListen { bindsTo: "127.0.0.1" },
     Net: TeapotNet { body: [] },
     Sockets: QuietSockets {},
@@ -1093,7 +1094,6 @@ test "a server that will not bind is the Listen answer and not the network's" {
   // The network still answers 418; the negation is `listen`'s refusal, so the
   // two effects are distinguishable through one context.
   let ctx = context {
-    Alloc: alloc(),
     Listen: OneShotListen { bindsTo: "" },
     Net: TeapotNet { body: [] },
     Sockets: QuietSockets {},
@@ -1133,10 +1133,7 @@ test "a server that will not bind is the Listen answer and not the network's" {
 // and it is a `ctx` parameter now.
 
 test "a handler through a context is handed the implementation, not the context" {
-  let ctx = context {
-    Alloc: alloc(),
-    Listen: OneShotListen { bindsTo: "10.0.0.1" },
-  };
+  let ctx = context { Listen: OneShotListen { bindsTo: "10.0.0.1" } };
   // `server.bindsTo` is a field of `OneShotListen`. A context has no fields at
   // all, so this line does not compile if `Self` is the receiver — and before
   // it was made to, the same line with the field left out compiled and then
@@ -1160,7 +1157,6 @@ test "a context binding two effects reaches both through bounds" {
   // `serveOnce` and `runInOrder` over one context, so the two questions are
   // answered in the same instantiation and neither overwrites the other.
   let ctx = context {
-    Alloc: alloc(),
     Listen: OneShotListen { bindsTo: "127.0.0.1" },
     Net: TeapotNet { body: [] },
     Sockets: QuietSockets {},
@@ -1242,7 +1238,7 @@ test "an ordinary Buri implementation hands its steps the context" {
   // point: `parallel` is implementable by anyone (SPEC 10.9), rather than only
   // by the compiler's trampoline.
   let runner = SerialTasks { label: "s", bias: 0 };
-  let ctx = context { Alloc: alloc(), Clock: clockAt(11), Tasks: runner };
+  let ctx = context { Clock: clockAt(11), Tasks: runner };
   let out = ctx.parallel(ctx, [1, 2], fn(c, i, item) => c.nowMillis() + i * 10 + item);
   assert.eq(out[0] ?? 0, 12);
   assert.eq(out[1] ?? 0, 23);
@@ -1299,6 +1295,9 @@ test "an implementor carrying a counted pointer is a context bound's argument" {
 test "one value satisfying two effects discharges a two-effect bound" {
   // `C: Alloc + Clock` through a single implementing value rather than a
   // context binding two rows, so the bound being a *list* is exercised.
+  // Both bindings are live, and neither is asked for at the *call*: `ticking`
+  // demands nothing, and what needs `Alloc` and `Clock` is `Ticking`'s own two
+  // `impl`s, which the monomorphiser reaches and the checker does not.
   let both = ticking(context { Alloc: alloc(), Clock: clockAt(5) });
   assert.eq(stampedWith(both, [1]), [1, 5]);
 }

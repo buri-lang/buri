@@ -20,6 +20,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 mod case;
+pub mod ci;
 pub mod sweep;
 pub use case::{load_case, run_case, run_corpus, Case, Step};
 
