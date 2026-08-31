@@ -108,7 +108,7 @@ jobs:
     # files through an unoptimized backend. Add a cold runner's toolchain build
     # and the benchmark's LTO'd `bench` profile and an hour is a cap rather than
     # a target.
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -242,7 +242,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     env:
       CC: clang
-    timeout-minutes: 75
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -443,7 +443,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       CC: clang
-    timeout-minutes: 75
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -607,7 +607,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       CC: clang
-    timeout-minutes: 75
+    timeout-minutes: 45
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
