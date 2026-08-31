@@ -397,7 +397,7 @@ jobs:
       # because both native binaries in `cli/tests/example` are refused by the
       # dev build — `//cmd/server` needs `host.HostFs.readFile` and
       # `//tools/report` needs `host.HostEnv.args`, and neither is
-      # implemented (measured, not assumed: both were tried). A four-line
+      # implemented (measured, not assumed: both were tried). A small
       # program that only prints is what this needs; the artifact being small
       # does not make its bytes less reproducible.
       #
@@ -421,9 +421,12 @@ jobs:
           BUILD
           cat > "$work/repo/cmd/app/main.buri" <<'SRC'
           from "core/host" import { stdout };
+          from "core/io" import * as io;
           export fn main(): Result<(), Str> {
-            let _ = stdout.println("reproducible");
-            .Ok(())
+            match (io.println(stdout, "reproducible")) {
+              .Ok(_) => .Ok(()),
+              .Err(_) => .Err("could not write to standard output"),
+            }
           }
           SRC
           cd "$work/repo"
@@ -569,7 +572,7 @@ jobs:
           grep -qE 'test result: ok\. 3 passed' leaks.log \
             || { echo "::error::the three heap-stats tests did not all run"; exit 1; }
 
-      # The same four-line program the arm64 job builds, for the same reason:
+      # The same small program the arm64 job builds, for the same reason:
       # both native binaries in `cli/tests/example` are refused by the dev
       # build, and a small artifact's bytes are no less reproducible.
       - name: --check-reproducible on a linked Linux artifact
@@ -589,9 +592,12 @@ jobs:
           BUILD
           cat > "$work/repo/cmd/app/main.buri" <<'SRC'
           from "core/host" import { stdout };
+          from "core/io" import * as io;
           export fn main(): Result<(), Str> {
-            let _ = stdout.println("reproducible");
-            .Ok(())
+            match (io.println(stdout, "reproducible")) {
+              .Ok(_) => .Ok(()),
+              .Err(_) => .Err("could not write to standard output"),
+            }
           }
           SRC
           cd "$work/repo"
