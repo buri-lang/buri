@@ -7,30 +7,31 @@
 //! backends do not yet have — not the shape of the request, which is the same
 //! `Request` on both sides.
 //!
-//! ## Scope, stated honestly
+//! ## Scope
 //!
-//! **`http://` only.** `https://` returns `NetError::Transport` with a message
-//! saying so, rather than pretending. TLS is not something this repository can
-//! reasonably write — the dependency bar in the workspace manifest exists for
-//! exactly this shape of problem — and it is not something the `Net` effect can
-//! be given half of: a client that silently downgraded to cleartext would be
-//! worse than one that refuses.
+//! **`http://` and `https://`.** Absolute-URI parsing, `Host`, the caller's own
+//! request headers, octet request bodies with `Content-Length`, chunked and
+//! identity response bodies, the response's header fields, and a connect/read
+//! deadline — over cleartext, or over TLS 1.2 and 1.3 with the server's
+//! certificate checked against the host's trust anchors.
 //!
-//! The growth path this header named — a cargo feature over `rustls` — **has
-//! landed halfway**, and the half that landed is the dependency and not the
-//! code. `rustls` is in `manifest.toml` behind the `net` feature, which is on
-//! by default and which also carries `tokio`, `hyper` and `tungstenite`;
-//! nothing references any of them (`net.rs`), the archive is twenty-four bytes
-//! larger for it, and this file is unchanged. So the refusal above is still the
-//! whole of what `https://` does, and it is now a refusal for want of *code*
-//! rather than for want of a crate. Routing the client through hyper and rustls
-//! — and choosing the crypto provider `manifest.toml` deliberately did not —
-//! is the slice that deletes this section.
+//! **The scheme changes one thing and one thing only: whether the socket is
+//! wrapped.** [`Transport`] is the seam, `tls.rs` is what fills it, and
+//! everything from the request line to the dechunker is the same code on both
+//! sides. That is deliberate and it is a *testable* claim rather than an
+//! intention: the cleartext path could not have regressed when `https://`
+//! landed, because there is no cleartext path to regress — there is one path
+//! and a wrapper.
 //!
-//! What *is* here is complete for cleartext: absolute-URI parsing, `Host`, the
-//! caller's own request headers, octet request bodies with `Content-Length`,
-//! chunked and identity response bodies, the response's header fields, and a
-//! connect/read deadline.
+//! What is *not* here is HTTP/2. `hyper` is in the runtime's manifest and this
+//! client does not use it: a synchronous exchange over one connection is the
+//! whole of what `Net.fetch` is until the carrier runtime exists (design/native
+//! track B), and until then a `hyper` client would mean standing up a `tokio`
+//! reactor per request in order to reach a framing layer this file already has.
+//! The day `fetch` can suspend, that decision is worth taking again.
+//!
+//! `tls.rs` owns the other half of the story — which certificates are trusted,
+//! where they come from, and what every refusal says.
 //!
 //! ## The two enums that cross as indices
 //!
@@ -111,25 +112,35 @@ struct Url<'a> {
     host: &'a str,
     port: u16,
     target: &'a str,
+    /// Whether the socket is wrapped before a byte of HTTP crosses it. The
+    /// *only* thing the scheme changes: everything below this line writes and
+    /// reads the same request and the same response either way.
+    tls: bool,
 }
 
 fn parse(url: &str) -> Result<Url<'_>, NetFail> {
-    let rest = match url.strip_prefix("http://") {
-        Some(r) => r,
-        None if url.starts_with("https://") => {
-            return Err(NetFail::Transport(
-                // It named a `net-tls` feature to build with until the crates
-                // landed and the feature turned out to be called `net`, to be
-                // on by default, and to not help: what is missing is the TLS
-                // client, not the crate. A message naming a flag that changes
-                // nothing is worse than one that says what is true.
-                "https is not supported by the native runtime (its TLS client is not written \
-                 yet; `Net.fetch` speaks cleartext http only)"
-                    .to_string(),
-            ))
-        }
-        None => return Err(NetFail::BadUrl(format!("not an absolute http URL: {url}"))),
+    let (rest, tls) = match (url.strip_prefix("http://"), url.strip_prefix("https://")) {
+        (Some(r), _) => (r, false),
+        (_, Some(r)) => (r, true),
+        _ => return Err(NetFail::BadUrl(format!("not an absolute http URL: {url}"))),
     };
+    // A toolchain built without the runtime's `net` feature has no TLS code in
+    // it at all, and the refusal names the feature because with the feature off
+    // that is the true and complete reason. It is a *run-time* refusal rather
+    // than the compile-time one `Backend::missing_intrinsics` gives the server
+    // and task intrinsics, and deliberately: the cleartext half of this client
+    // needs no crate and goes on working, so refusing every program that
+    // mentions `Net.fetch` would be refusing programs that were never going to
+    // need TLS.
+    #[cfg(not(feature = "net"))]
+    if tls {
+        return Err(NetFail::Transport(
+            "https is not supported by this toolchain's native runtime: it was built without the \
+             runtime's `net` feature, so it carries no TLS code. `Net.fetch` speaks cleartext \
+             http only"
+                .to_string(),
+        ));
+    }
     let split = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let (authority, target) = rest.split_at(split);
     if authority.is_empty() {
@@ -146,9 +157,49 @@ fn parse(url: &str) -> Result<Url<'_>, NetFail> {
             Ok(n) => (h, n),
             Err(_) => return Err(NetFail::BadUrl(format!("bad port in URL: {url}"))),
         },
-        None => (authority, 80),
+        None => (authority, if tls { 443 } else { 80 }),
     };
-    Ok(Url { authority, host, port, target: if target.is_empty() { "/" } else { target } })
+    Ok(Url { authority, host, port, target: if target.is_empty() { "/" } else { target }, tls })
+}
+
+/// The socket, and — for `https://` — the TLS session over it.
+///
+/// One `Read + Write` either way, which is the whole point: the request writer
+/// and the response reader below take a `&mut Transport` and have no scheme in
+/// them. The `Box` is because a `rustls` connection is a few kilobytes of
+/// buffers and this enum is a local in [`fetch`].
+enum Transport {
+    Plain(TcpStream),
+    #[cfg(feature = "net")]
+    Tls(Box<crate::tls::TlsStream>),
+}
+
+impl Read for Transport {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Transport::Plain(s) => s.read(buffer),
+            #[cfg(feature = "net")]
+            Transport::Tls(s) => s.read(buffer),
+        }
+    }
+}
+
+impl Write for Transport {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Transport::Plain(s) => s.write(buffer),
+            #[cfg(feature = "net")]
+            Transport::Tls(s) => s.write(buffer),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Transport::Plain(s) => s.flush(),
+            #[cfg(feature = "net")]
+            Transport::Tls(s) => s.flush(),
+        }
+    }
 }
 
 fn io_fail(e: &std::io::Error) -> NetFail {
@@ -179,12 +230,16 @@ pub fn fetch(
         .next()
         .ok_or_else(|| NetFail::Transport(format!("no address for {}", url.host)))?;
 
-    let mut sock = TcpStream::connect_timeout(&addr, DEADLINE).map_err(|e| io_fail(&e))?;
+    let sock = TcpStream::connect_timeout(&addr, DEADLINE).map_err(|e| io_fail(&e))?;
     sock.set_read_timeout(Some(DEADLINE)).map_err(|e| io_fail(&e))?;
     sock.set_write_timeout(Some(DEADLINE)).map_err(|e| io_fail(&e))?;
     // A request/response exchange is one write and one read, so Nagle can only
     // add a round trip's worth of delay to the front of it.
     let _ = sock.set_nodelay(true);
+    // The deadlines are set on the `TcpStream` *before* it is wrapped, so they
+    // cover the handshake as well as the exchange: a peer that accepts the
+    // connection and then says nothing is a `Timeout` rather than a hang.
+    let mut sock = wrap(sock, &url)?;
 
     let mut head = format!(
         "{} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: buri\r\nAccept: */*\r\nConnection: close\r\n",
@@ -212,8 +267,53 @@ pub fn fetch(
     sock.flush().map_err(|e| io_fail(&e))?;
 
     let mut raw = Vec::new();
-    sock.read_to_end(&mut raw).map_err(|e| io_fail(&e))?;
+    read_to_end(&mut sock, &mut raw)?;
     parse_response(&raw)
+}
+
+/// Wrap the socket if the URL asked for TLS, and hand it back untouched if it
+/// did not.
+///
+/// The `cfg` is on the *arm* rather than on the function: with the `net`
+/// feature off, [`parse`] has already refused every `https://` URL by name, so
+/// this branch is unreachable and says so rather than being a second refusal
+/// with a second message to keep in step.
+fn wrap(sock: TcpStream, url: &Url<'_>) -> Result<Transport, NetFail> {
+    if !url.tls {
+        return Ok(Transport::Plain(sock));
+    }
+    #[cfg(feature = "net")]
+    {
+        let stream = crate::tls::connect(sock, url.host).map_err(NetFail::Transport)?;
+        Ok(Transport::Tls(Box::new(stream)))
+    }
+    #[cfg(not(feature = "net"))]
+    unreachable!("parse() refuses https:// when the runtime has no TLS code")
+}
+
+/// Read until the peer stops talking.
+///
+/// `Read::read_to_end` in all but one respect, and the one respect is why it is
+/// written out: a TLS peer that closes the TCP connection **without** sending
+/// `close_notify` makes `rustls` answer `UnexpectedEof`, and a great many HTTP
+/// servers closing a `Connection: close` exchange do exactly that. The body has
+/// already arrived by then — it is delimited by `Content-Length` or by the
+/// terminating chunk — so treating that as the end of the message is right, and
+/// treating it as an error would refuse a response the caller can see is whole.
+///
+/// For a plain `TcpStream` the case cannot arise, so `http://` reads exactly as
+/// it always did.
+fn read_to_end(sock: &mut Transport, out: &mut Vec<u8>) -> Result<(), NetFail> {
+    let mut buffer = [0_u8; 8192];
+    loop {
+        match sock.read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(n) => out.extend_from_slice(buffer.get(..n).unwrap_or(&[])),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(e) => return Err(io_fail(&e)),
+        }
+    }
 }
 
 fn parse_response(raw: &[u8]) -> Result<HttpResponse, NetFail> {

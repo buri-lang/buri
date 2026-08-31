@@ -55,10 +55,10 @@ path = "lib.rs"
 # platform C driver alongside the objects the backend emitted.
 crate-type = ["staticlib"]
 
-# The runtime's admitted set, in full, and it is **closed**: these four and
+# The runtime's admitted set, in full, and it is **closed**: these five and
 # nothing else, each optional, each behind the one feature below.
 #
-# Four crates for one capability — an asynchronous networking stack — which is
+# Five crates for one capability — an asynchronous networking stack — which is
 # a platform interface in exactly the sense the root manifest's bar means, and
 # is the largest single thing in this design that the repository could not
 # reasonably write. Each clears all three clauses, and each is named for what it
@@ -73,35 +73,62 @@ crate-type = ["staticlib"]
 #   server, HPACK, flow control and connection management are not.
 # * **`rustls`** — TLS 1.2 and 1.3. `http.rs`'s header has said since it was
 #   written that TLS is the shape of problem the bar exists for, and this is
-#   the crate it named.
+#   the crate it named. **Linked for real since C7**: `https://` goes through
+#   it, `tls.rs` is the seam, and the archive carries it.
+# * **`ring`** — the crypto provider underneath `rustls`, and the entry that
+#   costs the most. See "the provider" below; it is declared here, rather than
+#   left to `rustls`'s own feature to pull in, because
+#   `dependencies_stay_behind_the_bar` reads *this table* and a crate that
+#   ships inside every native binary this compiler produces must be visible to
+#   the test that guards what ships. `net.rs` names a type from it for the same
+#   reason it names one from each of the others.
 # * **`tungstenite`** — RFC 6455 framing and the handshake, which is a
 #   protocol with a specification and a test suite rather than an algorithm.
 #
-# **Three of the four are referenced by nothing.** `net.rs` names one type from
-# each and stops, and `lto = "fat"` below is whole-program over the dependency
-# rlibs as well, so Rust code nothing reaches is not in the archive: measured on
-# aarch64-apple-darwin when the four landed, 5 987 472 bytes with `net` off and
-# 5 987 496 with it on. Twenty-four bytes.
+# **Three of the five are linked; two are still referenced by nothing.** When
+# the crates landed, none of them was: `net.rs` named one type from each and
+# stopped, `lto = "fat"` below is whole-program over the dependency rlibs, and
+# Rust code nothing reaches is not in the archive — measured on
+# aarch64-apple-darwin at the commit that added `net`, twenty-four bytes for the
+# lot. Three have since been reached, each in the commit that needed it:
+# `tokio` by `rt.rs`, the carrier runtime whose reactor and timer wheel
+# `Clock::sleepMillis` and `Net::fetch` wait on (+185 424 bytes), and `rustls`
+# and `ring` by `tls.rs`, which `http.rs` calls for every `https://` URL
+# (+1 804 592). `hyper` and `tungstenite` are reached by nothing still.
+# `.github/scripts/assert-runtime-archive.sh` is where all of that is asserted
+# rather than assumed: three names its symbol table must carry, two it must not.
 #
-# `tokio` is the exception, since `rt.rs`. That file is the carrier runtime —
-# the reactor, the run baton, the carrier pool and the task table — and
-# `Clock::sleepMillis` and `Net::fetch` wait on it, so the reactor and its timer
-# wheel are in the archive on purpose: 6 035 480 bytes before and 6 220 904
-# after, +185 424, aarch64-apple-darwin.
-# `.github/scripts/assert-runtime-archive.sh` is where that is asserted rather
-# than assumed, and it names the other three still.
+# ## The provider, and what it costs
 #
-# The one thing that would *not* be dropped is a dependency's **native**
-# object code, which `rustc` bundles into a `staticlib` whether anything
-# references it or not. That is why `rustls` is here with
-# `default-features = false` and **no crypto provider**: the obvious one,
-# `ring`, adds twenty-four `.o` members of C and AArch64 assembly and
-# 842 544 bytes to every `buri` binary for a capability nothing can call yet,
-# and it makes a host C compiler a *requirement* of the runtime build where
-# today it is only a requirement of the stencil library — which would turn
-# `cli/build.rs`'s "degrades rather than breaks" into "breaks". Choosing a
-# provider is C7's decision, taken where `https://` actually starts working
-# and where the size is bought rather than spent.
+# `rustls` has no cryptography of its own; it takes a `CryptoProvider`, and
+# C2 landed the crate with **none** so that the price could be paid where the
+# capability is bought rather than where the dependency is added. This is that
+# slice, and the bill, measured on aarch64-apple-darwin:
+#
+#   net off (no dependency tree at all)      6 130 536 bytes
+#   net on (the reactor and the TLS client)  8 198 904   +2 068 368
+#
+# **1.72 MiB**, of which 845 064 bytes is `ring`'s **native** object code — C
+# and AArch64 assembly in twenty-five `.o` members that `rustc` bundles into a
+# `staticlib` whether the linker needs them or not, so `lto = "fat"` cannot
+# touch them. `curve25519.o` alone is 405 KB and `p256-nistz.o` is 173 KB. That
+# total put the archive **over** the 7 MiB budget
+# `.github/scripts/assert-runtime-archive.sh` carried, by about 505 KB; the
+# budget was re-measured and re-stated there in this commit, which is the
+# ratchet working as written rather than the ratchet being quietly widened.
+#
+# `ring` rather than `aws-lc-rs`, the other provider `rustls` ships: `aws-lc-rs`
+# needs `cmake` (and, on some hosts, `bindgen`) at build time, which is a second
+# tool to require of `cargo install buri` and a second way for the runtime build
+# to break. `ring` needs a C compiler, which the toolchain already requires for
+# the stencil library and which `build/link.rs` already shells out to for every
+# native artifact — and `cli/build.rs` probes for it and falls back to
+# `--no-default-features` with a warning when it is missing, so the third clause
+# of the bar ("degrades rather than breaks") still holds on a host with no `cc`.
+#
+# The pure-Rust providers were considered and are not here: `rustls-rustcrypto`
+# says of itself that it is unaudited and not for production use, and a TLS
+# stack in every binary this compiler produces is the last place to accept that.
 #
 # One line each, deliberately: `dependencies_stay_behind_the_bar` reads this
 # file with a hand-rolled line scanner rather than a TOML crate — a test that
@@ -110,7 +137,8 @@ crate-type = ["staticlib"]
 [dependencies]
 tokio = { version = "1", optional = true, default-features = false, features = ["rt-multi-thread", "net", "time", "io-util", "sync"] }
 hyper = { version = "1", optional = true, default-features = false, features = ["client", "server", "http1"] }
-rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12", "ring"] }
+ring = { version = "0.17", optional = true, default-features = false }
 tungstenite = { version = "0.30", optional = true, default-features = false, features = ["handshake"] }
 
 # One feature, on by default, and the default is the point: a `cargo install
@@ -118,14 +146,16 @@ tungstenite = { version = "0.30", optional = true, default-features = false, fea
 # toolchain that could not would make `Net` a build-flag question for every
 # user rather than a capability question for every program.
 #
-# Off, the four crates resolve to nothing and the archive is the one this
-# repository had before this slice. `cli/build.rs` reads `BURI_RUNTIME_NET=0`
-# and passes `--no-default-features`, which is how the two numbers above were
-# measured and how a host that cannot fetch a dependency tree can still get a
-# real archive by hand.
+# Off, the five crates resolve to nothing, the archive is the one this
+# repository had before the feature existed, and `https://` goes back to the
+# refusal `http.rs` writes for it — which names this feature, because with the
+# feature off it is the true reason. `cli/build.rs` reads `BURI_RUNTIME_NET=0`
+# and passes `--no-default-features`, which is how the numbers above were
+# measured, what a host that cannot fetch a dependency tree can fall back to by
+# hand, and what a host with no C compiler gets automatically.
 [features]
 default = ["net"]
-net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:tungstenite"]
+net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:ring", "dep:tungstenite"]
 
 # The flags that used to be spelled out in `cli/build.rs`'s `rustc` command
 # line, in the one place a `cargo build --release` reads them from. Each is a
@@ -135,9 +165,10 @@ net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:tungstenite"]
 #   embedded in every `buri` binary: measured on aarch64-apple-darwin, 17.7 MB
 #   without it and 6.0 MB with, for about 2.6 seconds of build time once per
 #   toolchain build. It is whole-program across the runtime, the copy of `std`
-#   a staticlib bundles, *and* — since this slice — the four dependency rlibs,
-#   which is what makes an unreferenced networking stack cost twenty-four
-#   bytes instead of a megabyte.
+#   a staticlib bundles, *and* the dependency rlibs,
+#   which is what made an unreferenced networking stack cost twenty-four
+#   bytes instead of a megabyte, and what still holds `hyper` and
+#   `tungstenite` out of it.
 # * `panic = "abort"` because an abort in this language is a write to standard
 #   error and an exit, never an unwind (SPEC 6.10), so the unwinder tables
 #   would be dead weight in every artifact.

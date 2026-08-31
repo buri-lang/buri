@@ -14,9 +14,9 @@
 // it rebuilds its whole subtree, so it is the coarse instrument. Everything
 // here that varies is a string or a class, so everything here is a `Prop`.
 
-from "core/effect/lib.buri" import { Alloc };
+from "core/effect/lib.buri" import { Alloc, Net };
 from "core/str/lib.buri" import * as str;
-from "ui/effect/lib.buri" import { Fetch, Ui, Watch };
+from "ui/effect/lib.buri" import { Ui, Watch };
 from "ui/node/lib.buri" import * as ui;
 from "ui/node/lib.buri" import { Node };
 from "ui/prop/lib.buri" import { memo, Prop };
@@ -105,10 +105,10 @@ let totalStyle: Style = .Group([
 /// The whole page.
 ///
 /// `C` names every effect a handler anywhere below may reach for, and nothing
-/// wider: `Fetch` is here because one button starts a request, and `Alloc`
-/// because two handlers build a list. `main` decides what those are worth, and
-/// a platform decides whether `main` may ask.
-export fn page<C: Alloc + Fetch + Ui + Watch>(ctx: C, state: State): Node<C> {
+/// wider: `Net` is here because one button asks the server for the ledger, and
+/// `Alloc` because two handlers build a list. `main` decides what those are
+/// worth, and a platform decides whether `main` may ask.
+export fn page<C: Alloc + Net + Ui + Watch>(ctx: C, state: State): Node<C> {
   ui.column([pageStyle], [
     banner(state),
     ui.region(.Main, [.Layout(.Column), .Gap(.Rem(1.0))], [
@@ -145,7 +145,7 @@ fn banner<C>(state: State): Node<C> {
 /// Both fields are labelled, because `ui.field` has no form that is not. An
 /// unlabelled input is the commonest accessibility failure there is and, unlike
 /// a missing `alt`, it has no visual fallback — so it is not expressible.
-fn composer<C: Alloc + Fetch + Ui + Watch>(state: State): Node<C> {
+fn composer<C: Alloc + Net + Ui + Watch>(state: State): Node<C> {
   ui.form(fn(c, submitted) => add(c, state), [formStyle], [
     ui.field(.Const("Item"), .Text, state.draftMemo),
     ui.field(.Const("Amount in dollars"), .Number, state.draftAmount),

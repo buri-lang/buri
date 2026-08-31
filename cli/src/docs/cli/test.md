@@ -31,13 +31,11 @@ Natively, on the host, in the development profile. A suite that says otherwise i
 `test { platforms }` gets what it asked for, and `--output=js` says it for one
 invocation without editing a build file.
 
-Where a native run is not available the suite runs on JavaScript instead, with
-one line on standard error naming the suite and the reason: this toolchain has
-no native backend for the host in this profile, or the suite declares
-`test { data }` — which only the JavaScript runner is handed — or `--accept` is
-in play, that mode rewriting a golden file from the two sides of a failed
-comparison. The fallback is decided per suite, so one suite on the frontier does
-not move the rest of the run.
+Where a native run is not available because this toolchain has no native
+backend for the host in this profile, the suite runs on JavaScript instead,
+with one line on standard error naming the suite and the reason. The fallback
+is decided per suite, so one suite on the frontier does not move the rest of
+the run.
 
 A platform this toolchain cannot produce a binary for is an *error* when a suite
 named it and a fallback when nobody did. That asymmetry is the whole rule: a
@@ -56,8 +54,8 @@ With `--watch`, the same invocation is run again every time one of its inputs
 changes, until you interrupt it.
 
 **What is watched** is, for every selected target: its closure's entry points,
-`sources`, `proto_sources` and `testing/` sources; the suite's own `sources` and
-`data`; every `BUILD.buri` in the repository; and `REPO.buri`. That is the
+`sources`, `proto_sources` and `testing/` sources; the suite's own `sources`;
+every `BUILD.buri` in the repository; and `REPO.buri`. That is the
 declared list the cache keys are already made of, polled with one `stat` each
 every 150 ms, so a save is acted on between 150 and 300 ms after it lands and a
 burst of writes is one run rather than twelve. Neither interval is
@@ -88,12 +86,10 @@ inside out and is at its most useful here: one line per suite per run, saying
 parsing prints its diagnostics and the loop keeps watching — including that file
 — so the run that fixes it happens by itself.
 
-Three combinations are refused before anything is opened, each with the reason:
+Two combinations are refused before anything is opened, each with the reason:
 `--force`, because forcing turns every cache hit into a run and the cache is
-what makes a loop this cheap; `--accept`, because rewriting golden files on a
-timer accepts a regression while you are still reading the failure; and no
-terminal on standard output, because a watch loop nothing is watching is a hung
-job.
+what makes a loop this cheap; and no terminal on standard output, because a
+watch loop nothing is watching is a hung job.
 
 Interrupting the loop is how it ends, and the shell reports the interrupt rather
 than a verdict. Use plain `buri test` when you want a status to branch on.

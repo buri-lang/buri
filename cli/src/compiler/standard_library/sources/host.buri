@@ -12,16 +12,12 @@
 
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, Listen, Net, Proc, Rand, Sockets, Stderr, Stdin, Stdout, Tasks,
-  IoError, NetError, NetResponse, Region, Request, Response,
+  IoError, NetError, Region, Request, Response,
 };
-// `ui/effect` declares a `Request` of its own — the callback-shaped client's,
-// with a `Str` method and a `Str` body. It is aliased rather than the other
-// way round because `core/effect`'s pair is the canonical one now: `Net.fetch`
-// takes it, a server hands it to a handler, and `Fetch` is retired whole in a
-// later slice.
-from "ui/effect/lib.buri" import {
-  Fetch, FetchError, Request as UiRequest, Scope, Ui, Watch,
-};
+// One `Request` now. `ui/effect` used to declare a second — the
+// callback-shaped client's, aliased here to `UiRequest` because this was the
+// one module that imported both — and it went when `Fetch` did.
+from "ui/effect/lib.buri" import { Scope, Ui, Watch };
 
 export struct HostAlloc {}
 impl Alloc for HostAlloc {
@@ -148,17 +144,6 @@ impl Watch for HostWatch {
   fn read<T>(self, id: Int): T;
 }
 
-/// Requests that do not block. `Net` is the blocking shape, and a platform
-/// with an interface to freeze grants this one instead.
-export struct HostFetch {}
-impl Fetch for HostFetch {
-  fn fetch(
-    self,
-    request: UiRequest,
-    done: fn(HostFetch, Result<NetResponse, FetchError>) => (),
-  ): ();
-}
-
 export let alloc: HostAlloc = HostAlloc {};
 export let stdout: HostStdout = HostStdout {};
 export let stderr: HostStderr = HostStderr {};
@@ -174,4 +159,3 @@ export let listen: HostListen = HostListen {};
 export let sockets: HostSockets = HostSockets {};
 export let ui: HostUi = HostUi {};
 export let watch: HostWatch = HostWatch {};
-export let fetch: HostFetch = HostFetch {};

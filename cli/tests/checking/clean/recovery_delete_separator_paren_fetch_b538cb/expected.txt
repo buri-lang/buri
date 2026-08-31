@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-separator]
-  --> main.buri:34:21
-   |
-34 |     assert.eq(r.body "");
-   |                     ^
-   |
-   = fix: write `,` here

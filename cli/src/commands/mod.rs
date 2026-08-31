@@ -171,17 +171,6 @@ pub const FLAGS: &[Flag] = &[
         },
     },
     Flag {
-        name: "accept",
-        value: Value::None,
-        choices: &[],
-        blurb: "rewrite the golden files a suite declares in `test { data }` from what it produced",
-        global: false,
-        set: |f, _| {
-            f.accept = true;
-            Ok(())
-        },
-    },
-    Flag {
         name: "outputs",
         value: Value::None,
         choices: &[],
@@ -361,7 +350,7 @@ pub const COMMANDS: &[Command] = &[
         args: "[targets]",
         blurb: "compile and run test suites",
         doc: include_str!("../docs/cli/test.md"),
-        flags: &["release", "debug", "output", "filter", "force", "accept", "explain", "watch", "dense"],
+        flags: &["release", "debug", "output", "filter", "force", "explain", "watch", "dense"],
         run: test::command_test,
         subcommands: &[],
         hidden: false,

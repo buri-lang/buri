@@ -8,7 +8,7 @@
 // `Hash`.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic, alloc };
+from "core/host/testing/lib.buri" import { alloc };
 from "core/effect/lib.buri" import { Alloc };
 
 from "//lib/semantics/lib.buri" import { World, Holder, worldHere, Hidden, hidden, hiddenPrivate };

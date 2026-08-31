@@ -1,13 +1,18 @@
-// EXPECT: `WEB` does not grant `net`
+// EXPECT: `WEB` does not grant `fs`
 //
 // The other direction, and the one that makes the rule a rule rather than a
-// list of things the browser happens to have: `Net.fetch` blocks until the
-// response arrives, which freezes a page, so a page's host does not export it
-// and the blocking path is unreachable from a browser by construction rather
-// than by convention. `Fetch` is the shape WEB grants instead.
+// list of things the browser happens to have: a page has no filesystem under
+// it, so a page's host does not export one and `Fs` is unreachable from a
+// browser by construction rather than by convention.
+//
+// This case used to ask for `Net`, which WEB withheld while `Net.fetch` did
+// not return until the answer arrived — a page whose one thread is waiting is
+// a frozen page, so a browser granted a callback-shaped `Fetch` instead. A
+// suspending call blocks nothing now, WEB grants `Net` like every other
+// platform, and `Fs` is what is left on this side of the line.
 //
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/effect/lib.buri" import { Alloc, Net, Stdout };
+from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
 from "core/host/lib.buri" import * as host;
 from "ui/effect/lib.buri" import { Ui, Watch };
 
@@ -15,10 +20,10 @@ export fn main(): Result<(), Str> {
   let ctx = context {
     Alloc: host.alloc,
     Stdout: host.stdout,
-    Net: host.net,
+    Fs: host.fs,
     Ui: host.ui,
     Watch: host.watch,
   };
-  let _ = ctx.println("a page does not open sockets");
+  let _ = ctx.println("a page does not read files");
   .Ok(())
 }

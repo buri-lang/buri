@@ -16,9 +16,6 @@ library {
     test {
         sources: ["test/cents.buri"]
         dependencies: ["//lib/util/testing"]
-
-        # The golden this suite reads. `data` is not managed.
-        data: ["test/golden/statement.txt"]
         timeout_seconds: 30
         platforms: [JS]
     }
