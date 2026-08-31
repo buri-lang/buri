@@ -733,11 +733,11 @@ export fn roundTrip<C: Alloc + Fs>(ctx: C, path: Str, body: Str): Result<Str, Io
   fs.readText(ctx, path)
 }
 
-export fn greet<C: Alloc + Stdout>(ctx: C, name: Str): () {
+export fn greet<C: Stdout>(ctx: C, name: Str): () {
   io.println(ctx, "hello ${name}")
 }
 
-export fn shout<C: Alloc + Stdout>(ctx: C, parts: [Str]): () {
+export fn shout<C: Stdout>(ctx: C, parts: [Str]): () {
   parts.foldCtx(ctx, fn(c, acc, p) => { let _ = io.print(c, "${p}"); acc }, ())
 }
 
@@ -1199,8 +1199,10 @@ impl<C: Clock> Clock for Ticking<C> {
   }
 }
 
-/// A `Ticking`, built where the two bounds are in view.
-export fn ticking<C: Alloc + Clock>(ctx: C): Ticking<C> {
+/// A `Ticking`. The two bounds live on the `impl`s above, not here: wrapping a
+/// context demands nothing of it, so this signature demands nothing either.
+/// `stampedWith` below is where `C: Alloc + Clock` is exercised.
+export fn ticking<C>(ctx: C): Ticking<C> {
   Ticking { inner: ctx }
 }
 
@@ -1217,33 +1219,33 @@ export fn stampedWith<C: Alloc + Clock>(ctx: C, into: [Int]): [Int] {
 /// Appends `mark` to stdout. A test binds `stdout()` and reads the whole
 /// transcript back with `captured`, so the order in which the parts of an
 /// expression ran is an exact string.
-export fn note<C: Alloc + Stdout>(ctx: C, mark: Str): () {
+export fn note<C: Stdout>(ctx: C, mark: Str): () {
   io.print(ctx, "${mark}")
 }
 
 /// Appends `mark` and returns `value`, so an expression built out of these
 /// leaves an exact transcript of the order its parts ran in.
-export fn noteInt<C: Alloc + Stdout>(ctx: C, mark: Str, value: Int): Int {
+export fn noteInt<C: Stdout>(ctx: C, mark: Str, value: Int): Int {
   let _ = note(ctx, mark);
   value
 }
 
-export fn noteBool<C: Alloc + Stdout>(ctx: C, mark: Str, value: Bool): Bool {
+export fn noteBool<C: Stdout>(ctx: C, mark: Str, value: Bool): Bool {
   let _ = note(ctx, mark);
   value
 }
 
-export fn noteStr<C: Alloc + Stdout>(ctx: C, mark: Str, value: Str): Str {
+export fn noteStr<C: Stdout>(ctx: C, mark: Str, value: Str): Str {
   let _ = note(ctx, mark);
   value
 }
 
-export fn noteOpt<T, C: Alloc + Stdout>(ctx: C, mark: Str, value: Option<T>): Option<T> {
+export fn noteOpt<T, C: Stdout>(ctx: C, mark: Str, value: Option<T>): Option<T> {
   let _ = note(ctx, mark);
   value
 }
 
-export fn noteRes<T, E, C: Alloc + Stdout>(
+export fn noteRes<T, E, C: Stdout>(
   ctx: C,
   mark: Str,
   value: Result<T, E>,
@@ -1253,13 +1255,13 @@ export fn noteRes<T, E, C: Alloc + Stdout>(
 }
 
 /// An `if` whose condition and both branches are all instrumented.
-export fn noteIf<C: Alloc + Stdout>(ctx: C, cond: Bool): Int {
+export fn noteIf<C: Stdout>(ctx: C, cond: Bool): Int {
   if (noteBool(ctx, "c", cond)) { noteInt(ctx, "t", 1) } else { noteInt(ctx, "f", 2) }
 }
 
 /// A `match` whose scrutinee, guards and arms are all instrumented. Guards run
 /// only when their pattern matched, and arms are tried in order.
-export fn noteMatch<C: Alloc + Stdout>(ctx: C, level: Level): Int {
+export fn noteMatch<C: Stdout>(ctx: C, level: Level): Int {
   match (noteLevel(ctx, "s", level)) {
     .Low if noteBool(ctx, "g1", true) => noteInt(ctx, "a1", 1),
     .Low => noteInt(ctx, "a0", 0),
@@ -1269,13 +1271,13 @@ export fn noteMatch<C: Alloc + Stdout>(ctx: C, level: Level): Int {
   }
 }
 
-export fn noteLevel<C: Alloc + Stdout>(ctx: C, mark: Str, value: Level): Level {
+export fn noteLevel<C: Stdout>(ctx: C, mark: Str, value: Level): Level {
   let _ = note(ctx, mark);
   value
 }
 
 /// `let` bindings run top to bottom, before the result expression.
-export fn noteLets<C: Alloc + Stdout>(ctx: C): Int {
+export fn noteLets<C: Stdout>(ctx: C): Int {
   let a = noteInt(ctx, "1", 10);
   let b = noteInt(ctx, "2", 20);
   let c = noteInt(ctx, "3", 30);

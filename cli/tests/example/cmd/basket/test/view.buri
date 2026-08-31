@@ -302,12 +302,7 @@ test "dark mode rewrites the values and changes no class" {
 }
 
 test "a library's token follows the app's theme without knowing it exists" {
-  let ctx = context {
-    Alloc: alloc(),
-    Ui: headless(),
-    Watch: observer(),
-    Net: Recorded {},
-  };
+  let ctx = context { Ui: headless() };
   let state = newState(ctx);
   let installed = install([
     themed(kitTheme),
@@ -323,12 +318,7 @@ test "a library's token follows the app's theme without knowing it exists" {
 // --- reactivity ----------------------------------------------------------------------
 
 test "a memo recomputes once per change, however many things read it" {
-  let ctx = context {
-    Alloc: alloc(),
-    Ui: headless(),
-    Watch: observer(),
-    Net: Recorded {},
-  };
+  let ctx = context { Ui: headless() };
   // A reactive closure is handed a `Scope`, which grants reading the graph and
   // nothing else — so it cannot write a signal to say that it ran. A recorder
   // is how a test sees when something ran, for the same reason captured stdout

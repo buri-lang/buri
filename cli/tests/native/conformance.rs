@@ -27,9 +27,11 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Thirty-one of the forty files are in it** — the number the
-//! harness prints, and one the prose had off by one before
-//! `semantics/generics.buri` joined them. `semantics/http.buri` is the
+//! **Thirty-two of the forty-one files are in it** — the number the
+//! harness prints, and one the prose has now had off by one twice: before
+//! `semantics/generics.buri` joined them, and again after
+//! `codegen/step_trampoline.buri` did. Both counts are re-derived from the
+//! harness rather than incremented by hand. `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
 //! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
 //! `semantics/host_testing.buri` is the
@@ -116,6 +118,56 @@
 //! agrees: both refusals still name what they always named. So the census is
 //! unchanged again, and this is the honest report of it rather than a row moved
 //! to look like progress.
+//!
+//! # The narrowing pass, and the answer to the question this section asked
+//!
+//! The migration derived each *migrated* site's bindings from the compiler, so
+//! those were minimal the day they were written. What it could not reach was
+//! the contexts nobody migrated — the ones written by hand — and the bindings
+//! a **dead bound** kept alive. `unused-context-bound`'s fix over the two
+//! corpora settled both, in that order, because the second follows from the
+//! first: `fn note<C: Alloc + Stdout>` whose body only prints forces
+//! `Alloc: alloc()` into the context of every test that calls it.
+//!
+//! Fifteen dead bounds went, over three rounds (the rule has a fixed point and
+//! reaching it takes as many passes as the call graph is deep), and **two
+//! hundred and forty-seven contexts then shrank** — two hundred and thirty-nine
+//! here and eight in `cli/tests/example` — dropping 251 bindings: 176 `Alloc`,
+//! 72 `Watch` and 3 `Net`. Fifty-eight of them were reachable *only* after the
+//! bounds went, measured by running the same sweep against the tree before
+//! them.
+//!
+//! **The contexts the migration derived are almost exactly where it left
+//! them**, which is the measurement that says its fixpoint was minimal rather
+//! than merely settled. Of the six files that moved, three are `lib/ui`, a
+//! package `cli/tests/migrate.rs` never lists; `semantics/effects.buri` is one
+//! of the two files it was told to hold; and `semantics/host_testing.buri` was
+//! written by hand against `core/host/testing` rather than rewritten from a
+//! `Hermetic()` — no commit in its history contains the word. That leaves
+//! `semantics/evaluation.buri`, which is migrated and dropped fifty-one
+//! `Alloc`s: fifty of them are the dead bound on `note` and its nine
+//! neighbours, which the migration could not have seen, and the fifty-first is
+//! one binding it genuinely left behind, out of the four hundred and
+//! sixty-four sites its three batches wrote here.
+//!
+//! **The table below is unchanged, and this time the question was live.**
+//! Several exclusion reasons are written in terms of a context that
+//! instantiates everything, and the three `lib/ui` files are the ones that
+//! actually carried surplus bindings — 64 `Watch` between them.
+//! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run and
+//! every one of the nine still names what it named. One refusal did get
+//! shorter: `ui/theme.buri` no longer reaches `ui_testing.observer`, because
+//! none of its five contexts binds `Watch` any more. It is still out for
+//! `install`, `variables`, `render`, `stylesheet` and the `Headless` pair —
+//! the document and the reactive graph, which is a reason no wave of this
+//! backend retires. So the census is the same 32 files and 1,529 blocks, and
+//! `lib/ui`'s exclusion is now stated in terms of what it is really about.
+//!
+//! The half of this the corpus keeps for itself is
+//! `language::conformance::no_conformance_context_asks_for_a_bound_it_does_not_use`:
+//! this corpus is deliberately not lint-clean, and that one code is the one it
+//! is held to zero over, because a dead bound put back here is contexts put
+//! back everywhere that calls it.
 //!
 //! # The harness used to be the biggest exclusion, and it was never about the
 //! backend
