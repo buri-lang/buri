@@ -44,20 +44,29 @@
 //!
 //! ## The refusals
 //!
-//! Every failure below is a `NetError::Transport` carrying a sentence, and each
-//! sentence names the trust source it used, because "this certificate was
-//! refused" without "…and here is the set it was checked against" is the
-//! failure a user cannot act on. `tests` below pins three of them — an unknown
-//! issuer, a name the certificate does not cover, and a bundle with nothing in
-//! it — against a server this file starts, with a certificate this repository
-//! generated. Nothing in that test reaches the network.
+//! Every *trust* failure below is a `NetError::Transport` carrying a sentence,
+//! and each sentence names the trust source it used, because "this certificate
+//! was refused" without "…and here is the set it was checked against" is the
+//! failure a user cannot act on. The one failure that is not a sentence is a
+//! handshake that ran out of time, which is a `NetError::Timeout`: it is the
+//! same event a stalled read is, and it is the reason [`connect`] will not take
+//! a socket without a deadline on it.
+//!
+//! `tests` below pins the refusals — an unknown issuer, a name the certificate
+//! does not cover, a bundle with nothing in it, and a bundle that is not there
+//! — against a server this file starts, with a certificate this repository
+//! generated. Nothing in that test reaches the network, resolves a name off
+//! this machine, or can wait forever for anything.
 
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
+
+use crate::http::NetFail;
 
 /// A TLS connection, owned end to end: `rustls` state and the socket under it.
 ///
@@ -118,8 +127,17 @@ struct Roots {
 /// from `write_all` of the request line, which is the wrong error at the wrong
 /// place; doing it here means [`connect`]'s `Err` is always about the peer's
 /// identity or the transport, never about HTTP.
-pub fn connect(sock: TcpStream, host: &str) -> Result<TlsStream, String> {
-    let Roots { store, source } = trust_anchors()?;
+///
+/// And it is completed **within a deadline**, whoever the caller is. `http.rs`
+/// sets one on the socket before it hands it over — the deadlines it sets cover
+/// the handshake for exactly that reason — but a handshake is a conversation
+/// with a stranger, and a stranger who accepts a connection and then says
+/// nothing must not be able to keep this thread. [`HANDSHAKE_DEADLINE`] is what
+/// a socket that arrives here with no deadline of its own is given, so the
+/// property belongs to this function rather than to the discipline of its
+/// callers.
+pub fn connect(sock: TcpStream, host: &str) -> Result<TlsStream, NetFail> {
+    let Roots { store, source } = trust_anchors().map_err(NetFail::Transport)?;
 
     // `builder_with_provider` rather than `builder`: the latter reads a
     // *process-global* default provider, which is state a library in a static
@@ -128,15 +146,22 @@ pub fn connect(sock: TcpStream, host: &str) -> Result<TlsStream, String> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let config = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
-        .map_err(|e| format!("tls: this runtime's TLS configuration is not usable: {e}"))?
+        .map_err(|e| {
+            NetFail::Transport(format!("tls: this runtime's TLS configuration is not usable: {e}"))
+        })?
         .with_root_certificates(store)
         .with_no_client_auth();
 
     let name = ServerName::try_from(host.to_string()).map_err(|_| {
-        format!("tls: `{host}` is not a name a server certificate can be checked against")
+        NetFail::Transport(format!(
+            "tls: `{host}` is not a name a server certificate can be checked against"
+        ))
     })?;
-    let conn = ClientConnection::new(Arc::new(config), name)
-        .map_err(|e| format!("tls: the connection could not be started: {e}"))?;
+    let conn = ClientConnection::new(Arc::new(config), name).map_err(|e| {
+        NetFail::Transport(format!("tls: the connection could not be started: {e}"))
+    })?;
+
+    bound(&sock);
 
     let mut stream = StreamOwned::new(conn, sock);
     // `complete_io` drives the handshake until it has nothing left to send or
@@ -152,32 +177,68 @@ pub fn connect(sock: TcpStream, host: &str) -> Result<TlsStream, String> {
             .map_err(|e| handshake_failure(&e, &source))?;
         rounds += 1;
         if rounds > 8 {
-            return Err(String::from("tls: the handshake did not finish"));
+            return Err(NetFail::Transport(String::from("tls: the handshake did not finish")));
         }
     }
     Ok(stream)
 }
 
-/// The message for a handshake that did not complete.
+/// What a handshake gets if its socket carries no deadline of its own.
 ///
-/// Two shapes, and the difference is the one a user acts on: a certificate the
-/// verifier refused is a *trust* answer and gets the trust source named beside
-/// it, and everything else — a protocol error, a closed socket, a version
-/// mismatch — is a transport answer and gets the error as it stands.
+/// The same thirty seconds `http.rs` uses, and stated separately rather than
+/// imported from there because the two are answering different questions: that
+/// one is this client's policy for a request, and this one is the floor under
+/// *any* caller of [`connect`]. They would be free to differ.
+pub const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(30);
+
+/// Put a deadline on the socket if it has none.
+///
+/// **If**, and not unconditionally: a caller that set thirty seconds has said
+/// what it wants and a caller that set three has said something this file has
+/// no business overruling. What it refuses to allow is the third case, a socket
+/// with no deadline at all, because a peer that completes the TCP handshake and
+/// then sends nothing would hold the calling thread until the process ended.
+///
+/// The deadline stays on the socket afterwards. The stream is handed back for
+/// the caller to read and write, and a peer that can stall a handshake can
+/// stall the read after it just as easily; taking the bound off at the end
+/// would be removing it exactly where it goes on being needed.
+fn bound(sock: &TcpStream) {
+    if matches!(sock.read_timeout(), Ok(None)) {
+        let _ = sock.set_read_timeout(Some(HANDSHAKE_DEADLINE));
+    }
+    if matches!(sock.write_timeout(), Ok(None)) {
+        let _ = sock.set_write_timeout(Some(HANDSHAKE_DEADLINE));
+    }
+}
+
+/// The answer for a handshake that did not complete.
+///
+/// Three shapes, and the differences are the ones a caller acts on. A deadline
+/// that ran out is a `Timeout` — the same answer a stalled read gets, because
+/// it is the same event one layer down, and a program retrying on `Timeout`
+/// should not have to know that this one happened during a handshake. A
+/// certificate the verifier refused is a *trust* answer and gets the trust
+/// source named beside it. Everything else — a protocol error, a closed socket,
+/// a version mismatch — is a transport answer and gets the error as it stands.
 ///
 /// `rustls` reports its own errors by wrapping them in an `io::Error`, so the
-/// distinction is a downcast rather than a string match.
-fn handshake_failure(e: &std::io::Error, source: &str) -> String {
+/// second distinction is a downcast rather than a string match; the first is
+/// the socket's own deadline surfacing, so it is an `ErrorKind`.
+fn handshake_failure(e: &std::io::Error, source: &str) -> NetFail {
+    if matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) {
+        return NetFail::Timeout;
+    }
     let Some(inner) = e.get_ref().and_then(|i| i.downcast_ref::<rustls::Error>()) else {
-        return format!("tls: the handshake failed: {e}");
+        return NetFail::Transport(format!("tls: the handshake failed: {e}"));
     };
     if matches!(inner, rustls::Error::InvalidCertificate(_)) {
-        return format!(
+        return NetFail::Transport(format!(
             "tls: the server's certificate was refused: {inner}. The trust anchors came from \
              {source}; set {CERT_FILE_ENV} to a PEM bundle of the roots this program should trust."
-        );
+        ));
     }
-    format!("tls: the handshake failed: {inner}")
+    NetFail::Transport(format!("tls: the handshake failed: {inner}"))
 }
 
 /// Read the host's trust anchors, or say why there are none.
@@ -298,6 +359,7 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::time::Instant;
 
     /// The test certificate authority, and the leaf it signed.
     ///
@@ -393,14 +455,100 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
 -----END CERTIFICATE-----
 ";
 
-    /// A rustls server on `127.0.0.1`, serving the fixture certificate to
-    /// exactly one connection, and answering the port and a join handle that
-    /// yields whatever request text arrived.
+    /// How long anything in these tests waits for anything.
     ///
-    /// It is deliberately *tolerant*: three of the four cases below are
+    /// Every wait below is bounded by it: the accept, each read the server
+    /// does, each write. Generous, because a loaded machine is not a failing
+    /// one and the exchanges here take microseconds when they happen at all —
+    /// and finite, because the alternative is the state this file was in, where
+    /// a case that could not connect became a job that ran until CI killed it.
+    const PATIENCE: Duration = Duration::from_secs(30);
+
+    /// Loopback listeners on one port: `127.0.0.1` and `::1`, or whichever of
+    /// the two this host has.
+    ///
+    /// **This is where the hang was.** Four of the five cases below reach the
+    /// server by the name `localhost`, and which address that name answers with
+    /// is the host's business — this machine offers `127.0.0.1` first and a
+    /// great many offer `::1` first. A server on one family and a client on the
+    /// other never meet: the connect is refused, or on a host with no route for
+    /// the family it picked it is not answered at all. Either way the case's
+    /// `fetch` failed, and the test thread then joined a server thread still
+    /// sitting inside `accept` — with no deadline anywhere in the picture. That
+    /// is a deterministic hang on every host that orders the two the other way
+    /// round, and it is what a CI job's sixty-minute timeout was reporting.
+    ///
+    /// Binding both families dissolves the question instead of answering it,
+    /// and does so without asking a resolver anything: the port comes from the
+    /// v4 bind, and the v6 bind either takes the same port or the pair is
+    /// dropped and another port tried. A host with no IPv6 loopback keeps the
+    /// v4 listener alone, which is what it can use.
+    fn loopback() -> (u16, Vec<TcpListener>) {
+        use std::net::{Ipv4Addr, Ipv6Addr};
+        for _ in 0..32 {
+            let v4 = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a loopback listener");
+            let port = v4.local_addr().expect("the port it was given").port();
+            let mut listeners = vec![v4];
+            match TcpListener::bind((Ipv6Addr::LOCALHOST, port)) {
+                Ok(v6) => listeners.push(v6),
+                // The same port is already taken on the other family. Drop both
+                // and ask for another one rather than serving a port whose two
+                // halves belong to two different tests.
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => continue,
+                // No IPv6 loopback on this host at all.
+                Err(_) => {}
+            }
+            return (port, listeners);
+        }
+        panic!("no port was free on both loopback families in thirty-two tries")
+    }
+
+    /// The first connection to arrive on any of the listeners, or `None` if
+    /// none does before the deadline.
+    ///
+    /// Polled rather than blocked on, because "wait on two sockets" is `select`
+    /// or a thread each, and both are more machinery than a millisecond of
+    /// sleep buys back in a test whose connections arrive in microseconds. What
+    /// the loop is *for* is the `None`: a server that gives up is a case that
+    /// fails with a message, and a server that cannot give up is a suite that
+    /// hangs.
+    fn accept_within(listeners: &[TcpListener], patience: Duration) -> Option<TcpStream> {
+        for listener in listeners {
+            listener.set_nonblocking(true).ok()?;
+        }
+        let deadline = std::time::Instant::now() + patience;
+        loop {
+            for listener in listeners {
+                match listener.accept() {
+                    Ok((sock, _)) => {
+                        sock.set_nonblocking(false).ok()?;
+                        return Some(sock);
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(_) => return None,
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// A rustls server on the loopback interface, serving the fixture
+    /// certificate to exactly one connection, and answering the port and a join
+    /// handle that yields whatever request text arrived.
+    ///
+    /// It is deliberately *tolerant*: four of the five cases below are
     /// refusals, and in a refusal the client hangs up mid-handshake. A server
     /// that unwrapped its way through that would turn every expected refusal
     /// into a panicking thread.
+    ///
+    /// And it is deliberately *impatient*: every wait it does has [`PATIENCE`]
+    /// on it, so the handle it returns can always be joined. An empty string is
+    /// what a case that never connected gets back, and an empty string fails an
+    /// assertion — which is the whole difference between a test that reports a
+    /// broken network and one that disappears into it.
     fn serve(response: &'static str) -> (u16, std::thread::JoinHandle<String>) {
         let der = blocks_in(LEAF_KEY_PEM, "PRIVATE KEY").pop().expect("the fixture key");
         let key = rustls::pki_types::PrivateKeyDer::Pkcs8(der.into());
@@ -414,10 +562,15 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
             .with_single_cert(chain, key)
             .unwrap();
 
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
+        let (port, listeners) = loopback();
         let handle = std::thread::spawn(move || {
-            let Ok((sock, _)) = listener.accept() else { return String::new() };
+            let Some(sock) = accept_within(&listeners, PATIENCE) else { return String::new() };
+            // The reads and the write below get the same bound the accept had,
+            // so a client that connects and then stops talking — which is what
+            // a refusal looks like from this side — cannot hold this thread
+            // either.
+            let _ = sock.set_read_timeout(Some(PATIENCE));
+            let _ = sock.set_write_timeout(Some(PATIENCE));
             let Ok(conn) = rustls::ServerConnection::new(Arc::new(config)) else {
                 return String::new();
             };
@@ -480,15 +633,23 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         "hello",
     );
 
-    /// `https://` end to end against a server this test started, and the three
+    /// `https://` end to end against a server this test started, and the four
     /// refusals that are the honest half of it.
     ///
-    /// Offline by construction: the listener is on the loopback interface, the
-    /// certificate was generated for this file, and the trust anchors are a
-    /// file this function wrote. Nothing here resolves a name or opens a socket
-    /// off the machine.
+    /// Offline by construction: the listeners are on the loopback interface,
+    /// the certificate was generated for this file, and the trust anchors are a
+    /// file this function wrote. `localhost` is the only name in it and it is
+    /// answered out of the host's own tables — there is no socket to anywhere
+    /// but this machine, and [`loopback`] is what makes the answer to that name
+    /// stop mattering.
+    ///
+    /// Bounded by construction too, which is the newer half: the server gives
+    /// up after [`PATIENCE`], and the client's own dial is bounded by
+    /// `http.rs`'s deadline. Every way this case can go wrong is a failing
+    /// assertion in finite time; none of them is a job that has to be killed.
     #[test]
     fn https_is_checked_against_the_trust_anchors() {
+        let started = Instant::now();
         let ours = bundle("ca", CA_PEM);
         let stranger = bundle("other", OTHER_CA_PEM);
         let empty = bundle("empty", "# a bundle with no certificate in it\n");
@@ -498,11 +659,15 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         trust(&ours);
         let (port, server) = serve(RESPONSE);
         let answer = crate::http::fetch(0, &format!("https://localhost:{port}/probe"), &[], b"");
-        let request = server.join().unwrap();
+        // The answer is read before the server is joined, so that a client that
+        // failed is reported as the client failing. Joining first would report
+        // it as whatever the server made of never being connected to — which,
+        // before this file's server had a deadline, was nothing at all, forever.
         let response = match answer {
             Ok(r) => r,
-            Err(e) => panic!("https fetch failed: {}", e.message()),
+            Err(e) => panic!("https fetch failed: tag {} {}", e.tag(), e.message()),
         };
+        let request = server.join().unwrap();
         assert!(
             request.starts_with("GET /probe HTTP/1.1\r\n"),
             "the request the server saw was:\n{request}"
@@ -593,6 +758,17 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         for path in [ours, stranger, empty] {
             let _ = std::fs::remove_file(path);
         }
+
+        // Five loopback handshakes are microseconds of work, and this bound is
+        // two orders of magnitude above them. It is not a performance
+        // assertion: it is the one that fails, with a number, on the machine
+        // where a step that used to be unbounded has started waiting again.
+        assert!(
+            started.elapsed() < Duration::from_secs(60),
+            "the five cases took {:?}, which is long enough that something waited rather than \
+             answered",
+            started.elapsed()
+        );
     }
 
     /// The PEM reader takes the certificates and leaves everything else.
