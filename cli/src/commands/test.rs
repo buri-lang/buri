@@ -69,9 +69,14 @@ struct Diff {
 /// A message and a diff belong to a failure and to nothing else, so they live
 /// inside the failing variant. A passing test carrying a diff is no longer a
 /// value anything can build.
+///
+/// `order` is the same argument a third time: the sentence naming the order the
+/// tasks completed in, and the seed that replays it, is something only a failure
+/// has. A block that scheduled nothing — which is almost every block — has
+/// `None`, and a passing one has nowhere to put it.
 enum Verdict {
     Passed,
-    Failed { message: String, diff: Option<Diff> },
+    Failed { message: String, diff: Option<Diff>, order: Option<String> },
 }
 
 struct Case {
@@ -342,9 +347,17 @@ fn one_pass(
                     }
                     match &c.verdict {
                         Verdict::Passed => passed += 1,
-                        Verdict::Failed { message, diff } => {
+                        Verdict::Failed { message, diff, order } => {
                             failed += 1;
-                            report_failure(&session, target, c, message, diff.as_ref(), &mut out);
+                            report_failure(
+                                &session,
+                                target,
+                                c,
+                                message,
+                                diff.as_ref(),
+                                order.as_deref(),
+                                &mut out,
+                            );
                             printed = true;
                         }
                     }
@@ -659,6 +672,11 @@ fn run_on(
         &mut diagnostics,
     )?;
 
+    // The order `anyOrder()` schedules with, spliced rather than set in the
+    // environment: this path writes the artifact, so the seed is a constant of
+    // the program the way the fixed clock below is. [`seed_of`] says why it is
+    // the action key.
+    source.push_str(&format!("\n$t.seed={}n;\n", seed_of(&key)));
     // The action's clock, spliced in after the runtime is defined and before a
     // test could reach one. A test has no name for `core/host` to begin with;
     // this is what keeps a suite's *record* the same bytes twice, so that
@@ -1068,7 +1086,7 @@ fn run_native(
     let limit = suite(session, target).and_then(|x| x.timeout_seconds);
     let program_path = binary.path().display().to_string();
 
-    let blocks = match run_blocks(&program_path, limit, selected.len()) {
+    let blocks = match run_blocks(&program_path, limit, selected.len(), &seed_of(key).to_string()) {
         Ok(Some(blocks)) => blocks,
         Ok(None) => return Err(timed_out(session, target, limit)),
         Err(e) => {
@@ -1104,6 +1122,35 @@ fn run_native(
 /// from. `cli/runtime/testing.rs` is the other half.
 const RESUME: &str = "BURI_TEST_FROM";
 
+/// The environment variable a native test binary reads the seed
+/// `tasks().anyOrder()` schedules with from. `cli/runtime/testing.rs` is the
+/// other half, and the JavaScript path splices `$t.seed` instead of setting an
+/// environment variable because it writes the artifact itself.
+///
+/// One number applies to every block. A comma-separated list is per block, in
+/// the binary's own numbering, which is what a batched binary needs: its blocks
+/// belong to several suites and a suite's order is its own.
+const SEED: &str = "BURI_TEST_SEED";
+
+/// The order `anyOrder()` schedules with, for a suite whose key is `key`.
+///
+/// **The action key is the content hash** (D-10). It is a hash of every source
+/// in the suite's closure and of the invocation that would build it, which is
+/// exactly the question "is the record this run would produce still the record
+/// the cache holds?" — so deriving the seed from it makes the two move together
+/// by construction: an order changes exactly when the verdict that order
+/// produced stops being reusable, and never on a run that changed nothing.
+/// That is the whole of what keeps [`crate::build::cache::Cache::put`] pure
+/// here; a clock or a generator in this position would store a record that the
+/// next run could not have produced.
+///
+/// The first 32 hex digits, because a rank is taken modulo `n!` and a `u128`
+/// holds `34!`. Which half of the digest is used is arbitrary and this is the
+/// half `--explain` already prints the front of.
+fn seed_of(key: &crate::build::cache::ActionKey) -> u128 {
+    u128::from_str_radix(key.as_str().get(..32).unwrap_or("0"), 16).unwrap_or(0)
+}
+
 /// What one numbered block of a test binary did.
 ///
 /// Numbered **per binary**, which is what makes this the same value whether the
@@ -1112,7 +1159,7 @@ const RESUME: &str = "BURI_TEST_FROM";
 /// than the runtime's.
 enum Block {
     Passed,
-    Failed { message: String, diff: Option<Diff> },
+    Failed { message: String, diff: Option<Diff>, order: Option<String> },
 }
 
 /// Runs a native test binary until every one of its `count` blocks has a
@@ -1123,18 +1170,25 @@ enum Block {
 /// start at and `buri_rt_test_enter` skips what is already reported. A clean run
 /// is one process, which is the case that has to stay cheap.
 ///
+/// `seeds` is [`SEED`]'s value, the same for every process this makes: the order
+/// a block schedules in is a fact about the program and not about which process
+/// happened to reach it, so a suite resumed after a failure is a suite scheduled
+/// the way the run before it was.
+///
 /// `Ok(None)` is the timeout, which belongs to whoever declared it — a limit is
 /// a suite's, and the diagnostic naming the suite is the caller's to raise.
 fn run_blocks(
     program: &str,
     limit: Option<u32>,
     count: usize,
+    seeds: &str,
 ) -> std::io::Result<Option<Vec<Block>>> {
     let mut blocks: Vec<Block> = Vec::with_capacity(count);
     let mut from = 0usize;
     while from < count {
         let start = from.to_string();
-        let out = match execute(program, None, limit, &[(RESUME, start.as_str())])? {
+        let out =
+            match execute(program, None, limit, &[(RESUME, start.as_str()), (SEED, seeds)])? {
             Execution::Finished(out) => out,
             Execution::TimedOut => return Ok(None),
         };
@@ -1168,7 +1222,11 @@ fn run_blocks(
         while blocks.len() < at {
             blocks.push(Block::Passed);
         }
-        blocks.push(Block::Failed { message, diff: noted.and_then(|n| n.diff) });
+        let (diff, order) = match noted {
+            Some(n) => (n.diff, n.order),
+            None => (None, None),
+        };
+        blocks.push(Block::Failed { message, diff, order });
         from = at + 1;
     }
     Ok(Some(blocks))
@@ -1179,7 +1237,9 @@ fn run_blocks(
 fn record_of(name: &str, module: &str, block: &Block) -> String {
     match block {
         Block::Passed => passing_record(name, module),
-        Block::Failed { message, diff } => failing_record(name, module, message, diff.as_ref()),
+        Block::Failed { message, diff, order } => {
+            failing_record(name, module, message, diff.as_ref(), order.as_deref())
+        }
     }
 }
 
@@ -1562,6 +1622,7 @@ fn run_batch(
 
     // Reported per suite, because the `test` action is per suite: the batch is
     // how the verdicts were produced, not what they are keyed on.
+    let mut seeds: Vec<u128> = Vec::with_capacity(members.len());
     for &target in members {
         let key = test_key_for(session, target, platform, args, pre);
         crate::build::cache::explain(
@@ -1572,10 +1633,25 @@ fn run_batch(
             platform,
             &key,
         );
+        seeds.push(seed_of(&key));
     }
+    // One seed per *block*, because the blocks of one binary belong to several
+    // suites here and a suite's order is its own key's. This is what makes a
+    // suite schedule the same way whether it was batched or run alone: a report
+    // a reader cannot reproduce with `buri test //that/one` is a report that
+    // names the wrong seed.
+    let per_block: Vec<String> = selected
+        .iter()
+        .map(|(i, _, _)| seeds.get(*i).copied().unwrap_or_default().to_string())
+        .collect();
     // No limit: a suite that declared one is not in a batch, so there is no
     // suite here whose `timeout_seconds` a shared process could misrepresent.
-    let blocks = match run_blocks(&binary.path().display().to_string(), None, selected.len()) {
+    let blocks = match run_blocks(
+        &binary.path().display().to_string(),
+        None,
+        selected.len(),
+        &per_block.join(","),
+    ) {
         Ok(Some(blocks)) => blocks,
         _ => return,
     };
@@ -1641,7 +1717,19 @@ fn passing_record(name: &str, module: &str) -> String {
 
 /// One test that aborted, in the shape `$run` writes for a caught throw — the
 /// message and, where the assertion had them, both rendered values.
-fn failing_record(name: &str, module: &str, message: &str, diff: Option<&Diff>) -> String {
+///
+/// `order` is a sibling of `error` rather than a field inside it, on both
+/// backends, because it is a fact about the *run* and not about the throw: the
+/// same sentence would be worth printing under a failure that carried no
+/// assertion at all. Elided where there is none, so the record of a suite that
+/// schedules nothing is the bytes it always was.
+fn failing_record(
+    name: &str,
+    module: &str,
+    message: &str,
+    diff: Option<&Diff>,
+    order: Option<&str>,
+) -> String {
     let error = match diff {
         Some(d) => format!(
             "{{\"message\":{},\"actual\":{},\"expected\":{}}}",
@@ -1651,8 +1739,12 @@ fn failing_record(name: &str, module: &str, message: &str, diff: Option<&Diff>) 
         ),
         None => format!("{{\"message\":{}}}", json_quote(message)),
     };
+    let order = match order {
+        Some(note) => format!(",\"order\":{}", json_quote(note)),
+        None => String::new(),
+    };
     format!(
-        "{{\"name\":{},\"module\":{},\"ms\":0,\"ok\":false,\"error\":{error}}}",
+        "{{\"name\":{},\"module\":{},\"ms\":0,\"ok\":false,\"error\":{error}{order}}}",
         json_quote(name),
         json_quote(module)
     )
@@ -1663,6 +1755,10 @@ struct Noted {
     at: usize,
     message: String,
     diff: Option<Diff>,
+    /// The order sentence the runtime assembled, where the block scheduled
+    /// anything. `cli/runtime/testing.rs`'s `task_order_note` writes it and
+    /// `note_failure` puts it on the line; this is the field it arrives in.
+    order: Option<String>,
 }
 
 /// The line a native test binary writes when a block aborts.
@@ -1677,7 +1773,12 @@ fn noted_failure(stdout: &str) -> Option<Noted> {
         (Some(actual), Some(expected)) => Some(Diff { actual, expected }),
         _ => None,
     };
-    Some(Noted { at, message: field(&chunk, "message").unwrap_or_default(), diff })
+    Some(Noted {
+        at,
+        message: field(&chunk, "message").unwrap_or_default(),
+        diff,
+        order: field(&chunk, "order"),
+    })
 }
 
 /// Attaches each case to the source location of the test it names.
@@ -1811,7 +1912,11 @@ fn parse_results(text: &str) -> Vec<Case> {
                 (Some(actual), Some(expected)) => Some(Diff { actual, expected }),
                 _ => None,
             };
-            Verdict::Failed { message: field(&chunk, "message").unwrap_or_default(), diff }
+            Verdict::Failed {
+                message: field(&chunk, "message").unwrap_or_default(),
+                diff,
+                order: field(&chunk, "order"),
+            }
         };
         cases.push(Case {
             provenance: Provenance::Ran,
@@ -1924,6 +2029,7 @@ fn report_failure(
     c: &Case,
     message: &str,
     diff: Option<&Diff>,
+    order: Option<&str>,
     out: &mut Out,
 ) {
     let label = session.workspace.label(target);
@@ -1935,6 +2041,16 @@ fn report_failure(
     if let Some(d) = diff {
         out.line(&format!("    actual:   {}", d.actual));
         out.line(&format!("    expected: {}", d.expected));
+    }
+    // After the values and before the location, which is the order the three
+    // answer a reader's questions: *what went wrong*, *between which two
+    // values*, and *what would have to be true to see it again*. The location
+    // stays last because it is the line the editor jumps to.
+    //
+    // Indented like the message rather than like the diff: it is a sentence
+    // about this failure, not a third side of the comparison.
+    if let Some(note) = order {
+        out.line(&indented(note));
     }
     if let Some(loc) = &c.location {
         out.line(&format!("  --> {loc}"));
@@ -2000,6 +2116,29 @@ mod tests {
         ]));
     }
 
+    /// The seed a suite schedules with is a function of its key and of nothing
+    /// else.
+    ///
+    /// The point of the row in `DECISIONS.md` stated as a test: two calls agree,
+    /// two different keys disagree, and nothing here reads a clock. A generator
+    /// in this position would make `Cache::put` store a record the next run
+    /// could not have produced.
+    #[test]
+    fn a_suites_seed_is_its_own_key_and_nothing_else() {
+        let one = crate::build::cache::ActionKey::of(b"a suite");
+        let two = crate::build::cache::ActionKey::of(b"another suite");
+        assert_eq!(seed_of(&one), seed_of(&one));
+        assert_ne!(seed_of(&one), seed_of(&two));
+        // The first 32 hex digits of the digest, read as a `u128`.
+        let front = one.as_str().get(..32).expect("a key is 64 hex digits");
+        assert_eq!(seed_of(&one), u128::from_str_radix(front, 16).unwrap());
+        // Every key is 64 hex digits by construction (`ActionKey`'s two
+        // constructors both hash), so the fallbacks in `seed_of` are unreachable
+        // and this is the claim that keeps them so.
+        assert_eq!(two.as_str().len(), 64);
+        assert!(two.as_str().chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
     /// A native record is read back by the parser that reads a JavaScript one.
     ///
     /// Written as a round trip rather than against a literal, because what has
@@ -2009,13 +2148,15 @@ mod tests {
     #[test]
     fn a_record_this_runner_writes_is_one_it_reads() {
         let diff = Diff { actual: String::from("\"a\\tb\""), expected: String::from("2") };
+        let note = "the tasks completed in the order 0, 2, 1 — replay it with `tasks().seed(1)`";
         let record = format!(
-            "[{},{}]",
+            "[{},{},{}]",
             passing_record("a title", "//lib/x/test/x"),
-            failing_record("say \"hi\"", "//lib/x/test/x", "assert.eq failed", Some(&diff))
+            failing_record("say \"hi\"", "//lib/x/test/x", "assert.eq failed", Some(&diff), None),
+            failing_record("scheduled", "//lib/x/test/x", "assert.eq failed", None, Some(note))
         );
         let cases = parse_results(&record);
-        assert_eq!(cases.len(), 2);
+        assert_eq!(cases.len(), 3);
         assert_eq!(cases[0].name, "a title");
         assert_eq!(cases[0].module, "//lib/x/test/x");
         assert!(matches!(cases[0].verdict, Verdict::Passed));
@@ -2023,12 +2164,24 @@ mod tests {
         // a rendered value: `$show` already escaped them, and the record
         // escapes what it is handed.
         assert_eq!(cases[1].name, "say \"hi\"");
-        let Verdict::Failed { message, diff: Some(d) } = &cases[1].verdict else {
+        let Verdict::Failed { message, diff: Some(d), order } = &cases[1].verdict else {
             panic!("the failing record did not read back as a failure");
         };
         assert_eq!(message, "assert.eq failed");
         assert_eq!(d.actual, "\"a\\tb\"");
         assert_eq!(d.expected, "2");
+        // A failure that scheduled nothing carries no order, and that is a
+        // *missing* key rather than an empty one: the record of a suite that
+        // never says `tasks()` is the bytes it was before this slice.
+        assert_eq!(*order, None);
+        assert!(!record.contains("\"order\":\"\""));
+        // And the two travel independently — an order with no diff is the shape
+        // a faulted task produces, which has a message and no pair.
+        let Verdict::Failed { diff, order, .. } = &cases[2].verdict else {
+            panic!("the scheduled record did not read back as a failure");
+        };
+        assert!(diff.is_none());
+        assert_eq!(order.as_deref(), Some(note));
     }
 
     /// The line a native test binary writes when a block aborts.
@@ -2044,6 +2197,9 @@ mod tests {
         assert_eq!(noted.message, "assert.eq failed");
         let diff = noted.diff.expect("both sides were there");
         assert_eq!((diff.actual.as_str(), diff.expected.as_str()), ("1", "2"));
+        // A block that scheduled nothing says nothing about an order, which is
+        // the case every block that never writes `tasks()` is in.
+        assert_eq!(noted.order, None);
         // An abort that is not an assertion has a message and no pair, and a
         // run that said nothing at all has no record — which is the case the
         // caller attributes to the block it asked for.
@@ -2051,6 +2207,25 @@ mod tests {
         assert!(plain.diff.is_none());
         assert!(noted_failure("").is_none());
         assert!(noted_failure("assert.eq failed\n").is_none());
+        // The order sentence, in the position `note_failure` writes it: after
+        // the pair where there is one, and beside the message where there is
+        // not. Both literals are the contract with the other crate.
+        let scheduled = noted_failure(
+            "{\"i\":1,\"message\":\"assert.eq failed\",\"actual\":\"1\",\"expected\":\"2\",\
+             \"order\":\"the tasks completed in the order 1, 0 — replay it with `tasks().seed(1)`\"}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            scheduled.order.as_deref(),
+            Some("the tasks completed in the order 1, 0 — replay it with `tasks().seed(1)`")
+        );
+        let faulted = noted_failure(
+            "{\"i\":2,\"message\":\"a task was failed by the plan: task(1): gone\",\
+             \"order\":\"the tasks completed in the order 1, 0 — replay it with `tasks().seed(1)`\"}\n",
+        )
+        .unwrap();
+        assert!(faulted.diff.is_none());
+        assert!(faulted.order.is_some());
     }
 
     /// A JSON string literal is JSON: the runner's own parser looks for a
