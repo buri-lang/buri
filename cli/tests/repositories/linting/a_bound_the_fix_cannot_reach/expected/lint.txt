@@ -15,16 +15,20 @@ warning: bound `Alloc` on `C` is not used by this function [unused-context-bound
      capability the code does not use, and it spreads, because the caller's own
      signature has to carry the bound to satisfy it.
 
-     There are exactly three ways a body uses a bound, and each of them is a
-     call:
+     There are exactly two ways a body uses a bound, and each of them is a call:
 
-     A method the bound declares, called on the context. ctx.println(…) resolves
-     through C's bound list — that is the only place a method on a type
-     parameter can come from — so the bound that declares the method is used.
+     A callee that asks for one of its own. io.println(ctx, …) and
+     str.format(ctx, …) instantiate the callee's own type parameter at C, and
+     the callee's bounds become demands on C. Every bound the callee names is
+     used; the ones it does not name are not.
 
-     A callee that asks for one of its own. str.format(ctx, …) instantiates
-     format's own type parameter at C, and format's bounds become demands on C.
-     Every bound the callee names is used; the ones it does not name are not.
+     This is where an *effect* is used, and it is the only place. An effect
+     method is called through the module that wraps the effect rather than on
+     the context (SPEC 10.2), so io.println(ctx, x) is what makes Stdout used:
+     println is declared <C2: Stdout>, instantiating it at C raises the Stdout
+     obligation, and that obligation is what is read here. The bound is
+     exercised exactly as before — the evidence is simply one node further
+     along.
 
      A function-typed parameter. render(ctx, label), where render: fn(C, Str) =>
      Str, hands the whole context to code this function cannot see. So it uses
@@ -32,10 +36,10 @@ warning: bound `Alloc` on `C` is not used by this function [unused-context-bound
      here can say which parts of it the callback reaches.
 
      Nothing else is a use. A bound is a demand, and the checker consults a type
-     parameter's bound list in exactly two places — when it resolves a method on
-     a receiver of that type, and when it discharges the obligation an
-     instantiation raised. Both are calls, and both are written down in the
-     checked tree.
+     parameter's bound list when it discharges the obligation an instantiation
+     raised, and — for a trait's methods, which an effect's are not — when it
+     resolves a method on a receiver of that type. Both are calls, and both are
+     written down in the checked tree.
 
      What is not asked
      ─────────────────
@@ -57,10 +61,13 @@ warning: bound `Alloc` on `C` is not used by this function [unused-context-bound
 
      A body that did not check is not asked. Unlike unused-context, which can
      fall back to the text because a context has exactly one spelling, a bound
-     has none: it is used through method names it declares and through callees
-     whose own bounds name it, and neither is a token the lexer can recognise as
-     this bound. Where the typed tree is truncated, the evidence is gone and the
-     rule says nothing.
+     has none: it is used through callees whose own bounds name it, and a
+     callee's name is not a token the lexer can recognise as *this* bound. Now
+     that an effect is reached through a module alias — io.println, fs.readText
+     — a text fallback is imaginable where it was not before; it is not built,
+     and this paragraph records that as a choice rather than an impossibility.
+     Where the typed tree is truncated, the evidence is gone and the rule says
+     nothing.
 
      The fix
      ───────

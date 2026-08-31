@@ -147,6 +147,40 @@ effect as their receiver (`fn allocate(self, ...)`), and so do the
 attenuation wrappers of Section 10.8. Outside those two places, effects arrive
 through `ctx`.
 
+### An effect is performed by a function, not by a method
+
+**An effect's methods are called through the module that wraps the effect,
+never on the value that carries it.** `ctx.println(text)` is
+`io.println(ctx, text)`; `ctx.readFile(path)` is `fs.readText(ctx, path)`;
+`ctx.allocate(n)` is `alloc.allocate(ctx, n)`. Every method of every declared
+effect has exactly one such function, and calling one on a value is
+`effect-method-call`, which names the function and the module it comes from.
+
+A context is the set of things a program may do, and the point of writing it
+down is that a reader can see what a function reaches for. `x.f(y)` hides that:
+the receiver is the smallest, quietest part of a call, and an effect performed
+through one reads like a method on an ordinary value. Passing the context as an
+argument puts the authority where the reader is already looking, and it makes
+the two halves — *which* effect, and *what* it does — two names instead of one.
+It also settles a question the method form left open: method lookup through a
+bound searches every effect the bound declares, so two effects claiming one
+verb make that verb ambiguous for everybody who binds both (`Ui.read` and
+`Watch.read` are the shipped case), while a module-qualified call cannot be
+ambiguous at all.
+
+Two layers are below that line and keep the method form:
+
+* **the standard library**, which is where those wrapper functions are, so its
+  bodies are the only thing that reaches an effect at all; and
+* **the body of an `impl` that supplies an effect**, which is where the
+  operation is implemented — this is what keeps Section 10.8's attenuation
+  wrapper writable, and `ReadOnly<C>`'s `self.0.readFile(path)` cannot become
+  `fs.readText(self.0, path)`, because that wrapper is bounded `Alloc + Fs`
+  where the `impl` carries only `C: Fs`.
+
+The carve-out grants nothing new: an implementor can reach only an inner
+context somebody already handed it.
+
 There is exactly one construct in which more than one effect-carrying value may
 appear, and it is the `context` expression of Section 11.3 — the place where a
 context is assembled out of the implementations that make it up. Everywhere
@@ -339,9 +373,9 @@ rejected, on the capture of `x`.
 
 Nothing in `wrap` mentions an effect, and its body is checked once for every
 instantiation at once (Section 13.5), so where the rule runs `T` is opaque. Yet
-`wrap(ctx, fn(c) => c.println("hi"))` instantiates it at a context type and
-returns a `fn() => ()` holding an effect — the same smuggling, arriving by the
-generic route. So a type parameter is treated as though it *were* a context,
+`wrap(ctx, fn(c) => io.println(c, "hi").ignore())` instantiates it at a context
+type and returns a `fn() => ()` holding an effect — the same smuggling,
+arriving by the generic route. So a type parameter is treated as though it *were* a context,
 unless one of two things says otherwise:
 
 - **An ordinary trait bound.** An effect-carrying type satisfies no ordinary
@@ -425,6 +459,12 @@ xs.map(ctx, double)
 lines.filter(ctx, isLong).sortBy(ctx, order.str)
 ```
 
+An effect's own operations are the second shape and only the second shape: they
+have no receiver a program may name, so they are free functions taking the
+context first (`io.println(ctx, text)`, `fs.readText(ctx, path)`). The method
+form is not an alternative spelling of them — it is refused
+(`effect-method-call`).
+
 ### 10.8 Restricting what propagates
 
 Two forms, giving different guarantees.
@@ -482,6 +522,14 @@ first by default and the second at trust boundaries.
 Note that attenuation narrows the *context*, not one effect out of it. That
 is what keeps the `ctx` rule satisfiable: there is still exactly one
 effect-carrying parameter.
+
+**The `self.0.readFile(path)` above is the carve-out of Section 10.2, and it
+has to be.** A body supplying an effect is where the operation is implemented,
+so it is one of the two layers that may still call an effect method on a value.
+It cannot delegate to `fs.readText(self.0, path)` instead: that wrapper is
+bounded `Alloc + Fs` and this `impl` carries only `C: Fs`, so the bound
+mismatch is real rather than cosmetic. The carve-out grants nothing: an
+implementor can reach only an inner context somebody already handed it.
 
 ### 10.9 Testing
 

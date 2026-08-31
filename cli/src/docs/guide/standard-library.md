@@ -174,10 +174,19 @@ Deliberately absent, and not by oversight:
 ### The platform
 
 `core/effect` declares the effects; `core/host` implements them and may be
-imported only by the module that exports `main`. `core/io`, `core/fs`,
-`core/env`, `core/random`, `core/net/http`, `core/tasks` are the interfaces
-those effects are used through. `core/testing/assert` and `core/host/testing`
+imported only by the module that exports `main`. `core/alloc`, `core/io`,
+`core/fs`, `core/env`, `core/time`, `core/random`, `core/net/http`,
+`core/net/server`, `core/proc` and `core/tasks` are the interfaces those effects
+are used through — and they are the *only* way through: an effect is performed
+by handing the context to a function, never by calling a method on it
+(SPEC 10.2), so `io.println(ctx, text)` is how a program prints and
+`ctx.println(text)` is refused. `core/testing/assert` and `core/host/testing`
 are importable only from a test source.
+
+`core/net/server` and `core/proc` are the two thinnest. `proc.exit(ctx, code)`
+is `Proc`'s one operation. `core/net/server` is a door rather than a design: no
+platform grants `Listen` or `Sockets` yet, so nothing there has a caller, and
+the vocabulary a real server wants grows there when one does.
 
 `core/tasks` is one function. `parallel(ctx, items, f)` runs `f` over every item
 and answers the results **in the items' order**, whatever order the work

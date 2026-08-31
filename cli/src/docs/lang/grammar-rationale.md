@@ -10,7 +10,8 @@ position. *Cost:* two characters, and it looks like TypeScript anyway.
 **12.2 There are no expression statements.**
 A block is `let`s followed by a result expression. Nothing can sit next to a
 `{`-initial expression and compete with it. *Cost:* a call performed only for its
-effect must be bound: `let _ = io.println(ctx, "hi");`.
+effect must be bound, and a `Result` consumed as well:
+`let _ = io.println(ctx, "hi").ignore();`.
 
 A **test source** may use one, restricted to expressions whose type is `()`
 (Section 11.2) — a call, and equally a `match`, an `if` or a block that produces

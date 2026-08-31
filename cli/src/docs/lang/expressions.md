@@ -390,6 +390,15 @@ and you never name its type, you need no import at all.
 3. If `x`'s type is a type parameter, `f` must be declared by one of its
    **bounds** (Section 5.10). A bare parameter with no bounds has no methods.
 
+**An effect's methods are excluded from steps 2 and 3.** An effect is performed
+by handing the context to a function — `ctx.println(t)` is `io.println(ctx, t)`
+— so a method a *bound effect* declares is not callable on the value that
+carries it, and neither is one an `impl` supplied for an effect. Two layers are
+below that line and keep the method form: the standard library, which is where
+those wrapper functions are, and the body of an `impl` that supplies an effect,
+which is where the operation is implemented. Section 10.2 is the rule in full,
+and `effect-method-call` names the function to call instead.
+
 Each step is a single table lookup keyed by name and by one type. There is no
 candidate set, no autoref and no autoderef — Buri has no references — and no
 coherence check, because conformance is nominal and a type has exactly one

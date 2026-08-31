@@ -12,11 +12,15 @@ reads it says yes and means no, and the cost lands on the callers: each of them
 has to be holding a context, so a pure computation drags the ability to write
 files up through every function that reaches it.
 
-The body is the whole of the evidence, and there are exactly three ways to use
-a context: call a method it declares, hand it to a callee that asks for one, or
-hand it to a function-typed parameter. Each of the three reads the parameter,
-so the rule is one question — does anything in the body name `ctx`? — and it
-has no other cases to get wrong.
+The body is the whole of the evidence, and there are exactly two ways to use a
+context: hand it to a callee that asks for one, or hand it to a function-typed
+parameter. Both read the parameter, so the rule is one question — does anything
+in the body name `ctx`? — and it has no other cases to get wrong.
+
+Calling an effect's operation is the first of the two rather than a third way
+of its own: an effect is performed by handing the context to a function
+(SPEC 10.2), so `io.println(ctx, x)` is a callee that asks for one. The rule's
+fallback below is stronger for it — a context is now *only* ever an argument.
 
 ## What is not asked
 
@@ -56,6 +60,9 @@ the whole of it. They decline, and leave you the sentence, in three cases:
   itself still stands: where the typed tree is truncated this rule reads the
   text instead, and a context has one spelling, so "does this declaration write
   `ctx` anywhere but at the parameter" is a question the lexer can still answer.
+  That fallback is stronger than it was: a context is only ever an *argument*
+  now — never a receiver — so every use of one is a `ctx` between two commas or
+  parentheses.
 
 Nothing about this rule is about *which* effects the context carries. Whether a
 body uses every bound it asked for is a different question, with a different
