@@ -142,11 +142,35 @@ which no live run can manage, and it does not run at all under `BURI_KEEP` — s
 the contract above is unchanged for the run that produced the evidence and for
 hours after it.
 
-### The two tests that are off
+### Skips: none on CI, and each one on a host has a name
 
-`repositories::language_server_speed` and `repositories::language_server_open_cost`
-assert milliseconds rather than work, so they return early unless `BURI_PERF` is
-set and they mean nothing outside `--release`:
+A test that does not run proves nothing and costs what a running one costs to
+compile. There are three ways one can fail to run here, and each has an answer.
+
+**`#[ignore]`.** There are two in the whole repository and both are listed in
+`.github/known-skips.txt`, with the compiler slice that removes them.
+`cli/tests/ci.rs::the_only_ignored_tests_are_the_ones_named_here` walks the tree
+and fails if the set it finds is not exactly that file's, so a third one cannot
+be added quietly; `.github/scripts/assert-no-skips.sh` holds the `N ignored` in
+a CI summary to the same number. The dispositions, in order of preference: fix
+it; `#[cfg]` it out on the host that genuinely cannot answer it, so it is absent
+rather than reported as not run; delete it, if the behaviour it asserts is no
+longer wanted. A row in that file is the last resort and is a named defect, not
+a permission.
+
+**`if !supported() { return; }`.** The native suites open with one, and it is
+load-bearing on a host with no C compiler or no stencil library for its triple:
+such a machine should get a suite that says so rather than a wall of red. On CI
+it is the one shape of green this repository refuses, because every runner
+installs the tools and asserts the stencil libraries and the runtime archive are
+real bytes before the suite starts. So `BURI_CI=1` — set in the workflow's
+`env:` block, and therefore in every job — makes `harness/ci.rs::skipped` PANIC
+instead of returning. Set it locally to see what a runner sees.
+
+**Deferrals.** `repositories::language_server_speed` and
+`repositories::language_server_open_cost` assert milliseconds rather than work,
+so they return early unless `BURI_PERF` is set and they mean nothing outside
+`--release`:
 
 ```
 BURI_PERF=1 cargo test --release -p buri --test build repositories::language_server_
@@ -155,7 +179,28 @@ BURI_PERF=1 cargo test --release -p buri --test build repositories::language_ser
 Both hold every editor request to 50 ms. CI runs them on its arm64 runner
 (`.github/workflows/ci.yml`, `language-server-budget`), where
 `BURI_PERF_BUDGET_SCALE` is what widens the bar for a machine slower than the
-one it was taken on.
+one it was taken on. They say so through `ci::deferred_to`, which names that
+job, and `cli/tests/ci.rs::every_deferral_names_a_job_that_still_asks_for_it`
+holds the name to a job that exists — a deferral whose job has been renamed is
+a plain skip and nothing else would have noticed.
+
+### The runtime crate's tests run in two places
+
+`cli/runtime` is a cargo package `cargo test -p buri` cannot reach, and
+`native::runtime::the_runtime_crate_answers_its_own_tests` is what runs its
+ninety-seven assertions. It does so two ways:
+
+* **Off a runner** it shells a nested `cargo test`, which cold-compiles tokio
+  and rustls the first time — about ten seconds here, a minute on a cold CI
+  macOS runner — into a target directory under `CARGO_TARGET_TMPDIR`.
+* **On a runner** (`BURI_CI=1`) `.github/scripts/test-runtime-crate.sh` runs the
+  same `cargo test` as its own step, with a cache key of its own and a duration
+  in the run summary, and the test asserts the stamp that step writes. The stamp
+  records the SHA-256 of every runtime it tested and the test looks for the one
+  baked into this binary, so a stale `$OUT_DIR` cannot satisfy it.
+
+No host loses the coverage; the minute moves out of a test report and into a
+step that has a cache.
 
 ### What the run costs
 

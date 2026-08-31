@@ -1,0 +1,27 @@
+# EVERY `#[ignore]` IN THIS REPOSITORY, AND NOTHING ELSE MAY BE ONE.
+#
+# Two readers, so that "the summary shows no skip we did not sign for" is one
+# fact rather than two lists that drift:
+#
+#   * `cli/tests/ci.rs::the_only_ignored_tests_are_the_ones_named_here` walks
+#     the tree for `#[ignore`, and fails if the set it finds is not exactly the
+#     set below. That is the ratchet, and it runs on every machine.
+#   * `.github/scripts/assert-no-skips.sh` counts the lines here and holds the
+#     `N ignored` in a `cargo test` summary to that number. That is the runner's
+#     half, and it catches a skip that arrives some way the source scan cannot
+#     see.
+#
+# The format is `<path>::<test> — <why>`. `#` starts a comment; blank lines are
+# ignored. An entry is a DEFECT WITH A NAME, not a permission: a row here is a
+# thing somebody is expected to delete by fixing it, and the sentence after the
+# dash has to say what fixing it means.
+#
+# The bar for adding one: the test is red because the *product* is missing a
+# behaviour it is supposed to have, the fix is a change to the compiler rather
+# than to the test, and that change is a slice of its own. Everything else has
+# another disposition — a test that can be made to pass gets fixed, a test whose
+# host cannot answer it gets `#[cfg]`ed out for that host so it is absent rather
+# than skipped, and a test whose behaviour is no longer wanted gets deleted.
+
+cli/tests/native/agreement.rs::row_10_derived_tojson — `derive ToJson` has no native body: `derivePrimJson` is missing at every primitive, so `missing_intrinsics` refuses the program. The fix is the native `derivePrimJson`, in the compiler. `row_10_derived_tojson_is_a_gap` runs today and pins the refusal, so the day the derive lands that one goes red and this one comes out of this file.
+cli/tests/native/agreement.rs::row_12_alloc_accounting — `Alloc` accounting exists on neither backend: `host.HostAlloc.allocate` has no native body, and the JavaScript one hands the byte count back without accumulating anything. MEMORY.md §7 is the model both must implement. `row_12_alloc_accounting_is_a_gap` runs today and pins the absence.

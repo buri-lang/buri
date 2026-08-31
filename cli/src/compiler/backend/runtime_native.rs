@@ -240,10 +240,12 @@ mod tests {
     /// archive rather than whatever else ended up at that path. `!<arch>\n` is
     /// the magic every `ar` format shares, including Apple's and GNU's.
     #[test]
-    #[cfg_attr(
-        not(any(target_os = "macos", target_os = "linux")),
-        ignore = "no runtime archive is built for this host"
-    )]
+    // COMPILED OUT on a host no archive is built for, rather than ignored. The
+    // two say the same thing about such a host and only one of them adds a
+    // line to every summary that a reader has to learn to disregard — and a
+    // summary with a skip in it is one nobody reads the skips of.
+    // `.github/scripts/assert-no-skips.sh` is the other half of that decision.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn the_archive_is_an_archive() {
         assert_eq!(
             ARCHIVE.get(..8),
