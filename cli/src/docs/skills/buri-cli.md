@@ -61,7 +61,6 @@ it, and naming one elsewhere is an error that says which commands do take it.
 | `--explain` | build, test, run | one line per action: whether it ran or the cache served it, and the key |
 | `--check-reproducible` | build | build twice in separate directories and compare byte for byte |
 | `--filter=<substring>` | test | run only the tests whose name contains this |
-| `--accept` | test | rewrite the golden files a suite declares in `test { data }` |
 | `--watch` | test | re-run on every change to a declared input, until interrupted |
 | `--check` | format, gen, docs | report what would change and exit 1, writing nothing |
 | `--fix` | lint | apply the findings that have one mechanical answer |
@@ -147,13 +146,13 @@ and reports one line per failure and a summary. See the `buri-testing` skill.
 
 `--watch` re-runs the same invocation whenever a declared input moves: the
 closure's entry points, `sources`, `proto_sources` and `testing/` sources; the
-suite's `sources` and `data`; every `BUILD.buri`; and `REPO.buri`. Polled with
+suite's `sources`; every `BUILD.buri`; and `REPO.buri`. Polled with
 one `stat` each every 150 ms, so a burst of writes is one run. A run that had
 nothing to do prints nothing at all. **A new file is not watched until
 something declares it** — run `buri gen`, and the loop sees the build file
 change. A `BUILD.buri` that stops parsing prints its diagnostics and the loop
-keeps watching. `--watch` is refused with `--force`, with `--accept`, and when
-stdout is not a terminal.
+keeps watching. `--watch` is refused with `--force` and when stdout is not a
+terminal.
 
 ### `run`
 

@@ -296,12 +296,11 @@ artifact, so two tags that forbid each other may not both be in it. A `client`
 suite and a `server` suite are therefore two binaries, however convenient one
 would have been, and the tags counted are those of the suite's production
 closure *and* of its `test { dependencies }` — everything the binary would
-actually link. Four more conditions keep a suite out of a batch, and each is a
+actually link. Three more conditions keep a suite out of a batch, and each is a
 way two suites would disagree about what building or running them means: a
 declared `test { platforms }` (a request, served on its own), a declared
-`test { data }` (which runs on JavaScript anyway), a declared `timeout_seconds`
-(a limit is one suite's, and a shared process would make it everybody's), and
-`--output=` or `--accept` on the invocation.
+`timeout_seconds` (a limit is one suite's, and a shared process would make it
+everybody's), and `--output=` on the invocation.
 
 Nothing about the result changes. Each suite still has its own cache key, its own
 cached verdict, and its own report; a suite whose verdict is already cached is

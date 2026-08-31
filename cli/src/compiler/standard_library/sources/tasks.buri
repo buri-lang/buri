@@ -20,7 +20,7 @@
 //! can do anything its caller could — read a file, make a request, sleep — and
 //! nothing its caller could not. It receives it as a *parameter* rather than by
 //! capture because a lambda may not capture an effect-carrying value (SPEC
-//! 10.6); that is the same shape `ui/effect`'s `Fetch` uses.
+//! 10.6).
 //!
 //! That is `C` in the signature below and `C` again in `effect Tasks`, and it
 //! is **not** `Self`. `Self` is whatever implements `Tasks` — `host.tasks`, or

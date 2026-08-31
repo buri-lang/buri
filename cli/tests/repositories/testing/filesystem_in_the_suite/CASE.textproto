@@ -1,0 +1,42 @@
+# A suite that reads files, run without being told which backend to use.
+#
+# This repository is what is left of the `--accept` case, and the difference
+# between the two is the whole of E13. `lib/report`'s suite declared
+# `test { data: ["test/golden/statement.txt", ...] }`; the runner read those
+# files off disk and handed them to the suite as `Hermetic()`'s `data()`, a
+# linked test binary has no runner to be handed them by, and so `buri test`
+# refused to run this suite natively at all — one build-file field deciding
+# which backend a program was allowed to run on, to hide an answer the two
+# backends disagreed about.
+#
+# The field is retired (`buri docs error retired-test-data`), the suite writes
+# its own filesystem with `fs().files([...])`, and **none of the runs below
+# passes `--output=`**. That is the claim: the invocation decides, the build
+# file does not, and on a toolchain with a native backend these three tests are
+# a linked binary reading an in-memory filesystem the source spelled out.
+#
+# The golden is portable either way, because the report is assembled from the
+# same record on both backends — the fallback for a toolchain that cannot build
+# a test binary is one line on standard *error*, and this case records standard
+# output.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a suite whose filesystem is written in the suite runs on whichever backend the invocation asks for, and reads what it was given"
+
+run {
+  args: ["test", "//lib/report", "--force"]
+  exit: 0
+  golden: "pass.txt"
+  stream: OUT
+}
+
+# And again, from the cache: nothing about a suite's filesystem is a fact about
+# the machine, so a second run is a hit.
+run {
+  args: ["test", "//lib/report"]
+  exit: 0
+  golden: "cached.txt"
+  stream: OUT
+}

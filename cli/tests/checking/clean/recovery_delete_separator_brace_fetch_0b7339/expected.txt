@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-terminator]
-  --> main.buri:66:33
-   |
-66 |     assert.eq(timeout, .Timeout)
-   |                                 ^
-   |
-   = fix: write `;` here

@@ -2,6 +2,7 @@ FAIL //lib/fan  test/fan.buri.buri  "everyOrder reaches the sixth order of three
   assert.isTrue failed
     actual:   false
     expected: true
+  the tasks completed in the order 2, 1, 0, order 6 of 6 — replay it with `tasks().seed(5)`
   --> lib/fan/test/fan.buri:13:1
 FAIL //lib/fan  test/fan.buri.buri  "a fault ends the block at the task it names"
   a task was failed by the plan: task(1): upstream went away

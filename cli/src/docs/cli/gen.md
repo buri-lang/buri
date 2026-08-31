@@ -4,7 +4,7 @@ Rewrites the seven fields that restate the sources of build files that already
 exist — `sources`, `proto_sources`, `dependencies`, `test.sources`,
 `test.dependencies`, `testing.sources` and `testing.dependencies` — from what the source tree
 actually contains and what its modules actually import. Nothing else in the
-file is touched: rules, tags, platforms, visibility, outputs, `test.data`, and
+file is touched: rules, tags, platforms, visibility, outputs, and
 comments survive.
 
 With no target argument it regenerates every package in the repository: bare

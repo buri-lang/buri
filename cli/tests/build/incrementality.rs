@@ -394,11 +394,119 @@ fn editing_a_test_only_dependency_re_runs_the_suite() {
     // two enumerations are checked where the enumeration is.
 }
 
-/// `--filter` and `--accept` are the two modes that must not be served from the
-/// cache: one runs a different subset, and the other exists to write to the
-/// source tree. A cache hit in either would be a silent wrong answer.
+/// A suite that says `tasks().anyOrder()` is cached, and its report is the same
+/// report twice.
+///
+/// This is D-10's decision as a test. `anyOrder()` has to pick *an* order, and
+/// where it picked a fresh one per run the whole scheme would come apart: the
+/// entire test record is what `Cache::put` stores, so a suite that passed under
+/// one order would be remembered as passing and never re-run under another —
+/// the failure a cache has that is not slow but wrong. The seed is therefore
+/// derived from the suite's own action key (`commands/test.rs`'s `seed_of`), and
+/// both halves of that claim are here:
+///
+///   * the **passing** suite is served from the cache on the second run, so
+///     nothing about naming an order made its verdict unrepeatable; and
+///   * the **failing** suite prints the same report, line for line, on two runs
+///     of an unchanged tree — the same order, and the same `seed(...)` to replay
+///     it with. A clock or a generator in that position would make these two
+///     transcripts differ.
+///
+/// Two suites because only a clean run is cached (`may_cache`), and both claims
+/// are about the same mechanism: which order the runner handed the double.
 #[test]
-fn filtering_and_accepting_never_come_from_the_cache() {
+fn an_unchanged_program_schedules_the_same_way_twice_and_is_cached() {
+    let scratch = Scratch::repo("task-order-seed");
+    scratch.write(
+        "lib/fan/BUILD.buri",
+        "library {\n    sources: [\"fan.buri\"]\n    visibility: [\"//...\"]\n\n    test {\n        \
+         sources: [\"test/fan.buri\"]\n    }\n}\n",
+    );
+    scratch.write("lib/fan/lib.buri", "from \"//lib/fan/fan.buri\" export { labelled };\n");
+    scratch.write(
+        "lib/fan/fan.buri",
+        "from \"core/effect/lib.buri\" import { Tasks };\n\n\
+         export fn labelled<C: Tasks>(ctx: C, items: [Int]): [Int] {\n  \
+         ctx.parallel(ctx, items, fn(_c, i, item) => i * 100 + item)\n}\n",
+    );
+    let preamble = "from \"core/effect/lib.buri\" import { Tasks };\n\
+         from \"core/testing/assert/lib.buri\" import * as assert;\n\
+         from \"core/host/testing/lib.buri\" import { tasks };\n\
+         from \"//lib/fan/lib.buri\" import { labelled };\n\n";
+    // Passes whichever order the runner names: the results are the items'.
+    scratch.write(
+        "lib/fan/test/fan.buri",
+        &format!(
+            "{preamble}test \"the results do not depend on the order\" {{\n  \
+             let scheduler = tasks().anyOrder();\n  \
+             let ctx = context {{ Tasks: scheduler }};\n  \
+             assert.eq(labelled(ctx, [1, 2, 3]), [1, 102, 203]);\n}}\n"
+        ),
+    );
+    // Fails whichever order the runner names, and the report says which.
+    scratch.write(
+        "lib/wobble/BUILD.buri",
+        "library {\n    sources: [\"w.buri\"]\n\n    test {\n        sources: \
+         [\"test/w.buri\"]\n        dependencies: [\"//lib/fan\"]\n    }\n}\n",
+    );
+    scratch.write("lib/wobble/lib.buri", "from \"//lib/wobble/w.buri\" export { nothing };\n");
+    scratch.write("lib/wobble/w.buri", "export fn nothing(): Int { 0 }\n");
+    scratch.write(
+        "lib/wobble/test/w.buri",
+        &format!(
+            "{preamble}test \"a failing block names the order it ran in\" {{\n  \
+             let scheduler = tasks().anyOrder();\n  \
+             let ctx = context {{ Tasks: scheduler }};\n  \
+             assert.eq(labelled(ctx, [1, 2, 3]), [0, 0, 0]);\n}}\n"
+        ),
+    );
+
+    let first = scratch.run(&["test", "//...", "--explain"]);
+    first.exits(1);
+    assert_eq!(status(&first, "test //lib/fan"), "run");
+    let report = failures(&first);
+    assert!(
+        report.iter().any(|l| l.contains("replay it with `tasks().seed(")),
+        "a failure under anyOrder did not name a seed:\n{}",
+        indent(&first.all())
+    );
+
+    let again = scratch.run(&["test", "//...", "--explain"]);
+    again.exits(1);
+    assert_eq!(
+        status(&again, "test //lib/fan"),
+        "cached",
+        "an unchanged suite that names an order was re-run:\n{}",
+        indent(&again.all())
+    );
+    assert_eq!(
+        failures(&again),
+        report,
+        "two runs of an unchanged program scheduled it differently:\n{}",
+        indent(&again.all())
+    );
+}
+
+/// The report lines of a run: every `FAIL` and everything indented under it, in
+/// order. The elapsed time in the summary is not one of them.
+fn failures(run: &Run) -> Vec<String> {
+    run.stdout
+        .lines()
+        .skip_while(|l| !l.starts_with("FAIL "))
+        .take_while(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// `--filter` is the mode that must not be served from the cache: it runs a
+/// different subset, and the verdicts of a subset are not the suite's. A cache
+/// hit would be a silent wrong answer.
+///
+/// `--accept` used to be the second half of this. It wrote to the source tree,
+/// which is why it could not be served either; it rewrote the golden files a
+/// suite declared in `test { data }`, and both are retired.
+#[test]
+fn a_filtered_run_never_comes_from_the_cache() {
     let example = Scratch::copy_of("explain-test-modes", &example_repo());
     example.run(&["test", "//lib/store", "--explain"]).ok();
     assert_eq!(status(&example.run(&["test", "//lib/store", "--explain"]), "test //lib/store"), "cached");
@@ -410,15 +518,6 @@ fn filtering_and_accepting_never_come_from_the_cache() {
         "run",
         "a filtered run was served from the cache:\n{}",
         indent(&filtered.all())
-    );
-
-    let accepted = example.run(&["test", "//lib/store", "--explain", "--accept"]);
-    accepted.ok();
-    assert_eq!(
-        status(&accepted, "test //lib/store"),
-        "run",
-        "--accept was served from the cache:\n{}",
-        indent(&accepted.all())
     );
 
     // A filtered run must not leave its partial result behind for the next
@@ -664,17 +763,9 @@ fn a_suite_naming_no_platform_runs_natively_or_says_why_not() {
         indent(&js.all())
     );
 
-    // And `--accept` goes there on its own, whatever the default is: the mode
-    // rewrites a golden file from the two sides of a failed comparison, and
-    // only the JavaScript runner reports them.
-    let accepted = scratch.run(&["test", "//lib/n", "--explain", "--accept"]);
-    accepted.ok();
-    assert_eq!(
-        platform_of(&accepted, "test //lib/n"),
-        "js",
-        "--accept ran somewhere it has no diff to accept from:\n{}",
-        indent(&accepted.all())
-    );
+    // And nothing else sends a suite to JavaScript. `test { data }` did — it
+    // was the one build-file field that overruled the invocation — and it is
+    // retired, so what the flags say is the whole of the answer.
 }
 
 /// A suite the native backend cannot compile is **refused**, and naming a
@@ -694,10 +785,11 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     scratch.write(
         "lib/g/test/g.buri",
         "from \"core/testing/assert/lib.buri\" import * as assert;\n\
-         from \"core/testing/context/lib.buri\" import { Hermetic };\n\
+         from \"core/host/testing/lib.buri\" import { alloc };\n\
+         from \"core/effect/lib.buri\" import { Alloc };\n\
          from \"core/json/lib.buri\" import * as json;\n\
          \ntest \"decodes\" {\n\
-         \x20 let ctx = Hermetic();\n\
+         \x20 let ctx = context { Alloc: alloc() };\n\
          \x20 let parsed = assert.ok(json.parse(ctx, \"1\"));\n\
          \x20 let n: Float = assert.ok(json.decode(ctx, parsed));\n\
          \x20 assert.eq(n, 1.0);\n}\n",

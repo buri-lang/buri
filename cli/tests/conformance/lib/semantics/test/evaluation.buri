@@ -7,8 +7,8 @@
 // sequencing meaningful (SPEC 8.2), so the transcript is the observation.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic, alloc, captureOut, captured, files };
-from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
+from "core/host/testing/lib.buri" import { alloc, stdout, fs, clock };
+from "core/effect/lib.buri" import { Alloc, Stdout, Fs, Clock };
 from "core/fs/lib.buri" import * as fs;
 from "core/time/lib.buri" import * as time;
 from "core/list/lib.buri" import * as list;
@@ -31,20 +31,20 @@ from "//lib/semantics/lib.buri" import {
 // -----------------------------------------------------------------------------
 
 test "a fresh trace starts empty" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(sink.captured(), "");
 }
 
 test "let bindings run top to bottom, before the result expression" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteLets(ctx), 60);
   assert.eq(sink.captured(), "1234");
 }
 
 test "two effectful statements run in the order written" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   note(ctx, "first");
   note(ctx, "second");
@@ -52,7 +52,7 @@ test "two effectful statements run in the order written" {
 }
 
 test "reversing the two statements reverses the transcript" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   note(ctx, "second");
   note(ctx, "first");
@@ -68,7 +68,7 @@ test "each binding is in scope for the remainder of the block" {
 // -----------------------------------------------------------------------------
 
 test "three call arguments are evaluated left to right" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(
     threeInts(noteInt(ctx, "a", 1), noteInt(ctx, "b", 2), noteInt(ctx, "c", 3)),
@@ -78,7 +78,7 @@ test "three call arguments are evaluated left to right" {
 }
 
 test "writing the arguments in a different order changes the transcript" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(
     threeInts(noteInt(ctx, "c", 1), noteInt(ctx, "b", 2), noteInt(ctx, "a", 3)),
@@ -88,7 +88,7 @@ test "writing the arguments in a different order changes the transcript" {
 }
 
 test "four call arguments are evaluated left to right" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(
     fourStrs(
@@ -104,14 +104,14 @@ test "four call arguments are evaluated left to right" {
 }
 
 test "an argument is evaluated before the call it is an argument to" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteInt(ctx, "outer", noteInt(ctx, "inner", 5)), 5);
   assert.eq(sink.captured(), "innerouter");
 }
 
 test "nested calls interleave left to right, innermost first" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let total = threeInts(
     threeInts(noteInt(ctx, "a", 0), noteInt(ctx, "b", 0), noteInt(ctx, "c", 1)),
@@ -127,42 +127,42 @@ test "nested calls interleave left to right, innermost first" {
 // -----------------------------------------------------------------------------
 
 test "the operands of + are evaluated left to right" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteInt(ctx, "l", 1) + noteInt(ctx, "r", 2), 3);
   assert.eq(sink.captured(), "lr");
 }
 
 test "the operands of * are evaluated left to right" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteInt(ctx, "l", 3) * noteInt(ctx, "r", 4), 12);
   assert.eq(sink.captured(), "lr");
 }
 
 test "the operands of - are evaluated left to right" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteInt(ctx, "l", 10) - noteInt(ctx, "r", 4), 6);
   assert.eq(sink.captured(), "lr");
 }
 
 test "the operands of == are evaluated left to right" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isTrue(noteInt(ctx, "l", 1) == noteInt(ctx, "r", 1));
   assert.eq(sink.captured(), "lr");
 }
 
 test "the operands of < are evaluated left to right" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isTrue(noteInt(ctx, "l", 1) < noteInt(ctx, "r", 2));
   assert.eq(sink.captured(), "lr");
 }
 
 test "a chain of + runs left to right across all three operands" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteInt(ctx, "a", 1) + noteInt(ctx, "b", 2) + noteInt(ctx, "c", 3), 6);
   assert.eq(sink.captured(), "abc");
@@ -170,14 +170,14 @@ test "a chain of + runs left to right across all three operands" {
 
 test "precedence does not change evaluation order" {
   // `*` binds tighter than `+`, but the operands still run left to right.
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteInt(ctx, "a", 1) + noteInt(ctx, "b", 2) * noteInt(ctx, "c", 3), 7);
   assert.eq(sink.captured(), "abc");
 }
 
 test "a derived operator on a newtype evaluates its operands left to right" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let total = Meters(noteInt(ctx, "l", 1).toF64()) + Meters(noteInt(ctx, "r", 2).toF64());
   assert.eq(total, Meters(3.0));
@@ -189,21 +189,21 @@ test "a derived operator on a newtype evaluates its operands left to right" {
 // -----------------------------------------------------------------------------
 
 test "&& does not evaluate its right operand when the left is false" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isFalse(noteBool(ctx, "l", false) && noteBool(ctx, "r", true));
   assert.eq(sink.captured(), "l");
 }
 
 test "&& does evaluate its right operand when the left is true" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isTrue(noteBool(ctx, "l", true) && noteBool(ctx, "r", true));
   assert.eq(sink.captured(), "lr");
 }
 
 test "&& stops at the first false in a chain" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isFalse(
     noteBool(ctx, "a", true) && noteBool(ctx, "b", false) && noteBool(ctx, "c", true),
@@ -212,21 +212,21 @@ test "&& stops at the first false in a chain" {
 }
 
 test "|| does not evaluate its right operand when the left is true" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isTrue(noteBool(ctx, "l", true) || noteBool(ctx, "r", false));
   assert.eq(sink.captured(), "l");
 }
 
 test "|| does evaluate its right operand when the left is false" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isTrue(noteBool(ctx, "l", false) || noteBool(ctx, "r", true));
   assert.eq(sink.captured(), "lr");
 }
 
 test "|| stops at the first true in a chain" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isTrue(
     noteBool(ctx, "a", false) || noteBool(ctx, "b", true) || noteBool(ctx, "c", true),
@@ -237,28 +237,28 @@ test "|| stops at the first true in a chain" {
 test "bool.and is eager where && is not" {
   // `and` is an ordinary call, so the receiver and then the argument are both
   // evaluated before it is applied — where `&&` above stopped at "l".
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isFalse(noteBool(ctx, "l", false).and(noteBool(ctx, "r", true)));
   assert.eq(sink.captured(), "lr");
 }
 
 test "?? does not evaluate its right operand when the Option is Some" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteOpt(ctx, "l", Option.Some(1)) ?? noteInt(ctx, "r", 2), 1);
   assert.eq(sink.captured(), "l");
 }
 
 test "?? does evaluate its right operand when the Option is None" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteOpt(ctx, "l", Option.None) ?? noteInt(ctx, "r", 2), 2);
   assert.eq(sink.captured(), "lr");
 }
 
 test "?? does not evaluate its right operand when the Result is Ok" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let r: Result<Int, Str> = .Ok(1);
   assert.eq(noteRes(ctx, "l", r) ?? noteInt(ctx, "r", 2), 1);
@@ -266,7 +266,7 @@ test "?? does not evaluate its right operand when the Result is Ok" {
 }
 
 test "?? does evaluate its right operand when the Result is Err" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let r: Result<Int, Str> = .Err("bad");
   assert.eq(noteRes(ctx, "l", r) ?? noteInt(ctx, "r", 2), 2);
@@ -274,7 +274,7 @@ test "?? does evaluate its right operand when the Result is Err" {
 }
 
 test "?? is right-associative and stops at the first present value" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let value = noteOpt(ctx, "a", Option.None)
     ?? noteOpt(ctx, "b", Option.Some(2))
@@ -286,7 +286,7 @@ test "?? is right-associative and stops at the first present value" {
 test "option.withDefault is eager where ?? is not" {
   // The fallback is an argument, so it is produced whether it is needed or
   // not — where `??` above stopped at "l".
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteOpt(ctx, "l", Option.Some(1)).withDefault(noteInt(ctx, "r", 2)), 1);
   assert.eq(sink.captured(), "lr");
@@ -297,21 +297,21 @@ test "option.withDefault is eager where ?? is not" {
 // -----------------------------------------------------------------------------
 
 test "if evaluates its condition and exactly the taken branch" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteIf(ctx, true), 1);
   assert.eq(sink.captured(), "ct");
 }
 
 test "if evaluates its condition and exactly the other branch" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteIf(ctx, false), 2);
   assert.eq(sink.captured(), "cf");
 }
 
 test "match evaluates its scrutinee, then the first matching arm" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteMatch(ctx, Level.High), 4);
   assert.eq(sink.captured(), "sa4");
@@ -319,14 +319,14 @@ test "match evaluates its scrutinee, then the first matching arm" {
 
 test "a guard runs only when its pattern matched" {
   // `.Low`'s guard is written first, but `.Medium` never reaches it.
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteMatch(ctx, Level.Medium), 3);
   assert.eq(sink.captured(), "sg2a3");
 }
 
 test "a guard that fails moves on to the next arm" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteMatch(ctx, Level.Medium), 3);
   assert.isTrue(sink.captured().contains("g2"));
@@ -334,7 +334,7 @@ test "a guard that fails moves on to the next arm" {
 }
 
 test "a guard that succeeds takes its arm" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.eq(noteMatch(ctx, Level.Low), 1);
   assert.eq(sink.captured(), "sg1a1");
@@ -416,7 +416,7 @@ test "an if branch is a block with its own scope" {
 }
 
 test "a let is evaluated where it is written, not where it is used" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let a = noteInt(ctx, "a", 1);
   note(ctx, "between");
@@ -438,7 +438,7 @@ test "a let is evaluated where it is written, not where it is used" {
 // -----------------------------------------------------------------------------
 
 test "a unit match stands alone as a statement" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   match (1) {
     1 => note(ctx, "one"),
@@ -449,7 +449,7 @@ test "a unit match stands alone as a statement" {
 }
 
 test "a unit if stands alone as a statement" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   if (true) {
     note(ctx, "then");
@@ -461,7 +461,7 @@ test "a unit if stands alone as a statement" {
 }
 
 test "a unit block stands alone as a statement" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   {
     let inner = "in";
@@ -503,23 +503,23 @@ test "a lambda captures the value, not a name to look up later" {
 }
 
 test "a lambda passed to list.map" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].map(ctx, fn(x) => x * 2), [2, 4, 6]);
 }
 
 test "a lambda passed to list.map may change the element type" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3].map(ctx, fn(x) => x > 1), [false, true, true]);
 }
 
 test "a lambda passed to list.map captures a binding" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let factor = 10;
   assert.eq([1, 2, 3].map(ctx, fn(x) => x * factor), [10, 20, 30]);
 }
 
 test "a lambda passed to list.filter" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq([1, 2, 3, 4, 5].filter(ctx, fn(x) => x % 2 == 1), [1, 3, 5]);
 }
 
@@ -528,7 +528,7 @@ test "a lambda passed to list.fold" {
 }
 
 test "a lambda passed to list.sortBy" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     [3, 1, 2].sortBy(ctx, fn(a, b) => if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }),
     [1, 2, 3],
@@ -595,7 +595,7 @@ test "a lambda returning a lambda" {
 // bounded type parameter, and a closure.
 
 test "a lambda may capture a `self` that carries no effect" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(Report { n: 2 }.above(ctx, [1, 2, 3, 4]), [3, 4]);
   assert.eq(Report { n: 9 }.above(ctx, [1, 2, 3, 4]), list.empty<Int>());
 }
@@ -622,7 +622,7 @@ test "a lambda may capture a closure whatever its type parameters are" {
 // -----------------------------------------------------------------------------
 
 test "mapCtx threads the context through" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let out = ["a", "b", "c"].mapCtx(ctx, fn(c, s) => noteStr(c, s, s));
   assert.eq(out, ["a", "b", "c"]);
@@ -630,7 +630,7 @@ test "mapCtx threads the context through" {
 }
 
 test "mapCtx visits the elements in order" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let out = [1, 2, 3].mapCtx(ctx, fn(c, x) => noteInt(c, "x", x * 2));
   assert.eq(out, [2, 4, 6]);
@@ -638,7 +638,7 @@ test "mapCtx visits the elements in order" {
 }
 
 test "filterCtx threads the context through" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let out = [1, 2, 3, 4].filterCtx(ctx, fn(c, x) => noteBool(c, "?", x % 2 == 0));
   assert.eq(out, [2, 4]);
@@ -646,7 +646,7 @@ test "filterCtx threads the context through" {
 }
 
 test "foldCtx threads the context through" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let total = [1, 2, 3].foldCtx(ctx, fn(c, acc, x) => acc + noteInt(c, "+", x), 0);
   assert.eq(total, 6);
@@ -654,7 +654,7 @@ test "foldCtx threads the context through" {
 }
 
 test "result.andThenCtx runs the continuation on Ok" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let r: Result<Int, Str> = .Ok(2);
   let out = r.andThenCtx(ctx, fn(c, v) => {
@@ -666,7 +666,7 @@ test "result.andThenCtx runs the continuation on Ok" {
 }
 
 test "result.andThenCtx skips the continuation on Err" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let r: Result<Int, Str> = .Err("bad");
   let out = r.andThenCtx(ctx, fn(c, v) => {
@@ -678,7 +678,7 @@ test "result.andThenCtx skips the continuation on Err" {
 }
 
 test "result.mapErrCtx runs the mapper on Err only" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let bad: Result<Int, Str> = .Err("no");
   let good: Result<Int, Str> = .Ok(1);
@@ -689,7 +689,7 @@ test "result.mapErrCtx runs the mapper on Err only" {
 }
 
 test "result.mapCtx runs the function on Ok only" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let good: Result<Int, Str> = .Ok(3);
   let bad: Result<Int, Str> = .Err("no");
@@ -772,7 +772,7 @@ test "(x?) ?? y is try-then-coalesce, written with the parentheses" {
 // -----------------------------------------------------------------------------
 
 test "&& skips a statement-shaped right operand when the left is false" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isFalse(
     noteBool(ctx, "l", false) && match (noteInt(ctx, "r", 1)) { 1 => true, _ => false },
@@ -781,7 +781,7 @@ test "&& skips a statement-shaped right operand when the left is false" {
 }
 
 test "&& runs a statement-shaped right operand when the left is true" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isTrue(
     noteBool(ctx, "l", true) && match (noteInt(ctx, "r", 1)) { 1 => true, _ => false },
@@ -790,7 +790,7 @@ test "&& runs a statement-shaped right operand when the left is true" {
 }
 
 test "|| skips a statement-shaped right operand when the left is true" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isTrue(
     noteBool(ctx, "l", true) || match (noteInt(ctx, "r", 0)) { 0 => true, _ => false },
@@ -799,7 +799,7 @@ test "|| skips a statement-shaped right operand when the left is true" {
 }
 
 test "|| runs a statement-shaped right operand when the left is false" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   assert.isTrue(
     noteBool(ctx, "l", false) || match (noteInt(ctx, "r", 0)) { 0 => true, _ => false },
@@ -808,7 +808,7 @@ test "|| runs a statement-shaped right operand when the left is false" {
 }
 
 test "?? skips a statement-shaped default when the value is present" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let got = noteOpt(ctx, "l", .Some(7))
     ?? match (noteInt(ctx, "r", 9)) { 9 => 99, other => other };
@@ -817,7 +817,7 @@ test "?? skips a statement-shaped default when the value is present" {
 }
 
 test "?? runs a statement-shaped default when the value is absent" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let got = noteOpt(ctx, "l", .None)
     ?? match (noteInt(ctx, "r", 9)) { 9 => 99, other => other };
@@ -830,7 +830,7 @@ test "?? runs a statement-shaped default when the value is absent" {
 // -----------------------------------------------------------------------------
 
 test "`?` inside a lambda returns from the lambda, not from its enclosing function" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let firstPlusOne = fn(ys: [Int]): Option<Int> => {
     let h = ys.get(0)?;
@@ -848,12 +848,12 @@ test "`?` inside a lambda returns from the lambda, not from its enclosing functi
 // -----------------------------------------------------------------------------
 
 context Inherited {
-  ..Hermetic(),
+  ..context { Clock: clock() },
 }
 
 context InheritedWithFile {
-  ..Hermetic(),
-  Fs: files([("spread.txt", "kept")]),
+  ..context { Alloc: alloc(), Clock: clock() },
+  Fs: fs().files([("spread.txt", "kept")]),
 }
 
 test "an effect a spread supplies can actually be called" {
