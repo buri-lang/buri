@@ -59,6 +59,31 @@
 //! resumed one take the same path**, which is one code path fewer to be wrong
 //! in and the reason `prepare` builds the frame the switch would have written.
 //!
+//! ### 2.1 One frame per ABI, and both of them are even
+//!
+//! What the two blocks save is neither the same set nor the same size — AAPCS64
+//! has twenty words of it, SysV six registers and a return address — so the
+//! layout is **per architecture and independently correct** rather than one
+//! number with a footnote. [`FRAMES`] is both of them, compiled into every
+//! build so that a case on either machine checks the other's arithmetic and
+//! reads the other's assembly, and each block states the same numbers in `.set`
+//! constants its own instructions are written in terms of.
+//!
+//! Both frames are an **even** number of words, and on x86-64 that costs a
+//! reserved word: six callee-saved registers plus the return address is seven,
+//! and a seven-word frame has one aligned end and one misaligned one. Which end
+//! is misaligned is not a free choice — the high end is the caller's stack
+//! pointer and the low end is what a suspended task *is* — so the frame carries
+//! a zero word at its base and both of its ends are sixteen-byte aligned.
+//!
+//! That is the shape of the mistake this file has already made once. The frame
+//! was one constant, it was twenty on AArch64 and seven on x86-64, and the case
+//! that says a frame is a whole number of pairs was written on the machine
+//! where it happened to be true. The second machine was a stack pointer eight
+//! bytes out under every frame a task ran, and nothing on the first one could
+//! see it — which is why both frames are now in every build and every case
+//! below runs over both.
+//!
 //! ## 3. Why hand-written, and why three of them
 //!
 //! `swapcontext` itself is refused for three reasons and each is on its own
@@ -114,29 +139,50 @@ unsafe extern "C" {
     pub(crate) fn buri_rt_task_launch();
 }
 
-/// How many words of the saved frame belong to the callee-saved set.
+/// The saved frame's shape, in words, for one of the two machine ABIs.
 ///
-/// AArch64: `x19`–`x28`, `x29`, `x30`, then `d8`–`d15`, which is twenty words
-/// and a 16-byte-aligned 160-byte frame. x86-64 SysV: `r15`, `r14`, `r13`,
-/// `r12`, `rbx`, `rbp` and the return address `ret` will take, which is seven.
-#[cfg(target_arch = "aarch64")]
-pub(crate) const FRAME_WORDS: usize = 20;
-#[cfg(target_arch = "x86_64")]
-pub(crate) const FRAME_WORDS: usize = 7;
+/// `words` is the **whole** frame: every callee-saved register the block
+/// writes, the address its `ret` will take, and any word that exists only to
+/// keep the count even. `arg` and `ret` are the two words [`prepare`] writes
+/// and the assembly reads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Frame {
+    /// The frame's size in machine words. **Always even** — see §2.1.
+    pub(crate) words: usize,
+    /// Where the argument sits: the first callee-saved register, which
+    /// [`buri_rt_task_launch`] moves into the first argument register.
+    pub(crate) arg: usize,
+    /// Where the address the switch's `ret` will take sits.
+    pub(crate) ret: usize,
+}
 
-/// Where the argument sits in the saved frame — the first callee-saved
-/// register, which [`buri_rt_task_launch`] moves into the first argument
-/// register.
-#[cfg(target_arch = "aarch64")]
-const ARG_WORD: usize = 0; // x19
-#[cfg(target_arch = "x86_64")]
-const ARG_WORD: usize = 4; // rbx
+/// The frame each ABI's block builds, AArch64 first.
+///
+/// **Both are compiled into every build**, host or not, so that the cases below
+/// check the arithmetic of a machine this one is not and read the assembly of a
+/// block this one never compiles. `HOST` picks the row the rest of the module
+/// is written against; nothing else indexes this.
+pub(crate) const FRAMES: [Frame; 2] = [
+    // AAPCS64: `x19`–`x28`, `x29`, `x30`, then `d8`–`d15`. Twenty words, a
+    // 160-byte frame of ten pairs, the argument in `x19` at its base and the
+    // link register the eleventh word.
+    Frame { words: 20, arg: 0, ret: 11 },
+    // x86-64 SysV: a reserved word, `r15`, `r14`, `r13`, `r12`, `rbx`, `rbp`
+    // and the return address `ret` will take. The six registers and the return
+    // address are seven, which is odd, and the reserved word at the base is
+    // what makes the frame a whole number of pairs — `switch_linux_x86_64.s`'s
+    // header draws the layout.
+    Frame { words: 8, arg: 5, ret: 7 },
+];
 
-/// Where the address the switch's `ret` will take sits.
+/// Which row of [`FRAMES`] this build's assembly is.
 #[cfg(target_arch = "aarch64")]
-const RETURN_WORD: usize = 11; // x30, the link register
+const HOST: usize = 0;
 #[cfg(target_arch = "x86_64")]
-const RETURN_WORD: usize = 6; // the return address itself
+const HOST: usize = 1;
+
+/// The frame the block compiled into *this* binary builds.
+pub(crate) const FRAME: Frame = FRAMES[HOST];
 
 /// Build the frame a never-yet-run task is resumed from, and answer the stack
 /// pointer that names it.
@@ -149,19 +195,22 @@ const RETURN_WORD: usize = 6; // the return address itself
 /// The frame is **zeroed apart from the two words that matter**, and the frame
 /// pointer's word is one of the zeroes: a debugger or a profiler that walks
 /// frames off a task stack stops at its base rather than wandering into
-/// whatever the previous tenant left.
+/// whatever the previous tenant left. Where the layout has a reserved word
+/// (§2.1, x86-64) that is a zero too, and the assembly writes it zero on the
+/// way out for the same reason: a word nothing reads is a word nothing should
+/// be able to read something *out of*.
 ///
 /// # Safety
-/// `[top - FRAME_WORDS * 8, top)` is writable and is not the live part of any
+/// `[top - FRAME.words * 8, top)` is writable and is not the live part of any
 /// other stack.
 pub(crate) unsafe fn prepare(top: *mut u8, arg: *mut u8) -> *mut u8 {
     debug_assert!((top as usize).is_multiple_of(16), "a task stack top must be 16-byte aligned");
-    let sp = top.wrapping_sub(FRAME_WORDS * size_of::<usize>()).cast::<usize>();
+    let sp = top.wrapping_sub(FRAME.words * size_of::<usize>()).cast::<usize>();
     // SAFETY: the caller promises the range is writable and unshared.
     unsafe {
-        sp.write_bytes(0, FRAME_WORDS);
-        sp.add(ARG_WORD).write(arg as usize);
-        sp.add(RETURN_WORD).write(buri_rt_task_launch as *const () as usize);
+        sp.write_bytes(0, FRAME.words);
+        sp.add(FRAME.arg).write(arg as usize);
+        sp.add(FRAME.ret).write(buri_rt_task_launch as *const () as usize);
     }
     sp.cast()
 }
@@ -180,7 +229,7 @@ pub(crate) unsafe fn prepare(top: *mut u8, arg: *mut u8) -> *mut u8 {
 pub(crate) unsafe fn plant_return(sp: *mut u8, target: *const ()) {
     // SAFETY: the caller's promise; the word is inside the frame `prepare`
     // wrote.
-    unsafe { sp.cast::<usize>().add(RETURN_WORD).write(target as usize) };
+    unsafe { sp.cast::<usize>().add(FRAME.ret).write(target as usize) };
 }
 
 #[cfg(test)]
@@ -201,6 +250,103 @@ mod tests {
     static SUM: AtomicU64 = AtomicU64::new(0);
     /// Where the probe's own frame was, read back to prove it was the block.
     static WAS: AtomicUsize = AtomicUsize::new(0);
+
+    /// The three blocks and the frame each of them builds.
+    ///
+    /// `include_str!` rather than a read at run time, for the reason
+    /// `cli/tests/native/runtime.rs` gives where it does the same: the case is
+    /// a statement about the files this runtime was **built** from, and a path
+    /// read at run time would pass against a tree the archive does not carry.
+    const BLOCKS: [(&str, &str, Frame, &[&str]); 3] = [
+        ("switch_macos_arm64.s", include_str!("switch_macos_arm64.s"), FRAMES[0], AAPCS64),
+        ("switch_linux_arm64.s", include_str!("switch_linux_arm64.s"), FRAMES[0], AAPCS64),
+        ("switch_linux_x86_64.s", include_str!("switch_linux_x86_64.s"), FRAMES[1], SYSV64),
+    ];
+
+    /// AAPCS64 §6.1.1: the ten general registers, the frame pointer, the link
+    /// register, and the **low 64 bits** of the eight vector registers.
+    const AAPCS64: &[&str] = &[
+        "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27", "x28", "x29", "x30", "d8",
+        "d9", "d10", "d11", "d12", "d13", "d14", "d15",
+    ];
+
+    /// x86-64 SysV §3.2.1, figure 3.4: six general registers and not one vector
+    /// register. `rsp` is the thing being switched and is not in the set.
+    const SYSV64: &[&str] = &["rbx", "rbp", "r12", "r13", "r14", "r15"];
+
+    /// One register and the frame slot a block moves it through, as the two
+    /// appear in the file.
+    type Move = (String, String);
+
+    /// Every [`Move`] a block's `buri_rt_task_switch` writes to its own stack,
+    /// and every one it reads back, in the order they appear.
+    ///
+    /// The slot is the operand's **text** rather than a number, because the
+    /// text is what the two halves have to agree about: `.set`-derived on both
+    /// architectures, so a save at one offset and a restore at another is two
+    /// strings that differ. `mov [rdi], rsp` and `mov rsp, rsi` are the switch
+    /// itself and address no slot of this frame; the pad's `mov qword ptr …, 0`
+    /// stores an immediate rather than a register and is not one either.
+    fn saves_and_restores(source: &str) -> (Vec<Move>, Vec<Move>) {
+        let (mut saves, mut restores) = (Vec::new(), Vec::new());
+        for line in source.lines().map(str::trim) {
+            if line.starts_with("//") {
+                continue;
+            }
+            let Some((op, rest)) = line.split_once(char::is_whitespace) else { continue };
+            let rest = rest.trim();
+            match op {
+                // AArch64: `stp x19, x20, [sp, #(…)]`, and the halves of a pair
+                // are one word apart whatever the expression says.
+                "stp" | "ldp" => {
+                    let mut parts = rest.splitn(3, ',');
+                    let low = parts.next().unwrap_or_default().trim();
+                    let high = parts.next().unwrap_or_default().trim();
+                    let slot = parts.next().unwrap_or_default().trim();
+                    let into = if op == "stp" { &mut saves } else { &mut restores };
+                    into.push((low.to_string(), format!("{slot} low half")));
+                    into.push((high.to_string(), format!("{slot} high half")));
+                }
+                // x86-64: `mov [rsp + …], r15` one way and `mov r15, [rsp + …]`
+                // the other.
+                "mov" => {
+                    let Some((lhs, rhs)) = rest.split_once(',') else { continue };
+                    let (lhs, rhs) = (lhs.trim(), rhs.trim());
+                    if lhs.starts_with("[rsp") {
+                        saves.push((rhs.to_string(), lhs.to_string()));
+                    } else if rhs.starts_with("[rsp") {
+                        restores.push((lhs.to_string(), rhs.to_string()));
+                    }
+                }
+                _ => {}
+            }
+        }
+        (saves, restores)
+    }
+
+    /// The block this build's `global_asm!` included.
+    const fn host_block() -> &'static str {
+        if cfg!(target_arch = "x86_64") {
+            "switch_linux_x86_64.s"
+        } else if cfg!(target_os = "macos") {
+            "switch_macos_arm64.s"
+        } else {
+            "switch_linux_arm64.s"
+        }
+    }
+
+    /// The value of one `.set BURI_RT_…` line of a block.
+    fn setting(source: &str, file: &str, name: &str) -> usize {
+        let head = format!(".set {name},");
+        let line = source
+            .lines()
+            .map(str::trim)
+            .find(|l| l.starts_with(&head))
+            .unwrap_or_else(|| panic!("{file} has no `{head}` line"));
+        let rest = line.get(head.len()..).unwrap_or_default().trim();
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        digits.parse().unwrap_or_else(|_| panic!("{file}'s `{head}` is not a number: {rest}"))
+    }
 
     /// Reached by the switch's own `ret`, on a stack this thread has never
     /// run on. It aborts rather than panicking on any surprise: an unwind out
@@ -281,14 +427,175 @@ mod tests {
         assert!(!home.is_null(), "this thread's context was not saved on the way in");
     }
 
-    /// The frame is a whole number of 16-byte pairs, which both ABIs require
-    /// of a stack pointer at every instruction boundary.
+    /// **Every** saved frame is a whole number of 16-byte pairs, which both
+    /// ABIs require of a stack pointer at every instruction boundary.
+    ///
+    /// Over both rows of [`FRAMES`] rather than over the host's, because the
+    /// frame that was wrong was the one the machine running this case did not
+    /// use: a seven-word x86-64 frame passed here on every AArch64 host in the
+    /// world and was eight bytes out on the first machine that ran it.
     #[test]
     fn the_saved_frame_keeps_the_stack_aligned() {
-        assert!((FRAME_WORDS * size_of::<usize>()).is_multiple_of(16));
-        assert!(ARG_WORD < FRAME_WORDS);
-        assert!(RETURN_WORD < FRAME_WORDS);
-        assert_ne!(ARG_WORD, RETURN_WORD);
+        assert_eq!(size_of::<usize>(), 8, "every block here is written for a 64-bit word");
+        for (file, _, frame, _) in BLOCKS {
+            let bytes = frame.words * 8;
+            assert!(
+                bytes.is_multiple_of(16),
+                "{file}: a {}-word frame is {bytes} bytes, which is not a whole number of \
+                 16-byte pairs — one of its two ends cannot be aligned",
+                frame.words,
+            );
+            assert!(frame.arg < frame.words, "{file}: the argument word is outside the frame");
+            assert!(frame.ret < frame.words, "{file}: the return word is outside the frame");
+            assert_ne!(
+                frame.arg, frame.ret,
+                "{file}: the argument and the return address are the same word",
+            );
+        }
+    }
+
+    /// **The assembly and [`FRAMES`] are one layout.**
+    ///
+    /// Each block states its frame in `.set` constants and writes its own
+    /// instructions in terms of them; this reads those constants back out of
+    /// all three files and holds the Rust side to them. Two of the three are
+    /// never compiled by anything a given host runs — `cli/build.rs` builds the
+    /// archive for the host triple alone — so on an AArch64 machine this case
+    /// is the whole of what stands between the x86-64 block and a `prepare`
+    /// that builds a frame that block does not restore.
+    ///
+    /// Three things per block: the constants agree with the row, the block
+    /// **uses** each of them somewhere that is not the `.set` line itself (a
+    /// constant the instructions never mention is a comment with a colon in
+    /// it), and — for the one block this build actually included — the module's
+    /// own [`FRAME`] is that block's.
+    #[test]
+    fn the_blocks_build_the_frame_this_module_writes() {
+        for (file, source, frame, _) in BLOCKS {
+            for (name, want) in [
+                ("BURI_RT_FRAME_WORDS", frame.words),
+                ("BURI_RT_ARG_WORD", frame.arg),
+                ("BURI_RT_RETURN_WORD", frame.ret),
+            ] {
+                assert_eq!(
+                    setting(source, file, name),
+                    want,
+                    "{file}'s `{name}` and `switch::FRAMES` disagree",
+                );
+                let uses = source
+                    .lines()
+                    .map(str::trim)
+                    .filter(|l| !l.starts_with("//") && !l.starts_with(".set") && l.contains(name))
+                    .count();
+                assert!(uses > 0, "{file} states `{name}` and never uses it");
+            }
+        }
+
+        let host = host_block();
+        let (file, source, ..) = BLOCKS
+            .into_iter()
+            .find(|(f, ..)| *f == host)
+            .unwrap_or_else(|| panic!("no row for {host}"));
+        assert_eq!(setting(source, file, "BURI_RT_FRAME_WORDS"), FRAME.words);
+        assert_eq!(setting(source, file, "BURI_RT_ARG_WORD"), FRAME.arg);
+        assert_eq!(setting(source, file, "BURI_RT_RETURN_WORD"), FRAME.ret);
+    }
+
+    /// **Each block saves exactly its ABI's callee-saved set, and restores
+    /// exactly what it saved.**
+    ///
+    /// The cases above are about the frame's *size*; this one is about what is
+    /// in it. Six words of the right length holding the wrong six registers
+    /// corrupt every caller and satisfy every other assertion in this file, and
+    /// a block that saves `d12` and forgets to restore it is the same fault by
+    /// half.
+    ///
+    /// It is a case about the text of the three files rather than a round trip
+    /// through the running one, and deliberately: two of the three are never
+    /// compiled on any given host, a round trip can only fail on the machine it
+    /// is run on, and — the reason that decided it — a round trip cannot say
+    /// *which* register was dropped without naming registers in a fourth block
+    /// of assembly. What makes it readable is that an offset is *text* either
+    /// way — a `.set` expression on the words the Rust side names, a literal on
+    /// the rest — so a save at one offset and a restore from another are two
+    /// strings that differ.
+    #[test]
+    fn every_block_saves_and_restores_its_abis_callee_saved_set() {
+        for (file, source, _, callee_saved) in BLOCKS {
+            let (saves, restores) = saves_and_restores(source);
+            assert_eq!(
+                saves, restores,
+                "{file} does not restore what it saves: a register saved at one slot and \
+                 restored from another, or not restored at all",
+            );
+            let mut registers: Vec<&str> = saves.iter().map(|(r, _)| r.as_str()).collect();
+            registers.sort_unstable();
+            let mut want: Vec<&str> = callee_saved.to_vec();
+            want.sort_unstable();
+            assert_eq!(
+                registers, want,
+                "{file} does not save its ABI's callee-saved set: a register missing from the \
+                 left is one the switch loses, and one missing from the right is work nobody \
+                 asked for",
+            );
+        }
+    }
+
+    /// **A saved context is a stack pointer the ABI would accept**, which is
+    /// sixteen-byte aligned.
+    ///
+    /// This is the running statement of what the frame arithmetic is *for*, and
+    /// it is the case the seven-word x86-64 frame failed: a frame of an odd
+    /// number of words cannot have both of its ends aligned, and the end it
+    /// gave up was the one a suspended task is named by. Every frame the
+    /// runtime pushes above a context restored from it was then eight bytes
+    /// out, which on x86-64 is a `movaps` away from a fault and on AArch64 is
+    /// the fault itself.
+    ///
+    /// Three pointers, and each is a different way of making one: `there` is
+    /// [`prepare`]'s, from nothing; `home` is the switch's own, saved on the way
+    /// out of this thread; `away` is the switch's again, saved on a stack that
+    /// had never been run on.
+    #[test]
+    fn a_saved_context_is_a_stack_pointer_the_abi_would_accept() {
+        let _one = ONE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let block = vec![0u8; 256 * 1024];
+        let top = ((block.as_ptr() as usize + block.len()) & !15usize) as *mut u8;
+        // SAFETY: the top of a live 256 KiB block, aligned down, and no other
+        // stack is anywhere near it.
+        let there = unsafe { prepare(top, std::ptr::null_mut()) };
+        // SAFETY: the return word of a frame nothing is running.
+        unsafe { plant_return(there, probe as *const ()) };
+
+        let mut home: *mut u8 = std::ptr::null_mut();
+        let mut away: *mut u8 = std::ptr::null_mut();
+        HOME.store((&raw mut home) as usize, Ordering::SeqCst);
+        AWAY.store((&raw mut away) as usize, Ordering::SeqCst);
+        SUM.store(0, Ordering::SeqCst);
+        WAS.store(0, Ordering::SeqCst);
+
+        // SAFETY: `home` is this thread's own word, and `there` is the frame
+        // just built, which nothing else is running.
+        unsafe { buri_rt_task_switch(&raw mut home, there) };
+        assert_eq!(SUM.load(Ordering::SeqCst), (0..512u64).sum(), "the far frame did not run");
+
+        for (what, sp) in [("prepare's", there), ("the switch's own", home), ("the far stack's", away)]
+        {
+            assert!(
+                (sp as usize).is_multiple_of(16),
+                "{what} saved stack pointer is {sp:?}, which is not 16-byte aligned: the frame \
+                 above it is {} words and one of a frame's two ends is the other's alignment",
+                FRAME.words,
+            );
+        }
+
+        // The word the layout calls the return address is one: a context whose
+        // `ret` would take a zero is a frame `prepare` built and the switch
+        // never wrote through.
+        // SAFETY: `home` is a frame the switch just saved, so its `FRAME.words`
+        // words are written and this thread owns them.
+        let returns_to = unsafe { home.cast::<usize>().add(FRAME.ret).read() };
+        assert_ne!(returns_to, 0, "the saved frame's return word is empty");
     }
 
     /// `prepare` writes two words and zeroes the rest, and the two are where
@@ -299,15 +606,16 @@ mod tests {
         let top = ((block.as_ptr() as usize + block.len()) & !15usize) as *mut u8;
         // SAFETY: the top of a live block.
         let sp = unsafe { prepare(top, 0x1234_5678 as *mut u8) };
-        // SAFETY: `FRAME_WORDS` words were just written there.
-        let words: Vec<usize> = (0..FRAME_WORDS).map(|i| unsafe { sp.cast::<usize>().add(i).read() }).collect();
-        assert_eq!(words[ARG_WORD], 0x1234_5678);
-        assert_eq!(words[RETURN_WORD], buri_rt_task_launch as *const () as usize);
+        // SAFETY: `FRAME.words` words were just written there.
+        let words: Vec<usize> =
+            (0..FRAME.words).map(|i| unsafe { sp.cast::<usize>().add(i).read() }).collect();
+        assert_eq!(words[FRAME.arg], 0x1234_5678);
+        assert_eq!(words[FRAME.ret], buri_rt_task_launch as *const () as usize);
         for (i, w) in words.iter().enumerate() {
-            if i != ARG_WORD && i != RETURN_WORD {
+            if i != FRAME.arg && i != FRAME.ret {
                 assert_eq!(*w, 0, "word {i} of a prepared frame was not zeroed");
             }
         }
-        assert_eq!(top as usize - sp as usize, FRAME_WORDS * size_of::<usize>());
+        assert_eq!(top as usize - sp as usize, FRAME.words * size_of::<usize>());
     }
 }
