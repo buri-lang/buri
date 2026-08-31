@@ -323,6 +323,22 @@
 //! these are the defined model, and the same program produces the same numbers
 //! from `runtime.js`'s `$alloc_*`.
 //!
+//! ## 5.2 The scope, which *is* allocation
+//!
+//! Five more, and they are the one exception to the paragraph above:
+//! [`buri_rt_alloc_arena_create`], [`buri_rt_alloc_arena_allocate`],
+//! [`buri_rt_alloc_arena_release`], [`buri_rt_alloc_arena_count`] and
+//! [`buri_rt_alloc_arena_total`] are `core/alloc`'s `scoped`, and an arena really
+//! maps the bytes it is charged and really `munmap`s them when the scope ends.
+//! Its charges are the same defined numbers `runtime.js` produces; its *pages*
+//! have no counterpart there and need none, because no program can ask about
+//! them. [`buri_rt_heap_stats`]'s `arena_bytes` and `arena_released_bytes` are
+//! how a test does.
+//!
+//! **No Buri value is inside an arena**, and `memory.rs`'s G4 section is where
+//! that is argued rather than asserted: `allocate` answers a `Region`, which
+//! carries the charge and not an address, so the bulk release cannot dangle.
+//!
 //! ## 6. Startup and shutdown, which the generated entry point owns
 //!
 //! Two calls the emitted `main` must make, two it may, and the whole of what it
