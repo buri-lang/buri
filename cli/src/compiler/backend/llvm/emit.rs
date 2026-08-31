@@ -5194,6 +5194,34 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_int_compare(IntPredicate::EQ, rc, word.const_int(1, false), "cat.one")
             .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        // === G3 begin: a marked block is never unique =======================
+        // `buri_rt_unique_cap`'s second half, open-coded here for the same
+        // reason the first half is: this is the only uniqueness probe either
+        // backend does not route through that function. A block another
+        // carrier may reach fails the test whatever its count says, because
+        // `rc == 1` read off a *borrowed* reference is a number every carrier
+        // reads at once — see `buri_rt_unique_cap`'s doc.
+        //
+        // It costs an `and`, a compare and an `and`, on the word the room test
+        // above had already loaded — and it costs them in **every** program,
+        // not only the ones that mark, because the emitter does not know which
+        // kind it is in. That is the right place for the ignorance: whether a
+        // block is marked is a run-time fact about the block, so the probe asks
+        // the block. Three instructions on a probe that already branches twice
+        // and calls `memmove` is not where this operation's time goes.
+        let unmarked = self
+            .builder
+            .build_int_compare(
+                IntPredicate::EQ,
+                self.builder
+                    .build_and(cap_raw, word.const_int(CAP_SHARED_FLAG, false), "cat.mark")
+                    .unwrap_or(cap_raw),
+                word.const_zero(),
+                "cat.unmarked",
+            )
+            .unwrap_or_else(|_| self.ctx.bool_type().const_zero());
+        let is_one = self.builder.build_and(is_one, unmarked, "cat.sole").unwrap_or(is_one);
+        // === G3 end =========================================================
         let _ = self.builder.build_unconditional_branch(check);
 
         self.builder.position_at_end(check);
@@ -7874,6 +7902,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
+    /// `buri_rt_values_may_cross_tasks()`, in both emitted entry points, and
+    /// **only** for a program `middle::rc::crosses_tasks` says can reach a
+    /// task boundary.
+    ///
+    /// It goes immediately after `buri_rt_argv_init` and before anything else,
+    /// because the latch it sets decides the header of every block allocated
+    /// *after* it and nothing about the ones before. `argv_init` builds no Buri
+    /// block — it keeps the arguments as Rust strings and mints a `[Str]` only
+    /// when a program asks for one — so "after `argv_init`" and "before the
+    /// first block" are the same position, and `runtime::VALUES_MAY_CROSS_TASKS`
+    /// is where the rest of the contract is written down.
+    fn declare_values_may_cross_tasks(&mut self) {
+        if !self.program.crosses_tasks {
+            return;
+        }
+        let f = self.declare_rt(runtime::VALUES_MAY_CROSS_TASKS, &[], None);
+        if let Ok(call) = self.builder.build_call(f, &[], "") {
+            attrs::set_call_convention(call, attrs::C);
+        }
+    }
+
     /// `int main(int, char**)`, the calls `cli/runtime/lib.rs` §6 names, and
     /// SPEC's `Result<(), Str>` contract.
     ///
@@ -7985,6 +8034,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 attrs::set_call_convention(call, attrs::C);
             }
         }
+        self.declare_values_may_cross_tasks();
         self.declare_frames_are_per_carrier();
 
         let Ok(call) = self.builder.build_call(callee, &[], "r") else { return };
@@ -8105,6 +8155,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 attrs::set_call_convention(call, attrs::C);
             }
         }
+        self.declare_values_may_cross_tasks();
         self.declare_frames_are_per_carrier();
         let word = self.ctx.i64_type();
         for (i, test) in tests.iter().enumerate() {
@@ -8726,7 +8777,12 @@ mod cycles {
                 }
             })
             .collect();
-        ir::Program { funcs, units: vec![String::from("main")], types: Vec::new() }
+        ir::Program {
+            funcs,
+            units: vec![String::from("main")],
+            types: Vec::new(),
+            crosses_tasks: false,
+        }
     }
 
     /// A chain ends. A function that calls itself does not, and neither does

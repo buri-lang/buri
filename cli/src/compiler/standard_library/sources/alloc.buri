@@ -1,13 +1,20 @@
-//! core/alloc — the three counting implementations of `Alloc`.
+//! core/alloc — the counting implementations of `Alloc`, and the scope.
 //!
 //! `core/host` implements `Alloc` the only way a platform can: `allocate`
 //! hands back the bytes it was asked for, nothing counts, and no request is
-//! ever refused. These three count, and one of them refuses.
+//! ever refused. The three below count, and one of them refuses.
 //!
 //! They are budgets and accounting policies over the one real allocator rather
-//! than three allocators (`design/native/MEMORY.md` §7.2). Nothing here
+//! than three allocators (`design/native/MEMORY.md` §7.2). None of the three
 //! reserves memory, and swapping one for another changes what a program is
 //! *told*, never where a value lives.
+//!
+//! `scoped` and `Scoped<C>` at the end of this file are the fourth thing, and
+//! the one that is not only accounting: a scope's arena reserves the bytes it
+//! is charged and gives their pages back when the scope returns. What is and
+//! is not inside one is stated on `scoped` itself, because the answer is
+//! narrower than the word "arena" suggests and a reader should meet it at the
+//! function rather than infer it.
 //!
 //! ## The charge is defined, not measured
 //!
@@ -88,7 +95,10 @@
 //! 32 of 64 left
 //! ```
 
-from "core/effect/lib.buri" import { Alloc, Region };
+from "core/effect/lib.buri" import {
+  Alloc, Clock, Env, Fs, Listen, Net, Proc, Rand, Sockets, Stderr, Stdin, Stdout, Tasks,
+  IoError, NetError, Region, Request, Response,
+};
 
 // --- The cost model, as arithmetic --------------------------------------------
 //
@@ -206,12 +216,17 @@ impl GeneralPurpose {
 /// What it is for meanwhile is *attribution*: an arena per phase answers
 /// "how much did parsing charge?" without the caller subtracting two totals.
 ///
-/// What would make it real is a language feature rather than a backend one — a
-/// **scoped context**, bounding a context's lifetime so that everything
-/// allocated under it is unreachable at the end of the scope. That is a
-/// proposal against SPEC 10, and naming it here is how the gap stays a known
-/// one instead of being filled with a bulk free that cannot be sound
-/// (MEMORY.md §4, §7.2).
+/// **`scoped` at the end of this file is the other half**, and it is the one
+/// that has a scope to end at. This type is an attribution *policy* a program
+/// carries around; that one is a *bounded region of the program's execution*,
+/// and it reserves and releases pages because it knows when it is over. Reach
+/// for this one to answer "how much did parsing charge?" and for `scoped` to
+/// put a bound on a request.
+///
+/// What is still missing from both is the same thing, and it is named on
+/// `scoped`: the values built inside a scope are on the reference-counted heap
+/// rather than in the arena, because the copy-out glue that would make a bulk
+/// free of *values* sound does not exist yet (MEMORY.md §4, §7.2).
 export struct Arena {
   handle: I64,
 }
@@ -284,5 +299,279 @@ impl FixedBuffer {
   /// make it negative aborts instead.
   export fn remaining(self): Int {
     self.budget - total(self.handle)
+  }
+}
+
+// --- Scoped, and the scope it belongs to ---------------------------------------
+
+/// A fresh arena, and its handle.
+fn arenaCreate(): I64;
+
+/// Reserves `bytes` from the arena and answers them.
+fn arenaAllocate(handle: I64, bytes: Int): Int;
+
+/// Gives every page the arena took back to the platform, and answers how many
+/// bytes that was.
+fn arenaRelease(handle: I64): Int;
+
+/// How many charges this arena has taken.
+fn arenaCount(handle: I64): Int;
+
+/// How many bytes this arena has taken.
+fn arenaTotal(handle: I64): Int;
+
+/// **An attenuating wrapper whose `Alloc` is a scope's own arena and whose
+/// every other effect is the wrapped context's.**
+///
+/// `ReadOnly<C>` in `core/testing/context` is the shape, and the two rules that
+/// make it expressible are the same ones:
+///
+///   * **the type parameter carries no bound**, so a `Scoped<C>` is not
+///     effect-carrying *by mention* of its field (SPEC 10.2) and the struct
+///     can be declared at all;
+///   * **the arena is an opaque `I64`**, so the second field is a handle rather
+///     than a second capability.
+///
+/// What it satisfies it satisfies **conditionally**: `Scoped<C>` is an `Fs`
+/// only where `C` is one, a `Clock` only where `C` is one, and so on for every
+/// effect the platform declares. There are no blanket implementations in this
+/// language and no delegation, so each of those is written out below, once. A
+/// new effect in `core/effect` is a new block here, and a `Scoped` that quietly
+/// dropped it would be a context that lost an ability on the way into a scope
+/// — which the compiler would report at the call, but only after somebody
+/// wrote it.
+///
+/// **`Alloc` is the one that does not forward**, and it is the whole point of
+/// the type. See `scoped` below.
+export struct Scoped<C>(C, I64);
+
+/// **Runs `body` with a context whose allocator is a fresh arena, and releases
+/// the arena's pages when it returns.**
+///
+/// ```text
+/// alloc.scoped(ctx, fn(c) => handle(c, request))
+/// ```
+///
+/// `ctx` must already grant `Alloc`: a scope **narrows** what an allocation is
+/// charged to and never widens what the callee may do, so entering one cannot
+/// be a way to obtain the effect. Everything else `ctx` grants passes through
+/// unchanged — the body prints on the same stdout, reads the same filesystem
+/// and fans out onto the same tasks.
+///
+/// ## What is actually in the arena today, and what is not
+///
+/// **Charges, and the pages they reserve. Not values.** `c.allocate(n)` inside
+/// the scope reserves `n` bytes from the arena — a real anonymous mapping,
+/// bump-allocated, and `munmap`ed in bulk when `body` returns — and charges
+/// them to the arena rather than to `ctx`, so the caller's own allocator's
+/// totals do not move. That divergence is the observable difference between a
+/// `Scoped<C>` and the `C` inside it, and it is what `stats` below reports.
+///
+/// A `[Str]` the body builds, on the other hand, is on the ordinary
+/// reference-counted heap and is freed when its last reference goes, exactly
+/// as it was outside the scope. The native ABI drops the context argument from
+/// every runtime call, so the operation that builds a list never learns which
+/// allocator asked for it — the same gap this module's header states about the
+/// cost model's list, string and closure rows, and this function does not
+/// close it.
+///
+/// **That is why the release is unconditional and sound.** `allocate` answers
+/// a `Region`, which carries the charge and not an address, so the language
+/// has no way to name a byte of an arena; nothing that survives the scope can
+/// be pointing into one. When the copy-out glue lands — a deep copy of the
+/// return value, of a message sent to an actor, of a `Reply.answer`, of a
+/// socket send — values can be served from the arena too, and the copy at the
+/// boundary is what will keep the bulk free sound for them. Until then a scope
+/// is a real reservation with a real bulk release and an allocator of its own,
+/// and it is **not** yet a lifetime for the values built inside it.
+///
+/// ## The handle dies with the scope
+///
+/// `body`'s return type is an unbounded `T`, so a body may hand its
+/// `Scoped<C>` back out. Allocating through one afterwards charges nothing and
+/// reserves nothing: the arena's handle is retired when this returns, and a
+/// retired handle matches no arena. It is a number that stops moving, never a
+/// use of memory that has been given back.
+export fn scoped<C: Alloc, T>(ctx: C, body: fn(Scoped<C>) => T): T {
+  let handle = arenaCreate();
+  let out = body(Scoped(ctx, handle));
+  let _ = arenaRelease(handle);
+  out
+}
+
+impl<C> Scoped<C> {
+  /// Everything charged to **this scope's** arena. A sibling scope's charges
+  /// are not here, and neither are the wrapped context's.
+  export fn stats(self): Stats {
+    Stats { allocations: arenaCount(self.1), bytes: arenaTotal(self.1) }
+  }
+}
+
+// The one implementation that does not forward.
+//
+// No bound on `C`: the arena is this wrapper's own, so a `Scoped<C>` allocates
+// whether or not the `C` it holds can. `scoped` is where the authority is
+// checked, once, and it requires `C: Alloc` there.
+impl<C> Alloc for Scoped<C> {
+  fn allocate(self, bytes: Int): Region {
+    Region(arenaAllocate(self.1, bytes))
+  }
+}
+
+// Everything below here forwards, and says nothing else.
+
+impl<C: Stdout> Stdout for Scoped<C> {
+  fn print(self, text: Template): () {
+    self.0.print(text)
+  }
+  fn println(self, text: Template): () {
+    self.0.println(text)
+  }
+  fn writeBytes(self, b: [U8]): () {
+    self.0.writeBytes(b)
+  }
+}
+
+impl<C: Stderr> Stderr for Scoped<C> {
+  fn eprint(self, text: Template): () {
+    self.0.eprint(text)
+  }
+  fn eprintln(self, text: Template): () {
+    self.0.eprintln(text)
+  }
+}
+
+impl<C: Stdin> Stdin for Scoped<C> {
+  fn readLine(self): Option<Str> {
+    self.0.readLine()
+  }
+  fn readBytes(self, n: Int): Option<[U8]> {
+    self.0.readBytes(n)
+  }
+}
+
+impl<C: Fs> Fs for Scoped<C> {
+  fn readFile(self, path: Str): Result<Str, IoError> {
+    self.0.readFile(path)
+  }
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
+    self.0.writeFile(path, body)
+  }
+  fn fileExists(self, path: Str): Bool {
+    self.0.fileExists(path)
+  }
+  fn readDir(self, path: Str): Result<[Str], IoError> {
+    self.0.readDir(path)
+  }
+  fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+    self.0.readFileBytes(path)
+  }
+  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+    self.0.writeFileBytes(path, body)
+  }
+  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+    self.0.appendFile(path, body)
+  }
+  fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+    self.0.renameFile(source, destination)
+  }
+  fn removeFile(self, path: Str): Result<(), IoError> {
+    self.0.removeFile(path)
+  }
+  fn makeDir(self, path: Str): Result<(), IoError> {
+    self.0.makeDir(path)
+  }
+  fn syncFile(self, path: Str): Result<(), IoError> {
+    self.0.syncFile(path)
+  }
+}
+
+impl<C: Net> Net for Scoped<C> {
+  fn fetch(self, request: Request): Result<Response, NetError> {
+    self.0.fetch(request)
+  }
+}
+
+impl<C: Clock> Clock for Scoped<C> {
+  fn nowMillis(self): I64 {
+    self.0.nowMillis()
+  }
+  fn sleepMillis(self, millis: Int): () {
+    self.0.sleepMillis(millis)
+  }
+}
+
+impl<C: Rand> Rand for Scoped<C> {
+  fn nextInt(self, lo: Int, hi: Int): Int {
+    self.0.nextInt(lo, hi)
+  }
+  fn nextFloat(self): Float {
+    self.0.nextFloat()
+  }
+}
+
+impl<C: Env> Env for Scoped<C> {
+  fn variable(self, name: Str): Option<Str> {
+    self.0.variable(name)
+  }
+  fn args(self): [Str] {
+    self.0.args()
+  }
+}
+
+impl<C: Proc> Proc for Scoped<C> {
+  fn exitWith(self, code: Int): () {
+    self.0.exitWith(code)
+  }
+}
+
+// The step is handed `ctx` — the caller's whole context — and not `self`, so
+// what a task receives here is whatever the caller passed and **not** this
+// wrapper. A scope inside a task is the task's own `alloc.scoped` call.
+impl<C: Tasks> Tasks for Scoped<C> {
+  fn parallel<X, A, B>(self, ctx: X, items: [A], f: fn(X, Int, A) => B): [B] {
+    self.0.parallel(ctx, items, f)
+  }
+}
+
+// `Listen.listen` hands its handler `Self`, which here is `Scoped<C>` and
+// inside is `C` — so this is the one forward that is not a call with the same
+// arguments. The handler is wrapped rather than passed: the acceptor hands the
+// inner context out, and this puts the scope back around it, so a handler
+// written against `Scoped<C>` sees the type it was written for. The arena is
+// read into a local first, because a lambda may not capture an effect-carrying
+// value and `self` is one; an `I64` is ordinary data.
+//
+// **Known gap, and it is the backend's rather than this wrapper's.** Under the
+// frame-threaded native backend, an acceptor that *invokes* a handler rebuilt
+// this way faults. Forwarding is fine and a refusal comes back correctly; it
+// is entering the rebuilt handler that does not, and the same fault reproduces
+// with a hand-written wrapper and no `core/alloc` in the program at all, so
+// nothing here can fix it. `core/effect` says `listen` gains a `ctx: C` the
+// day a platform grants the effect, at which point `onRequest` becomes
+// `fn(C, Request) => Response` and this body becomes an ordinary forward with
+// no lambda in it — so the shape that faults is one the language is already
+// on its way to not needing.
+impl<C: Listen> Listen for Scoped<C> {
+  fn listen(
+    self,
+    address: Str,
+    port: Int,
+    onRequest: fn(Scoped<C>, Request) => Response,
+  ): Result<(), NetError> {
+    let arena = self.1;
+    self.0.listen(address, port, fn(c, request) => onRequest(Scoped(c, arena), request))
+  }
+}
+
+impl<C: Sockets> Sockets for Scoped<C> {
+  fn socketSendText(self, socket: Int, text: Str): () {
+    self.0.socketSendText(socket, text)
+  }
+  fn socketSendBytes(self, socket: Int, body: [U8]): () {
+    self.0.socketSendBytes(socket, body)
+  }
+  fn socketClose(self, socket: Int, code: Int, reason: Str): () {
+    self.0.socketClose(socket, code, reason)
   }
 }

@@ -1216,6 +1216,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "data/patterns.buri",
     "data/strings.buri",
     "memory/allocators.buri",
+    "memory/scoped.buri",
     "numbers/bits.buri",
     "numbers/integers.buri",
     "proto/binary.buri",

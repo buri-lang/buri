@@ -272,6 +272,30 @@ builds its own allocator has been granted nothing.
 - **`Arena`** — a separate counter, and nothing more than a counter. It does
   not free in bulk, and it says so.
 
+`core/alloc` also has the **scope**:
+
+```buri
+from "core/alloc/lib.buri" import * as alloc;
+from "core/effect/lib.buri" import { Alloc, Fs };
+
+fn inAScope<C: Alloc + Fs>(ctx: C, path: Str): Bool {
+  alloc.scoped(ctx, fn(c) => c.fileExists(path))
+}
+```
+
+`scoped(ctx, body)` runs `body` with a `Scoped<C>` — an attenuating wrapper
+that forwards every effect `ctx` grants and replaces one. Its `Alloc` is the
+scope's own arena, so a charge inside reserves from that arena and the caller's
+allocator's totals do not move; when `body` returns, the arena's pages go back
+to the platform. Everything else is unchanged: the body prints on the same
+stdout, reads the same files and fans out onto the same tasks.
+
+What it does **not** yet do is hold the values built inside it — a `[Str]` a
+scope builds is on the ordinary reference-counted heap and is freed when its
+last reference goes. So a scope today is a bounded reservation with an
+allocator of its own, not a lifetime; scope a request, and do not expect it to
+free a list.
+
 What an allocator is told about is narrower than what the cost model defines,
 identically on both backends: **every `allocate(ctx, n)`, and nothing else.**
 The charge for an operation is *defined* rather than measured — a `Str` of *n*
@@ -286,9 +310,11 @@ and reported to no allocator. The model is written down beside `Alloc` in
   *i* of `T`, at `T`'s *i*-th field type" needs dependent or row types, and
   [`SPEC.md` §5.5](../SPEC.md) has no records. Write the two-field
   struct yourself; on the JavaScript backend that is all a library would do.
-- **Bulk reclamation — a real `Arena`.** The type is here and its counter is
-  real; the bulk free is not. It needs a language feature that bounds a
-  context's lifetime, which does not exist yet.
+- **Bulk reclamation of *values*.** `scoped` bounds a context's lifetime and
+  releases the arena's pages, so the reservation half is here; the values built
+  inside a scope are still on the reference-counted heap. Freeing those in bulk
+  needs a deep copy at the scope's boundary, so that what leaves a scope does
+  not point into it.
 - **Automatic accounting of the list and string rows.** Stated above: the cost
   model defines them and no allocator is told about them.
 

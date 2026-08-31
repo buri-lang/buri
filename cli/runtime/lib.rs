@@ -323,14 +323,31 @@
 //! these are the defined model, and the same program produces the same numbers
 //! from `runtime.js`'s `$alloc_*`.
 //!
+//! ## 5.2 The scope, which *is* allocation
+//!
+//! Five more, and they are the one exception to the paragraph above:
+//! [`buri_rt_alloc_arena_create`], [`buri_rt_alloc_arena_allocate`],
+//! [`buri_rt_alloc_arena_release`], [`buri_rt_alloc_arena_count`] and
+//! [`buri_rt_alloc_arena_total`] are `core/alloc`'s `scoped`, and an arena really
+//! maps the bytes it is charged and really `munmap`s them when the scope ends.
+//! Its charges are the same defined numbers `runtime.js` produces; its *pages*
+//! have no counterpart there and need none, because no program can ask about
+//! them. [`buri_rt_heap_stats`]'s `arena_bytes` and `arena_released_bytes` are
+//! how a test does.
+//!
+//! **No Buri value is inside an arena**, and `memory.rs`'s G4 section is where
+//! that is argued rather than asserted: `allocate` answers a `Region`, which
+//! carries the charge and not an address, so the bulk release cannot dangle.
+//!
 //! ## 6. Startup and shutdown, which the generated entry point owns
 //!
-//! Two calls the emitted `main` must make, one it may, and the whole of what it
+//! Two calls the emitted `main` must make, two it may, and the whole of what it
 //! must know:
 //!
 //! ```c
 //! int main(int argc, char** argv) {
 //!     buri_rt_argv_init(argc, argv);        /* first statement */
+//!     buri_rt_values_may_cross_tasks();     /* if they may — before any block */
 //!     buri_rt_frames_are_per_carrier();     /* if, and only if, they are */
 //!     ...                                   /* the program */
 //!     buri_rt_flush();                      /* before every return path */
@@ -352,6 +369,20 @@
 //! old behaviour — `Tasks.parallel` then runs its steps one at a time — so an
 //! entry point that forgets it is slow and not wrong. Its doc comment says
 //! which backend says it and why the other cannot yet.
+//!
+//! [`memory::buri_rt_values_may_cross_tasks`] is the artifact's *other*
+//! statement about itself, and it is a different fact rather than the same one
+//! twice: this one says whether a block this program allocates can come to be
+//! reachable from a second carrier, which `middle::rc::crosses_tasks` answers
+//! for the whole program, and **both** native backends make it for exactly the
+//! programs it is true of. Its effect is that every block carries
+//! `middle::layout::CAP_SHARED_FLAG`, so every reference operation takes the
+//! atomic arm and no in-place write fires on a borrowed value. Saying nothing
+//! is again the safe answer — `Tasks.parallel` refuses to fan out unless it has
+//! been said — so an entry point that forgets *this* one is also slow and not
+//! wrong. The one thing it must get right is the **order**: it comes before
+//! anything that allocates, which is why it sits next to `argv_init`, and
+//! `argv_init` itself builds no Buri block.
 //!
 //! [`buri_rt_flush`] is required. Standard output and standard error are
 //! **buffered**, exactly as `$host` buffers them on JavaScript
@@ -445,6 +476,12 @@ mod rng;
 /// reactor to hold and nothing here compiles.
 #[cfg(feature = "net")]
 pub mod rt;
+/// The machine-stack switch `rt.rs` suspends a task with: three hand-written
+/// `(arch, os)` blocks behind one `buri_rt_task_switch`. Behind `net` because
+/// the scheduler that calls it is, and because a runtime with no tasks has
+/// nothing to switch.
+#[cfg(feature = "net")]
+mod switch;
 mod testing;
 mod text;
 /// TLS for `http`'s `https://` half. Behind the `net` feature because it *is*
@@ -492,8 +529,12 @@ static FRAMES_PER_CARRIER: std::sync::atomic::AtomicBool =
 /// answers is "where does a Buri frame live", and a program has one answer.
 ///
 /// * The **LLVM** backend calls it. A Buri frame there is a machine frame —
-///   `alloca`s in an ordinary function — so a carrier's 512 KiB thread stack is
-///   its own and two tasks may be in flight at once.
+///   `alloca`s in an ordinary function — so the stack a task runs on is its
+///   own and two tasks may be in flight at once. Since B9 that stack is one
+///   this runtime maps, `memory::BURI_RT_STACK_BYTES` wide with a guard, so
+///   the depth a task may recurse to is the same number on both backends;
+///   before it, it was a carrier's 512 KiB thread stack, which is the
+///   asymmetry `reports/wave6-b7b8.md` §5.2 recorded.
 /// * The **frame-threaded** backend does not, and must not until each carrier
 ///   owns a Buri stack (track B, B7). Today a program has exactly one, the
 ///   `buri$stencil$stack` block its `main` guards, and an entry thunk works in a

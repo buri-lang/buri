@@ -172,7 +172,12 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
         });
     }
 
-    ir::Program { funcs, units: units.names, types: types.list }
+    ir::Program {
+        funcs,
+        units: units.names,
+        types: types.list,
+        crosses_tasks: plan.crosses_tasks,
+    }
 }
 
 /// What a backend may assume, from the plan where there is one.
@@ -2218,7 +2223,7 @@ export fn step(n: Int): Int {
             .position(|f| f.debug_name.ends_with(":keep"))
             .expect("the function is in the program");
 
-        let mut plan = rc::Plan { funcs: Vec::new() };
+        let mut plan = rc::Plan { funcs: Vec::new(), crosses_tasks: false };
         for (i, f) in program.funcs.iter().enumerate() {
             let params = vec![Ownership::Own; f.params.len()];
             let sites = if i == target {

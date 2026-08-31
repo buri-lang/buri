@@ -322,7 +322,10 @@ fn assemble(runtime: &Path, out_dir: &Path) -> PathBuf {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|e| e == "rs") {
+        // `.s` as well as `.rs` since B9: `cli/runtime/switch.rs` reaches its
+        // three hand-written blocks through `include_str!`, which resolves
+        // against the assembled package rather than against `cli/runtime/`.
+        if path.extension().is_some_and(|e| e == "rs" || e == "s") {
             let name = entry.file_name().to_string_lossy().to_string();
             copy_if_different(&path, &pkg.join(&name));
             wanted.push(name);

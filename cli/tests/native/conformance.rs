@@ -243,6 +243,21 @@ const PACKAGES: &[Case] = &[
     // identical integers. A backend that disagreed would be wrong, not
     // merely different.
     included("memory/allocators.buri"),
+    // `core/alloc`'s scope, on the same terms: every effect forwarding through
+    // a `Scoped<C>` and `Alloc` not forwarding are both claims about *who was
+    // charged*, which is the defined model and so the same integers here as on
+    // the JavaScript side. The arena's pages are the other half of the slice
+    // and are asserted where they are visible — `cli/runtime/memory.rs`'s own
+    // cases, through `buri_rt_heap_stats`.
+    //
+    // **One call is missing from that file, and this backend is why.** An
+    // acceptor that *invokes* a handler a wrapper rebuilt faults here — see the
+    // comment beside its `Listen` cases, which carries the minimal repro. It
+    // reproduces with a hand-written wrapper and no `core/alloc` at all, so it
+    // is not a fact about scopes and the file is in the set rather than out of
+    // it; what the file does instead is exercise the forward's refusal path,
+    // which this backend gets right.
+    included("memory/scoped.buri"),
     // It was excluded for `list.fold` until the backend grew the loop
     // over a closure, and
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what

@@ -26,7 +26,9 @@ use std::sync::OnceLock;
 pub const ALLOC_PROBE: &str = r#"
 #include <stdio.h>
 #include <stdint.h>
-typedef struct { uint64_t live_blocks, live_bytes, total_blocks, total_bytes; } Stats;
+typedef struct { uint64_t live_blocks, live_bytes, total_blocks, total_bytes,
+                          retained_bytes, decommitted_bytes,
+                          arena_bytes, arena_released_bytes; } Stats;
 extern void buri_rt_heap_stats(Stats *out);
 __attribute__((destructor)) static void buri_probe(void) {
   Stats s; buri_rt_heap_stats(&s);
