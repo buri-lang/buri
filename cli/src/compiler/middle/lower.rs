@@ -326,7 +326,7 @@ impl Types {
     ///
     /// ```text
     /// let r = match (o) { .Some(v) => "s${v}", .None => "n" };
-    /// stdout.println(r)
+    /// io.println(ctx, r).ignore()
     /// ```
     ///
     /// `Prim::Str | Prim::Template` is already one arm everywhere below this —

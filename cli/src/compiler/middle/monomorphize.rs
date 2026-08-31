@@ -861,7 +861,11 @@ impl<'a> Monomorphizer<'a> {
     /// implementation.** `ctx.listen(.., fn(server, ..) => server.bindsTo)` on
     /// a `context` value is checked with `implementing_ty` and never reaches
     /// here, so a handler may still read a field of the acceptor exactly where
-    /// the acceptor's type is in view.
+    /// the acceptor's type is in view. That is now the standard library's and
+    /// an effect `impl`'s spelling only — everywhere else an effect is reached
+    /// by handing the context to a function (SPEC 10.2), so `core/net/server`'s
+    /// generic body is what every program's `listen` goes through and this
+    /// adaptation is what every program's handler depends on.
     ///
     /// **A callback meant to receive the caller's context is not spelled
     /// `Self` and never reaches this.** `Tasks.parallel` takes `ctx: C` beside
@@ -2108,8 +2112,8 @@ mod tests {
     }
 
     /// Shape one: neither the `impl` nor the method is generic. Every `impl`
-    /// in `core/host` is this — `impl Fs for HostFs`, called as
-    /// `ctx.readFile(p)`.
+    /// in `core/host` is this — `impl Fs for HostFs`, reached as
+    /// `fs.readText(ctx, p)` and dispatched on `ctx`.
     #[test]
     fn a_plain_impl_of_a_plain_method_instantiates_at_nothing() {
         let host_fs = con(10, vec![]);
