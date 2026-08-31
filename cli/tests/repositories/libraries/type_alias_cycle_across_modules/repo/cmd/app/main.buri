@@ -6,13 +6,17 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
-
-from "//lib/units" import { Depth, Height, Sounding, reading, deepest, metres };
+from "//lib/units" import { deepest, Depth, Height, metres, reading, Sounding };
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let low: Depth = reading(3.0);
-  let high: Height = reading(4.0);
-  let deep: Sounding = deepest(low, high);
-  io.println(ctx, str.format(ctx, "${metres(deep)}")).mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let low: Depth = reading(3.0);
+    let high: Height = reading(4.0);
+    let deep: Sounding = deepest(low, high);
+    io
+        .println(ctx, str.format(ctx, "${metres(deep)}"))
+        .mapErr(fn(_e) => "could not write to standard output")
 }

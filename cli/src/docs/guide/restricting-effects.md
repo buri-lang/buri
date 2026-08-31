@@ -9,15 +9,20 @@ bounds omit:
 # from "core/fs" import * as fs;
 # from "core/host" import * as host;
 # from "core/io" import * as io;
+
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
-  let _ = io.println(ctx, msg).ignore();
-  let _f = fs.readText(ctx, "/etc/passwd");  // ERROR: `C` does not satisfy `Fs`
+    let _ = io.println(ctx, msg).ignore();
+    let _f = fs.readText(ctx, "/etc/passwd"); // ERROR: `C` does not satisfy `Fs`
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
-  let _ = logOnly(ctx, "starting");    // same value, confined by its bound
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Fs: host.fs,
+    };
+    let _ = logOnly(ctx, "starting"); // same value, confined by its bound
+    .Ok(())
 }
 ```
 

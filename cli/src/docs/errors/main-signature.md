@@ -22,6 +22,6 @@ site to infer a type argument from and nothing to pass an argument in.
 
 ```buri fail code=main-signature
 export fn main<T>(): Result<(), Str> {
-  .Ok(())
+    .Ok(())
 }
 ```

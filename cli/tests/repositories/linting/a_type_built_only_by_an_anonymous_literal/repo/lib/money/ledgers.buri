@@ -14,9 +14,9 @@
 from "//lib/money/stamps.buri" import { Stamp };
 
 fn stamp(): Stamp {
-  { mark: "wax", note: "unread" }
+    { mark: "wax", note: "unread" }
 }
 
 export fn wax(): Str {
-  stamp().mark
+    stamp().mark
 }

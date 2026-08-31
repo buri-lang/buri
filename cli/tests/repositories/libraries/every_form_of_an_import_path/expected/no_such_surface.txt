@@ -25,10 +25,10 @@ error: "//lib/money/notes/lib.buri" names no file (lib/money/notes/lib.buri) [mo
     it.
 
 error: there is no type `Cents` [unresolved-type]
- --> cmd/app/routes.buri:6:10
+ --> cmd/app/routes.buri:6:12
   |
-6 |   let c: Cents = fromCents(1905);
-  |          ^^^^^
+6 |     let c: Cents = fromCents(1905);
+  |            ^^^^^
   |
   = fix: declare it, import it, or correct the spelling
 
@@ -45,10 +45,10 @@ error: there is no type `Cents` [unresolved-type]
     type that happens to fit.
 
 error: there is nothing named `fromCents` in scope [unresolved-name]
- --> cmd/app/routes.buri:6:18
+ --> cmd/app/routes.buri:6:20
   |
-6 |   let c: Cents = fromCents(1905);
-  |                  ^^^^^^^^^
+6 |     let c: Cents = fromCents(1905);
+  |                    ^^^^^^^^^
   |
   = fix: declare `fromCents`, or import it — a name is in scope only from this module's own declarations and its imports
 

@@ -27,20 +27,23 @@
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
-//! from "core/json" import { Json };
 //! from "core/json" import * as json;
+//! from "core/json" import { Json };
 //!
 //! export fn main(): Result<(), Str> {
-//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-//!   let doc = match (json.parse(ctx, "{\"name\":\"buri\",\"tags\":[\"a\",\"b\"]}")) {
-//!     .Ok(v) => v,
-//!     .Err(_e) => Json.Null,
-//!   };
-//!   let name = doc.get("name").andThen(fn(v) => v.asStr()).withDefault("?");
-//!   // Key order is preserved, which is why an object is an association list
-//!   // here rather than a map.
-//!   let _ = io.println(ctx, "${name}: ${json.stringify(ctx, doc)}").ignore();
-//!   .Ok(())
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let doc = match (json.parse(ctx, "{\"name\":\"buri\",\"tags\":[\"a\",\"b\"]}")) {
+//!         .Ok(v) => v,
+//!         .Err(_e) => Json.Null,
+//!     };
+//!     let name = doc.get("name").andThen(fn(v) => v.asStr()).withDefault("?");
+//!     // Key order is preserved, which is why an object is an association list
+//!     // here rather than a map.
+//!     let _ = io.println(ctx, "${name}: ${json.stringify(ctx, doc)}").ignore();
+//!     .Ok(())
 //! }
 //! ```
 //!
@@ -53,39 +56,37 @@ from "core/effect" import { Alloc };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
+derive Eq, Show for Json;
 /// A JSON value.
 export enum Json {
-  Null,
-  Bool(Bool),
-  Num(Float),
-  Str(Str),
-  Array([Json]),
-  /// Key and value, in the order they were written.
-  Object([(Str, Json)]),
-}
-
-derive Eq, Show for Json;
-
-/// What went wrong, and where. The position is an index into the characters of
-/// the input, so it is the same number whatever the encoding of the source.
-export enum JsonError {
-  /// A character that cannot begin, continue, or end what was being read.
-  Unexpected(Int),
-  /// The input ran out mid-value.
-  Unterminated,
-  /// A complete value, and then more text.
-  Trailing(Int),
-  /// A number the grammar admits but the runtime cannot represent.
-  BadNumber(Int),
-  /// A `\` followed by something that is not an escape.
-  BadEscape(Int),
-  /// Nesting past `MAX_DEPTH`. Parsing is recursive and recursion here is not
-  /// in tail position, so without this a deep enough document is a crash
-  /// rather than an error.
-  TooDeep(Int),
+    Null,
+    Bool(Bool),
+    Num(Float),
+    Str(Str),
+    Array([Json]),
+    /// Key and value, in the order they were written.
+    Object([(Str, Json)]),
 }
 
 derive Eq, Show for JsonError;
+/// What went wrong, and where. The position is an index into the characters of
+/// the input, so it is the same number whatever the encoding of the source.
+export enum JsonError {
+    /// A character that cannot begin, continue, or end what was being read.
+    Unexpected(Int),
+    /// The input ran out mid-value.
+    Unterminated,
+    /// A complete value, and then more text.
+    Trailing(Int),
+    /// A number the grammar admits but the runtime cannot represent.
+    BadNumber(Int),
+    /// A `\` followed by something that is not an escape.
+    BadEscape(Int),
+    /// Nesting past `MAX_DEPTH`. Parsing is recursive and recursion here is not
+    /// in tail position, so without this a deep enough document is a crash
+    /// rather than an error.
+    TooDeep(Int),
+}
 
 /// How deeply arrays and objects may nest.
 ///
@@ -103,79 +104,88 @@ export let MAX_DEPTH: Int = 512;
 /// Trailing text is an error rather than a stopping point: a caller who asked
 /// for one value and got one value and a half should hear about it.
 export fn parse<C: Alloc>(ctx: C, text: Str): Result<Json, JsonError> {
-  let cs = text.chars(ctx);
-  let start = skipSpace(cs, 0);
-  let (v, next) = value(ctx, cs, start, 0)?;
-  let end = skipSpace(cs, next);
-  if (end < cs.len()) {
-    .Err(.Trailing(end))
-  } else {
-    .Ok(v)
-  }
+    let cs = text.chars(ctx);
+    let start = skipSpace(cs, 0);
+    let (v, next) = value(ctx, cs, start, 0)?;
+    let end = skipSpace(cs, next);
+    if (end < cs.len()) { .Err(.Trailing(end)) } else { .Ok(v) }
 }
 
 /// Whitespace, of which JSON admits exactly four characters.
 fn skipSpace(cs: [Char], i: Int): Int {
-  match (cs.get(i)) {
-    .Some(c) => if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-      skipSpace(cs, i + 1)
-    } else {
-      i
-    },
-    .None => i,
-  }
+    match (cs.get(i)) {
+        .Some(c) => {
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                skipSpace(cs, i + 1)
+            } else {
+                i
+            }
+        },
+        .None => i,
+    }
 }
 
 /// One value, and the index just past it.
-fn value<C: Alloc>(ctx: C, cs: [Char], i: Int, depth: Int): Result<(Json, Int), JsonError> {
-  if (depth > MAX_DEPTH) {
-    .Err(.TooDeep(i))
-  } else {
-    match (cs.get(i)) {
-      .None => .Err(.Unterminated),
-      .Some(c) => if (c == 'n') {
-        keyword(cs, i, "null", Json.Null)
-      } else if (c == 't') {
-        keyword(cs, i, "true", Json.Bool(true))
-      } else if (c == 'f') {
-        keyword(cs, i, "false", Json.Bool(false))
-      } else if (c == '"') {
-        match (string(ctx, cs, i)) {
-          .Ok((s, next)) => .Ok((Json.Str(s), next)),
-          .Err(e) => .Err(e),
+fn value<C: Alloc>(
+    ctx: C,
+    cs: [Char],
+    i: Int,
+    depth: Int,
+): Result<(Json, Int), JsonError> {
+    if (depth > MAX_DEPTH) {
+        .Err(.TooDeep(i))
+    } else {
+        match (cs.get(i)) {
+            .None => .Err(.Unterminated),
+            .Some(c) => {
+                if (c == 'n') {
+                    keyword(cs, i, "null", Json.Null)
+                } else if (c == 't') {
+                    keyword(cs, i, "true", Json.Bool(true))
+                } else if (c == 'f') {
+                    keyword(cs, i, "false", Json.Bool(false))
+                } else if (c == '"') {
+                    match (string(ctx, cs, i)) {
+                        .Ok((s, next)) => .Ok((Json.Str(s), next)),
+                        .Err(e) => .Err(e),
+                    }
+                } else if (c == '[') {
+                    array(ctx, cs, skipSpace(cs, i + 1), depth, list.empty<Json>())
+                } else if (c == '{') {
+                    object(
+                        ctx,
+                        cs,
+                        skipSpace(cs, i + 1),
+                        depth,
+                        list.empty<(Str, Json)>(),
+                    )
+                } else if (c == '-' || c.isDigit()) {
+                    number(ctx, cs, i)
+                } else {
+                    .Err(.Unexpected(i))
+                }
+            },
         }
-      } else if (c == '[') {
-        array(ctx, cs, skipSpace(cs, i + 1), depth, list.empty<Json>())
-      } else if (c == '{') {
-        object(ctx, cs, skipSpace(cs, i + 1), depth, list.empty<(Str, Json)>())
-      } else if (c == '-' || c.isDigit()) {
-        number(ctx, cs, i)
-      } else {
-        .Err(.Unexpected(i))
-      },
     }
-  }
 }
 
 /// `null`, `true`, `false` — each is its own spelling and nothing else.
 fn keyword(cs: [Char], i: Int, word: Str, v: Json): Result<(Json, Int), JsonError> {
-  let n = word.len();
-  if (matches(cs, i, word, 0, n)) {
-    .Ok((v, i + n))
-  } else {
-    .Err(.Unexpected(i))
-  }
+    let n = word.len();
+    if (matches(cs, i, word, 0, n)) { .Ok((v, i + n)) } else { .Err(.Unexpected(i)) }
 }
 
 fn matches(cs: [Char], i: Int, word: Str, k: Int, n: Int): Bool {
-  if (k >= n) {
-    true
-  } else {
-    match ((cs.get(i + k), word.charAt(k))) {
-      (.Some(a), .Some(b)) => if (a == b) { matches(cs, i, word, k + 1, n) } else { false },
-      _ => false,
+    if (k >= n) {
+        true
+    } else {
+        match ((cs.get(i + k), word.charAt(k))) {
+            (.Some(a), .Some(b)) => {
+                if (a == b) { matches(cs, i, word, k + 1, n) } else { false }
+            },
+            _ => false,
+        }
     }
-  }
 }
 
 // --- Arrays and objects -------------------------------------------------------
@@ -186,213 +196,229 @@ fn matches(cs: [Char], i: Int, word: Str, k: Int, n: Int): Bool {
 // exists.
 
 fn array<C: Alloc>(
-  ctx: C,
-  cs: [Char],
-  i: Int,
-  depth: Int,
-  acc: [Json],
+    ctx: C,
+    cs: [Char],
+    i: Int,
+    depth: Int,
+    acc: [Json],
 ): Result<(Json, Int), JsonError> {
-  match (cs.get(i)) {
-    .None => .Err(.Unterminated),
-    .Some(c) => if (c == ']' && acc.len() == 0) {
-      .Ok((Json.Array(acc), i + 1))
-    } else {
-      let (v, after) = value(ctx, cs, i, depth + 1)?;
-      let next = skipSpace(cs, after);
-      let items = acc.push(ctx, v);
-      match (cs.get(next)) {
-        .Some(',') => array(ctx, cs, skipSpace(cs, next + 1), depth, items),
-        .Some(']') => .Ok((Json.Array(items), next + 1)),
-        .Some(_) => .Err(.Unexpected(next)),
+    match (cs.get(i)) {
         .None => .Err(.Unterminated),
-      }
-    },
-  }
+        .Some(c) => {
+            if (c == ']' && acc.len() == 0) {
+                .Ok((Json.Array(acc), i + 1))
+            } else {
+                let (v, after) = value(ctx, cs, i, depth + 1)?;
+                let next = skipSpace(cs, after);
+                let items = acc.push(ctx, v);
+                match (cs.get(next)) {
+                    .Some(',') => array(ctx, cs, skipSpace(cs, next + 1), depth, items),
+                    .Some(']') => .Ok((Json.Array(items), next + 1)),
+                    .Some(_) => .Err(.Unexpected(next)),
+                    .None => .Err(.Unterminated),
+                }
+            }
+        },
+    }
 }
 
 fn object<C: Alloc>(
-  ctx: C,
-  cs: [Char],
-  i: Int,
-  depth: Int,
-  acc: [(Str, Json)],
+    ctx: C,
+    cs: [Char],
+    i: Int,
+    depth: Int,
+    acc: [(Str, Json)],
 ): Result<(Json, Int), JsonError> {
-  match (cs.get(i)) {
-    .None => .Err(.Unterminated),
-    .Some(c) => if (c == '}' && acc.len() == 0) {
-      .Ok((Json.Object(acc), i + 1))
-    } else if (c != '"') {
-      // A key is a string. JSON does not admit a bare word, and accepting one
-      // would mean writing a document this module could read and nothing else
-      // could.
-      .Err(.Unexpected(i))
-    } else {
-      let (k, afterKey) = string(ctx, cs, i)?;
-      let colon = skipSpace(cs, afterKey);
-      match (cs.get(colon)) {
-        .Some(':') => {
-          let (v, after) = value(ctx, cs, skipSpace(cs, colon + 1), depth + 1)?;
-          let next = skipSpace(cs, after);
-          let entries = acc.push(ctx, (k, v));
-          match (cs.get(next)) {
-            .Some(',') => object(ctx, cs, skipSpace(cs, next + 1), depth, entries),
-            .Some('}') => .Ok((Json.Object(entries), next + 1)),
-            .Some(_) => .Err(.Unexpected(next)),
-            .None => .Err(.Unterminated),
-          }
-        },
-        .Some(_) => .Err(.Unexpected(colon)),
+    match (cs.get(i)) {
         .None => .Err(.Unterminated),
-      }
-    },
-  }
+        .Some(c) => {
+            if (c == '}' && acc.len() == 0) {
+                .Ok((Json.Object(acc), i + 1))
+            } else if (c != '"') {
+                // A key is a string. JSON does not admit a bare word, and accepting one
+                // would mean writing a document this module could read and nothing else
+                // could.
+                .Err(.Unexpected(i))
+            } else {
+                let (k, afterKey) = string(ctx, cs, i)?;
+                let colon = skipSpace(cs, afterKey);
+                match (cs.get(colon)) {
+                    .Some(':') => {
+                        let (v, after) = value(
+                            ctx,
+                            cs,
+                            skipSpace(cs, colon + 1),
+                            depth + 1,
+                        )?;
+                        let next = skipSpace(cs, after);
+                        let entries = acc.push(ctx, (k, v));
+                        match (cs.get(next)) {
+                            .Some(',') => {
+                                object(ctx, cs, skipSpace(cs, next + 1), depth, entries)
+                            },
+                            .Some('}') => .Ok((Json.Object(entries), next + 1)),
+                            .Some(_) => .Err(.Unexpected(next)),
+                            .None => .Err(.Unterminated),
+                        }
+                    },
+                    .Some(_) => .Err(.Unexpected(colon)),
+                    .None => .Err(.Unterminated),
+                }
+            }
+        },
+    }
 }
 
 // --- Strings ------------------------------------------------------------------
 
 /// A quoted string, and the index just past its closing quote.
 fn string<C: Alloc>(ctx: C, cs: [Char], i: Int): Result<(Str, Int), JsonError> {
-  stringBody(ctx, cs, i + 1, list.empty<Char>())
+    stringBody(ctx, cs, i + 1, list.empty<Char>())
 }
 
 fn stringBody<C: Alloc>(
-  ctx: C,
-  cs: [Char],
-  i: Int,
-  acc: [Char],
+    ctx: C,
+    cs: [Char],
+    i: Int,
+    acc: [Char],
 ): Result<(Str, Int), JsonError> {
-  match (cs.get(i)) {
-    .None => .Err(.Unterminated),
-    .Some('"') => .Ok((str.fromChars(ctx, acc), i + 1)),
-    .Some('\\') => match (cs.get(i + 1)) {
-      .None => .Err(.Unterminated),
-      .Some(e) => if (e == 'u') {
-        // `\uXXXX` is the one escape that is not a single-character rewrite:
-        // it names a UTF-16 code unit, and a character above the basic plane is
-        // written as a surrogate pair. Both halves are read here, because a
-        // lone half is not a character and a document that carries one is
-        // saying something no reader can honour.
-        let (c, next) = unicodeEscape(cs, i)?;
-        stringBody(ctx, cs, next, acc.push(ctx, c))
-      } else {
-        match (unescape(e)) {
-          .Some(c) => stringBody(ctx, cs, i + 2, acc.push(ctx, c)),
-          .None => .Err(.BadEscape(i + 1)),
-        }
-      },
-    },
-    .Some(c) => stringBody(ctx, cs, i + 1, acc.push(ctx, c)),
-  }
+    match (cs.get(i)) {
+        .None => .Err(.Unterminated),
+        .Some('"') => .Ok((str.fromChars(ctx, acc), i + 1)),
+        .Some('\\') => {
+            match (cs.get(i + 1)) {
+                .None => .Err(.Unterminated),
+                .Some(e) => {
+                    if (e == 'u') {
+                        // `\uXXXX` is the one escape that is not a single-character rewrite:
+                        // it names a UTF-16 code unit, and a character above the basic plane is
+                        // written as a surrogate pair. Both halves are read here, because a
+                        // lone half is not a character and a document that carries one is
+                        // saying something no reader can honour.
+                        let (c, next) = unicodeEscape(cs, i)?;
+                        stringBody(ctx, cs, next, acc.push(ctx, c))
+                    } else {
+                        match (unescape(e)) {
+                            .Some(c) => stringBody(ctx, cs, i + 2, acc.push(ctx, c)),
+                            .None => .Err(.BadEscape(i + 1)),
+                        }
+                    }
+                },
+            }
+        },
+        .Some(c) => stringBody(ctx, cs, i + 1, acc.push(ctx, c)),
+    }
 }
 
 /// The character a `\uXXXX` escape at `i` denotes, and the index just past it.
 /// `i` points at the backslash.
 fn unicodeEscape(cs: [Char], i: Int): Result<(Char, Int), JsonError> {
-  let hi = hex4(cs, i + 2)?;
-  if (hi < 55296 || hi > 56319) {
-    // Not a high surrogate. A *low* surrogate on its own is not a character
-    // either, and is refused for the same reason.
-    if (hi >= 56320 && hi <= 57343) {
-      .Err(.BadEscape(i + 2))
-    } else {
-      match (hi.wrapToU32().toChar()) {
-        .Ok(c) => .Ok((c, i + 6)),
-        .Err(_e) => .Err(.BadEscape(i + 2)),
-      }
-    }
-  } else {
-    match ((cs.get(i + 6), cs.get(i + 7))) {
-      (.Some('\\'), .Some('u')) => {
-        let lo = hex4(cs, i + 8)?;
-        if (lo < 56320 || lo > 57343) {
-          .Err(.BadEscape(i + 8))
+    let hi = hex4(cs, i + 2)?;
+    if (hi < 55296 || hi > 56319) {
+        // Not a high surrogate. A *low* surrogate on its own is not a character
+        // either, and is refused for the same reason.
+        if (hi >= 56320 && hi <= 57343) {
+            .Err(.BadEscape(i + 2))
         } else {
-          let code = 65536 + (hi - 55296) * 1024 + (lo - 56320);
-          match (code.wrapToU32().toChar()) {
-            .Ok(c) => .Ok((c, i + 12)),
-            .Err(_e) => .Err(.BadEscape(i + 2)),
-          }
+            match (hi.wrapToU32().toChar()) {
+                .Ok(c) => .Ok((c, i + 6)),
+                .Err(_e) => .Err(.BadEscape(i + 2)),
+            }
         }
-      },
-      _ => .Err(.BadEscape(i + 2)),
+    } else {
+        match ((cs.get(i + 6), cs.get(i + 7))) {
+            (.Some('\\'), .Some('u')) => {
+                let lo = hex4(cs, i + 8)?;
+                if (lo < 56320 || lo > 57343) {
+                    .Err(.BadEscape(i + 8))
+                } else {
+                    let code = 65536 + (hi - 55296) * 1024 + (lo - 56320);
+                    match (code.wrapToU32().toChar()) {
+                        .Ok(c) => .Ok((c, i + 12)),
+                        .Err(_e) => .Err(.BadEscape(i + 2)),
+                    }
+                }
+            },
+            _ => .Err(.BadEscape(i + 2)),
+        }
     }
-  }
 }
 
 /// Four hexadecimal digits, either case, as a number.
 fn hex4(cs: [Char], i: Int): Result<Int, JsonError> {
-  match ((cs.get(i), cs.get(i + 1), cs.get(i + 2), cs.get(i + 3))) {
-    (.Some(a), .Some(b), .Some(c), .Some(d)) => match ((
-      a.toDigit(16),
-      b.toDigit(16),
-      c.toDigit(16),
-      d.toDigit(16),
-    )) {
-      (.Some(w), .Some(x), .Some(y), .Some(z)) => .Ok(w * 4096 + x * 256 + y * 16 + z),
-      _ => .Err(.BadEscape(i)),
-    },
-    _ => .Err(.Unterminated),
-  }
+    match ((cs.get(i), cs.get(i + 1), cs.get(i + 2), cs.get(i + 3))) {
+        (.Some(a), .Some(b), .Some(c), .Some(d)) => {
+            match ((a.toDigit(16), b.toDigit(16), c.toDigit(16), d.toDigit(16))) {
+                (.Some(w), .Some(x), .Some(y), .Some(z)) => {
+                    .Ok(w * 4096 + x * 256 + y * 16 + z)
+                },
+                _ => .Err(.BadEscape(i)),
+            }
+        },
+        _ => .Err(.Unterminated),
+    }
 }
 
 fn unescape(e: Char): Option<Char> {
-  if (e == '"') {
-    .Some('"')
-  } else if (e == '\\') {
-    .Some('\\')
-  } else if (e == '/') {
-    .Some('/')
-  } else if (e == 'n') {
-    .Some('\n')
-  } else if (e == 'r') {
-    .Some('\r')
-  } else if (e == 't') {
-    .Some('\t')
-  } else if (e == 'b') {
-    .Some('\u{0008}')
-  } else if (e == 'f') {
-    .Some('\u{000c}')
-  } else {
-    .None
-  }
+    if (e == '"') {
+        .Some('"')
+    } else if (e == '\\') {
+        .Some('\\')
+    } else if (e == '/') {
+        .Some('/')
+    } else if (e == 'n') {
+        .Some('\n')
+    } else if (e == 'r') {
+        .Some('\r')
+    } else if (e == 't') {
+        .Some('\t')
+    } else if (e == 'b') {
+        .Some('\u{8}')
+    } else if (e == 'f') {
+        .Some('\u{c}')
+    } else {
+        .None
+    }
 }
 
 // --- Numbers ------------------------------------------------------------------
 
 fn number<C: Alloc>(ctx: C, cs: [Char], i: Int): Result<(Json, Int), JsonError> {
-  let end = numberEnd(cs, i, i);
-  let text = str.fromChars(ctx, cs.slice(ctx, i, end));
-  match (text.toFloat()) {
-    .Some(x) => .Ok((Json.Num(x), end)),
-    .None => .Err(.BadNumber(i)),
-  }
+    let end = numberEnd(cs, i, i);
+    let text = str.fromChars(ctx, cs.slice(ctx, i, end));
+    match (text.toFloat()) {
+        .Some(x) => .Ok((Json.Num(x), end)),
+        .None => .Err(.BadNumber(i)),
+    }
 }
 
 /// The extent of a number token. Deliberately generous — it takes every
 /// character a number could contain and lets `toFloat` be the judge, so there
 /// is one definition of what a number is rather than two that can disagree.
 fn numberEnd(cs: [Char], start: Int, i: Int): Int {
-  match (cs.get(i)) {
-    .None => i,
-    .Some(c) => if (
-      c.isDigit()
-        || c == '.'
-        || c == 'e'
-        || c == 'E'
-        || ((c == '-' || c == '+') && (i == start || isExponent(cs, i - 1)))
-    ) {
-      numberEnd(cs, start, i + 1)
-    } else {
-      i
-    },
-  }
+    match (cs.get(i)) {
+        .None => i,
+        .Some(c) => {
+            if (
+                c.isDigit()
+                    || c == '.'
+                    || c == 'e'
+                    || c == 'E'
+                    || (c == '-' || c == '+') && (i == start || isExponent(cs, i - 1))
+            ) {
+                numberEnd(cs, start, i + 1)
+            } else {
+                i
+            }
+        },
+    }
 }
 
 fn isExponent(cs: [Char], i: Int): Bool {
-  match (cs.get(i)) {
-    .Some(c) => c == 'e' || c == 'E',
-    .None => false,
-  }
+    match (cs.get(i)) {
+        .Some(c) => c == 'e' || c == 'E',
+        .None => false,
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -402,23 +428,23 @@ fn isExponent(cs: [Char], i: Int): Bool {
 /// The compact rendering: no spaces, no newlines, keys in the order they are
 /// held. `parse` of this is the value it came from.
 export fn stringify<C: Alloc>(ctx: C, v: Json): Str {
-  match (v) {
-    .Null => "null",
-    .Bool(b) => if (b) { "true" } else { "false" },
-    .Num(x) => numberText(ctx, x),
-    .Str(s) => quote(ctx, s),
-    .Array(items) => {
-      let parts = items.mapCtx(ctx, fn(c, item) => stringify(c, item));
-      str.format(ctx, "[${parts.join(ctx, ",")}]")
-    },
-    .Object(entries) => {
-      let parts = entries.mapCtx(ctx, fn(c, e) => {
-        let (k, item) = e;
-        str.format(c, "${quote(c, k)}:${stringify(c, item)}")
-      });
-      str.format(ctx, "{${parts.join(ctx, ",")}}")
-    },
-  }
+    match (v) {
+        .Null => "null",
+        .Bool(b) => if (b) { "true" } else { "false" },
+        .Num(x) => numberText(ctx, x),
+        .Str(s) => quote(ctx, s),
+        .Array(items) => {
+            let parts = items.mapCtx(ctx, fn(c, item) => stringify(c, item));
+            str.format(ctx, "[${parts.join(ctx, ",")}]")
+        },
+        .Object(entries) => {
+            let parts = entries.mapCtx(ctx, fn(c, e) => {
+                let (k, item) = e;
+                str.format(c, "${quote(c, k)}:${stringify(c, item)}")
+            });
+            str.format(ctx, "{${parts.join(ctx, ",")}}")
+        },
+    }
 }
 
 /// A number, the way JSON writes one.
@@ -429,40 +455,41 @@ export fn stringify<C: Alloc>(ctx: C, v: Json): Str {
 /// conversion to `Int`, which would be fallible and would misrender everything
 /// past 2^53 rather than leaving it alone.
 fn numberText<C: Alloc>(ctx: C, x: Float): Str {
-  let s = str.fromFloat(ctx, x);
-  if (s.endsWith(".0")) {
-    s.slice(0, s.len() - 2)
-  } else {
-    s
-  }
+    let s = str.fromFloat(ctx, x);
+    if (s.endsWith(".0")) { s.slice(0, s.len() - 2) } else { s }
 }
 
 /// A quoted, escaped string literal.
 export fn quote<C: Alloc>(ctx: C, s: Str): Str {
-  let inner = s.chars(ctx).mapCtx(ctx, fn(c, ch) => escape(c, ch)).join(ctx, "");
-  str.format(ctx, "\"${inner}\"")
+    let inner = s.chars(ctx).mapCtx(ctx, fn(c, ch) => escape(c, ch)).join(ctx, "");
+    str.format(ctx, "\"${inner}\"")
 }
 
 fn escape<C: Alloc>(ctx: C, c: Char): Str {
-  if (c == '"') {
-    "\\\""
-  } else if (c == '\\') {
-    "\\\\"
-  } else if (c == '\n') {
-    "\\n"
-  } else if (c == '\r') {
-    "\\r"
-  } else if (c == '\t') {
-    "\\t"
-  } else if (c.toU32().toI64() < 32) {
-    // JSON forbids a raw control character inside a string, and the four with
-    // short spellings are above. The rest go out as `\u00XX`, which is the
-    // only way to write them at all.
-    let n = c.toU32().toI64();
-    str.format(ctx, "\\u00${HEX2.charAt(n / 16).withDefault('0')}${HEX2.charAt(n % 16).withDefault('0')}")
-  } else {
-    str.fromChars(ctx, [c])
-  }
+    if (c == '"') {
+        "\\\""
+    } else if (c == '\\') {
+        "\\\\"
+    } else if (c == '\n') {
+        "\\n"
+    } else if (c == '\r') {
+        "\\r"
+    } else if (c == '\t') {
+        "\\t"
+    } else if (c.toU32().toI64() < 32) {
+        // JSON forbids a raw control character inside a string, and the four with
+        // short spellings are above. The rest go out as `\u00XX`, which is the
+        // only way to write them at all.
+        let n = c.toU32().toI64();
+        str.format(
+            ctx,
+            "\\u00${HEX2.charAt(n / 16).withDefault('0')}${HEX2
+                .charAt(n % 16)
+                .withDefault('0')}",
+        )
+    } else {
+        str.fromChars(ctx, [c])
+    }
 }
 
 let HEX2: Str = "0123456789abcdef";
@@ -472,63 +499,67 @@ let HEX2: Str = "0123456789abcdef";
 // -----------------------------------------------------------------------------
 
 impl Json {
-  /// The value at `key`, if this is an object that has one. O(n) in the number
-  /// of entries — see the module comment.
-  export fn get(self, key: Str): Option<Json> {
-    match (self) {
-      .Object(entries) => entries.find(fn(e) => {
-        let (k, _v) = e;
-        k == key
-      }).map(fn(e) => {
-        let (_k, v) = e;
-        v
-      }),
-      _ => .None,
+    /// The value at `key`, if this is an object that has one. O(n) in the number
+    /// of entries — see the module comment.
+    export fn get(self, key: Str): Option<Json> {
+        match (self) {
+            .Object(entries) => {
+                entries
+                    .find(fn(e) => {
+                        let (k, _v) = e;
+                        k == key
+                    })
+                    .map(fn(e) => {
+                        let (_k, v) = e;
+                        v
+                    })
+            },
+            _ => .None,
+        }
     }
-  }
 
-  /// The element at `index`, if this is an array that has one.
-  export fn at(self, index: Int): Option<Json> {
-    match (self) {
-      .Array(items) => items.get(index),
-      _ => .None,
+    /// The element at `index`, if this is an array that has one.
+    export fn at(self, index: Int): Option<Json> {
+        match (self) {
+            .Array(items) => items.get(index),
+            _ => .None,
+        }
     }
-  }
 
-  export fn asBool(self): Option<Bool> {
-    match (self) {
-      .Bool(b) => .Some(b),
-      _ => .None,
+    export fn asBool(self): Option<Bool> {
+        match (self) {
+            .Bool(b) => .Some(b),
+            _ => .None,
+        }
     }
-  }
 
-  export fn asNum(self): Option<Float> {
-    match (self) {
-      .Num(x) => .Some(x),
-      _ => .None,
+    export fn asNum(self): Option<Float> {
+        match (self) {
+            .Num(x) => .Some(x),
+            _ => .None,
+        }
     }
-  }
 
-  export fn asStr(self): Option<Str> {
-    match (self) {
-      .Str(s) => .Some(s),
-      _ => .None,
+    export fn asStr(self): Option<Str> {
+        match (self) {
+            .Str(s) => .Some(s),
+            _ => .None,
+        }
     }
-  }
 
-  export fn asArray(self): Option<[Json]> {
-    match (self) {
-      .Array(items) => .Some(items),
-      _ => .None,
+    export fn asArray(self): Option<[Json]> {
+        match (self) {
+            .Array(items) => .Some(items),
+            _ => .None,
+        }
     }
-  }
 
-  export fn isNull(self): Bool {
-    match (self) {
-      .Null => true,
-      _ => false,
+    export fn isNull(self): Bool {
+        match (self) {
+            .Null => true,
+            _ => false,
+        }
     }
-  }
 }
 
 // -----------------------------------------------------------------------------
@@ -590,7 +621,7 @@ impl Json {
 /// Rendering allocates, so `toJson` names `Alloc` and nothing else, exactly as
 /// `Show.show` does.
 export trait ToJson {
-  fn toJson<C: Alloc>(self, ctx: C): Json;
+    fn toJson<C: Alloc>(self, ctx: C): Json;
 }
 
 /// Decoding a value from JSON. Derived, never written by hand — see above.
@@ -599,24 +630,23 @@ export trait ToJson {
 /// `decode` rather than through a receiver, the way `Bounded` is reached
 /// through `num.maxValue`.
 export trait FromJson {
-  fn fromJson(value: Json): Result<Self, DecodeError>;
+    fn fromJson(value: Json): Result<Self, DecodeError>;
 }
 
+derive Eq, Show for DecodeError;
 /// Why a document could not be read as the type asked for, and *where*.
 ///
 /// `path` is written `$` for the document itself, `.name` for a member and
 /// `[i]` for an element, so `$.center.x` and `$.tags[2]` name a place a reader
 /// can find in the text in front of them.
 export enum DecodeError {
-  /// An object with no member of that name.
-  Missing { path: Str },
-  /// A value of the wrong shape: what the type wanted, and what was there.
-  WrongType { path: Str, wanted: Str, found: Str },
-  /// A tag naming no variant of the enum being read.
-  UnknownVariant { path: Str, tag: Str },
+    /// An object with no member of that name.
+    Missing { path: Str },
+    /// A value of the wrong shape: what the type wanted, and what was there.
+    WrongType { path: Str, wanted: Str, found: Str },
+    /// A tag naming no variant of the enum being read.
+    UnknownVariant { path: Str, tag: Str },
 }
-
-derive Eq, Show for DecodeError;
 
 /// Encodes any `ToJson` value.
 ///
@@ -624,28 +654,34 @@ derive Eq, Show for DecodeError;
 /// from "core/effect" import { Alloc, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
-/// from "core/json" import { DecodeError, ToJson, FromJson };
 /// from "core/json" import * as json;
+/// from "core/json" import { DecodeError, FromJson, ToJson };
 ///
-/// struct Point { x: Int, y: Int }
 /// derive Eq, ToJson, FromJson for Point;
-///
-/// enum Shape {
-///   Dot,
-///   Line(Point, Point),
+/// struct Point {
+///     x: Int,
+///     y: Int,
 /// }
+///
 /// derive Eq, ToJson, FromJson for Shape;
+/// enum Shape {
+///     Dot,
+///     Line(Point, Point),
+/// }
 ///
 /// export fn main(): Result<(), Str> {
-///   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-///   let shape = Shape.Line(Point { x: 0, y: 0 }, Point { x: 3, y: 4 });
-///   let text = json.stringify(ctx, json.encode(ctx, shape));
-///   let _ = io.println(ctx, text).ignore();
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let shape = Shape.Line(Point { x: 0, y: 0 }, Point { x: 3, y: 4 });
+///     let text = json.stringify(ctx, json.encode(ctx, shape));
+///     let _ = io.println(ctx, text).ignore();
 ///
-///   // The type comes from the annotation, not from a type argument.
-///   let back: Result<Shape, DecodeError> = json.decode(ctx, json.encode(ctx, shape));
-///   let _ = io.println(ctx, "${back == .Ok(shape)}").ignore();
-///   .Ok(())
+///     // The type comes from the annotation, not from a type argument.
+///     let back: Result<Shape, DecodeError> = json.decode(ctx, json.encode(ctx, shape));
+///     let _ = io.println(ctx, "${back == .Ok(shape)}").ignore();
+///     .Ok(())
 /// }
 /// ```
 ///
@@ -654,7 +690,7 @@ derive Eq, Show for DecodeError;
 /// true
 /// ```
 export fn encode<T: ToJson, C: Alloc>(ctx: C, value: T): Json {
-  value.toJson(ctx)
+    value.toJson(ctx)
 }
 
 /// Reads a `Json` as a `T`, or says where it stopped.

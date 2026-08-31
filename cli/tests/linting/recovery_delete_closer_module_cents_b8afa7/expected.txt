@@ -1,0 +1,17 @@
+warning: nothing uses `Ledger` [unused-type]
+  --> lib/recovery_delete_closer_module_cents_b8afa7/lib.buri:10:8
+   |
+10 | struct Ledger {
+   |        ^^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface
+error: expected an identifier, found `fn` [unexpected-token]
+  --> lib/recovery_delete_closer_module_cents_b8afa7/lib.buri:19:8
+   |
+19 | export fn describe(n: I64): I64 {
+   |        ^^
+   |
+   = expected: an identifier
+   = actual: `fn`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

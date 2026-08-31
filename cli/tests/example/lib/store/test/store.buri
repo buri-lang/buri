@@ -13,29 +13,38 @@
 // a native run. The golden is a value here now, which is where the other two
 // expected values already were.
 
-from "//lib/store" import { append, readLog };
+from "core/effect" import { Alloc, Fs };
+from "core/host/testing" import { alloc, fs };
+from "core/testing/assert" import * as assert;
 from "//lib/ledger" import { entry };
 from "//lib/money" import { fromCents };
-from "core/host/testing" import { alloc, fs };
-from "core/effect" import { Alloc, Fs };
-from "core/testing/assert" import * as assert;
+from "//lib/store" import { append, readLog };
 
 test "append writes the log format" {
-  let ctx = context { Alloc: alloc(), Fs: fs() };
-  assert.ok(append(ctx, "ledger.log", [entry("coffee", fromCents(450))]));
-  assert.eq(assert.ok(readLog(ctx, "ledger.log")), "coffee\t\$4.50");
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: fs(),
+    };
+    assert.ok(append(ctx, "ledger.log", [entry("coffee", fromCents(450))]));
+    assert.eq(assert.ok(readLog(ctx, "ledger.log")), "coffee\t$4.50");
 }
 
 test "reading a missing log is an error, not an abort" {
-  let ctx = context { Alloc: alloc(), Fs: fs() };
-  let _ = assert.err(readLog(ctx, "nope.log"));
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: fs(),
+    };
+    let _ = assert.err(readLog(ctx, "nope.log"));
 }
 
 test "the golden log round-trips" {
-  // As a file would hold it: ending in a newline, which the encoder does not
-  // emit.
-  let ctx = context { Alloc: alloc(), Fs: fs().files([("test/golden/log.txt", "books\t\$32.00\n")]) };
-  let want = assert.ok(readLog(ctx, "test/golden/log.txt"));
-  assert.ok(append(ctx, "out.log", [entry("books", fromCents(3200))]));
-  assert.eq(assert.ok(readLog(ctx, "out.log")), want.trim());
+    // As a file would hold it: ending in a newline, which the encoder does not
+    // emit.
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: fs().files([("test/golden/log.txt", "books\t$32.00\n")]),
+    };
+    let want = assert.ok(readLog(ctx, "test/golden/log.txt"));
+    assert.ok(append(ctx, "out.log", [entry("books", fromCents(3200))]));
+    assert.eq(assert.ok(readLog(ctx, "out.log")), want.trim());
 }

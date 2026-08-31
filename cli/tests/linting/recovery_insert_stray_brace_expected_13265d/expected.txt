@@ -1,9 +1,0 @@
-error: expected an expression, found `;` [unexpected-token]
-  --> lib/recovery_insert_stray_brace_expected_13265d/main.buri:41:89
-   |
-41 |   let _ = announce(ctx, label).mapErr(fn(_e) => "could not write to standard output")?? ;
-   |                                                                                         ^
-   |
-   = expected: an expression
-   = actual: `;`
-   = fix: write a value here

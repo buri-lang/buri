@@ -1,7 +1,0 @@
-error: a struct-literal field ends with `,` [missing-separator]
-  --> main.buri:10:42
-   |
-10 |     "/entries" => Route { name: "entries"path , },
-   |                                          ^
-   |
-   = fix: write `,` here

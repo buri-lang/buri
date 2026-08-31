@@ -11,79 +11,107 @@
 //! that asked for it.
 
 from "core/effect" import {
-  Alloc, Clock, Env, Fs, Listen, Net, Proc, Rand, Sockets, Stderr, Stdin, Stdout, Tasks,
-  IoError, NetError, Region, Request, Response,
+    Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Proc, Rand, Region, Request,
+    Response, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
+
 // One `Request` now. `ui/effect` used to declare a second — the
 // callback-shaped client's, aliased here to `UiRequest` because this was the
 // one module that imported both — and it went when `Fetch` did.
 from "ui/effect" import { Scope, Ui, Watch };
 
 export struct HostAlloc {}
+
 impl Alloc for HostAlloc {
-  fn allocate(self, bytes: Int): Region;
+    fn allocate(self, bytes: Int): Region;
 }
 
 export struct HostStdout {}
+
 impl Stdout for HostStdout {
-  fn print(self, text: Template): Result<(), IoError>;
-  fn println(self, text: Template): Result<(), IoError>;
-  fn writeBytes(self, b: [U8]): Result<(), IoError>;
+    fn print(self, text: Template): Result<(), IoError>;
+
+    fn println(self, text: Template): Result<(), IoError>;
+
+    fn writeBytes(self, b: [U8]): Result<(), IoError>;
 }
 
 export struct HostStderr {}
+
 impl Stderr for HostStderr {
-  fn eprint(self, text: Template): Result<(), IoError>;
-  fn eprintln(self, text: Template): Result<(), IoError>;
+    fn eprint(self, text: Template): Result<(), IoError>;
+
+    fn eprintln(self, text: Template): Result<(), IoError>;
 }
 
 export struct HostStdin {}
+
 impl Stdin for HostStdin {
-  fn readLine(self): Option<Str>;
-  fn readBytes(self, n: Int): Option<[U8]>;
+    fn readLine(self): Option<Str>;
+
+    fn readBytes(self, n: Int): Option<[U8]>;
 }
 
 export struct HostFs {}
+
 impl Fs for HostFs {
-  fn readFile(self, path: Str): Result<Str, IoError>;
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
-  fn fileExists(self, path: Str): Bool;
-  fn readDir(self, path: Str): Result<[Str], IoError>;
-  fn readFileBytes(self, path: Str): Result<[U8], IoError>;
-  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
-  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
-  fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
-  fn removeFile(self, path: Str): Result<(), IoError>;
-  fn makeDir(self, path: Str): Result<(), IoError>;
-  fn syncFile(self, path: Str): Result<(), IoError>;
+    fn readFile(self, path: Str): Result<Str, IoError>;
+
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
+
+    fn fileExists(self, path: Str): Bool;
+
+    fn readDir(self, path: Str): Result<[Str], IoError>;
+
+    fn readFileBytes(self, path: Str): Result<[U8], IoError>;
+
+    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
+
+    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
+
+    fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
+
+    fn removeFile(self, path: Str): Result<(), IoError>;
+
+    fn makeDir(self, path: Str): Result<(), IoError>;
+
+    fn syncFile(self, path: Str): Result<(), IoError>;
 }
 
 export struct HostNet {}
+
 impl Net for HostNet {
-  fn fetch(self, request: Request): Result<Response, NetError>;
+    fn fetch(self, request: Request): Result<Response, NetError>;
 }
 
 export struct HostClock {}
+
 impl Clock for HostClock {
-  fn nowMillis(self): I64;
-  fn sleepMillis(self, millis: Int): ();
+    fn nowMillis(self): I64;
+
+    fn sleepMillis(self, millis: Int): ();
 }
 
 export struct HostRand {}
+
 impl Rand for HostRand {
-  fn nextInt(self, lo: Int, hi: Int): Int;
-  fn nextFloat(self): Float;
+    fn nextInt(self, lo: Int, hi: Int): Int;
+
+    fn nextFloat(self): Float;
 }
 
 export struct HostEnv {}
+
 impl Env for HostEnv {
-  fn variable(self, name: Str): Option<Str>;
-  fn args(self): [Str];
+    fn variable(self, name: Str): Option<Str>;
+
+    fn args(self): [Str];
 }
 
 export struct HostProc {}
+
 impl Proc for HostProc {
-  fn exitWith(self, code: Int): ();
+    fn exitWith(self, code: Int): ();
 }
 
 /// Running the program's own work concurrently.
@@ -94,8 +122,9 @@ impl Proc for HostProc {
 ///
 /// `core/tasks` is the module a program calls; this is what a context binds.
 export struct HostTasks {}
+
 impl Tasks for HostTasks {
-  fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
+    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
 }
 
 /// Being a server rather than talking to one.
@@ -106,13 +135,14 @@ impl Tasks for HostTasks {
 /// hold a port open, and that is a fact about pages rather than a slice nobody
 /// has written.
 export struct HostListen {}
+
 impl Listen for HostListen {
-  fn listen(
-    self,
-    address: Str,
-    port: Int,
-    onRequest: fn(HostListen, Request) => Response,
-  ): Result<(), NetError>;
+    fn listen(
+        self,
+        address: Str,
+        port: Int,
+        onRequest: fn(HostListen, Request) => Response,
+    ): Result<(), NetError>;
 }
 
 /// Pushing on a connection that is already open.
@@ -121,41 +151,64 @@ impl Listen for HostListen {
 /// two are the halves of one authority to be a server, and a platform that can
 /// accept a connection is exactly a platform that can write back on it.
 export struct HostSockets {}
+
 impl Sockets for HostSockets {
-  fn socketSendText(self, socket: Int, text: Str): ();
-  fn socketSendBytes(self, socket: Int, body: [U8]): ();
-  fn socketClose(self, socket: Int, code: Int, reason: Str): ();
+    fn socketSendText(self, socket: Int, text: Str): ();
+
+    fn socketSendBytes(self, socket: Int, body: [U8]): ();
+
+    fn socketClose(self, socket: Int, code: Int, reason: Str): ();
 }
 
 /// The reactive graph. Bound by a program with a user interface; a platform
 /// that renders nothing simply never has one asked of it.
 export struct HostUi {}
+
 impl Ui for HostUi {
-  fn signal<T>(self, initial: T): Int;
-  fn read<T>(self, id: Int): T;
-  fn write<T>(self, id: Int, value: T): ();
-  fn memo<T>(self, compute: fn(Scope) => T): Int;
-  fn watch(self, run: fn(Scope) => ()): ();
+    fn signal<T>(self, initial: T): Int;
+
+    fn read<T>(self, id: Int): T;
+
+    fn write<T>(self, id: Int, value: T): ();
+
+    fn memo<T>(self, compute: fn(Scope) => T): Int;
+
+    fn watch(self, run: fn(Scope) => ()): ();
 }
 
 /// Reading the reactive graph, without the authority to change it.
 export struct HostWatch {}
+
 impl Watch for HostWatch {
-  fn read<T>(self, id: Int): T;
+    fn read<T>(self, id: Int): T;
 }
 
-export let alloc: HostAlloc = HostAlloc {};
-export let stdout: HostStdout = HostStdout {};
-export let stderr: HostStderr = HostStderr {};
-export let stdin: HostStdin = HostStdin {};
-export let fs: HostFs = HostFs {};
-export let net: HostNet = HostNet {};
-export let clock: HostClock = HostClock {};
-export let rand: HostRand = HostRand {};
-export let env: HostEnv = HostEnv {};
-export let proc: HostProc = HostProc {};
-export let tasks: HostTasks = HostTasks {};
-export let listen: HostListen = HostListen {};
-export let sockets: HostSockets = HostSockets {};
-export let ui: HostUi = HostUi {};
-export let watch: HostWatch = HostWatch {};
+export let alloc: HostAlloc = HostAlloc { };
+
+export let stdout: HostStdout = HostStdout { };
+
+export let stderr: HostStderr = HostStderr { };
+
+export let stdin: HostStdin = HostStdin { };
+
+export let fs: HostFs = HostFs { };
+
+export let net: HostNet = HostNet { };
+
+export let clock: HostClock = HostClock { };
+
+export let rand: HostRand = HostRand { };
+
+export let env: HostEnv = HostEnv { };
+
+export let proc: HostProc = HostProc { };
+
+export let tasks: HostTasks = HostTasks { };
+
+export let listen: HostListen = HostListen { };
+
+export let sockets: HostSockets = HostSockets { };
+
+export let ui: HostUi = HostUi { };
+
+export let watch: HostWatch = HostWatch { };

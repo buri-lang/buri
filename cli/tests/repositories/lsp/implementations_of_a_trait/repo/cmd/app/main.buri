@@ -10,5 +10,7 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
     };
     let owed: I64 = listing("plain", 100).cents() + discount(20).cents();
-    io.println(ctx, "owed: ${owed.show(ctx)}").mapErr(fn(_e) => "could not write to standard output")
+    io
+        .println(ctx, "owed: ${owed.show(ctx)}")
+        .mapErr(fn(_e) => "could not write to standard output")
 }

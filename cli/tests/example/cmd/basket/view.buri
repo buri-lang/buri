@@ -21,12 +21,11 @@ from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { memo, Prop };
 from "ui/style" import { Style };
-
-from "//lib/kit" import { card, meter, pill };
-from "//lib/ledger" import { Entry, total };
-from "//cmd/basket/model.buri" import { isTicked, pad, settledFraction, LEDGER_URL };
+from "//cmd/basket/model.buri" import { isTicked, LEDGER_URL, pad, settledFraction };
 from "//cmd/basket/state.buri" import { add, load, State, tick };
 from "//cmd/basket/theme.buri" import { Shade };
+from "//lib/kit" import { card, meter, pill };
+from "//lib/ledger" import { Entry, total };
 
 // --- appearance ----------------------------------------------------------------------
 //
@@ -37,67 +36,60 @@ from "//cmd/basket/theme.buri" import { Shade };
 // sheet, ascending, so a wider screen's rules win by being written later.
 
 let pageStyle: Style = .Group([
-  .Layout(.Column),
-  .Gap(.Rem(1.0)),
-  .Padding(.Rem(1.0)),
-  .MinHeight(.Full),
-  .FontFamily(.Sans),
-  .Background(Shade.Bg.color()),
-  .Foreground(Shade.Fg.color()),
-  .At(.Medium, [.Padding(.Rem(2.0))]),
-  .At(.Large, [.MaxWidth(.Rem(48.0))]),
+    .Layout(.Column),
+    .Gap(.Rem(1.0)),
+    .Padding(.Rem(1.0)),
+    .MinHeight(.Full),
+    .FontFamily(.Sans),
+    .Background(Shade.Bg.color()),
+    .Foreground(Shade.Fg.color()),
+    .At(.Medium, [.Padding(.Rem(2.0))]),
+    .At(.Large, [.MaxWidth(.Rem(48.0))]),
 ]);
 
 let barStyle: Style = .Group([
-  .Layout(.Row),
-  .AlignCross(.Center),
-  .Gap(.Px(12)),
-  .PaddingY(.Rem(0.5)),
+    .Layout(.Row),
+    .AlignCross(.Center),
+    .Gap(.Px(12)),
+    .PaddingY(.Rem(0.5)),
 ]);
 
 let formStyle: Style = .Group([
-  .Layout(.Row),
-  .Wrap(true),
-  .AlignCross(.End),
-  .Gap(.Px(8)),
+    .Layout(.Row),
+    .Wrap(true),
+    .AlignCross(.End),
+    .Gap(.Px(8)),
 ]);
 
 let noticeStyle: Style = .Group([
-  .Padding(.Rem(0.5)),
-  .Radius(.Px(6)),
-  .FontSize(.Rem(0.875)),
-  .Foreground(Shade.Accent.color()),
+    .Padding(.Rem(0.5)),
+    .Radius(.Px(6)),
+    .FontSize(.Rem(0.875)),
+    .Foreground(Shade.Accent.color()),
 ]);
 
-let listStyle: Style = .Group([
-  .Layout(.Column),
-  .Gap(.Px(8)),
-]);
+let listStyle: Style = .Group([.Layout(.Column), .Gap(.Px(8))]);
 
-let rowStyle: Style = .Group([
-  .Layout(.Row),
-  .AlignCross(.Center),
-  .Gap(.Px(8)),
-]);
+let rowStyle: Style = .Group([.Layout(.Row), .AlignCross(.Center), .Gap(.Px(8))]);
 
 let settledStyle: [Style] = [.TextLine(.Strike), .Opacity(0.55)];
 
 let amountStyle: Style = .Group([
-  .FontFamily(.Mono),
-  .TextAlign(.End),
-  .MinWidth(.Rem(5.0)),
+    .FontFamily(.Mono),
+    .TextAlign(.End),
+    .MinWidth(.Rem(5.0)),
 ]);
 
 let emptyStyle: Style = .Group([
-  .Padding(.Rem(1.5)),
-  .TextAlign(.Center),
-  .Opacity(0.7),
+    .Padding(.Rem(1.5)),
+    .TextAlign(.Center),
+    .Opacity(0.7),
 ]);
 
 let totalStyle: Style = .Group([
-  .FontSize(.Rem(1.25)),
-  .FontWeight(.Semibold),
-  .FontFamily(.Mono),
+    .FontSize(.Rem(1.25)),
+    .FontWeight(.Semibold),
+    .FontFamily(.Mono),
 ]);
 
 // --- the page ------------------------------------------------------------------------
@@ -109,16 +101,16 @@ let totalStyle: Style = .Group([
 /// `Alloc` because two handlers build a list. `main` decides what those are
 /// worth, and a platform decides whether `main` may ask.
 export fn page<C: Alloc + Net + Ui + Watch>(ctx: C, state: State): Node<C> {
-  ui.column([pageStyle], [
-    banner(state),
-    ui.region(.Main, [.Layout(.Column), .Gap(.Rem(1.0))], [
-      composer(state),
-      notice(state),
-      lines(state),
-      summary(ctx, state),
-    ]),
-    colophon(),
-  ])
+    ui.column([pageStyle], [
+        banner(state),
+        ui.region(.Main, [.Layout(.Column), .Gap(.Rem(1.0))], [
+            composer(state),
+            notice(state),
+            lines(state),
+            summary(ctx, state),
+        ]),
+        colophon(),
+    ])
 }
 
 /// The heading, and the switch that changes what every token is worth.
@@ -128,11 +120,11 @@ export fn page<C: Alloc + Net + Ui + Watch>(ctx: C, state: State): Node<C> {
 /// exactly as it was, nothing is re-extracted, and the browser repaints from
 /// variables it already had. `main.buri` is where the two value sets meet it.
 fn banner<C>(state: State): Node<C> {
-  ui.region(.Banner, [barStyle], [
-    ui.heading(1, .Const("Basket")),
-    ui.spacer(),
-    ui.toggle(.Const("Dark mode"), state.dark),
-  ])
+    ui.region(.Banner, [barStyle], [
+        ui.heading(1, .Const("Basket")),
+        ui.spacer(),
+        ui.toggle(.Const("Dark mode"), state.dark),
+    ])
 }
 
 /// The two fields and the two ways to use them.
@@ -146,13 +138,13 @@ fn banner<C>(state: State): Node<C> {
 /// unlabelled input is the commonest accessibility failure there is and, unlike
 /// a missing `alt`, it has no visual fallback — so it is not expressible.
 fn composer<C: Alloc + Net + Ui + Watch>(state: State): Node<C> {
-  ui.form(fn(c, submitted) => add(c, state), [formStyle], [
-    ui.field(.Const("Item"), .Text, state.draftMemo),
-    ui.field(.Const("Amount in dollars"), .Number, state.draftAmount),
-    ui.button(.Const("Add"), fn(c, pressed) => add(c, state)),
-    ui.spacer(),
-    ui.button(.Const("Load the ledger"), fn(c, pressed) => load(c, state)),
-  ])
+    ui.form(fn(c, submitted) => add(c, state), [formStyle], [
+        ui.field(.Const("Item"), .Text, state.draftMemo),
+        ui.field(.Const("Amount in dollars"), .Number, state.draftAmount),
+        ui.button(.Const("Add"), fn(c, pressed) => add(c, state)),
+        ui.spacer(),
+        ui.button(.Const("Load the ledger"), fn(c, pressed) => load(c, state)),
+    ])
 }
 
 /// What the page has to say, when it has something.
@@ -166,29 +158,35 @@ fn composer<C: Alloc + Net + Ui + Watch>(state: State): Node<C> {
 /// there should be no live region on the page at all — an empty alert is still
 /// an alert.
 fn notice<C>(state: State): Node<C> {
-  ui.choose(
-    .Computed(fn(scope) => !state.notice.get(scope).isEmpty()),
-    ui.region(.Alert, [noticeStyle], [ui.text(.Cell(state.notice))]),
-    ui.nothing(),
-  )
+    ui.choose(
+        .Computed(fn(scope) => !state.notice.get(scope).isEmpty()),
+        ui.region(.Alert, [noticeStyle], [ui.text(.Cell(state.notice))]),
+        ui.nothing(),
+    )
 }
 
 /// The basket, or the fact that there is not one yet.
 fn lines<C: Alloc + Ui + Watch>(state: State): Node<C> {
-  ui.choose(
-    .Computed(fn(scope) => state.items.get(scope).isEmpty()),
-    card(.Const("Nothing in the basket"), [
-      ui.stack([emptyStyle], [
-        ui.text(.Const("Add a line above, or load the ones the server already has.")),
-      ]),
-    ]),
+    ui.choose(
+        .Computed(fn(scope) => state.items.get(scope).isEmpty()),
+        card(.Const("Nothing in the basket"), [
+            ui.stack([emptyStyle], [
+                ui.text(
+                    .Const(
+                        "Add a line above, or load the ones the server already has.",
+                    ),
+                ),
+            ]),
+        ]),
+        ui.region(.List, [listStyle], [
+            ui.each(.Cell(state.items), keyOf, fn(c, item, index) => {
+                line(c, state, item)
+            }),
+        ]),
+    )
     // `List` is a role and not a layout: a screen reader announces how many
     // items are in it, which is the difference between a list of things and a
     // stack of things that happen to be arranged downwards.
-    ui.region(.List, [listStyle], [
-      ui.each(.Cell(state.items), keyOf, fn(c, item, index) => line(c, state, item)),
-    ]),
-  )
 }
 
 /// The key of a row.
@@ -199,7 +197,7 @@ fn lines<C: Alloc + Ui + Watch>(state: State): Node<C> {
 /// that line — two lines with one memo is a mistake the runtime refuses at the
 /// point it is made, which is the answer this app wants.
 fn keyOf(item: Entry): Str {
-  item.memo
+    item.memo
 }
 
 /// One line of the basket.
@@ -214,17 +212,23 @@ fn keyOf(item: Entry): Str {
 /// extracted into the stylesheet at compile time and the runtime picks between
 /// two class strings it was handed; no rule is built anywhere, ever.
 fn line<C: Alloc + Ui + Watch>(ctx: C, state: State, item: Entry): Node<C> {
-  let settled: Prop<Bool> = .Computed(fn(scope) => isTicked(state.ticked.get(scope), item.memo));
-  ui.region(.ListItem, [rowStyle], [
+    let settled: Prop<Bool> = .Computed(fn(scope) => {
+        isTicked(state.ticked.get(scope), item.memo)
+    });
+    ui.region(.ListItem, [rowStyle], [
+        ui.button(.Const(str.format(ctx, "settle ${item.memo}")), fn(c, pressed) => {
+            tick(c, state, item.memo)
+        }),
+        ui.stack([.Grow(1), .When(settled, settledStyle, [])], [
+            ui.text(.Const(item.memo)),
+        ]),
+        ui.stack([amountStyle], [ui.text(.Const(item.amount.format(ctx)))]),
+    ])
     // The label names the line, because a screen reader announces a button by
     // its label and "settle, button" five times over says nothing.
-    ui.button(.Const(str.format(ctx, "settle ${item.memo}")), fn(c, pressed) => tick(c, state, item.memo)),
-    ui.stack([.Grow(1), .When(settled, settledStyle, [])], [ui.text(.Const(item.memo))]),
     // The amount cannot change without the line changing, so it is a `Const`
     // and the row pays nothing for it. `format` allocates, and this is a place
     // that has an allocator — a reactive closure is not.
-    ui.stack([amountStyle], [ui.text(.Const(item.amount.format(ctx)))]),
-  ])
 }
 
 /// The running total, and how much of it is settled.
@@ -234,37 +238,38 @@ fn line<C: Alloc + Ui + Watch>(ctx: C, state: State, item: Entry): Node<C> {
 /// reactive change to the total would be silent, which is the failure mode a
 /// screen reader cannot work around.
 fn summary<C: Ui>(ctx: C, state: State): Node<C> {
-  // A memo, so that the fraction is computed once per change however many
-  // things read it, and not at all while nothing does.
-  let settled: Prop<Float> = memo(
-    ctx,
-    fn(scope) => settledFraction(state.items.get(scope), state.ticked.get(scope)),
-  );
-  ui.region(.Status, [.Layout(.Column), .Gap(.Px(8))], [
-    ui.row([.AlignCross(.Center), .Gap(.Px(8))], [
-      // The amount is rendered inside the reactive closure because that is
-      // where the numbers are. A named function could not do it: turning an
-      // interpolation into a `Str` allocates, and what a computation is handed
-      // is a `Scope`, which grants reading the graph and nothing else.
-      ui.stack([totalStyle], [
-        ui.text(.Computed(fn(scope) => {
-          let both = total(state.items.get(scope)).parts();
-          "\$${both.0}.${pad(both.1)}${both.1}"
-        })),
-      ]),
-      ui.spacer(),
-      pill(.Computed(fn(scope) => "${state.ticked.get(scope).len()} settled")),
-    ]),
-    meter(settled),
-  ])
+    // A memo, so that the fraction is computed once per change however many
+    // things read it, and not at all while nothing does.
+    let settled: Prop<Float> = memo(ctx, fn(scope) => {
+        settledFraction(state.items.get(scope), state.ticked.get(scope))
+    });
+    ui.region(.Status, [.Layout(.Column), .Gap(.Px(8))], [
+        ui.row([.AlignCross(.Center), .Gap(.Px(8))], [
+            ui.stack([totalStyle], [
+                ui.text(
+                    .Computed(fn(scope) => {
+                        let both = total(state.items.get(scope)).parts();
+                        "\$${both.0}.${pad(both.1)}${both.1}"
+                    }),
+                ),
+            ]),
+            ui.spacer(),
+            pill(.Computed(fn(scope) => "${state.ticked.get(scope).len()} settled")),
+        ]),
+        meter(settled),
+    ])
+    // The amount is rendered inside the reactive closure because that is
+    // where the numbers are. A named function could not do it: turning an
+    // interpolation into a `Str` allocates, and what a computation is handed
+    // is a `Scope`, which grants reading the graph and nothing else.
 }
 
 /// Where the lines come from, as a link a reader can follow.
 fn colophon<C>(): Node<C> {
-  ui.region(.ContentInfo, [.FontSize(.Rem(0.75)), .Opacity(0.7)], [
-    ui.row([.Gap(.Px(4))], [
-      ui.text(.Const("Lines come from the server's")),
-      ui.link(.Const(LEDGER_URL), [ui.text(.Const("ledger route"))]),
-    ]),
-  ])
+    ui.region(.ContentInfo, [.FontSize(.Rem(0.75)), .Opacity(0.7)], [
+        ui.row([.Gap(.Px(4))], [
+            ui.text(.Const("Lines come from the server's")),
+            ui.link(.Const(LEDGER_URL), [ui.text(.Const("ledger route"))]),
+        ]),
+    ])
 }

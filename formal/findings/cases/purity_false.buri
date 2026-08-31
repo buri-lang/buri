@@ -9,20 +9,25 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
-  fn() => f(x)
+    fn() => f(x)
 }
 
 // Pure by every criterion SPEC 10.4 names.
 fn runTwice(f: fn() => ()): Int {
-  let _ = f();
-  let _ = f();
-  7
+    let _ = f();
+    let _ = f();
+    7
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let sneaky = wrap(ctx, fn(c) => io.println(c, "effect from a pure function").ignore());
-  let n = runTwice(sneaky);
-  let _ = io.println(ctx, "runTwice returned ${n}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let sneaky = wrap(ctx, fn(c) => {
+        io.println(c, "effect from a pure function").ignore()
+    });
+    let n = runTwice(sneaky);
+    let _ = io.println(ctx, "runTwice returned ${n}").ignore();
+    .Ok(())
 }

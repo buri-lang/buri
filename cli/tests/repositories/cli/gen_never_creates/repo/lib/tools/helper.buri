@@ -1,1 +1,3 @@
-export fn help(): Str { "usage: tools" }
+export fn help(): Str {
+    "usage: tools"
+}

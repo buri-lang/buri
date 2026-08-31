@@ -1,0 +1,24 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_insert_stray_brace_app_6b6a40/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected `{`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_6b6a40/main.buri:15:23
+   |
+15 |     let ctx = context , {
+   |                       ^
+   |
+   = expected: `{`
+   = actual: `,`
+   = fix: write `{` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_6b6a40/main.buri:19:16
+   |
+19 |     io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
+   |                ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

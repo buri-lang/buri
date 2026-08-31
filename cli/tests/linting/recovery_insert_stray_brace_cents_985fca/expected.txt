@@ -1,0 +1,12 @@
+error: this `else` branch is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_brace_cents_985fca/lib.buri:6:42
+  |
+6 |     if (n == 0) { "zero" } else { "some" @ }
+  |                                          ^
+  |
+ --> lib/recovery_insert_stray_brace_cents_985fca/lib.buri:6:33
+  |
+6 |     if (n == 0) { "zero" } else { "some" @ }
+  |                                 ^ opened here
+  |
+  = fix: write `}` here

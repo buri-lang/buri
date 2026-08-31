@@ -1,7 +1,0 @@
-error: a derived trait ends with `,` [missing-separator]
-  --> main.buri:17:10
-   |
-17 | derive Eq Ord, Show for Cents;
-   |          ^
-   |
-   = fix: write `,` here

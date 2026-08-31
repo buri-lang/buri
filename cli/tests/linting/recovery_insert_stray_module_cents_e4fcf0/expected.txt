@@ -1,0 +1,17 @@
+error: expected `:`, found `}` [unexpected-token]
+  --> lib/recovery_insert_stray_module_cents_e4fcf0/lib.buri:12:7
+   |
+12 | extra }
+   |       ^
+   |
+   = expected: `:`
+   = actual: `}`
+   = fix: write `:` here
+warning: nothing uses `Tally` [unused-type]
+  --> lib/recovery_insert_stray_module_cents_e4fcf0/lib.buri:14:6
+   |
+14 | enum Tally {
+   |      ^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface

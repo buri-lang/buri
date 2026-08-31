@@ -1,22 +1,27 @@
 from "core/effect" import { Alloc };
 from "core/str" import * as str;
 
+derive Eq, Show for Cents;
 export struct Cents(I64);
 
-derive Eq, Show for Cents;
-
-export fn fromCents(c: I64): Cents { Cents(c) }
+export fn fromCents(c: I64): Cents {
+    Cents(c)
+}
 
 impl Cents {
-  export fn format<C: Alloc>(self, ctx: C): Str {
-    str.format(ctx, "${self.0}c")
-  }
+    export fn format<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "${self.0}c")
+    }
 
-  /// Exported from this module so //lib/money/parse can use it, and absent
-  /// from lib.buri, so it stops at the library boundary.
-  export fn toCents(self): I64 { self.0 }
+    /// Exported from this module so //lib/money/parse can use it, and absent
+    /// from lib.buri, so it stops at the library boundary.
+    export fn toCents(self): I64 {
+        self.0
+    }
 }
 
 /// A free function this module exports and lib.buri does not re-export. The
 /// library's surface is what lib.buri lists, and nothing else.
-export fn rawValue(c: Cents): I64 { c.toCents() }
+export fn rawValue(c: Cents): I64 {
+    c.toCents()
+}

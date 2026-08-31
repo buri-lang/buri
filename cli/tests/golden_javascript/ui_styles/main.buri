@@ -21,6 +21,7 @@
 //
 // What it prints is one line. A mounted page has nothing to say on the way out.
 from "core/effect" import { Alloc, Stdout };
+
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -34,58 +35,57 @@ from "ui/style" import { Color, Style };
 // Buri enum per package, with exhaustiveness as the contract — and it is why
 // extraction needs constant folding at all.
 enum Token {
-  Surface,
-  OnSurface,
+    Surface,
+    OnSurface,
 }
 
 impl Token {
-  fn color(self): Color {
-    match (self) {
-      .Surface => .Rgb(240, 240, 245),
-      .OnSurface => .Rgb(24, 24, 27),
+    fn color(self): Color {
+        match (self) {
+            .Surface => .Rgb(240, 240, 245),
+            .OnSurface => .Rgb(24, 24, 27),
+        }
     }
-  }
 }
 
 fn tokenColor(t: Token): Color {
-  t.color()
+    t.color()
 }
 
 let badgeStyle: Style = .Group([
-  .PaddingX(.Rem(0.5)),
-  .Radius(.Px(6)),
-  .Background(tokenColor(.Surface)),
-  .Foreground(tokenColor(.OnSurface)),
-  .On(.Hover, [.Background(tokenColor(.OnSurface)), .Foreground(tokenColor(.Surface))]),
+    .PaddingX(.Rem(0.5)),
+    .Radius(.Px(6)),
+    .Background(tokenColor(.Surface)),
+    .Foreground(tokenColor(.OnSurface)),
+    .On(.Hover, [
+        .Background(tokenColor(.OnSurface)),
+        .Foreground(tokenColor(.Surface)),
+    ]),
 ]);
 
 fn badge<C>(label: Str): Node<C> {
-  ui.row([badgeStyle], [ui.text(.Const(label))])
+    ui.row([badgeStyle], [ui.text(.Const(label))])
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc: host.alloc,
-    Stdout: host.stdout,
-    Ui: host.ui,
-    Watch: host.watch,
-  };
-  let _ = io.println(ctx, "styled").ignore();
-  let page = ui.column(
-    [
-      .Padding(.Rem(1.0)),
-      .Gap(.Px(8)),
-      .At(.Medium, [.Padding(.Rem(2.0)), .Gap(.Px(16))]),
-      .At(.Large, [.MaxWidth(.Rem(64.0))]),
-      .At(.Small, [.On(.Hover, [.Radius(.Px(4))])]),
-    ],
-    [
-      badge("one"),
-      // The badge's padding again, and a `Grow` that `ui/node`'s `spacer` also
-      // asks for: one class each, from two modules that never met.
-      ui.row([.PaddingX(.Rem(0.5)), .Grow(1)], []),
-      ui.spacer(),
-    ],
-  );
-  ui.mount(ctx, page, [])
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    let _ = io.println(ctx, "styled").ignore();
+    let page = ui.column(
+        [
+            .Padding(.Rem(1.0)),
+            .Gap(.Px(8)),
+            .At(.Medium, [.Padding(.Rem(2.0)), .Gap(.Px(16))]),
+            .At(.Large, [.MaxWidth(.Rem(64.0))]),
+            .At(.Small, [.On(.Hover, [.Radius(.Px(4))])]),
+        ],
+        [badge("one"), ui.row([.PaddingX(.Rem(0.5)), .Grow(1)], []), ui.spacer()],
+    );
+    // The badge's padding again, and a `Grow` that `ui/node`'s `spacer` also
+    // asks for: one class each, from two modules that never met.
+    ui.mount(ctx, page, [])
 }

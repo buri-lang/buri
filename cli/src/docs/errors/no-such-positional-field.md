@@ -8,6 +8,6 @@ fix: '`{type}` has {count} fields'
 struct Wrapper(Int);
 
 fn read(w: Wrapper): Int {
-  w.3
+    w.3
 }
 ```

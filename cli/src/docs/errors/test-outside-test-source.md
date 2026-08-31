@@ -24,6 +24,6 @@ missed — it is a declaration in a file the runner will never look at.
 
 ```buri fail code=test-outside-test-source
 test "a test in a binary source" {
-  let n = 1;
+    let n = 1;
 }
 ```

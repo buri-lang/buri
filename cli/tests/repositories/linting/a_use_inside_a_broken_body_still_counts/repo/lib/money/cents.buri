@@ -7,6 +7,6 @@ from "core/effect" import { Alloc };
 from "core/str" import { fromInt };
 
 export fn describe<C: Alloc>(ctx: C): Str {
-  let amount = 3;
-  fromInt(ctx, amount.doubled())
+    let amount = 3;
+    fromInt(ctx, amount.doubled())
 }

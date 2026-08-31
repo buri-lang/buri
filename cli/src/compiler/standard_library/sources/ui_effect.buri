@@ -31,11 +31,11 @@
 /// change it, which is what makes a derivation safe to re-run whenever the
 /// runtime likes.
 export effect Watch {
-  /// The current value of the cell `id` names.
-  ///
-  /// Reading inside a computation records a dependency, so the computation
-  /// re-runs when that cell changes. Reading outside one records nothing.
-  fn read<T>(self, id: Int): T;
+    /// The current value of the cell `id` names.
+    ///
+    /// Reading inside a computation records a dependency, so the computation
+    /// re-runs when that cell changes. Reading outside one records nothing.
+    fn read<T>(self, id: Int): T;
 }
 
 /// Creating and writing signals, and registering computations.
@@ -45,23 +45,23 @@ export effect Watch {
 /// new one, and it takes the effect that can write. An implementor of `Ui`
 /// grants strictly more than one of `Watch`.
 export effect Ui {
-  /// A fresh cell holding `initial`. The returned `Int` names it for the
-  /// lifetime of the program.
-  fn signal<T>(self, initial: T): Int;
-  /// The current value of the cell `id` names.
-  fn read<T>(self, id: Int): T;
-  /// Replaces the value of the cell `id` names, marking everything that read
-  /// it out of date.
-  fn write<T>(self, id: Int, value: T): ();
-  /// A derived cell: `compute` runs on demand and is re-run only after
-  /// something it read has changed. Lazy, so a memo nothing reads never runs.
-  fn memo<T>(self, compute: fn(Scope) => T): Int;
-  /// A computation run for its effect on the world rather than its value. It
-  /// runs once immediately — which is how it learns what it depends on — and
-  /// again whenever any of that changes.
-  ///
-  /// Named `watch` rather than `effect` because `effect` is a keyword.
-  fn watch(self, run: fn(Scope) => ()): ();
+    /// A fresh cell holding `initial`. The returned `Int` names it for the
+    /// lifetime of the program.
+    fn signal<T>(self, initial: T): Int;
+    /// The current value of the cell `id` names.
+    fn read<T>(self, id: Int): T;
+    /// Replaces the value of the cell `id` names, marking everything that read
+    /// it out of date.
+    fn write<T>(self, id: Int, value: T): ();
+    /// A derived cell: `compute` runs on demand and is re-run only after
+    /// something it read has changed. Lazy, so a memo nothing reads never runs.
+    fn memo<T>(self, compute: fn(Scope) => T): Int;
+    /// A computation run for its effect on the world rather than its value. It
+    /// runs once immediately — which is how it learns what it depends on — and
+    /// again whenever any of that changes.
+    ///
+    /// Named `watch` rather than `effect` because `effect` is a keyword.
+    fn watch(self, run: fn(Scope) => ()): ();
 }
 
 /// The one concrete implementor of `Watch`, minted only by the runtime when it
@@ -75,7 +75,7 @@ export effect Ui {
 export struct Scope(Int);
 
 impl Watch for Scope {
-  fn read<T>(self, id: Int): T;
+    fn read<T>(self, id: Int): T;
 }
 
 /// Something a reader did.

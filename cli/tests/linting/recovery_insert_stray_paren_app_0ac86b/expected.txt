@@ -8,9 +8,9 @@ error: expected an identifier, found `,` [unexpected-token]
   = actual: `,`
   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
 error: there is nothing named `total` in scope [unresolved-name]
-  --> lib/recovery_insert_stray_paren_app_0ac86b/main.buri:15:22
+  --> lib/recovery_insert_stray_paren_app_0ac86b/main.buri:19:26
    |
-15 |   io.println(ctx, "${total(1, 2, 3, 4, 5, 6)}").mapErr(fn(_e) => "could not write to standard output")
-   |                      ^^^^^
+19 |         .println(ctx, "${total(1, 2, 3, 4, 5, 6)}")
+   |                          ^^^^^
    |
    = fix: declare `total`, or import it — a name is in scope only from this module's own declarations and its imports

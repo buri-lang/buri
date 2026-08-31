@@ -22,9 +22,11 @@ offer the nearest name it does have.
 ## A program that provokes it
 
 ```buri fail code=no-such-field
-struct Rec { export f0: Int }
+struct Rec {
+    export f0: Int,
+}
 
 fn read(r: Rec): Int {
-  r.f1
+    r.f1
 }
 ```

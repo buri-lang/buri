@@ -17,137 +17,136 @@
 // would be answered by identity and would prove nothing.
 
 from "core/testing/assert" import * as assert;
-
 from "//lib/codegen" import {
-  Pair, Floaty, Nest, Holder, Deep, Listy, Hollow, Flat, Wide,
-  mkPair, mkFloaty, mkNest, mkHolder, mkDeep, mkListy, mkHollow, notANumber,
+    Deep, Flat, Floaty, Holder, Hollow, Listy, mkDeep, mkFloaty, mkHolder, mkHollow,
+    mkListy, mkNest, mkPair, Nest, notANumber, Pair, Wide,
 };
 
 // --- structs -------------------------------------------------------------------------
 
 test "a struct is equal field by field" {
-  assert.isTrue(mkPair(1, "x") == mkPair(1, "x"));
-  assert.isFalse(mkPair(1, "x") == mkPair(1, "y"));
-  assert.isFalse(mkPair(2, "x") == mkPair(1, "x"));
+    assert.isTrue(mkPair(1, "x") == mkPair(1, "x"));
+    assert.isFalse(mkPair(1, "x") == mkPair(1, "y"));
+    assert.isFalse(mkPair(2, "x") == mkPair(1, "x"));
 }
 
 test "a struct with nothing in it is equal to another" {
-  assert.isTrue(mkHollow() == mkHollow());
+    assert.isTrue(mkHollow() == mkHollow());
 }
 
 test "a struct nests" {
-  let a = mkNest(mkPair(1, "x"), mkFloaty(0.0));
-  let b = mkNest(mkPair(1, "x"), mkFloaty(0.0));
-  let c = mkNest(mkPair(1, "y"), mkFloaty(0.0));
-  assert.isTrue(a == b);
-  assert.isFalse(a == c);
+    let a = mkNest(mkPair(1, "x"), mkFloaty(0.0));
+    let b = mkNest(mkPair(1, "x"), mkFloaty(0.0));
+    let c = mkNest(mkPair(1, "y"), mkFloaty(0.0));
+    assert.isTrue(a == b);
+    assert.isFalse(a == c);
 }
 
 // --- floats --------------------------------------------------------------------------
 
 test "a struct holding NaN is equal to a separately built one" {
-  // SPEC 7.2: `==` is an equivalence relation, so the float leaf answers
-  // `true` for two NaNs and the struct inherits that.
-  assert.isTrue(mkFloaty(notANumber()) == mkFloaty(notANumber()));
-  assert.isFalse(mkFloaty(notANumber()) == mkFloaty(0.0));
-  assert.isFalse(mkFloaty(0.0) == mkFloaty(notANumber()));
+    // SPEC 7.2: `==` is an equivalence relation, so the float leaf answers
+    // `true` for two NaNs and the struct inherits that.
+    assert.isTrue(mkFloaty(notANumber()) == mkFloaty(notANumber()));
+    assert.isFalse(mkFloaty(notANumber()) == mkFloaty(0.0));
+    assert.isFalse(mkFloaty(0.0) == mkFloaty(notANumber()));
 }
 
 test "a value is equal to itself even when it holds NaN" {
-  // The same value, not a copy. Reflexivity holds of every value there is,
-  // and after SPEC 7.2's ruling it holds for the same reason as the case
-  // above rather than as a separate accident of identity.
-  let f = mkFloaty(notANumber());
-  assert.isTrue(f == f);
+    // The same value, not a copy. Reflexivity holds of every value there is,
+    // and after SPEC 7.2's ruling it holds for the same reason as the case
+    // above rather than as a separate accident of identity.
+    let f = mkFloaty(notANumber());
+    assert.isTrue(f == f);
 }
 
 test "negative zero equals zero" {
-  assert.isTrue(mkFloaty(0.0) == mkFloaty(-0.0));
-  assert.isTrue(mkFloaty(-0.0) == mkFloaty(0.0));
+    assert.isTrue(mkFloaty(0.0) == mkFloaty(-0.0));
+    assert.isTrue(mkFloaty(-0.0) == mkFloaty(0.0));
 }
 
 // --- options -------------------------------------------------------------------------
 
 test "a struct holding an Option compares the payload" {
-  assert.isTrue(mkHolder(.Some(1)) == mkHolder(.Some(1)));
-  assert.isFalse(mkHolder(.Some(1)) == mkHolder(.Some(2)));
-  assert.isFalse(mkHolder(.Some(1)) == mkHolder(.None));
-  assert.isTrue(mkHolder(.None) == mkHolder(.None));
+    assert.isTrue(mkHolder(.Some(1)) == mkHolder(.Some(1)));
+    assert.isFalse(mkHolder(.Some(1)) == mkHolder(.Some(2)));
+    assert.isFalse(mkHolder(.Some(1)) == mkHolder(.None));
+    assert.isTrue(mkHolder(.None) == mkHolder(.None));
 }
 
 test "a nested Option keeps its depth" {
-  // `Some(None)` and `None` are different values, and telling them apart is
-  // the whole reason the runtime boxes the nesting.
-  assert.isFalse(mkDeep(.Some(.None)) == mkDeep(.None));
-  assert.isFalse(mkDeep(.Some(.None)) == mkDeep(.Some(.Some(1))));
-  assert.isTrue(mkDeep(.Some(.None)) == mkDeep(.Some(.None)));
-  assert.isTrue(mkDeep(.None) == mkDeep(.None));
-  assert.isTrue(mkDeep(.Some(.Some(1))) == mkDeep(.Some(.Some(1))));
+    // `Some(None)` and `None` are different values, and telling them apart is
+    // the whole reason the runtime boxes the nesting.
+    assert.isFalse(mkDeep(.Some(.None)) == mkDeep(.None));
+    assert.isFalse(mkDeep(.Some(.None)) == mkDeep(.Some(.Some(1))));
+    assert.isTrue(mkDeep(.Some(.None)) == mkDeep(.Some(.None)));
+    assert.isTrue(mkDeep(.None) == mkDeep(.None));
+    assert.isTrue(mkDeep(.Some(.Some(1))) == mkDeep(.Some(.Some(1))));
 }
 
 // --- lists ---------------------------------------------------------------------------
 
 test "a struct holding a list compares element by element" {
-  assert.isTrue(mkListy([1, 2]) == mkListy([1, 2]));
-  assert.isFalse(mkListy([1, 2]) == mkListy([1, 2, 3]));
-  assert.isFalse(mkListy([1, 2]) == mkListy([2, 1]));
-  assert.isTrue(mkListy([]) == mkListy([]));
-  assert.isFalse(mkListy([1]) == mkListy([]));
+    assert.isTrue(mkListy([1, 2]) == mkListy([1, 2]));
+    assert.isFalse(mkListy([1, 2]) == mkListy([1, 2, 3]));
+    assert.isFalse(mkListy([1, 2]) == mkListy([2, 1]));
+    assert.isTrue(mkListy([]) == mkListy([]));
+    assert.isFalse(mkListy([1]) == mkListy([]));
 }
 
 test "lists compare directly too" {
-  let a: [Int] = [1, 2];
-  let b: [Int] = [1, 2];
-  let c: [Int] = [1, 3];
-  assert.isTrue(a == b);
-  assert.isFalse(a == c);
+    let a: [Int] = [1, 2];
+    let b: [Int] = [1, 2];
+    let c: [Int] = [1, 3];
+    assert.isTrue(a == b);
+    assert.isFalse(a == c);
 }
 
 test "an empty list is not a list holding an empty list" {
-  let a: [[Int]] = [];
-  let b: [[Int]] = [[]];
-  assert.isFalse(a == b);
-  assert.isTrue(b == b);
+    let a: [[Int]] = [];
+    let b: [[Int]] = [[]];
+    assert.isFalse(a == b);
+    assert.isTrue(b == b);
 }
 
 // --- enums ---------------------------------------------------------------------------
 
 test "an enum with no payload is equal by variant" {
-  assert.isTrue(Flat.A == Flat.A);
-  assert.isFalse(Flat.A == Flat.B);
-  assert.isFalse(Flat.B == Flat.C);
+    assert.isTrue(Flat.A == Flat.A);
+    assert.isFalse(Flat.A == Flat.B);
+    assert.isFalse(Flat.B == Flat.C);
 }
 
 test "variants of different arity are never equal" {
-  assert.isFalse(Wide.None0 == Wide.One(1));
-  assert.isFalse(Wide.One(1) == Wide.Two(1, "a"));
-  assert.isFalse(Wide.None0 == Wide.Two(1, "a"));
+    assert.isFalse(Wide.None0 == Wide.One(1));
+    assert.isFalse(Wide.One(1) == Wide.Two(1, "a"));
+    assert.isFalse(Wide.None0 == Wide.Two(1, "a"));
 }
 
 test "an enum with a payload compares the payload" {
-  assert.isTrue(Wide.None0 == Wide.None0);
-  assert.isTrue(Wide.One(1) == Wide.One(1));
-  assert.isFalse(Wide.One(1) == Wide.One(2));
-  assert.isTrue(Wide.Two(1, "a") == Wide.Two(1, "a"));
-  assert.isFalse(Wide.Two(1, "a") == Wide.Two(1, "b"));
-  assert.isFalse(Wide.Two(1, "a") == Wide.Two(2, "a"));
+    assert.isTrue(Wide.None0 == Wide.None0);
+    assert.isTrue(Wide.One(1) == Wide.One(1));
+    assert.isFalse(Wide.One(1) == Wide.One(2));
+    assert.isTrue(Wide.Two(1, "a") == Wide.Two(1, "a"));
+    assert.isFalse(Wide.Two(1, "a") == Wide.Two(1, "b"));
+    assert.isFalse(Wide.Two(1, "a") == Wide.Two(2, "a"));
 }
 
 // --- tuples --------------------------------------------------------------------------
 
 test "a tuple is equal component by component" {
-  let a = (1, "a");
-  let b = (1, "a");
-  let c = (1, "b");
-  assert.isTrue(a == b);
-  assert.isFalse(a == c);
+    let a = (1, "a");
+    let b = (1, "a");
+    let c = (1, "b");
+    assert.isTrue(a == b);
+    assert.isFalse(a == c);
 }
 
 // --- != ------------------------------------------------------------------------------
 
 test "!= is the negation of ==" {
-  assert.isFalse(mkPair(1, "x") != mkPair(1, "x"));
-  assert.isTrue(mkPair(1, "x") != mkPair(1, "y"));
-  assert.isTrue(Wide.One(1) != Wide.Two(1, "a"));
-  assert.isFalse(mkListy([]) != mkListy([]));
+    assert.isFalse(mkPair(1, "x") != mkPair(1, "x"));
+    assert.isTrue(mkPair(1, "x") != mkPair(1, "y"));
+    assert.isTrue(Wide.One(1) != Wide.Two(1, "a"));
+    assert.isFalse(mkListy([]) != mkListy([]));
 }

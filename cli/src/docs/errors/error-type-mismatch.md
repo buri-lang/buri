@@ -6,8 +6,9 @@ fix: "map the error first: `.mapErr(fn(e) => ...)?`, producing a `{to}` — ther
 ```buri fail code=error-type-mismatch
 # from "core/effect" import { Alloc, Fs };
 # from "core/fs" import * as fs;
+
 fn load<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, Str> {
-  let text = fs.readText(ctx, path)?;
-  .Ok(text)
+    let text = fs.readText(ctx, path)?;
+    .Ok(text)
 }
 ```

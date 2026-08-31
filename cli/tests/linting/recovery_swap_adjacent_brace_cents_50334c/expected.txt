@@ -1,9 +1,0 @@
-error: expected an identifier, found a string literal [unexpected-token]
- --> lib/recovery_swap_adjacent_brace_cents_50334c/lib.buri:7:17
-  |
-7 |   ( ifn == 0) { "zero" } else { "some" }
-  |                 ^^^^^^
-  |
-  = expected: an identifier
-  = actual: a string literal
-  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -1,17 +1,16 @@
+derive Eq, Ord, Show for Cents;
 // Money as minor units, for the sections that explain structs, derives, and
 // operator traits. A newtype over `Int` is the example every one of them
 // reaches for.
 
 export struct Cents(export Int);
 
-derive Eq, Ord, Show for Cents;
-
 export fn fromCents(n: Int): Cents {
-  Cents(n)
+    Cents(n)
 }
 
 impl Cents {
-  export fn plus(self, other: Cents): Cents {
-    Cents(self.0 + other.0)
-  }
+    export fn plus(self, other: Cents): Cents {
+        Cents(self.0 + other.0)
+    }
 }

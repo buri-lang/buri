@@ -1,5 +1,0 @@
-export struct Cents(export I64);
-
-derive Eq, Show for Cents
-
-export fn fromCents(c: I64): Cents { Cents(c) }

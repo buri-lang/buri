@@ -1,7 +1,7 @@
 error: this is a test-only module [test-only-import]
- --> cmd/app/main.buri:6:6
+ --> cmd/app/main.buri:5:6
   |
-6 | from "//lib/widget/testing" import { fakeWidget };
+5 | from "//lib/widget/testing" import { fakeWidget };
   |      ^^^^^^^^^^^^^^^^^^^^^^ importable only from a test source
   |
   = a path containing a `testing` segment may be imported only from a test source

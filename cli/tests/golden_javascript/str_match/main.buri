@@ -5,19 +5,24 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 fn code(name: Str): Int {
-  match (name) {
-    "get" => 1,
-    "put" => 2,
-    "post" => 3,
-    "patch" => 4,
-    "delete" => 5,
-    "head" => 6,
-    _ => 0,
-  }
+    match (name) {
+        "get" => 1,
+        "put" => 2,
+        "post" => 3,
+        "patch" => 4,
+        "delete" => 5,
+        "head" => 6,
+        _ => 0,
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${code("get")} ${code("delete")} ${code("nope")}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io
+        .println(ctx, "${code("get")} ${code("delete")} ${code("nope")}")
+        .ignore();
+    .Ok(())
 }

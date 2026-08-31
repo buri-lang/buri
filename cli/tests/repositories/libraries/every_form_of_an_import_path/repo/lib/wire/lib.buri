@@ -1,1 +1,1 @@
-from "//lib/wire/point.proto" export { Point, defaultPoint };
+from "//lib/wire/point.proto" export { defaultPoint, Point };

@@ -16,6 +16,6 @@ export fn describe<C: Alloc>(ctx: C, n: I64): Str {
 }
 
 export fn amount<C: Alloc>(ctx: C, n: I64): Str {
-  let showing = 7;
-  fromInt(ctx, n)
+    let showing = 7;
+    fromInt(ctx, n)
 }

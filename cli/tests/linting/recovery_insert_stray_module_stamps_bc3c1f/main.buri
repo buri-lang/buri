@@ -1,0 +1,20 @@
+// The shapes, declared here and built next door. Neither is on the library's
+// surface — `lib.buri` publishes `wax` and nothing else — so both are asked
+// about, and so is every field of them.
+//
+// `Stamp` is built by the module beside this one, by a literal that names no
+// type at all. `Ghost` is the same shape with the construction taken away,
+// and the pair is what makes the negative evidence rather than an absence. It
+// carries no `export` because a name this module publishes is a name
+// `dead-code` answers for first, with the stronger claim and the fix that
+// names the import: `unused-type` is the rule for the shapes a package keeps
+// to itself.
+
+export struct Stamp {
+    export mark: Str,
+    export note: Str,
+, }
+
+struct Ghost {
+    export mark: Str,
+}

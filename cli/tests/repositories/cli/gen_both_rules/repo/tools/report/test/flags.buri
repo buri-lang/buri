@@ -1,11 +1,10 @@
 from "core/testing/assert" import * as assert;
-
 from "//tools/report/main.buri" import { parseFlags };
 
 test "verbose is off by default" {
-  assert.isFalse(parseFlags([]).verbose);
+    assert.isFalse(parseFlags([]).verbose);
 }
 
 test "verbose is recognized anywhere in argv" {
-  assert.isTrue(parseFlags(["--quiet", "--verbose"]).verbose);
+    assert.isTrue(parseFlags(["--quiet", "--verbose"]).verbose);
 }

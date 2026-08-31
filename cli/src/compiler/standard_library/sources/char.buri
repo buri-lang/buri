@@ -1,29 +1,29 @@
 //! core/char — the defining module of `Char`, a Unicode scalar value.
 
 impl Char {
-  export fn isDigit(self): Bool;
+    export fn isDigit(self): Bool;
 
-  export fn isAlpha(self): Bool;
+    export fn isAlpha(self): Bool;
 
-  export fn isAlphanumeric(self): Bool {
-    self.isAlpha() || self.isDigit()
-  }
+    export fn isAlphanumeric(self): Bool {
+        self.isAlpha() || self.isDigit()
+    }
 
-  export fn isSpace(self): Bool;
+    export fn isSpace(self): Bool;
 
-  export fn isUpper(self): Bool;
+    export fn isUpper(self): Bool;
 
-  export fn isLower(self): Bool;
+    export fn isLower(self): Bool;
 
-  export fn toLower(self): Char;
+    export fn toLower(self): Char;
 
-  export fn toUpper(self): Char;
+    export fn toUpper(self): Char;
 
-  /// Exact: every `Char` is a `U32`. The other direction, `u32.toChar()`, is one
-  /// of the numeric conversions and lives on `U32` — not every `U32` is a
-  /// Unicode scalar value, so it yields `Result<Char, RangeError>`.
-  export fn toU32(self): U32;
+    /// Exact: every `Char` is a `U32`. The other direction, `u32.toChar()`, is one
+    /// of the numeric conversions and lives on `U32` — not every `U32` is a
+    /// Unicode scalar value, so it yields `Result<Char, RangeError>`.
+    export fn toU32(self): U32;
 
-  /// The digit a character denotes, in the given radix.
-  export fn toDigit(self, radix: Int): Option<Int>;
+    /// The digit a character denotes, in the given radix.
+    export fn toDigit(self, radix: Int): Option<Int>;
 }

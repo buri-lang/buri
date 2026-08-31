@@ -1,9 +1,0 @@
-error: expected `(`, found `,` [unexpected-token]
-  --> lib/recovery_insert_stray_paren_app_11d4c3/main.buri:13:36
-   |
-13 |   io.println(ctx, "done").mapErr(fn, (_e) => "could not write to standard output")
-   |                                    ^
-   |
-   = expected: `(`
-   = actual: `,`
-   = fix: write `(` here

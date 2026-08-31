@@ -1,2 +1,3 @@
-from "//lib/shop/orders.buri" export { Address, Delivery, Payment, blank };
+from "//lib/shop/orders.buri" export { Address, blank, Delivery, Payment };
+
 from "//lib/shop/desk.buri" export { relabel };

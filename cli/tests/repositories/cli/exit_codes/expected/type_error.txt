@@ -1,22 +1,22 @@
 error: there is nothing named `notAName` in scope [unresolved-name]
- --> cmd/ok/main.buri:7:19
-  |
-7 |   io.println(ctx, notAName).mapErr(fn(_e) => "could not write to standard output")
-  |                   ^^^^^^^^
-  |
-  = fix: declare `notAName`, or import it — a name is in scope only from this module's own declarations and its imports
+  --> cmd/ok/main.buri:10:21
+   |
+10 |     io.println(ctx, notAName).mapErr(fn(_e) => "could not write to standard output")
+   |                     ^^^^^^^^
+   |
+   = fix: declare `notAName`, or import it — a name is in scope only from this module's own declarations and its imports
 
-    What to do
-    ──────────
+     What to do
+     ──────────
 
-    Correct the spelling, or declare it. The diagnostic offers the nearest name
-    in scope.
+     Correct the spelling, or declare it. The diagnostic offers the nearest name
+     in scope.
 
-    Why
-    ───
+     Why
+     ───
 
-    There is no prelude and no ambient scope: the names available in a module
-    are the ones it declares plus the ones its own imports name. That is what
-    makes the suggestion trustworthy — the set it is drawn from is exactly the
-    set the file put there.
+     There is no prelude and no ambient scope: the names available in a module
+     are the ones it declares plus the ones its own imports name. That is what
+     makes the suggestion trustworthy — the set it is drawn from is exactly the
+     set the file put there.
 

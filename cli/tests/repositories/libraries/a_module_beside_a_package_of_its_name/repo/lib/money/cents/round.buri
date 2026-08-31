@@ -1,1 +1,3 @@
-export fn round(n: I64): I64 { n }
+export fn round(n: I64): I64 {
+    n
+}

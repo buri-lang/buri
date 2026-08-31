@@ -1,4 +1,5 @@
 //! Three colours: two the server can compute and one it cannot.
+
 from "ui/style" import { Color };
 
 /// The brand colour, with the enum named the long way round.

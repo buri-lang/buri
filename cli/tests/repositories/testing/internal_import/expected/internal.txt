@@ -1,7 +1,7 @@
 error: lib/money/test/cents.buri imports a library-internal module [test-internal-import]
- --> lib/money/test/cents.buri:3:6
+ --> lib/money/test/cents.buri:4:6
   |
-3 | from "//lib/money/cents.buri" import { fromCents, toCents };
+4 | from "//lib/money/cents.buri" import { fromCents, toCents };
   |      ^^^^^^^^^^^^^^^^^^^^^^^^ internal to the library under test
   |
   = tests reach their library the same way dependents do

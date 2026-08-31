@@ -14,13 +14,13 @@ run {
 # than one answer and its wake.
 edit {
   file: "lib/money/cents.buri"
-  replace: "struct Ledger {\n  entries: I64,\n}\n\n"
+  replace: "struct Ledger {\n    entries: I64,\n}\n\n"
   with: ""
 }
 
 edit {
   file: "lib/money/cents.buri"
-  replace: "enum Tally {\n  Open,\n  Closed,\n}\n\n"
+  replace: "enum Tally {\n    Open,\n    Closed,\n}\n\n"
   with: ""
 }
 

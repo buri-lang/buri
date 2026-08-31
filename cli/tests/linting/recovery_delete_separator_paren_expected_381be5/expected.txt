@@ -1,0 +1,7 @@
+error: a lambda parameter ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_paren_expected_381be5/main.buri:51:41
+   |
+51 |         .println(ctx, rendered(ctx, fn(c l) => str.format(c, "<${l}>"), label))
+   |                                         ^
+   |
+   = fix: write `,` here

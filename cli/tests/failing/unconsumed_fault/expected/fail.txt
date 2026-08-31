@@ -1,5 +1,5 @@
 FAIL //lib/journal  test/journal.buri  "a fault whose call never happens fails the test"
   a fault was planned and never happened: readFile("log") fails .NotFound
-  --> lib/journal/test/journal.buri:16:1
+  --> lib/journal/test/journal.buri:19:1
 
 1 passed, 1 failed, 0 skipped (0.0s)

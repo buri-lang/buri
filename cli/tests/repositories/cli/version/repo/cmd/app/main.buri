@@ -3,9 +3,9 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc:  host.alloc,
-    Stdout: host.stdout,
-  };
-  io.println(ctx, "ok").mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io.println(ctx, "ok").mapErr(fn(_e) => "could not write to standard output")
 }

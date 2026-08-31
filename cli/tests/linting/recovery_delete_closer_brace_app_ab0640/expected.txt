@@ -1,0 +1,43 @@
+error: a `Result` may not be discarded [result-discarded]
+  --> lib/recovery_delete_closer_brace_app_ab0640/main.buri:26:5
+   |
+26 |     let _ = record(.ignore();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
+error: `record` takes 0 arguments, but 1 were given [wrong-argument-count]
+  --> lib/recovery_delete_closer_brace_app_ab0640/main.buri:26:13
+   |
+26 |     let _ = record(.ignore();
+   |             ^^^^^^^^^^^^^^^^
+   |
+   = expected: 0
+   = actual: 1
+   = fix: pass exactly 0
+error: `.ignore` needs a known expected type [unannotated-variant]
+  --> lib/recovery_delete_closer_brace_app_ab0640/main.buri:26:20
+   |
+26 |     let _ = record(.ignore();
+   |                    ^^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.ignore(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_ab0640/main.buri:26:29
+   |
+26 |     let _ = record(.ignore();
+   |                             ^
+   |
+  --> lib/recovery_delete_closer_brace_app_ab0640/main.buri:26:19
+   |
+26 |     let _ = record(.ignore();
+   |                   ^ opened here
+   |
+   = fix: write `)` here
+warning: this discards a `Result` [discarded-result]
+  --> lib/recovery_delete_closer_brace_app_ab0640/main.buri:27:13
+   |
+27 |     let _ = io.println(ctx, "done").ignore();
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
+   = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate

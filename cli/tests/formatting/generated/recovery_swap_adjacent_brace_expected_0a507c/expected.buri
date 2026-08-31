@@ -1,0 +1,32 @@
+from "core/effect" import { Alloc }; // what a page may allocate with
+from "core/io" import * as io;
+
+type Count = I64; // the default integer, named for what it counts
+
+type Ratio = F64;
+
+struct Basket {
+    export items: Count, // how many, never how much
+    export label: Str,
+}
+
+enum State {
+    Empty, // nothing has been added yet
+    Filled(Count),
+}
+
+export fn describe(s: State): Str {
+    let base = "basket"; // the noun every message is built from
+    let n = match (s) {
+        .Empty => 0, // nothing to count
+        .Filled(n) => n,
+    };
+    // A comment on a line of its own is about the line under it, and stays there.
+    let suffix if = (n == 1) { " item" } else { " items" };
+    "${base}: ${n}${suffix}" // and the answer
+}
+
+export fn sum(xs: [Count]): Count {
+    xs.fold(fn(acc, x) => acc + x, 0)
+    // a comment no printer reaches keeps the place
+}

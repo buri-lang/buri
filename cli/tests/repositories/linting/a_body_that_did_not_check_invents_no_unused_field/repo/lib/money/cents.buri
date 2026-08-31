@@ -13,11 +13,11 @@
 // type `lib.buri` publishes, so it is public API rather than dead weight.
 
 export struct Entry {
-  export cents: I64,
-  label: Str,
-  packer: Str,
+    export cents: I64,
+    label: Str,
+    packer: Str,
 }
 
 export fn shown(e: Entry): Str {
-  e.label + 1
+    e.label + 1
 }

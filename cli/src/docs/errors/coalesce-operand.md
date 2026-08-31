@@ -5,5 +5,7 @@ fix: '`??` supplies a default for an absent or failed value; this one is neither
 ---
 
 ```buri fail code=coalesce-operand
-fn go(n: Int): Int { n ?? 0 }
+fn go(n: Int): Int {
+    n ?? 0
+}
 ```

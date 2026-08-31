@@ -1,0 +1,16 @@
+error: expected `;`, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_d6c73d/main.buri:19:30
+   |
+19 |     let ctx = "not a context"@ ;
+   |                              ^
+   |
+   = expected: `;`
+   = actual: `@`
+   = fix: write `;` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_d6c73d/main.buri:20:5
+   |
+20 |     ctx
+   |     ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

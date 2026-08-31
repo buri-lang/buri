@@ -1,0 +1,7 @@
+error: a tuple element ends with `,` [missing-separator]
+  --> main.buri:57:22
+   |
+57 |         (self.0 / 100 self.0 % 100)
+   |                      ^
+   |
+   = fix: write `,` here

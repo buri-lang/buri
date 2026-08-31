@@ -1,0 +1,24 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:16:28
+   |
+16 |     let doubled = [1, 2, 3]extra .fold(fn(acc, x) => acc + x, 0);
+   |                            ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:16:28
+   |
+16 |     let doubled = [1, 2, 3]extra .fold(fn(acc, x) => acc + x, 0);
+   |                            ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: expected `[Int]`, found `Int` [type-mismatch]
+  --> main.buri:17:24
+   |
+17 |     assert.eq(doubled, 6);
+   |                        ^ the parameter type is `[Int]`
+   |
+   = expected: `[Int]`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `[Int]` is not one
+   = fix: produce a `[Int]` here, or change what surrounds it to accept an `Int`

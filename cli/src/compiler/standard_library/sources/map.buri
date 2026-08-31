@@ -24,12 +24,15 @@
 //! from "core/map" import * as map;
 //!
 //! export fn main(): Result<(), Str> {
-//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-//!   let counts = map.of(ctx, [("a", 1), ("b", 2)]).insert(ctx, "a", 9);
-//!   // Inserting an existing key replaces its value and leaves the size alone.
-//!   let a = counts.get("a").withDefault(0);
-//!   let _ = io.println(ctx, "a=${a}, ${counts.len()} entries").ignore();
-//!   .Ok(())
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let counts = map.of(ctx, [("a", 1), ("b", 2)]).insert(ctx, "a", 9);
+//!     // Inserting an existing key replaces its value and leaves the size alone.
+//!     let a = counts.get("a").withDefault(0);
+//!     let _ = io.println(ctx, "a=${a}, ${counts.len()} entries").ignore();
+//!     .Ok(())
 //! }
 //! ```
 //!
@@ -46,8 +49,8 @@ from "core/list" import * as list;
 /// `size` is carried rather than recomputed: `len` is asked far more often
 /// than the map is built, and summing the buckets would make it O(b).
 export struct Map<K, V> {
-  buckets: [[(K, V)]],
-  export size: Int,
+    buckets: [[(K, V)]],
+    export size: Int,
 }
 
 /// How many buckets a new map has. Small, because most maps are.
@@ -62,11 +65,7 @@ let LOAD: Int = 4;
 /// The top bit is shifted out first: `wrapToI64` on a `U64` above `I64`'s
 /// maximum produces a negative number, and a negative index is not a bucket.
 fn bucketOf(h: U64, count: Int): Int {
-  if (count <= 0) {
-    0
-  } else {
-    bits.shrU64(h, 1).wrapToI64() % count
-  }
+    if (count <= 0) { 0 } else { bits.shrU64(h, 1).wrapToI64() % count }
 }
 
 /// The bucket list with position `at` replaced, by splicing rather than by
@@ -77,12 +76,12 @@ fn bucketOf(h: U64, count: Int): Int {
 /// here, so `[[(K, V)]]` is exactly such a type (SPEC 10.6). Everything this
 /// needs arrives as a parameter.
 fn replaceAt<K, V, C: Alloc>(
-  ctx: C,
-  buckets: [[(K, V)]],
-  at: Int,
-  bucket: [(K, V)],
+    ctx: C,
+    buckets: [[(K, V)]],
+    at: Int,
+    bucket: [(K, V)],
 ): [[(K, V)]] {
-  buckets.take(ctx, at).push(ctx, bucket).concat(ctx, buckets.drop(ctx, at + 1))
+    buckets.take(ctx, at).push(ctx, bucket).concat(ctx, buckets.drop(ctx, at + 1))
 }
 
 /// The empty map.
@@ -92,148 +91,173 @@ fn replaceAt<K, V, C: Alloc>(
 /// type is generated and has no name (SPEC 11.3), so `empty<Str, Int, C>()`
 /// could not be written, and a written type argument list is all-or-nothing.
 export fn empty<K, V>(): Map<K, V> {
-  Map { buckets: list.empty<[(K, V)]>(), size: 0 }
+    Map { buckets: list.empty<[(K, V)]>(), size: 0 }
 }
 
 impl<K: Hash + Eq, V> Map<K, V> {
-  export fn len(self): Int {
-    self.size
-  }
-
-  export fn isEmpty(self): Bool {
-    self.size == 0
-  }
-
-  /// The value stored under `key`, if there is one.
-  export fn get(self, key: K): Option<V> {
-    let buckets = self.buckets;
-    let b = buckets.get(bucketOf(key.hash(), buckets.len())).withDefault(list.empty<(K, V)>());
-    b.find(fn(e) => {
-      let (k, _v) = e;
-      k == key
-    }).map(fn(e) => {
-      let (_k, v) = e;
-      v
-    })
-  }
-
-  export fn has(self, key: K): Bool {
-    self.get(key).isSome()
-  }
-
-  /// Stores `value` under `key`, replacing whatever was there.
-  export fn insert<C: Alloc>(self, ctx: C, key: K, value: V): Map<K, V> {
-    let grown = if (self.size + 1 > self.buckets.len() * LOAD) {
-      self.grow(ctx)
-    } else {
-      self
-    };
-    let buckets = grown.buckets;
-    let target = bucketOf(key.hash(), buckets.len());
-    let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
-    let replaced = existing.any(fn(e) => {
-      let (k, _v) = e;
-      k == key
-    });
-    let kept = existing.filterCtx(ctx, fn(_c, e) => {
-      let (k, _v) = e;
-      k != key
-    });
-    let bucket = kept.push(ctx, (key, value));
-    // Splice rather than rebuild by index. A lambda may not capture
-    // `buckets`, because `V` is unbounded and `[[(K, V)]]` would carry an
-    // effect at `V := C` (SPEC 10.6) — and this is the cheaper spine copy
-    // anyway, with no `get` per bucket.
-    let next = replaceAt(ctx, buckets, target, bucket);
-    Map { buckets: next, size: if (replaced) { grown.size } else { grown.size + 1 } }
-  }
-
-  /// Removes `key`, if it is there. Removing what is absent is not an error:
-  /// the question a map answers is about membership, and the answer after this
-  /// call is the same either way.
-  export fn remove<C: Alloc>(self, ctx: C, key: K): Map<K, V> {
-    let buckets = self.buckets;
-    let target = bucketOf(key.hash(), buckets.len());
-    let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
-    let kept = existing.filterCtx(ctx, fn(_c, e) => {
-      let (k, _v) = e;
-      k != key
-    });
-    if (kept.len() == existing.len()) {
-      self
-    } else {
-      let next = replaceAt(ctx, buckets, target, kept);
-      Map { buckets: next, size: self.size - 1 }
+    export fn len(self): Int {
+        self.size
     }
-  }
 
-  /// Every entry, in no particular order — see the module comment.
-  export fn entries<C: Alloc>(self, ctx: C): [(K, V)] {
-    self.buckets.flatten(ctx)
-  }
+    export fn isEmpty(self): Bool {
+        self.size == 0
+    }
 
-  export fn keys<C: Alloc>(self, ctx: C): [K] {
-    self.entries(ctx).map(ctx, fn(e) => {
-      let (k, _v) = e;
-      k
-    })
-  }
+    /// The value stored under `key`, if there is one.
+    export fn get(self, key: K): Option<V> {
+        let buckets = self.buckets;
+        let b = buckets
+            .get(bucketOf(key.hash(), buckets.len()))
+            .withDefault(list.empty<(K, V)>());
+        b
+            .find(fn(e) => {
+                let (k, _v) = e;
+                k == key
+            })
+            .map(fn(e) => {
+                let (_k, v) = e;
+                v
+            })
+    }
 
-  export fn values<C: Alloc>(self, ctx: C): [V] {
-    self.entries(ctx).map(ctx, fn(e) => {
-      let (_k, v) = e;
-      v
-    })
-  }
+    export fn has(self, key: K): Bool {
+        self.get(key).isSome()
+    }
 
-  /// Twice the buckets, everything rehashed. Called from `insert` when the
-  /// load factor is exceeded, so the association lists stay short and lookup
-  /// stays expected-constant.
-  fn grow<C: Alloc>(self, ctx: C): Map<K, V> {
-    // From nothing, the initial size; otherwise twice what there was.
-    let count = if (self.buckets.len() == 0) { INITIAL } else { self.buckets.len() * 2 };
-    let all = self.buckets.flatten(ctx);
-    // One pass over the entries, each dropped into its new bucket, rather
-    // than one pass over the entries per bucket. Written as a fold because a
-    // fold's lambda takes the accumulator as a *parameter*: the bucket-per-
-    // index form had to capture `all`, and a lambda may not capture a
-    // `[(K, V)]` when `V` is unbounded and so could be a context (SPEC 10.6).
-    // `count` it does capture, and an `Int` never carries anything.
-    let blank = list.repeat(ctx, list.empty<(K, V)>(), count);
-    // `acc` is annotated because the accumulator's type comes from `blank`,
-    // which the checker has not reached yet: type information flows
-    // left-to-right (SPEC 13.2).
-    let next = all.foldCtx(ctx, fn(c, acc: [[(K, V)]], e) => {
-      let (k, _v) = e;
-      let at = bucketOf(k.hash(), count);
-      let bucket = acc.get(at).withDefault(list.empty<(K, V)>()).push(c, e);
-      replaceAt(c, acc, at, bucket)
-    }, blank);
-    Map { buckets: next, size: self.size }
-  }
+    /// Stores `value` under `key`, replacing whatever was there.
+    export fn insert<C: Alloc>(self, ctx: C, key: K, value: V): Map<K, V> {
+        let grown = if (self.size + 1 > self.buckets.len() * LOAD) {
+            self.grow(ctx)
+        } else {
+            self
+        };
+        let buckets = grown.buckets;
+        let target = bucketOf(key.hash(), buckets.len());
+        let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
+        let replaced = existing.any(fn(e) => {
+            let (k, _v) = e;
+            k == key
+        });
+        let kept = existing.filterCtx(ctx, fn(_c, e) => {
+            let (k, _v) = e;
+            k != key
+        });
+        let bucket = kept.push(ctx, (key, value));
+        // Splice rather than rebuild by index. A lambda may not capture
+        // `buckets`, because `V` is unbounded and `[[(K, V)]]` would carry an
+        // effect at `V := C` (SPEC 10.6) — and this is the cheaper spine copy
+        // anyway, with no `get` per bucket.
+        let next = replaceAt(ctx, buckets, target, bucket);
+        Map {
+            buckets: next,
+            size: if (replaced) { grown.size } else { grown.size + 1 },
+        }
+    }
+
+    /// Removes `key`, if it is there. Removing what is absent is not an error:
+    /// the question a map answers is about membership, and the answer after this
+    /// call is the same either way.
+    export fn remove<C: Alloc>(self, ctx: C, key: K): Map<K, V> {
+        let buckets = self.buckets;
+        let target = bucketOf(key.hash(), buckets.len());
+        let existing = buckets.get(target).withDefault(list.empty<(K, V)>());
+        let kept = existing.filterCtx(ctx, fn(_c, e) => {
+            let (k, _v) = e;
+            k != key
+        });
+        if (kept.len() == existing.len()) {
+            self
+        } else {
+            let next = replaceAt(ctx, buckets, target, kept);
+            Map { buckets: next, size: self.size - 1 }
+        }
+    }
+
+    /// Every entry, in no particular order — see the module comment.
+    export fn entries<C: Alloc>(self, ctx: C): [(K, V)] {
+        self.buckets.flatten(ctx)
+    }
+
+    export fn keys<C: Alloc>(self, ctx: C): [K] {
+        self
+            .entries(ctx)
+            .map(ctx, fn(e) => {
+                let (k, _v) = e;
+                k
+            })
+    }
+
+    export fn values<C: Alloc>(self, ctx: C): [V] {
+        self
+            .entries(ctx)
+            .map(ctx, fn(e) => {
+                let (_k, v) = e;
+                v
+            })
+    }
+
+    /// Twice the buckets, everything rehashed. Called from `insert` when the
+    /// load factor is exceeded, so the association lists stay short and lookup
+    /// stays expected-constant.
+    fn grow<C: Alloc>(self, ctx: C): Map<K, V> {
+        // From nothing, the initial size; otherwise twice what there was.
+        let count = if (self.buckets.len() == 0) {
+            INITIAL
+        } else {
+            self.buckets.len() * 2
+        };
+        let all = self.buckets.flatten(ctx);
+        // One pass over the entries, each dropped into its new bucket, rather
+        // than one pass over the entries per bucket. Written as a fold because a
+        // fold's lambda takes the accumulator as a *parameter*: the bucket-per-
+        // index form had to capture `all`, and a lambda may not capture a
+        // `[(K, V)]` when `V` is unbounded and so could be a context (SPEC 10.6).
+        // `count` it does capture, and an `Int` never carries anything.
+        let blank = list.repeat(ctx, list.empty<(K, V)>(), count);
+        // `acc` is annotated because the accumulator's type comes from `blank`,
+        // which the checker has not reached yet: type information flows
+        // left-to-right (SPEC 13.2).
+        let next = all.foldCtx(
+            ctx,
+            fn(c, acc: [[(K, V)]], e) => {
+                let (k, _v) = e;
+                let at = bucketOf(k.hash(), count);
+                let bucket = acc.get(at).withDefault(list.empty<(K, V)>()).push(c, e);
+                replaceAt(c, acc, at, bucket)
+            },
+            blank,
+        );
+        Map { buckets: next, size: self.size }
+    }
 }
 
 /// A map holding the given entries, later ones winning.
 export fn of<K: Hash + Eq, V, C: Alloc>(ctx: C, entries: [(K, V)]): Map<K, V> {
-  entries.foldCtx(ctx, fn(c, acc, e) => {
-    let (k, v) = e;
-    acc.insert(c, k, v)
-  }, empty<K, V>())
+    entries.foldCtx(
+        ctx,
+        fn(c, acc, e) => {
+            let (k, v) = e;
+            acc.insert(c, k, v)
+        },
+        empty<K, V>(),
+    )
 }
 
 impl<K: Hash + Eq, V: Eq> Map<K, V> {
-  /// Same entries, whatever bucket layout each arrived at. `derive Eq` would
-  /// compare the layout, which two equal maps built in different orders need
-  /// not share.
-  export fn equals<C: Alloc>(self, ctx: C, other: Map<K, V>): Bool {
-    if (self.size != other.size) {
-      false
-    } else {
-      let theirs = other;
-      self.entries(ctx).all(fn(e) => {
-        let (k, v) = e;
-        theirs.get(k) == .Some(v)
-      })
+    /// Same entries, whatever bucket layout each arrived at. `derive Eq` would
+    /// compare the layout, which two equal maps built in different orders need
+    /// not share.
+    export fn equals<C: Alloc>(self, ctx: C, other: Map<K, V>): Bool {
+        if (self.size != other.size) {
+            false
+        } else {
+            let theirs = other;
+            self
+                .entries(ctx)
+                .all(fn(e) => {
+                    let (k, v) = e;
+                    theirs.get(k) == .Some(v)
+                })
+        }
     }
-  }
 }

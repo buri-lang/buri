@@ -1,0 +1,20 @@
+warning: `ctx` is bound to something other than a context [ctx-rebinding]
+  --> lib/recovery_delete_closer_module_app_ec57fa/main.buri:19:5
+   |
+19 |     let ctx = "not a context";
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `ctx` is where a function's effects arrive, and a repository in which it means that everywhere is one where a reader can tell what a function may do by reading its signature
+   = fix: give the binding a name of its own
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_ec57fa/main.buri:22:1
+   |
+22 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_app_ec57fa/main.buri:18:20
+   |
+18 | fn describe(): Str {
+   |                    ^ opened here
+   |
+   = fix: write `}` here

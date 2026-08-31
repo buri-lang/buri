@@ -1,0 +1,29 @@
+error: expected `fn(a context, Str) => Str`, found `fn(_14) => Str` [type-mismatch]
+  --> lib/recovery_insert_stray_paren_expected_2f58c7/main.buri:51:37
+   |
+51 |         .println(ctx, rendered(ctx, fn(c? , l) => str.format(c, "<${l}>"), label))
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `fn(a context, Str) => Str`
+   |
+   = expected: `fn(a context, Str) => Str`
+   = actual: `fn(_14) => Str`
+   = fix: produce a `fn(a context, Str) => Str` here, or change what surrounds it to accept a `fn(_14) => Str`
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_expected_2f58c7/main.buri:51:41
+   |
+51 |         .println(ctx, rendered(ctx, fn(c? , l) => str.format(c, "<${l}>"), label))
+   |                                         ^
+   |
+  --> lib/recovery_insert_stray_paren_expected_2f58c7/main.buri:51:39
+   |
+51 |         .println(ctx, rendered(ctx, fn(c? , l) => str.format(c, "<${l}>"), label))
+   |                                       ^ opened here
+   |
+   = fix: write `)` here
+error: there is nothing named `l` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_expected_2f58c7/main.buri:51:69
+   |
+51 |         .println(ctx, rendered(ctx, fn(c? , l) => str.format(c, "<${l}>"), label))
+   |                                                                     ^
+   |
+   = did you mean `c`?
+   = fix: correct the spelling, or declare it

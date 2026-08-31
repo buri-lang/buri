@@ -1,0 +1,25 @@
+error: expected `=`, found `self` [unexpected-token]
+  --> main.buri:40:18
+   |
+40 |         let rest self =.0 % 100;
+   |                  ^^^^
+   |
+   = expected: `=`
+   = actual: `self`
+   = fix: write `=` here
+error: there is nothing named `rest` in scope [unresolved-name]
+  --> main.buri:41:23
+   |
+41 |         let pad = if (rest < 10) { "0" } else { "" };
+   |                       ^^^^
+   |
+   = did you mean `Result`?
+   = fix: correct the spelling, or declare it
+error: there is nothing named `rest` in scope [unresolved-name]
+  --> main.buri:42:45
+   |
+42 |         str.format(ctx, "\$${whole}.${pad}${rest}")
+   |                                             ^^^^
+   |
+   = did you mean `Result`?
+   = fix: correct the spelling, or declare it

@@ -1,0 +1,46 @@
+error: expected a declaration, found `Token` [unexpected-token]
+  --> main.buri:31:1
+   |
+31 | Token impl {
+   | ^^^^^
+   |
+   = expected: a declaration
+   = actual: `Token`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected a type, found `{` [unexpected-token]
+  --> main.buri:31:12
+   |
+31 | Token impl {
+   |            ^
+   |
+   = expected: a type
+   = actual: `{`
+   = fix: name a type here, as in `Int` or `[Str]`
+error: `Token` has no method `color` [no-such-method]
+  --> main.buri:59:24
+   |
+59 |         (Token.Surface.color(), f(.Surface)),
+   |                        ^^^^^
+   |
+   = fix: check the spelling, or declare it in `impl Token { ... }` in `main.buri`, where the type is declared — a method may not be added from anywhere else
+error: `Token` has no method `color` [no-such-method]
+  --> main.buri:60:26
+   |
+60 |         (Token.OnSurface.color(), f(.OnSurface)),
+   |                          ^^^^^
+   |
+   = fix: check the spelling, or declare it in `impl Token { ... }` in `main.buri`, where the type is declared — a method may not be added from anywhere else
+error: `Token` has no method `color` [no-such-method]
+  --> main.buri:61:21
+   |
+61 |         (Token.Edge.color(), f(.Edge)),
+   |                     ^^^^^
+   |
+   = fix: check the spelling, or declare it in `impl Token { ... }` in `main.buri`, where the type is declared — a method may not be added from anywhere else
+error: `Token` has no method `color` [no-such-method]
+  --> main.buri:62:23
+   |
+62 |         (Token.Accent.color(), f(.Accent)),
+   |                       ^^^^^
+   |
+   = fix: check the spelling, or declare it in `impl Token { ... }` in `main.buri`, where the type is declared — a method may not be added from anywhere else

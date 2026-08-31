@@ -4,5 +4,5 @@ from "//lib/shop/orders.buri" import * as orders;
 
 /// The same delivery under another name.
 export fn relabel(): orders.Delivery {
-  orders.blank()
+    orders.blank()
 }

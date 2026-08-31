@@ -5,7 +5,12 @@ fix: name a variant the enum declares
 ---
 
 ```buri fail code=no-such-variant
-enum Colour { Red, Green }
+enum Colour {
+    Red,
+    Green,
+}
 
-fn go(): Colour { .Blue }
+fn go(): Colour {
+    .Blue
+}
 ```

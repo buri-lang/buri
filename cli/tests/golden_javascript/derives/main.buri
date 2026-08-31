@@ -4,21 +4,30 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-struct Pair { a: Int, b: Str }
-
 derive Eq, Ord, Show, Hash for Pair;
-
-enum Tag { Low, High(Int) }
+struct Pair {
+    a: Int,
+    b: Str,
+}
 
 derive Eq, Show for Tag;
+enum Tag {
+    Low,
+    High(Int),
+}
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let p = Pair { a: 1, b: "x" };
-  let q = Pair { a: 1, b: "y" };
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let p = Pair { a: 1, b: "x" };
+    let q = Pair { a: 1, b: "y" };
 
-  let _ = io.println(ctx, "${p == q} ${p == p}").ignore();
-  let _ = io.println(ctx, "${p.show(ctx)} ${q.show(ctx)}").ignore();
-  let _ = io.println(ctx, "${Tag.Low == Tag.High(2)} ${Tag.High(2).show(ctx)}").ignore();
-  .Ok(())
+    let _ = io.println(ctx, "${p == q} ${p == p}").ignore();
+    let _ = io.println(ctx, "${p.show(ctx)} ${q.show(ctx)}").ignore();
+    let _ = io
+        .println(ctx, "${Tag.Low == Tag.High(2)} ${Tag.High(2).show(ctx)}")
+        .ignore();
+    .Ok(())
 }

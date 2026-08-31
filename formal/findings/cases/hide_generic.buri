@@ -8,15 +8,18 @@ from "core/io" import * as io;
 
 // Nothing here mentions an effect, so the capture rule is silent.
 fn hide<T>(x: T): fn() => T {
-  fn() => x
+    fn() => x
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
 
-  // Does the *instantiation* at a context type get caught?
-  let smuggler = hide(ctx);
-  let recovered = smuggler();
-  let _ = io.println(recovered, "laundered").ignore();
-  .Ok(())
+    // Does the *instantiation* at a context type get caught?
+    let smuggler = hide(ctx);
+    let recovered = smuggler();
+    let _ = io.println(recovered, "laundered").ignore();
+    .Ok(())
 }

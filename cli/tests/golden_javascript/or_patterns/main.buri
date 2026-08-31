@@ -4,26 +4,40 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-enum Status { Ok_, NotFound, Gone, Teapot, Server(Int) }
+enum Status {
+    Ok_,
+    NotFound,
+    Gone,
+    Teapot,
+    Server(Int),
+}
 
 fn kind(s: Status): Str {
-  match (s) {
-    .NotFound | .Gone => "missing",
-    .Teapot | .Ok_ => "fine",
-    .Server(code) => if (code >= 500) { "server" } else { "other" },
-  }
+    match (s) {
+        .NotFound | .Gone => "missing",
+        .Teapot | .Ok_ => "fine",
+        .Server(code) => if (code >= 500) { "server" } else { "other" },
+    }
 }
 
 fn small(n: Int): Bool {
-  match (n) {
-    0 | 1 | 2 | 3 => true,
-    _ => false,
-  }
+    match (n) {
+        0 | 1 | 2 | 3 => true,
+        _ => false,
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${kind(Status.Gone)} ${kind(Status.Ok_)} ${kind(Status.Server(503))}").ignore();
-  let _ = io.println(ctx, "${small(2)} ${small(9)}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io
+        .println(
+            ctx,
+            "${kind(Status.Gone)} ${kind(Status.Ok_)} ${kind(Status.Server(503))}",
+        )
+        .ignore();
+    let _ = io.println(ctx, "${small(2)} ${small(9)}").ignore();
+    .Ok(())
 }

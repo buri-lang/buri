@@ -1,0 +1,20 @@
+error: `if` requires an `else` branch [if-without-else]
+ --> lib/recovery_swap_adjacent_brace_cents_4377cc/lib.buri:6:17
+  |
+6 |     if (n == 0) { "zero" else } { "some" }
+  |                 ^^^^^^^^^^^^^^^
+  |
+  = `if` is an expression, so both branches must produce a value of the same type
+  = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_swap_adjacent_brace_cents_4377cc/lib.buri:6:26
+  |
+6 |     if (n == 0) { "zero" else } { "some" }
+  |                          ^^^^
+  |
+ --> lib/recovery_swap_adjacent_brace_cents_4377cc/lib.buri:6:17
+  |
+6 |     if (n == 0) { "zero" else } { "some" }
+  |                 ^ opened here
+  |
+  = fix: write `}` here

@@ -1,0 +1,15 @@
+error: a record field ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_cents_658bc4/lib.buri:12:24
+   |
+12 |     export entries: I64
+   |                        ^
+   |
+   = fix: write `,` here
+warning: nothing reads `Ledger.seal` [unused-field]
+  --> lib/recovery_delete_separator_brace_cents_658bc4/lib.buri:13:5
+   |
+13 |     seal: Str,
+   |     ^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it

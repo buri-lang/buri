@@ -1,0 +1,30 @@
+error: expected a type, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_681b0e/lib.buri:17:11
+   |
+17 |     note: @ Option<Str>,
+   |           ^
+   |
+   = expected: a type
+   = actual: `@`
+   = fix: name a type here, as in `Int` or `[Str]`
+error: there is no type `Entry` [unresolved-type]
+  --> lib/recovery_insert_stray_brace_cents_681b0e/lib.buri:20:30
+   |
+20 | export fn entry(cents: I64): Entry {
+   |                              ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling
+error: this is not a struct or an enum variant [not-a-struct-literal-head]
+  --> lib/recovery_insert_stray_brace_cents_681b0e/lib.buri:21:5
+   |
+21 |     Entry { cents, tax: 0, packer: "till" }
+   |     ^^^^^
+   |
+   = fix: name a struct, or an enum variant that has fields
+error: there is no type `Entry` [unresolved-type]
+  --> lib/recovery_insert_stray_brace_cents_681b0e/lib.buri:24:20
+   |
+24 | export fn total(e: Entry): I64 {
+   |                    ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling

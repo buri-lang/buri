@@ -7,146 +7,208 @@
 // the protobuf encoding rules — the tag is `(number << 3) | wire_type` as a
 // varint, and the comment on each assertion says what the bytes are.
 
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
-from "core/effect" import { Alloc };
 from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
 from "core/list" import * as list;
-
+from "core/testing/assert" import * as assert;
 from "//lib/proto" import {
-  Everything, Everything_Note, Everything_Contact, Shade,
-  Address, Country,
-  defaultEverything, encodeEverything, decodeEverything,
-  defaultAddress, defaultEmpty, encodeEmpty, decodeEmpty,
+    Address, Country, decodeEmpty, decodeEverything, defaultAddress, defaultEmpty,
+    defaultEverything, encodeEmpty, encodeEverything, Everything, Everything_Contact,
+    Everything_Note, Shade,
 };
 
 fn hex<C: Alloc>(ctx: C, v: Everything): Str {
-  bytes.toHex(ctx, encodeEverything(ctx, v))
+    bytes.toHex(ctx, encodeEverything(ctx, v))
 }
 
 /// The bytes a hex string names.
 fn raw<C: Alloc>(ctx: C, text: Str): [U8] {
-  match (bytes.fromHex(ctx, text)) {
-    .Ok(b) => b,
-    .Err(_e) => list.empty<U8>(),
-  }
+    match (bytes.fromHex(ctx, text)) {
+        .Ok(b) => b,
+        .Err(_e) => list.empty<U8>(),
+    }
 }
 
 // --- what proto3 leaves out ---------------------------------------------------
 
 test "a message whose fields are all default writes nothing" {
-  let ctx = context { Alloc: alloc() };
-  // proto3's canonical encoding omits a singular field holding its default, so
-  // the whole message is zero bytes.
-  assert.eq(hex(ctx, defaultEverything()), "");
-  assert.eq(bytes.toHex(ctx, encodeEmpty(ctx, defaultEmpty())), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // proto3's canonical encoding omits a singular field holding its default, so
+    // the whole message is zero bytes.
+    assert.eq(hex(ctx, defaultEverything()), "");
+    assert.eq(bytes.toHex(ctx, encodeEmpty(ctx, defaultEmpty())), "");
 }
 
 test "a message of no bytes decodes to every default" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(decodeEverything(ctx, list.empty<U8>()), .Ok(defaultEverything()));
-  assert.eq(decodeEmpty(ctx, list.empty<U8>()), .Ok(defaultEmpty()));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decodeEverything(ctx, list.empty<U8>()), .Ok(defaultEverything()));
+    assert.eq(decodeEmpty(ctx, list.empty<U8>()), .Ok(defaultEmpty()));
 }
 
 // --- one field at a time ------------------------------------------------------
 
 test "a string field is a tag, a length, and UTF-8" {
-  let ctx = context { Alloc: alloc() };
-  // field 1, wire 2 -> (1 << 3) | 2 = 0x0a; length 3; "Ada" is 41 64 61.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), name: .Some("Ada")}), "0a03416461");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 1, wire 2 -> (1 << 3) | 2 = 0x0a; length 3; "Ada" is 41 64 61.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), name: .Some("Ada") }),
+        "0a03416461",
+    );
 }
 
 test "a varint field is a tag and base-128 digits" {
-  let ctx = context { Alloc: alloc() };
-  // field 2, wire 0 -> 0x10. 300 = 0b100101100 -> 0xac 0x02.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), count: .Some(300)}), "10ac02");
-  // field 3, wire 0 -> 0x18. 1 is one byte.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), total: .Some(1)}), "1801");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 2, wire 0 -> 0x10. 300 = 0b100101100 -> 0xac 0x02.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), count: .Some(300) }),
+        "10ac02",
+    );
+    // field 3, wire 0 -> 0x18. 1 is one byte.
+    assert.eq(hex(ctx, Everything { ..defaultEverything(), total: .Some(1) }), "1801");
 }
 
 test "a negative int32 is the ten-byte two's complement" {
-  let ctx = context { Alloc: alloc() };
-  // -1 at 64 bits is all ones: nine groups of seven ones, then the top bit.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), count: .Some(-1)}), "10ffffffffffffffffff01");
-  // And it reads back as the number it was, not as 2^64 - 1.
-  let v = Everything { ..defaultEverything(), count: .Some(-1)};
-  assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // -1 at 64 bits is all ones: nine groups of seven ones, then the top bit.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), count: .Some(-1) }),
+        "10ffffffffffffffffff01",
+    );
+    // And it reads back as the number it was, not as 2^64 - 1.
+    let v = Everything { ..defaultEverything(), count: .Some(-1) };
+    assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
 }
 
 test "a sint field zigzags, so a small negative is a small varint" {
-  let ctx = context { Alloc: alloc() };
-  // field 6, wire 0 -> 0x30. zigzag(-1) = 1.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), delta: .Some(-1)}), "3001");
-  // zigzag(-64) = 127, which is still one byte; the two's complement form
-  // would have been ten.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), delta: .Some(-64)}), "307f");
-  // field 7 -> 0x38. zigzag(1) = 2.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), offset: .Some(1)}), "3802");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 6, wire 0 -> 0x30. zigzag(-1) = 1.
+    assert.eq(hex(ctx, Everything { ..defaultEverything(), delta: .Some(-1) }), "3001");
+    // zigzag(-64) = 127, which is still one byte; the two's complement form
+    // would have been ten.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), delta: .Some(-64) }),
+        "307f",
+    );
+    // field 7 -> 0x38. zigzag(1) = 2.
+    assert.eq(hex(ctx, Everything { ..defaultEverything(), offset: .Some(1) }), "3802");
 }
 
 test "the zigzag transform is its own documented pair" {
-  // Held here as well as in `core/bytes` because the mapping's promise is that
-  // a `sint32` field means *this* transform.
-  assert.eq(bytes.zigzag(0), 0);
-  assert.eq(bytes.zigzag(-1), 1);
-  assert.eq(bytes.zigzag(1), 2);
-  assert.eq(bytes.zigzag(-2), 3);
-  assert.eq(bytes.unzigzag(bytes.zigzag(-2147483648)), -2147483648);
-  assert.eq(bytes.unzigzag(bytes.zigzag(2147483647)), 2147483647);
+    // Held here as well as in `core/bytes` because the mapping's promise is that
+    // a `sint32` field means *this* transform.
+    assert.eq(bytes.zigzag(0), 0);
+    assert.eq(bytes.zigzag(-1), 1);
+    assert.eq(bytes.zigzag(1), 2);
+    assert.eq(bytes.zigzag(-2), 3);
+    assert.eq(bytes.unzigzag(bytes.zigzag(-2147483648)), -2147483648);
+    assert.eq(bytes.unzigzag(bytes.zigzag(2147483647)), 2147483647);
 }
 
 test "a fixed field is little-endian and never varint" {
-  let ctx = context { Alloc: alloc() };
-  // field 8, wire 5 -> (8 << 3) | 5 = 0x45. 1 as four bytes, low byte first.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), tagId: .Some(1)}), "4501000000");
-  // field 9, wire 1 -> (9 << 3) | 1 = 0x49. 2^32 as eight bytes.
-  assert.eq(
-    hex(ctx, Everything { ..defaultEverything(), serial: .Some(4294967296)}),
-    "490000000001000000",
-  );
-  // field 10, wire 5 -> 0x55. -1 as four bytes is ff ff ff ff.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), signedSmall: .Some(-1)}), "55ffffffff");
-  // field 11, wire 1 -> 0x59. -1 as eight bytes.
-  assert.eq(
-    hex(ctx, Everything { ..defaultEverything(), signedBig: .Some(-1)}),
-    "59ffffffffffffffff",
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 8, wire 5 -> (8 << 3) | 5 = 0x45. 1 as four bytes, low byte first.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), tagId: .Some(1) }),
+        "4501000000",
+    );
+    // field 9, wire 1 -> (9 << 3) | 1 = 0x49. 2^32 as eight bytes.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), serial: .Some(4294967296) }),
+        "490000000001000000",
+    );
+    // field 10, wire 5 -> 0x55. -1 as four bytes is ff ff ff ff.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), signedSmall: .Some(-1) }),
+        "55ffffffff",
+    );
+    // field 11, wire 1 -> 0x59. -1 as eight bytes.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), signedBig: .Some(-1) }),
+        "59ffffffffffffffff",
+    );
 }
 
 test "a double is its IEEE 754 bytes, little-endian" {
-  let ctx = context { Alloc: alloc() };
-  // field 14, wire 1 -> (14 << 3) | 1 = 0x71. 0.5 is 0x3fe0000000000000.
-  assert.eq(
-    hex(ctx, Everything { ..defaultEverything(), ratio: .Some(0.5)}),
-    "71000000000000e03f",
-  );
-  // field 15, wire 5 -> (15 << 3) | 5 = 0x7d. 0.5 at single precision is
-  // 0x3f000000.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), rough: .Some(0.5)}), "7d0000003f");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 14, wire 1 -> (14 << 3) | 1 = 0x71. 0.5 is 0x3fe0000000000000.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), ratio: .Some(0.5) }),
+        "71000000000000e03f",
+    );
+    // field 15, wire 5 -> (15 << 3) | 5 = 0x7d. 0.5 at single precision is
+    // 0x3f000000.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), rough: .Some(0.5) }),
+        "7d0000003f",
+    );
 }
 
 test "a bool is one varint byte, and false is a value like any other" {
-  let ctx = context { Alloc: alloc() };
-  // field 12, wire 0 -> 0x60. Under explicit presence `false` is written: it
-  // was set, and the wire says so.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), active: .Some(true) }), "6001");
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), active: .Some(false) }), "6000");
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), active: .None }), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 12, wire 0 -> 0x60. Under explicit presence `false` is written: it
+    // was set, and the wire says so.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), active: .Some(true) }),
+        "6001",
+    );
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), active: .Some(false) }),
+        "6000",
+    );
+    assert.eq(hex(ctx, Everything { ..defaultEverything(), active: .None }), "");
 }
 
 test "bytes are length-delimited and are not text" {
-  let ctx = context { Alloc: alloc() };
-  // field 13, wire 2 -> (13 << 3) | 2 = 0x6a. Two bytes, one of them not UTF-8.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), blob: .Some([0.wrapToU8(), 255.wrapToU8()])}), "6a0200ff");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 13, wire 2 -> (13 << 3) | 2 = 0x6a. Two bytes, one of them not UTF-8.
+    assert.eq(
+        hex(ctx, Everything {
+            ..defaultEverything(),
+            blob: .Some([0.wrapToU8(), 255.wrapToU8()]),
+        }),
+        "6a0200ff",
+    );
 }
 
 test "an enum is its number" {
-  let ctx = context { Alloc: alloc() };
-  // field 16, wire 0 -> (16 << 3) = 0x80 0x01 as a varint.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), shade: .Some(Shade.DARK)}), "800102");
-  // The zero value is written like any other, because it was set.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), shade: .Some(Shade.SHADE_UNSPECIFIED) }), "800100");
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), shade: .None }), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 16, wire 0 -> (16 << 3) = 0x80 0x01 as a varint.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), shade: .Some(Shade.DARK) }),
+        "800102",
+    );
+    // The zero value is written like any other, because it was set.
+    assert.eq(
+        hex(ctx, Everything {
+            ..defaultEverything(),
+            shade: .Some(Shade.SHADE_UNSPECIFIED),
+        }),
+        "800100",
+    );
+    assert.eq(hex(ctx, Everything { ..defaultEverything(), shade: .None }), "");
 }
 
 // --- presence -------------------------------------------------------------------
@@ -156,235 +218,298 @@ test "an enum is its number" {
 // `.None` are two different messages — which under proto3 they could not be.
 
 test "a field set to its own zero value is still written" {
-  let ctx = context { Alloc: alloc() };
-  // field 2, wire 0 -> 0x10, and a zero body. Under proto3 this was two bytes
-  // of nothing; under editions it is the field being *there*.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), count: .Some(0) }), "1000");
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), count: .None }), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 2, wire 0 -> 0x10, and a zero body. Under proto3 this was two bytes
+    // of nothing; under editions it is the field being *there*.
+    assert.eq(hex(ctx, Everything { ..defaultEverything(), count: .Some(0) }), "1000");
+    assert.eq(hex(ctx, Everything { ..defaultEverything(), count: .None }), "");
 }
 
 test "absent and zero are different messages, and both round-trip" {
-  let ctx = context { Alloc: alloc() };
-  let set = Everything { ..defaultEverything(), count: .Some(0) };
-  let unset = Everything { ..defaultEverything(), count: .None };
-  assert.isFalse(set == unset);
-  assert.eq(decodeEverything(ctx, encodeEverything(ctx, set)), .Ok(set));
-  assert.eq(decodeEverything(ctx, encodeEverything(ctx, unset)), .Ok(unset));
-  // And the wire tells them apart, which is the whole claim.
-  assert.isFalse(encodeEverything(ctx, set) == encodeEverything(ctx, unset));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let set = Everything { ..defaultEverything(), count: .Some(0) };
+    let unset = Everything { ..defaultEverything(), count: .None };
+    assert.isFalse(set == unset);
+    assert.eq(decodeEverything(ctx, encodeEverything(ctx, set)), .Ok(set));
+    assert.eq(decodeEverything(ctx, encodeEverything(ctx, unset)), .Ok(unset));
+    // And the wire tells them apart, which is the whole claim.
+    assert.isFalse(encodeEverything(ctx, set) == encodeEverything(ctx, unset));
 }
 
 test "an IMPLICIT field is a bare type, and cannot tell unset from its default" {
-  let ctx = context { Alloc: alloc() };
-  // `age` asks for implicit presence by name, so it is an `Int` rather than an
-  // `Option<Int>` and a zero writes nothing — which is exactly what a proto3
-  // singular field did.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), age: 0 }), "");
-  // field 20, wire 0 -> 0xa0 0x01.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), age: 7 }), "a00107");
-  let v = Everything { ..defaultEverything(), age: 0 };
-  assert.eq(decodeEverything(ctx, list.empty<U8>()), .Ok(v));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // `age` asks for implicit presence by name, so it is an `Int` rather than an
+    // `Option<Int>` and a zero writes nothing — which is exactly what a proto3
+    // singular field did.
+    assert.eq(hex(ctx, Everything { ..defaultEverything(), age: 0 }), "");
+    // field 20, wire 0 -> 0xa0 0x01.
+    assert.eq(hex(ctx, Everything { ..defaultEverything(), age: 7 }), "a00107");
+    let v = Everything { ..defaultEverything(), age: 0 };
+    assert.eq(decodeEverything(ctx, list.empty<U8>()), .Ok(v));
 }
 
 test "a message field is an Option whatever the feature says" {
-  let ctx = context { Alloc: alloc() };
-  // field 40, wire 2 -> (40 << 3) | 2 = 322 -> varint c2 02. The body is an
-  // Address holding only `city: .Some("A"`), which is 0a 01 41.
-  let v = Everything {
-    ..defaultEverything(),
-    home: .Some(Address { ..defaultAddress(), city: .Some("A")}),
-  };
-  assert.eq(hex(ctx, v), "c202030a0141");
-  // An empty message still occupies a field: presence is what it carries.
-  let empty = Everything { ..defaultEverything(), home: .Some(defaultAddress()) };
-  assert.eq(hex(ctx, empty), "c20200");
-  assert.eq(decodeEverything(ctx, encodeEverything(ctx, empty)), .Ok(empty));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 40, wire 2 -> (40 << 3) | 2 = 322 -> varint c2 02. The body is an
+    // Address holding only `city: .Some("A"`), which is 0a 01 41.
+    let v = Everything {
+        ..defaultEverything(),
+        home: .Some(Address { ..defaultAddress(), city: .Some("A") }),
+    };
+    assert.eq(hex(ctx, v), "c202030a0141");
+    // An empty message still occupies a field: presence is what it carries.
+    let empty = Everything { ..defaultEverything(), home: .Some(defaultAddress()) };
+    assert.eq(hex(ctx, empty), "c20200");
+    assert.eq(decodeEverything(ctx, encodeEverything(ctx, empty)), .Ok(empty));
 }
 
 // --- repeated -----------------------------------------------------------------
 
 test "a repeated numeric field is packed into one length-delimited field" {
-  let ctx = context { Alloc: alloc() };
-  // field 30, wire 2 -> (30 << 3) | 2 = 242 -> f2 01. Three varints, 3 bytes.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), scores: [1, 2, 3] }), "f20103010203");
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), scores: list.empty<Int>() }), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 30, wire 2 -> (30 << 3) | 2 = 242 -> f2 01. Three varints, 3 bytes.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), scores: [1, 2, 3] }),
+        "f20103010203",
+    );
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), scores: list.empty<Int>() }),
+        "",
+    );
 }
 
 test "an EXPANDED repeated field is one whole field per element" {
-  let ctx = context { Alloc: alloc() };
-  // `spread` asks for `features.repeated_field_encoding = EXPANDED` by name, so
-  // each element carries its own header: field 34, wire 0 -> (34 << 3) = 272 ->
-  // varint 90 02.
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), spread: [1, 2] }), "900201900202");
-  // And a packed run of the same field still decodes, because a reader takes
-  // whichever form a writer chose.
-  assert.eq(
-    decodeEverything(ctx, raw(ctx, "9202020102")),
-    .Ok(Everything { ..defaultEverything(), spread: [1, 2] }),
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // `spread` asks for `features.repeated_field_encoding = EXPANDED` by name, so
+    // each element carries its own header: field 34, wire 0 -> (34 << 3) = 272 ->
+    // varint 90 02.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), spread: [1, 2] }),
+        "900201900202",
+    );
+    // And a packed run of the same field still decodes, because a reader takes
+    // whichever form a writer chose.
+    assert.eq(
+        decodeEverything(ctx, raw(ctx, "9202020102")),
+        .Ok(Everything { ..defaultEverything(), spread: [1, 2] }),
+    );
 }
 
 test "a repeated string field is one whole field per element" {
-  let ctx = context { Alloc: alloc() };
-  // field 31, wire 2 -> (31 << 3) | 2 = 250 -> fa 01. Packing strings would be
-  // indistinguishable from one long string, so they are not packed.
-  assert.eq(
-    hex(ctx, Everything { ..defaultEverything(), labels: ["a", "b"] }),
-    "fa010161fa010162",
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 31, wire 2 -> (31 << 3) | 2 = 250 -> fa 01. Packing strings would be
+    // indistinguishable from one long string, so they are not packed.
+    assert.eq(
+        hex(ctx, Everything { ..defaultEverything(), labels: ["a", "b"] }),
+        "fa010161fa010162",
+    );
 }
 
 test "an unpacked repeated numeric field still decodes" {
-  let ctx = context { Alloc: alloc() };
-  // A writer is allowed to send the unpacked form, so a reader takes it: three
-  // separate field-30 varints rather than one packed run.
-  let unpacked = raw(ctx, "f00101f00102f00103");
-  assert.eq(
-    decodeEverything(ctx, unpacked),
-    .Ok(Everything { ..defaultEverything(), scores: [1, 2, 3] }),
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // A writer is allowed to send the unpacked form, so a reader takes it: three
+    // separate field-30 varints rather than one packed run.
+    let unpacked = raw(ctx, "f00101f00102f00103");
+    assert.eq(
+        decodeEverything(ctx, unpacked),
+        .Ok(Everything { ..defaultEverything(), scores: [1, 2, 3] }),
+    );
 }
 
 test "repeated messages and enums round-trip" {
-  let ctx = context { Alloc: alloc() };
-  let v = Everything {
-    ..defaultEverything(),
-    places: [
-      Address { city: .Some("London"), zip: .Some(1), country: .Some(Country.UK)},
-      Address { city: .Some("Tokyo"), zip: .Some(2), country: .Some(Country.JP)},
-    ],
-    shades: [Shade.LIGHT, Shade.DARK],
-  };
-  assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let v = Everything {
+        ..defaultEverything(),
+        places: [
+            Address {
+                city: .Some("London"),
+                zip: .Some(1),
+                country: .Some(Country.UK),
+            },
+            Address { city: .Some("Tokyo"), zip: .Some(2), country: .Some(Country.JP) },
+        ],
+        shades: [Shade.LIGHT, Shade.DARK],
+    };
+    assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
 }
 
 // --- oneof and nesting ----------------------------------------------------------
 
 test "a oneof writes exactly the case it holds" {
-  let ctx = context { Alloc: alloc() };
-  // field 60, wire 2 -> (60 << 3) | 2 = 482 -> e2 03. "9" is 39.
-  assert.eq(
-    hex(ctx, Everything { ..defaultEverything(), contact: .Some(Everything_Contact.Phone("9")) }),
-    "e2030139",
-  );
-  // field 62, wire 0 -> (62 << 3) = 496 -> f0 03.
-  assert.eq(
-    hex(ctx, Everything {
-      ..defaultEverything(),
-      contact: .Some(Everything_Contact.ExtensionNumber(5)),
-    }),
-    "f00305",
-  );
-  assert.eq(hex(ctx, Everything { ..defaultEverything(), contact: .None }), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 60, wire 2 -> (60 << 3) | 2 = 482 -> e2 03. "9" is 39.
+    assert.eq(
+        hex(ctx, Everything {
+            ..defaultEverything(),
+            contact: .Some(Everything_Contact.Phone("9")),
+        }),
+        "e2030139",
+    );
+    // field 62, wire 0 -> (62 << 3) = 496 -> f0 03.
+    assert.eq(
+        hex(ctx, Everything {
+            ..defaultEverything(),
+            contact: .Some(Everything_Contact.ExtensionNumber(5)),
+        }),
+        "f00305",
+    );
+    assert.eq(hex(ctx, Everything { ..defaultEverything(), contact: .None }), "");
 }
 
 test "a oneof case holding its type's default is still written" {
-  let ctx = context { Alloc: alloc() };
-  // Presence is tracked for a oneof, so the empty string is on the wire.
-  let v = Everything { ..defaultEverything(), contact: .Some(Everything_Contact.Phone("")) };
-  assert.eq(hex(ctx, v), "e20300");
-  assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Presence is tracked for a oneof, so the empty string is on the wire.
+    let v = Everything {
+        ..defaultEverything(),
+        contact: .Some(Everything_Contact.Phone("")),
+    };
+    assert.eq(hex(ctx, v), "e20300");
+    assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
 }
 
 test "a nested message is a type of its own, named for its nesting" {
-  let ctx = context { Alloc: alloc() };
-  // field 41, wire 2 -> (41 << 3) | 2 = 330 -> ca 02.
-  let v = Everything { ..defaultEverything(), note: .Some(Everything_Note { text: .Some("n")}) };
-  assert.eq(hex(ctx, v), "ca02030a016e");
-  assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 41, wire 2 -> (41 << 3) | 2 = 330 -> ca 02.
+    let v = Everything {
+        ..defaultEverything(),
+        note: .Some(Everything_Note { text: .Some("n") }),
+    };
+    assert.eq(hex(ctx, v), "ca02030a016e");
+    assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
 }
 
 // --- the whole thing ------------------------------------------------------------
 
 fn everything<C>(ctx: C): Everything {
-  let _ = ctx;
-  Everything {
-    name: .Some("Ada"),
-    count: .Some(-7),
-    total: .Some(9007199254740991),
-    small: .Some(4294967295),
-    large: .Some(1),
-    delta: .Some(-3),
-    offset: .Some(-4),
-    tagId: .Some(305419896),
-    serial: .Some(4294967296),
-    signedSmall: .Some(-2),
-    signedBig: .Some(-4294967296),
-    active: .Some(true),
-    blob: .Some([1.wrapToU8(), 255.wrapToU8(), 0.wrapToU8()]),
-    ratio: .Some(0.25),
-    rough: .Some(0.5),
-    shade: .Some(Shade.DARK),
-    age: 0,
-    nickname: "",
-    scores: [0, 1, -1, 300],
-    spread: [4, 5],
-    labels: ["a", "", "c"],
-    places: [Address { city: .Some("London"), zip: .Some(1), country: .Some(Country.UK)}],
-    shades: [Shade.LIGHT, Shade.SHADE_UNSPECIFIED],
-    home: .Some(Address { city: .Some("Kyoto"), zip: .Some(600), country: .Some(Country.JP)}),
-    note: .Some(Everything_Note { text: .Some("hi")}),
-    type_: .Some("t"),
-    userName: .Some("ada"),
-    contact: .Some(Everything_Contact.Office(defaultAddress())),
-  }
+    let _ = ctx;
+    Everything {
+        name: .Some("Ada"),
+        count: .Some(-7),
+        total: .Some(9007199254740991),
+        small: .Some(4294967295),
+        large: .Some(1),
+        delta: .Some(-3),
+        offset: .Some(-4),
+        tagId: .Some(305419896),
+        serial: .Some(4294967296),
+        signedSmall: .Some(-2),
+        signedBig: .Some(-4294967296),
+        active: .Some(true),
+        blob: .Some([1.wrapToU8(), 255.wrapToU8(), 0.wrapToU8()]),
+        ratio: .Some(0.25),
+        rough: .Some(0.5),
+        shade: .Some(Shade.DARK),
+        age: 0,
+        nickname: "",
+        scores: [0, 1, -1, 300],
+        spread: [4, 5],
+        labels: ["a", "", "c"],
+        places: [
+            Address {
+                city: .Some("London"),
+                zip: .Some(1),
+                country: .Some(Country.UK),
+            },
+        ],
+        shades: [Shade.LIGHT, Shade.SHADE_UNSPECIFIED],
+        home: .Some(Address {
+            city: .Some("Kyoto"),
+            zip: .Some(600),
+            country: .Some(Country.JP),
+        }),
+        note: .Some(Everything_Note { text: .Some("hi") }),
+        type_: .Some("t"),
+        userName: .Some("ada"),
+        contact: .Some(Everything_Contact.Office(defaultAddress())),
+    }
 }
 
 test "every field kind at once round-trips through the wire format" {
-  let ctx = context { Alloc: alloc() };
-  let v = everything(ctx);
-  assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let v = everything(ctx);
+    assert.eq(decodeEverything(ctx, encodeEverything(ctx, v)), .Ok(v));
 }
 
 test "encoding is deterministic" {
-  let ctx = context { Alloc: alloc() };
-  // Fields go out in schema order, so the same value is the same bytes — which
-  // is what makes an encoding something a golden file can hold.
-  let a = bytes.toHex(ctx, encodeEverything(ctx, everything(ctx)));
-  let b = bytes.toHex(ctx, encodeEverything(ctx, everything(ctx)));
-  assert.eq(a, b);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Fields go out in schema order, so the same value is the same bytes — which
+    // is what makes an encoding something a golden file can hold.
+    let a = bytes.toHex(ctx, encodeEverything(ctx, everything(ctx)));
+    let b = bytes.toHex(ctx, encodeEverything(ctx, everything(ctx)));
+    assert.eq(a, b);
 }
 
 // --- forward compatibility ------------------------------------------------------
 
 test "a field this schema does not know is skipped" {
-  let ctx = context { Alloc: alloc() };
-  // Four unknown fields, one of each wire type, around a known one:
-  //   field 100 varint  -> (100 << 3) | 0 = 800 -> a0 06, then 01
-  //   field 101 i64     -> (101 << 3) | 1 = 809 -> a9 06, then eight bytes
-  //   field 102 len     -> (102 << 3) | 2 = 818 -> b2 06, then 02 and two bytes
-  //   field 103 i32     -> (103 << 3) | 5 = 829 -> bd 06, then four bytes
-  let noise = raw(
-    ctx,
-    "a00601a9060102030405060708b20602aabbbd0611223344",
-  );
-  let known = raw(ctx, "0a03416461");
-  let mixed = noise.concat(ctx, known).concat(ctx, noise);
-  assert.eq(
-    decodeEverything(ctx, mixed),
-    .Ok(Everything { ..defaultEverything(), name: .Some("Ada")}),
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Four unknown fields, one of each wire type, around a known one:
+    //   field 100 varint  -> (100 << 3) | 0 = 800 -> a0 06, then 01
+    //   field 101 i64     -> (101 << 3) | 1 = 809 -> a9 06, then eight bytes
+    //   field 102 len     -> (102 << 3) | 2 = 818 -> b2 06, then 02 and two bytes
+    //   field 103 i32     -> (103 << 3) | 5 = 829 -> bd 06, then four bytes
+    let noise = raw(ctx, "a00601a9060102030405060708b20602aabbbd0611223344");
+    let known = raw(ctx, "0a03416461");
+    let mixed = noise.concat(ctx, known).concat(ctx, noise);
+    assert.eq(
+        decodeEverything(ctx, mixed),
+        .Ok(Everything { ..defaultEverything(), name: .Some("Ada") }),
+    );
 }
 
 test "an unknown enum number is kept, because an editions enum is open" {
-  let ctx = context { Alloc: alloc() };
-  // field 16 carrying 99, which this schema does not name. An open enum keeps
-  // it rather than collapsing it, so a message written by a newer schema
-  // survives being read and written again by this one.
-  let v = Everything { ..defaultEverything(), shade: .Some(Shade.Unrecognized(99)) };
-  assert.eq(decodeEverything(ctx, raw(ctx, "800163")), .Ok(v));
-  assert.eq(bytes.toHex(ctx, encodeEverything(ctx, v)), "800163");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 16 carrying 99, which this schema does not name. An open enum keeps
+    // it rather than collapsing it, so a message written by a newer schema
+    // survives being read and written again by this one.
+    let v = Everything { ..defaultEverything(), shade: .Some(Shade.Unrecognized(99)) };
+    assert.eq(decodeEverything(ctx, raw(ctx, "800163")), .Ok(v));
+    assert.eq(bytes.toHex(ctx, encodeEverything(ctx, v)), "800163");
 }
 
 test "unknown fields are dropped rather than carried" {
-  let ctx = context { Alloc: alloc() };
-  // Re-encoding a message decoded from a newer schema loses what that schema
-  // added. Buri's generated types have nowhere to keep it, and the loss is
-  // stated rather than discovered.
-  let with_extra = raw(ctx, "a006010a03416461");
-  let back = match (decodeEverything(ctx, with_extra)) {
-    .Ok(v) => v,
-    .Err(_e) => defaultEverything(),
-  };
-  assert.eq(bytes.toHex(ctx, encodeEverything(ctx, back)), "0a03416461");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Re-encoding a message decoded from a newer schema loses what that schema
+    // added. Buri's generated types have nowhere to keep it, and the loss is
+    // stated rather than discovered.
+    let with_extra = raw(ctx, "a006010a03416461");
+    let back = match (decodeEverything(ctx, with_extra)) {
+        .Ok(v) => v,
+        .Err(_e) => defaultEverything(),
+    };
+    assert.eq(bytes.toHex(ctx, encodeEverything(ctx, back)), "0a03416461");
 }

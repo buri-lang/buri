@@ -1,14 +1,20 @@
 /// A running count of things that happened.
 export struct Tally {
-  /// How many, so far.
-  export total: I64,
+    /// How many, so far.
+    export total: I64,
 }
 
 /// How many times the thing has happened.
-export fn counter(tally: Tally): I64 { tally.total }
+export fn counter(tally: Tally): I64 {
+    tally.total
+}
 
 // Not exported: the tests reach it through `twice`.
-fn doubled(n: I64): I64 { n * 2 }
+fn doubled(n: I64): I64 {
+    n * 2
+}
 
 /// Twice the count, which is what a pair of them comes to.
-export fn twice(tally: Tally): I64 { doubled(counter(tally)) }
+export fn twice(tally: Tally): I64 {
+    doubled(counter(tally))
+}

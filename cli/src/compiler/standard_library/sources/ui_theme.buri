@@ -48,12 +48,12 @@ export struct Theme(ThemeKind);
 
 /// What a theme is, kept private so that `Theme` stays opaque.
 enum ThemeKind {
-  /// Each token, paired with what it is worth.
-  Values([(Color, Color)]),
-  /// The first list while the condition reads true, the second while it reads
-  /// false. The lists are one theme each; an array is how a value refers to
-  /// its own type.
-  Switching(Prop<Bool>, [Theme], [Theme]),
+    /// Each token, paired with what it is worth.
+    Values([(Color, Color)]),
+    /// The first list while the condition reads true, the second while it reads
+    /// false. The lists are one theme each; an array is how a value refers to
+    /// its own type.
+    Switching(Prop<Bool>, [Theme], [Theme]),
 }
 
 /// A package's tokens, resolved.
@@ -65,7 +65,7 @@ enum ThemeKind {
 /// A binding whose left half is not a token names nothing and is ignored: there
 /// is no custom property for `.Rgb(0, 0, 0)` to be the value of.
 export fn themed(bindings: [(Color, Color)]): Theme {
-  Theme(.Values(bindings))
+    Theme(.Values(bindings))
 }
 
 /// Whichever of two themes the condition currently picks.
@@ -78,5 +78,5 @@ export fn themed(bindings: [(Color, Color)]): Theme {
 /// writes, or a computation over one — a media query bridged into a signal, a
 /// stored preference, a switch in the page.
 export fn switching(condition: Prop<Bool>, whenTrue: Theme, whenFalse: Theme): Theme {
-  Theme(.Switching(condition, [whenTrue], [whenFalse]))
+    Theme(.Switching(condition, [whenTrue], [whenFalse]))
 }

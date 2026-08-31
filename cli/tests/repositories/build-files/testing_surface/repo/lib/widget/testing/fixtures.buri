@@ -2,4 +2,6 @@
 
 from "//lib/aid" import { aid };
 
-export fn fixture(): I64 { aid() }
+export fn fixture(): I64 {
+    aid()
+}

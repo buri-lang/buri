@@ -1,0 +1,7 @@
+error: an enum variant ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_brace_cents_b35583/lib.buri:16:10
+   |
+16 |     extra Open,
+   |          ^
+   |
+   = fix: write `,` here

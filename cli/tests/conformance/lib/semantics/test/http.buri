@@ -10,38 +10,40 @@
 // names them, and re-exported by `core/net/http`. They are imported here
 // through the re-export, which is where a program is meant to meet them.
 
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc, net };
-from "core/effect" import { Alloc, Net };
-from "core/net/http" import { Header, Method, NetError, Request, Response };
 from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc, Net };
+from "core/host/testing" import { alloc, net };
 from "core/net/http" import * as http;
+from "core/net/http" import { Header, Method, NetError, Request, Response };
+from "core/testing/assert" import * as assert;
 
 // -----------------------------------------------------------------------------
 // Method — seven variants, and no wire spelling anywhere in Buri
 // -----------------------------------------------------------------------------
 
 test "every method is its own value" {
-  let all = [
-    Method.Get,
-    Method.Head,
-    Method.Post,
-    Method.Put,
-    Method.Patch,
-    Method.Delete,
-    Method.Options,
-  ];
-  assert.eq(all.len(), 7);
-  assert.eq(all.get(0), .Some(.Get));
-  assert.eq(all.get(6), .Some(.Options));
-  assert.notEq(Method.Get, Method.Head);
-  assert.notEq(Method.Post, Method.Put);
+    let all = [
+        Method.Get,
+        Method.Head,
+        Method.Post,
+        Method.Put,
+        Method.Patch,
+        Method.Delete,
+        Method.Options,
+    ];
+    assert.eq(all.len(), 7);
+    assert.eq(all.get(0), .Some(.Get));
+    assert.eq(all.get(6), .Some(.Options));
+    assert.notEq(Method.Get, Method.Head);
+    assert.notEq(Method.Post, Method.Put);
 }
 
 test "a method shows as its Buri name, not its wire name" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(Method.Get.show(ctx), ".Get");
-  assert.eq(Method.Options.show(ctx), ".Options");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(Method.Get.show(ctx), ".Get");
+    assert.eq(Method.Options.show(ctx), ".Options");
 }
 
 // -----------------------------------------------------------------------------
@@ -49,19 +51,21 @@ test "a method shows as its Buri name, not its wire name" {
 // -----------------------------------------------------------------------------
 
 test "a header is a name and a value" {
-  let h = Header { name: "content-type", value: "text/plain" };
-  assert.eq(h.name, "content-type");
-  assert.eq(h.value, "text/plain");
-  assert.eq(h, Header { name: "content-type", value: "text/plain" });
-  assert.notEq(h, Header { name: "content-type", value: "text/html" });
+    let h = Header { name: "content-type", value: "text/plain" };
+    assert.eq(h.name, "content-type");
+    assert.eq(h.value, "text/plain");
+    assert.eq(h, Header { name: "content-type", value: "text/plain" });
+    assert.notEq(h, Header { name: "content-type", value: "text/html" });
 }
 
 test "a header shows both of its fields" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(
-    Header { name: "accept", value: "*/*" }.show(ctx),
-    "Header { name: \"accept\", value: \"*/*\" }",
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        Header { name: "accept", value: "*/*" }.show(ctx),
+        "Header { name: \"accept\", value: \"*/*\" }",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -69,98 +73,107 @@ test "a header shows both of its fields" {
 // -----------------------------------------------------------------------------
 
 test "the constructor fills every field of a request" {
-  let r = http.request(.Post, "http://example.com/things");
-  assert.eq(r.method, .Post);
-  assert.eq(r.url, "http://example.com/things");
-  assert.eq(r.headers, []);
-  assert.eq(r.body, []);
+    let r = http.request(.Post, "http://example.com/things");
+    assert.eq(r.method, .Post);
+    assert.eq(r.url, "http://example.com/things");
+    assert.eq(r.headers, []);
+    assert.eq(r.body, []);
 }
 
 test "a text request encodes its body as UTF-8" {
-  let ctx = context { Alloc: alloc() };
-  let r = http.textRequest(ctx, .Put, "http://example.com/x", "hi €");
-  assert.eq(r.method, .Put);
-  assert.eq(r.body, bytes.toUtf8(ctx, "hi €"));
-  assert.eq(r.body.len(), 6);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let r = http.textRequest(ctx, .Put, "http://example.com/x", "hi €");
+    assert.eq(r.method, .Put);
+    assert.eq(r.body, bytes.toUtf8(ctx, "hi €"));
+    assert.eq(r.body.len(), 6);
 }
 
 test "a request literal and a constructed request are equal" {
-  assert.eq(
-    http.request(.Get, "http://example.com/"),
-    Request { method: .Get, url: "http://example.com/", headers: [], body: [] },
-  );
-  assert.notEq(
-    http.request(.Get, "http://example.com/"),
-    http.request(.Head, "http://example.com/"),
-  );
+    assert.eq(http.request(.Get, "http://example.com/"), Request {
+        method: .Get,
+        url: "http://example.com/",
+        headers: [],
+        body: [],
+    });
+    assert.notEq(
+        http.request(.Get, "http://example.com/"),
+        http.request(.Head, "http://example.com/"),
+    );
 }
 
 test "withMethod, withBody and withHeader each change one field" {
-  let ctx = context { Alloc: alloc() };
-  let base = http.request(.Get, "http://example.com/x");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let base = http.request(.Get, "http://example.com/x");
 
-  let posted = base.withMethod(.Post);
-  assert.eq(posted.method, .Post);
-  assert.eq(posted.url, base.url);
+    let posted = base.withMethod(.Post);
+    assert.eq(posted.method, .Post);
+    assert.eq(posted.url, base.url);
 
-  let bodied = base.withBody([1, 2, 3]);
-  assert.eq(bodied.body, [1, 2, 3]);
-  assert.eq(bodied.method, .Get);
+    let bodied = base.withBody([1, 2, 3]);
+    assert.eq(bodied.body, [1, 2, 3]);
+    assert.eq(bodied.method, .Get);
 
-  let headed = base.withHeader(ctx, "accept", "*/*");
-  assert.eq(headed.headers, [Header { name: "accept", value: "*/*" }]);
-  // The receiver is unchanged: every builder answers a new value.
-  assert.eq(base.headers, []);
+    let headed = base.withHeader(ctx, "accept", "*/*");
+    assert.eq(headed.headers, [Header { name: "accept", value: "*/*" }]);
+    // The receiver is unchanged: every builder answers a new value.
+    assert.eq(base.headers, []);
 }
 
 test "withHeader lowercases the name and appends rather than replaces" {
-  let ctx = context { Alloc: alloc() };
-  let r = http
-    .request(.Get, "http://example.com/x")
-    .withHeader(ctx, "Set-Cookie", "a=1")
-    .withHeader(ctx, "SET-COOKIE", "b=2");
-  assert.eq(
-    r.headers,
-    [
-      Header { name: "set-cookie", value: "a=1" },
-      Header { name: "set-cookie", value: "b=2" },
-    ],
-  );
-  // `header` answers the first, which is the order they were added in.
-  assert.eq(r.header("set-cookie"), .Some("a=1"));
-  assert.eq(r.header("Set-Cookie"), .None);
-  assert.eq(r.header("accept"), .None);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let r = http
+        .request(.Get, "http://example.com/x")
+        .withHeader(ctx, "Set-Cookie", "a=1")
+        .withHeader(ctx, "SET-COOKIE", "b=2");
+    assert.eq(r.headers, [
+        Header { name: "set-cookie", value: "a=1" },
+        Header { name: "set-cookie", value: "b=2" },
+    ]);
+    // `header` answers the first, which is the order they were added in.
+    assert.eq(r.header("set-cookie"), .Some("a=1"));
+    assert.eq(r.header("Set-Cookie"), .None);
+    assert.eq(r.header("accept"), .None);
 }
 
 test "path is the path, without query or fragment" {
-  assert.eq(http.request(.Get, "http://example.com/ping").path(), "/ping");
-  assert.eq(http.request(.Get, "http://example.com/ping?x=1").path(), "/ping");
-  assert.eq(http.request(.Get, "http://example.com/ping#top").path(), "/ping");
-  assert.eq(http.request(.Get, "http://example.com/a/b?x=1#top").path(), "/a/b");
-  assert.eq(http.request(.Get, "http://example.com:8080/a").path(), "/a");
-  assert.eq(http.request(.Get, "https://example.com/a").path(), "/a");
-  // No path at all, and the relative form a server hands a handler.
-  assert.eq(http.request(.Get, "http://example.com").path(), "/");
-  assert.eq(http.request(.Get, "/ping?x=1").path(), "/ping");
-  assert.eq(http.request(.Get, "").path(), "/");
+    assert.eq(http.request(.Get, "http://example.com/ping").path(), "/ping");
+    assert.eq(http.request(.Get, "http://example.com/ping?x=1").path(), "/ping");
+    assert.eq(http.request(.Get, "http://example.com/ping#top").path(), "/ping");
+    assert.eq(http.request(.Get, "http://example.com/a/b?x=1#top").path(), "/a/b");
+    assert.eq(http.request(.Get, "http://example.com:8080/a").path(), "/a");
+    assert.eq(http.request(.Get, "https://example.com/a").path(), "/a");
+    // No path at all, and the relative form a server hands a handler.
+    assert.eq(http.request(.Get, "http://example.com").path(), "/");
+    assert.eq(http.request(.Get, "/ping?x=1").path(), "/ping");
+    assert.eq(http.request(.Get, "").path(), "/");
 }
 
 test "query is everything between the first ? and any #" {
-  assert.eq(http.request(.Get, "http://example.com/a?x=1&y=2").query(), "x=1&y=2");
-  assert.eq(http.request(.Get, "http://example.com/a?x=1#top").query(), "x=1");
-  assert.eq(http.request(.Get, "http://example.com/a").query(), "");
-  assert.eq(http.request(.Get, "http://example.com/a#top").query(), "");
+    assert.eq(http.request(.Get, "http://example.com/a?x=1&y=2").query(), "x=1&y=2");
+    assert.eq(http.request(.Get, "http://example.com/a?x=1#top").query(), "x=1");
+    assert.eq(http.request(.Get, "http://example.com/a").query(), "");
+    assert.eq(http.request(.Get, "http://example.com/a#top").query(), "");
 }
 
 test "a request shows all four of its fields" {
-  let ctx = context { Alloc: alloc() };
-  let plain = http.request(.Get, "http://x/").withBody([65]);
-  assert.eq(
-    plain.show(ctx),
-    "Request { method: .Get, url: \"http://x/\", headers: [], body: [65] }",
-  );
-  let headed = plain.withHeader(ctx, "accept", "*/*");
-  assert.isTrue(headed.show(ctx).contains("Header { name: \"accept\", value: \"*/*\" }"));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let plain = http.request(.Get, "http://x/").withBody([65]);
+    assert.eq(
+        plain.show(ctx),
+        "Request { method: .Get, url: \"http://x/\", headers: [], body: [65] }",
+    );
+    let headed = plain.withHeader(ctx, "accept", "*/*");
+    assert.isTrue(
+        headed.show(ctx).contains("Header { name: \"accept\", value: \"*/*\" }"),
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -168,70 +181,80 @@ test "a request shows all four of its fields" {
 // -----------------------------------------------------------------------------
 
 test "status builds a response and nothing else" {
-  let r = http.status(404);
-  assert.eq(r.status, 404);
-  assert.eq(r.headers, []);
-  assert.eq(r.body, []);
-  assert.eq(r, Response { status: 404, headers: [], body: [] });
+    let r = http.status(404);
+    assert.eq(r.status, 404);
+    assert.eq(r.headers, []);
+    assert.eq(r.body, []);
+    assert.eq(r, Response { status: 404, headers: [], body: [] });
 }
 
 test "ok carries a body and no content type" {
-  let ctx = context { Alloc: alloc() };
-  let r = http.ok(ctx, "pong");
-  assert.eq(r.status, 200);
-  assert.eq(r.headers, []);
-  assert.eq(assert.ok(http.bodyText(ctx, r.body)), "pong");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let r = http.ok(ctx, "pong");
+    assert.eq(r.status, 200);
+    assert.eq(r.headers, []);
+    assert.eq(assert.ok(http.bodyText(ctx, r.body)), "pong");
 }
 
 test "text and json each set one content type" {
-  let ctx = context { Alloc: alloc() };
-  let plain = http.text(ctx, "pong");
-  assert.eq(plain.status, 200);
-  assert.eq(plain.header("content-type"), .Some("text/plain; charset=utf-8"));
-  assert.eq(assert.ok(http.bodyText(ctx, plain.body)), "pong");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let plain = http.text(ctx, "pong");
+    assert.eq(plain.status, 200);
+    assert.eq(plain.header("content-type"), .Some("text/plain; charset=utf-8"));
+    assert.eq(assert.ok(http.bodyText(ctx, plain.body)), "pong");
 
-  let encoded = http.json(ctx, "{}");
-  assert.eq(encoded.header("content-type"), .Some("application/json"));
-  assert.eq(assert.ok(http.bodyText(ctx, encoded.body)), "{}");
+    let encoded = http.json(ctx, "{}");
+    assert.eq(encoded.header("content-type"), .Some("application/json"));
+    assert.eq(assert.ok(http.bodyText(ctx, encoded.body)), "{}");
 }
 
 test "isOk is 2xx and nothing else" {
-  assert.isFalse(http.status(199).isOk());
-  assert.isTrue(http.status(200).isOk());
-  assert.isTrue(http.status(204).isOk());
-  assert.isTrue(http.status(299).isOk());
-  assert.isFalse(http.status(301).isOk());
-  assert.isFalse(http.status(404).isOk());
-  assert.isFalse(http.status(500).isOk());
+    assert.isFalse(http.status(199).isOk());
+    assert.isTrue(http.status(200).isOk());
+    assert.isTrue(http.status(204).isOk());
+    assert.isTrue(http.status(299).isOk());
+    assert.isFalse(http.status(301).isOk());
+    assert.isFalse(http.status(404).isOk());
+    assert.isFalse(http.status(500).isOk());
 }
 
 test "withStatus, withBody and withHeader each change one field of a response" {
-  let ctx = context { Alloc: alloc() };
-  let base = http.status(200);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let base = http.status(200);
 
-  assert.eq(base.withStatus(503).status, 503);
-  assert.eq(base.withBody([9]).body, [9]);
+    assert.eq(base.withStatus(503).status, 503);
+    assert.eq(base.withBody([9]).body, [9]);
 
-  let headed = base.withHeader(ctx, "Retry-After", "30");
-  assert.eq(headed.headers, [Header { name: "retry-after", value: "30" }]);
-  assert.eq(headed.header("retry-after"), .Some("30"));
-  assert.eq(base.headers, []);
+    let headed = base.withHeader(ctx, "Retry-After", "30");
+    assert.eq(headed.headers, [Header { name: "retry-after", value: "30" }]);
+    assert.eq(headed.header("retry-after"), .Some("30"));
+    assert.eq(base.headers, []);
 }
 
 test "a response shows all three of its fields" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(
-    http.status(404).withBody([110, 111]).show(ctx),
-    "Response { status: 404, headers: [], body: [110, 111] }",
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        http.status(404).withBody([110, 111]).show(ctx),
+        "Response { status: 404, headers: [], body: [110, 111] }",
+    );
 }
 
 test "two responses are equal exactly when all three fields are" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(http.text(ctx, "pong"), http.text(ctx, "pong"));
-  assert.notEq(http.text(ctx, "pong"), http.text(ctx, "ping"));
-  assert.notEq(http.text(ctx, "pong"), http.ok(ctx, "pong"));
-  assert.notEq(http.status(200), http.status(404));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(http.text(ctx, "pong"), http.text(ctx, "pong"));
+    assert.notEq(http.text(ctx, "pong"), http.text(ctx, "ping"));
+    assert.notEq(http.text(ctx, "pong"), http.ok(ctx, "pong"));
+    assert.notEq(http.status(200), http.status(404));
 }
 
 // -----------------------------------------------------------------------------
@@ -239,12 +262,14 @@ test "two responses are equal exactly when all three fields are" {
 // -----------------------------------------------------------------------------
 
 test "bodyText decodes octets and refuses what is not text" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(assert.ok(http.bodyText(ctx, bytes.toUtf8(ctx, "hi €"))), "hi €");
-  assert.eq(assert.ok(http.bodyText(ctx, [])), "");
-  // A lone continuation byte is not UTF-8, and saying so is the point of the
-  // `Result`.
-  let _ = assert.err(http.bodyText(ctx, [0x80]));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.ok(http.bodyText(ctx, bytes.toUtf8(ctx, "hi €"))), "hi €");
+    assert.eq(assert.ok(http.bodyText(ctx, [])), "");
+    // A lone continuation byte is not UTF-8, and saying so is the point of the
+    // `Result`.
+    let _ = assert.err(http.bodyText(ctx, [0x80]));
 }
 
 // -----------------------------------------------------------------------------
@@ -252,21 +277,26 @@ test "bodyText decodes octets and refuses what is not text" {
 // -----------------------------------------------------------------------------
 
 test "send, get and post all reach the same Net.fetch" {
-  let ctx = context { Alloc: alloc(), Net: net() };
-  assert.eq(assert.err(http.send(ctx, http.request(.Get, "http://x/"))), .Refused);
-  assert.eq(assert.err(http.get(ctx, "http://x/")), .Refused);
-  assert.eq(assert.err(http.post(ctx, "http://x/", "body")), .Refused);
+    let ctx = context {
+        Alloc: alloc(),
+        Net: net(),
+    };
+    assert.eq(assert.err(http.send(ctx, http.request(.Get, "http://x/"))), .Refused);
+    assert.eq(assert.err(http.get(ctx, "http://x/")), .Refused);
+    assert.eq(assert.err(http.post(ctx, "http://x/", "body")), .Refused);
 }
 
 test "NetError names five reasons, Aborted among them" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(http.errorText(.Timeout), "the request timed out");
-  assert.eq(http.errorText(.Refused), "the connection was refused");
-  assert.eq(http.errorText(.BadUrl("x")), "the url could not be parsed");
-  assert.eq(http.errorText(.Transport("x")), "the transport failed");
-  assert.eq(http.errorText(.Aborted), "the request was called off");
-  // `Aborted` is its own reason: a caller that retries a `Timeout` must be
-  // able to tell it apart from a request its own side called off.
-  assert.notEq(NetError.Aborted, NetError.Timeout);
-  assert.eq(NetError.Aborted.show(ctx), ".Aborted");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(http.errorText(.Timeout), "the request timed out");
+    assert.eq(http.errorText(.Refused), "the connection was refused");
+    assert.eq(http.errorText(.BadUrl("x")), "the url could not be parsed");
+    assert.eq(http.errorText(.Transport("x")), "the transport failed");
+    assert.eq(http.errorText(.Aborted), "the request was called off");
+    // `Aborted` is its own reason: a caller that retries a `Timeout` must be
+    // able to tell it apart from a request its own side called off.
+    assert.notEq(NetError.Aborted, NetError.Timeout);
+    assert.eq(NetError.Aborted.show(ctx), ".Aborted");
 }

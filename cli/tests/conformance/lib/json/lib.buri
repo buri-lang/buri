@@ -8,7 +8,6 @@
 // down in `core/json` is that it does not change under anybody.
 
 from "//lib/json/shapes.buri" export {
-  Point, Segment, Meters, Pair, Hollow, Everything, Wrapper,
-  Colour, Shape, Rose, Chain,
-  point, rose, chain, everything,
+    Chain, chain, Colour, Everything, everything, Hollow, Meters, Pair, Point, point,
+    Rose, rose, Segment, Shape, Wrapper,
 };

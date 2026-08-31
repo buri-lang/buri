@@ -1,8 +1,8 @@
 warning: nothing reads `Ledger.seal` [unused-field]
-  --> lib/money/cents.buri:13:3
+  --> lib/money/cents.buri:13:5
    |
-13 |   seal: Str,
-   |   ^^^^^^^^^
+13 |     seal: Str,
+   |     ^^^^^^^^^
    |
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it
@@ -28,10 +28,10 @@ warning: nothing reads `Ledger.seal` [unused-field]
      compared structurally. What is left is the field nothing at all looks at.
 
 error: "//lib/money/cents.buri" does not export `Ledgor` [no-such-export]
- --> lib/money/lib.buri:5:40
+ --> lib/money/lib.buri:5:48
   |
-5 | from "//lib/money/cents.buri" export { Ledgor, ledger, markupCents };
-  |                                        ^^^^^^
+5 | from "//lib/money/cents.buri" export { ledger, Ledgor, markupCents };
+  |                                                ^^^^^^
   |
   = a re-export may name only what its module path exports
   = did you mean `Ledger`?

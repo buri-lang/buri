@@ -9,5 +9,7 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
     };
     let shelf = [listing("plain", 100)];
-    io.println(ctx, "${worth(shelf).show(ctx)} ${currency}").mapErr(fn(_e) => "could not write to standard output")
+    io
+        .println(ctx, "${worth(shelf).show(ctx)} ${currency}")
+        .mapErr(fn(_e) => "could not write to standard output")
 }

@@ -19,8 +19,8 @@ run {
 # name, and the signature takes two of those instead of six numbers.
 edit {
   file: "cmd/app/main.buri"
-  replace: "fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {\n  a + b + c + d + e + f\n}"
-  with: "struct Triple(I64, I64, I64);\n\nfn total(x: Triple, y: Triple): I64 {\n  x.0 + x.1 + x.2 + y.0 + y.1 + y.2\n}"
+  replace: "fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {\n    a + b + c + d + e + f\n}"
+  with: "struct Triple(I64, I64, I64);\n\nfn total(x: Triple, y: Triple): I64 {\n    x.0 + x.1 + x.2 + y.0 + y.1 + y.2\n}"
 }
 
 edit {

@@ -1,3 +1,5 @@
 from "//lib/secret" import { secret };
 
-export fn relay(): Str { secret() }
+export fn relay(): Str {
+    secret()
+}

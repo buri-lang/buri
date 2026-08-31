@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:26:1
+   |
+26 | impl Cents {
+   | ^^^^
+   |
+  --> main.buri:22:36
+   |
+22 | export fn fromCents(c: I64): Cents {
+   |                                    ^ opened here
+   |
+   = fix: write `}` here

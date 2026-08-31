@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_module_cents_f30929/lib.buri:10:1
+   |
+10 | , }
+   | ^
+   |
+ --> lib/recovery_insert_stray_module_cents_f30929/lib.buri:8:35
+  |
+8 | export fn describe(c: Cents): I64 {
+  |                                   ^ opened here
+  |
+  = fix: write `}` here

@@ -9,7 +9,7 @@ warning: list is imported but not used [unused-import]
 error: expected a declaration, found `extra` [unexpected-token]
  --> lib/recovery_insert_stray_module_kit_f55c35/lib.buri:6:1
   |
-6 | extra export fn one(): I64 { 1 }
+6 | extra export fn one(): I64 {
   | ^^^^^
   |
   = expected: a declaration

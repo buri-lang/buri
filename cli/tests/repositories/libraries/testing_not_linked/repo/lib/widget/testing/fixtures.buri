@@ -2,4 +2,6 @@
 // else in the repository, so finding it in a production artifact would mean
 // this file had been linked into one.
 
-export fn fakeWidget(): Str { "WIDGET-TESTING-ONLY-MARKER" }
+export fn fakeWidget(): Str {
+    "WIDGET-TESTING-ONLY-MARKER"
+}

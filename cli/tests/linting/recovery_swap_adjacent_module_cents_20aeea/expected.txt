@@ -1,0 +1,18 @@
+error: expected a declaration, found `Tally` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_cents_20aeea/lib.buri:15:8
+   |
+15 | export Tally enum {
+   |        ^^^^^
+   |
+   = expected: a declaration
+   = actual: `Tally`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected an identifier, found `{` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_cents_20aeea/lib.buri:15:19
+   |
+15 | export Tally enum {
+   |                   ^
+   |
+   = expected: an identifier
+   = actual: `{`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

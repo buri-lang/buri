@@ -39,46 +39,46 @@ cut; Section 15 records why.
 
 ```buri run
 # from "core/effect" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
-from "core/host" import * as host;
 
 struct Point {
-  x: Float,
-  y: Float,
+    x: Float,
+    y: Float,
 }
 
 enum Shape {
-  Circle(Float),
-  Rect { width: Float, height: Float },
-  Empty,
+    Circle(Float),
+    Rect { width: Float, height: Float },
+    Empty,
 }
 
 // No context parameter, so this cannot allocate, read, write, or observe
 // anything. It is a mathematical function of its argument.
 impl Shape {
-  fn area(self): Float {
-    match (self) {
-      .Circle(r) => 3.14159 * r * r,
-      .Rect { width, height } => width * height,
-      .Empty => 0.0,
+    fn area(self): Float {
+        match (self) {
+            .Circle(r) => 3.14159 * r * r,
+            .Rect { width, height } => width * height,
+            .Empty => 0.0,
+        }
     }
-  }
 }
 
 // `main` builds the one context the program has. Its bindings are the program's
 // complete effect budget: no `Fs` here, so nothing this program transitively
 // calls can open a file.
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc:  host.alloc,
-    Stdout: host.stdout,
-  };
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
 
-  let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
-  let total = shapes.map(ctx, fn(s) => s.area()).sumFloat();
-  let _ = io.println(ctx, "total area: ${total}").ignore();
-  .Ok(())
+    let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
+    let total = shapes.map(ctx, fn(s) => s.area()).sumFloat();
+    let _ = io.println(ctx, "total area: ${total}").ignore();
+    .Ok(())
 }
 ```
 
@@ -220,10 +220,10 @@ the syntax is here.
 The module path comes **first**, before the specifier list:
 
 ```buri
-from "core/list" import { map, filter };
-from "core/list" import { map as listMap };
-from "core/list" import * as list;
 from "core/effect" import { Alloc, Fs, Stdout };
+from "core/list" import * as list;
+from "core/list" import { filter, map };
+from "core/list" import { map as listMap };
 ```
 
 The ordering is chosen for tooling rather than for prose: by the time you open
@@ -333,16 +333,22 @@ collision. Importing a type brings its methods with it.
 A declaration is module-private unless prefixed with `export`.
 
 ```buri
-fn helper(x: Int): Int { x * 2 }           // private
-export fn double(x: Int): Int { helper(x) } // public
+fn helper(x: Int): Int {
+    x * 2
+} // private
+
+export fn double(x: Int): Int {
+    helper(x)
+} // public
 ```
 
 Struct fields carry their own `export`, so a struct's name and its
 representation are exported separately:
 
 ```buri
-export struct UserId(Str);          // name public, contents private
-export struct Meters(export F64);   // both public
+export struct UserId(Str); // name public, contents private
+
+export struct Meters(export F64); // both public
 ```
 
 A struct with any unexported field cannot be constructed, destructured, or
@@ -366,6 +372,7 @@ A module may export a name it imported, in one declaration that mirrors
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 from "//lib/money/cents.buri" export { Cents, fromCents };
+
 from "//lib/money/cents.buri" export { add as addMoney };
 ```
 
@@ -409,10 +416,13 @@ name an exact width and have the compiler hold it to that. Buri serves both with
 **one set of types and two names for the common ones**:
 
 ```buri
-type Int   = I64;      // the default integer
-type Float = F64;      // the default float
-type Uint  = U64;
-type Byte  = U8;
+type Int = I64; // the default integer
+
+type Float = F64; // the default float
+
+type Uint = U64;
+
+type Byte = U8;
 ```
 
 These are **aliases, not distinct types**. `Int` and `I64` are the same type, so
@@ -456,10 +466,13 @@ Because a literal's type is known before it is checked, **a literal that does no
 fit its type is a compile error**, not a runtime surprise:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let x: U8 = 300;         // ERROR: 300 is not representable in U8
-let y: I8 = -129;        // ERROR
-let z: U32 = -1;         // ERROR: U32 has no negative values
-let w: U64 = 18_446_744_073_709_551_615;    // fine
+let x: U8 = 300; // ERROR: 300 is not representable in U8
+
+let y: I8 = -129; // ERROR
+
+let z: U32 = -1; // ERROR: U32 has no negative values
+
+let w: U64 = 18_446_744_073_709_551_615; // fine
 ```
 
 There are no literal suffixes (`5u8`). An annotation or the call site pins a
@@ -499,7 +512,10 @@ only for their effect return `()`.
 ```buri
 # from "core/effect" import { Stdout };
 # from "core/io" import * as io;
-fn log<C: Stdout>(ctx: C, msg: Str): () { io.println(ctx, msg).ignore() }
+
+fn log<C: Stdout>(ctx: C, msg: Str): () {
+    io.println(ctx, msg).ignore()
+}
 ```
 
 ### 5.3 Tuples
@@ -571,8 +587,9 @@ let raw = d.0;
 Tuple-struct fields carry the same `export` marker, in the same position:
 
 ```buri
-struct Meters(export F64);      // the F64 is readable as `m.0` anywhere
-struct UserId(Str);             // the Str is readable only in this module
+struct Meters(export F64); // the F64 is readable as `m.0` anywhere
+
+struct UserId(Str); // the Str is readable only in this module
 ```
 
 Tuple-struct declarations are terminated with `;`; record-struct declarations are
@@ -583,10 +600,18 @@ A literal gives every **required** field a value. A field whose declared type is
 for it.
 
 ```buri
-struct World { export hi: Str, export hello: Option<Str> }
+struct World {
+    export hi: Str,
+    export hello: Option<Str>,
+}
 
-fn plain(): World { World { hi: "hi" } }              // `hello` is `.None`
-fn given(): World { World { hi: "hi", hello: .Some("hello") } }
+fn plain(): World {
+    World { hi: "hi" }
+} // `hello` is `.None`
+
+fn given(): World {
+    World { hi: "hi", hello: .Some("hello") }
+}
 ```
 
 Which fields may be left out is a property of the declaration rather than of one
@@ -604,13 +629,27 @@ The type name may itself be left out where the surroundings already give it.
 The braces then build whatever the expression is checked against:
 
 ```buri
-struct World { export hi: Str, export hello: Option<Str> }
+struct World {
+    export hi: Str,
+    export hello: Option<Str>,
+}
 
-fn takes(w: World): Str { w.hi }
+fn takes(w: World): Str {
+    w.hi
+}
 
-fn annotated(): World { let w: World = { hi: "hi", hello: .None }; w }
-fn argument(): Str { takes({ hi: "hi" }) }
-fn result(): World { { hi: "hi" } }
+fn annotated(): World {
+    let w: World = { hi: "hi", hello: .None };
+    w
+}
+
+fn argument(): Str {
+    takes({ hi: "hi" })
+}
+
+fn result(): World {
+    { hi: "hi" }
+}
 ```
 
 The type is **read** from above and never solved for. It reaches a literal in a
@@ -650,14 +689,14 @@ record-like, and may mix within one enum.
 
 ```buri
 enum Shape {
-  Empty,
-  Circle(Float),
-  Rect { width: Float, height: Float },
+    Empty,
+    Circle(Float),
+    Rect { width: Float, height: Float },
 }
 
 enum Tree<T> {
-  Leaf,
-  Node(Tree<T>, T, Tree<T>),               // recursive; boxed by the runtime
+    Leaf,
+    Node(Tree<T>, T, Tree<T>), // recursive; boxed by the runtime
 }
 ```
 
@@ -683,9 +722,21 @@ The dot form requires that the expected type is known from context (a
 The prelude defines:
 
 ```buri
-enum Option<T> { Some(T), None }
-enum Result<T, E> { Ok(T), Err(E) }
-enum Order { Less, Equal, Greater }
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+enum Order {
+    Less,
+    Equal,
+    Greater,
+}
 ```
 
 #### 5.7.1 `Result` is must-use
@@ -750,6 +801,7 @@ there are no polymorphic function *values* in v0.3.
 
 ```buri
 type UserId = Str;
+
 type Handler<T> = fn(T) => Result<(), Str>;
 ```
 
@@ -863,12 +915,13 @@ satisfy.
 
 ```buri
 # from "core/effect" import { Alloc };
+
 trait Ord {
-  fn compare(self, other: Self): Order;
+    fn compare(self, other: Self): Order;
 }
 
 trait Show {
-  fn show<C: Alloc>(self, ctx: C): Str;
+    fn show<C: Alloc>(self, ctx: C): Str;
 }
 ```
 
@@ -1149,27 +1202,27 @@ derives them:
 
 ```buri
 trait Checked {
-  fn checkedAdd(self, rhs: Self): Option<Self>;
-  fn checkedSub(self, rhs: Self): Option<Self>;
-  fn checkedMul(self, rhs: Self): Option<Self>;
-  fn checkedDiv(self, rhs: Self): Option<Self>;
+    fn checkedAdd(self, rhs: Self): Option<Self>;
+    fn checkedSub(self, rhs: Self): Option<Self>;
+    fn checkedMul(self, rhs: Self): Option<Self>;
+    fn checkedDiv(self, rhs: Self): Option<Self>;
 }
 
 trait Wrapping {
-  fn wrappingAdd(self, rhs: Self): Self;
-  fn wrappingSub(self, rhs: Self): Self;
-  fn wrappingMul(self, rhs: Self): Self;
+    fn wrappingAdd(self, rhs: Self): Self;
+    fn wrappingSub(self, rhs: Self): Self;
+    fn wrappingMul(self, rhs: Self): Self;
 }
 
 trait Saturating {
-  fn saturatingAdd(self, rhs: Self): Self;
-  fn saturatingSub(self, rhs: Self): Self;
-  fn saturatingMul(self, rhs: Self): Self;
+    fn saturatingAdd(self, rhs: Self): Self;
+    fn saturatingSub(self, rhs: Self): Self;
+    fn saturatingMul(self, rhs: Self): Self;
 }
 
 trait Bounded {
-  fn minValue(): Self;
-  fn maxValue(): Self;
+    fn minValue(): Self;
+    fn maxValue(): Self;
 }
 ```
 
@@ -1366,10 +1419,10 @@ follows throughout.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 // main.buri
-from "lib/square" import { Square };     // the type — not `area`, not `scaled`
+from "lib/square" import { Square }; // the type — not `area`, not `scaled`
 
 fn describe(sq: Square): Int {
-  sq.scaled(2).area()                    // both resolve with no further imports
+    sq.scaled(2).area() // both resolve with no further imports
 }
 ```
 
@@ -1440,10 +1493,11 @@ function on the failure case.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs };
+
 fn loadPort<C: Alloc + Fs>(ctx: C, path: Str): Result<Int, ConfigError> {
-  let text = fs.readText(ctx, path)?;        // Err(e) => return Err(e)
-  let cfg = parseConfig(text)?;
-  .Ok(cfg.port)
+    let text = fs.readText(ctx, path)?; // Err(e) => return Err(e)
+    let cfg = parseConfig(text)?;
+    .Ok(cfg.port)
 }
 ```
 
@@ -1675,17 +1729,17 @@ methods are the operations it grants:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 // core/effect
 export effect Alloc {
-  fn allocate(self, bytes: Int): Region;
+    fn allocate(self, bytes: Int): Region;
 }
 
 export effect Stdout {
-  fn print(self, text: Template): ();
-  fn println(self, text: Template): ();
+    fn print(self, text: Template): ();
+    fn println(self, text: Template): ();
 }
 
 export effect Fs {
-  fn readFile(self, path: Str): Result<Str, IoError>;
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
+    fn readFile(self, path: Str): Result<Str, IoError>;
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
 }
 
 // An effect's signature may name types, and those types are declared here
@@ -1693,25 +1747,36 @@ export effect Fs {
 // the library that wraps the effect, because `core/effect` cannot import a
 // module that imports it. The wrapper re-exports them, and that is where a
 // program meets them.
-export enum Method { Get, Head, Post, Put, Patch, Delete, Options }
+export enum Method {
+    Get,
+    Head,
+    Post,
+    Put,
+    Patch,
+    Delete,
+    Options,
+}
 
-export struct Header { export name: Str, export value: Str }
+export struct Header {
+    export name: Str,
+    export value: Str,
+}
 
 export struct Request {
-  export method: Method,
-  export url: Str,
-  export headers: [Header],
-  export body: [U8],
+    export method: Method,
+    export url: Str,
+    export headers: [Header],
+    export body: [U8],
 }
 
 export struct Response {
-  export status: Int,
-  export headers: [Header],
-  export body: [U8],
+    export status: Int,
+    export headers: [Header],
+    export body: [U8],
 }
 
 export effect Net {
-  fn fetch(self, request: Request): Result<Response, NetError>;
+    fn fetch(self, request: Request): Result<Response, NetError>;
 }
 ```
 
@@ -1763,9 +1828,10 @@ A function names the effects it needs as **bounds** on its context parameter:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs };
+
 fn loadConfig<C: Alloc + Fs>(ctx: C, path: Str): Result<Config, ConfigError> {
-  let text = fs.readText(ctx, path)?;
-  parse(ctx, text)
+    let text = fs.readText(ctx, path)?;
+    parse(ctx, text)
 }
 ```
 
@@ -2071,14 +2137,19 @@ different values could arrive there, and the declaration says which:
 
 ```buri ignore why="not yet converted to a compiled example: it declares an effect, which only a platform module may do"
 export effect Tasks {
-  // `ctx` is the caller's whole context, and the step is handed it.
-  fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
+    // `ctx` is the caller's whole context, and the step is handed it.
+    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
 }
 
 export effect Listen {
-  // `Self` is the acceptor — the type implementing `Listen` — and the handler
-  // is handed that.
-  fn listen(self, address: Str, port: Int, onRequest: fn(Self, Request) => Response): Result<(), NetError>;
+    // `Self` is the acceptor — the type implementing `Listen` — and the handler
+    // is handed that.
+    fn listen(
+        self,
+        address: Str,
+        port: Int,
+        onRequest: fn(Self, Request) => Response,
+    ): Result<(), NetError>;
 }
 ```
 
@@ -2141,16 +2212,21 @@ same value and cannot use, or pass on, anything its bounds do not name:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, Stdout };
+
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
-  let _ = io.println(ctx, msg).ignore();
-  // fs.readText(ctx, "/etc/passwd")     // ERROR: C is not bounded by Fs
-  // dangerous(ctx)                      // ERROR: dangerous needs C: Fs
+    let _ = io.println(ctx, msg).ignore();
+    // fs.readText(ctx, "/etc/passwd")     // ERROR: C is not bounded by Fs
+    // dangerous(ctx)                      // ERROR: dangerous needs C: Fs
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
-  let _ = logOnly(ctx, "starting");      // same value, confined by its bound
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Fs: host.fs,
+    };
+    let _ = logOnly(ctx, "starting"); // same value, confined by its bound
+    .Ok(())
 }
 ```
 
@@ -2163,22 +2239,27 @@ the callee holds a value that genuinely lacks the rest:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, IoError, Region };
+
 // module: safe/readonly
 export struct ReadOnly<C>(C);
 
-export fn readOnly<C>(ctx: C): ReadOnly<C> { ReadOnly(ctx) }
+export fn readOnly<C>(ctx: C): ReadOnly<C> {
+    ReadOnly(ctx)
+}
 
 // Forwards Alloc...
 impl<C: Alloc> Alloc for ReadOnly<C> {
-  fn allocate(self, bytes: Int): Region { self.0.allocate(bytes) }
+    fn allocate(self, bytes: Int): Region {
+        self.0.allocate(bytes)
+    }
 }
 
 // ...and reading, but there is deliberately no `writeFile`, so ReadOnly<C>
 // does not satisfy Fs no matter what C is.
 impl<C: Fs> ReadOnly<C> {
-  export fn readFile(self, path: Str): Result<Str, IoError> {
-    self.0.readFile(path)
-  }
+    export fn readFile(self, path: Str): Result<Str, IoError> {
+        self.0.readFile(path)
+    }
 }
 ```
 
@@ -2207,18 +2288,22 @@ change, because there was never a global to stub.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, IoError };
-struct FakeFs { export files: [(Str, Str)] }
+
+struct FakeFs {
+    export files: [(Str, Str)],
+}
 
 impl Fs for FakeFs {
-  fn readFile(self, path: Str): Result<Str, IoError> {
-    match (self.files.find(fn(e) => e.0 == path)) {
-      .Some(entry) => .Ok(entry.1),
-      .None => .Err(.NotFound),
+    fn readFile(self, path: Str): Result<Str, IoError> {
+        match (self.files.find(fn(e) => e.0 == path)) {
+            .Some(entry) => .Ok(entry.1),
+            .None => .Err(.NotFound),
+        }
     }
-  }
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
-    .Err(.ReadOnly)
-  }
+
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
+        .Err(.ReadOnly)
+    }
 }
 
 // context { Alloc: testing.alloc(), Fs: FakeFs { files: [...] } }
@@ -2296,14 +2381,16 @@ build file ([`cli/src/docs/build/testing.md`](./cli/src/docs/build/testing.md)).
 helpers are ordinary library code.
 
 ```buri repo=cli/tests/example role=test
-from "//lib/money" import { fromCents };
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
 from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { fromCents };
 
 test "pads the cents place" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(fromCents(1905).format(ctx), "\$19.05");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(fromCents(1905).format(ctx), "$19.05");
 }
 ```
 
@@ -2375,10 +2462,13 @@ The first four return `()`; the last three return a value, and are how a
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 test "reads the config it wrote" {
-  let ctx = context { Alloc: alloc(), Fs: memory() };
-  assert.ok(fs.writeText(ctx, "cfg", "port=8080"));   // returns (), so a statement
-  let text = assert.ok(fs.readText(ctx, "cfg"));      // returns Str, so a binding
-  assert.eq(text, "port=8080");
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: memory(),
+    };
+    assert.ok(fs.writeText(ctx, "cfg", "port=8080")); // returns (), so a statement
+    let text = assert.ok(fs.readText(ctx, "cfg")); // returns Str, so a binding
+    assert.eq(text, "port=8080");
 }
 ```
 
@@ -2437,15 +2527,16 @@ or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
+
 context Sandbox {
-  Alloc:  alloc(),
-  Stdout: stdout(),
-  Stderr: stderr(),
-  Fs:     fs(),
-  Net:    net(),
-  Clock:  clock(),
-  Rand:   rand(),
-  Env:    env(),
+    Alloc: alloc(),
+    Stdout: stdout(),
+    Stderr: stderr(),
+    Fs: fs(),
+    Net: net(),
+    Clock: clock(),
+    Rand: rand(),
+    Env: env(),
 }
 ```
 
@@ -2460,15 +2551,19 @@ context and lets the ones that follow replace them:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Fs };
+
 context Fixture {
-  ..Sandbox(),
-  Fs: fs().files([("config.toml", "port=8080")]),
+    ..Sandbox(),
+    Fs: fs().files([("config.toml", "port=8080")]),
 }
 
 test "rejects a port above 65535" {
-  let ctx = context { ..Fixture(), Fs: fs().files([("config.toml", "port=99999")]) };
-  let e = assert.err(loadConfig(ctx, "config.toml"));
-  assert.eq(e, ConfigError.PortOutOfRange);
+    let ctx = context {
+        ..Fixture(),
+        Fs: fs().files([("config.toml", "port=99999")]),
+    };
+    let e = assert.err(loadConfig(ctx, "config.toml"));
+    assert.eq(e, ConfigError.PortOutOfRange);
 }
 ```
 

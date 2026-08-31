@@ -31,11 +31,16 @@ one-character way around it.
 
 ```buri fail code=result-discarded
 # from "core/effect" import { Alloc, Fs, Stdout };
-# from "core/host" import * as host;
 # from "core/fs" import * as fs;
+# from "core/host" import * as host;
+
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
-  let _ = fs.readText(ctx, "config.toml");
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Fs: host.fs,
+        Stdout: host.stdout,
+    };
+    let _ = fs.readText(ctx, "config.toml");
+    .Ok(())
 }
 ```

@@ -109,10 +109,9 @@ fn night(t: App): Color {
 /// A `cardlib` component, styled against `cardlib`'s tokens and nothing else.
 /// It cannot see a theme and does not import `ui/theme`.
 fn card<C>(label: Str): Node<C> {
-    ui.stack(
-        [.Background(Card.Surface.color()), .Foreground(Card.OnSurface.color())],
-        [ui.text(.Const(label))],
-    )
+    ui.stack([.Background(Card.Surface.color()), .Foreground(Card.OnSurface.color())], [
+        ui.text(.Const(label)),
+    ])
 }
 
 /// The app's own chrome, styled against the app's own tokens. Both packages
@@ -132,13 +131,21 @@ fn tinted<C>(paint: Color): Node<C> {
 
 test "a token is a custom property, decided at compile time" {
     let sheet = stylesheet();
-    assert.isTrue(sheet.contains(".bg-t_cardlib_surface{background-color:var(--cardlib-surface)}"));
-    assert.isTrue(sheet.contains(".fg-t_cardlib_onSurface{color:var(--cardlib-onSurface)}"));
+    assert.isTrue(
+        sheet.contains(
+            ".bg-t_cardlib_surface{background-color:var(--cardlib-surface)}",
+        ),
+    );
+    assert.isTrue(
+        sheet.contains(".fg-t_cardlib_onSurface{color:var(--cardlib-onSurface)}"),
+    );
     assert.isTrue(sheet.contains(".bg-t_app_bg{background-color:var(--app-bg)}"));
 }
 
 test "the namespace is the package, so two packages cannot collide" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     // One property, two packages, two classes and two variables — even though
     // `cardlib.surface` is mapped straight onto `app.bg` and the two are worth
     // exactly the same colour.
@@ -150,8 +157,11 @@ test "the namespace is the package, so two packages cannot collide" {
 }
 
 test "a component that uses tokens carries the same classes under any theme" {
-    let ctx = context { Ui: headless() };
-    let expected = "<div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div>";
+    let ctx = context {
+        Ui: headless(),
+    };
+    let expected =
+        "<div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div>";
 
     let _ = install([cardThemed(cardTheme), appThemed(day)]);
     assert.eq(render(ctx, card("card")).markup(), expected);
@@ -205,7 +215,9 @@ test "no themes at all is no block at all" {
 // --- switching -----------------------------------------------------------------------
 
 test "switching a theme swaps the values and changes no class" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let dark = signal(ctx, false);
     let themes = [
         cardThemed(cardTheme),
@@ -226,11 +238,16 @@ test "switching a theme swaps the values and changes no class" {
     // The element was never touched. That is the whole claim: dark mode is a
     // block of values, not a second stylesheet.
     assert.eq(tree.markup(), before);
-    assert.eq(tree.markup(), "<div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div>");
+    assert.eq(
+        tree.markup(),
+        "<div class=\"bg-t_cardlib_surface fg-t_cardlib_onSurface\">card</div>",
+    );
 }
 
 test "switching back restores the values it had" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let dark = signal(ctx, false);
     let _ = install([theme.switching(.Cell(dark), appThemed(night), appThemed(day))]);
     let light = variables();
@@ -252,7 +269,9 @@ test "a constant condition still picks a side, and registers nothing to change" 
 // --- the inline tier -----------------------------------------------------------------
 
 test "a token the compiler could not fold is the same custom property inline" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     // The style is built out of a parameter, so it degrades to the inline tier
     // — and what is written out is the *same* `var()` the stylesheet would have
     // held, so whether a token folded changes what it costs and not what it

@@ -8,13 +8,12 @@
 // last test pins that a constructor which really does store its parameter
 // still needs an ordinary bound — the reject corpus holds the failing half.
 
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
 from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
 from "core/str" import * as str;
-
+from "core/testing/assert" import * as assert;
 from "//lib/semantics" import {
-  Widget, render, eachRow, deferred, Cell, cellIndex, Held, heldTwice,
+    Cell, cellIndex, deferred, eachRow, Held, heldTwice, render, Widget,
 };
 
 // -----------------------------------------------------------------------------
@@ -22,29 +21,37 @@ from "//lib/semantics" import {
 // -----------------------------------------------------------------------------
 
 test "a tree over the context it is rendered with is data, not a second context" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(render(ctx, .Label("a")), "a");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(render(ctx, .Label("a")), "a");
 }
 
 test "the recursive arm resolves to the same answer" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(render(ctx, .Group([.Label("a"), .Label("b"), .Label("c")])), "a+b+c");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(render(ctx, .Group([.Label("a"), .Label("b"), .Label("c")])), "a+b+c");
 }
 
 test "a nested group is still data" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(
-    render(ctx, .Group([.Label("a"), .Group([.Label("b"), .Label("c")])])),
-    "a+b+c",
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        render(ctx, .Group([.Label("a"), .Group([.Label("b"), .Label("c")])])),
+        "a+b+c",
+    );
 }
 
 test "a handler receives the context the tree was rendered with" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(
-    render(ctx, .Press("go", fn(c, n) => str.format(c, "pressed ${n}"))),
-    "pressed 2",
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        render(ctx, .Press("go", fn(c, n) => str.format(c, "pressed ${n}"))),
+        "pressed 2",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -52,16 +59,22 @@ test "a handler receives the context the tree was rendered with" {
 // -----------------------------------------------------------------------------
 
 test "a row closure returning a tree over the bounded context is a parameter" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(eachRow(ctx, ["x", "y"], fn(c, item, count) => .Label(item)), "x,y");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(eachRow(ctx, ["x", "y"], fn(c, item, count) => .Label(item)), "x,y");
 }
 
 test "the row closure sees the context and the index it was handed" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(
-    eachRow(ctx, ["x", "y"], fn(c, item, count) => .Press(item, fn(h, n) => str.format(h, "${count}"))),
-    "2,2",
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        eachRow(ctx, ["x", "y"], fn(c, item, count) => {
+            .Press(item, fn(h, n) => str.format(h, "${count}"))
+        }),
+        "2,2",
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -69,13 +82,17 @@ test "the row closure sees the context and the index it was handed" {
 // -----------------------------------------------------------------------------
 
 test "a component with no ctx may close over a subtree" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(render(ctx, deferred(.Label("h"))()), "h");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(render(ctx, deferred(.Label("h"))()), "h");
 }
 
 test "the closed-over subtree is the one that comes back" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(render(ctx, deferred(.Group([.Label("a"), .Label("b")]))()), "a+b");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(render(ctx, deferred(.Group([.Label("a"), .Label("b")]))()), "a+b");
 }
 
 // -----------------------------------------------------------------------------
@@ -83,21 +100,21 @@ test "the closed-over subtree is the one that comes back" {
 // -----------------------------------------------------------------------------
 
 test "a handle that is phantom in its parameter is capturable unbounded" {
-  assert.eq(cellIndex(Cell<Str>(7))(), 7);
+    assert.eq(cellIndex(Cell<Str>(7))(), 7);
 }
 
 test "the same handle at another instantiation" {
-  assert.eq(cellIndex(Cell<Widget<Int>>(0))(), 0);
+    assert.eq(cellIndex(Cell<Widget<Int>>(0))(), 0);
 }
 
 test "a constructor that stores its parameter is capturable under a bound" {
-  let both = heldTwice(Held.Value(3))();
-  assert.eq(both.0, .Value(3));
-  assert.eq(both.1, .Value(3));
+    let both = heldTwice(Held.Value(3))();
+    assert.eq(both.0, .Value(3));
+    assert.eq(both.1, .Value(3));
 }
 
 test "the same, at the empty variant" {
-  let empty: Held<Str> = .Empty;
-  let both = heldTwice(empty)();
-  assert.eq(both.0, .Empty);
+    let empty: Held<Str> = .Empty;
+    let both = heldTwice(empty)();
+    assert.eq(both.0, .Empty);
 }

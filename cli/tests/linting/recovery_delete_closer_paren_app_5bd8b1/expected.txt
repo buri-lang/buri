@@ -1,0 +1,36 @@
+warning: `spell` is 41 lines long [oversized-function]
+ --> lib/recovery_delete_closer_paren_app_5bd8b1/main.buri:9:4
+  |
+9 | fn spell(n: I64): Str {
+  |    ^^^^^
+  |
+  = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+  = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: expected `Str`, found `IoError` [type-mismatch]
+  --> lib/recovery_delete_closer_paren_app_5bd8b1/main.buri:51:35
+   |
+51 | export fn main(): Result<(), Str> {
+   |                                   ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `IoError`
+   = fix: produce a `Str` here, or change what surrounds it to accept a `IoError`
+error: `Str` has no method `mapErr` [no-such-method]
+  --> lib/recovery_delete_closer_paren_app_5bd8b1/main.buri:56:30
+   |
+56 |     io.println(ctx, spell(7).mapErr(fn(_e) => "could not write to standard output")
+   |                              ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_5bd8b1/main.buri:57:1
+   |
+57 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_app_5bd8b1/main.buri:56:15
+   |
+56 |     io.println(ctx, spell(7).mapErr(fn(_e) => "could not write to standard output")
+   |               ^ opened here
+   |
+   = fix: write `)` here

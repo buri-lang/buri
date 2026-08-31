@@ -1,9 +1,0 @@
-error: expected an expression, found `*` [unexpected-token]
-  --> main.buri:12:13
-   |
-12 |   assert.eq(* 6 7, 42);   // CANARY_42
-   |             ^
-   |
-   = expected: an expression
-   = actual: `*`
-   = fix: write a value here

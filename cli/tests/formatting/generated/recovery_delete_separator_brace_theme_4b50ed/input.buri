@@ -1,0 +1,94 @@
+// The app's own token vocabulary, the mapping that closes //lib/kit's, and the
+// two sets of values dark mode picks between.
+//
+// Three things meet here and nowhere else. //lib/kit knows its four tokens and
+// nothing about this app. This app knows its five and, in `kitTheme`, what the
+// library's four are worth *in its own terms* — a chain, library token to app
+// token to a colour, followed once at mount. And `main.buri` is the only file
+// that knows both vocabularies exist.
+
+from "ui/style" import * as style;
+from "ui/style" import { Color };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
+from "//lib/kit" import { Token };
+
+/// This app's palette, as names rather than colours.
+export enum Shade {
+    /// The page.
+    Bg,
+    /// A card standing on the page.
+    Raised,
+    /// Text.
+    Fg,
+    /// A hairline.
+    Line,
+    /// What draws the eye.
+    Accent,
+}
+
+impl Shade {
+    /// The custom property this shade is, namespaced by this package.
+    export fn color(self): Color {
+        match (self) {
+            .Bg => style.token("basket", "bg"),
+            .Raised => style.token("basket", "raised"),
+            .Fg => style.token("basket", "fg"),
+            .Line => style.token("basket", "line")
+            .Accent => style.token("basket", "accent"),
+        }
+    }
+}
+
+/// This app's tokens, resolved by one of the two mappings below.
+export fn appThemed(f: fn(Shade) => Color): Theme {
+    theme.themed([
+        (Shade.Bg.color(), f(.Bg)),
+        (Shade.Raised.color(), f(.Raised)),
+        (Shade.Fg.color(), f(.Fg)),
+        (Shade.Line.color(), f(.Line)),
+        (Shade.Accent.color(), f(.Accent)),
+    ])
+}
+
+/// What //lib/kit's tokens are worth here.
+///
+/// **This `match` is the compatibility check, and it is the only one.** The day
+/// //lib/kit adds a fifth token, this function stops compiling and names the
+/// variant it does not handle — which is exactly when the omission is still
+/// cheap to fix. There is no registry to update, no default to fall through to,
+/// and nothing to notice at run time.
+///
+/// Every arm answers one of *this* app's tokens rather than a colour, so the
+/// library's surface follows the page's theme through dark mode without knowing
+/// that dark mode exists.
+export fn kitTheme(t: Token): Color {
+    match (t) {
+        .Surface => Shade.Raised.color(),
+        .OnSurface => Shade.Fg.color(),
+        .Edge => Shade.Line.color(),
+        .Accent => Shade.Accent.color(),
+    }
+}
+
+/// The light values.
+export fn day(s: Shade): Color {
+    match (s) {
+        .Bg => .Rgb(250, 250, 250),
+        .Raised => .Rgb(255, 255, 255),
+        .Fg => .Rgb(24, 24, 27),
+        .Line => .Rgb(228, 228, 231),
+        .Accent => .Rgb(37, 99, 235),
+    }
+}
+
+/// The dark ones. The same five names, so nothing that reads them changes.
+export fn night(s: Shade): Color {
+    match (s) {
+        .Bg => .Rgb(9, 9, 11),
+        .Raised => .Rgb(24, 24, 27),
+        .Fg => .Rgb(244, 244, 245),
+        .Line => .Rgb(63, 63, 70),
+        .Accent => .Rgb(96, 165, 250),
+    }
+}

@@ -9,18 +9,18 @@
 // occurs.
 
 enum Step {
-  Increment,
-  Decrement,
-  Reset,
+    Increment,
+    Decrement,
+    Reset,
 }
 
 export fn apply(s: Step, n: I64): I64 {
-  match (s) {
-    .Increment => n + 1,
-    _ => n,
-  }
+    match (s) {
+        .Increment => n + 1,
+        _ => n,
+    }
 }
 
 export fn up(): Step {
-  .Increment
+    .Increment
 }

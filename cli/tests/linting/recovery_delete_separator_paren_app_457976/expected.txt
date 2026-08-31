@@ -1,0 +1,15 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_delete_separator_paren_app_457976/main.buri:16:20
+   |
+16 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_paren_app_457976/main.buri:51:61
+   |
+51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c "<${l}>"), label))
+   |                                                             ^
+   |
+   = fix: write `,` here

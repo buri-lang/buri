@@ -1,0 +1,16 @@
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_swap_adjacent_paren_expected_a389f8/main.buri:51:61
+   |
+51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c"<${ ,l}>"), label))
+   |                                                             ^
+   |
+   = fix: write `,` here
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_expected_a389f8/main.buri:51:66
+   |
+51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c"<${ ,l}>"), label))
+   |                                                                  ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

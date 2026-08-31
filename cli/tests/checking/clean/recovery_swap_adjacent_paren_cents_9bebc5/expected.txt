@@ -1,0 +1,16 @@
+error: a tuple element ends with `,` [missing-separator]
+  --> main.buri:57:16
+   |
+57 |         (self.0 100 /, self.0 % 100)
+   |                ^
+   |
+   = fix: write `,` here
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:57:22
+   |
+57 |         (self.0 100 /, self.0 % 100)
+   |                      ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

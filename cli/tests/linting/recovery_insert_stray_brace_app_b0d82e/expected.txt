@@ -1,0 +1,17 @@
+warning: this discards a `Result` [discarded-result]
+  --> lib/recovery_insert_stray_brace_app_b0d82e/main.buri:26:13
+   |
+26 |     let _ = record().ignore();
+   |             ^^^^^^^^^^^^^^^^^
+   |
+   = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
+   = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
+error: expected `;`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_b0d82e/main.buri:27:45
+   |
+27 |     let _ = io.println(ctx, "done").ignore(), ;
+   |                                             ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here

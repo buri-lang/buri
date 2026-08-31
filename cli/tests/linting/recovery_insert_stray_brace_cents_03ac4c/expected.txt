@@ -1,0 +1,17 @@
+error: this `match` does not cover `.Open` [match-not-exhaustive]
+  --> lib/recovery_insert_stray_brace_cents_03ac4c/lib.buri:20:5
+   |
+20 |     match (m) {
+   |     ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Open`, or a `_` arm for everything left
+error: expected a pattern, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_03ac4c/lib.buri:21:9
+   |
+21 |         ? .Open => l.entries,
+   |         ^
+   |
+   = expected: a pattern
+   = actual: `?`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

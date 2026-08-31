@@ -25,10 +25,10 @@ name.
 
 ```buri fail code=unannotated-variant
 fn mystery(): Int {
-  let v = .Some(3);
-  match (v) {
-    .Some(n) => n,
-    .None => 0,
-  }
+    let v = .Some(3);
+    match (v) {
+        .Some(n) => n,
+        .None => 0,
+    }
 }
 ```

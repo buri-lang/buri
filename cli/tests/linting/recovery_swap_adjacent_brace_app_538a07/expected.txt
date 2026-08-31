@@ -1,0 +1,20 @@
+error: `if` requires an `else` branch [if-without-else]
+  --> lib/recovery_swap_adjacent_brace_app_538a07/main.buri:14:36
+   |
+14 |                     if (n > 10000) { "huge" else } { "large" }
+   |                                    ^^^^^^^^^^^^^^^
+   |
+   = `if` is an expression, so both branches must produce a value of the same type
+   = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_538a07/main.buri:14:45
+   |
+14 |                     if (n > 10000) { "huge" else } { "large" }
+   |                                             ^^^^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_538a07/main.buri:14:36
+   |
+14 |                     if (n > 10000) { "huge" else } { "large" }
+   |                                    ^ opened here
+   |
+   = fix: write `}` here

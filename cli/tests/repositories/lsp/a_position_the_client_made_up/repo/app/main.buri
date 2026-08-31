@@ -1,4 +1,4 @@
 export fn main(): Result<(), Str> {
-  let s = "café 🙂";
-  .Err(s)
+    let s = "café 🙂";
+    .Err(s)
 }

@@ -1,0 +1,21 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_1d8edd/main.buri:13:31
+   |
+13 |                 if (n > 1000{ )
+   |                               ^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_1d8edd/main.buri:13:29
+   |
+13 |                 if (n > 1000{ )
+   |                             ^ opened here
+   |
+   = fix: write `}` here
+error: expected `{`, found `if` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_1d8edd/main.buri:14:21
+   |
+14 |                     if (n > 10000) { "huge" } else { "large" }
+   |                     ^^
+   |
+   = expected: `{`
+   = actual: `if`
+   = fix: write `{` here

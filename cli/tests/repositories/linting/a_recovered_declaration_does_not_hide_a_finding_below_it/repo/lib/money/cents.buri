@@ -8,6 +8,6 @@ from "core/effect" import { Alloc }
 from "core/str" import { fromInt };
 
 export fn describe<C: Alloc>(ctx: C, n: I64): Str {
-  let spare = 7;
-  fromInt(ctx, n)
+    let spare = 7;
+    fromInt(ctx, n)
 }

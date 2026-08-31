@@ -1,8 +1,8 @@
 warning: this branch is nested 5 levels deep [deep-nesting]
-  --> cmd/app/main.buri:14:11
+  --> cmd/app/main.buri:14:21
    |
-14 |           if (n > 10000) { "huge" } else { "large" }
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 |                     if (n > 10000) { "huge" } else { "large" }
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
    = fix: pull the inner branch into a named function, or replace the ladder with one `match`

@@ -14,67 +14,67 @@ from "core/order" import { Order };
 // --- Pure ---------------------------------------------------------------------
 
 impl Str {
-  /// The number of Unicode scalar values, not the number of UTF-8 bytes.
-  export fn len(self): Int;
+    /// The number of Unicode scalar values, not the number of UTF-8 bytes.
+    export fn len(self): Int;
 
-  export fn isEmpty(self): Bool {
-    self.len() == 0
-  }
+    export fn isEmpty(self): Bool {
+        self.len() == 0
+    }
 
-  export fn charAt(self, index: Int): Option<Char>;
+    export fn charAt(self, index: Int): Option<Char>;
 
-  /// A view into `self`, not a copy — which is why it is pure and takes no
-  /// `Alloc`. The view keeps the whole parent string alive for as long as it
-  /// lives, so holding three bytes of a ten-megabyte line holds ten megabytes.
-  /// Copy with `format` when the parent is large and the view is small.
-  export fn slice(self, start: Int, end: Int): Str;
+    /// A view into `self`, not a copy — which is why it is pure and takes no
+    /// `Alloc`. The view keeps the whole parent string alive for as long as it
+    /// lives, so holding three bytes of a ten-megabyte line holds ten megabytes.
+    /// Copy with `format` when the parent is large and the view is small.
+    export fn slice(self, start: Int, end: Int): Str;
 
-  export fn trim(self): Str;
+    export fn trim(self): Str;
 
-  export fn trimStart(self): Str;
+    export fn trimStart(self): Str;
 
-  export fn trimEnd(self): Str;
+    export fn trimEnd(self): Str;
 
-  export fn startsWith(self, prefix: Str): Bool;
+    export fn startsWith(self, prefix: Str): Bool;
 
-  export fn endsWith(self, suffix: Str): Bool;
+    export fn endsWith(self, suffix: Str): Bool;
 
-  export fn contains(self, needle: Str): Bool;
+    export fn contains(self, needle: Str): Bool;
 
-  export fn indexOf(self, needle: Str): Option<Int>;
+    export fn indexOf(self, needle: Str): Option<Int>;
 
-  /// Two slices, or `.None` when the separator does not occur. Pure, because
-  /// neither half is a copy.
-  export fn splitOnce(self, separator: Str): Option<(Str, Str)>;
+    /// Two slices, or `.None` when the separator does not occur. Pure, because
+    /// neither half is a copy.
+    export fn splitOnce(self, separator: Str): Option<(Str, Str)>;
 
-  export fn compare(self, other: Str): Order;
+    export fn compare(self, other: Str): Order;
 
-  export fn toInt(self): Option<Int>;
+    export fn toInt(self): Option<Int>;
 
-  export fn toFloat(self): Option<Float>;
+    export fn toFloat(self): Option<Float>;
 }
 
 // --- Deterministic: bounded by <C: Alloc> --------------------------------------
 
 impl Str {
-  export fn concat<C: Alloc>(self, ctx: C, other: Str): Str;
+    export fn concat<C: Alloc>(self, ctx: C, other: Str): Str;
 
-  export fn split<C: Alloc>(self, ctx: C, separator: Str): [Str];
+    export fn split<C: Alloc>(self, ctx: C, separator: Str): [Str];
 
-  /// Splits on any of the characters in `separators`, dropping empty pieces.
-  export fn splitAny<C: Alloc>(self, ctx: C, separators: Str): [Str];
+    /// Splits on any of the characters in `separators`, dropping empty pieces.
+    export fn splitAny<C: Alloc>(self, ctx: C, separators: Str): [Str];
 
-  export fn lines<C: Alloc>(self, ctx: C): [Str];
+    export fn lines<C: Alloc>(self, ctx: C): [Str];
 
-  export fn replace<C: Alloc>(self, ctx: C, needle: Str, replacement: Str): Str;
+    export fn replace<C: Alloc>(self, ctx: C, needle: Str, replacement: Str): Str;
 
-  export fn repeat<C: Alloc>(self, ctx: C, times: Int): Str;
+    export fn repeat<C: Alloc>(self, ctx: C, times: Int): Str;
 
-  export fn toUpper<C: Alloc>(self, ctx: C): Str;
+    export fn toUpper<C: Alloc>(self, ctx: C): Str;
 
-  export fn toLower<C: Alloc>(self, ctx: C): Str;
+    export fn toLower<C: Alloc>(self, ctx: C): Str;
 
-  export fn chars<C: Alloc>(self, ctx: C): [Char];
+    export fn chars<C: Alloc>(self, ctx: C): [Char];
 }
 
 export fn fromChars<C: Alloc>(ctx: C, cs: [Char]): Str;
@@ -84,9 +84,9 @@ export fn fromInt<C: Alloc>(ctx: C, n: Int): Str;
 export fn fromFloat<C: Alloc>(ctx: C, x: Float): Str;
 
 impl Str {
-  export fn padStart<C: Alloc>(self, ctx: C, width: Int, fill: Char): Str;
+    export fn padStart<C: Alloc>(self, ctx: C, width: Int, fill: Char): Str;
 
-  export fn padEnd<C: Alloc>(self, ctx: C, width: Int, fill: Char): Str;
+    export fn padEnd<C: Alloc>(self, ctx: C, width: Int, fill: Char): Str;
 }
 
 /// Turning a `Template` into a `Str` is the point at which interpolation

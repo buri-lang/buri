@@ -5,7 +5,11 @@ fix: supply exactly {expected}
 ---
 
 ```buri fail code=type-argument-mismatch
-fn identity<T>(x: T): T { x }
+fn identity<T>(x: T): T {
+    x
+}
 
-fn go(): Int { identity<Int, Str>(1) }
+fn go(): Int {
+    identity<Int, Str>(1)
+}
 ```

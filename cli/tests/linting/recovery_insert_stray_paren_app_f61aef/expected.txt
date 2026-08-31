@@ -1,0 +1,17 @@
+warning: `total` takes 6 parameters [too-many-parameters]
+ --> lib/recovery_insert_stray_paren_app_f61aef/main.buri:9:4
+  |
+9 | fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {
+  |    ^^^^^
+  |
+  = `self` and `ctx` are not counted, so 5 is the limit on the data a caller has to assemble
+  = fix: group the parameters that always travel together into a struct, and take that instead
+error: expected an expression, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_app_f61aef/main.buri:20:17
+   |
+20 |         .mapErr(@ fn(_e) => "could not write to standard output")
+   |                 ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

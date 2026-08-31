@@ -206,7 +206,6 @@ so a component cannot do anything, and there is nothing to mock:
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { Signal };
-
 from "//lib/kit" import { card };
 from "//lib/ledger" import { Entry, total };
 
@@ -221,12 +220,14 @@ from "//lib/ledger" import { Entry, total };
 /// signal graph and nothing else — so `Cents.format`, which allocates, is not
 /// callable from one, and `Cents.parts`, which does not, is.
 fn runningTotal<C>(lines: Signal<[Entry]>): Node<C> {
-  card(.Const("Basket"), [
-    ui.text(.Computed(fn(scope) => {
-      let both = total(lines.get(scope)).parts();
-      "\$${both.0}.${both.1}"
-    })),
-  ])
+    card(.Const("Basket"), [
+        ui.text(
+            .Computed(fn(scope) => {
+                let both = total(lines.get(scope)).parts();
+                "\$${both.0}.${both.1}"
+            }),
+        ),
+    ])
 }
 ```
 
@@ -236,22 +237,21 @@ itself against that. The app closes the loop with one `match`:
 ```buri package=//cmd/basket platform=WEB
 from "ui/style" import { Color };
 from "ui/theme" import { Theme };
-
 from "//lib/kit" import { themed, Token };
 
 /// What //lib/kit's four tokens are worth here.
 fn inBlue(t: Token): Color {
-  match (t) {
-    .Surface => .Rgb(255, 255, 255),
-    .OnSurface => .Rgb(24, 24, 27),
-    .Edge => .Rgb(228, 228, 231),
-    .Accent => .Rgb(37, 99, 235),
-  }
+    match (t) {
+        .Surface => .Rgb(255, 255, 255),
+        .OnSurface => .Rgb(24, 24, 27),
+        .Edge => .Rgb(228, 228, 231),
+        .Accent => .Rgb(37, 99, 235),
+    }
 }
 
 /// What `mount` is handed, one of these per package whose tokens are used.
 fn kitTheme(): Theme {
-  themed(inBlue)
+    themed(inBlue)
 }
 ```
 
@@ -262,15 +262,14 @@ moment the omission is still cheap to fix:
 
 ```buri fail code=match-not-exhaustive package=//cmd/basket platform=WEB
 from "ui/style" import { Color };
-
 from "//lib/kit" import { Token };
 
 fn incomplete(t: Token): Color {
-  match (t) {
-    .Surface => .Rgb(255, 255, 255),
-    .OnSurface => .Rgb(24, 24, 27),
-    .Edge => .Rgb(228, 228, 231),
-  }
+    match (t) {
+        .Surface => .Rgb(255, 255, 255),
+        .OnSurface => .Rgb(24, 24, 27),
+        .Edge => .Rgb(228, 228, 231),
+    }
 }
 ```
 
@@ -285,16 +284,15 @@ example lives in a *different* repository's documentation.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-
 from "//lib/money" import { fromCents };
 
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc:  host.alloc,
-    Stdout: host.stdout,
-  };
-  let _ = io.println(ctx, "a latte costs ${fromCents(450).format(ctx)}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "a latte costs ${fromCents(450).format(ctx)}").ignore();
+    .Ok(())
 }
 ```
 

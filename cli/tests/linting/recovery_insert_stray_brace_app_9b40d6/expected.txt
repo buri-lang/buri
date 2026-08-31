@@ -1,0 +1,36 @@
+warning: `core/effect` is imported twice [duplicate-import]
+ --> lib/recovery_insert_stray_brace_app_9b40d6/main.buri:9:6
+  |
+9 | from "core/effect" import { Stdout };
+  |      ^^^^^^^^^^^^^
+  |
+ --> lib/recovery_insert_stray_brace_app_9b40d6/main.buri:8:6
+  |
+8 | from "core/effect" import { Alloc };
+  |      ^^^^^^^^^^^^^ first imported here
+  |
+  = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
+  = fix: merge the two into one import
+error: expected `=`, found `extra` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_9b40d6/main.buri:15:13
+   |
+15 |     let ctx extra = context {
+   |             ^^^^^
+   |
+   = expected: `=`
+   = actual: `extra`
+   = fix: write `=` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_9b40d6/main.buri:19:19
+   |
+19 |     let _ = print(ctx, "half a line").mapErr(fn(_e) => {
+   |                   ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_9b40d6/main.buri:23:18
+   |
+23 |         .println(ctx, " and the rest")
+   |                  ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

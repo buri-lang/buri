@@ -14,6 +14,7 @@
 // listeners this registered are what happens next. Under `bun` there is no
 // document, so the runtime supplies one — see `$dom_body`.
 from "core/effect" import { Alloc, Stdout };
+
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -33,53 +34,59 @@ from "ui/style" import { Color, Style };
 // initializer is folded by an interpreter that inlines any function that is
 // pure by its signature, which is what this enum's `color` is.
 enum Token {
-  Surface,
-  OnSurface,
+    Surface,
+    OnSurface,
 }
 
 impl Token {
-  fn color(self): Color {
-    match (self) {
-      .Surface => .Rgb(240, 240, 245),
-      .OnSurface => .Rgb(24, 24, 27),
+    fn color(self): Color {
+        match (self) {
+            .Surface => .Rgb(240, 240, 245),
+            .OnSurface => .Rgb(24, 24, 27),
+        }
     }
-  }
 }
 
 fn tokenColor(t: Token): Color {
-  t.color()
+    t.color()
 }
 
 let badgeStyle: Style = .Group([
-  .PaddingX(.Rem(0.5)),
-  .Radius(.Px(6)),
-  .Background(tokenColor(.Surface)),
-  .Foreground(tokenColor(.OnSurface)),
-  .On(.Hover, [.Background(tokenColor(.OnSurface)), .Foreground(tokenColor(.Surface))]),
+    .PaddingX(.Rem(0.5)),
+    .Radius(.Px(6)),
+    .Background(tokenColor(.Surface)),
+    .Foreground(tokenColor(.OnSurface)),
+    .On(.Hover, [
+        .Background(tokenColor(.OnSurface)),
+        .Foreground(tokenColor(.Surface)),
+    ]),
 ]);
 
 // Pure: no ctx. It cannot tell whether either prop varies.
 fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
-  ui.row([badgeStyle], [ui.text(title), ui.text(.Computed(fn(c) => "${count.read(c)}"))])
+    ui.row([badgeStyle], [
+        ui.text(title),
+        ui.text(.Computed(fn(c) => "${count.read(c)}")),
+    ])
 }
 
 fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
-  let count = signal(ctx, 0);
+    let count = signal(ctx, 0);
 
-  ui.column([], [
-    ui.button(.Const(label), fn(c, e) => count.update(c, fn(n) => n + 1)),
-    badge(.Const(label), .Cell(count)),
-    badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
-  ])
+    ui.column([], [
+        ui.button(.Const(label), fn(c, e) => count.update(c, fn(n) => n + 1)),
+        badge(.Const(label), .Cell(count)),
+        badge(.Const("doubled"), .Computed(fn(c) => count.get(c) * 2)),
+    ])
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc: host.alloc,
-    Stdout: host.stdout,
-    Ui: host.ui,
-    Watch: host.watch,
-  };
-  let _ = io.println(ctx, "mounted").ignore();
-  ui.mount(ctx, counter(ctx, "clicks"), [])
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    let _ = io.println(ctx, "mounted").ignore();
+    ui.mount(ctx, counter(ctx, "clicks"), [])
 }

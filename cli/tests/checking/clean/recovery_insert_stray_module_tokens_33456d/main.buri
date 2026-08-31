@@ -18,30 +18,30 @@ from "ui/theme" import { Theme };
 /// breaks every consumer's mapping at compile time, which is the only moment
 /// the omission is still cheap to fix.
 @ export enum Token {
-  /// Behind a card.
-  Surface,
-  /// Text on a surface.
-  OnSurface,
-  /// The line around a card.
-  Edge,
-  /// What draws the eye: a hovered border, the filled part of a meter.
-  Accent,
+    /// Behind a card.
+    Surface,
+    /// Text on a surface.
+    OnSurface,
+    /// The line around a card.
+    Edge,
+    /// What draws the eye: a hovered border, the filled part of a meter.
+    Accent,
 }
 
 impl Token {
-  /// The colour this token names.
-  ///
-  /// A namespaced custom property, so the class an element carries is the same
-  /// one whatever the app decides the token is worth — which is why switching
-  /// a theme rewrites one block of values and changes no class at all.
-  export fn color(self): Color {
-    match (self) {
-      .Surface => style.token("kit", "surface"),
-      .OnSurface => style.token("kit", "onSurface"),
-      .Edge => style.token("kit", "edge"),
-      .Accent => style.token("kit", "accent"),
+    /// The colour this token names.
+    ///
+    /// A namespaced custom property, so the class an element carries is the same
+    /// one whatever the app decides the token is worth — which is why switching
+    /// a theme rewrites one block of values and changes no class at all.
+    export fn color(self): Color {
+        match (self) {
+            .Surface => style.token("kit", "surface"),
+            .OnSurface => style.token("kit", "onSurface"),
+            .Edge => style.token("kit", "edge"),
+            .Accent => style.token("kit", "accent"),
+        }
     }
-  }
 }
 
 /// This library's tokens, resolved by a mapping the app supplies.
@@ -55,10 +55,10 @@ impl Token {
 /// chain — this library's token to the app's token to a colour — is written.
 /// The chain is followed once, at mount.
 export fn themed(f: fn(Token) => Color): Theme {
-  theme.themed([
-    (Token.Surface.color(), f(.Surface)),
-    (Token.OnSurface.color(), f(.OnSurface)),
-    (Token.Edge.color(), f(.Edge)),
-    (Token.Accent.color(), f(.Accent)),
-  ])
+    theme.themed([
+        (Token.Surface.color(), f(.Surface)),
+        (Token.OnSurface.color(), f(.OnSurface)),
+        (Token.Edge.color(), f(.Edge)),
+        (Token.Accent.color(), f(.Accent)),
+    ])
 }

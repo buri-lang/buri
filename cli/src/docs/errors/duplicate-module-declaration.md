@@ -5,7 +5,11 @@ fix: rename one of them; a name has one meaning in a module
 ---
 
 ```buri fail code=duplicate-module-declaration
-struct Point { export x: Int }
+struct Point {
+    export x: Int,
+}
 
-struct Point { export y: Int }
+struct Point {
+    export y: Int,
+}
 ```

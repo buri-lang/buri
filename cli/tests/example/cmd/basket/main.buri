@@ -15,18 +15,22 @@ from "core/host" import * as host;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/theme" import * as theme;
-
-from "//lib/kit" import * as kit;
 from "//cmd/basket/state.buri" import { newState };
 from "//cmd/basket/theme.buri" import { appThemed, day, kitTheme, night };
 from "//cmd/basket/view.buri" import { page };
+from "//lib/kit" import * as kit;
 
 // Re-exported so the suites can reach them. Everything else in this package
 // stays inside the binary — the components in view.buri are private to it,
 // which is why the suite tests them through the page they build.
-from "//cmd/basket/model.buri" export { draft, Draft, entriesFrom, flip, isTicked, pad, settledFraction };
+from "//cmd/basket/model.buri" export {
+    Draft, draft, entriesFrom, flip, isTicked, pad, settledFraction,
+};
+
 from "//cmd/basket/state.buri" export { newState };
+
 from "//cmd/basket/theme.buri" export { appThemed, day, kitTheme, night };
+
 from "//cmd/basket/view.buri" export { page };
 
 /// The page's complete effect budget.
@@ -42,26 +46,26 @@ from "//cmd/basket/view.buri" export { page };
 /// `Fetch` in its place; a suspending call blocks nothing now, so this line is
 /// the same one //cmd/web writes.
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc: host.alloc,
-    Net:   host.net,
-    Ui:    host.ui,
-    Watch: host.watch,
-  };
+    let ctx = context {
+        Alloc: host.alloc,
+        Net: host.net,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
 
-  let state = newState(ctx);
+    let state = newState(ctx);
 
-  // One theme per package whose tokens this program uses. //lib/kit's are
-  // resolved through this app's own, and this app's are resolved to colours by
-  // whichever of `day` and `night` the `dark` signal currently picks — so
-  // switching it rewrites one block of custom properties and touches no class
-  // and no element.
-  //
-  // `mount` answers `.Ok(())` and returns. The page stays live because the
-  // entry wrapper exits only on an `.Err`, and the listeners this registered
-  // are what happens next.
-  ui.mount(ctx, page(ctx, state), [
-    kit.themed(kitTheme),
-    theme.switching(.Cell(state.dark), appThemed(night), appThemed(day)),
-  ])
+    // One theme per package whose tokens this program uses. //lib/kit's are
+    // resolved through this app's own, and this app's are resolved to colours by
+    // whichever of `day` and `night` the `dark` signal currently picks — so
+    // switching it rewrites one block of custom properties and touches no class
+    // and no element.
+    //
+    // `mount` answers `.Ok(())` and returns. The page stays live because the
+    // entry wrapper exits only on an `.Err`, and the listeners this registered
+    // are what happens next.
+    ui.mount(ctx, page(ctx, state), [
+        kit.themed(kitTheme),
+        theme.switching(.Cell(state.dark), appThemed(night), appThemed(day)),
+    ])
 }

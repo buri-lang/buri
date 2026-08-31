@@ -5,5 +5,5 @@ from "//lib/one/width.buri" import { width };
 /// The caller, and the second half of the edit: the argument goes when the
 /// parameter does. This one reads its own context, so it is not reported.
 export fn report<C: Alloc>(ctx: C, label: Str): Str {
-  str.format(ctx, "${label} is ${width(label)} wide")
+    str.format(ctx, "${label} is ${width(label)} wide")
 }

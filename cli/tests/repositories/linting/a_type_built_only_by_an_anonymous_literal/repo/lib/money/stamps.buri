@@ -11,10 +11,10 @@
 // to itself.
 
 export struct Stamp {
-  export mark: Str,
-  export note: Str,
+    export mark: Str,
+    export note: Str,
 }
 
 struct Ghost {
-  export mark: Str,
+    export mark: Str,
 }

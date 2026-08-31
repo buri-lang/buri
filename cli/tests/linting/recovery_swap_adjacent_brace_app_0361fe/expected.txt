@@ -1,9 +1,0 @@
-error: expected `{`, found a string literal [unexpected-token]
-  --> lib/recovery_swap_adjacent_brace_app_0361fe/main.buri:14:42
-   |
-14 |           if (n > 10000) { "huge" } else "large" { }
-   |                                          ^^^^^^^
-   |
-   = expected: `{`
-   = actual: a string literal
-   = fix: write `{` here

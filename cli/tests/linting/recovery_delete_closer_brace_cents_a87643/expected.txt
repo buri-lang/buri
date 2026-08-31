@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_cents_a87643/lib.buri:25:1
+   |
+25 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_cents_a87643/lib.buri:19:46
+   |
+19 | export fn describe(l: Ledger, m: Money): I64 {
+   |                                              ^ opened here
+   |
+   = fix: write `}` here

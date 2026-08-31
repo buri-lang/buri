@@ -3,5 +3,5 @@
 // from the checker and answers the same whether the body checks or not.
 
 export fn describe(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): Str {
-  a
+    a
 }

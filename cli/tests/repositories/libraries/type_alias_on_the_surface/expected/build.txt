@@ -1,8 +1,8 @@
 error: "//lib/units/units.buri" does not export `Raw` [no-such-export]
- --> lib/units/lib.buri:4:54
+ --> lib/units/lib.buri:5:20
   |
-4 | from "//lib/units/units.buri" export { Meters, Trip, Raw, Sample, widen, sample, depth };
-  |                                                      ^^^
+5 |     depth, Meters, Raw, Sample, sample, Trip, widen,
+  |                    ^^^
   |
   = a re-export may name only what its module path exports
   = `Raw` is declared in "//lib/units/units.buri" but not exported

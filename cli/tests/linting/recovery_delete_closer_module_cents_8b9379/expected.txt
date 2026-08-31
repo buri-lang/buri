@@ -1,0 +1,20 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_module_cents_8b9379/lib.buri:7:1
+  |
+7 | export fn format(n: I64): Str {
+  | ^^^^^^
+  |
+ --> lib/recovery_delete_closer_module_cents_8b9379/lib.buri:1:34
+  |
+1 | export fn fromCents(n: I64): I64 {
+  |                                  ^ opened here
+  |
+  = fix: write `}` here
+warning: `doubled` is bound and never used [unused-variable]
+ --> lib/recovery_delete_closer_module_cents_8b9379/lib.buri:8:9
+  |
+8 |     let doubled = n * 2;
+  |         ^^^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place

@@ -9,7 +9,7 @@ warning: this comment is marked `TODO` [warning-comment]
 error: expected a declaration, found `banner` [unexpected-token]
   --> lib/recovery_swap_adjacent_module_app_b17125/main.buri:10:1
    |
-10 | banner fn(): Str { "TODO is a marker in a comment and not in a string" }
+10 | banner fn(): Str {
    | ^^^^^^
    |
    = expected: a declaration
@@ -18,16 +18,16 @@ error: expected a declaration, found `banner` [unexpected-token]
 error: expected an identifier, found `(` [unexpected-token]
   --> lib/recovery_swap_adjacent_module_app_b17125/main.buri:10:10
    |
-10 | banner fn(): Str { "TODO is a marker in a comment and not in a string" }
+10 | banner fn(): Str {
    |          ^
    |
    = expected: an identifier
    = actual: `(`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
 error: there is nothing named `banner` in scope [unresolved-name]
-  --> lib/recovery_swap_adjacent_module_app_b17125/main.buri:14:19
+  --> lib/recovery_swap_adjacent_module_app_b17125/main.buri:19:21
    |
-14 |   io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
-   |                   ^^^^^^
+19 |     io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
+   |                     ^^^^^^
    |
    = fix: declare `banner`, or import it — a name is in scope only from this module's own declarations and its imports

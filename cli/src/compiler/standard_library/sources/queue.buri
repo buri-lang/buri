@@ -24,19 +24,22 @@
 //! from "core/str" import * as str;
 //!
 //! export fn main(): Result<(), Str> {
-//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-//!   // Three in at the back, and they come out at the front in the order they
-//!   // arrived — which is the whole claim a queue makes.
-//!   let q = queue.empty<Str>().push(ctx, "first").push(ctx, "second");
-//!   let message = match (q.pop(ctx)) {
-//!     .Some(taken) => {
-//!       let (head, rest) = taken;
-//!       str.format(ctx, "${head}, then ${rest.len()} left")
-//!     },
-//!     .None => "the queue was empty",
-//!   };
-//!   let _ = io.println(ctx, "${message}").ignore();
-//!   .Ok(())
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     // Three in at the back, and they come out at the front in the order they
+//!     // arrived — which is the whole claim a queue makes.
+//!     let q = queue.empty<Str>().push(ctx, "first").push(ctx, "second");
+//!     let message = match (q.pop(ctx)) {
+//!         .Some(taken) => {
+//!             let (head, rest) = taken;
+//!             str.format(ctx, "${head}, then ${rest.len()} left")
+//!         },
+//!         .None => "the queue was empty",
+//!     };
+//!     let _ = io.println(ctx, "${message}").ignore();
+//!     .Ok(())
 //! }
 //! ```
 //!
@@ -55,13 +58,13 @@ from "core/list" import * as list;
 /// the same queue. `derive Eq` would compare the representation rather than
 /// the contents, so `Eq` is `equals` below instead.
 export struct Queue<T> {
-  front: [T],
-  back: [T],
+    front: [T],
+    back: [T],
 }
 
 /// The empty queue. Pure: no element exists yet to allocate for.
 export fn empty<T>(): Queue<T> {
-  Queue { front: list.empty<T>(), back: list.empty<T>() }
+    Queue { front: list.empty<T>(), back: list.empty<T>() }
 }
 
 /// A queue holding the elements of a list, front first.
@@ -70,101 +73,105 @@ export fn empty<T>(): Queue<T> {
 /// turn would have produced — and costs no reversal to build. Pure: the list
 /// already exists, and this borrows it rather than copying it.
 export fn of<T>(items: [T]): Queue<T> {
-  Queue { front: list.empty<T>(), back: items }
+    Queue { front: list.empty<T>(), back: items }
 }
 
 impl<T> Queue<T> {
-  export fn len(self): Int {
-    self.front.len() + self.back.len()
-  }
-
-  export fn isEmpty(self): Bool {
-    self.len() == 0
-  }
-
-  /// Adds to the back.
-  export fn push<C: Alloc>(self, ctx: C, item: T): Queue<T> {
-    Queue { front: self.front, back: self.back.push(ctx, item) }
-  }
-
-  /// Adds to the front.
-  export fn pushFront<C: Alloc>(self, ctx: C, item: T): Queue<T> {
-    Queue { front: self.front.push(ctx, item), back: self.back }
-  }
-
-  /// The first element, without removing it.
-  export fn peek(self): Option<T> {
-    match (self.front.last()) {
-      .Some(v) => .Some(v),
-      .None => self.back.first(),
+    export fn len(self): Int {
+        self.front.len() + self.back.len()
     }
-  }
 
-  /// The last element, without removing it.
-  export fn peekBack(self): Option<T> {
-    match (self.back.last()) {
-      .Some(v) => .Some(v),
-      .None => self.front.first(),
+    export fn isEmpty(self): Bool {
+        self.len() == 0
     }
-  }
 
-  /// Removes the first element, returning it and the rest.
-  ///
-  /// One value rather than two calls, because `peek` and a separate `drop`
-  /// would let the two disagree about which element they meant.
-  export fn pop<C: Alloc>(self, ctx: C): Option<(T, Queue<T>)> {
-    match (self.front.last()) {
-      .Some(v) => {
-        let rest = self.front.take(ctx, self.front.len() - 1);
-        .Some((v, Queue { front: rest, back: self.back }))
-      },
-      // The front is spent, so the back becomes the front, reversed. This is
-      // the O(n) step, and it pays for the n pops that follow it.
-      .None => match (self.back.first()) {
-        .Some(v) => {
-          let rest = self.back.drop(ctx, 1).reverse(ctx);
-          .Some((v, Queue { front: rest, back: list.empty<T>() }))
-        },
-        .None => .None,
-      },
+    /// Adds to the back.
+    export fn push<C: Alloc>(self, ctx: C, item: T): Queue<T> {
+        Queue { front: self.front, back: self.back.push(ctx, item) }
     }
-  }
 
-  /// Removes the last element, returning it and the rest.
-  export fn popBack<C: Alloc>(self, ctx: C): Option<(T, Queue<T>)> {
-    match (self.back.last()) {
-      .Some(v) => {
-        let rest = self.back.take(ctx, self.back.len() - 1);
-        .Some((v, Queue { front: self.front, back: rest }))
-      },
-      .None => match (self.front.first()) {
-        .Some(v) => {
-          let rest = self.front.drop(ctx, 1).reverse(ctx);
-          .Some((v, Queue { front: list.empty<T>(), back: rest }))
-        },
-        .None => .None,
-      },
+    /// Adds to the front.
+    export fn pushFront<C: Alloc>(self, ctx: C, item: T): Queue<T> {
+        Queue { front: self.front.push(ctx, item), back: self.back }
     }
-  }
 
-  /// The elements, front first. The one way to look at the whole queue, and
-  /// what `Show` and `equals` are defined in terms of.
-  export fn toList<C: Alloc>(self, ctx: C): [T] {
-    self.front.reverse(ctx).concat(ctx, self.back)
-  }
+    /// The first element, without removing it.
+    export fn peek(self): Option<T> {
+        match (self.front.last()) {
+            .Some(v) => .Some(v),
+            .None => self.back.first(),
+        }
+    }
+
+    /// The last element, without removing it.
+    export fn peekBack(self): Option<T> {
+        match (self.back.last()) {
+            .Some(v) => .Some(v),
+            .None => self.front.first(),
+        }
+    }
+
+    /// Removes the first element, returning it and the rest.
+    ///
+    /// One value rather than two calls, because `peek` and a separate `drop`
+    /// would let the two disagree about which element they meant.
+    export fn pop<C: Alloc>(self, ctx: C): Option<(T, Queue<T>)> {
+        match (self.front.last()) {
+            .Some(v) => {
+                let rest = self.front.take(ctx, self.front.len() - 1);
+                .Some((v, Queue { front: rest, back: self.back }))
+            },
+            // The front is spent, so the back becomes the front, reversed. This is
+            // the O(n) step, and it pays for the n pops that follow it.
+            .None => {
+                match (self.back.first()) {
+                    .Some(v) => {
+                        let rest = self.back.drop(ctx, 1).reverse(ctx);
+                        .Some((v, Queue { front: rest, back: list.empty<T>() }))
+                    },
+                    .None => .None,
+                }
+            },
+        }
+    }
+
+    /// Removes the last element, returning it and the rest.
+    export fn popBack<C: Alloc>(self, ctx: C): Option<(T, Queue<T>)> {
+        match (self.back.last()) {
+            .Some(v) => {
+                let rest = self.back.take(ctx, self.back.len() - 1);
+                .Some((v, Queue { front: self.front, back: rest }))
+            },
+            .None => {
+                match (self.front.first()) {
+                    .Some(v) => {
+                        let rest = self.front.drop(ctx, 1).reverse(ctx);
+                        .Some((v, Queue { front: list.empty<T>(), back: rest }))
+                    },
+                    .None => .None,
+                }
+            },
+        }
+    }
+
+    /// The elements, front first. The one way to look at the whole queue, and
+    /// what `Show` and `equals` are defined in terms of.
+    export fn toList<C: Alloc>(self, ctx: C): [T] {
+        self.front.reverse(ctx).concat(ctx, self.back)
+    }
 }
 
 impl<T: Eq> Queue<T> {
-  /// Two queues are equal when they hold the same elements in the same order,
-  /// whatever split between front and back they happen to have. This is why
-  /// `Queue` does not `derive Eq`: the derived one would compare the split.
-  export fn equals<C: Alloc>(self, ctx: C, other: Queue<T>): Bool {
-    let a = self.toList(ctx);
-    let b = other.toList(ctx);
-    if (a.len() != b.len()) {
-      false
-    } else {
-      list.range(ctx, 0, a.len()).all(fn(i) => a.get(i) == b.get(i))
+    /// Two queues are equal when they hold the same elements in the same order,
+    /// whatever split between front and back they happen to have. This is why
+    /// `Queue` does not `derive Eq`: the derived one would compare the split.
+    export fn equals<C: Alloc>(self, ctx: C, other: Queue<T>): Bool {
+        let a = self.toList(ctx);
+        let b = other.toList(ctx);
+        if (a.len() != b.len()) {
+            false
+        } else {
+            list.range(ctx, 0, a.len()).all(fn(i) => a.get(i) == b.get(i))
+        }
     }
-  }
 }

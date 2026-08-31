@@ -26,8 +26,8 @@ run {
 # The negative twin: a base case, and the same declaration lets it through.
 edit {
   file: "lib/spin/spin.buri"
-  replace: "export fn spin(n: I64): I64 { spin(n + 1) }"
-  with: "export fn spin(n: I64): I64 { if (n == 0) { 0 } else { spin(n - 1) } }"
+  replace: "export fn spin(n: I64): I64 {\n    spin(n + 1)\n}"
+  with: "export fn spin(n: I64): I64 {\n    if (n == 0) { 0 } else { spin(n - 1) }\n}"
 }
 
 run {

@@ -75,11 +75,16 @@
 //! from "core/tasks" import * as tasks;
 //!
 //! export fn main(): Result<(), Str> {
-//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
-//!   let labelled = tasks.parallel(ctx, ["a", "b", "c"], fn(c, i, name) =>
-//!     str.format(c, "${i}:${name}"));
-//!   let _ = io.println(ctx, labelled.join(ctx, " ")).ignore();
-//!   .Ok(())
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!         Tasks: host.tasks,
+//!     };
+//!     let labelled = tasks.parallel(ctx, ["a", "b", "c"], fn(c, i, name) => {
+//!         str.format(c, "${i}:${name}")
+//!     });
+//!     let _ = io.println(ctx, labelled.join(ctx, " ")).ignore();
+//!     .Ok(())
 //! }
 //! ```
 //!
@@ -95,9 +100,9 @@ from "core/effect" import { Alloc, Tasks };
 ///
 /// An empty list answers an empty list and runs nothing.
 export fn parallel<C: Alloc + Tasks, A, B>(
-  ctx: C,
-  items: [A],
-  f: fn(C, Int, A) => B,
+    ctx: C,
+    items: [A],
+    f: fn(C, Int, A) => B,
 ): [B] {
-  ctx.parallel(ctx, items, f)
+    ctx.parallel(ctx, items, f)
 }

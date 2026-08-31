@@ -6,90 +6,89 @@
 //! harmless, and making it an error would put `option.ignore` in front of half
 //! the standard library for no safety gain (SPEC 5.7.1).
 
-export enum Option<T> {
-  Some(T),
-  None,
-}
-
 // Structural, so `Option<T>` compares and renders whenever `T` does. Without
 // this no struct with an `Option` field could derive `Eq` either.
 derive Eq, Ord, Show, Hash for Option;
+export enum Option<T> {
+    Some(T),
+    None,
+}
 
 impl<T> Option<T> {
-  export fn isSome(self): Bool {
-    match (self) {
-      .Some(_x) => true,
-      .None => false,
+    export fn isSome(self): Bool {
+        match (self) {
+            .Some(_x) => true,
+            .None => false,
+        }
     }
-  }
 
-  export fn isNone(self): Bool {
-    match (self) {
-      .Some(_x) => false,
-      .None => true,
+    export fn isNone(self): Bool {
+        match (self) {
+            .Some(_x) => false,
+            .None => true,
+        }
     }
-  }
 
-  /// The right operand is produced eagerly; `??` is the short-circuiting form.
-  export fn withDefault(self, fallback: T): T {
-    match (self) {
-      .Some(v) => v,
-      .None => fallback,
+    /// The right operand is produced eagerly; `??` is the short-circuiting form.
+    export fn withDefault(self, fallback: T): T {
+        match (self) {
+            .Some(v) => v,
+            .None => fallback,
+        }
     }
-  }
 
-  export fn map<U>(self, f: fn(T) => U): Option<U> {
-    match (self) {
-      .Some(v) => .Some(f(v)),
-      .None => .None,
+    export fn map<U>(self, f: fn(T) => U): Option<U> {
+        match (self) {
+            .Some(v) => .Some(f(v)),
+            .None => .None,
+        }
     }
-  }
 
-  /// `map` where the function needs an effect. The capture rule (SPEC 10.6) is
-  /// why it takes `ctx` rather than letting the lambda close over one.
-  export fn mapCtx<U, C>(self, ctx: C, f: fn(C, T) => U): Option<U> {
-    match (self) {
-      .Some(v) => .Some(f(ctx, v)),
-      .None => .None,
+    /// `map` where the function needs an effect. The capture rule (SPEC 10.6) is
+    /// why it takes `ctx` rather than letting the lambda close over one.
+    export fn mapCtx<U, C>(self, ctx: C, f: fn(C, T) => U): Option<U> {
+        match (self) {
+            .Some(v) => .Some(f(ctx, v)),
+            .None => .None,
+        }
     }
-  }
 
-  export fn andThen<U>(self, f: fn(T) => Option<U>): Option<U> {
-    match (self) {
-      .Some(v) => f(v),
-      .None => .None,
+    export fn andThen<U>(self, f: fn(T) => Option<U>): Option<U> {
+        match (self) {
+            .Some(v) => f(v),
+            .None => .None,
+        }
     }
-  }
 
-  /// `andThen` for a continuation that needs an effect, as `result.andThenCtx`
-  /// is.
-  export fn andThenCtx<U, C>(self, ctx: C, f: fn(C, T) => Option<U>): Option<U> {
-    match (self) {
-      .Some(v) => f(ctx, v),
-      .None => .None,
+    /// `andThen` for a continuation that needs an effect, as `result.andThenCtx`
+    /// is.
+    export fn andThenCtx<U, C>(self, ctx: C, f: fn(C, T) => Option<U>): Option<U> {
+        match (self) {
+            .Some(v) => f(ctx, v),
+            .None => .None,
+        }
     }
-  }
 
-  export fn filter(self, keep: fn(T) => Bool): Option<T> {
-    match (self) {
-      .Some(v) => if (keep(v)) { .Some(v) } else { .None },
-      .None => .None,
+    export fn filter(self, keep: fn(T) => Bool): Option<T> {
+        match (self) {
+            .Some(v) => if (keep(v)) { .Some(v) } else { .None },
+            .None => .None,
+        }
     }
-  }
 
-  /// Turns absence into an error, which is how an `Option` reaches `?` in a
-  /// function that returns `Result`.
-  export fn okOr<E>(self, error: E): Result<T, E> {
-    match (self) {
-      .Some(v) => .Ok(v),
-      .None => .Err(error),
+    /// Turns absence into an error, which is how an `Option` reaches `?` in a
+    /// function that returns `Result`.
+    export fn okOr<E>(self, error: E): Result<T, E> {
+        match (self) {
+            .Some(v) => .Ok(v),
+            .None => .Err(error),
+        }
     }
-  }
 
-  export fn or(self, other: Option<T>): Option<T> {
-    match (self) {
-      .Some(v) => .Some(v),
-      .None => other,
+    export fn or(self, other: Option<T>): Option<T> {
+        match (self) {
+            .Some(v) => .Some(v),
+            .None => other,
+        }
     }
-  }
 }

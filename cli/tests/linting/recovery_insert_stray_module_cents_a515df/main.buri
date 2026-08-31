@@ -8,14 +8,14 @@
 // the same news four times.
 
 struct Ledger , {
-  entries: I64,
+    entries: I64,
 }
 
 enum Tally {
-  Open,
-  Closed,
+    Open,
+    Closed,
 }
 
 export fn describe(n: I64): I64 {
-  n + 1
+    n + 1
 }

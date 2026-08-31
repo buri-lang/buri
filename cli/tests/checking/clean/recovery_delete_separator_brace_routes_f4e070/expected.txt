@@ -1,7 +1,0 @@
-error: a match arm ends with `,` [missing-separator]
-  --> main.buri:11:48
-   |
-11 |     "/health" => Route { name: "health", path }
-   |                                                ^
-   |
-   = fix: write `,` here

@@ -31,38 +31,40 @@
 //! understand to get past, so treating one as an unknown field would silently
 //! read the rest of the message at the wrong offset.
 
-from "core/effect" import { Alloc };
 from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc };
 from "core/json" import { Json };
 from "core/list" import * as list;
 from "core/num" import * as num;
 from "core/str" import * as str;
 
+derive Eq, Show for ProtoError;
 /// Where a message stopped being one.
 ///
 /// Every case carries a byte offset or a field number, because a decoder that
 /// says only "malformed" of a four-kilobyte message is a decoder you debug by
 /// bisection.
 export enum ProtoError {
-  /// The input ended in the middle of a field.
-  Truncated(Int),
-  /// A field header carrying wire type 3 or 4 — a group, which this format no
-  /// longer has — or any other number that is not 0, 1, 2 or 5.
-  BadWireType { field: Int, wire: Int },
-  /// A field number of zero, which no field may have.
-  BadFieldNumber(Int),
-  /// A `string` field whose bytes are not UTF-8, at the offset it stopped.
-  BadUtf8(Int),
-  /// A JSON document that is not the message it was read as. `path` is written
-  /// the way `core/json`'s is — `$` for the document, `.name` for a member.
-  BadJson { path: Str, wanted: Str },
+    /// The input ended in the middle of a field.
+    Truncated(Int),
+    /// A field header carrying wire type 3 or 4 — a group, which this format no
+    /// longer has — or any other number that is not 0, 1, 2 or 5.
+    BadWireType { field: Int, wire: Int },
+    /// A field number of zero, which no field may have.
+    BadFieldNumber(Int),
+    /// A `string` field whose bytes are not UTF-8, at the offset it stopped.
+    BadUtf8(Int),
+    /// A JSON document that is not the message it was read as. `path` is written
+    /// the way `core/json`'s is — `$` for the document, `.name` for a member.
+    BadJson { path: Str, wanted: Str },
 }
 
-derive Eq, Show for ProtoError;
-
 export let VARINT: Int = 0;
+
 export let I64: Int = 1;
+
 export let LEN: Int = 2;
+
 export let I32: Int = 5;
 
 let TWO32: Int = 4294967296;
@@ -79,83 +81,81 @@ let TWO32: Int = 4294967296;
 
 /// The header of one field: its number and its wire type, as a varint.
 export fn tag<C: Alloc>(ctx: C, field: Int, wire: Int): [U8] {
-  bytes.toVarint(ctx, field * 8 + wire)
+    bytes.toVarint(ctx, field * 8 + wire)
 }
 
 /// A varint field: `int32`, `int64`, `uint32`, `uint64`, `bool`, and an enum.
 /// A `sint*` field is this with `bytes.zigzag` applied first.
 export fn varintField<C: Alloc>(ctx: C, field: Int, value: Int): [U8] {
-  tag(ctx, field, VARINT).concat(ctx, bytes.toVarint(ctx, value))
+    tag(ctx, field, VARINT).concat(ctx, bytes.toVarint(ctx, value))
 }
 
 /// A `fixed64` or `sfixed64` field: eight little-endian bytes.
 export fn fixed64Field<C: Alloc>(ctx: C, field: Int, value: Int): [U8] {
-  tag(ctx, field, I64).concat(ctx, le64(ctx, value))
+    tag(ctx, field, I64).concat(ctx, le64(ctx, value))
 }
 
 /// A `fixed32` or `sfixed32` field: four little-endian bytes.
 export fn fixed32Field<C: Alloc>(ctx: C, field: Int, value: Int): [U8] {
-  tag(ctx, field, I32).concat(ctx, le32(value))
+    tag(ctx, field, I32).concat(ctx, le32(value))
 }
 
 /// A `double` field.
 export fn f64Field<C: Alloc>(ctx: C, field: Int, x: Float): [U8] {
-  tag(ctx, field, I64).concat(ctx, bytes.f64ToBytes(ctx, x))
+    tag(ctx, field, I64).concat(ctx, bytes.f64ToBytes(ctx, x))
 }
 
 /// A `float` field.
 export fn f32Field<C: Alloc>(ctx: C, field: Int, x: Float): [U8] {
-  tag(ctx, field, I32).concat(ctx, bytes.f32ToBytes(ctx, x))
+    tag(ctx, field, I32).concat(ctx, bytes.f32ToBytes(ctx, x))
 }
 
 /// A length-delimited field: `bytes`, an embedded message, and a packed
 /// repeated field, which are one encoding wearing three names.
 export fn bytesField<C: Alloc>(ctx: C, field: Int, body: [U8]): [U8] {
-  tag(ctx, field, LEN)
-    .concat(ctx, bytes.toVarint(ctx, body.len()))
-    .concat(ctx, body)
+    tag(ctx, field, LEN).concat(ctx, bytes.toVarint(ctx, body.len())).concat(ctx, body)
 }
 
 /// A `string` field. UTF-8 is what the format says a string is.
 export fn strField<C: Alloc>(ctx: C, field: Int, s: Str): [U8] {
-  bytesField(ctx, field, bytes.toUtf8(ctx, s))
+    bytesField(ctx, field, bytes.toUtf8(ctx, s))
 }
 
 /// Four little-endian bytes of a value read as unsigned at 32 bits. Pure: an
 /// array literal of a fixed size allocates nothing a context has to grant.
 export fn le32(value: Int): [U8] {
-  let v = if (value < 0) { value + TWO32 } else { value };
-  [
-    (v % 256).wrapToU8(),
-    (div(v, 256) % 256).wrapToU8(),
-    (div(v, 65536) % 256).wrapToU8(),
-    (div(v, 16777216) % 256).wrapToU8(),
-  ]
+    let v = if (value < 0) { value + TWO32 } else { value };
+    [
+        (v % 256).wrapToU8(),
+        (div(v, 256) % 256).wrapToU8(),
+        (div(v, 65536) % 256).wrapToU8(),
+        (div(v, 16777216) % 256).wrapToU8(),
+    ]
 }
 
 /// Eight little-endian bytes, as two halves, so that a negative `sfixed64`
 /// writes its two's complement exactly rather than through a double.
 export fn le64<C: Alloc>(ctx: C, value: Int): [U8] {
-  let (hi, lo) = halves(value);
-  le32(lo).concat(ctx, le32(hi))
+    let (hi, lo) = halves(value);
+    le32(lo).concat(ctx, le32(hi))
 }
 
 fn div(a: Int, b: Int): Int {
-  (a - a % b) / b
+    (a - a % b) / b
 }
 
 /// A 64-bit value as (high 32 bits, low 32 bits), both non-negative.
 fn halves(value: Int): (Int, Int) {
-  if (value < 0) {
-    let a = 0 - value;
-    let alo = a % TWO32;
-    let ahi = (a - alo) / TWO32;
-    let borrow = if (alo > 0) { 1 } else { 0 };
-    ((TWO32 - ahi - borrow) % TWO32, (TWO32 - alo) % TWO32)
-  } else {
-    let lo = value % TWO32;
-    ((value - lo) / TWO32, lo)
-  }
+    if (value < 0) {
+        let a = 0 - value;
+        let alo = a % TWO32;
+        let ahi = (a - alo) / TWO32;
+        let borrow = if (alo > 0) { 1 } else { 0 };
+        ((TWO32 - ahi - borrow) % TWO32, (TWO32 - alo) % TWO32)
+    } else {
+        let lo = value % TWO32;
+        ((value - lo) / TWO32, lo)
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -172,119 +172,121 @@ fn halves(value: Int): (Int, Int) {
 /// what keeps a schema change that alters a field's type from being a crash in
 /// a reader that has not been rebuilt.
 export fn readTag(b: [U8], at: Int): Result<(Int, Int, Int), ProtoError> {
-  let (key, next) = readVarint(b, at)?;
-  let wire = key % 8;
-  let field = div(key - wire, 8);
-  // A tag is a `uint32`. Five bytes is the widest one there is, and even a
-  // five-byte varint can carry more than 32 bits — so the *value* is checked
-  // as well as the length. Reading the low 32 bits instead would turn a tag
-  // naming field 2147483649 into a tag naming field 1, which is a message
-  // decoded as a different message rather than an error.
-  if (next - at > 5 || key < 0 || key > 4294967295) {
-    .Err(.BadFieldNumber(at))
-  } else if (field <= 0 || field > 536870911) {
-    .Err(.BadFieldNumber(at))
-  } else if (wire == 3 || wire == 4 || wire == 6 || wire == 7) {
-    .Err(.BadWireType { field: field, wire: wire })
-  } else {
-    .Ok((field, wire, next))
-  }
+    let (key, next) = readVarint(b, at)?;
+    let wire = key % 8;
+    let field = div(key - wire, 8);
+    // A tag is a `uint32`. Five bytes is the widest one there is, and even a
+    // five-byte varint can carry more than 32 bits — so the *value* is checked
+    // as well as the length. Reading the low 32 bits instead would turn a tag
+    // naming field 2147483649 into a tag naming field 1, which is a message
+    // decoded as a different message rather than an error.
+    if (next - at > 5 || key < 0 || key > 4294967295) {
+        .Err(.BadFieldNumber(at))
+    } else if (field <= 0 || field > 536870911) {
+        .Err(.BadFieldNumber(at))
+    } else if (wire == 3 || wire == 4 || wire == 6 || wire == 7) {
+        .Err(.BadWireType { field: field, wire: wire })
+    } else {
+        .Ok((field, wire, next))
+    }
 }
 
 /// One varint, as a `ProtoError` rather than a `bytes.DecodeError`: a varint
 /// that does not end is a truncated message, and there is one vocabulary for
 /// what is wrong with a message.
 export fn readVarint(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
-  match (bytes.readVarint(b, at)) {
-    .Ok(pair) => .Ok(pair),
-    .Err(_e) => .Err(.Truncated(at)),
-  }
+    match (bytes.readVarint(b, at)) {
+        .Ok(pair) => .Ok(pair),
+        .Err(_e) => .Err(.Truncated(at)),
+    }
 }
 
 /// The same varint, read as its low 32 bits — which is what a 32-bit field is.
 export fn readVarint32(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
-  match (bytes.readVarint32(b, at)) {
-    .Ok(pair) => .Ok(pair),
-    .Err(_e) => .Err(.Truncated(at)),
-  }
+    match (bytes.readVarint32(b, at)) {
+        .Ok(pair) => .Ok(pair),
+        .Err(_e) => .Err(.Truncated(at)),
+    }
 }
 
 /// Four little-endian bytes, read as unsigned.
 export fn readFixed32(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
-  if (at + 4 > b.len()) {
-    .Err(.Truncated(at))
-  } else {
-    .Ok((
-      byteAt(b, at)
-        + byteAt(b, at + 1) * 256
-        + byteAt(b, at + 2) * 65536
-        + byteAt(b, at + 3) * 16777216,
-      at + 4,
-    ))
-  }
+    if (at + 4 > b.len()) {
+        .Err(.Truncated(at))
+    } else {
+        .Ok(
+            (
+                byteAt(b, at)
+                    + byteAt(b, at + 1) * 256
+                    + byteAt(b, at + 2) * 65536
+                    + byteAt(b, at + 3) * 16777216,
+                at + 4,
+            ),
+        )
+    }
 }
 
 /// Eight little-endian bytes, read as a signed 64-bit number. `fixed64` and
 /// `sfixed64` are the same eight bytes; a `fixed64` above 2^63 comes back
 /// negative, which is what a signed reading of those bits is.
 export fn readFixed64(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
-  // The length is checked once, up front, so a short input is reported at the
-  // byte the field began rather than four bytes into it.
-  if (at + 8 > b.len()) {
-    .Err(.Truncated(at))
-  } else {
-  let (lo, mid) = readFixed32(b, at)?;
-  let (hi, next) = readFixed32(b, mid)?;
-  if (hi >= 2147483648) {
-    .Ok(((hi - TWO32) * TWO32 + lo, next))
-  } else {
-    .Ok((hi * TWO32 + lo, next))
-  }
-  }
+    // The length is checked once, up front, so a short input is reported at the
+    // byte the field began rather than four bytes into it.
+    if (at + 8 > b.len()) {
+        .Err(.Truncated(at))
+    } else {
+        let (lo, mid) = readFixed32(b, at)?;
+        let (hi, next) = readFixed32(b, mid)?;
+        if (hi >= 2147483648) {
+            .Ok(((hi - TWO32) * TWO32 + lo, next))
+        } else {
+            .Ok((hi * TWO32 + lo, next))
+        }
+    }
 }
 
 /// A 32-bit value read as unsigned, taken as signed. What `sfixed32` and
 /// `int32` need and `fixed32` and `uint32` do not.
 export fn signed32(v: Int): Int {
-  if (v >= 2147483648) {
-    v - TWO32
-  } else {
-    v
-  }
+    if (v >= 2147483648) { v - TWO32 } else { v }
 }
 
 export fn readF64(b: [U8], at: Int): Result<(Float, Int), ProtoError> {
-  match (bytes.f64FromBytes(b, at)) {
-    .Some(x) => .Ok((x, at + 8)),
-    .None => .Err(.Truncated(at)),
-  }
+    match (bytes.f64FromBytes(b, at)) {
+        .Some(x) => .Ok((x, at + 8)),
+        .None => .Err(.Truncated(at)),
+    }
 }
 
 export fn readF32(b: [U8], at: Int): Result<(Float, Int), ProtoError> {
-  match (bytes.f32FromBytes(b, at)) {
-    .Some(x) => .Ok((x, at + 4)),
-    .None => .Err(.Truncated(at)),
-  }
+    match (bytes.f32FromBytes(b, at)) {
+        .Some(x) => .Ok((x, at + 4)),
+        .None => .Err(.Truncated(at)),
+    }
 }
 
 /// The body of a length-delimited field, and the index just past it.
-export fn readBytes<C: Alloc>(ctx: C, b: [U8], at: Int): Result<([U8], Int), ProtoError> {
-  let (len, next) = readVarint(b, at)?;
-  if (len < 0 || next + len > b.len()) {
-    .Err(.Truncated(at))
-  } else {
-    .Ok((b.slice(ctx, next, next + len), next + len))
-  }
+export fn readBytes<C: Alloc>(
+    ctx: C,
+    b: [U8],
+    at: Int,
+): Result<([U8], Int), ProtoError> {
+    let (len, next) = readVarint(b, at)?;
+    if (len < 0 || next + len > b.len()) {
+        .Err(.Truncated(at))
+    } else {
+        .Ok((b.slice(ctx, next, next + len), next + len))
+    }
 }
 
 /// The same, decoded as UTF-8. A `string` field whose bytes are not text is an
 /// error rather than a replacement character — see `core/bytes`.
 export fn readStr<C: Alloc>(ctx: C, b: [U8], at: Int): Result<(Str, Int), ProtoError> {
-  let (raw, next) = readBytes(ctx, b, at)?;
-  match (bytes.fromUtf8(ctx, raw)) {
-    .Ok(s) => .Ok((s, next)),
-    .Err(_e) => .Err(.BadUtf8(at)),
-  }
+    let (raw, next) = readBytes(ctx, b, at)?;
+    match (bytes.fromUtf8(ctx, raw)) {
+        .Ok(s) => .Ok((s, next)),
+        .Err(_e) => .Err(.BadUtf8(at)),
+    }
 }
 
 /// Past a field the schema does not know.
@@ -296,23 +298,27 @@ export fn readStr<C: Alloc>(ctx: C, b: [U8], at: Int): Result<(Str, Int), ProtoE
 /// from a newer schema loses the fields that schema added. Stated here rather
 /// than discovered.
 export fn skip(b: [U8], at: Int, wire: Int): Result<Int, ProtoError> {
-  if (wire == VARINT) {
-    let (_v, next) = readVarint(b, at)?;
-    .Ok(next)
-  } else if (wire == I64) {
-    if (at + 8 > b.len()) { .Err(.Truncated(at)) } else { .Ok(at + 8) }
-  } else if (wire == I32) {
-    if (at + 4 > b.len()) { .Err(.Truncated(at)) } else { .Ok(at + 4) }
-  } else if (wire == LEN) {
-    let (len, next) = readVarint(b, at)?;
-    if (len < 0 || next + len > b.len()) { .Err(.Truncated(at)) } else { .Ok(next + len) }
-  } else {
-    .Err(.BadWireType { field: 0, wire: wire })
-  }
+    if (wire == VARINT) {
+        let (_v, next) = readVarint(b, at)?;
+        .Ok(next)
+    } else if (wire == I64) {
+        if (at + 8 > b.len()) { .Err(.Truncated(at)) } else { .Ok(at + 8) }
+    } else if (wire == I32) {
+        if (at + 4 > b.len()) { .Err(.Truncated(at)) } else { .Ok(at + 4) }
+    } else if (wire == LEN) {
+        let (len, next) = readVarint(b, at)?;
+        if (len < 0 || next + len > b.len()) {
+            .Err(.Truncated(at))
+        } else {
+            .Ok(next + len)
+        }
+    } else {
+        .Err(.BadWireType { field: 0, wire: wire })
+    }
 }
 
 fn byteAt(b: [U8], i: Int): Int {
-  b.get(i).withDefault(0).toI64()
+    b.get(i).withDefault(0).toI64()
 }
 
 // --- Packed repeated fields --------------------------------------------------------
@@ -324,112 +330,112 @@ fn byteAt(b: [U8], i: Int): Int {
 // packed half.
 
 export fn packedVarints<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-  packedVarintsAt(ctx, b, 0, list.empty<Int>())
+    packedVarintsAt(ctx, b, 0, list.empty<Int>())
 }
 
 fn packedVarintsAt<C: Alloc>(
-  ctx: C,
-  b: [U8],
-  at: Int,
-  acc: [Int],
+    ctx: C,
+    b: [U8],
+    at: Int,
+    acc: [Int],
 ): Result<[Int], ProtoError> {
-  if (at >= b.len()) {
-    .Ok(acc)
-  } else {
-    let (v, next) = readVarint(b, at)?;
-    packedVarintsAt(ctx, b, next, acc.push(ctx, v))
-  }
+    if (at >= b.len()) {
+        .Ok(acc)
+    } else {
+        let (v, next) = readVarint(b, at)?;
+        packedVarintsAt(ctx, b, next, acc.push(ctx, v))
+    }
 }
 
 /// The same, keeping each value's low 32 bits.
 export fn packedVarints32<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-  packedVarints32At(ctx, b, 0, list.empty<Int>())
+    packedVarints32At(ctx, b, 0, list.empty<Int>())
 }
 
 fn packedVarints32At<C: Alloc>(
-  ctx: C,
-  b: [U8],
-  at: Int,
-  acc: [Int],
+    ctx: C,
+    b: [U8],
+    at: Int,
+    acc: [Int],
 ): Result<[Int], ProtoError> {
-  if (at >= b.len()) {
-    .Ok(acc)
-  } else {
-    let (v, next) = readVarint32(b, at)?;
-    packedVarints32At(ctx, b, next, acc.push(ctx, v))
-  }
+    if (at >= b.len()) {
+        .Ok(acc)
+    } else {
+        let (v, next) = readVarint32(b, at)?;
+        packedVarints32At(ctx, b, next, acc.push(ctx, v))
+    }
 }
 
 export fn packedFixed32<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-  packedFixed32At(ctx, b, 0, list.empty<Int>())
+    packedFixed32At(ctx, b, 0, list.empty<Int>())
 }
 
 fn packedFixed32At<C: Alloc>(
-  ctx: C,
-  b: [U8],
-  at: Int,
-  acc: [Int],
+    ctx: C,
+    b: [U8],
+    at: Int,
+    acc: [Int],
 ): Result<[Int], ProtoError> {
-  if (at >= b.len()) {
-    .Ok(acc)
-  } else {
-    let (v, next) = readFixed32(b, at)?;
-    packedFixed32At(ctx, b, next, acc.push(ctx, v))
-  }
+    if (at >= b.len()) {
+        .Ok(acc)
+    } else {
+        let (v, next) = readFixed32(b, at)?;
+        packedFixed32At(ctx, b, next, acc.push(ctx, v))
+    }
 }
 
 export fn packedFixed64<C: Alloc>(ctx: C, b: [U8]): Result<[Int], ProtoError> {
-  packedFixed64At(ctx, b, 0, list.empty<Int>())
+    packedFixed64At(ctx, b, 0, list.empty<Int>())
 }
 
 fn packedFixed64At<C: Alloc>(
-  ctx: C,
-  b: [U8],
-  at: Int,
-  acc: [Int],
+    ctx: C,
+    b: [U8],
+    at: Int,
+    acc: [Int],
 ): Result<[Int], ProtoError> {
-  if (at >= b.len()) {
-    .Ok(acc)
-  } else {
-    let (v, next) = readFixed64(b, at)?;
-    packedFixed64At(ctx, b, next, acc.push(ctx, v))
-  }
+    if (at >= b.len()) {
+        .Ok(acc)
+    } else {
+        let (v, next) = readFixed64(b, at)?;
+        packedFixed64At(ctx, b, next, acc.push(ctx, v))
+    }
 }
 
 export fn packedF64<C: Alloc>(ctx: C, b: [U8]): Result<[Float], ProtoError> {
-  packedF64At(ctx, b, 0, list.empty<Float>())
+    packedF64At(ctx, b, 0, list.empty<Float>())
 }
 
 fn packedF64At<C: Alloc>(
-  ctx: C,
-  b: [U8],
-  at: Int,
-  acc: [Float],
+    ctx: C,
+    b: [U8],
+    at: Int,
+    acc: [Float],
 ): Result<[Float], ProtoError> {
-  if (at >= b.len()) {
-    .Ok(acc)
-  } else {
-    let (v, next) = readF64(b, at)?;
-    packedF64At(ctx, b, next, acc.push(ctx, v))
-  }
+    if (at >= b.len()) {
+        .Ok(acc)
+    } else {
+        let (v, next) = readF64(b, at)?;
+        packedF64At(ctx, b, next, acc.push(ctx, v))
+    }
 }
 
 export fn packedF32<C: Alloc>(ctx: C, b: [U8]): Result<[Float], ProtoError> {
-  packedF32At(ctx, b, 0, list.empty<Float>())
+    packedF32At(ctx, b, 0, list.empty<Float>())
 }
 
 fn packedF32At<C: Alloc>(
-  ctx: C,
-  b: [U8],
-  at: Int,
-  acc: [Float],
+    ctx: C,
+    b: [U8],
+    at: Int,
+    acc: [Float],
 ): Result<[Float], ProtoError> {
-  if (at >= b.len()) {
-    .Ok(acc)
-  } else {
-    let (v, next) = readF32(b, at)?;
-    packedF32At(ctx, b, next, acc.push(ctx, v))
-  }
+    if (at >= b.len()) {
+        .Ok(acc)
+    } else {
+        let (v, next) = readF32(b, at)?;
+        packedF32At(ctx, b, next, acc.push(ctx, v))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -452,12 +458,12 @@ fn packedF32At<C: Alloc>(
 
 /// A 64-bit integer, as proto3 JSON writes one.
 export fn jsonInt64<C: Alloc>(ctx: C, x: Int): Json {
-  Json.Str(str.fromInt(ctx, x))
+    Json.Str(str.fromInt(ctx, x))
 }
 
 /// A 32-bit integer, which fits a JSON number exactly.
 export fn jsonInt32(x: Int): Json {
-  Json.Num(x.toF64())
+    Json.Num(x.toF64())
 }
 
 /// A `double` or `float`, as proto3 JSON writes one.
@@ -466,28 +472,27 @@ export fn jsonInt32(x: Int): Json {
 /// Writing the bare word — which is what a JSON encoder does with a `Float`
 /// holding one — produces a document nothing can read.
 export fn jsonFloat(x: Float): Json {
-  if (x != x) {
-    Json.Str("NaN")
-  } else if (x > num.maxValue<F64>()) {
-    Json.Str("Infinity")
-  } else if (x < num.minValue<F64>()) {
-    Json.Str("-Infinity")
-  } else {
-    Json.Num(x)
-  }
+    if (x != x) {
+        Json.Str("NaN")
+    } else if (x > num.maxValue<F64>()) {
+        Json.Str("Infinity")
+    } else if (x < num.minValue<F64>()) {
+        Json.Str("-Infinity")
+    } else {
+        Json.Num(x)
+    }
 }
-
 
 /// `bytes`, base64 with padding.
 export fn jsonBytes<C: Alloc>(ctx: C, b: [U8]): Json {
-  Json.Str(bytes.toBase64(ctx, b))
+    Json.Str(bytes.toBase64(ctx, b))
 }
 
 /// The member of an object, if it is an object and has one that is not null.
 /// proto3 JSON writes an absent field either by omitting it or as `null`, and
 /// a reader treats the two the same.
 export fn member(doc: Json, name: Str): Option<Json> {
-  doc.get(name).andThen(fn(v) => if (v.isNull()) { .None } else { .Some(v) })
+    doc.get(name).andThen(fn(v) => if (v.isNull()) { .None } else { .Some(v) })
 }
 
 /// The same, under either of a field's two names.
@@ -496,15 +501,14 @@ export fn member(doc: Json, name: Str): Option<Json> {
 /// the schema wrote. The camel name wins where a document carries both, which
 /// is a document no writer produces.
 export fn memberEither(doc: Json, name: Str, alternate: Str): Option<Json> {
-  match (member(doc, name)) {
-    .Some(v) => .Some(v),
-    .None => member(doc, alternate),
-  }
+    match (member(doc, name)) {
+        .Some(v) => .Some(v),
+        .None => member(doc, alternate),
+    }
 }
 
 /// An integer member: a JSON number, or the string proto3 writes a 64-bit one
 /// as. A fractional number is an error rather than a rounding.
-
 /// An integer field's value, checked against the field's own range.
 ///
 /// proto3 JSON is strict about numbers in a way JSON itself is not, and every
@@ -515,127 +519,133 @@ export fn memberEither(doc: Json, name: Str, alternate: Str): Option<Json> {
 /// admitted but must be a JSON number with nothing around it, so no leading
 /// zero and no surrounding space.
 export fn asInt(doc: Json, path: Str, lo: Int, hi: Int): Result<Int, ProtoError> {
-  match (doc) {
-    .Num(x) => inRange(x, path, lo, hi),
-    .Str(s) => match (numericText(s)) {
-      .Some(x) => inRange(x, path, lo, hi),
-      .None => .Err(.BadJson { path: path, wanted: "an integer" }),
-    },
-    _ => .Err(.BadJson { path: path, wanted: "an integer" }),
-  }
+    match (doc) {
+        .Num(x) => inRange(x, path, lo, hi),
+        .Str(s) => {
+            match (numericText(s)) {
+                .Some(x) => inRange(x, path, lo, hi),
+                .None => .Err(.BadJson { path: path, wanted: "an integer" }),
+            }
+        },
+        _ => .Err(.BadJson { path: path, wanted: "an integer" }),
+    }
 }
 
 fn inRange(x: Float, path: Str, lo: Int, hi: Int): Result<Int, ProtoError> {
-  match (x.toI64()) {
-    .Err(_e) => .Err(.BadJson { path: path, wanted: "an integer" }),
-    .Ok(n) => if (n < lo || n > hi) {
-      .Err(.BadJson { path: path, wanted: "an integer in range" })
-    } else {
-      .Ok(n)
-    },
-  }
+    match (x.toI64()) {
+        .Err(_e) => .Err(.BadJson { path: path, wanted: "an integer" }),
+        .Ok(n) => {
+            if (n < lo || n > hi) {
+                .Err(.BadJson { path: path, wanted: "an integer in range" })
+            } else {
+                .Ok(n)
+            }
+        },
+    }
 }
 
 /// A quoted number, as proto3 JSON admits one: a JSON number and nothing else.
 /// `1e5` is admitted, because it is a JSON number; `01` and ` 1` are not.
 fn numericText(s: Str): Option<Float> {
-  if (wellFormedNumber(s)) {
-    s.toFloat()
-  } else {
-    .None
-  }
+    if (wellFormedNumber(s)) { s.toFloat() } else { .None }
 }
 
 /// JSON's own number grammar, checked on the characters: `-?` then an integer
 /// part that is `0` or begins with a non-zero digit, then whatever a fraction
 /// and an exponent are made of.
 fn wellFormedNumber(s: Str): Bool {
-  let body = if (s.startsWith("-")) { s.slice(1, s.len()) } else { s };
-  match ((body.charAt(0), body.charAt(1))) {
-    (.None, _) => false,
-    (.Some('0'), .Some(c)) => (c == '.' || c == 'e' || c == 'E') && allNumeric(body, 1),
-    (.Some(c), _) => c.isDigit() && allNumeric(body, 1),
-  }
+    let body = if (s.startsWith("-")) { s.slice(1, s.len()) } else { s };
+    match ((body.charAt(0), body.charAt(1))) {
+        (.None, _) => false,
+        (.Some('0'), .Some(c)) => {
+            (c == '.' || c == 'e' || c == 'E') && allNumeric(body, 1)
+        },
+        (.Some(c), _) => c.isDigit() && allNumeric(body, 1),
+    }
 }
 
 fn allNumeric(s: Str, i: Int): Bool {
-  match (s.charAt(i)) {
-    .None => true,
-    .Some(c) => (c.isDigit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-')
-      && allNumeric(s, i + 1),
-  }
+    match (s.charAt(i)) {
+        .None => true,
+        .Some(c) => {
+            (c.isDigit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-')
+                && allNumeric(s, i + 1)
+        },
+    }
 }
 
 /// A `double`. The three values JSON cannot spell arrive as the strings proto3
 /// writes them as; a quoted ordinary number is admitted too, and a value the
 /// type cannot hold is an error rather than an infinity.
 export fn asFloat(doc: Json, path: Str): Result<Float, ProtoError> {
-  match (doc) {
-    .Num(x) => finite(x, path),
-    .Str(s) => if (s == "NaN") {
-      .Ok(nan())
-    } else if (s == "Infinity") {
-      .Ok(infinity())
-    } else if (s == "-Infinity") {
-      .Ok(0.0 - infinity())
-    } else {
-      match (numericText(s)) {
-        .Some(x) => finite(x, path),
-        .None => .Err(.BadJson { path: path, wanted: "a number" }),
-      }
-    },
-    _ => .Err(.BadJson { path: path, wanted: "a number" }),
-  }
+    match (doc) {
+        .Num(x) => finite(x, path),
+        .Str(s) => {
+            if (s == "NaN") {
+                .Ok(nan())
+            } else if (s == "Infinity") {
+                .Ok(infinity())
+            } else if (s == "-Infinity") {
+                .Ok(0.0 - infinity())
+            } else {
+                match (numericText(s)) {
+                    .Some(x) => finite(x, path),
+                    .None => .Err(.BadJson { path: path, wanted: "a number" }),
+                }
+            }
+        },
+        _ => .Err(.BadJson { path: path, wanted: "a number" }),
+    }
 }
 
 /// The same, for a `float` field: the value has to survive single precision.
 export fn asFloat32(doc: Json, path: Str): Result<Float, ProtoError> {
-  let x = asFloat(doc, path)?;
-  // NaN and the two infinities are values a `float` holds, so the range check
-  // is about the finite ones only.
-  if (x != x || x > num.maxValue<F64>() || x < num.minValue<F64>()) {
-    .Ok(x)
-  } else if (x > num.maxValue<F32>().toF64() || x < num.minValue<F32>().toF64()) {
-    .Err(.BadJson { path: path, wanted: "a number a float can hold" })
-  } else {
-    .Ok(x)
-  }
+    let x = asFloat(doc, path)?;
+    // NaN and the two infinities are values a `float` holds, so the range check
+    // is about the finite ones only.
+    if (x != x || x > num.maxValue<F64>() || x < num.minValue<F64>()) {
+        .Ok(x)
+    } else if (x > num.maxValue<F32>().toF64() || x < num.minValue<F32>().toF64()) {
+        .Err(.BadJson { path: path, wanted: "a number a float can hold" })
+    } else {
+        .Ok(x)
+    }
 }
 
 /// A written-out number that overflowed to an infinity is a number the type
 /// cannot hold, and proto3 JSON says so rather than rounding to infinity.
 fn finite(x: Float, path: Str): Result<Float, ProtoError> {
-  if (x != x) {
-    .Ok(x)
-  } else if (x > num.maxValue<F64>() || x < num.minValue<F64>()) {
-    .Err(.BadJson { path: path, wanted: "a number a double can hold" })
-  } else {
-    .Ok(x)
-  }
+    if (x != x) {
+        .Ok(x)
+    } else if (x > num.maxValue<F64>() || x < num.minValue<F64>()) {
+        .Err(.BadJson { path: path, wanted: "a number a double can hold" })
+    } else {
+        .Ok(x)
+    }
 }
 
 /// Built rather than named: the language has no literal for either, and the
 /// arithmetic that produces them is the definition.
 fn infinity(): Float {
-  1.0 / 0.0
+    1.0 / 0.0
 }
 
 fn nan(): Float {
-  0.0 / 0.0
+    0.0 / 0.0
 }
 
 export fn asBool(doc: Json, path: Str): Result<Bool, ProtoError> {
-  match (doc.asBool()) {
-    .Some(b) => .Ok(b),
-    .None => .Err(.BadJson { path: path, wanted: "a boolean" }),
-  }
+    match (doc.asBool()) {
+        .Some(b) => .Ok(b),
+        .None => .Err(.BadJson { path: path, wanted: "a boolean" }),
+    }
 }
 
 export fn asStr(doc: Json, path: Str): Result<Str, ProtoError> {
-  match (doc.asStr()) {
-    .Some(s) => .Ok(s),
-    .None => .Err(.BadJson { path: path, wanted: "a string" }),
-  }
+    match (doc.asStr()) {
+        .Some(s) => .Ok(s),
+        .None => .Err(.BadJson { path: path, wanted: "a string" }),
+    }
 }
 
 /// A `bytes` field: base64, in either alphabet and with the padding optional.
@@ -645,34 +655,37 @@ export fn asStr(doc: Json, path: Str): Result<Str, ProtoError> {
 /// JSON is the caller that has to accept both, so the translation is here,
 /// where the requirement is, rather than there.
 export fn asBytes<C: Alloc>(ctx: C, doc: Json, path: Str): Result<[U8], ProtoError> {
-  match (doc.asStr()) {
-    .None => .Err(.BadJson { path: path, wanted: "base64" }),
-    .Some(s) => {
-      let standard = s.replace(ctx, "-", "+").replace(ctx, "_", "/");
-      let padded = standard.concat(ctx, PAD.slice(0, (4 - standard.len() % 4) % 4));
-      match (bytes.fromBase64(ctx, padded)) {
-        .Ok(b) => .Ok(b),
-        .Err(_e) => .Err(.BadJson { path: path, wanted: "base64" }),
-      }
-    },
-  }
+    match (doc.asStr()) {
+        .None => .Err(.BadJson { path: path, wanted: "base64" }),
+        .Some(s) => {
+            let standard = s.replace(ctx, "-", "+").replace(ctx, "_", "/");
+            let padded = standard.concat(
+                ctx,
+                PAD.slice(0, (4 - standard.len() % 4) % 4),
+            );
+            match (bytes.fromBase64(ctx, padded)) {
+                .Ok(b) => .Ok(b),
+                .Err(_e) => .Err(.BadJson { path: path, wanted: "base64" }),
+            }
+        },
+    }
 }
 
 let PAD: Str = "===";
 
 export fn asArray(doc: Json, path: Str): Result<[Json], ProtoError> {
-  match (doc.asArray()) {
-    .Some(items) => .Ok(items),
-    .None => .Err(.BadJson { path: path, wanted: "an array" }),
-  }
+    match (doc.asArray()) {
+        .Some(items) => .Ok(items),
+        .None => .Err(.BadJson { path: path, wanted: "an array" }),
+    }
 }
 
 /// A member's own path, for the error a reader deeper down will raise.
 export fn at<C: Alloc>(ctx: C, path: Str, name: Str): Str {
-  str.format(ctx, "${path}.${name}")
+    str.format(ctx, "${path}.${name}")
 }
 
 /// An element's path.
 export fn index<C: Alloc>(ctx: C, path: Str, i: Int): Str {
-  str.format(ctx, "${path}[${i}]")
+    str.format(ctx, "${path}[${i}]")
 }

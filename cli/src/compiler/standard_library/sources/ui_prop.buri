@@ -18,29 +18,29 @@ from "ui/signal" import { Signal };
 
 /// A time-varying value.
 export enum Prop<T> {
-  /// Never changes. The runtime registers nothing.
-  Const(T),
-  /// Backed by a writable cell.
-  Cell(Signal<T>),
-  /// A derivation. Buildable in a pure component, since the `Scope` arrives as
-  /// a parameter rather than from an enclosing context.
-  Computed(fn(Scope) => T),
+    /// Never changes. The runtime registers nothing.
+    Const(T),
+    /// Backed by a writable cell.
+    Cell(Signal<T>),
+    /// A derivation. Buildable in a pure component, since the `Scope` arrives as
+    /// a parameter rather than from an enclosing context.
+    Computed(fn(Scope) => T),
 }
 
 impl<T> Prop<T> {
-  /// The current value.
-  ///
-  /// Takes a `Scope` rather than any `C: Watch` because `Computed` holds a
-  /// `fn(Scope) => T` and has to be able to call it. That is the whole reason
-  /// `Scope` is a concrete type rather than a type parameter, and it is what
-  /// keeps `Prop` and `Style` free of a context parameter.
-  export fn read(self, ctx: Scope): T {
-    match (self) {
-      .Const(v) => v,
-      .Cell(s) => s.get(ctx),
-      .Computed(f) => f(ctx),
+    /// The current value.
+    ///
+    /// Takes a `Scope` rather than any `C: Watch` because `Computed` holds a
+    /// `fn(Scope) => T` and has to be able to call it. That is the whole reason
+    /// `Scope` is a concrete type rather than a type parameter, and it is what
+    /// keeps `Prop` and `Style` free of a context parameter.
+    export fn read(self, ctx: Scope): T {
+        match (self) {
+            .Const(v) => v,
+            .Cell(s) => s.get(ctx),
+            .Computed(f) => f(ctx),
+        }
     }
-  }
 }
 
 /// A derived value, computed on demand and cached until something it read
@@ -56,6 +56,6 @@ impl<T> Prop<T> {
 /// sources. That is the whole of the caching: the sources move, the memo
 /// recomputes once, and everything downstream sees one change.
 export fn memo<C: Ui, T>(ctx: C, compute: fn(Scope) => T): Prop<T> {
-  let id = ctx.memo(compute);
-  .Computed(fn(scope) => scope.read(id))
+    let id = ctx.memo(compute);
+    .Computed(fn(scope) => scope.read(id))
 }

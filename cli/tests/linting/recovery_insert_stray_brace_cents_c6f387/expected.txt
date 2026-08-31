@@ -1,0 +1,19 @@
+error: `Entry` is missing `packer` [missing-field-value]
+  --> lib/recovery_insert_stray_brace_cents_c6f387/lib.buri:21:5
+   |
+21 |     Entry { cents, tax: 0@ , packer: "till" }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: give `packer` a value — only an `Option` field may be left out — or start from an existing one with `Entry { ..base, field: value }`
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_cents_c6f387/lib.buri:21:26
+   |
+21 |     Entry { cents, tax: 0@ , packer: "till" }
+   |                          ^
+   |
+  --> lib/recovery_insert_stray_brace_cents_c6f387/lib.buri:21:11
+   |
+21 |     Entry { cents, tax: 0@ , packer: "till" }
+   |           ^ opened here
+   |
+   = fix: write `}` here

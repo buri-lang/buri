@@ -5,16 +5,19 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 fn size(n: Int): Str {
-  match (n) {
-    x if x > 100 => "huge",
-    x if x > 10 => "big",
-    x if x > 0 => "small",
-    _ => "none",
-  }
+    match (n) {
+        x if x > 100 => "huge",
+        x if x > 10 => "big",
+        x if x > 0 => "small",
+        _ => "none",
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${size(500)} ${size(50)} ${size(5)} ${size(0)}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "${size(500)} ${size(50)} ${size(5)} ${size(0)}").ignore();
+    .Ok(())
 }

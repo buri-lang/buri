@@ -3,15 +3,15 @@
 // smallest thing that makes all three explanations concrete.
 
 export enum Shape {
-  Point,
-  Circle(Float),
-  Rect(Float, Float),
+    Point,
+    Circle(Float),
+    Rect(Float, Float),
 }
 
 export fn area(shape: Shape): Float {
-  match (shape) {
-    .Point => 0.0,
-    .Circle(r) => 3.14159 * r * r,
-    .Rect(w, h) => w * h,
-  }
+    match (shape) {
+        .Point => 0.0,
+        .Circle(r) => 3.14159 * r * r,
+        .Rect(w, h) => w * h,
+    }
 }

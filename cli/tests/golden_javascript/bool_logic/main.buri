@@ -5,25 +5,28 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 fn inRange(n: Int, lo: Int, hi: Int): Bool {
-  if (n < lo) { false } else if (n > hi) { false } else { true }
+    if (n < lo) { false } else if (n > hi) { false } else { true }
 }
 
 fn either(a: Bool, b: Bool): Bool {
-  if (a) { true } else { b }
+    if (a) { true } else { b }
 }
 
 fn neither(a: Bool, b: Bool): Bool {
-  if (a) { false } else { if (b) { false } else { true } }
+    if (a) { false } else { if (b) { false } else { true } }
 }
 
 fn pick(flag: Bool, a: Int, b: Int): Int {
-  if (flag) { a } else { b }
+    if (flag) { a } else { b }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${inRange(5, 1, 10)} ${inRange(50, 1, 10)}").ignore();
-  let _ = io.println(ctx, "${either(false, true)} ${neither(false, false)}").ignore();
-  let _ = io.println(ctx, "${pick(true, 1, 2)} ${pick(false, 1, 2)}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "${inRange(5, 1, 10)} ${inRange(50, 1, 10)}").ignore();
+    let _ = io.println(ctx, "${either(false, true)} ${neither(false, false)}").ignore();
+    let _ = io.println(ctx, "${pick(true, 1, 2)} ${pick(false, 1, 2)}").ignore();
+    .Ok(())
 }

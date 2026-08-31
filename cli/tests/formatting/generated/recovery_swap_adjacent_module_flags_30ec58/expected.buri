@@ -7,7 +7,7 @@ from "//tools/report/main.buri" import { parseFlags };
 "verbose is off by default"
 
 test {
-  assert.isFalse(parseFlags([]).verbose);
+    assert.isFalse(parseFlags([]).verbose);
 }
 
 test "verbose is recognized anywhere in argv" {

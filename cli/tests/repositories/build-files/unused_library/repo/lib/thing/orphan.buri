@@ -4,4 +4,6 @@
 // Not exported: once the rule lists this file the package compiles it, and an
 // `export` nothing reaches would be a second finding on top of the one this
 // case is about.
-fn orphaned(): Str { "nobody builds me" }
+fn orphaned(): Str {
+    "nobody builds me"
+}

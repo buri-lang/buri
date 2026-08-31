@@ -6,5 +6,6 @@
 // has to hand the result to `mount`. Everything else, including every `Style`
 // the components are built out of, stops at this line.
 
-from "//lib/kit/card.buri" export { card, pill, meter };
-from "//lib/kit/tokens.buri" export { Token, themed };
+from "//lib/kit/card.buri" export { card, meter, pill };
+
+from "//lib/kit/tokens.buri" export { themed, Token };

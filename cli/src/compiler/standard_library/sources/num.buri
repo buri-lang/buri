@@ -33,14 +33,13 @@
 
 from "core/order" import { Eq, Ord, Order, Show };
 
+derive Eq, Show for RangeError;
 /// The error a narrowing conversion returns. Whether a conversion can fail is
 /// visible in its return type rather than in the choice of operator.
 export struct RangeError {
-  export value: Str,
-  export target: Str,
+    export value: Str,
+    export target: Str,
 }
-
-derive Eq, Show for RangeError;
 
 // --- The operator traits ------------------------------------------------------
 //
@@ -50,27 +49,27 @@ derive Eq, Show for RangeError;
 // safe here in a way they are not elsewhere.
 
 export trait Add {
-  fn add(self, other: Self): Self;
+    fn add(self, other: Self): Self;
 }
 
 export trait Sub {
-  fn sub(self, other: Self): Self;
+    fn sub(self, other: Self): Self;
 }
 
 export trait Mul {
-  fn mul(self, other: Self): Self;
+    fn mul(self, other: Self): Self;
 }
 
 export trait Div {
-  fn div(self, other: Self): Self;
+    fn div(self, other: Self): Self;
 }
 
 export trait Rem {
-  fn rem(self, other: Self): Self;
+    fn rem(self, other: Self): Self;
 }
 
 export trait Neg {
-  fn neg(self): Self;
+    fn neg(self): Self;
 }
 
 // --- Integer-specific interfaces ------------------------------------------------
@@ -80,8 +79,8 @@ export trait Neg {
 // only.
 
 export trait Bounded {
-  fn minValue(): Self;
-  fn maxValue(): Self;
+    fn minValue(): Self;
+    fn maxValue(): Self;
 }
 
 /// Every one of these answers `.None` rather than a value the type cannot
@@ -90,25 +89,25 @@ export trait Bounded {
 /// promise that `v` is the answer, which is the whole reason to reach for
 /// `Checked` over `+` (SPEC 6.2.2).
 export trait Checked {
-  fn checkedAdd(self, rhs: Self): Option<Self>;
-  fn checkedSub(self, rhs: Self): Option<Self>;
-  fn checkedMul(self, rhs: Self): Option<Self>;
-  fn checkedDiv(self, rhs: Self): Option<Self>;
+    fn checkedAdd(self, rhs: Self): Option<Self>;
+    fn checkedSub(self, rhs: Self): Option<Self>;
+    fn checkedMul(self, rhs: Self): Option<Self>;
+    fn checkedDiv(self, rhs: Self): Option<Self>;
 }
 
 export trait Wrapping {
-  fn wrappingAdd(self, rhs: Self): Self;
-  fn wrappingSub(self, rhs: Self): Self;
-  fn wrappingMul(self, rhs: Self): Self;
+    fn wrappingAdd(self, rhs: Self): Self;
+    fn wrappingSub(self, rhs: Self): Self;
+    fn wrappingMul(self, rhs: Self): Self;
 }
 
 /// Clamps to the type's own bounds, which at 64 bits and above are themselves
 /// rounded — `maxValue<I64>()` is the nearest `number` to I64's maximum, not
 /// that maximum. Use `Checked` where the difference matters.
 export trait Saturating {
-  fn saturatingAdd(self, rhs: Self): Self;
-  fn saturatingSub(self, rhs: Self): Self;
-  fn saturatingMul(self, rhs: Self): Self;
+    fn saturatingAdd(self, rhs: Self): Self;
+    fn saturatingSub(self, rhs: Self): Self;
+    fn saturatingMul(self, rhs: Self): Self;
 }
 
 // --- Free functions -------------------------------------------------------------
@@ -117,18 +116,19 @@ export trait Saturating {
 // one of each and no overloading.
 
 export fn min<T: Ord>(a: T, b: T): T {
-  if (a.compare(b) == Order.Greater) { b } else { a }
+    if (a.compare(b) == Order.Greater) { b } else { a }
 }
 
 export fn max<T: Ord>(a: T, b: T): T {
-  if (a.compare(b) == Order.Less) { b } else { a }
+    if (a.compare(b) == Order.Less) { b } else { a }
 }
 
 export fn clamp<T: Ord>(lo: T, hi: T, x: T): T {
-  min(hi, max(lo, x))
+    min(hi, max(lo, x))
 }
 
 /// `Bounded`'s methods take no `self`, so they are reached through these
 /// rather than through a receiver: `num.maxValue<U8>()`.
 export fn minValue<T: Bounded>(): T;
+
 export fn maxValue<T: Bounded>(): T;

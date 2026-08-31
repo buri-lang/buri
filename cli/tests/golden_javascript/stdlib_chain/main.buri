@@ -8,16 +8,23 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
 
-  let text = "  the quick brown fox  ";
-  let trimmed = text.trim();
-  let words = trimmed.split(ctx, " ");
-  let upper = words.mapCtx(ctx, fn(c, w) => w.toUpper(c));
-  let joined = upper.join(ctx, "-");
+    let text = "  the quick brown fox  ";
+    let trimmed = text.trim();
+    let words = trimmed.split(ctx, " ");
+    let upper = words.mapCtx(ctx, fn(c, w) => w.toUpper(c));
+    let joined = upper.join(ctx, "-");
 
-  let _ = io.println(ctx, "${joined}").ignore();
-  let _ = io.println(ctx, "${trimmed.len()} ${words.len()} ${joined.contains("QUICK")}").ignore();
-  let _ = io.println(ctx, "${trimmed.startsWith("the")} ${trimmed.endsWith("fox")}").ignore();
-  .Ok(())
+    let _ = io.println(ctx, "${joined}").ignore();
+    let _ = io
+        .println(ctx, "${trimmed.len()} ${words.len()} ${joined.contains("QUICK")}")
+        .ignore();
+    let _ = io
+        .println(ctx, "${trimmed.startsWith("the")} ${trimmed.endsWith("fox")}")
+        .ignore();
+    .Ok(())
 }

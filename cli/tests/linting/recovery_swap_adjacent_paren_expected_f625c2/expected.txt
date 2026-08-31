@@ -1,0 +1,9 @@
+error: expected `=>`, found `{` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_expected_f625c2/main.buri:44:48
+   |
+44 |     let _ = announce(ctx, label).mapErr(fn(_e) { =>
+   |                                                ^
+   |
+   = expected: `=>`
+   = actual: `{`
+   = fix: write `=>` here

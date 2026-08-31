@@ -1,11 +1,14 @@
 from "core/effect" import { Alloc };
 
+derive Eq, Show for Cents;
 /// A whole number of cents. The field is not exported, so arithmetic on the
 /// underlying integer is not reachable from outside this module.
 export struct Cents(I64);
 
-derive Eq, Show for Cents;
+export fn fromCents(c: I64): Cents {
+    Cents(c)
+}
 
-export fn fromCents(c: I64): Cents { Cents(c) }
-
-export fn double(c: Cents): Cents { fromCents(c.0 + c.0) }
+export fn double(c: Cents): Cents {
+    fromCents(c.0 + c.0)
+}

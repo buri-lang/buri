@@ -11,18 +11,23 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
-  fn() => f(x)
+    fn() => f(x)
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
 
-  // `fn(c) => io.println(c, ..)` is the sanctioned `*Ctx` shape: the capability
-  // arrives as a PARAMETER, so the capture rule is silent.
-  let sneaky = wrap(ctx, fn(c) => io.println(c, "SMUGGLED: I/O from fn() => ()").ignore());
+    // `fn(c) => io.println(c, ..)` is the sanctioned `*Ctx` shape: the capability
+    // arrives as a PARAMETER, so the capture rule is silent.
+    let sneaky = wrap(ctx, fn(c) => {
+        io.println(c, "SMUGGLED: I/O from fn() => ()").ignore()
+    });
 
-  // `sneaky : fn() => ()`. Untainted. A signature accepting it would say
-  // nothing about I/O.
-  let _ = sneaky();
-  .Ok(())
+    // `sneaky : fn() => ()`. Untainted. A signature accepting it would say
+    // nothing about I/O.
+    let _ = sneaky();
+    .Ok(())
 }

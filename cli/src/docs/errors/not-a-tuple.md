@@ -6,6 +6,6 @@ fix: index a tuple or a tuple struct; name a field otherwise
 
 ```buri fail code=not-a-tuple
 fn read(xs: [Int]): Int {
-  xs.0
+    xs.0
 }
 ```

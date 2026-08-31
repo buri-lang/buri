@@ -1,0 +1,23 @@
+error: there is no type `extra` [unresolved-type]
+ --> lib/recovery_insert_stray_paren_cents_948bbd/lib.buri:2:21
+  |
+2 | export struct Cents(extra export I64);
+  |                     ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+error: a tuple-struct field ends with `,` [missing-separator]
+ --> lib/recovery_insert_stray_paren_cents_948bbd/lib.buri:2:26
+  |
+2 | export struct Cents(extra export I64);
+  |                          ^
+  |
+  = fix: write `,` here
+error: `Cents` holds 2 values, but 1 were given [wrong-value-count]
+ --> lib/recovery_insert_stray_paren_cents_948bbd/lib.buri:5:5
+  |
+5 |     Cents(c)
+  |     ^^^^^^^^
+  |
+  = expected: 2
+  = actual: 1
+  = fix: pass exactly 2

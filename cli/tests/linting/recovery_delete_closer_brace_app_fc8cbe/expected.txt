@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_fc8cbe/main.buri:17:1
+   |
+17 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_app_fc8cbe/main.buri:16:35
+   |
+16 |     io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output"
+   |                                   ^ opened here
+   |
+   = fix: write `)` here

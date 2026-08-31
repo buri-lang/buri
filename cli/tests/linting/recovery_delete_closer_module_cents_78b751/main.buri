@@ -1,0 +1,10 @@
+export fn fromCents(n: I64): I64 {
+    n
+}
+
+// `doubled` is bound and nothing below reads it. Every case in this family
+// turns on what each command does about exactly this one finding.
+export fn format(n: I64): Str {
+    let doubled = n * 2;
+    if (n == 0) { "zero" } else { "some" }
+

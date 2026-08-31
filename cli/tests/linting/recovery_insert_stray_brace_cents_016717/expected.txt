@@ -1,0 +1,12 @@
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_brace_cents_016717/lib.buri:9:15
+  |
+9 |     if (n == 0@ ) { "zero" } else { "some" }
+  |               ^
+  |
+ --> lib/recovery_insert_stray_brace_cents_016717/lib.buri:9:8
+  |
+9 |     if (n == 0@ ) { "zero" } else { "some" }
+  |        ^ opened here
+  |
+  = fix: write `)` here

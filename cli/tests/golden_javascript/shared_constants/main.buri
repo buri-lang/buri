@@ -5,35 +5,55 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-enum Token { Blank, Word(Str), Number(Int) }
+enum Token {
+    Blank,
+    Word(Str),
+    Number(Int),
+}
 
-struct Origin { x: Int, y: Int }
+struct Origin {
+    x: Int,
+    y: Int,
+}
 
 fn classify(n: Int): Token {
-  if (n < 0) { Token.Blank } else if (n == 0) { Token.Word("zero") } else { Token.Number(n) }
+    if (n < 0) {
+        Token.Blank
+    } else if (n == 0) {
+        Token.Word("zero")
+    } else {
+        Token.Number(n)
+    }
 }
 
 fn weight(t: Token): Int {
-  match (t) {
-    .Blank => 0,
-    .Word(_) => 1,
-    .Number(n) => n,
-  }
+    match (t) {
+        .Blank => 0,
+        .Word(_) => 1,
+        .Number(n) => n,
+    }
 }
 
-fn origin(): Origin { Origin { x: 0, y: 0 } }
+fn origin(): Origin {
+    Origin { x: 0, y: 0 }
+}
 
 fn tally(n: Int, acc: Int): Int {
-  if (n == 0) {
-    acc + origin().x
-  } else {
-    tally(n - 1, acc + weight(classify(n - 5)))
-  }
+    if (n == 0) {
+        acc + origin().x
+    } else {
+        tally(n - 1, acc + weight(classify(n - 5)))
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${tally(10, 0)}").ignore();
-  let _ = io.println(ctx, "${weight(Token.Blank)} ${weight(Token.Word("a"))}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "${tally(10, 0)}").ignore();
+    let _ = io
+        .println(ctx, "${weight(Token.Blank)} ${weight(Token.Word("a"))}")
+        .ignore();
+    .Ok(())
 }

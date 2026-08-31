@@ -1,11 +1,20 @@
 from "//lib/money" import { Cents, fromCents };
 from "//lib/store" import { encode };
 
-export struct Entry { export memo: Str, export amount: Cents }
+export struct Entry {
+    export memo: Str,
+    export amount: Cents,
+}
 
-export fn entry(memo: Str, amount: Cents): Entry { Entry { memo, amount } }
+export fn entry(memo: Str, amount: Cents): Entry {
+    Entry { memo, amount }
+}
 
-export fn label(e: Entry): Str { encode(e.memo) }
+export fn label(e: Entry): Str {
+    encode(e.memo)
+}
 
 /// So that a dependent can build an `Entry` without naming //lib/money.
-export fn zero(): Cents { fromCents(0) }
+export fn zero(): Cents {
+    fromCents(0)
+}

@@ -23,11 +23,14 @@ not there.
 ## A program that provokes it
 
 ```buri fail code=or-pattern-bindings
-enum Either { Left(Int), Right(Int) }
+enum Either {
+    Left(Int),
+    Right(Int),
+}
 
 fn value(e: Either): Int {
-  match (e) {
-    .Left(x) | .Right(y) => x,
-  }
+    match (e) {
+        .Left(x) | .Right(y) => x,
+    }
 }
 ```

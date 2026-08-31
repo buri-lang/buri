@@ -3,4 +3,6 @@
 // against this one. Nothing analyses this module — it is in no target — so the
 // finding is the whole of what the toolchain has to say about it.
 
-export fn twice(n: I64): I64 { n * 2 }
+export fn twice(n: I64): I64 {
+    n * 2
+}

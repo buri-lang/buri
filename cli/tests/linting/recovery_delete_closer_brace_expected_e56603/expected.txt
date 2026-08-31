@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_expected_e56603/main.buri:63:1
+   |
+63 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_expected_e56603/main.buri:60:83
+   |
+60 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(
+   |                                                                                   ^ opened here
+   |
+   = fix: write `)` here

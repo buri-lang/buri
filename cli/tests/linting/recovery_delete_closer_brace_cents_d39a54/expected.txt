@@ -1,0 +1,21 @@
+error: expected an identifier, found `.` [unexpected-token]
+  --> lib/recovery_delete_closer_brace_cents_d39a54/lib.buri:21:9
+   |
+21 |         .Open => l.entries,
+   |         ^
+   |
+   = expected: an identifier
+   = actual: `.`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_cents_d39a54/lib.buri:25:1
+   |
+25 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_cents_d39a54/lib.buri:19:46
+   |
+19 | export fn describe(l: Ledger, m: Money): I64 {
+   |                                              ^ opened here
+   |
+   = fix: write `}` here

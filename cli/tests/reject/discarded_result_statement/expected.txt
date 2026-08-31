@@ -32,10 +32,14 @@ error: an expression statement is legal only in a test source [expression-statem
        # from "core/effect" import { Alloc, Stdout };
        # from "core/host" import * as host;
        # from "core/io" import * as io;
+
        export fn main(): Result<(), Str> {
-         let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-         let _ = io.println(ctx, "ready").ignore();
-         .Ok(())
+           let ctx = context {
+               Alloc: host.alloc,
+               Stdout: host.stdout,
+           };
+           let _ = io.println(ctx, "ready").ignore();
+           .Ok(())
        }
 
 error: this statement has type `Result<I64, Str>`, not `()` [statement-not-unit]

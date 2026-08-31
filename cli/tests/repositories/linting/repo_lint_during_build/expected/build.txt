@@ -1,9 +1,9 @@
 nothing to build
 warning: `doubled` is bound and never used [unused-variable]
- --> lib/money/cents.buri:6:7
+ --> lib/money/cents.buri:8:9
   |
-6 |   let doubled = n * 2;
-  |       ^^^^^^^
+8 |     let doubled = n * 2;
+  |         ^^^^^^^
   |
   = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
   = fix: use it, delete the `let`, or write `_` in its place

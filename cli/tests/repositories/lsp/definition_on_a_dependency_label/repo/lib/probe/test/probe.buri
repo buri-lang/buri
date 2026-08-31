@@ -1,7 +1,7 @@
+from "core/testing/assert" import * as assert;
 from "//lib/probe" import { probe };
 from "//lib/probe/testing" import { sample };
-from "core/testing/assert" import * as assert;
 
 test "the probe is shallower than the sample" {
-  assert.isTrue(probe() < sample());
+    assert.isTrue(probe() < sample());
 }

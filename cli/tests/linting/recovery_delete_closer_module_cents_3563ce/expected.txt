@@ -1,0 +1,12 @@
+error: this `struct` body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_cents_3563ce/lib.buri:10:1
+   |
+10 | 
+   | ^
+   |
+ --> lib/recovery_delete_closer_module_cents_3563ce/lib.buri:6:20
+  |
+6 | export struct Slip {
+  |                    ^ opened here
+  |
+  = fix: write `}` here

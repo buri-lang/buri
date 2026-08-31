@@ -1,4 +1,6 @@
 from "//lib/money" import { Cents, fromCents };
 
 /// A round figure, for a suite that needs one and does not care which.
-export fn sample(): Cents { fromCents(1905) }
+export fn sample(): Cents {
+    fromCents(1905)
+}

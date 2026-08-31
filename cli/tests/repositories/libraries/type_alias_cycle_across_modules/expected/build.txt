@@ -4,9 +4,9 @@ error: circular type alias: `Depth` in "//lib/units/soundings.buri" -> `Sounding
 9 | export type Depth = Sounding;
   |             ^^^^^
   |
-  --> lib/units/soundings.buri:12:13
+  --> lib/units/soundings.buri:13:13
    |
-12 | export type Sounding = Fathoms;
+13 | export type Sounding = Fathoms;
    |             ^^^^^^^^ `Sounding`, next on the cycle, is declared here
    |
  --> lib/units/fathoms.buri:6:13

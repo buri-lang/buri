@@ -27,8 +27,8 @@ edit {
 
 edit {
   file: "cmd/app/main.buri"
-  replace: "  let _ = io.println(ctx, \"done\").ignore();\n  .Ok(())\n"
-  with: "  io.println(ctx, \"done\").mapErr(fn(_e) => \"could not write to standard output\")\n"
+  replace: "    let _ = io.println(ctx, \"done\").ignore();\n    .Ok(())\n"
+  with: "io.println(ctx, \"done\").mapErr(\n\nfn(_e) => \"could not write to standard output\")\n"
 }
 
 run {

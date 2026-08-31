@@ -1,0 +1,41 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_delete_closer_paren_app_73b1f3/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_73b1f3/main.buri:19:44
+   |
+19 |     io.println(ctx, banner()).mapErr(fn(_e => "could not write to standard output")
+   |                                            ^^
+   |
+  --> lib/recovery_delete_closer_paren_app_73b1f3/main.buri:19:40
+   |
+19 |     io.println(ctx, banner()).mapErr(fn(_e => "could not write to standard output")
+   |                                        ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `}` [unexpected-token]
+  --> lib/recovery_delete_closer_paren_app_73b1f3/main.buri:20:1
+   |
+20 | }
+   | ^
+   |
+   = expected: `=>`
+   = actual: `}`
+   = fix: write `=>` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_73b1f3/main.buri:21:1
+   |
+21 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_app_73b1f3/main.buri:14:35
+   |
+14 | export fn main(): Result<(), Str> {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here

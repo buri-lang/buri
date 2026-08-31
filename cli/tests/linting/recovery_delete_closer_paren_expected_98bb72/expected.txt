@@ -1,0 +1,12 @@
+error: this block is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_expected_98bb72/main.buri:46:5
+   |
+46 |     )?;
+   |     ^
+   |
+  --> lib/recovery_delete_closer_paren_expected_98bb72/main.buri:44:51
+   |
+44 |     let _ = announce(ctx, label).mapErr(fn(_e) => {
+   |                                                   ^ opened here
+   |
+   = fix: write `}` here

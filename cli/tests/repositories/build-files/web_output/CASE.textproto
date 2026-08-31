@@ -129,7 +129,7 @@ edit {
 edit {
   file: "cmd/counter/main.buri"
   replace: "import { Alloc, Fs, Stdout };"
-  with: "import { Alloc, Stdout };"
+  with: "import { Alloc, Stdout }\n\n;"
 }
 
 # A WEB output takes neither of the two fields a JS output can: an `arch` is

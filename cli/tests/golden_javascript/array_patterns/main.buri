@@ -5,19 +5,22 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 fn describe(xs: [Int]): Template {
-  match (xs) {
-    [] => "empty",
-    [only] => "one: ${only}",
-    [a, b] => "two: ${a},${b}",
-    [head, ..rest] => "head ${head} and ${rest.len()} more",
-  }
+    match (xs) {
+        [] => "empty",
+        [only] => "one: ${only}",
+        [a, b] => "two: ${a},${b}",
+        [head, ..rest] => "head ${head} and ${rest.len()} more",
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, describe([])).ignore();
-  let _ = io.println(ctx, describe([1])).ignore();
-  let _ = io.println(ctx, describe([1, 2])).ignore();
-  let _ = io.println(ctx, describe([1, 2, 3, 4])).ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, describe([])).ignore();
+    let _ = io.println(ctx, describe([1])).ignore();
+    let _ = io.println(ctx, describe([1, 2])).ignore();
+    let _ = io.println(ctx, describe([1, 2, 3, 4])).ignore();
+    .Ok(())
 }

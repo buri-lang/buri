@@ -29,6 +29,6 @@ place nobody looks.
 
 ```buri fail code=type-mismatch
 fn widenByAccident(a: I32, b: I64): I64 {
-  a + b
+    a + b
 }
 ```

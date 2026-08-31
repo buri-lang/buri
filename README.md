@@ -22,35 +22,35 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 enum Grade {
-  Pass(Int),
-  Fail { score: Int, needed: Int },
+    Pass(Int),
+    Fail { score: Int, needed: Int },
 }
 
 impl Grade {
-  // No ctx parameter, so this cannot allocate, print, read a file, or open
-  // a socket.
-  fn shortfall(self): Int {
-    match (self) {
-      .Pass(_) => 0,
-      .Fail { score, needed } => needed - score,
+    // No ctx parameter, so this cannot allocate, print, read a file, or open
+    // a socket.
+    fn shortfall(self): Int {
+        match (self) {
+            .Pass(_) => 0,
+            .Fail { score, needed } => needed - score,
+        }
     }
-  }
 }
 
 // `main` is the entry point and builds the `context`.
 export fn main(): Result<(), Str> {
-// This contxt declares the program can allocate to the heap
-// and print to standard out, and nothing else
-// (no network calls, no file system operations, etc.).
-  let ctx = context {
-    Alloc:  host.alloc,
-    Stdout: host.stdout,
-  };
+    // This contxt declares the program can allocate to the heap
+    // and print to standard out, and nothing else
+    // (no network calls, no file system operations, etc.).
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
 
-  let grades = [Grade.Pass(91), Grade.Fail { score: 48, needed: 60 }];
-  let missed = grades.map(ctx, fn(g) => g.shortfall()).sum();
-  let _ = io.println(ctx, "points short: ${missed}").ignore();
-  .Ok(())
+    let grades = [Grade.Pass(91), Grade.Fail { score: 48, needed: 60 }];
+    let missed = grades.map(ctx, fn(g) => g.shortfall()).sum();
+    let _ = io.println(ctx, "points short: ${missed}").ignore();
+    .Ok(())
 }
 ```
 

@@ -11,11 +11,13 @@ from "//tools/report/flags.buri" import { parseFlags };
 from "//tools/report" import { render };
 
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc:  host.alloc,
-    Stdout: host.stdout,
-    Env:    host.env,
-  };
-  let flags = parseFlags(env.args(ctx));
-  io.println(ctx, "${render(ctx, 1905)} ${flags.title}").mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Env: host.env,
+    };
+    let flags = parseFlags(env.args(ctx));
+    io
+        .println(ctx, "${render(ctx, 1905)} ${flags.title}")
+        .mapErr(fn(_e) => "could not write to standard output")
 }

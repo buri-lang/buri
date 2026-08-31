@@ -1,0 +1,24 @@
+error: expected an identifier, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_9c08de/lib.buri:13:5
+   |
+13 |     ? seal: Str,
+   |     ^
+   |
+   = expected: an identifier
+   = actual: `?`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is no type `Ledger` [unresolved-type]
+  --> lib/recovery_insert_stray_brace_cents_9c08de/lib.buri:16:33
+   |
+16 | export fn ledger(entries: I64): Ledger {
+   |                                 ^^^^^^
+   |
+   = did you mean `Order`?
+   = fix: declare it, import it, or correct the spelling
+error: this is not a struct or an enum variant [not-a-struct-literal-head]
+  --> lib/recovery_insert_stray_brace_cents_9c08de/lib.buri:17:5
+   |
+17 |     Ledger { entries, seal: "" }
+   |     ^^^^^^
+   |
+   = fix: name a struct, or an enum variant that has fields

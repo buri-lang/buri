@@ -8,6 +8,9 @@ from "core/io" import * as io;
 from "//tools/report" import { render };
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  io.println(ctx, render(0)).mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io.println(ctx, render(0)).mapErr(fn(_e) => "could not write to standard output")
 }

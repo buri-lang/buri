@@ -1,7 +1,7 @@
 warning: nothing reaches `toDollars` [dead-code]
-  --> lib/money/cents.buri:10:11
+  --> lib/money/cents.buri:11:11
    |
-10 | export fn toDollars(c: Cents): I64 { c.0 / 100 }
+11 | export fn toDollars(c: Cents): I64 {
    |           ^^^^^^^^^
    |
    = production code is reached from a library's surface or from a binary's `main`, and a declaration nothing reaches is a declaration nothing runs

@@ -3,7 +3,9 @@
 // are aliases written in terms of other names in this module.
 
 export type Meters = F64;
+
 export type Trip = [Meters];
+
 export type Raw = F64;
 
 /// A struct this module keeps to itself, published only through an alias.
@@ -14,13 +16,13 @@ struct Reading(F64);
 export type Sample = Reading;
 
 export fn widen(r: Raw): Meters {
-  r
+    r
 }
 
 export fn sample(m: Meters): Sample {
-  Reading(m)
+    Reading(m)
 }
 
 export fn depth(s: Sample): Meters {
-  s.0
+    s.0
 }

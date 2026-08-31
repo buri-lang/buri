@@ -1,0 +1,34 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_swap_adjacent_brace_cents_4f10b6/lib.buri:21:7
+   |
+21 |     { Entry cents, label: "" }
+   |       ^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: `Entry` is a type, not a value [type-not-a-value]
+  --> lib/recovery_swap_adjacent_brace_cents_4f10b6/lib.buri:21:7
+   |
+21 |     { Entry cents, label: "" }
+   |       ^^^^^
+   |
+   = fix: construct one, as in `Point { x: 1, y: 2 }`, or name a value
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_swap_adjacent_brace_cents_4f10b6/lib.buri:21:12
+   |
+21 |     { Entry cents, label: "" }
+   |            ^
+   |
+   = fix: write `;` here
+error: this block is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_cents_4f10b6/lib.buri:21:18
+   |
+21 |     { Entry cents, label: "" }
+   |                  ^
+   |
+  --> lib/recovery_swap_adjacent_brace_cents_4f10b6/lib.buri:21:5
+   |
+21 |     { Entry cents, label: "" }
+   |     ^ opened here
+   |
+   = fix: write `}` here

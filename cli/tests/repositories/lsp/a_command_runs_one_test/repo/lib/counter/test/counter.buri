@@ -1,12 +1,12 @@
-from "//lib/counter" import { Tally, counter, twice };
 from "core/testing/assert" import * as assert;
+from "//lib/counter" import { counter, Tally, twice };
 
 test "counter reads the total" {
-  let tally = Tally { total: 1 };
-  assert.eq(counter(tally), 1);
+    let tally = Tally { total: 1 };
+    assert.eq(counter(tally), 1);
 }
 
 test "twice is two of them" {
-  let tally = Tally { total: 3 };
-  assert.eq(twice(tally), 6);
+    let tally = Tally { total: 3 };
+    assert.eq(twice(tally), 6);
 }

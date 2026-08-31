@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_cents_34fac0/lib.buri:11:1
+   |
+11 | export fn toDollars(c: Cents): I64 {
+   | ^^^^^^
+   |
+ --> lib/recovery_delete_closer_module_cents_34fac0/lib.buri:4:36
+  |
+4 | export fn fromCents(c: I64): Cents {
+  |                                    ^ opened here
+  |
+  = fix: write `}` here

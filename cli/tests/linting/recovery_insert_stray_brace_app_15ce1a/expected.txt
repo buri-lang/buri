@@ -1,0 +1,33 @@
+warning: bound `Alloc` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_insert_stray_brace_app_15ce1a/main.buri:15:16
+   |
+15 | fn announce<C: Alloc + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Alloc` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_insert_stray_brace_app_15ce1a/main.buri:22:13
+   |
+22 | fn shout<C: Alloc + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |             ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Clock` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_insert_stray_brace_app_15ce1a/main.buri:22:21
+   |
+22 | fn shout<C: Alloc + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                     ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+error: expected `;`, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_15ce1a/main.buri:53:40
+   |
+53 |     let _ = announce(ctx, label).mapErr@ (fn(_e) => {
+   |                                        ^
+   |
+   = expected: `;`
+   = actual: `@`
+   = fix: write `;` here

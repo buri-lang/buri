@@ -31,6 +31,6 @@ from "core/effect" import { Alloc, Fs };
 from "core/fs" import * as fs;
 
 export fn appendWal<C: Alloc + Fs>(ctx: C): Bool {
-  fs.appendBytes(ctx, "wal")
+    fs.appendBytes(ctx, "wal")
 }
 ```

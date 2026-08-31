@@ -1,11 +1,15 @@
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-
-from "//lib/shop" import { Item, listing, subtotal, defaultPrice };
+from "//lib/shop" import { defaultPrice, Item, listing, subtotal };
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let plain: Item = listing("plain", defaultPrice);
-  io.println(ctx, "total: ${subtotal([plain]).show(ctx)}").mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let plain: Item = listing("plain", defaultPrice);
+    io
+        .println(ctx, "total: ${subtotal([plain]).show(ctx)}")
+        .mapErr(fn(_e) => "could not write to standard output")
 }

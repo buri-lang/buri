@@ -1,0 +1,21 @@
+error: expected an expression, found `]` [unexpected-token]
+  --> main.buri:63:5
+   |
+63 |     ])
+   |     ^
+   |
+   = expected: an expression
+   = actual: `]`
+   = fix: write a value here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:65:1
+   |
+65 | 
+   | ^
+   |
+  --> main.buri:57:48
+   |
+57 | export fn themed(f: fn(Token) => Color): Theme {
+   |                                                ^ opened here
+   |
+   = fix: write `}` here

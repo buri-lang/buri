@@ -9,20 +9,27 @@ fix: pass a type that holds no capability, or drop the `{trait}` bound
 # from "core/effect" import { Alloc, Stdout };
 # from "core/host" import * as host;
 
-struct Holder<C> { export inner: C }
+struct Holder<C> {
+    export inner: C,
+}
 
 impl<C> Eq for Holder<C> {
-  fn eq(self, other: Holder<C>): Bool { true }
+    fn eq(self, other: Holder<C>): Bool {
+        true
+    }
 }
 
 fn hide<T: Eq>(x: T): fn() => T {
-  fn() => x
+    fn() => x
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let smuggler = hide(Holder { inner: ctx });
-  let _ = smuggler().inner.println("laundered through Eq");
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let smuggler = hide(Holder { inner: ctx });
+    let _ = smuggler().inner.println("laundered through Eq");
+    .Ok(())
 }
 ```

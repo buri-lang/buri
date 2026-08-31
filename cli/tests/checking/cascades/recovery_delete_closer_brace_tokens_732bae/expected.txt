@@ -1,0 +1,36 @@
+error: this `match` does not cover `.Accent` [match-not-exhaustive]
+  --> main.buri:38:9
+   |
+38 |         match (self) {
+   |         ^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Accent`, or a `_` arm for everything left
+error: `token` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> main.buri:41:22
+   |
+41 |             .Edge => style.token("kit", "edge",
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
+error: `.Accent` needs a known expected type [unannotated-variant]
+  --> main.buri:42:13
+   |
+42 |             .Accent => style.token("kit", "accent"),
+   |             ^^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.Accent(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:42:21
+   |
+42 |             .Accent => style.token("kit", "accent"),
+   |                     ^^
+   |
+  --> main.buri:41:33
+   |
+41 |             .Edge => style.token("kit", "edge",
+   |                                 ^ opened here
+   |
+   = fix: write `)` here

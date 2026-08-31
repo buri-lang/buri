@@ -24,6 +24,6 @@ put there.
 
 ```buri fail code=unresolved-name
 fn twice(n: Int): Int {
-  duoble(n)
+    duoble(n)
 }
 ```

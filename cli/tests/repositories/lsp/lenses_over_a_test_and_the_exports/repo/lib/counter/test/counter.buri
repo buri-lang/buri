@@ -1,12 +1,12 @@
-from "//lib/counter" import { Tally, counter };
 from "core/testing/assert" import * as assert;
+from "//lib/counter" import { counter, Tally };
 
 test "counter reads the total" {
-  let tally = Tally { total: 1 };
-  assert.eq(counter(tally), 1);
+    let tally = Tally { total: 1 };
+    assert.eq(counter(tally), 1);
 }
 
 test "a tally of nothing is nothing" {
-  let tally = Tally { total: 0 };
-  assert.eq(counter(tally), 0);
+    let tally = Tally { total: 0 };
+    assert.eq(counter(tally), 0);
 }

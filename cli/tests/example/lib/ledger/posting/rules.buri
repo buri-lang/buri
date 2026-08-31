@@ -4,17 +4,18 @@
 // between them, because a subdirectory is not a boundary.
 
 from "core/effect" import { Alloc };
-
 from "//lib/ledger/entry.buri" import { Entry };
 
 export enum Rule {
-  DropZero,
-  MemoPrefix { prefix: Str },
+    DropZero,
+    MemoPrefix { prefix: Str },
 }
 
 export fn apply<C: Alloc>(ctx: C, entries: [Entry], rule: Rule): [Entry] {
-  match (rule) {
-    .DropZero => entries.filter(ctx, fn(e) => !e.amount.isZero()),
-    .MemoPrefix { prefix } => entries.filter(ctx, fn(e) => e.memo.startsWith(prefix)),
-  }
+    match (rule) {
+        .DropZero => entries.filter(ctx, fn(e) => !e.amount.isZero()),
+        .MemoPrefix { prefix } => {
+            entries.filter(ctx, fn(e) => e.memo.startsWith(prefix))
+        },
+    }
 }

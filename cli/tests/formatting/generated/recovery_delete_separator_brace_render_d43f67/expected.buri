@@ -1,0 +1,28 @@
+// Tests for the library half of this package. `//tools/report` is the library,
+// so this suite sees lib.buri's surface.
+//
+// The ledger fixture comes from //lib/ledger's testing surface — a real
+// library, declared in `test.dependencies`, that no production target can
+// import because its path contains a `testing` segment.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/ledger/testing" import { oneOff, sample };
+from "//tools/report" import { render };
+
+test "the terse report is one line" {
+    let ctx = context {
+        Alloc: alloc(),
+    }
+    assert.eq(render(ctx, oneOff(), false), "\ntotal $4.50");
+}
+
+test "verbose lists every entry" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let out = render(ctx, sample(), true);
+    assert.isTrue(out.contains("coffee"));
+    assert.isTrue(out.contains("books"));
+}

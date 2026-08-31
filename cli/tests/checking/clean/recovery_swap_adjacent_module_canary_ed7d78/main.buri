@@ -9,10 +9,10 @@
 from "core/testing/assert" import * as assert;
 
 "the canary holds" test {
-  assert.eq(6 * 7, 42);   // CANARY_42
+    assert.eq(6 * 7, 42); // CANARY_42
 }
 
 test "the canary holds under a context" {
-  let doubled = [1, 2, 3].fold(fn(acc, x) => acc + x, 0);
-  assert.eq(doubled, 6);
+    let doubled = [1, 2, 3].fold(fn(acc, x) => acc + x, 0);
+    assert.eq(doubled, 6);
 }

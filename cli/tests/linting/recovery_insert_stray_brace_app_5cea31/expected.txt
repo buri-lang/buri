@@ -1,0 +1,38 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_insert_stray_brace_app_5cea31/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_brace_app_5cea31/main.buri:19:5
+   |
+19 |     io.println(ctx, banner())extra .mapErr(fn(_e) => "could not write to standard output")
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: consume it and bind what is left: `let _ = ....ignore();` — or `?` to propagate, `match` to handle both cases
+error: this statement has type `Result<(), IoError>`, not `()` [statement-not-unit]
+  --> lib/recovery_insert_stray_brace_app_5cea31/main.buri:19:5
+   |
+19 |     io.println(ctx, banner())extra .mapErr(fn(_e) => "could not write to standard output")
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_brace_app_5cea31/main.buri:19:30
+   |
+19 |     io.println(ctx, banner())extra .mapErr(fn(_e) => "could not write to standard output")
+   |                              ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_5cea31/main.buri:19:30
+   |
+19 |     io.println(ctx, banner())extra .mapErr(fn(_e) => "could not write to standard output")
+   |                              ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -12,11 +12,16 @@ names the ones it needs as bounds on its context parameter:
 
 ```buri sig role=platform
 # from "core/effect" import { Alloc, IoError };
+
 # struct User(Int);
-# enum LoadError { NotFound }
+
+# enum LoadError {
+#     NotFound,
+# }
+
 effect Fs {
-  fn readFile(self, path: Str): Result<Str, IoError>;
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
+    fn readFile(self, path: Str): Result<Str, IoError>;
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
 }
 
 fn loadUser<C: Alloc + Fs>(ctx: C, id: Str): Result<User, LoadError>;

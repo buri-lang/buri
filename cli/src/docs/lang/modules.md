@@ -11,10 +11,10 @@ the syntax is here.
 The module path comes **first**, before the specifier list:
 
 ```buri
-from "core/list" import { map, filter };
-from "core/list" import { map as listMap };
-from "core/list" import * as list;
 from "core/effect" import { Alloc, Fs, Stdout };
+from "core/list" import * as list;
+from "core/list" import { filter, map };
+from "core/list" import { map as listMap };
 ```
 
 The ordering is chosen for tooling rather than for prose: by the time you open
@@ -124,16 +124,22 @@ collision. Importing a type brings its methods with it.
 A declaration is module-private unless prefixed with `export`.
 
 ```buri
-fn helper(x: Int): Int { x * 2 }           // private
-export fn double(x: Int): Int { helper(x) } // public
+fn helper(x: Int): Int {
+    x * 2
+} // private
+
+export fn double(x: Int): Int {
+    helper(x)
+} // public
 ```
 
 Struct fields carry their own `export`, so a struct's name and its
 representation are exported separately:
 
 ```buri
-export struct UserId(Str);          // name public, contents private
-export struct Meters(export F64);   // both public
+export struct UserId(Str); // name public, contents private
+
+export struct Meters(export F64); // both public
 ```
 
 A struct with any unexported field cannot be constructed, destructured, or
@@ -157,6 +163,7 @@ A module may export a name it imported, in one declaration that mirrors
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 from "//lib/money/cents.buri" export { Cents, fromCents };
+
 from "//lib/money/cents.buri" export { add as addMoney };
 ```
 

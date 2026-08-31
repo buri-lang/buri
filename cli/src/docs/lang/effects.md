@@ -8,17 +8,17 @@ methods are the operations it grants:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 // core/effect
 export effect Alloc {
-  fn allocate(self, bytes: Int): Region;
+    fn allocate(self, bytes: Int): Region;
 }
 
 export effect Stdout {
-  fn print(self, text: Template): ();
-  fn println(self, text: Template): ();
+    fn print(self, text: Template): ();
+    fn println(self, text: Template): ();
 }
 
 export effect Fs {
-  fn readFile(self, path: Str): Result<Str, IoError>;
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
+    fn readFile(self, path: Str): Result<Str, IoError>;
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
 }
 
 // An effect's signature may name types, and those types are declared here
@@ -26,25 +26,36 @@ export effect Fs {
 // the library that wraps the effect, because `core/effect` cannot import a
 // module that imports it. The wrapper re-exports them, and that is where a
 // program meets them.
-export enum Method { Get, Head, Post, Put, Patch, Delete, Options }
+export enum Method {
+    Get,
+    Head,
+    Post,
+    Put,
+    Patch,
+    Delete,
+    Options,
+}
 
-export struct Header { export name: Str, export value: Str }
+export struct Header {
+    export name: Str,
+    export value: Str,
+}
 
 export struct Request {
-  export method: Method,
-  export url: Str,
-  export headers: [Header],
-  export body: [U8],
+    export method: Method,
+    export url: Str,
+    export headers: [Header],
+    export body: [U8],
 }
 
 export struct Response {
-  export status: Int,
-  export headers: [Header],
-  export body: [U8],
+    export status: Int,
+    export headers: [Header],
+    export body: [U8],
 }
 
 export effect Net {
-  fn fetch(self, request: Request): Result<Response, NetError>;
+    fn fetch(self, request: Request): Result<Response, NetError>;
 }
 ```
 
@@ -96,9 +107,10 @@ A function names the effects it needs as **bounds** on its context parameter:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs };
+
 fn loadConfig<C: Alloc + Fs>(ctx: C, path: Str): Result<Config, ConfigError> {
-  let text = fs.readText(ctx, path)?;
-  parse(ctx, text)
+    let text = fs.readText(ctx, path)?;
+    parse(ctx, text)
 }
 ```
 
@@ -404,14 +416,19 @@ different values could arrive there, and the declaration says which:
 
 ```buri ignore why="not yet converted to a compiled example: it declares an effect, which only a platform module may do"
 export effect Tasks {
-  // `ctx` is the caller's whole context, and the step is handed it.
-  fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
+    // `ctx` is the caller's whole context, and the step is handed it.
+    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
 }
 
 export effect Listen {
-  // `Self` is the acceptor — the type implementing `Listen` — and the handler
-  // is handed that.
-  fn listen(self, address: Str, port: Int, onRequest: fn(Self, Request) => Response): Result<(), NetError>;
+    // `Self` is the acceptor — the type implementing `Listen` — and the handler
+    // is handed that.
+    fn listen(
+        self,
+        address: Str,
+        port: Int,
+        onRequest: fn(Self, Request) => Response,
+    ): Result<(), NetError>;
 }
 ```
 
@@ -474,16 +491,21 @@ same value and cannot use, or pass on, anything its bounds do not name:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, Stdout };
+
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
-  let _ = io.println(ctx, msg).ignore();
-  // fs.readText(ctx, "/etc/passwd")     // ERROR: C is not bounded by Fs
-  // dangerous(ctx)                      // ERROR: dangerous needs C: Fs
+    let _ = io.println(ctx, msg).ignore();
+    // fs.readText(ctx, "/etc/passwd")     // ERROR: C is not bounded by Fs
+    // dangerous(ctx)                      // ERROR: dangerous needs C: Fs
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
-  let _ = logOnly(ctx, "starting");      // same value, confined by its bound
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Fs: host.fs,
+    };
+    let _ = logOnly(ctx, "starting"); // same value, confined by its bound
+    .Ok(())
 }
 ```
 
@@ -496,22 +518,27 @@ the callee holds a value that genuinely lacks the rest:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, IoError, Region };
+
 // module: safe/readonly
 export struct ReadOnly<C>(C);
 
-export fn readOnly<C>(ctx: C): ReadOnly<C> { ReadOnly(ctx) }
+export fn readOnly<C>(ctx: C): ReadOnly<C> {
+    ReadOnly(ctx)
+}
 
 // Forwards Alloc...
 impl<C: Alloc> Alloc for ReadOnly<C> {
-  fn allocate(self, bytes: Int): Region { self.0.allocate(bytes) }
+    fn allocate(self, bytes: Int): Region {
+        self.0.allocate(bytes)
+    }
 }
 
 // ...and reading, but there is deliberately no `writeFile`, so ReadOnly<C>
 // does not satisfy Fs no matter what C is.
 impl<C: Fs> ReadOnly<C> {
-  export fn readFile(self, path: Str): Result<Str, IoError> {
-    self.0.readFile(path)
-  }
+    export fn readFile(self, path: Str): Result<Str, IoError> {
+        self.0.readFile(path)
+    }
 }
 ```
 
@@ -540,18 +567,22 @@ change, because there was never a global to stub.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, IoError };
-struct FakeFs { export files: [(Str, Str)] }
+
+struct FakeFs {
+    export files: [(Str, Str)],
+}
 
 impl Fs for FakeFs {
-  fn readFile(self, path: Str): Result<Str, IoError> {
-    match (self.files.find(fn(e) => e.0 == path)) {
-      .Some(entry) => .Ok(entry.1),
-      .None => .Err(.NotFound),
+    fn readFile(self, path: Str): Result<Str, IoError> {
+        match (self.files.find(fn(e) => e.0 == path)) {
+            .Some(entry) => .Ok(entry.1),
+            .None => .Err(.NotFound),
+        }
     }
-  }
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
-    .Err(.ReadOnly)
-  }
+
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
+        .Err(.ReadOnly)
+    }
 }
 
 // context { Alloc: testing.alloc(), Fs: FakeFs { files: [...] } }

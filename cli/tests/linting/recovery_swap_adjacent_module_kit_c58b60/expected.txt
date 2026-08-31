@@ -9,7 +9,7 @@ warning: list is imported but not used [unused-import]
 error: expected an identifier, found `export` [unexpected-token]
  --> lib/recovery_swap_adjacent_module_kit_c58b60/lib.buri:6:4
   |
-6 | fn export one(): I64 { 1 }
+6 | fn export one(): I64 {
   |    ^^^^^^
   |
   = expected: an identifier
@@ -18,7 +18,7 @@ error: expected an identifier, found `export` [unexpected-token]
 error: expected a declaration, found `one` [unexpected-token]
  --> lib/recovery_swap_adjacent_module_kit_c58b60/lib.buri:6:11
   |
-6 | fn export one(): I64 { 1 }
+6 | fn export one(): I64 {
   |           ^^^
   |
   = expected: a declaration

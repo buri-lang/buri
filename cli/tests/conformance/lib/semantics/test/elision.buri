@@ -7,40 +7,43 @@
 // literal and a written one are the same value, by `Eq`, by `Show` and by
 // `Hash`.
 
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
 from "core/effect" import { Alloc };
-
-from "//lib/semantics" import { World, Holder, worldHere, Hidden, hidden, hiddenPrivate };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/semantics" import {
+    Hidden, hidden, hiddenPrivate, Holder, World, worldHere,
+};
 
 // -----------------------------------------------------------------------------
 // 1. What an omitted field is
 // -----------------------------------------------------------------------------
 
 test "every optional field may be left out at once" {
-  let world = World { hi: "hi" };
-  assert.isTrue(world.hello.isNone());
+    let world = World { hi: "hi" };
+    assert.isTrue(world.hello.isNone());
 }
 
 test "an omitted field is the same value as a written `.None`" {
-  assert.eq(
-    World { hi: "hi" },
-    World { hi: "hi", hello: .None, aliased: .None, nested: .None },
-  );
+    assert.eq(World { hi: "hi" }, World {
+        hi: "hi",
+        hello: .None,
+        aliased: .None,
+        nested: .None,
+    });
 }
 
 test "a written value is not disturbed by the omission of another" {
-  let world = World { hi: "hi", hello: .Some("there") };
-  assert.eq(world.hello, .Some("there"));
-  assert.isTrue(world.aliased.isNone());
+    let world = World { hi: "hi", hello: .Some("there") };
+    assert.eq(world.hello, .Some("there"));
+    assert.isTrue(world.aliased.isNone());
 }
 
 test "an omitted field is not equal to a written `.Some`" {
-  assert.notEq(World { hi: "hi" }, World { hi: "hi", hello: .Some("there") });
+    assert.notEq(World { hi: "hi" }, World { hi: "hi", hello: .Some("there") });
 }
 
 test "a required field of another type still decides equality" {
-  assert.notEq(World { hi: "hi" }, World { hi: "bye" });
+    assert.notEq(World { hi: "hi" }, World { hi: "bye" });
 }
 
 // -----------------------------------------------------------------------------
@@ -48,26 +51,26 @@ test "a required field of another type still decides equality" {
 // -----------------------------------------------------------------------------
 
 test "a field declared through an alias of `Option` may be left out" {
-  assert.isTrue(World { hi: "hi" }.aliased.isNone());
+    assert.isTrue(World { hi: "hi" }.aliased.isNone());
 }
 
 test "an alias field takes a written value like any other" {
-  assert.eq(World { hi: "hi", aliased: .Some("named") }.aliased, .Some("named"));
+    assert.eq(World { hi: "hi", aliased: .Some("named") }.aliased, .Some("named"));
 }
 
 test "an omitted `Option<Option<T>>` is the outer `.None`" {
-  match (World { hi: "hi" }.nested) {
-    .None => assert.isTrue(true),
-    .Some(_inner) => assert.isTrue(false),
-  }
+    match (World { hi: "hi" }.nested) {
+        .None => assert.isTrue(true),
+        .Some(_inner) => assert.isTrue(false),
+    }
 }
 
 test "the inner `.None` is still writable" {
-  let world = World { hi: "hi", nested: .Some(.None) };
-  match (world.nested) {
-    .None => assert.isTrue(false),
-    .Some(inner) => assert.isTrue(inner.isNone()),
-  }
+    let world = World { hi: "hi", nested: .Some(.None) };
+    match (world.nested) {
+        .None => assert.isTrue(false),
+        .Some(inner) => assert.isTrue(inner.isNone()),
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -75,32 +78,32 @@ test "the inner `.None` is still writable" {
 // -----------------------------------------------------------------------------
 
 test "shorthand and elision compose" {
-  let hi = "hi";
-  assert.eq(World { hi }, World { hi: "hi" });
+    let hi = "hi";
+    assert.eq(World { hi }, World { hi: "hi" });
 }
 
 test "a spread provides the fields the literal does not write" {
-  let base = World { hi: "hi", hello: .Some("there") };
-  assert.eq(World { ..base }, base);
+    let base = World { hi: "hi", hello: .Some("there") };
+    assert.eq(World { ..base }, base);
 }
 
 test "a spread keeps an optional field rather than resetting it" {
-  let base = World { hi: "hi", hello: .Some("there") };
-  assert.eq(World { ..base, hi: "bye" }.hello, .Some("there"));
+    let base = World { hi: "hi", hello: .Some("there") };
+    assert.eq(World { ..base, hi: "bye" }.hello, .Some("there"));
 }
 
 test "an update may overwrite an optional field with `.None`" {
-  let base = World { hi: "hi", hello: .Some("there") };
-  assert.isTrue(World { ..base, hello: .None }.hello.isNone());
+    let base = World { hi: "hi", hello: .Some("there") };
+    assert.isTrue(World { ..base, hello: .None }.hello.isNone());
 }
 
 test "elision inside the declaring module builds the same value" {
-  assert.eq(worldHere(), World { hi: "hi" });
+    assert.eq(worldHere(), World { hi: "hi" });
 }
 
 test "a private optional field is elided by the module that declares it" {
-  assert.isTrue(hiddenPrivate(hidden(7)).isNone());
-  assert.eq(hidden(7), hidden(7));
+    assert.isTrue(hiddenPrivate(hidden(7)).isNone());
+    assert.eq(hidden(7), hidden(7));
 }
 
 // -----------------------------------------------------------------------------
@@ -108,21 +111,21 @@ test "a private optional field is elided by the module that declares it" {
 // -----------------------------------------------------------------------------
 
 test "a field declared `Option<T>` may be left out at an instantiation" {
-  assert.isTrue(Holder { only: 1 }.slot.isNone());
+    assert.isTrue(Holder { only: 1 }.slot.isNone());
 }
 
 test "a field declared `Option<T>` takes a written value" {
-  assert.eq(Holder { only: 1, slot: .Some(2) }.slot, .Some(2));
+    assert.eq(Holder { only: 1, slot: .Some(2) }.slot, .Some(2));
 }
 
 test "the same declaration elides at a second instantiation" {
-  assert.eq(Holder { only: "a" }, Holder { only: "a", slot: .None });
+    assert.eq(Holder { only: "a" }, Holder { only: "a", slot: .None });
 }
 
 test "a field declared `T` is required even where `T` is an `Option`" {
-  let held: Holder<Option<Int>> = Holder { only: .Some(1) };
-  assert.eq(held.only, .Some(1));
-  assert.isTrue(held.slot.isNone());
+    let held: Holder<Option<Int>> = Holder { only: .Some(1) };
+    assert.eq(held.only, .Some(1));
+    assert.isTrue(held.slot.isNone());
 }
 
 // -----------------------------------------------------------------------------
@@ -130,29 +133,35 @@ test "a field declared `T` is required even where `T` is an `Option`" {
 // -----------------------------------------------------------------------------
 
 test "a derived `Show` reads the same either way" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(
-    World { hi: "hi" }.show(ctx),
-    World { hi: "hi", hello: .None, aliased: .None, nested: .None }.show(ctx),
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        World { hi: "hi" }.show(ctx),
+        World { hi: "hi", hello: .None, aliased: .None, nested: .None }.show(ctx),
+    );
 }
 
 test "a derived `Show` still distinguishes an omission from a value" {
-  let ctx = context { Alloc: alloc() };
-  assert.notEq(
-    World { hi: "hi" }.show(ctx),
-    World { hi: "hi", hello: .Some("there") }.show(ctx),
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.notEq(
+        World { hi: "hi" }.show(ctx),
+        World { hi: "hi", hello: .Some("there") }.show(ctx),
+    );
 }
 
 test "a derived `Hash` agrees with a derived `Eq`" {
-  assert.eq(
-    World { hi: "hi" }.hash(),
-    World { hi: "hi", hello: .None, aliased: .None, nested: .None }.hash(),
-  );
+    assert.eq(
+        World { hi: "hi" }.hash(),
+        World { hi: "hi", hello: .None, aliased: .None, nested: .None }.hash(),
+    );
 }
 
 test "a derived `Show` on a generic struct reads the same either way" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(Holder { only: 1 }.show(ctx), Holder { only: 1, slot: .None }.show(ctx));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(Holder { only: 1 }.show(ctx), Holder { only: 1, slot: .None }.show(ctx));
 }

@@ -1,0 +1,39 @@
+warning: `core/effect` is imported twice [duplicate-import]
+ --> lib/recovery_delete_closer_brace_app_c68f78/main.buri:9:6
+  |
+9 | from "core/effect" import { Stdout };
+  |      ^^^^^^^^^^^^^
+  |
+ --> lib/recovery_delete_closer_brace_app_c68f78/main.buri:8:6
+  |
+8 | from "core/effect" import { Alloc };
+  |      ^^^^^^^^^^^^^ first imported here
+  |
+  = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
+  = fix: merge the two into one import
+error: a `Result` may not be discarded [result-discarded]
+  --> lib/recovery_delete_closer_brace_app_c68f78/main.buri:19:5
+   |
+19 |     let _ = print(ctx, "half a line".mapErr(fn(_e) => {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
+error: `Str` has no method `mapErr` [no-such-method]
+  --> lib/recovery_delete_closer_brace_app_c68f78/main.buri:19:38
+   |
+19 |     let _ = print(ctx, "half a line".mapErr(fn(_e) => {
+   |                                      ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_c68f78/main.buri:21:8
+   |
+21 |     })?;
+   |        ^
+   |
+  --> lib/recovery_delete_closer_brace_app_c68f78/main.buri:19:18
+   |
+19 |     let _ = print(ctx, "half a line".mapErr(fn(_e) => {
+   |                  ^ opened here
+   |
+   = fix: write `)` here

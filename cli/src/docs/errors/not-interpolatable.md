@@ -6,9 +6,12 @@ fix: render it first, for instance with `.show(ctx)`
 ---
 
 ```buri fail code=not-interpolatable
-struct Point { export x: Int, export y: Int }
+struct Point {
+    export x: Int,
+    export y: Int,
+}
 
 fn go(p: Point): Str {
-  "the point is ${p}"
+    "the point is ${p}"
 }
 ```

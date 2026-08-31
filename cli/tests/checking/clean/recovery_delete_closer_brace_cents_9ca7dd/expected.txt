@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:56:5
+   |
+56 |     export fn parts(self): (I64, I64) {
+   |     ^^^^^^
+   |
+  --> main.buri:38:51
+   |
+38 |     export fn format<C: Alloc>(self, ctx: C): Str {
+   |                                                   ^ opened here
+   |
+   = fix: write `}` here

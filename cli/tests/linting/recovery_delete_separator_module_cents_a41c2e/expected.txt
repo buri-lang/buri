@@ -1,0 +1,7 @@
+error: a `struct` declaration ends with `;` [missing-terminator]
+ --> lib/recovery_delete_separator_module_cents_a41c2e/lib.buri:2:32
+  |
+2 | export struct Cents(export I64)
+  |                                ^
+  |
+  = fix: write `;` here

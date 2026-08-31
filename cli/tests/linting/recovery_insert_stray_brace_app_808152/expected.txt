@@ -17,23 +17,23 @@ error: expected a declaration, found `;` [unexpected-token]
   = actual: `;`
   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
 error: `Alloc` is not a declared effect [not-an-effect]
-  --> lib/recovery_insert_stray_brace_app_808152/main.buri:11:23
+  --> lib/recovery_insert_stray_brace_app_808152/main.buri:12:9
    |
-11 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-   |                       ^^^^^
+12 |         Alloc: host.alloc,
+   |         ^^^^^
    |
    = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Alloc` is not one
 error: `Stdout` is not a declared effect [not-an-effect]
-  --> lib/recovery_insert_stray_brace_app_808152/main.buri:11:42
+  --> lib/recovery_insert_stray_brace_app_808152/main.buri:13:9
    |
-11 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-   |                                          ^^^^^^
+13 |         Stdout: host.stdout,
+   |         ^^^^^^
    |
    = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Stdout` is not one
 error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
-  --> lib/recovery_insert_stray_brace_app_808152/main.buri:13:3
+  --> lib/recovery_insert_stray_brace_app_808152/main.buri:16:5
    |
-13 |   io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output")
-   |   ^^^^^^^^^^^^^^^^^^^^^^^
+16 |     io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output")
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Stdout`, or use a type that has one

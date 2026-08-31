@@ -3,14 +3,14 @@
 // testing surface is the same. Both of these are correct, and both are one
 // segment away from the refusal in `parse.buri`.
 
+from "core/testing/assert" import * as assert;
 from "//lib/money" import { fromCents, isSmall };
 from "//lib/money/testing" import { sample };
-from "core/testing/assert" import * as assert;
 
 test "a hundred cents is not small" {
-  assert.isFalse(isSmall(fromCents(100)));
+    assert.isFalse(isSmall(fromCents(100)));
 }
 
 test "the sample is not small either" {
-  assert.isFalse(isSmall(sample()));
+    assert.isFalse(isSmall(sample()));
 }

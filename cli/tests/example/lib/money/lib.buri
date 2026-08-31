@@ -5,5 +5,8 @@
 // by cents.buri so that parse.buri can use it, and is absent here, so it stops
 // at the library boundary: `c.toCents()` outside this library does not resolve.
 
-from "//lib/money/cents.buri" export { Cents, fromDollars, fromCents, add, isZero, format, parts };
-from "//lib/money/parse.buri" export { ParseError, parse };
+from "//lib/money/cents.buri" export {
+    add, Cents, format, fromCents, fromDollars, isZero, parts,
+};
+
+from "//lib/money/parse.buri" export { parse, ParseError };

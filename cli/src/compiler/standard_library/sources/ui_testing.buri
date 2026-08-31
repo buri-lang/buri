@@ -29,11 +29,15 @@ from "ui/theme" import { Theme };
 export struct Headless(I64);
 
 impl Ui for Headless {
-  fn signal<T>(self, initial: T): Int;
-  fn read<T>(self, id: Int): T;
-  fn write<T>(self, id: Int, value: T): ();
-  fn memo<T>(self, compute: fn(Scope) => T): Int;
-  fn watch(self, run: fn(Scope) => ()): ();
+    fn signal<T>(self, initial: T): Int;
+
+    fn read<T>(self, id: Int): T;
+
+    fn write<T>(self, id: Int, value: T): ();
+
+    fn memo<T>(self, compute: fn(Scope) => T): Int;
+
+    fn watch(self, run: fn(Scope) => ()): ();
 }
 
 /// A headless `Ui`.
@@ -44,7 +48,7 @@ export fn headless(): Headless;
 export struct Observer(I64);
 
 impl Watch for Observer {
-  fn read<T>(self, id: Int): T;
+    fn read<T>(self, id: Int): T;
 }
 
 /// A headless `Watch`.
@@ -89,46 +93,46 @@ export struct Rendered(I64);
 export fn render<C: Ui>(ctx: C, root: Node<C>): Rendered;
 
 impl Rendered {
-  /// The tree as markup: elements, their attributes, their styles and their
-  /// text, in order.
-  ///
-  /// The runtime's own bookkeeping — the markers it puts around a region that
-  /// can change — is left out, because it is not what a reader sees and not
-  /// what a test should be pinned to.
-  export fn markup(self): Str;
+    /// The tree as markup: elements, their attributes, their styles and their
+    /// text, in order.
+    ///
+    /// The runtime's own bookkeeping — the markers it puts around a region that
+    /// can change — is left out, because it is not what a reader sees and not
+    /// what a test should be pinned to.
+    export fn markup(self): Str;
 
-  /// Every run of text in the tree, in order, separated by a space.
-  export fn text(self): Str;
+    /// Every run of text in the tree, in order, separated by a space.
+    export fn text(self): Str;
 
-  /// Presses the button whose label is `label`.
-  ///
-  /// Addressed by label rather than by position because that is what a reader
-  /// addresses it by, and because a test that says which button it meant does
-  /// not quietly start pressing another one. Aborts when no button carries
-  /// that label.
-  export fn press(self, label: Str): ();
+    /// Presses the button whose label is `label`.
+    ///
+    /// Addressed by label rather than by position because that is what a reader
+    /// addresses it by, and because a test that says which button it meant does
+    /// not quietly start pressing another one. Aborts when no button carries
+    /// that label.
+    export fn press(self, label: Str): ();
 
-  /// Types `value` into the field labelled `label`, as a reader replacing what
-  /// was there.
-  export fn fill(self, label: Str, value: Str): ();
+    /// Types `value` into the field labelled `label`, as a reader replacing what
+    /// was there.
+    export fn fill(self, label: Str, value: Str): ();
 
-  /// Flips the toggle labelled `label`.
-  export fn flip(self, label: Str): ();
+    /// Flips the toggle labelled `label`.
+    export fn flip(self, label: Str): ();
 
-  /// Submits the `index`th form, oldest first — what pressing Enter in one of
-  /// its fields does.
-  export fn submit(self, index: Int): ();
+    /// Submits the `index`th form, oldest first — what pressing Enter in one of
+    /// its fields does.
+    export fn submit(self, index: Int): ();
 
-  /// How many elements of this kind the tree holds. The name is the one
-  /// `markup` shows.
-  export fn count(self, name: Str): Int;
+    /// How many elements of this kind the tree holds. The name is the one
+    /// `markup` shows.
+    export fn count(self, name: Str): Int;
 
-  /// What the `index`th element of this kind is, as a number the runtime gives
-  /// an element when it creates it and never gives to another.
-  ///
-  /// This is how a test says that a keyed list *moved* a row rather than
-  /// rebuilding it: the identity survives a reorder and a rebuild changes it.
-  export fn identity(self, name: Str, index: Int): Int;
+    /// What the `index`th element of this kind is, as a number the runtime gives
+    /// an element when it creates it and never gives to another.
+    ///
+    /// This is how a test says that a keyed list *moved* a row rather than
+    /// rebuilding it: the identity survives a reorder and a rebuild changes it.
+    export fn identity(self, name: Str, index: Int): Int;
 }
 
 /// The stylesheet the compiler extracted for this artifact.
@@ -176,20 +180,20 @@ export struct Recorder(I64);
 export fn recorder(): Recorder;
 
 impl Recorder {
-  /// Appends `tag` to the tag log.
-  export fn record(self, tag: Str): ();
+    /// Appends `tag` to the tag log.
+    export fn record(self, tag: Str): ();
 
-  /// Every tag recorded so far, oldest first.
-  export fn recorded(self): [Str];
+    /// Every tag recorded so far, oldest first.
+    export fn recorded(self): [Str];
 
-  /// Appends `value` to the value log, and answers it.
-  ///
-  /// A second channel rather than `record("${value}")` because a computation
-  /// holds only a `Scope`: it cannot allocate, so it cannot render a number
-  /// into a string. It answers its argument so that it can be wrapped around
-  /// the expression being watched instead of sequenced before it.
-  export fn note(self, value: Int): Int;
+    /// Appends `value` to the value log, and answers it.
+    ///
+    /// A second channel rather than `record("${value}")` because a computation
+    /// holds only a `Scope`: it cannot allocate, so it cannot render a number
+    /// into a string. It answers its argument so that it can be wrapped around
+    /// the expression being watched instead of sequenced before it.
+    export fn note(self, value: Int): Int;
 
-  /// Every value noted so far, oldest first.
-  export fn noted(self): [Int];
+    /// Every value noted so far, oldest first.
+    export fn noted(self): [Int];
 }

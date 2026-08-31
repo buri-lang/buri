@@ -1,9 +1,0 @@
-error: expected a type, found `{` [unexpected-token]
-  --> main.buri:31:45
-   |
-31 |   export fn format<C: Alloc>(self, ctx: C): { Str
-   |                                             ^
-   |
-   = expected: a type
-   = actual: `{`
-   = fix: name a type here, as in `Int` or `[Str]`

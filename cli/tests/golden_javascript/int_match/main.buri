@@ -5,23 +5,28 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 fn roman(n: Int): Str {
-  match (n) {
-    1 => "I",
-    2 => "II",
-    3 => "III",
-    4 => "IV",
-    5 => "V",
-    6 => "VI",
-    7 => "VII",
-    8 => "VIII",
-    9 => "IX",
-    10 => "X",
-    _ => "?",
-  }
+    match (n) {
+        1 => "I",
+        2 => "II",
+        3 => "III",
+        4 => "IV",
+        5 => "V",
+        6 => "VI",
+        7 => "VII",
+        8 => "VIII",
+        9 => "IX",
+        10 => "X",
+        _ => "?",
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${roman(1)} ${roman(9)} ${roman(10)} ${roman(11)}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io
+        .println(ctx, "${roman(1)} ${roman(9)} ${roman(10)} ${roman(11)}")
+        .ignore();
+    .Ok(())
 }

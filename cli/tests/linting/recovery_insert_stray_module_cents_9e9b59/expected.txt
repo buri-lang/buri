@@ -33,9 +33,9 @@ error: `Alloc` is not a trait or effect [not-a-trait]
   = a bound names a declared trait; there are no where clauses
   = fix: name a declared trait or effect, or declare `Alloc` as one
 error: `C` does not satisfy `Alloc` [unsatisfied-bound]
- --> lib/recovery_insert_stray_module_cents_9e9b59/lib.buri:8:3
+ --> lib/recovery_insert_stray_module_cents_9e9b59/lib.buri:8:5
   |
-8 |   "some".concat(ctx, " cents")
-  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+8 |     "some".concat(ctx, " cents")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = fix: bound the type parameter with `Alloc`, or use a type that has one

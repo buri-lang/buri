@@ -23,7 +23,7 @@ possible crash, which is the property this language does not want.
 
 ```buri fail code=question-mark-mismatch
 fn unwrap(r: Result<Int, Str>): Int {
-  let n = r?;
-  n
+    let n = r?;
+    n
 }
 ```

@@ -1,0 +1,44 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_delete_closer_module_expected_9cd376/main.buri:17:5
+   |
+17 |     label.len()
+   |     ^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `I64`, not `()` [statement-not-unit]
+  --> lib/recovery_delete_closer_module_expected_9cd376/main.buri:17:5
+   |
+17 |     label.len()
+   |     ^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_closer_module_expected_9cd376/main.buri:17:16
+   |
+17 |     label.len()
+   |                ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `announce` [unexpected-token]
+  --> lib/recovery_delete_closer_module_expected_9cd376/main.buri:23:4
+   |
+23 | fn announce<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |    ^^^^^^^^
+   |
+   = expected: `(`
+   = actual: `announce`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_expected_9cd376/main.buri:54:1
+   |
+54 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_expected_9cd376/main.buri:16:37
+   |
+16 | fn width<C: Alloc>(label: Str): Int {
+   |                                     ^ opened here
+   |
+   = fix: write `}` here

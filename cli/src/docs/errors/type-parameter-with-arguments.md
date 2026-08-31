@@ -5,5 +5,7 @@ fix: drop the arguments; a type parameter stands for one type already
 ---
 
 ```buri fail code=type-parameter-with-arguments
-fn first<T>(xs: T<Int>): Int { 0 }
+fn first<T>(xs: T<Int>): Int {
+    0
+}
 ```

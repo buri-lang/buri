@@ -7,6 +7,6 @@ fix: index an array; for a tuple, write `.0`
 
 ```buri fail code=not-indexable
 fn read(n: Int): Option<Int> {
-  n[0]
+    n[0]
 }
 ```

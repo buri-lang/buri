@@ -6,31 +6,44 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-enum Wrapped { Full(Int), Blank }
+enum Wrapped {
+    Full(Int),
+    Blank,
+}
 
 fn unwrap_(w: Wrapped, fallback: Int): Int {
-  match (w) {
-    .Full(v) => v,
-    .Blank => fallback,
-  }
+    match (w) {
+        .Full(v) => v,
+        .Blank => fallback,
+    }
 }
 
 fn firstField(pair: (Int, Str)): Int {
-  match (pair) {
-    (n, _) => n,
-  }
+    match (pair) {
+        (n, _) => n,
+    }
 }
 
 fn passthrough(o: Option<Int>): Int {
-  match (o) {
-    .Some(v) => v,
-    .None => 0,
-  }
+    match (o) {
+        .Some(v) => v,
+        .None => 0,
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${unwrap_(Wrapped.Full(7), 0)} ${unwrap_(Wrapped.Blank, 9)}").ignore();
-  let _ = io.println(ctx, "${firstField((3, "x"))} ${passthrough(.Some(5))} ${passthrough(.None)}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io
+        .println(ctx, "${unwrap_(Wrapped.Full(7), 0)} ${unwrap_(Wrapped.Blank, 9)}")
+        .ignore();
+    let _ = io
+        .println(
+            ctx,
+            "${firstField((3, "x"))} ${passthrough(.Some(5))} ${passthrough(.None)}",
+        )
+        .ignore();
+    .Ok(())
 }

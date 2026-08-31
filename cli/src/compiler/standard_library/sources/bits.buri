@@ -9,21 +9,30 @@
 /// undefined, but a shift count has no defensible answer at all, and the guard
 /// is a comparison the shift itself already needs.
 export fn shl(x: Int, n: Int): Int;
+
 export fn shr(x: Int, n: Int): Int;
 
 /// Arithmetic shift right: the sign bit is replicated.
 export fn sar(x: Int, n: Int): Int;
 
 export fn popCount(x: Int): Int;
+
 export fn leadingZeros(x: Int): Int;
+
 export fn trailingZeros(x: Int): Int;
 
 export fn rotateLeft(x: Int, n: Int): Int;
+
 export fn rotateRight(x: Int, n: Int): Int;
 
 export fn shlU8(x: U8, n: Int): U8;
+
 export fn shrU8(x: U8, n: Int): U8;
+
 export fn shlU32(x: U32, n: Int): U32;
+
 export fn shrU32(x: U32, n: Int): U32;
+
 export fn shlU64(x: U64, n: Int): U64;
+
 export fn shrU64(x: U64, n: Int): U64;

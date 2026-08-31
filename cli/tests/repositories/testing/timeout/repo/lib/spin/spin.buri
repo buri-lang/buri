@@ -2,4 +2,6 @@
 /// effect it can reach is one the runner supplied — so a loop with no exit is
 /// the only way a suite runs forever, and it is the thing `timeout_seconds`
 /// is for.
-export fn spin(n: I64): I64 { spin(n + 1) }
+export fn spin(n: I64): I64 {
+    spin(n + 1)
+}

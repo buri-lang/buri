@@ -1,0 +1,16 @@
+error: `if` requires an `else` branch [if-without-else]
+  --> main.buri:41:34
+   |
+41 |         let pad = if (rest < 10) { } "0" else { "" };
+   |                                  ^^^
+   |
+   = `if` is an expression, so both branches must produce a value of the same type
+   = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
+error: there is nothing named `pad` in scope [unresolved-name]
+  --> main.buri:42:39
+   |
+42 |         str.format(ctx, "\$${whole}.${pad}${rest}")
+   |                                       ^^^
+   |
+   = did you mean `Add`?
+   = fix: correct the spelling, or declare it

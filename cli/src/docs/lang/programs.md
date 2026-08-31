@@ -66,14 +66,16 @@ build file ([`cli/src/docs/build/testing.md`](./cli/src/docs/build/testing.md)).
 helpers are ordinary library code.
 
 ```buri repo=cli/tests/example role=test
-from "//lib/money" import { fromCents };
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
 from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { fromCents };
 
 test "pads the cents place" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(fromCents(1905).format(ctx), "\$19.05");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(fromCents(1905).format(ctx), "$19.05");
 }
 ```
 
@@ -145,10 +147,13 @@ The first four return `()`; the last three return a value, and are how a
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 test "reads the config it wrote" {
-  let ctx = context { Alloc: alloc(), Fs: memory() };
-  assert.ok(fs.writeText(ctx, "cfg", "port=8080"));   // returns (), so a statement
-  let text = assert.ok(fs.readText(ctx, "cfg"));      // returns Str, so a binding
-  assert.eq(text, "port=8080");
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: memory(),
+    };
+    assert.ok(fs.writeText(ctx, "cfg", "port=8080")); // returns (), so a statement
+    let text = assert.ok(fs.readText(ctx, "cfg")); // returns Str, so a binding
+    assert.eq(text, "port=8080");
 }
 ```
 
@@ -207,15 +212,16 @@ or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
+
 context Sandbox {
-  Alloc:  alloc(),
-  Stdout: stdout(),
-  Stderr: stderr(),
-  Fs:     fs(),
-  Net:    net(),
-  Clock:  clock(),
-  Rand:   rand(),
-  Env:    env(),
+    Alloc: alloc(),
+    Stdout: stdout(),
+    Stderr: stderr(),
+    Fs: fs(),
+    Net: net(),
+    Clock: clock(),
+    Rand: rand(),
+    Env: env(),
 }
 ```
 
@@ -230,15 +236,19 @@ context and lets the ones that follow replace them:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Fs };
+
 context Fixture {
-  ..Sandbox(),
-  Fs: fs().files([("config.toml", "port=8080")]),
+    ..Sandbox(),
+    Fs: fs().files([("config.toml", "port=8080")]),
 }
 
 test "rejects a port above 65535" {
-  let ctx = context { ..Fixture(), Fs: fs().files([("config.toml", "port=99999")]) };
-  let e = assert.err(loadConfig(ctx, "config.toml"));
-  assert.eq(e, ConfigError.PortOutOfRange);
+    let ctx = context {
+        ..Fixture(),
+        Fs: fs().files([("config.toml", "port=99999")]),
+    };
+    let e = assert.err(loadConfig(ctx, "config.toml"));
+    assert.eq(e, ConfigError.PortOutOfRange);
 }
 ```
 

@@ -43,8 +43,8 @@ run {
 # is `lib.buri`, and not something about the method itself.
 edit {
   file: "lib/money/lib.buri"
-  replace: "export { Cents, fromCents, format };"
-  with: "export { Cents, fromCents, format, toCents };"
+  replace: "export { Cents, format, fromCents };"
+  with: "export { Cents, format, fromCents, toCents };"
 }
 
 run {

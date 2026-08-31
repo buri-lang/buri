@@ -6,5 +6,5 @@ from "//lib/units/fathoms.buri" import { Fathoms };
 export type Depth = Fathoms;
 
 export fn deeper(d: Depth): Depth {
-  d
+    d
 }

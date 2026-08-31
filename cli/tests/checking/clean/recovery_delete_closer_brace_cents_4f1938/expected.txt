@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:63:5
+   |
+63 |     export fn toCents(self): I64 {
+   |     ^^^^^^
+   |
+  --> main.buri:56:39
+   |
+56 |     export fn parts(self): (I64, I64) {
+   |                                       ^ opened here
+   |
+   = fix: write `}` here

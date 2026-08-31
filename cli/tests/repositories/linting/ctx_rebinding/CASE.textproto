@@ -19,8 +19,8 @@ run {
 # the whole fix.
 edit {
   file: "cmd/app/main.buri"
-  replace: "  let ctx = \"not a context\";\n  ctx\n"
-  with: "  let description = \"not a context\";\n  description\n"
+  replace: "    let ctx = \"not a context\";\n    ctx\n"
+  with: "let description = \"not a context\";\n\ndescription\n"
 }
 
 run {

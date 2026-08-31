@@ -1,8 +1,8 @@
 from "//lib/money" import { Cents, fromCents };
-from "//lib/wire" import { Point, defaultPoint };
+from "//lib/wire" import { defaultPoint, Point };
 
 export fn total(): I64 {
-  let p: Point = defaultPoint();
-  let c: Cents = fromCents(1905);
-  c.0
+    let p: Point = defaultPoint();
+    let c: Cents = fromCents(1905);
+    c.0
 }

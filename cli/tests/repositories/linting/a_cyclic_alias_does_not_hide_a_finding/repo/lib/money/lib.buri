@@ -1,1 +1,1 @@
-from "//lib/money/cents.buri" export { Handle, describe, open };
+from "//lib/money/cents.buri" export { describe, Handle, open };

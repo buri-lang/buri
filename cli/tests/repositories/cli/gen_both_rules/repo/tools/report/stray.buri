@@ -1,2 +1,4 @@
 // Reached from nothing at all, to begin with.
-export fn footer(): Str { "end" }
+export fn footer(): Str {
+    "end"
+}

@@ -4,23 +4,36 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-fn identity<T>(x: T): T { x }
-
-fn firstOr<T>(xs: [T], fallback: T): T {
-  match (xs.first()) {
-    .Some(v) => v,
-    .None => fallback,
-  }
+fn identity<T>(x: T): T {
+    x
 }
 
-struct Boxed<T> { value: T }
+fn firstOr<T>(xs: [T], fallback: T): T {
+    match (xs.first()) {
+        .Some(v) => v,
+        .None => fallback,
+    }
+}
 
-fn unbox<T>(b: Boxed<T>): T { b.value }
+struct Boxed<T> {
+    value: T,
+}
+
+fn unbox<T>(b: Boxed<T>): T {
+    b.value
+}
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${identity(1)} ${identity("s")} ${identity(true)}").ignore();
-  let _ = io.println(ctx, "${firstOr([9, 8], 0)} ${firstOr([], "none")}").ignore();
-  let _ = io.println(ctx, "${unbox(Boxed { value: 5 })} ${unbox(Boxed { value: "b" })}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io
+        .println(ctx, "${identity(1)} ${identity("s")} ${identity(true)}")
+        .ignore();
+    let _ = io.println(ctx, "${firstOr([9, 8], 0)} ${firstOr([], "none")}").ignore();
+    let _ = io
+        .println(ctx, "${unbox(Boxed { value: 5 })} ${unbox(Boxed { value: "b" })}")
+        .ignore();
+    .Ok(())
 }

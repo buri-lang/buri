@@ -48,22 +48,23 @@
 //! the directory holding both.
 
 from "core/effect" import { Alloc, Fs, IoError };
+
 from "core/effect" export { IoError };
 
 export fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError> {
-  ctx.readFile(path)
+    ctx.readFile(path)
 }
 
 export fn writeText<C: Alloc + Fs>(ctx: C, path: Str, body: Str): Result<(), IoError> {
-  ctx.writeFile(path, body)
+    ctx.writeFile(path, body)
 }
 
 export fn exists<C: Fs>(ctx: C, path: Str): Bool {
-  ctx.fileExists(path)
+    ctx.fileExists(path)
 }
 
 export fn listDir<C: Alloc + Fs>(ctx: C, path: Str): Result<[Str], IoError> {
-  ctx.readDir(path)
+    ctx.readDir(path)
 }
 
 /// The file's octets, unchanged.
@@ -73,15 +74,19 @@ export fn listDir<C: Alloc + Fs>(ctx: C, path: Str): Result<[Str], IoError> {
 /// file holding a protobuf message or a log record wants, and `readText` would
 /// substitute U+FFFD into it.
 export fn readBytes<C: Alloc + Fs>(ctx: C, path: Str): Result<[U8], IoError> {
-  ctx.readFileBytes(path)
+    ctx.readFileBytes(path)
 }
 
 /// Replaces the file's contents with these octets, creating it when it is
 /// absent.
 ///
 /// Durable only after `sync`; see the module header.
-export fn writeBytes<C: Alloc + Fs>(ctx: C, path: Str, body: [U8]): Result<(), IoError> {
-  ctx.writeFileBytes(path, body)
+export fn writeBytes<C: Alloc + Fs>(
+    ctx: C,
+    path: Str,
+    body: [U8],
+): Result<(), IoError> {
+    ctx.writeFileBytes(path, body)
 }
 
 /// Adds these octets to the end of the file, creating it when it is absent.
@@ -94,7 +99,7 @@ export fn writeBytes<C: Alloc + Fs>(ctx: C, path: Str, body: [U8]): Result<(), I
 /// Durable only after `sync`, which is the whole reason a log has a commit
 /// point rather than a write.
 export fn append<C: Alloc + Fs>(ctx: C, path: Str, body: [U8]): Result<(), IoError> {
-  ctx.appendFile(path, body)
+    ctx.appendFile(path, body)
 }
 
 /// Moves `source` onto `destination`, replacing it if it is there.
@@ -109,7 +114,7 @@ export fn append<C: Alloc + Fs>(ctx: C, path: Str, body: [U8]): Result<(), IoErr
 /// The rename is *visible* when this returns and *durable* after `sync` of the
 /// directory holding it.
 export fn rename<C: Fs>(ctx: C, source: Str, destination: Str): Result<(), IoError> {
-  ctx.renameFile(source, destination)
+    ctx.renameFile(source, destination)
 }
 
 /// Deletes the file.
@@ -123,7 +128,7 @@ export fn rename<C: Fs>(ctx: C, source: Str, destination: Str): Result<(), IoErr
 /// recursive, and a recursive delete behind a one-word name is a mistake that
 /// only happens once.
 export fn remove<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
-  ctx.removeFile(path)
+    ctx.removeFile(path)
 }
 
 /// Creates the directory, and every parent of it that is missing.
@@ -138,7 +143,7 @@ export fn remove<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
 /// violate. `remove` names a file the caller believes is there, and a path
 /// naming nothing means that belief was wrong.
 export fn makeDir<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
-  ctx.makeDir(path)
+    ctx.makeDir(path)
 }
 
 /// Waits until what was written to `path` is durable.
@@ -151,5 +156,5 @@ export fn makeDir<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
 /// The module header has the table of what each backend can promise — they are
 /// not all the same promise, and the macOS rows differ between the two.
 export fn sync<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
-  ctx.syncFile(path)
+    ctx.syncFile(path)
 }

@@ -1,0 +1,16 @@
+error: expected `=`, found `context` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_b4031a/main.buri:11:13
+   |
+11 |     let ctx context = {
+   |             ^^^^^^^
+   |
+   = expected: `=`
+   = actual: `context`
+   = fix: write `=` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_b4031a/main.buri:16:16
+   |
+16 |     io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output")
+   |                ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

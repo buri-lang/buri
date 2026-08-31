@@ -4,8 +4,8 @@
 // assert on it, which the second test does.
 
 from "core/effect" import { Alloc, Stdout };
-from "core/testing/assert" import * as assert;
 from "core/host/testing" import { alloc, stdout };
+from "core/testing/assert" import * as assert;
 from "//lib/noisy" import { announce };
 
 test "what a failing test printed is not in its report" {

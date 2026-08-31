@@ -22,10 +22,13 @@ it does not want that.
 ## A program that provokes it
 
 ```buri fail code=missing-field-pattern
-struct Point { export x: Int, export y: Int }
+struct Point {
+    export x: Int,
+    export y: Int,
+}
 
 fn xOf(p: Point): Int {
-  let Point { x } = p;
-  x
+    let Point { x } = p;
+    x
 }
 ```

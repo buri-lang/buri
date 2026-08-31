@@ -3,4 +3,6 @@
 
 from "//lib/money/cents.buri" import { Cents, fromCents };
 
-export fn sample(): Cents { fromCents(1234) }
+export fn sample(): Cents {
+    fromCents(1234)
+}

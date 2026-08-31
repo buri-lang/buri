@@ -1,1 +1,3 @@
-export fn label(): Str { "tool" }
+export fn label(): Str {
+    "tool"
+}

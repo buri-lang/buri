@@ -1,9 +1,0 @@
-error: expected an expression, found `,` [unexpected-token]
- --> lib/recovery_insert_stray_brace_cents_c8ef76/lib.buri:5:38
-  |
-5 | export fn fromCents(c: I64): Cents { , Cents(c) }
-  |                                      ^
-  |
-  = expected: an expression
-  = actual: `,`
-  = fix: write a value here

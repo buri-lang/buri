@@ -16,28 +16,28 @@
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 17, published 1, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didOpen"}}
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/one/b.buri"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 17, published 1, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 17, published 1, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didOpen"}}
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/two/b.buri"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 17, published 1, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 17, published 1, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didOpen"}}
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/three/b.buri"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 17, published 1, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 17, published 1, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didOpen"}}
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/four/b.buri"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 17, published 1, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 17, published 1, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didOpen"}}
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/one/lib.buri"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 17, published 1, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 17, published 1, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didOpen"}}
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/two/lib.buri"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 17, published 1, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 17, published 1, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didOpen"}}
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/three/lib.buri"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 17, published 1, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 17, published 1, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification textDocument/didOpen"}}
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/four/lib.buri"}}
-{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 17, published 1, bytes written N"}}
+{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification textDocument/didOpen","verbose":"answered in 0ms; analyses 1, lints 1, sessions opened 0, files hashed 17, published 1, bytes written N"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request shutdown (2)"}}
 {"id":2,"jsonrpc":"2.0","result":null}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request shutdown (2)","verbose":"answered in 0ms; analyses 0, lints 0, sessions opened 0, files hashed 0, published 0, bytes written N"}}

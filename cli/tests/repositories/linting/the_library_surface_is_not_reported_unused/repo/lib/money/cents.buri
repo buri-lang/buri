@@ -8,15 +8,15 @@
 // `export` beside them is what says so.
 
 export struct Entry {
-  export cents: I64,
-  export label: Str,
+    export cents: I64,
+    export label: Str,
 }
 
 export enum Tally {
-  Open,
-  Closed,
+    Open,
+    Closed,
 }
 
 export fn entry(cents: I64): Entry {
-  Entry { cents, label: "" }
+    Entry { cents, label: "" }
 }

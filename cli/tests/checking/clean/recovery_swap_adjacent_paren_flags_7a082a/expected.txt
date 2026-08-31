@@ -1,0 +1,9 @@
+error: expected an expression, found `==` [unexpected-token]
+ --> main.buri:7:40
+  |
+7 |     Flags { verbose: args.any(fn(a) => == a "--verbose") }
+  |                                        ^^
+  |
+  = expected: an expression
+  = actual: `==`
+  = fix: write a value here

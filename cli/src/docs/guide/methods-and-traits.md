@@ -4,9 +4,15 @@ A method is declared **inside an `impl` block for its type**, and takes `self`
 as its first parameter:
 
 ```buri
-# struct Square { height: Int, width: Int }
+# struct Square {
+#     height: Int,
+#     width: Int,
+# }
+
 impl Square {
-  export fn area(self): Int { self.height * self.width }
+    export fn area(self): Int {
+        self.height * self.width
+    }
 }
 ```
 
@@ -29,18 +35,25 @@ only where an `impl` or `derive` says so, never by accident of shape:
 `Ord` is one such interface, declared in the prelude as:
 
 ```buri sig
-trait Ord { fn compare(self, other: Self): Order; }
+trait Ord {
+    fn compare(self, other: Self): Order;
+}
 ```
 
 and a type takes it on in one of two ways:
 
 ```buri
 # struct Version(Int);
-# struct Playlist(Int);
-impl Ord for Version {               // supplies the methods, checked against the trait
-  fn compare(self, other: Version): Order { self.0.compare(other.0) }
+
+# derive Eq, Ord, Show for Playlist; // generates them structurally
+struct Playlist(Int);
+
+impl Ord for Version {
+    // supplies the methods, checked against the trait
+    fn compare(self, other: Version): Order {
+        self.0.compare(other.0)
+    }
 }
-derive Eq, Ord, Show for Playlist;   // generates them structurally
 ```
 
 The same keyword covers both jobs: `impl Type { ... }` declares what the type
@@ -59,13 +72,13 @@ system.
 Operators are trait methods, which is what makes newtypes usable:
 
 ```buri
-struct Meters(F64);
 derive Add, Sub, Ord, Show for Meters;
+struct Meters(F64);
 
 # fn demo(): Meters {
-let total = Meters(1.5) + Meters(2.0);   // Meters
-let bad   = Meters(1.5) + 2.0;           // ERROR: expected `Meters`, found `Float`
-# total
+    let total = Meters(1.5) + Meters(2.0); // Meters
+    let bad = Meters(1.5) + 2.0; // ERROR: expected `Meters`, found `Float`
+#     total
 # }
 ```
 

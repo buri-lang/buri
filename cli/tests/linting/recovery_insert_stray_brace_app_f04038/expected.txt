@@ -1,0 +1,16 @@
+error: expected `=`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_f04038/main.buri:19:13
+   |
+19 |     let ctx , = "not a context";
+   |             ^
+   |
+   = expected: `=`
+   = actual: `,`
+   = fix: write `=` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_f04038/main.buri:20:5
+   |
+20 |     ctx
+   |     ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

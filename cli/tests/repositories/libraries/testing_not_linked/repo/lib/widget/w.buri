@@ -2,4 +2,6 @@
 // a positive control: a string that *is* linked, in the same repository, read
 // out of the same file.
 
-export fn widget(): Str { "WIDGET-PRODUCTION-MARKER" }
+export fn widget(): Str {
+    "WIDGET-PRODUCTION-MARKER"
+}

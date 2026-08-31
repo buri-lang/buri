@@ -14,31 +14,40 @@ from "core/str" import * as str;
 /// and `--fix` takes the parameter out and the argument at the call site with
 /// it.
 fn width<C: Alloc>(ctx: C, label: Str): Int {
-  label.len()
+    label.len()
 }
 
 /// A callee that asks for a context of its own — printing is one, because an
 /// effect is performed by handing the context to a function. Calling it reads
 /// the parameter.
 fn announce<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {
-  io.println(ctx, "-- ${label}")
+    io.println(ctx, "-- ${label}")
 }
 
 /// A callee that asks for a context of its own. Handing it over is a use.
 fn banner<C: Alloc>(ctx: C, label: Str): Str {
-  str.format(ctx, "== ${label} ==")
+    str.format(ctx, "== ${label} ==")
 }
 
 /// A function-typed parameter. `render` takes the context, so passing it on is
 /// the third use, and the body names nothing else.
 fn rendered<C: Alloc>(ctx: C, render: fn(C, Str) => Str, label: Str): Str {
-  render(ctx, label)
+    render(ctx, label)
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let label = "ledger";
-  let _ = announce(ctx, label).mapErr(fn(_e) => "could not write to standard output")?;
-  let _ = io.println(ctx, "${banner(ctx, label)} is ${width(ctx, label)} wide").mapErr(fn(_e) => "could not write to standard output")?;
-  io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let label = "ledger";
+    let _ = announce(ctx, label).mapErr(fn(_e) => {
+        "could not write to standard output"
+    })?;
+    let _ = io
+        .println(ctx, "${banner(ctx, label)} is ${width(ctx, label)} wide")
+        .mapErr(fn(_e) => "could not write to standard output")?;
+    io
+        .println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label))
+        .mapErr(fn(_e) => "could not write to standard output")
 }

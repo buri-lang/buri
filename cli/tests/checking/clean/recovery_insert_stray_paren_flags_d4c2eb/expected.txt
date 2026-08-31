@@ -1,0 +1,9 @@
+error: expected an identifier, found `?` [unexpected-token]
+ --> main.buri:7:34
+  |
+7 |     Flags { verbose: args.any(fn(? a) => a == "--verbose") }
+  |                                  ^
+  |
+  = expected: an identifier
+  = actual: `?`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

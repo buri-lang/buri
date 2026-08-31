@@ -1,0 +1,30 @@
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_bef958/main.buri:15:17
+   |
+15 |     let total = extra 3 * 4;
+   |                 ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_brace_app_bef958/main.buri:15:22
+   |
+15 |     let total = extra 3 * 4;
+   |                      ^
+   |
+   = fix: write `;` here
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_brace_app_bef958/main.buri:15:23
+   |
+15 |     let total = extra 3 * 4;
+   |                       ^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `Int`, not `()` [statement-not-unit]
+  --> lib/recovery_insert_stray_brace_app_bef958/main.buri:15:23
+   |
+15 |     let total = extra 3 * 4;
+   |                       ^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`

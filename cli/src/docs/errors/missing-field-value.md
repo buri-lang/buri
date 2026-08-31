@@ -7,7 +7,13 @@ A field whose declared type is `Option<...>` is not required: leaving it out is
 writing `.None` for it, so only the other fields are named here.
 
 ```buri fail code=missing-field-value
-struct Point { export x: Int, export y: Int, export label: Option<Str> }
+struct Point {
+    export x: Int,
+    export y: Int,
+    export label: Option<Str>,
+}
 
-fn go(): Point { Point { x: 1 } }
+fn go(): Point {
+    Point { x: 1 }
+}
 ```

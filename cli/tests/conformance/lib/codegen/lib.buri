@@ -13,12 +13,11 @@
 // be a function the compiler saw as one.
 
 from "//lib/codegen/shapes.buri" export {
-  // closures built inside a tail loop
-  adders, addersEven, addersOdd, scalers, pairs,
-  // tail position under the short-circuiting operators
-  allBelow, countDownAnd, countDownOr, firstOr, countDownCoalesce, noneAt,
-  evenAnd, oddAnd,
-  // derived structural equality
-  Pair, Floaty, Nest, Holder, Deep, Listy, Hollow, Flat, Wide,
-  mkPair, mkFloaty, mkNest, mkHolder, mkDeep, mkListy, mkHollow, notANumber,
+    adders, addersEven, addersOdd, allBelow, countDownAnd, countDownCoalesce,
+    countDownOr, Deep, evenAnd, firstOr, Flat, Floaty, Holder, Hollow, Listy, mkDeep,
+    mkFloaty, mkHolder, mkHollow, mkListy, mkNest, mkPair, Nest, noneAt, notANumber,
+    oddAnd, Pair, pairs, scalers, Wide,
 };
+// closures built inside a tail loop
+// tail position under the short-circuiting operators
+// derived structural equality

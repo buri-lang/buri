@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_expected_6f3e05/main.buri:46:6
+   |
+46 |     }?;
+   |      ^
+   |
+  --> lib/recovery_delete_closer_brace_expected_6f3e05/main.buri:44:40
+   |
+44 |     let _ = announce(ctx, label).mapErr(fn(_e) => {
+   |                                        ^ opened here
+   |
+   = fix: write `)` here

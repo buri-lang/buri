@@ -3,13 +3,13 @@
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification initialized"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification initialized"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/hover (2)"}}
-{"id":2,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn listing(name: Str, price: I64): Item\n```\n\nAn item nobody has stocked yet."},"range":{"end":{"character":27,"line":22},"start":{"character":20,"line":22}}}}
+{"id":2,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nItem\n```"},"range":{"end":{"character":1,"line":24},"start":{"character":25,"line":21}}}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/hover (2)"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification $/setTrace"}}
-{"id":3,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn listing(name: Str, price: I64): Item\n```\n\nAn item nobody has stocked yet."},"range":{"end":{"character":27,"line":22},"start":{"character":20,"line":22}}}}
+{"id":3,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nItem\n```"},"range":{"end":{"character":1,"line":24},"start":{"character":25,"line":21}}}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification $/setTrace"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received request textDocument/hover (4)"}}
-{"id":4,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn listing(name: Str, price: I64): Item\n```\n\nAn item nobody has stocked yet."},"range":{"end":{"character":27,"line":22},"start":{"character":20,"line":22}}}}
+{"id":4,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nItem\n```"},"range":{"end":{"character":1,"line":24},"start":{"character":25,"line":21}}}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered request textDocument/hover (4)"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"received notification $/setTrace"}}
 {"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"answered notification $/setTrace"}}

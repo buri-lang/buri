@@ -15,8 +15,8 @@ run {
 # exemption's and not the file's.
 edit {
   file: "lib/money/lib.buri"
-  replace: "export { Ledgor, ledger, markupCents };"
-  with: "export { Ledger, ledger, markupCents };"
+  replace: "export { ledger, Ledgor, markupCents };"
+  with: "export { ledger, Ledger, markupCents };"
 }
 
 run {

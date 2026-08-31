@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_expected_e0d0bf/main.buri:56:84
+   |
+56 |     let _ = shout(ctx, label).mapErr(fn(_e) => "could not write to standard output"@ )?;
+   |                                                                                    ^
+   |
+  --> lib/recovery_insert_stray_brace_expected_e0d0bf/main.buri:56:37
+   |
+56 |     let _ = shout(ctx, label).mapErr(fn(_e) => "could not write to standard output"@ )?;
+   |                                     ^ opened here
+   |
+   = fix: write `)` here

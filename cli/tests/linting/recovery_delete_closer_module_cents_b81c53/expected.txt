@@ -1,9 +1,0 @@
-error: expected an identifier, found `enum` [unexpected-token]
-  --> lib/recovery_delete_closer_module_cents_b81c53/lib.buri:15:8
-   |
-15 | export enum Tally {
-   |        ^^^^
-   |
-   = expected: an identifier
-   = actual: `enum`
-   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

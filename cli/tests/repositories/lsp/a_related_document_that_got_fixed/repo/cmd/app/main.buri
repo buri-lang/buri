@@ -1,10 +1,14 @@
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-
 from "//lib/money" import { fromCents };
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  io.println(ctx, "cents: ${fromCents(450).show(ctx)}").mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io
+        .println(ctx, "cents: ${fromCents(450).show(ctx)}")
+        .mapErr(fn(_e) => "could not write to standard output")
 }

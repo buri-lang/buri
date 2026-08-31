@@ -6,13 +6,15 @@
 // fires fails it on the way out.
 
 from "core/effect" import { Tasks };
-from "core/testing/assert" import * as assert;
 from "core/host/testing" import { task, tasks };
+from "core/testing/assert" import * as assert;
 from "//lib/fan" import { labelled };
 
 test "everyOrder reaches the sixth order of three tasks" {
     let scheduler = tasks().everyOrder();
-    let ctx = context { Tasks: scheduler };
+    let ctx = context {
+        Tasks: scheduler,
+    };
     let _ = labelled(ctx, [1, 2, 3]);
     // True on the first five runs and false on the sixth, so a report with this
     // failure in it is the body having run six times — and one without it would
@@ -22,13 +24,17 @@ test "everyOrder reaches the sixth order of three tasks" {
 
 test "a fault ends the block at the task it names" {
     let scheduler = tasks().faults([task(1).fails("upstream went away")]);
-    let ctx = context { Tasks: scheduler };
+    let ctx = context {
+        Tasks: scheduler,
+    };
     // Task 0 runs; task 1 is the one the plan fails, and nothing after it starts.
     assert.eq(labelled(ctx, [1, 2, 3]), [1, 102, 203]);
 }
 
 test "a fault whose task is never reached fails the test" {
     let scheduler = tasks().faults([task(4).fails("never reached")]);
-    let ctx = context { Tasks: scheduler };
+    let ctx = context {
+        Tasks: scheduler,
+    };
     assert.eq(labelled(ctx, [1, 2]), [1, 102]);
 }

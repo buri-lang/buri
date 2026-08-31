@@ -7,22 +7,43 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 fn size(n: I64): Str {
-  if (n > 0) {
-    if (n > 10) {
-      if (n > 100) {
-        if (n > 1000) {
-          if (n > 10000) { "huge" } else { "large" }
-        } else { "big" }
-      } else { "medium" }
-    } else { "small" }
-  } else { "none" }
+    if (n > 0) {
+        if (n > 10) {
+            if (n > 100) {
+                if (n > 1000) {
+                    if (n > 10000) { "huge" } else { "large" }
+                } else {
+                    "big"
+                }
+            } else {
+                "medium"
+            }
+        } else {
+            "small"
+        }
+    } else {
+        "none"
+    }
 }
 
 fn ladder(n: I64): Str {
-  if (n == 0) { "zero" } else if (n == 1) { "one" } else if (n == 2) { "two" } else { "more" }
+    if (n == 0) {
+        "zero"
+    } else if (n == 1) {
+        "one"
+    } else if (n == 2) {
+        "two"
+    } else {
+        "more"
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  io.println(ctx, "${size(5000)} ${ladder(1)}").mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io
+        .println(ctx, "${size(5000)} ${ladder(1)}")
+        .mapErr(fn(_e) => "could not write to standard output")
 }

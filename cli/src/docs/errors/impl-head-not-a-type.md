@@ -5,9 +5,13 @@ fix: name a struct or enum this module declares
 ---
 
 ```buri fail code=impl-head-not-a-type
-trait Measurable { fn size(self): Int; }
+trait Measurable {
+    fn size(self): Int;
+}
 
 impl Measurable for [Int] {
-  fn size(self): Int { 0 }
+    fn size(self): Int {
+        0
+    }
 }
 ```

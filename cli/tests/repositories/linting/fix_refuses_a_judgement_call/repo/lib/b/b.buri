@@ -4,6 +4,10 @@
 
 from "//lib/a" import { callB };
 
-export fn fromB(): Str { "b" }
+export fn fromB(): Str {
+    "b"
+}
 
-export fn viaA(): Str { callB() }
+export fn viaA(): Str {
+    callB()
+}

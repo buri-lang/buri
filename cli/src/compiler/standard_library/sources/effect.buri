@@ -10,6 +10,7 @@
 //!     `self` or `ctx`;
 //!   - no type may implement both an effect and a trait.
 
+derive Eq, Show for Region;
 /// A region of memory. `Alloc` is a *resource* effect: it can fail and it
 /// costs something, but it is not observable, which is what makes a function
 /// bounded only by `Alloc` deterministic (SPEC 10.5).
@@ -46,7 +47,7 @@ export struct Region(export I64);
 /// counted, and it states which of these rows an allocator is actually told
 /// about today.
 export effect Alloc {
-  fn allocate(self, bytes: Int): Region;
+    fn allocate(self, bytes: Int): Region;
 }
 
 /// Writing to standard output.
@@ -73,74 +74,74 @@ export effect Alloc {
 /// surfaced only as `main`'s exit status, which is the one place a program can
 /// no longer act on it.
 export effect Stdout {
-  fn print(self, text: Template): Result<(), IoError>;
-  fn println(self, text: Template): Result<(), IoError>;
-  /// Octets, written through unchanged.
-  ///
-  /// `print` takes a `Template` and the platform encodes it; this takes bytes
-  /// and the platform encodes nothing. A program speaking a binary protocol
-  /// over a pipe needs the second, and could not get it by rendering the first.
-  fn writeBytes(self, b: [U8]): Result<(), IoError>;
+    fn print(self, text: Template): Result<(), IoError>;
+    fn println(self, text: Template): Result<(), IoError>;
+    /// Octets, written through unchanged.
+    ///
+    /// `print` takes a `Template` and the platform encodes it; this takes bytes
+    /// and the platform encodes nothing. A program speaking a binary protocol
+    /// over a pipe needs the second, and could not get it by rendering the first.
+    fn writeBytes(self, b: [U8]): Result<(), IoError>;
 }
 
 /// Writing to standard error, on `Stdout`'s terms — including the `Result`,
 /// and for its reasons. The two streams fail in the same ways.
 export effect Stderr {
-  fn eprint(self, text: Template): Result<(), IoError>;
-  fn eprintln(self, text: Template): Result<(), IoError>;
+    fn eprint(self, text: Template): Result<(), IoError>;
+    fn eprintln(self, text: Template): Result<(), IoError>;
 }
 
 export effect Stdin {
-  fn readLine(self): Option<Str>;
-  /// Exactly `n` octets, or fewer at end of input — `.None` when there were
-  /// none at all.
-  ///
-  /// This blocks until the octets arrive, which is what makes a
-  /// request/response protocol over a pipe expressible: `readLine` reads the
-  /// input to its end, so a program using it cannot answer before the other
-  /// side has finished speaking.
-  fn readBytes(self, n: Int): Option<[U8]>;
+    fn readLine(self): Option<Str>;
+    /// Exactly `n` octets, or fewer at end of input — `.None` when there were
+    /// none at all.
+    ///
+    /// This blocks until the octets arrive, which is what makes a
+    /// request/response protocol over a pipe expressible: `readLine` reads the
+    /// input to its end, so a program using it cannot answer before the other
+    /// side has finished speaking.
+    fn readBytes(self, n: Int): Option<[U8]>;
 }
 
 export effect Fs {
-  fn readFile(self, path: Str): Result<Str, IoError>;
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
-  fn fileExists(self, path: Str): Bool;
-  fn readDir(self, path: Str): Result<[Str], IoError>;
+    fn readFile(self, path: Str): Result<Str, IoError>;
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
+    fn fileExists(self, path: Str): Bool;
+    fn readDir(self, path: Str): Result<[Str], IoError>;
 
-  /// The octets, unchanged. `readFile` decodes UTF-8 and substitutes U+FFFD
-  /// for what is not; this is the operation for a file that is not text.
-  fn readFileBytes(self, path: Str): Result<[U8], IoError>;
-  /// Truncates an existing file, and creates one that is absent.
-  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
-  /// Appends the whole body, creating the file when it is absent.
-  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
-  /// Replaces `to`, atomically within one filesystem.
-  fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
-  fn removeFile(self, path: Str): Result<(), IoError>;
-  /// Parents included; an existing directory is `.Ok`.
-  fn makeDir(self, path: Str): Result<(), IoError>;
-  /// The commit point: what was written to `path` is durable when this
-  /// returns. `core/fs`'s `sync` states what each platform can promise.
-  fn syncFile(self, path: Str): Result<(), IoError>;
+    /// The octets, unchanged. `readFile` decodes UTF-8 and substitutes U+FFFD
+    /// for what is not; this is the operation for a file that is not text.
+    fn readFileBytes(self, path: Str): Result<[U8], IoError>;
+    /// Truncates an existing file, and creates one that is absent.
+    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
+    /// Appends the whole body, creating the file when it is absent.
+    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
+    /// Replaces `to`, atomically within one filesystem.
+    fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
+    fn removeFile(self, path: Str): Result<(), IoError>;
+    /// Parents included; an existing directory is `.Ok`.
+    fn makeDir(self, path: Str): Result<(), IoError>;
+    /// The commit point: what was written to `path` is durable when this
+    /// returns. `core/fs`'s `sync` states what each platform can promise.
+    fn syncFile(self, path: Str): Result<(), IoError>;
 }
 
 export effect Net {
-  /// One request, one response. `Request` and `Response` are declared below,
-  /// and they are the *same* two types `core/net/http` re-exports and a server
-  /// hands its handler — there is one shape for an HTTP message in this
-  /// language, not one per direction.
-  fn fetch(self, request: Request): Result<Response, NetError>;
+    /// One request, one response. `Request` and `Response` are declared below,
+    /// and they are the *same* two types `core/net/http` re-exports and a server
+    /// hands its handler — there is one shape for an HTTP message in this
+    /// language, not one per direction.
+    fn fetch(self, request: Request): Result<Response, NetError>;
 }
 
 export effect Clock {
-  fn nowMillis(self): I64;
-  fn sleepMillis(self, millis: Int): ();
+    fn nowMillis(self): I64;
+    fn sleepMillis(self, millis: Int): ();
 }
 
 export effect Rand {
-  fn nextInt(self, lo: Int, hi: Int): Int;
-  fn nextFloat(self): Float;
+    fn nextInt(self, lo: Int, hi: Int): Int;
+    fn nextFloat(self): Float;
 }
 
 /// The process's environment: its variables and the arguments it was started
@@ -154,12 +155,12 @@ export effect Rand {
 /// is exactly that — `env().arguments([...])` is how a test says what the
 /// arguments are. The reader is the one that gave way.
 export effect Env {
-  fn variable(self, name: Str): Option<Str>;
-  fn args(self): [Str];
+    fn variable(self, name: Str): Option<Str>;
+    fn args(self): [Str];
 }
 
 export effect Proc {
-  fn exitWith(self, code: Int): ();
+    fn exitWith(self, code: Int): ();
 }
 
 /// Running a piece of a program more than once at a time.
@@ -216,9 +217,9 @@ export effect Proc {
 /// answers the same list, because the order promise above is what the signature
 /// commits to and the overlap is not. `core/tasks` has the table.
 export effect Tasks {
-  /// Runs `f` over every item and answers the results in the items' order,
-  /// handing every step `ctx` — the caller's whole context.
-  fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
+    /// Runs `f` over every item and answers the results in the items' order,
+    /// handing every step `ctx` — the caller's whole context.
+    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
 }
 
 /// Accepting connections.
@@ -282,18 +283,18 @@ export effect Tasks {
 /// answers it lands with `core/net/server`; granting it is then one row of
 /// that table rather than a new name a program has to be rewritten to use.
 export effect Listen {
-  /// Accepts connections on `address:port`, answers each request with
-  /// `onRequest`, and returns when the process is asked to shut down.
-  ///
-  /// Answering `.Ok(())` for "the server stopped" rather than never returning
-  /// is what keeps `serve` an ordinary call: a `main` that runs a server ends
-  /// by falling off the end of a function, not by being killed.
-  fn listen(
-    self,
-    address: Str,
-    port: Int,
-    onRequest: fn(Self, Request) => Response,
-  ): Result<(), NetError>;
+    /// Accepts connections on `address:port`, answers each request with
+    /// `onRequest`, and returns when the process is asked to shut down.
+    ///
+    /// Answering `.Ok(())` for "the server stopped" rather than never returning
+    /// is what keeps `serve` an ordinary call: a `main` that runs a server ends
+    /// by falling off the end of a function, not by being killed.
+    fn listen(
+        self,
+        address: Str,
+        port: Int,
+        onRequest: fn(Self, Request) => Response,
+    ): Result<(), NetError>;
 }
 
 /// Writing to a connection somebody else accepted.
@@ -338,54 +339,57 @@ export effect Listen {
 /// **No platform grants this yet**, on `Listen`'s terms, with which it is
 /// granted and withheld together.
 export effect Sockets {
-  /// Enqueues a text frame. Never waits: the frame goes to the socket's
-  /// outbound buffer, and a socket whose buffer is full is closed rather than
-  /// its writer blocked.
-  fn socketSendText(self, socket: Int, text: Str): ();
-  /// Enqueues a binary frame, on `socketSendText`'s terms. Two operations
-  /// rather than one taking a payload, because they are two framings on the
-  /// wire and not one operation with a choice of argument.
-  fn socketSendBytes(self, socket: Int, body: [U8]): ();
-  /// Closes the socket, with the wire code and reason the far side is told.
-  /// A message sent afterwards is dropped rather than refused: the other end
-  /// may already be gone, so "did this arrive" was never answerable here.
-  fn socketClose(self, socket: Int, code: Int, reason: Str): ();
+    /// Enqueues a text frame. Never waits: the frame goes to the socket's
+    /// outbound buffer, and a socket whose buffer is full is closed rather than
+    /// its writer blocked.
+    fn socketSendText(self, socket: Int, text: Str): ();
+    /// Enqueues a binary frame, on `socketSendText`'s terms. Two operations
+    /// rather than one taking a payload, because they are two framings on the
+    /// wire and not one operation with a choice of argument.
+    fn socketSendBytes(self, socket: Int, body: [U8]): ();
+    /// Closes the socket, with the wire code and reason the far side is told.
+    /// A message sent afterwards is dropped rather than refused: the other end
+    /// may already be gone, so "did this arrive" was never answerable here.
+    fn socketClose(self, socket: Int, code: Int, reason: Str): ();
 }
 
+derive Eq, Show for IoError;
 /// Declared here rather than in `core/fs` so that the effect signature above
 /// can name it without `core/effect` depending on a module that depends on it.
 export enum IoError {
-  NotFound,
-  PermissionDenied,
-  ReadOnly,
-  AlreadyExists,
-  NotADirectory,
-  /// A rename whose two paths are on different filesystems — the one case
-  /// where the operation is a copy and therefore not atomic. Named rather than
-  /// folded into `Other` because a caller that wanted atomicity has to be able
-  /// to tell this apart from a failure it can retry.
-  CrossDevice,
-  Other(Str),
+    NotFound,
+    PermissionDenied,
+    ReadOnly,
+    AlreadyExists,
+    NotADirectory,
+    /// A rename whose two paths are on different filesystems — the one case
+    /// where the operation is a copy and therefore not atomic. Named rather than
+    /// folded into `Other` because a caller that wanted atomicity has to be able
+    /// to tell this apart from a failure it can retry.
+    CrossDevice,
+    Other(Str),
 }
 
+derive Eq, Show for NetError;
 export enum NetError {
-  Timeout,
-  Refused,
-  BadUrl(Str),
-  Transport(Str),
-  /// The request was called off before an answer arrived — a cancelled task,
-  /// a closed connection, a deadline the caller set. Distinct from `Timeout`,
-  /// which is the *transport* giving up: this one is the program's own doing,
-  /// and a caller that retries a `Timeout` should not retry this.
-  ///
-  /// It is also the reason this enum is the only one: `ui/effect` used to
-  /// declare a `FetchError` whose fifth variant this was, because a
-  /// callback-shaped request could be called off and a blocking one could
-  /// not. A page's requests are `Net`'s now, so there is one list of reasons
-  /// a request produced no response.
-  Aborted,
+    Timeout,
+    Refused,
+    BadUrl(Str),
+    Transport(Str),
+    /// The request was called off before an answer arrived — a cancelled task,
+    /// a closed connection, a deadline the caller set. Distinct from `Timeout`,
+    /// which is the *transport* giving up: this one is the program's own doing,
+    /// and a caller that retries a `Timeout` should not retry this.
+    ///
+    /// It is also the reason this enum is the only one: `ui/effect` used to
+    /// declare a `FetchError` whose fifth variant this was, because a
+    /// callback-shaped request could be called off and a blocking one could
+    /// not. A page's requests are `Net`'s now, so there is one list of reasons
+    /// a request produced no response.
+    Aborted,
 }
 
+derive Eq, Show for Method;
 /// The request method.
 ///
 /// Its **wire spelling never appears in Buri code**: `GET` is written `.Get`,
@@ -397,15 +401,16 @@ export enum NetError {
 /// The **declaration order is the ABI**: the variant index is what crosses to
 /// the runtime, so a variant may be appended and never reordered.
 export enum Method {
-  Get,
-  Head,
-  Post,
-  Put,
-  Patch,
-  Delete,
-  Options,
+    Get,
+    Head,
+    Post,
+    Put,
+    Patch,
+    Delete,
+    Options,
 }
 
+derive Eq, Show for Header;
 /// One header field.
 ///
 /// **Names are lowercase.** HTTP/2 and HTTP/3 require it on the wire, every
@@ -415,10 +420,11 @@ export enum Method {
 /// server chose. A name written any other way is not an error; it is
 /// lowercased on the way in.
 export struct Header {
-  export name: Str,
-  export value: Str,
+    export name: Str,
+    export value: Str,
 }
 
+derive Eq, Show for Request;
 /// An HTTP request: what `Net.fetch` takes, and what a server's handler is
 /// given.
 ///
@@ -427,124 +433,131 @@ export struct Header {
 /// both are wrong for a byte range or a protobuf. `core/net/http` has the
 /// text-shaped constructors and `core/bytes` the conversions.
 export struct Request {
-  export method: Method,
-  export url: Str,
-  export headers: [Header],
-  export body: [U8],
+    export method: Method,
+    export url: Str,
+    export headers: [Header],
+    export body: [U8],
 }
 
+derive Eq, Show for Response;
 /// An HTTP response: what `Net.fetch` answers, and what a server's handler
 /// returns. The body is octets, for `Request`'s reason.
 export struct Response {
-  export status: Int,
-  export headers: [Header],
-  export body: [U8],
+    export status: Int,
+    export headers: [Header],
+    export body: [U8],
 }
 
 impl Request {
-  /// The path component of `url`, always beginning with `/` and carrying
-  /// neither query nor fragment. `"/"` when the URL names no path.
-  ///
-  /// Pure: every step is a view (`splitOnce`, `slice`), so asking a request
-  /// where it is going costs no allocation and needs no context.
-  export fn path(self): Str {
-    let after = match (self.url.splitOnce("://")) {
-      .Some((_scheme, rest)) => rest,
-      .None => self.url,
-    };
-    let rooted = match (after.indexOf("/")) {
-      .Some(at) => after.slice(at, after.len()),
-      .None => "/",
-    };
-    let noQuery = match (rooted.splitOnce("?")) {
-      .Some((only, _query)) => only,
-      .None => rooted,
-    };
-    match (noQuery.splitOnce("#")) {
-      .Some((only, _fragment)) => only,
-      .None => noQuery,
+    /// The path component of `url`, always beginning with `/` and carrying
+    /// neither query nor fragment. `"/"` when the URL names no path.
+    ///
+    /// Pure: every step is a view (`splitOnce`, `slice`), so asking a request
+    /// where it is going costs no allocation and needs no context.
+    export fn path(self): Str {
+        let after = match (self.url.splitOnce("://")) {
+            .Some((_scheme, rest)) => rest,
+            .None => self.url,
+        };
+        let rooted = match (after.indexOf("/")) {
+            .Some(at) => after.slice(at, after.len()),
+            .None => "/",
+        };
+        let noQuery = match (rooted.splitOnce("?")) {
+            .Some((only, _query)) => only,
+            .None => rooted,
+        };
+        match (noQuery.splitOnce("#")) {
+            .Some((only, _fragment)) => only,
+            .None => noQuery,
+        }
     }
-  }
 
-  /// Everything after the first `?` and before any `#`, without the `?`
-  /// itself; the empty string when there is no query.
-  export fn query(self): Str {
-    let noFragment = match (self.url.splitOnce("#")) {
-      .Some((only, _fragment)) => only,
-      .None => self.url,
-    };
-    match (noFragment.splitOnce("?")) {
-      .Some((_before, q)) => q,
-      .None => "",
+    /// Everything after the first `?` and before any `#`, without the `?`
+    /// itself; the empty string when there is no query.
+    export fn query(self): Str {
+        let noFragment = match (self.url.splitOnce("#")) {
+            .Some((only, _fragment)) => only,
+            .None => self.url,
+        };
+        match (noFragment.splitOnce("?")) {
+            .Some((_before, q)) => q,
+            .None => "",
+        }
     }
-  }
 
-  /// The value of the first header with this name, which must be lowercase.
-  export fn header(self, name: Str): Option<Str> {
-    match (self.headers.find(fn(h) => h.name == name)) {
-      .Some(found) => .Some(found.value),
-      .None => .None,
+    /// The value of the first header with this name, which must be lowercase.
+    export fn header(self, name: Str): Option<Str> {
+        match (self.headers.find(fn(h) => h.name == name)) {
+            .Some(found) => .Some(found.value),
+            .None => .None,
+        }
     }
-  }
 
-  /// The same request with one more header. Appends rather than replaces:
-  /// `set-cookie` legitimately repeats, and a builder that silently dropped
-  /// the earlier one would make that unsayable.
-  export fn withHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Request {
-    Request {
-      method: self.method,
-      url: self.url,
-      headers: self.headers.push(ctx, Header { name: name.toLower(ctx), value: value }),
-      body: self.body,
+    /// The same request with one more header. Appends rather than replaces:
+    /// `set-cookie` legitimately repeats, and a builder that silently dropped
+    /// the earlier one would make that unsayable.
+    export fn withHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Request {
+        Request {
+            method: self.method,
+            url: self.url,
+            headers: self
+                .headers
+                .push(ctx, Header { name: name.toLower(ctx), value: value }),
+            body: self.body,
+        }
     }
-  }
 
-  export fn withMethod(self, method: Method): Request {
-    Request { method: method, url: self.url, headers: self.headers, body: self.body }
-  }
+    export fn withMethod(self, method: Method): Request {
+        Request {
+            method: method,
+            url: self.url,
+            headers: self.headers,
+            body: self.body,
+        }
+    }
 
-  export fn withBody(self, body: [U8]): Request {
-    Request { method: self.method, url: self.url, headers: self.headers, body: body }
-  }
+    export fn withBody(self, body: [U8]): Request {
+        Request {
+            method: self.method,
+            url: self.url,
+            headers: self.headers,
+            body: body,
+        }
+    }
 }
 
 impl Response {
-  /// `2xx`. Nothing else: a redirect is not a success, and a caller that
-  /// wanted to follow one has to say so.
-  export fn isOk(self): Bool {
-    self.status >= 200 && self.status < 300
-  }
-
-  /// The value of the first header with this name, which must be lowercase.
-  export fn header(self, name: Str): Option<Str> {
-    match (self.headers.find(fn(h) => h.name == name)) {
-      .Some(found) => .Some(found.value),
-      .None => .None,
+    /// `2xx`. Nothing else: a redirect is not a success, and a caller that
+    /// wanted to follow one has to say so.
+    export fn isOk(self): Bool {
+        self.status >= 200 && self.status < 300
     }
-  }
 
-  /// The same response with one more header. Appends, for `Request`'s reason.
-  export fn withHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Response {
-    Response {
-      status: self.status,
-      headers: self.headers.push(ctx, Header { name: name.toLower(ctx), value: value }),
-      body: self.body,
+    /// The value of the first header with this name, which must be lowercase.
+    export fn header(self, name: Str): Option<Str> {
+        match (self.headers.find(fn(h) => h.name == name)) {
+            .Some(found) => .Some(found.value),
+            .None => .None,
+        }
     }
-  }
 
-  export fn withStatus(self, status: Int): Response {
-    Response { status: status, headers: self.headers, body: self.body }
-  }
+    /// The same response with one more header. Appends, for `Request`'s reason.
+    export fn withHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Response {
+        Response {
+            status: self.status,
+            headers: self
+                .headers
+                .push(ctx, Header { name: name.toLower(ctx), value: value }),
+            body: self.body,
+        }
+    }
 
-  export fn withBody(self, body: [U8]): Response {
-    Response { status: self.status, headers: self.headers, body: body }
-  }
+    export fn withStatus(self, status: Int): Response {
+        Response { status: status, headers: self.headers, body: self.body }
+    }
+
+    export fn withBody(self, body: [U8]): Response {
+        Response { status: self.status, headers: self.headers, body: body }
+    }
 }
-
-derive Eq, Show for IoError;
-derive Eq, Show for NetError;
-derive Eq, Show for Method;
-derive Eq, Show for Header;
-derive Eq, Show for Request;
-derive Eq, Show for Response;
-derive Eq, Show for Region;

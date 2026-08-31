@@ -1,14 +1,15 @@
 from "core/effect" import { Alloc };
 from "core/str" import * as str;
 
+derive Eq, Show for Cents;
 export struct Cents(I64);
 
-derive Eq, Show for Cents;
-
-export fn fromCents(c: I64): Cents { Cents(c) }
+export fn fromCents(c: I64): Cents {
+    Cents(c)
+}
 
 impl Cents {
-  export fn format<C: Alloc>(self, ctx: C): Str {
-    str.format(ctx, "${self.0}c")
-  }
+    export fn format<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "${self.0}c")
+    }
 }

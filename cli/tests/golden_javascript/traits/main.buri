@@ -5,31 +5,53 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 trait Area {
-  fn area(self): Int;
-  fn describe(self): Int;
+    fn area(self): Int;
+    fn describe(self): Int;
 }
 
-struct Sq { side: Int }
+struct Sq {
+    side: Int,
+}
 
-struct Rect { w: Int, h: Int }
+struct Rect {
+    w: Int,
+    h: Int,
+}
 
 impl Area for Sq {
-  fn area(self): Int { self.side * self.side }
-  fn describe(self): Int { self.area() * 2 }
+    fn area(self): Int {
+        self.side * self.side
+    }
+
+    fn describe(self): Int {
+        self.area() * 2
+    }
 }
 
 impl Area for Rect {
-  fn area(self): Int { self.w * self.h }
-  fn describe(self): Int { self.area() * 3 }
+    fn area(self): Int {
+        self.w * self.h
+    }
+
+    fn describe(self): Int {
+        self.area() * 3
+    }
 }
 
-fn total<T: Area>(a: T, b: T): Int { a.area() + b.area() }
+fn total<T: Area>(a: T, b: T): Int {
+    a.area() + b.area()
+}
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let s = Sq { side: 3 };
-  let r = Rect { w: 2, h: 5 };
-  let _ = io.println(ctx, "${s.area()} ${r.area()} ${s.describe()}").ignore();
-  let _ = io.println(ctx, "${total(s, Sq { side: 4 })} ${total(r, Rect { w: 1, h: 1 })}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let s = Sq { side: 3 };
+    let r = Rect { w: 2, h: 5 };
+    let _ = io.println(ctx, "${s.area()} ${r.area()} ${s.describe()}").ignore();
+    let _ = io
+        .println(ctx, "${total(s, Sq { side: 4 })} ${total(r, Rect { w: 1, h: 1 })}")
+        .ignore();
+    .Ok(())
 }

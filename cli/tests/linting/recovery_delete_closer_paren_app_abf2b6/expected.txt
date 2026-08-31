@@ -1,0 +1,33 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_abf2b6/main.buri:16:42
+   |
+16 |     io.println(ctx, "done").mapErr(fn(_e => "could not write to standard output")
+   |                                          ^^
+   |
+  --> lib/recovery_delete_closer_paren_app_abf2b6/main.buri:16:38
+   |
+16 |     io.println(ctx, "done").mapErr(fn(_e => "could not write to standard output")
+   |                                      ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `}` [unexpected-token]
+  --> lib/recovery_delete_closer_paren_app_abf2b6/main.buri:17:1
+   |
+17 | }
+   | ^
+   |
+   = expected: `=>`
+   = actual: `}`
+   = fix: write `=>` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_abf2b6/main.buri:18:1
+   |
+18 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_app_abf2b6/main.buri:10:35
+   |
+10 | export fn main(): Result<(), Str> {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here

@@ -21,16 +21,16 @@ error: expected `;`, found `@` [unexpected-token]
    = actual: `@`
    = fix: write `;` here
 error: there is nothing named `host` in scope [unresolved-name]
-  --> lib/recovery_insert_stray_module_app_dffded/main.buri:15:30
+  --> lib/recovery_insert_stray_module_app_dffded/main.buri:16:16
    |
-15 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-   |                              ^^^^
+16 |         Alloc: host.alloc,
+   |                ^^^^
    |
    = fix: declare `host`, or import it — a name is in scope only from this module's own declarations and its imports
 error: there is nothing named `host` in scope [unresolved-name]
-  --> lib/recovery_insert_stray_module_app_dffded/main.buri:15:50
+  --> lib/recovery_insert_stray_module_app_dffded/main.buri:17:17
    |
-15 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-   |                                                  ^^^^
+17 |         Stdout: host.stdout,
+   |                 ^^^^
    |
    = fix: declare `host`, or import it — a name is in scope only from this module's own declarations and its imports

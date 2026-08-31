@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:57:33
+   |
+57 |         (self.0 / 100, self.0 % , 100)
+   |                                 ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

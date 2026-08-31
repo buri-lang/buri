@@ -23,16 +23,16 @@ warning: this comment is marked `TODO` [warning-comment]
   = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
   = fix: finish the work, or delete the marker
 error: `Stdout` is not a declared effect [not-an-effect]
-  --> lib/recovery_swap_adjacent_brace_app_312893/main.buri:13:42
+  --> lib/recovery_swap_adjacent_brace_app_312893/main.buri:17:9
    |
-13 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-   |                                          ^^^^^^
+17 |         Stdout: host.stdout,
+   |         ^^^^^^
    |
    = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Stdout` is not one
 error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
-  --> lib/recovery_swap_adjacent_brace_app_312893/main.buri:14:3
+  --> lib/recovery_swap_adjacent_brace_app_312893/main.buri:19:5
    |
-14 |   io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^
+19 |     io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Stdout`, or use a type that has one

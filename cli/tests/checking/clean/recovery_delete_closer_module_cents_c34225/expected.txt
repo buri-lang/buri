@@ -1,0 +1,12 @@
+error: this `impl` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:67:1
+   |
+67 | 
+   | ^
+   |
+  --> main.buri:26:12
+   |
+26 | impl Cents {
+   |            ^ opened here
+   |
+   = fix: write `}` here

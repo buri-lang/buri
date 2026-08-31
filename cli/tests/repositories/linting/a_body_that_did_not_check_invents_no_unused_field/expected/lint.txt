@@ -1,8 +1,8 @@
 warning: nothing reads `Entry.packer` [unused-field]
-  --> lib/money/cents.buri:18:3
+  --> lib/money/cents.buri:18:5
    |
-18 |   packer: Str,
-   |   ^^^^^^^^^^^
+18 |     packer: Str,
+   |     ^^^^^^^^^^^
    |
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it
@@ -28,10 +28,10 @@ warning: nothing reads `Entry.packer` [unused-field]
      compared structurally. What is left is the field nothing at all looks at.
 
 error: `Str` does not implement `Add` [missing-conformance]
-  --> lib/money/cents.buri:22:3
+  --> lib/money/cents.buri:22:5
    |
-22 |   e.label + 1
-   |   ^^^^^^^^^^^
+22 |     e.label + 1
+   |     ^^^^^^^^^^^
    |
    = conformance is nominal: a type satisfies a trait only where a declaration says so
    = fix: add `derive Add for Str;` in that type's own module, or write `impl Add for Str { ... }` there
@@ -50,10 +50,10 @@ error: `Str` does not implement `Add` [missing-conformance]
      with those methods and an impl block.
 
 error: expected `Str`, found `Int` [type-mismatch]
-  --> lib/money/cents.buri:22:13
+  --> lib/money/cents.buri:22:15
    |
-22 |   e.label + 1
-   |             ^ the left operand's type is `Str`
+22 |     e.label + 1
+   |               ^ the left operand's type is `Str`
    |
    = expected: `Str`
    = actual: `Int`

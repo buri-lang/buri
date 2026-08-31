@@ -5,26 +5,31 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 fn sumTo(n: Int, acc: Int): Int {
-  if (n == 0) { acc } else { sumTo(n - 1, acc + n) }
+    if (n == 0) { acc } else { sumTo(n - 1, acc + n) }
 }
 
 fn fib(n: Int, a: Int, b: Int): Int {
-  if (n == 0) { a } else { fib(n - 1, b, a + b) }
+    if (n == 0) { a } else { fib(n - 1, b, a + b) }
 }
 
 fn countDigits(n: Int, acc: Int): Int {
-  if (n < 10) { acc + 1 } else { countDigits(n / 10, acc + 1) }
+    if (n < 10) { acc + 1 } else { countDigits(n / 10, acc + 1) }
 }
 
 // A genuine cycle: each new value is the other slot, so one of them has to be
 // held somewhere while the other is written.
 fn swapDown(a: Int, b: Int, fuel: Int): Int {
-  if (fuel == 0) { a * 10 + b } else { swapDown(b, a, fuel - 1) }
+    if (fuel == 0) { a * 10 + b } else { swapDown(b, a, fuel - 1) }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${sumTo(100, 0)} ${fib(30, 0, 1)} ${countDigits(12345, 0)}").ignore();
-  let _ = io.println(ctx, "${swapDown(1, 2, 3)} ${swapDown(1, 2, 4)}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io
+        .println(ctx, "${sumTo(100, 0)} ${fib(30, 0, 1)} ${countDigits(12345, 0)}")
+        .ignore();
+    let _ = io.println(ctx, "${swapDown(1, 2, 3)} ${swapDown(1, 2, 4)}").ignore();
+    .Ok(())
 }

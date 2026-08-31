@@ -2,4 +2,6 @@
 // about a file other than the one being pulled. This client did not claim
 // `relatedDocumentSupport`, so it hears none of it.
 
-export fn twice(n: I64): I64 { n * 2 }
+export fn twice(n: I64): I64 {
+    n * 2
+}

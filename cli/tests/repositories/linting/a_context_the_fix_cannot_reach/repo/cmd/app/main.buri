@@ -6,7 +6,6 @@
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-
 from "//lib/label" import { stamp };
 
 /// Reported, and not rewritten. `plain` is handed to `apply` as a value, so
@@ -14,17 +13,22 @@ from "//lib/label" import { stamp };
 /// body needs: deleting the parameter would change the type and leave the call
 /// exactly where it was.
 fn plain<C: Alloc>(ctx: C, label: Str): Int {
-  label.len()
+    label.len()
 }
 
 /// Not reported. Handing the context to a function-typed parameter is one of
 /// the three ways of using one.
 fn apply<C: Alloc>(ctx: C, measure: fn(C, Str) => Int, label: Str): Int {
-  measure(ctx, label)
+    measure(ctx, label)
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let label = "ledger";
-  io.println(ctx, "${apply(ctx, plain, label)} and ${stamp(ctx, label)}").mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let label = "ledger";
+    io
+        .println(ctx, "${apply(ctx, plain, label)} and ${stamp(ctx, label)}")
+        .mapErr(fn(_e) => "could not write to standard output")
 }

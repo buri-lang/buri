@@ -6,8 +6,8 @@ fix: rename one of them, or bind one and compare the other in a guard
 ---
 ```buri fail code=duplicate-pattern-binding
 fn sumPair(p: (Int, Int)): Int {
-  match (p) {
-    (a, a) => a,
-  }
+    match (p) {
+        (a, a) => a,
+    }
 }
 ```

@@ -24,7 +24,7 @@ run {
 # function `lib.buri` never re-exported.
 edit {
   file: "lib/money/test/cents.buri"
-  replace: "from \"//lib/money\" import { fromCents, format };"
+  replace: "from \"//lib/money\" import { format, fromCents };"
   with: "from \"//lib/money/cents.buri\" import { fromCents, toCents };"
 }
 

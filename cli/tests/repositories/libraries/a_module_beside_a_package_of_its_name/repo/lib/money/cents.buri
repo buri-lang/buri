@@ -1,4 +1,6 @@
 // A module of //lib/money. Its path is "//lib/money/cents.buri" — the file,
 // and so not the package one directory down.
 
-export fn fromCents(n: I64): I64 { n }
+export fn fromCents(n: I64): I64 {
+    n
+}

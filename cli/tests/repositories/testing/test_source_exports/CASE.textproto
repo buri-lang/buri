@@ -21,8 +21,8 @@ run {
 
 edit {
   file: "lib/money/test/cents.buri"
-  replace: "fn twice(n: I64): I64 { n + n }"
-  with: "export fn twice(n: I64): I64 { n + n }"
+  replace: "fn twice(n: I64): I64 {"
+  with: "export fn twice(n: I64): I64 {"
 }
 
 run {

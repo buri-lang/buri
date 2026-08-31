@@ -10,143 +10,143 @@
 //! after (SPEC 10.7).
 
 from "core/effect" import { Alloc };
-from "core/order" import { Order, Ord };
+from "core/order" import { Ord, Order };
 
 // --- Pure: no context parameter at all --------------------------------------
 
 impl<T> [T] {
-  export fn len(self): Int;
+    export fn len(self): Int;
 
-  export fn isEmpty(self): Bool {
-    self.len() == 0
-  }
+    export fn isEmpty(self): Bool {
+        self.len() == 0
+    }
 
-  /// Indexing yields `Option<T>`. There is no way to index out of bounds and no
-  /// way to panic by indexing — the single largest ergonomic tax in the
-  /// language, charged on purpose.
-  export fn get(self, index: Int): Option<T>;
+    /// Indexing yields `Option<T>`. There is no way to index out of bounds and no
+    /// way to panic by indexing — the single largest ergonomic tax in the
+    /// language, charged on purpose.
+    export fn get(self, index: Int): Option<T>;
 
-  export fn first(self): Option<T> {
-    self.get(0)
-  }
+    export fn first(self): Option<T> {
+        self.get(0)
+    }
 
-  export fn last(self): Option<T> {
-    self.get(self.len() - 1)
-  }
+    export fn last(self): Option<T> {
+        self.get(self.len() - 1)
+    }
 
-  /// A fold produces one value rather than a new collection, so it allocates
-  /// nothing and needs no context.
-  export fn fold<B>(self, f: fn(B, T) => B, init: B): B;
+    /// A fold produces one value rather than a new collection, so it allocates
+    /// nothing and needs no context.
+    export fn fold<B>(self, f: fn(B, T) => B, init: B): B;
 
-  /// The `*Ctx` variant, for a step that needs an effect. A lambda may not
-  /// capture one (SPEC 10.6), so the context is threaded through instead.
-  export fn foldCtx<B, C>(self, ctx: C, f: fn(C, B, T) => B, init: B): B;
+    /// The `*Ctx` variant, for a step that needs an effect. A lambda may not
+    /// capture one (SPEC 10.6), so the context is threaded through instead.
+    export fn foldCtx<B, C>(self, ctx: C, f: fn(C, B, T) => B, init: B): B;
 
-  /// Stops at the first `.Err`, which is how a fallible fold is written
-  /// without an early exit.
-  export fn foldResult<B, E>(
-    self,
-    f: fn(B, T) => Result<B, E>,
-    init: B,
-  ): Result<B, E>;
+    /// Stops at the first `.Err`, which is how a fallible fold is written
+    /// without an early exit.
+    export fn foldResult<B, E>(
+        self,
+        f: fn(B, T) => Result<B, E>,
+        init: B,
+    ): Result<B, E>;
 
-  /// The same, with the context passed in rather than captured.
-  ///
-  /// `foldResult`'s function takes no context, and a lambda may not capture
-  /// one (SPEC 10.6) — so a fallible fold that has to *allocate* as it goes
-  /// could not be written at all. This is the `*Ctx` form every other
-  /// combinator here already has, for the same reason.
-  export fn foldResultCtx<B, E, C: Alloc>(
-    self,
-    ctx: C,
-    f: fn(C, B, T) => Result<B, E>,
-    init: B,
-  ): Result<B, E>;
+    /// The same, with the context passed in rather than captured.
+    ///
+    /// `foldResult`'s function takes no context, and a lambda may not capture
+    /// one (SPEC 10.6) — so a fallible fold that has to *allocate* as it goes
+    /// could not be written at all. This is the `*Ctx` form every other
+    /// combinator here already has, for the same reason.
+    export fn foldResultCtx<B, E, C: Alloc>(
+        self,
+        ctx: C,
+        f: fn(C, B, T) => Result<B, E>,
+        init: B,
+    ): Result<B, E>;
 
-  export fn any(self, pred: fn(T) => Bool): Bool;
+    export fn any(self, pred: fn(T) => Bool): Bool;
 
-  export fn all(self, pred: fn(T) => Bool): Bool;
+    export fn all(self, pred: fn(T) => Bool): Bool;
 
-  export fn find(self, pred: fn(T) => Bool): Option<T>;
+    export fn find(self, pred: fn(T) => Bool): Option<T>;
 
-  export fn findIndex(self, pred: fn(T) => Bool): Option<Int>;
+    export fn findIndex(self, pred: fn(T) => Bool): Option<Int>;
 }
 
 impl<T: Eq> [T] {
-  export fn contains(self, needle: T): Bool {
-    self.any(fn(x) => x == needle)
-  }
+    export fn contains(self, needle: T): Bool {
+        self.any(fn(x) => x == needle)
+    }
 }
 
 impl<T> [T] {
-  export fn count(self, pred: fn(T) => Bool): Int;
+    export fn count(self, pred: fn(T) => Bool): Int;
 }
 
 // --- Deterministic: bounded by <C: Alloc> ------------------------------------
 
 impl<A> [A] {
-  export fn map<B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B];
+    export fn map<B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B];
 
-  export fn mapCtx<B, C: Alloc>(self, ctx: C, f: fn(C, A) => B): [B];
+    export fn mapCtx<B, C: Alloc>(self, ctx: C, f: fn(C, A) => B): [B];
 
-  /// `mapCtx`, with the step run by the runtime rather than by a loop the
-  /// backend writes. The answer is `mapCtx`'s answer, element for element.
-  ///
-  /// It exists to be *compared*. Every combinator above is open-coded by every
-  /// backend, so a whole mechanism the language will need — the runtime calling
-  /// back into Buri code, through a generated entry thunk, at an element type
-  /// it cannot name — has nowhere to be exercised until something uses it. This
-  /// is that something: one operation whose answer is already known, so that
-  /// the boundary can be landed and proved on its own rather than underneath
-  /// the first scheduler that needs it.
-  ///
-  /// Prefer `mapCtx`. This is slower by an indirect call per element and there
-  /// is no case where it is the better tool.
-  export fn mapCtxStep<B, C: Alloc>(self, ctx: C, f: fn(C, A) => B): [B];
+    /// `mapCtx`, with the step run by the runtime rather than by a loop the
+    /// backend writes. The answer is `mapCtx`'s answer, element for element.
+    ///
+    /// It exists to be *compared*. Every combinator above is open-coded by every
+    /// backend, so a whole mechanism the language will need — the runtime calling
+    /// back into Buri code, through a generated entry thunk, at an element type
+    /// it cannot name — has nowhere to be exercised until something uses it. This
+    /// is that something: one operation whose answer is already known, so that
+    /// the boundary can be landed and proved on its own rather than underneath
+    /// the first scheduler that needs it.
+    ///
+    /// Prefer `mapCtx`. This is slower by an indirect call per element and there
+    /// is no case where it is the better tool.
+    export fn mapCtxStep<B, C: Alloc>(self, ctx: C, f: fn(C, A) => B): [B];
 }
 
 impl<T> [T] {
-  export fn filter<C: Alloc>(self, ctx: C, keep: fn(T) => Bool): [T];
+    export fn filter<C: Alloc>(self, ctx: C, keep: fn(T) => Bool): [T];
 
-  export fn filterCtx<C: Alloc>(self, ctx: C, keep: fn(C, T) => Bool): [T];
+    export fn filterCtx<C: Alloc>(self, ctx: C, keep: fn(C, T) => Bool): [T];
 
-  export fn concat<C: Alloc>(self, ctx: C, other: [T]): [T];
+    export fn concat<C: Alloc>(self, ctx: C, other: [T]): [T];
 
-  export fn push<C: Alloc>(self, ctx: C, item: T): [T];
+    export fn push<C: Alloc>(self, ctx: C, item: T): [T];
 
-  export fn reverse<C: Alloc>(self, ctx: C): [T];
+    export fn reverse<C: Alloc>(self, ctx: C): [T];
 
-  /// Ordering is a value you pass, so the tie-break is explicit and reviewable.
-  /// The sort is stable.
-  export fn sortBy<C: Alloc>(self, ctx: C, order: fn(T, T) => Order): [T];
+    /// Ordering is a value you pass, so the tie-break is explicit and reviewable.
+    /// The sort is stable.
+    export fn sortBy<C: Alloc>(self, ctx: C, order: fn(T, T) => Order): [T];
 }
 
 impl<T: Ord> [T] {
-  export fn sort<C: Alloc>(self, ctx: C): [T] {
-    self.sortBy(ctx, fn(a, b) => a.compare(b))
-  }
+    export fn sort<C: Alloc>(self, ctx: C): [T] {
+        self.sortBy(ctx, fn(a, b) => a.compare(b))
+    }
 }
 
 impl<T> [T] {
-  export fn take<C: Alloc>(self, ctx: C, n: Int): [T];
+    export fn take<C: Alloc>(self, ctx: C, n: Int): [T];
 
-  export fn drop<C: Alloc>(self, ctx: C, n: Int): [T];
+    export fn drop<C: Alloc>(self, ctx: C, n: Int): [T];
 
-  export fn slice<C: Alloc>(self, ctx: C, start: Int, end: Int): [T];
+    export fn slice<C: Alloc>(self, ctx: C, start: Int, end: Int): [T];
 }
 
 impl<A> [A] {
-  export fn zip<B, C: Alloc>(self, ctx: C, other: [B]): [(A, B)];
+    export fn zip<B, C: Alloc>(self, ctx: C, other: [B]): [(A, B)];
 }
 
 impl<T> [[T]] {
-  export fn flatten<C: Alloc>(self, ctx: C): [T];
+    export fn flatten<C: Alloc>(self, ctx: C): [T];
 }
 
 impl [Str] {
-  /// Declared here rather than in `core/str` because its receiver is `[Str]`,
-  /// and a method lives in its receiver type's defining module.
-  export fn join<C: Alloc>(self, ctx: C, separator: Str): Str;
+    /// Declared here rather than in `core/str` because its receiver is `[Str]`,
+    /// and a method lives in its receiver type's defining module.
+    export fn join<C: Alloc>(self, ctx: C, separator: Str): Str;
 }
 
 export fn empty<T>(): [T];
@@ -160,35 +160,39 @@ export fn repeat<T, C: Alloc>(ctx: C, item: T, times: Int): [T];
 // --- Numeric folds ------------------------------------------------------------
 
 impl [Int] {
-  export fn sum(self): Int {
-    self.fold(fn(acc, x) => acc + x, 0)
-  }
+    export fn sum(self): Int {
+        self.fold(fn(acc, x) => acc + x, 0)
+    }
 }
 
 impl [Float] {
-  export fn sumFloat(self): Float {
-    self.fold(fn(acc, x) => acc + x, 0.0)
-  }
+    export fn sumFloat(self): Float {
+        self.fold(fn(acc, x) => acc + x, 0.0)
+    }
 }
 
 impl<T: Ord> [T] {
-  export fn maximum(self): Option<T> {
-    self.fold(
-      fn(best, x) => match (best) {
-        .None => .Some(x),
-        .Some(b) => if (x > b) { .Some(x) } else { .Some(b) },
-      },
-      .None,
-    )
-  }
+    export fn maximum(self): Option<T> {
+        self.fold(
+            fn(best, x) => {
+                match (best) {
+                    .None => .Some(x),
+                    .Some(b) => if (x > b) { .Some(x) } else { .Some(b) },
+                }
+            },
+            .None,
+        )
+    }
 
-  export fn minimum(self): Option<T> {
-    self.fold(
-      fn(best, x) => match (best) {
-        .None => .Some(x),
-        .Some(b) => if (x < b) { .Some(x) } else { .Some(b) },
-      },
-      .None,
-    )
-  }
+    export fn minimum(self): Option<T> {
+        self.fold(
+            fn(best, x) => {
+                match (best) {
+                    .None => .Some(x),
+                    .Some(b) => if (x < b) { .Some(x) } else { .Some(b) },
+                }
+            },
+            .None,
+        )
+    }
 }

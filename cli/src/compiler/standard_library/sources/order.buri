@@ -7,97 +7,96 @@
 
 from "core/effect" import { Alloc };
 
+derive Eq, Show for Order;
 export enum Order {
-  Less,
-  Equal,
-  Greater,
+    Less,
+    Equal,
+    Greater,
 }
 
 /// `a == b` and `a != b` are `Eq.eq`. Equality is structural, never
 /// referential: Buri has no references, so there is no identity to compare.
 export trait Eq {
-  fn eq(self, other: Self): Bool;
+    fn eq(self, other: Self): Bool;
 }
 
 /// `<` `<=` `>` `>=` are `Ord.compare`.
 export trait Ord {
-  fn compare(self, other: Self): Order;
+    fn compare(self, other: Self): Order;
 }
 
 /// Rendering allocates, so `show` names `Alloc` and nothing else. An
 /// implementation provably cannot read a file or open a socket.
 export trait Show {
-  fn show<C: Alloc>(self, ctx: C): Str;
+    fn show<C: Alloc>(self, ctx: C): Str;
 }
 
 export trait Hash {
-  fn hash(self): U64;
+    fn hash(self): U64;
 }
 
 impl Order {
-  export fn flip(self): Order {
-    match (self) {
-      .Less => .Greater,
-      .Equal => .Equal,
-      .Greater => .Less,
+    export fn flip(self): Order {
+        match (self) {
+            .Less => .Greater,
+            .Equal => .Equal,
+            .Greater => .Less,
+        }
     }
-  }
 }
 
 /// Reverses a comparator, for `sortBy`. The argument is a function value
 /// rather than an effect, so the lambda may capture it (SPEC 10.6).
 export fn reverse<T>(cmp: fn(T, T) => Order): fn(T, T) => Order {
-  fn(a, b) => cmp(b, a)
+    fn(a, b) => cmp(b, a)
 }
 
 impl Order {
-  export fn isLess(self): Bool {
-    match (self) {
-      .Less => true,
-      .Equal => false,
-      .Greater => false,
+    export fn isLess(self): Bool {
+        match (self) {
+            .Less => true,
+            .Equal => false,
+            .Greater => false,
+        }
     }
-  }
 
-  export fn isEqual(self): Bool {
-    match (self) {
-      .Less => false,
-      .Equal => true,
-      .Greater => false,
+    export fn isEqual(self): Bool {
+        match (self) {
+            .Less => false,
+            .Equal => true,
+            .Greater => false,
+        }
     }
-  }
 }
 
 /// A comparator value, for `sortBy`. Ordering is a value you pass, which makes
 /// a tie-break explicit and reviewable.
 export fn int(a: Int, b: Int): Order {
-  if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }
+    if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }
 }
 
 export fn float(a: Float, b: Float): Order {
-  if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }
+    if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }
 }
 
 export fn str(a: Str, b: Str): Order {
-  a.compare(b)
+    a.compare(b)
 }
 
 export fn bool(a: Bool, b: Bool): Order {
-  if (a == b) { .Equal } else if (a) { .Greater } else { .Less }
+    if (a == b) { .Equal } else if (a) { .Greater } else { .Less }
 }
 
 export fn char(a: Char, b: Char): Order {
-  int(a.toU32().toI64(), b.toU32().toI64())
+    int(a.toU32().toI64(), b.toU32().toI64())
 }
 
 impl Order {
-  /// Chains two comparisons: the second decides only when the first is `Equal`.
-  export fn then(self, next: Order): Order {
-    match (self) {
-      .Equal => next,
-      other => other,
+    /// Chains two comparisons: the second decides only when the first is `Equal`.
+    export fn then(self, next: Order): Order {
+        match (self) {
+            .Equal => next,
+            other => other,
+        }
     }
-  }
 }
-
-derive Eq, Show for Order;

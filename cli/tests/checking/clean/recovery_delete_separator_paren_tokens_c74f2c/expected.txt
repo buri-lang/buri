@@ -1,7 +1,0 @@
-error: a tuple element ends with `,` [missing-separator]
-  --> main.buri:61:24
-   |
-61 |     (Token.Edge.color() f(.Edge)),
-   |                        ^
-   |
-   = fix: write `,` here

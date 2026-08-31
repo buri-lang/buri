@@ -1,0 +1,9 @@
+error: expected an identifier, found `for` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_cents_b1a859/lib.buri:1:12
+  |
+1 | derive Eq, for Show Cents;
+  |            ^^^
+  |
+  = expected: an identifier
+  = actual: `for`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

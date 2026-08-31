@@ -4,159 +4,196 @@
 // bits to a word, so index 31 and index 32 land in different words and a
 // mistake in the division shows up there and nowhere else.
 
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
-from "core/effect" import { Alloc };
-
 from "core/bitset" import * as bitset;
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
 
 // --- empty / capacity ---------------------------------------------------------
 
 test "an empty set holds nothing" {
-  let ctx = context { Alloc: alloc() };
-  let s = bitset.empty(ctx, 64);
-  assert.eq(s.count(), 0);
-  assert.isTrue(s.isEmpty());
-  assert.eq(s.capacity, 64);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = bitset.empty(ctx, 64);
+    assert.eq(s.count(), 0);
+    assert.isTrue(s.isEmpty());
+    assert.eq(s.capacity, 64);
 }
 
 test "a capacity of zero holds nothing and admits nothing" {
-  let ctx = context { Alloc: alloc() };
-  let s = bitset.empty(ctx, 0).set(ctx, 0);
-  assert.eq(s.count(), 0);
-  assert.isFalse(s.has(0));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = bitset.empty(ctx, 0).set(ctx, 0);
+    assert.eq(s.count(), 0);
+    assert.isFalse(s.has(0));
 }
 
 test "a negative capacity is zero" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(bitset.empty(ctx, -5).capacity, 0);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bitset.empty(ctx, -5).capacity, 0);
 }
 
 // --- set / has / clear --------------------------------------------------------
 
 test "set makes a bit present and clear removes it" {
-  let ctx = context { Alloc: alloc() };
-  let s = bitset.empty(ctx, 64).set(ctx, 7);
-  assert.isTrue(s.has(7));
-  assert.eq(s.count(), 1);
-  assert.isFalse(s.clear(ctx, 7).has(7));
-  assert.eq(s.clear(ctx, 7).count(), 0);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = bitset.empty(ctx, 64).set(ctx, 7);
+    assert.isTrue(s.has(7));
+    assert.eq(s.count(), 1);
+    assert.isFalse(s.clear(ctx, 7).has(7));
+    assert.eq(s.clear(ctx, 7).count(), 0);
 }
 
 test "setting a bit twice leaves it set once" {
-  let ctx = context { Alloc: alloc() };
-  let s = bitset.empty(ctx, 64).set(ctx, 3).set(ctx, 3);
-  assert.eq(s.count(), 1);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = bitset.empty(ctx, 64).set(ctx, 3).set(ctx, 3);
+    assert.eq(s.count(), 1);
 }
 
 test "clearing a bit that was never set changes nothing" {
-  let ctx = context { Alloc: alloc() };
-  let s = bitset.empty(ctx, 64).set(ctx, 3);
-  assert.eq(s.clear(ctx, 9).toList(ctx), [3]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = bitset.empty(ctx, 64).set(ctx, 3);
+    assert.eq(s.clear(ctx, 9).toList(ctx), [3]);
 }
 
 // The whole reason the words are 32 bits and not 64: these two indices are in
 // different words, and every off-by-one in the division shows up right here.
 test "bits either side of a word boundary are independent" {
-  let ctx = context { Alloc: alloc() };
-  let s = bitset.empty(ctx, 64).set(ctx, 31).set(ctx, 32);
-  assert.isTrue(s.has(31));
-  assert.isTrue(s.has(32));
-  assert.eq(s.count(), 2);
-  let cleared = s.clear(ctx, 31);
-  assert.isFalse(cleared.has(31));
-  assert.isTrue(cleared.has(32));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = bitset.empty(ctx, 64).set(ctx, 31).set(ctx, 32);
+    assert.isTrue(s.has(31));
+    assert.isTrue(s.has(32));
+    assert.eq(s.count(), 2);
+    let cleared = s.clear(ctx, 31);
+    assert.isFalse(cleared.has(31));
+    assert.isTrue(cleared.has(32));
 }
 
 test "the highest bit of a word is not the sign bit" {
-  let ctx = context { Alloc: alloc() };
-  // 31 is the top bit of a 32-bit word. If words were 64 bits and signed,
-  // this is where popCount and shr would start disagreeing.
-  let s = bitset.empty(ctx, 32).set(ctx, 31);
-  assert.eq(s.count(), 1);
-  assert.eq(s.toList(ctx), [31]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // 31 is the top bit of a 32-bit word. If words were 64 bits and signed,
+    // this is where popCount and shr would start disagreeing.
+    let s = bitset.empty(ctx, 32).set(ctx, 31);
+    assert.eq(s.count(), 1);
+    assert.eq(s.toList(ctx), [31]);
 }
 
 test "an index outside the capacity is not a member and does not fit" {
-  let ctx = context { Alloc: alloc() };
-  let s = bitset.empty(ctx, 8);
-  assert.isFalse(s.has(-1));
-  assert.isFalse(s.has(8));
-  assert.isFalse(s.has(1000));
-  assert.eq(s.set(ctx, 8).count(), 0);
-  assert.eq(s.set(ctx, -1).count(), 0);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = bitset.empty(ctx, 8);
+    assert.isFalse(s.has(-1));
+    assert.isFalse(s.has(8));
+    assert.isFalse(s.has(1000));
+    assert.eq(s.set(ctx, 8).count(), 0);
+    assert.eq(s.set(ctx, -1).count(), 0);
 }
 
 // --- of / toList --------------------------------------------------------------
 
 test "of holds exactly the indices it was given, ascending" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(bitset.of(ctx, 64, [5, 1, 40]).toList(ctx), [1, 5, 40]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bitset.of(ctx, 64, [5, 1, 40]).toList(ctx), [1, 5, 40]);
 }
 
 test "of drops what does not fit" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(bitset.of(ctx, 8, [1, 99, -3]).toList(ctx), [1]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bitset.of(ctx, 8, [1, 99, -3]).toList(ctx), [1]);
 }
 
 test "toList of an empty set is empty" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(bitset.empty(ctx, 32).toList(ctx).len(), 0);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bitset.empty(ctx, 32).toList(ctx).len(), 0);
 }
 
 // --- the set algebra ----------------------------------------------------------
 
 test "union holds what either holds" {
-  let ctx = context { Alloc: alloc() };
-  let a = bitset.of(ctx, 64, [1, 2]);
-  let b = bitset.of(ctx, 64, [2, 40]);
-  assert.eq(a.union(ctx, b).toList(ctx), [1, 2, 40]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = bitset.of(ctx, 64, [1, 2]);
+    let b = bitset.of(ctx, 64, [2, 40]);
+    assert.eq(a.union(ctx, b).toList(ctx), [1, 2, 40]);
 }
 
 test "intersect holds what both hold" {
-  let ctx = context { Alloc: alloc() };
-  let a = bitset.of(ctx, 64, [1, 2, 40]);
-  let b = bitset.of(ctx, 64, [2, 40, 63]);
-  assert.eq(a.intersect(ctx, b).toList(ctx), [2, 40]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = bitset.of(ctx, 64, [1, 2, 40]);
+    let b = bitset.of(ctx, 64, [2, 40, 63]);
+    assert.eq(a.intersect(ctx, b).toList(ctx), [2, 40]);
 }
 
 test "difference holds what only the first holds" {
-  let ctx = context { Alloc: alloc() };
-  let a = bitset.of(ctx, 64, [1, 2, 40]);
-  let b = bitset.of(ctx, 64, [2, 40]);
-  assert.eq(a.difference(ctx, b).toList(ctx), [1]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = bitset.of(ctx, 64, [1, 2, 40]);
+    let b = bitset.of(ctx, 64, [2, 40]);
+    assert.eq(a.difference(ctx, b).toList(ctx), [1]);
 }
 
 test "symmetricDifference holds what exactly one holds" {
-  let ctx = context { Alloc: alloc() };
-  let a = bitset.of(ctx, 64, [1, 2]);
-  let b = bitset.of(ctx, 64, [2, 3]);
-  assert.eq(a.symmetricDifference(ctx, b).toList(ctx), [1, 3]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = bitset.of(ctx, 64, [1, 2]);
+    let b = bitset.of(ctx, 64, [2, 3]);
+    assert.eq(a.symmetricDifference(ctx, b).toList(ctx), [1, 3]);
 }
 
 // A set combined with one of a different capacity takes the larger, and the
 // words the smaller does not have are treated as zero.
 test "combining sets of different capacities takes the larger" {
-  let ctx = context { Alloc: alloc() };
-  let small = bitset.of(ctx, 8, [1]);
-  let large = bitset.of(ctx, 64, [40]);
-  let u = small.union(ctx, large);
-  assert.eq(u.capacity, 64);
-  assert.eq(u.toList(ctx), [1, 40]);
-  assert.eq(small.intersect(ctx, large).count(), 0);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let small = bitset.of(ctx, 8, [1]);
+    let large = bitset.of(ctx, 64, [40]);
+    let u = small.union(ctx, large);
+    assert.eq(u.capacity, 64);
+    assert.eq(u.toList(ctx), [1, 40]);
+    assert.eq(small.intersect(ctx, large).count(), 0);
 }
 
 test "isSubsetOf is true only when nothing is left over" {
-  let ctx = context { Alloc: alloc() };
-  let a = bitset.of(ctx, 64, [1, 2]);
-  let b = bitset.of(ctx, 64, [1, 2, 3]);
-  assert.isTrue(a.isSubsetOf(ctx, b));
-  assert.isFalse(b.isSubsetOf(ctx, a));
-  assert.isTrue(bitset.empty(ctx, 8).isSubsetOf(ctx, a));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = bitset.of(ctx, 64, [1, 2]);
+    let b = bitset.of(ctx, 64, [1, 2, 3]);
+    assert.isTrue(a.isSubsetOf(ctx, b));
+    assert.isFalse(b.isSubsetOf(ctx, a));
+    assert.isTrue(bitset.empty(ctx, 8).isSubsetOf(ctx, a));
 }
 
 test "equals compares members rather than capacity" {
-  let ctx = context { Alloc: alloc() };
-  assert.isTrue(bitset.of(ctx, 8, [1, 2]).equals(ctx, bitset.of(ctx, 64, [1, 2])));
-  assert.isFalse(bitset.of(ctx, 8, [1]).equals(ctx, bitset.of(ctx, 8, [2])));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(bitset.of(ctx, 8, [1, 2]).equals(ctx, bitset.of(ctx, 64, [1, 2])));
+    assert.isFalse(bitset.of(ctx, 8, [1]).equals(ctx, bitset.of(ctx, 8, [2])));
 }

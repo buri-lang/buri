@@ -1,0 +1,17 @@
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_insert_stray_paren_app_af8ccd/main.buri:14:21
+   |
+14 |                     if (n > 10000) { "huge" } else { "large" }
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`
+error: expected the rest of the string, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_app_af8ccd/main.buri:47:49
+   |
+47 |         .println(ctx, "${size(5000)} ${ladder(1)@ }")
+   |                                                 ^
+   |
+   = expected: the rest of the string
+   = actual: `@`
+   = fix: close the template: every `${` needs a `}` and the string needs a closing quote

@@ -1,0 +1,17 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_insert_stray_paren_app_07f922/main.buri:16:20
+   |
+16 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: expected an identifier, found a string literal [unexpected-token]
+  --> lib/recovery_insert_stray_paren_app_07f922/main.buri:45:9
+   |
+45 |         "could not write to standard output"
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: an identifier
+   = actual: a string literal
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

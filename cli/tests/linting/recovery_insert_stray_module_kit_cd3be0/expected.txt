@@ -9,7 +9,7 @@ warning: list is imported but not used [unused-import]
 error: expected `:`, found `)` [unexpected-token]
  --> lib/recovery_insert_stray_module_kit_cd3be0/lib.buri:6:21
   |
-6 | export fn one(extra ): I64 { 1 }
+6 | export fn one(extra ): I64 {
   |                     ^
   |
   = expected: `:`

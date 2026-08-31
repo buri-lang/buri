@@ -30,10 +30,10 @@ error: "//lib/money/test/parse.buri" does not export `digits` [no-such-export]
     surface can never be wider than the modules it is built from.
 
 error: there is nothing named `digits` in scope [unresolved-name]
- --> lib/money/cents.buri:3:36
+ --> lib/money/cents.buri:4:5
   |
-3 | export fn fromCents(n: I64): I64 { digits(n) }
-  |                                    ^^^^^^
+4 |     digits(n)
+  |     ^^^^^^
   |
   = fix: declare `digits`, or import it — a name is in scope only from this module's own declarations and its imports
 

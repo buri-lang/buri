@@ -58,8 +58,8 @@ edit {
 
 edit {
   file: "lib/money/cents.buri"
-  replace: "export fn fromCents(n: I64): I64 { n }"
-  with: "from \"//lib/money/test/parse.buri\" import { digits };\n\nexport fn fromCents(n: I64): I64 { digits(n) }"
+  replace: "export fn fromCents(n: I64): I64 {\n    n\n}"
+  with: "from \"//lib/money/test/parse.buri\" import { digits };\n\nexport fn fromCents(n: I64): I64 {\n    digits(n)\n}"
 }
 
 run {

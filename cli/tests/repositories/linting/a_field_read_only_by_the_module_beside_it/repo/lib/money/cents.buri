@@ -4,6 +4,6 @@
 // to be looked at — and all of it is in front of the linter at once.
 
 export struct Slip {
-  export amount: I64,
-  export issued: Bool,
+    export amount: I64,
+    export issued: Bool,
 }

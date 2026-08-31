@@ -44,18 +44,20 @@ into the library.
 ```buri repo=cli/tests/example role=test
 // lib/money/test/cents.buri
 
-from "//lib/money" import { fromCents, fromDollars };
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
 from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { fromCents, fromDollars };
 
 test "pads the cents place" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(fromCents(1905).format(ctx), "\$19.05");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(fromCents(1905).format(ctx), "$19.05");
 }
 
 test "addition composes" {
-  assert.eq(fromDollars(19).add(fromCents(499)), fromCents(2399));
+    assert.eq(fromDollars(19).add(fromCents(499)), fromCents(2399));
 }
 ```
 
@@ -87,11 +89,12 @@ same as a call. `assert.ok`, `assert.err`, and `assert.some` return the
 unwrapped value, which is how a `Result` is consumed in a test:
 
 ```buri repo=cli/tests/example role=test
-# from "//lib/money" import { parse, ParseError };
 # from "core/testing/assert" import * as assert;
+# from "//lib/money" import { parse, ParseError };
+
 test "rejects text that is not a number" {
-  let e = assert.err(parse("nineteen"));
-  assert.eq(e, ParseError.NotANumber { text: "nineteen" });
+    let e = assert.err(parse("nineteen"));
+    assert.eq(e, ParseError.NotANumber { text: "nineteen" });
 }
 ```
 
@@ -101,14 +104,15 @@ same way, and the `;` after its `}` is what says so — leave it off and the
 returned had anything followed it:
 
 ```buri repo=cli/tests/example role=test
-# from "//lib/money" import { parse, ParseError };
 # from "core/testing/assert" import * as assert;
+# from "//lib/money" import { parse, ParseError };
+
 test "either outcome is asserted where it lands" {
-  match (parse("19.99")) {
-    .Ok(_) => assert.isTrue(true),
-    .Err(_) => assert.fail("19.99 is a number"),
-  };
-  assert.isFalse(false);
+    match (parse("19.99")) {
+        .Ok(_) => assert.isTrue(true),
+        .Err(_) => assert.fail("19.99 is a number"),
+    };
+    assert.isFalse(false);
 }
 ```
 
@@ -164,8 +168,9 @@ library code that happens to be test-only, and it lives behind a path with a
 `testing` segment ([`libraries.md`](./libraries.md#the-testing-surface)):
 
 ```buri repo=cli/tests/example package=//lib/ledger role=testing
-# from "core/host/testing" import { alloc, fs };
 # from "core/effect" import { Alloc, Fs };
+# from "core/host/testing" import { alloc, fs };
+
 // lib/ledger/testing/fixtures.buri — inside //lib/ledger, so it can use the
 // library's internals to build a fixture.
 
@@ -174,19 +179,19 @@ from "//lib/money" import { fromCents, fromDollars };
 
 /// A three-entry ledger, one of them zero, for anyone testing against ledgers.
 export fn sample(): [Entry] {
-  [
-    entry("coffee", fromCents(450)),
-    entry("refund", fromCents(0)),
-    entry("books", fromDollars(32)),
-  ]
+    [
+        entry("coffee", fromCents(450)),
+        entry("refund", fromCents(0)),
+        entry("books", fromDollars(32)),
+    ]
 }
 
 /// A context whose filesystem already holds a ledger, for suites that would
 /// otherwise write the same three lines. A `context` declaration may be
 /// exported only from a path with a `testing` segment ([`SPEC.md` §11.3]).
 export context WithLedger {
-  Alloc: alloc(),
-  Fs: fs().files([("ledger.log", "coffee\t\$4.50\n")]),
+    Alloc: alloc(),
+    Fs: fs().files([("ledger.log", "coffee\t$4.50\n")]),
 }
 ```
 
@@ -198,7 +203,7 @@ any library — declared, and by that same label:
 // tools/report/test/render.buri — a different package's suite, using it. A
 // name reaches this suite only if `testing/lib.buri` re-exports it, exactly as
 // `lib.buri` decides the library's own surface one level up.
-from "//lib/ledger/testing" import { sample, oneOff };
+from "//lib/ledger/testing" import { oneOff, sample };
 ```
 
 with `test { dependencies: ["//lib/ledger/testing"] }` in that package's rule.
@@ -220,27 +225,30 @@ from "core/io" import * as io;
 from "//cmd/server/routes.buri" export { Route, route };
 
 from "//cmd/server/routes.buri" import { route };
+
 from "core/effect" import { Alloc, Stdout };
+
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc:  host.alloc,
-    Stdout: host.stdout,
-  };
-  let _ = io.println(ctx, "listening on ${route("/entries").name}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "listening on ${route("/entries").name}").ignore();
+    .Ok(())
 }
 ```
 
 ```buri repo=cli/tests/example package=//cmd/server role=test
 # from "core/testing/assert" import * as assert;
+
 // cmd/server/test/routes.buri
 
 from "//cmd/server/main.buri" import { route };
 
 test "unknown paths route to the fallback" {
-  assert.eq(route("/nope").name, "fallback");
+    assert.eq(route("/nope").name, "fallback");
 }
 ```
 
@@ -257,22 +265,25 @@ assert on puts them in a function that takes an ordinary bounded `ctx`:
 
 ```buri
 # from "core/effect" import { Alloc, Env, Fs, Stdout };
-# from "core/host" import * as host;
 # from "core/env" import * as env;
 # from "core/fs" import * as fs;
+# from "core/host" import * as host;
+
 // cmd/server/main.buri
 export fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> {
-  fs.writeText(ctx, path, "started\n").mapErr(fn(e) => "could not write the ledger log")
+    fs
+        .writeText(ctx, path, "started\n")
+        .mapErr(fn(e) => "could not write the ledger log")
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc:  host.alloc,
-    Stdout: host.stdout,
-    Fs:     host.fs,
-    Env:    host.env,
-  };
-  run(ctx, env.get(ctx, "LEDGER_LOG") ?? "ledger.log")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Fs: host.fs,
+        Env: host.env,
+    };
+    run(ctx, env.get(ctx, "LEDGER_LOG") ?? "ledger.log")
 }
 ```
 
@@ -281,18 +292,26 @@ export fn main(): Result<(), Str> {
 supply, and it is the same list in both directions.
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-# from "core/host/testing" import { alloc, fs as memory, stdout };
 # from "core/effect" import { Alloc, Fs, Stdout };
 # from "core/fs" import * as fs;
+# from "core/host/testing" import { alloc, fs as memory, stdout };
+# from "core/testing/assert" import * as assert;
+
 # fn run<C: Alloc + Stdout + Fs>(ctx: C, path: Str): Result<(), Str> {
-#   fs.writeText(ctx, path, "started\n").mapErr(fn(e) => "could not write the ledger log")
+#     fs
+#         .writeText(ctx, path, "started\n")
+#         .mapErr(fn(e) => "could not write the ledger log")
 # }
+
 // cmd/server/test/run.buri
 test "run fails cleanly when the log is unwritable" {
-  let ctx = context { Alloc: alloc(), Stdout: stdout(), Fs: memory().readOnly() };
-  let msg = assert.err(run(ctx, "ledger.log"));
-  assert.isTrue(msg.contains("ledger"));
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: stdout(),
+        Fs: memory().readOnly(),
+    };
+    let msg = assert.err(run(ctx, "ledger.log"));
+    assert.isTrue(msg.contains("ledger"));
 }
 ```
 
@@ -393,25 +412,32 @@ from "core/effect" import { Alloc, Fs, IoError };
 # from "core/fs" import * as fs;
 from "core/host/testing" import { alloc, fs };
 # from "core/testing/assert" import * as assert;
+
 # fn archive<C: Alloc + Fs>(ctx: C, path: Str): Result<(), IoError> {
-#   match (fs.readText(ctx, path)) {
-#     .Err(e) => .Err(e),
-#     .Ok(body) => fs.writeText(ctx, "{path}.bak", body),
-#   }
+#     match (fs.readText(ctx, path)) {
+#         .Err(e) => .Err(e),
+#         .Ok(body) => fs.writeText(ctx, "{path}.bak", body),
+#     }
 # }
 
 test "archiving leaves the original alone and writes the copy beside it" {
-  let files = fs().files([("notes.txt", "hello")]);
-  let ctx = context { Alloc: alloc(), Fs: files };
-  assert.ok(archive(ctx, "notes.txt"));
-  assert.eq(files.snapshot(), [("notes.txt", "hello"), ("notes.txt.bak", "hello")]);
+    let files = fs().files([("notes.txt", "hello")]);
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: files,
+    };
+    assert.ok(archive(ctx, "notes.txt"));
+    assert.eq(files.snapshot(), [("notes.txt", "hello"), ("notes.txt.bak", "hello")]);
 }
 
 test "a read-only filesystem refuses the write, and nothing is written" {
-  let files = fs().files([("notes.txt", "hello")]);
-  let ctx = context { Alloc: alloc(), Fs: files.readOnly() };
-  assert.eq(assert.err(archive(ctx, "notes.txt")), .ReadOnly);
-  assert.eq(files.snapshot(), [("notes.txt", "hello")]);
+    let files = fs().files([("notes.txt", "hello")]);
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: files.readOnly(),
+    };
+    assert.eq(assert.err(archive(ctx, "notes.txt")), .ReadOnly);
+    assert.eq(files.snapshot(), [("notes.txt", "hello")]);
 }
 ```
 
@@ -422,28 +448,38 @@ from "core/host/testing" import { alloc, clock, env, stdout };
 # from "core/io" import * as io;
 # from "core/testing/assert" import * as assert;
 # from "core/time" import * as time;
-# fn logPath<C: Env>(ctx: C): Str { env.get(ctx, "LEDGER_LOG") ?? "ledger.log" }
+
+# fn logPath<C: Env>(ctx: C): Str {
+#     env.get(ctx, "LEDGER_LOG") ?? "ledger.log"
+# }
 
 context Fixture {
-  Alloc: alloc(),
-  Env: env().variables([("LEDGER_LOG", "custom.log")]).arguments(["--verbose"]),
+    Alloc: alloc(),
+    Env: env().variables([("LEDGER_LOG", "custom.log")]).arguments(["--verbose"]),
 }
 
 test "reads the log path from the environment" {
-  assert.eq(logPath(Fixture()), "custom.log");
+    assert.eq(logPath(Fixture()), "custom.log");
 }
 
 test "falls back when the variable is unset" {
-  let ctx = context { ..Fixture(), Env: env() };
-  assert.eq(logPath(ctx), "ledger.log");
+    let ctx = context {
+        ..Fixture(),
+        Env: env(),
+    };
+    assert.eq(logPath(ctx), "ledger.log");
 }
 
 test "a context names only the effects the function under test needs" {
-  let sink = stdout();
-  let ctx = context { Alloc: alloc(), Clock: clock().at(1000), Stdout: sink };
-  let now = time.now(ctx).0;
-  let _ = io.println(ctx, "started at {now}").ignore();
-  assert.eq(sink.captured(), "started at 1000\n");
+    let sink = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock().at(1000),
+        Stdout: sink,
+    };
+    let now = time.now(ctx).0;
+    let _ = io.println(ctx, "started at {now}").ignore();
+    assert.eq(sink.captured(), "started at 1000\n");
 }
 ```
 
@@ -463,38 +499,47 @@ fake server — it is given every `Request` the code under test makes, and eithe
 answers it or fails it.
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc, net };
 from "core/effect" import { Alloc, Net, NetError, Request };
+from "core/host/testing" import { alloc, net };
 from "core/net/http" import * as http;
+# from "core/testing/assert" import * as assert;
+
 # fn load<C: Net>(ctx: C, request: Request): Result<Int, NetError> {
-#   http.send(ctx, request).map(fn(r) => r.status)
+#     http.send(ctx, request).map(fn(r) => r.status)
 # }
 
 test "a request nobody arranged for is refused rather than answered" {
-  let ctx = context { Alloc: alloc(), Net: net() };
-  let asked = load(ctx, http.request(.Get, "https://example.test/a"));
-  assert.eq(assert.err(asked), NetError.Refused);
+    let ctx = context {
+        Alloc: alloc(),
+        Net: net(),
+    };
+    let asked = load(ctx, http.request(.Get, "https://example.test/a"));
+    assert.eq(assert.err(asked), NetError.Refused);
 }
 
 test "the responder decides on the method and on a header" {
-  let ctx = context { Alloc: alloc() };
-  let page = http.text(ctx, "Ledger");
-  let server = net().respond(fn(request) => {
-    let authorized = request.header("authorization") == .Some("Bearer t0ken");
-    match ((request.method, authorized)) {
-      (.Get, true) => .Ok(page),
-      (_method, true) => .Ok(http.status(405)),
-      (_any, false) => .Ok(http.status(401)),
-    }
-  });
-  let live = context { Alloc: alloc(), Net: server };
-  let signed = http
-    .request(.Get, "https://example.test/a")
-    .withHeader(live, "authorization", "Bearer t0ken");
-  assert.eq(assert.ok(load(live, signed)), 200);
-  assert.eq(assert.ok(load(live, signed.withMethod(.Post))), 405);
-  assert.eq(assert.ok(load(live, http.request(.Get, "https://example.test/a"))), 401);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let page = http.text(ctx, "Ledger");
+    let server = net().respond(fn(request) => {
+        let authorized = request.header("authorization") == .Some("Bearer t0ken");
+        match ((request.method, authorized)) {
+            (.Get, true) => .Ok(page),
+            (_method, true) => .Ok(http.status(405)),
+            (_any, false) => .Ok(http.status(401)),
+        }
+    });
+    let live = context {
+        Alloc: alloc(),
+        Net: server,
+    };
+    let signed = http
+        .request(.Get, "https://example.test/a")
+        .withHeader(live, "authorization", "Bearer t0ken");
+    assert.eq(assert.ok(load(live, signed)), 200);
+    assert.eq(assert.ok(load(live, signed.withMethod(.Post))), 405);
+    assert.eq(assert.ok(load(live, http.request(.Get, "https://example.test/a"))), 401);
 }
 ```
 
@@ -533,29 +578,36 @@ effects are ordinary interfaces ([`SPEC.md` §10.9](../SPEC.md)), and it is boun
 exactly the way the runner's own implementations are:
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-# from "core/host/testing" import { alloc };
 # from "core/effect" import { Alloc, Net, NetError, Request, Response };
+# from "core/host/testing" import { alloc };
 # from "core/net/http" import * as http;
+# from "core/testing/assert" import * as assert;
+
 # fn status<C: Net>(ctx: C, url: Str): Result<Int, NetError> {
-#   http.send(ctx, http.request(.Get, url)).map(fn(r) => r.status)
+#     http.send(ctx, http.request(.Get, url)).map(fn(r) => r.status)
 # }
-struct StubNet { export failing: Str }
+
+struct StubNet {
+    export failing: Str,
+}
 
 impl Net for StubNet {
-  fn fetch(self, request: Request): Result<Response, NetError> {
-    if (request.url == self.failing) {
-      .Err(.Timeout)
-    } else {
-      .Ok(http.status(200))
+    fn fetch(self, request: Request): Result<Response, NetError> {
+        if (request.url == self.failing) {
+            .Err(.Timeout)
+        } else {
+            .Ok(http.status(200))
+        }
     }
-  }
 }
 
 test "a timeout reaches the caller as an error" {
-  let ctx = context { Alloc: alloc(), Net: StubNet { failing: "https://example.test/slow" } };
-  assert.eq(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
-  assert.eq(assert.ok(status(ctx, "https://example.test/x")), 200);
+    let ctx = context {
+        Alloc: alloc(),
+        Net: StubNet { failing: "https://example.test/slow" },
+    };
+    assert.eq(assert.err(status(ctx, "https://example.test/slow")), NetError.Timeout);
+    assert.eq(assert.ok(status(ctx, "https://example.test/x")), 200);
 }
 ```
 
@@ -594,31 +646,42 @@ one prints.
 ```buri role=test
 from "core/effect" import { Alloc, Fs, IoError, Net, NetError, Response };
 # from "core/fs" import * as fs;
-from "core/host/testing" import { alloc, fs, net, readFile, fetch };
+from "core/host/testing" import { alloc, fetch, fs, net, readFile };
 from "core/net/http" import * as http;
 # from "core/testing/assert" import * as assert;
+
 # fn cached<C: Alloc + Fs + Net>(ctx: C, url: Str): Result<Response, NetError> {
-#   match (fs.readText(ctx, "cache")) {
-#     .Ok(_body) => .Ok(http.status(200)),
-#     .Err(_e) => http.get(ctx, url),
-#   }
+#     match (fs.readText(ctx, "cache")) {
+#         .Ok(_body) => .Ok(http.status(200)),
+#         .Err(_e) => http.get(ctx, url),
+#     }
 # }
 
 test "a miss consults the cache once and then goes upstream" {
-  let files = fs();
-  let upstream = net().respond(fn(_request) => .Ok(http.status(200)));
-  let ctx = context { Alloc: alloc(), Fs: files, Net: upstream };
-  let _ = assert.ok(cached(ctx, "https://example.test/thing"));
-  assert.eq(files.calls(), [readFile("cache")]);
-  assert.eq(upstream.calls(), [fetch(http.request(.Get, "https://example.test/thing"))]);
+    let files = fs();
+    let upstream = net().respond(fn(_request) => .Ok(http.status(200)));
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: files,
+        Net: upstream,
+    };
+    let _ = assert.ok(cached(ctx, "https://example.test/thing"));
+    assert.eq(files.calls(), [readFile("cache")]);
+    assert.eq(upstream.calls(), [
+        fetch(http.request(.Get, "https://example.test/thing")),
+    ]);
 }
 
 test "a hit never reaches the network at all" {
-  let files = fs().files([("cache", "hit")]);
-  let upstream = net();
-  let ctx = context { Alloc: alloc(), Fs: files, Net: upstream };
-  let _ = assert.ok(cached(ctx, "https://example.test/thing"));
-  assert.eq(upstream.calls(), []);
+    let files = fs().files([("cache", "hit")]);
+    let upstream = net();
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: files,
+        Net: upstream,
+    };
+    let _ = assert.ok(cached(ctx, "https://example.test/thing"));
+    assert.eq(upstream.calls(), []);
 }
 ```
 
@@ -659,29 +722,40 @@ from "core/effect" import { Alloc, Fs, IoError };
 # from "core/fs" import * as fs;
 from "core/host/testing" import { alloc, appendFile, fs, readFile };
 # from "core/testing/assert" import * as assert;
+
 # fn commit<C: Alloc + Fs>(ctx: C, entries: [[U8]], i: Int): Result<(), IoError> {
-#   match (entries.get(i)) {
-#     .None => .Ok(()),
-#     .Some(entry) => match (fs.append(ctx, "wal", entry)) {
-#       .Err(e) => .Err(e),
-#       .Ok(_written) => commit(ctx, entries, i + 1),
-#     },
-#   }
+#     match (entries.get(i)) {
+#         .None => .Ok(()),
+#         .Some(entry) => {
+#             match (fs.append(ctx, "wal", entry)) {
+#                 .Err(e) => .Err(e),
+#                 .Ok(_written) => commit(ctx, entries, i + 1),
+#             }
+#         },
+#     }
 # }
 
 test "the third append fails and nothing after it is written" {
-  let wal = fs().faults([appendFile("wal", [99]).failsOnCall(1, .Other("disk full"))]);
-  let ctx = context { Alloc: alloc(), Fs: wal };
-  assert.eq(assert.err(commit(ctx, [[97], [98], [99]], 0)), .Other("disk full"));
-  assert.eq(assert.ok(wal.read("wal")), "ab");
+    let wal = fs().faults([
+        appendFile("wal", [99]).failsOnCall(1, .Other("disk full")),
+    ]);
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: wal,
+    };
+    assert.eq(assert.err(commit(ctx, [[97], [98], [99]], 0)), .Other("disk full"));
+    assert.eq(assert.ok(wal.read("wal")), "ab");
 }
 
 test "a file that cannot be read is reported rather than skipped" {
-  let files = fs()
-    .files([("config.toml", "name = \"demo\"")])
-    .faults([readFile("config.toml").fails(.PermissionDenied)]);
-  let ctx = context { Alloc: alloc(), Fs: files };
-  assert.eq(assert.err(fs.readText(ctx, "config.toml")), .PermissionDenied);
+    let files = fs()
+        .files([("config.toml", "name = \"demo\"")])
+        .faults([readFile("config.toml").fails(.PermissionDenied)]);
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: files,
+    };
+    assert.eq(assert.err(fs.readText(ctx, "config.toml")), .PermissionDenied);
 }
 ```
 
@@ -760,19 +834,24 @@ reports them in the order they finished:
 # from "core/host/testing" import { alloc, task, tasks };
 # from "core/tasks" import * as tasks;
 # from "core/testing/assert" import * as assert;
+
 # fn doubled<C: Alloc + Tasks>(ctx: C, items: [Int]): [Int] {
-#   tasks.parallel(ctx, items, fn(_c, _i, item) => item * 2)
+#     tasks.parallel(ctx, items, fn(_c, _i, item) => item * 2)
 # }
+
 test "the answer does not depend on the order the work finished in" {
-  // `seed(5)` is the last of the six orders of three tasks — the reverse of
-  // program order. Named rather than reached through `anyOrder()`, because a
-  // block that asserts on the order has to name the order it means.
-  let scheduler = tasks().seed(5);
-  let ctx = context { Alloc: alloc(), Tasks: scheduler };
-  // The items' order, whatever order the work ran in.
-  assert.eq(doubled(ctx, [1, 2, 3]), [2, 4, 6]);
-  // And the order it ran in, which is the thing this double chose.
-  assert.eq(scheduler.calls(), [task(2), task(1), task(0)]);
+    // `seed(5)` is the last of the six orders of three tasks — the reverse of
+    // program order. Named rather than reached through `anyOrder()`, because a
+    // block that asserts on the order has to name the order it means.
+    let scheduler = tasks().seed(5);
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: scheduler,
+    };
+    // The items' order, whatever order the work ran in.
+    assert.eq(doubled(ctx, [1, 2, 3]), [2, 4, 6]);
+    // And the order it ran in, which is the thing this double chose.
+    assert.eq(scheduler.calls(), [task(2), task(1), task(0)]);
 }
 ```
 
@@ -832,19 +911,30 @@ reached fails the test**.
 A suite's filesystem is written in the suite, with `fs().files([...])`:
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-# from "core/host/testing" import { alloc, fs as memory };
 # from "core/effect" import { Alloc, Fs };
 # from "core/fs" import * as fs;
-# struct Entry { export memo: Str }
-# fn sample(): [Entry] { [Entry { memo: "coffee" }] }
-# fn render<C: Alloc>(ctx: C, entries: [Entry]): Str {
-#   entries.mapCtx(ctx, fn(c, e) => e.memo).join(ctx, "\n")
+# from "core/host/testing" import { alloc, fs as memory };
+# from "core/testing/assert" import * as assert;
+
+# struct Entry {
+#     export memo: Str,
 # }
+
+# fn sample(): [Entry] {
+#     [Entry { memo: "coffee" }]
+# }
+
+# fn render<C: Alloc>(ctx: C, entries: [Entry]): Str {
+#     entries.mapCtx(ctx, fn(c, e) => e.memo).join(ctx, "\n")
+# }
+
 test "renders the statement" {
-  let ctx = context { Alloc: alloc(), Fs: memory().files([("statement.txt", "coffee")]) };
-  let want = assert.ok(fs.readText(ctx, "statement.txt"));
-  assert.eq(render(ctx, sample()), want);
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: memory().files([("statement.txt", "coffee")]),
+    };
+    let want = assert.ok(fs.readText(ctx, "statement.txt"));
+    assert.eq(render(ctx, sample()), want);
 }
 ```
 

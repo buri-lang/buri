@@ -1,13 +1,14 @@
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
 from "core/effect" import { Alloc };
-
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
 from "//tools/report" import { render };
 
 // `startsWith` rather than `eq`, because the case edits render.buri to reach
 // stray.buri and what that adds is a suffix. What the suite is for here is
 // the placement of the sources, not the wording of the report.
 test "render puts the heading first" {
-  let ctx = context { Alloc: alloc() };
-  assert.isTrue(render(ctx, 12).startsWith("report 12"));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(render(ctx, 12).startsWith("report 12"));
 }

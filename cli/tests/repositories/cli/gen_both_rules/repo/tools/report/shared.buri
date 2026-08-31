@@ -1,3 +1,5 @@
 // Imported from render.buri and from flags.buri to begin with — one file
 // reached from both entry points, which is the case `gen` refuses to guess at.
-export fn heading(): Str { "report" }
+export fn heading(): Str {
+    "report"
+}

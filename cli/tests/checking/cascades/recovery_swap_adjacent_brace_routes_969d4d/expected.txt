@@ -1,0 +1,17 @@
+error: this `match` does not cover `_` [match-not-exhaustive]
+ --> main.buri:9:5
+  |
+9 |     match (path) {
+  |     ^^^^^^^^^^^^^^ not covered
+  |
+  = exhaustiveness is not attempted over integer or string ranges
+  = fix: add a `_` arm
+error: expected a pattern, found `=>` [unexpected-token]
+  --> main.buri:12:9
+   |
+12 |         => _ Route { name: "fallback", path },
+   |         ^^
+   |
+   = expected: a pattern
+   = actual: `=>`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

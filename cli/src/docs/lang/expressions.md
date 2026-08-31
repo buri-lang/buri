@@ -150,27 +150,27 @@ derives them:
 
 ```buri
 trait Checked {
-  fn checkedAdd(self, rhs: Self): Option<Self>;
-  fn checkedSub(self, rhs: Self): Option<Self>;
-  fn checkedMul(self, rhs: Self): Option<Self>;
-  fn checkedDiv(self, rhs: Self): Option<Self>;
+    fn checkedAdd(self, rhs: Self): Option<Self>;
+    fn checkedSub(self, rhs: Self): Option<Self>;
+    fn checkedMul(self, rhs: Self): Option<Self>;
+    fn checkedDiv(self, rhs: Self): Option<Self>;
 }
 
 trait Wrapping {
-  fn wrappingAdd(self, rhs: Self): Self;
-  fn wrappingSub(self, rhs: Self): Self;
-  fn wrappingMul(self, rhs: Self): Self;
+    fn wrappingAdd(self, rhs: Self): Self;
+    fn wrappingSub(self, rhs: Self): Self;
+    fn wrappingMul(self, rhs: Self): Self;
 }
 
 trait Saturating {
-  fn saturatingAdd(self, rhs: Self): Self;
-  fn saturatingSub(self, rhs: Self): Self;
-  fn saturatingMul(self, rhs: Self): Self;
+    fn saturatingAdd(self, rhs: Self): Self;
+    fn saturatingSub(self, rhs: Self): Self;
+    fn saturatingMul(self, rhs: Self): Self;
 }
 
 trait Bounded {
-  fn minValue(): Self;
-  fn maxValue(): Self;
+    fn minValue(): Self;
+    fn maxValue(): Self;
 }
 ```
 
@@ -367,10 +367,10 @@ follows throughout.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 // main.buri
-from "lib/square" import { Square };     // the type — not `area`, not `scaled`
+from "lib/square" import { Square }; // the type — not `area`, not `scaled`
 
 fn describe(sq: Square): Int {
-  sq.scaled(2).area()                    // both resolve with no further imports
+    sq.scaled(2).area() // both resolve with no further imports
 }
 ```
 
@@ -441,10 +441,11 @@ function on the failure case.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs };
+
 fn loadPort<C: Alloc + Fs>(ctx: C, path: Str): Result<Int, ConfigError> {
-  let text = fs.readText(ctx, path)?;        // Err(e) => return Err(e)
-  let cfg = parseConfig(text)?;
-  .Ok(cfg.port)
+    let text = fs.readText(ctx, path)?; // Err(e) => return Err(e)
+    let cfg = parseConfig(text)?;
+    .Ok(cfg.port)
 }
 ```
 

@@ -1,0 +1,28 @@
+error: this function type is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_paren_expected_302794/main.buri:34:48
+   |
+34 | fn rendered<C: Alloc>(ctx: C, render: fn(C, Str=> ) Str, label: Str): Str {
+   |                                                ^^
+   |
+  --> lib/recovery_swap_adjacent_paren_expected_302794/main.buri:34:41
+   |
+34 | fn rendered<C: Alloc>(ctx: C, render: fn(C, Str=> ) Str, label: Str): Str {
+   |                                         ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `Str` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_expected_302794/main.buri:34:53
+   |
+34 | fn rendered<C: Alloc>(ctx: C, render: fn(C, Str=> ) Str, label: Str): Str {
+   |                                                     ^^^
+   |
+   = expected: `=>`
+   = actual: `Str`
+   = fix: write `=>` here
+error: there is nothing named `rendered` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_expected_302794/main.buri:51:23
+   |
+51 |         .println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label))
+   |                       ^^^^^^^^
+   |
+   = fix: declare `rendered`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -13,8 +13,8 @@ run {
 # edit, and the finding lands on the declaration two files away.
 edit {
   file: "lib/money/routes.buri"
-  replace: "  match (s.issued) {\n    true => s.amount,\n    false => 0,\n  }\n"
-  with: "  s.amount\n"
+  replace: "    match (s.issued) {\n        true => s.amount,\n        false => 0,\n    }\n"
+  with: "    s.amount\n"
 }
 
 run {
@@ -25,7 +25,7 @@ run {
 
 edit {
   file: "lib/money/cents.buri"
-  replace: "  export issued: Bool,\n"
+  replace: "    export issued: Bool,\n"
   with: ""
 }
 
