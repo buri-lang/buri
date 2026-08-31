@@ -6,6 +6,15 @@ it was written. The harness regenerates the corpus on every run and checks the
 digest **before it measures anything**. `design/PERFORMANCE.md` §3.1 states the
 rule they exist under; this file is the operational half of it.
 
+**A formatter change is a generator change.** Since `GENERATOR_REVISION` 7 the
+last thing `generate.rs` does to a module is hand it to `formatting::source`, so
+what these forty digests are over is what `buri format` writes. A printer that
+starts breaking a line somewhere else moves all forty, and the ceremony is the
+one below: bump `GENERATOR_REVISION`, re-pin, and say so in
+`design/PERFORMANCE.md` §6. That is the price of a benchmark measured over
+source somebody would actually check in, and it is paid at the same desk as any
+other generator change.
+
 ## Why a third kind
 
 `cli/benches/corpora/` buys byte-stability by checking the bytes in, and it is
@@ -72,15 +81,15 @@ they were worth a scale row and not yet worth a profile.
 | Point | Profile / delta | The axis it moves |
 |---|---|---|
 | `mixed` | `mixed` | The anchor. Every other point is a delta from it. |
-| `mixed-many-files` | `mixed-many-files` | Module count: 1,568 at 100k, 15,640 at 1M. |
-| `mixed-few-files` | `mixed-few-files` | Module size: 21 modules at 100k, 192 at 1M. |
+| `mixed-many-files` | `mixed-many-files` | Module count: 1,566 at 100k, 15,437 at 1M. |
+| `mixed-few-files` | `mixed-few-files` | Module size: 20 modules at 100k, 186 at 1M. |
 | `mixed-libs` | `mixed-libs` | A clustered import graph with thin edges between clusters. |
 | `mixed-deep-graph` | `mixed-deep-graph` | A deep dependency chain rather than a wide fan. |
 | `mixed-wide-graph` | `mixed-wide-graph` | Import fan-out at a fixed line count. |
 | `struct-heavy` | `struct-heavy` | Layout, field resolution, wide records. |
 | `struct-light` | `struct-light` | The control for the row above. |
 | `enum-heavy` | `enum-heavy` | Wide enums matched exhaustively — the fewest functions per line of any point. |
-| `generic-blowup` | `generic-blowup` | Monomorphization: 243k functions at 1M against the anchor's 132k. |
+| `generic-blowup` | `generic-blowup` | Monomorphization: 235k functions at 1M against the anchor's 128k. |
 | `derive-heavy` | `derive-heavy` | `middle::derives`, which only the native branch runs. |
 | `impl-heavy` | `impl-heavy` | Method resolution and per-impl setup. |
 | `match-heavy` | `match-heavy` | Decision-tree construction at realistic arm counts. |
@@ -117,10 +126,15 @@ corpora is minutes:
 
 | Command | Pinned corpora covered | Wall time |
 |---|---|---|
-| `--validate --quick` | none — the CI gate, and it has to stay under a second | 0.3 s |
-| `--validate` | the anchor, `mixed-100k` and `mixed-1M` | 10 s |
-| `--validate --set=scale` | the sample: the 100k tier and `mixed-1M` | 21 s |
-| `--validate --set=scale-full` | all forty | 2 min 47 s |
+| `--validate --quick` | none — the CI gate, and it has to stay under a second | 0.4 s |
+| `--validate` | the anchor, `mixed-100k` and `mixed-1M` | 12 s |
+| `--validate --set=scale` | the sample: the 100k tier and `mixed-1M` | 26 s |
+| `--validate --set=scale-full` | all forty | 3 min 24 s |
+
+Each of those grew by about a fifth at `GENERATOR_REVISION` 7, which is what the
+layout pass costs: generating a corpus now parses and prints it once more before
+anything else reads it. It is spent outside every timer, at work-list
+construction, so no measured rate carries it.
 
 ## Pinning a new one
 

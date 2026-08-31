@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = mixed-deep-graph-1M
 profile = mixed-deep-graph
-generator_revision = 6
-revision = 6
+generator_revision = 7
+revision = 7
 recorded = 2026-08-31
 params = dep_span_pct=5 lines=1000000
-lines = 1007259
-bytes = 35361724
-modules = 3590
-digest = bb87ab446b2192edac5814fd1738acbb10e137e6c4e9fa28a2783f928d277ac2
+lines = 1010503
+bytes = 35626290
+modules = 3473
+digest = 8d96a0ecba154c84990bf102204ea2a64a7fd517345fe11bfe80a847dfa7f6b0

@@ -11,9 +11,9 @@ from "//bench/m0000.buri" import { blend0, reach0 };
 /// The entry point. `main` is the only module that may import
 /// `core/host`, so it is the only place the context can be built.
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc };
-  let total = 0
-    + blend0(1) + reach0(ctx)
-    ;
-  if (total == 0) { .Err("empty") } else { .Ok(()) }
+    let ctx = context {
+        Alloc: host.alloc,
+    };
+    let total = 0 + blend0(1) + reach0(ctx);
+    if (total == 0) { .Err("empty") } else { .Ok(()) }
 }

@@ -2,11 +2,11 @@
 # and the README beside this file.
 name = long-idents-1M
 profile = long-idents
-generator_revision = 6
-revision = 6
+generator_revision = 7
+revision = 7
 recorded = 2026-08-31
 params = ident_len=32 lines=1000000
-lines = 1007259
-bytes = 44075363
-modules = 3590
-digest = 180926ece1293ac6e2c9686c7f7e16866f9c995f151181b25657274d452645d7
+lines = 1009255
+bytes = 39337207
+modules = 3049
+digest = 2423f3e2088b6e50834c28865144a50b13cfce062bb056eeca94ed395aa50eb2
