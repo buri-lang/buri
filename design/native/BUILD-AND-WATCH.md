@@ -641,6 +641,56 @@ The cross-backend agreement differential test is not a CI feature:
 `cli/tests/native/agreement.rs`
 runs in the ordinary suite on every leg (ARCHITECTURE.md §4).
 
+### 3.3.1 The same jobs, on the maintainer's own machine
+
+`scripts/test-linux.sh` runs the two arm64 Linux jobs above — `test`'s arm64 leg
+and `linux-arm64` — in a podman container on a mac. It exists because those two
+jobs ask the only questions an arm64 mac cannot ask for itself: whether
+`cli/build.rs` writes a real stencil library under a Debian `clang`, and whether
+the ELF images `build/link.rs` produces actually run. Until it landed the only
+way to ask was to push, so a branch that took six pushes to get right bought six
+matrices, and the bill said so.
+
+It is a MIRROR rather than a second opinion. Every command in it is a `run:`
+line out of `ci.yml` in that file's order, with the same `env:` — `BURI_CI=1`
+included — the same `.github/scripts/` assertions, and the same `CC: clang`. The
+two places it departs from the workflow are commented in the script and argued
+there, and one of them is worth repeating here: it does **not** run the
+`net-h3` step, because that step's `if:` names `ubuntu-24.04` and no row of the
+matrix has that as its `os`, so the step fires on no runner today.
+
+The base image is an exact `rust:<x.y.z>-trixie` rather than `latest`, and node
+and bun are exact versions checked against the digests their own release hosts
+publish beside them, so a green run means the same thing two days running.
+**trixie and not bookworm is measured rather than preferred**: noble's `clang` is
+18 and trixie's is 19, and under bookworm's 14 the natively linked test runner
+for `cli/tests/failing/aborts` spun in user space forever — no syscalls, no
+signals, `minflt` frozen — which is a miscompile the runner does not have and a
+mirror must not invent.
+
+```
+scripts/test-linux.sh              # both Linux jobs, arm64
+scripts/test-linux.sh --job test   # the suite only
+scripts/test-linux.sh --x86-64     # the same under emulation, and slow
+```
+
+The cargo registry and the target directory are named podman volumes keyed to
+the image recipe, so the first run pays for a cold build, every run after it
+pays for the tests, and moving a pin above empties the directory rather than
+leaving half of it built by the old toolchain. The checkout is mounted
+READ-ONLY and copied into the container, which turns `cli/tests/README.md`'s
+rule that nothing writes into a checked-in tree from a habit into a mount
+option. Nothing is installed on the host but the podman machine, which the
+script creates and starts by itself.
+
+`--x86-64` is for exactly one class of defect, and it is worth its minutes when
+that class is in reach: `asm.rs`'s SysV entry point, `jit.rs`'s `rel32` and
+rip-relative patches and `glue.rs`'s SysV stub are proved on an x86 machine or
+nowhere. Every instruction goes through qemu, so it costs several times the
+arm64 wall clock and the script says so before it starts.
+
+None of this replaces CI, which is still what says `main` is green.
+
 ### 3.4 Without nix
 
 **The default build needs no library and no system package.** `cargo build -p
