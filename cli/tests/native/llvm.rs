@@ -303,6 +303,163 @@ macro_rules! skip_unless_executable {
     };
 }
 
+/// A probe that **enters Buri code from a second carrier** through the door
+/// `carrier.rs` names, and says so.
+///
+/// The counterpart of `stencil.rs`'s `CARRIER_PROBE`, minus its sentinel: this
+/// backend has no Buri data stack to keep two carriers off each other's frames
+/// — a frame here is the machine's, and a thread's machine stack is the OS's.
+/// So what is left to check is the half that *is* shared, and it is the half
+/// the two slices exist to make identical: that a `void(void *, void *)`
+/// declared once in C reaches a root emitted by either backend.
+///
+/// A **constructor** rather than a wrapper around `main`, for [`ALLOC_PROBE`]'s
+/// reason. It runs before `main`, and `main` then runs the same root on the
+/// process's own thread — which is what makes the expected output two lines.
+const CARRIER_PROBE: &str = r#"
+#include <pthread.h>
+#include <stdio.h>
+
+extern void buri$carrier$main(void *state, void *out);
+
+static unsigned char answer[4096];
+
+static void *carrier(void *unused) {
+  (void)unused;
+  buri$carrier$main(0, answer);
+  return 0;
+}
+
+__attribute__((constructor)) static void buri_carrier_probe(void) {
+  /* 64 MiB, which is `asm::STACK_USABLE`: on this backend a Buri frame *is* a
+     machine frame, so the depth a carrier can recurse to is the depth its
+     thread stack allows, and the default one is far under what the stencil
+     backend's own block gives. See the test's header. */
+  pthread_attr_t a;
+  pthread_attr_init(&a);
+  pthread_attr_setstacksize(&a, 64u * 1024u * 1024u);
+  pthread_t t;
+  if (pthread_create(&t, &a, carrier, 0) != 0) { fprintf(stderr, "carrier: no thread\n"); return; }
+  pthread_join(t, 0);
+  pthread_attr_destroy(&a);
+  fprintf(stderr, "carrier: entered\n");
+}
+"#;
+
+/// **A second carrier enters Buri code through the door, at both profiles.**
+///
+/// Slice B8. The door is a `ccc` wrapper in front of the `fastcc` body, so the
+/// two things it can get wrong are a convention mismatch — which shows up as a
+/// crash or a wrong answer rather than as a diagnostic — and being optimized
+/// away, which `default<O2>` would do to a function with external linkage that
+/// nothing in the module calls if the linkage were wrong.
+///
+/// Ten thousand non-tail frames, the same depth `stencil.rs` recurses on its
+/// own stack, so the two halves of the pair are asking one question of one
+/// program — but **not** on the same stack, and the probe has to say so.
+///
+/// A Buri frame here *is* a machine frame, so a carrier's depth is its
+/// thread's stack and nothing else. The default for a non-main thread is well
+/// under a megabyte on both platforms, and ten thousand of these frames do not
+/// fit in it: the first run of this test was killed by a signal. The probe
+/// therefore asks for 64 MiB, which is `asm::STACK_USABLE` — the number the
+/// *other* backend gives a carrier — so that the pair is comparable.
+///
+/// That is a real asymmetry rather than a detail of this test, and it is
+/// written down here because this is where it was found: `cli/runtime/rt.rs`
+/// sizes a pool carrier's machine stack at 512 KiB, which is right for a
+/// backend whose frames are on a separate 64 MiB block and is a much shallower
+/// recursion limit for the one whose frames are not. Slice B9 replaces the
+/// carrier thread with a stack switch and is where the two become one number.
+///
+/// **Both pipelines**, because that is what `release_and_debug_agree` asserts
+/// for the suite and this file asserts per case: `default<O2>` and
+/// `default<O0>` have to print the same thing and exit the same way, and an
+/// entry point one of them deleted would not.
+#[test]
+fn a_second_carrier_enters_through_the_door() {
+    skip_unless_executable!();
+    // `f` prints at the base case, and that is not decoration. A *pure*
+    // self-recursive function is `memory(none) willreturn` here, and
+    // `default<O2>` speculates such a call to flatten the branch — which turns
+    // `if (i <= 0) { 0 } else { 1 + f(i - 1) }` into an unconditional
+    // recursion that never returns. That is a pre-existing hazard of this
+    // backend's attributes and not of the door (the same program crashes with
+    // no probe linked at all, at `-O2`, and runs at `-O0`); it is recorded in
+    // this slice's report. One side effect at the bottom takes `f` out of
+    // `memory(none)` and leaves the depth this test is about intact.
+    let source = r#"
+from "core/host/lib.buri" import { stdout };
+fn f(i: Int): Int { if (i <= 0) { let _ = stdout.println("bottom"); 0 } else { 1 + f(i - 1) } }
+export fn main(): Result<(), Str> {
+  let _ = stdout.println("depth ${f(10000)}");
+  .Ok(())
+}
+"#
+    .to_string();
+    let fast = build_and_run_at("carrier-door-o2", &source, Some(CARRIER_PROBE), Profile::Release);
+    let plain = build_and_run_at("carrier-door-o0", &source, Some(CARRIER_PROBE), Profile::Debug);
+
+    for (what, ran) in [("default<O2>", &fast), ("default<O0>", &plain)] {
+        assert_eq!(ran.2, Some(0), "{what} exited {:?}: {}", ran.2, ran.1);
+        assert!(
+            ran.1.contains("carrier: entered"),
+            "{what}: the probe never came back from the door: {:?}",
+            ran.1
+        );
+        assert_eq!(
+            ran.0, "bottom\ndepth 10000\nbottom\ndepth 10000\n",
+            "{what}: the root ran {} time(s), not twice",
+            ran.0.lines().count() / 2
+        );
+    }
+    assert_eq!(fast.0, plain.0, "the two pipelines printed different things");
+    assert_eq!(fast.2, plain.2, "the two pipelines exited differently");
+}
+
+/// **The door is emitted `ccc`, external, in front of a `fastcc` body.**
+///
+/// Read out of the IR before `default<O2>`, which is where a claim about what
+/// this backend *emits* can be made ([`emitted_ir`]). Three things, and each
+/// one is what a caller outside the artifact depends on:
+///
+///  * the name is `carrier.rs`'s, so a C declaration finds it;
+///  * it takes two pointers and answers nothing, which
+///    `the_two_carrier_doors_have_one_signature` pins byte for byte against
+///    the other backend;
+///  * the call inside it is `fastcc`, because the body is — the door is the
+///    one place the two conventions meet, and a `ccc` call to a `fastcc`
+///    definition is a miscompile no linker sees.
+#[test]
+fn the_carrier_door_is_a_ccc_wrapper_over_a_fastcc_body() {
+    let source = program(
+        r#"
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println("hi");
+  .Ok(())
+}
+"#,
+    );
+    let ir = emitted_ir(&source);
+    let name = buri::compiler::backend::carrier::MAIN_ENTRY;
+    let line = ir
+        .lines()
+        .find(|l| l.starts_with("define") && l.contains(name))
+        .unwrap_or_else(|| panic!("no definition of {name} in:\n{ir}"));
+    assert!(line.contains("void"), "the door answers something: {line}");
+    assert_eq!(line.matches("ptr ").count(), 2, "the door is not two pointers: {line}");
+    assert!(!line.contains("fastcc"), "the door is not at the platform ABI: {line}");
+    assert!(!line.contains("internal"), "the door is not externally visible: {line}");
+    // The body it wraps is `fastcc`, and the call is where the two meet.
+    let body = ir
+        .lines()
+        .skip_while(|l| !(l.starts_with("define") && l.contains(name)))
+        .take_while(|l| *l != "}")
+        .find(|l| l.contains("call") && l.contains("fastcc"));
+    assert!(body.is_some(), "the door does not call its body at `fastcc`:\n{ir}");
+}
+
 // ---------------------------------------------------------------------------
 // End to end, from hello world upwards
 // ---------------------------------------------------------------------------
@@ -805,6 +962,16 @@ export fn main(): Result<(), Str> {
     // miscompile LLVM will not diagnose, so both halves are asserted.
     assert!(ir.contains("declare void @buri_rt_flush"), "no flush declaration in:\n{ir}");
     assert!(ir.contains("buri_rt_argv_init"), "no argv_init in:\n{ir}");
+
+    // `cli/runtime/lib.rs` §6's optional call, which **this** backend makes and
+    // the frame-threaded one must not. It survives `default<O2>` because the
+    // callee is an opaque declaration; a pipeline that learned to drop it would
+    // be a `Tasks.parallel` that silently stopped overlapping its waits, which
+    // is why the assertion is here rather than on the unoptimized module.
+    assert!(
+        ir.contains("buri_rt_frames_are_per_carrier"),
+        "no frames_are_per_carrier in:\n{ir}"
+    );
 
     // The emitted `main` is `ccc`, because the platform starts it, while every
     // Buri function is `fastcc`. A mismatch between a function and its call
@@ -3165,4 +3332,96 @@ export fn main(): Result<(), Str> {{
         live_blocks(&many.1)
     );
     assert_eq!(live_blocks(&many.1), 0, "the heap did not come back balanced: {:?}", many.1);
+}
+
+/// A `C: Alloc` parameter reached with a value that **implements** `Alloc`
+/// rather than with a `context { … }` record — the shape SPEC 10.8's
+/// attenuation is made of, and the one a native ABI rule used to get wrong.
+///
+/// `<C: Alloc>` and `<T: Ord>` are one feature (SPEC 10.1), so the argument at
+/// `C` need not be a context, and `Tagged` here is a plain struct that forwards
+/// `allocate` and carries a word of its own so that it is **not** zero-sized.
+///
+/// Both backends drop a runtime call's context argument, because `cli/runtime`
+/// allocates through `buri_rt_alloc` and has no use for one. Which argument
+/// that is was asked of the *value's type* — "is it a `Ty::Ctx`?" — which is the
+/// same answer only while every `C` is instantiated at a context. A `Tagged`
+/// spread to a leaf the C signature has no parameter for, and every argument
+/// after it moved one register down.
+///
+/// Two operations, because the two backends got it wrong in two places:
+///
+/// * `list.push` is a [`runtime_table::ENTRIES`] row, and its context is named
+///   by `Entry::ctx` / `Arg::Dropped` at index one. This is the one that
+///   segfaulted in `memmove` under the stencil backend.
+/// * `str.concat` has **no** row on either side, so its argument list is
+///   narrowed at the call site instead — `emit.rs`'s `concat_ctx`. This one is
+///   only reachable here: the conformance corpus covers the stencil backend
+///   (`semantics/effects.buri`'s "a bare implementing value" blocks) and
+///   `native/conformance.rs` drives that generator, so this file is where the
+///   LLVM half of the same rule is exercised at all.
+///
+/// A wrong answer here is not a refusal — it links and runs — so the assertion
+/// is on the two values, not on the exit code.
+#[test]
+fn a_value_that_implements_alloc_is_a_context_bounds_argument() {
+    skip_unless_executable!();
+    let (out, err, code) = build_and_run(
+        "bare-implementor",
+        &program(
+            r#"
+from "core/effect/lib.buri" import { Region };
+from "core/list/lib.buri" import * as list;
+from "core/str/lib.buri" import * as str;
+
+/// Satisfies `Alloc` by forwarding, and is not a context. The `tag` is what
+/// makes it eight bytes wide: a zero-sized implementor would spread to no
+/// leaves and the two readings would agree by accident.
+struct Tagged<C> {
+  export inner: C,
+  export tag: Int,
+}
+
+impl<C: Alloc> Alloc for Tagged<C> {
+  fn allocate(self, bytes: Int): Region {
+    self.inner.allocate(bytes)
+  }
+}
+
+/// The context is argument **one**, after the receiver.
+fn pushed<C: Alloc>(ctx: C, item: Int, into: [Int]): [Int] {
+  into.push(ctx, item)
+}
+
+/// The context is argument **zero**, so both indices the rule can take are
+/// reached from one program.
+fn repeated<C: Alloc>(ctx: C, item: Int): [Int] {
+  list.repeat(ctx, item, 2)
+}
+
+/// No table row on either backend.
+fn joined<C: Alloc>(ctx: C, a: Str, b: Str): Str {
+  a.concat(ctx, b)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let bare = Tagged { inner: ctx, tag: 9 };
+  let pushedOnto = pushed(bare, 7, [1]);
+  let twice = repeated(bare, 5);
+  let _ = ctx.println(str.format(
+    ctx,
+    "${pushedOnto[0] ?? 0} ${pushedOnto[1] ?? 0} ${twice[1] ?? 0} ${joined(bare, "ab", "cd")}",
+  ));
+  // And the context record built from the same implementations, which is what
+  // every other program here passes: one answer, two argument types.
+  let alsoPushed = pushed(ctx, 7, [1]);
+  let _ = ctx.println("${alsoPushed[1] ?? 0} ${joined(ctx, "ab", "cd")}");
+  .Ok(())
+}
+"#,
+        ),
+    );
+    assert_eq!(out, "1 7 5 abcd\n7 abcd\n", "stderr was: {err}");
+    assert_eq!(code, Some(0));
 }

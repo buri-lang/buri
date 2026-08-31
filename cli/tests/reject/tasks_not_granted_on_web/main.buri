@@ -1,0 +1,30 @@
+// EXPECT: `WEB` does not grant `HostTasks`
+//
+// `Tasks` is granted on LINUX, MACOS and JS and withheld from the page, for a
+// reason of the kind `Net`'s row already gives: `parallel` returns only when
+// the last task has finished, and a page has an interface that a wait is
+// visible in. A page's concurrency is its event loop.
+//
+// The case is here rather than covered by `host_effect_not_granted_on_web`
+// because it is the **forged struct**, and that is the half of a grant a reader
+// has to be shown is closed. `HostTasks` has no private field, so exporting the
+// type while withholding the value would leave the authority one
+// `Tasks: host.HostTasks {}` away — this is that line, and it is refused at the
+// type rather than at the binding.
+//
+// PLATFORM: WEB
+from "core/effect/lib.buri" import { Alloc, Stdout, Tasks };
+from "core/host/lib.buri" import * as host;
+from "ui/effect/lib.buri" import { Ui, Watch };
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Tasks: host.HostTasks {},
+    Ui: host.ui,
+    Watch: host.watch,
+  };
+  let _ = ctx.println("a page's concurrency is its event loop");
+  .Ok(())
+}

@@ -78,7 +78,7 @@ pub enum Arg {
     /// argument (`backend/intrinsic_keys.rs`'s `step_call`).
     ///
     /// ```text
-    ///   entry       the generated `ccc` thunk, `void(state, in, out)`
+    ///   entry       the generated `ccc` thunk, `void(state, index, in, out)`
     ///   state       this backend's own record, opaque to the runtime
     ///   in_stride   the source element's stride
     ///   out_stride  the result element's stride
@@ -298,6 +298,28 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_proc_exit_with",
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::NoReturn,
+    },
+    // -- Tasks --------------------------------------------------------------
+    //
+    // `parallel(self, ctx, items, f)`, the second key of the closure trampoline
+    // and the one it was built for. `self` is `HostTasks`, an empty struct, so
+    // it is `Arg::Dropped` like every other host receiver; `ctx` is the caller's
+    // whole context and is `Arg::Dropped` too — the runtime allocates through
+    // `buri_rt_alloc` and reads no capability, so no context crosses the archive
+    // boundary — but it is not *unused*: the step is handed it, out of the state
+    // record `Arg::Step` builds, which is why the shared table names its index.
+    // `items` is `Arg::Elems`, because the source's element type is what the
+    // entry thunk is generated at; `f` is `Arg::Step`, the four words.
+    //
+    // The body is in `cli/runtime/rt.rs` behind feature `net`, which is why
+    // `runtime_native::net_intrinsic` names the `host.HostTasks.*` family: a
+    // toolchain built without the reactor refuses this key with a sentence
+    // before code generation rather than with a missing symbol from `cc`.
+    Entry {
+        key: "host.HostTasks.parallel",
+        symbol: "buri_rt_host_tasks_parallel",
+        args: &[Arg::Dropped, Arg::Dropped, Arg::Elems, Arg::Step],
+        ret: Ret::Out,
     },
     // -- core/alloc's counters ----------------------------------------------
     //
@@ -643,10 +665,10 @@ pub const ENTRIES: &[Entry] = &[
     // `list.mapCtxStep` is `list.mapCtx` with its step reached through the
     // generated `ccc` entry thunk of [`Arg::Step`] instead of through the loop
     // [`super::emit::Unit::list_closure`] emits. It is the *pilot* for that
-    // mechanism and nothing else uses it: `core/list`'s own combinators keep
-    // their loops, which are faster than a call per element can be, and the
-    // operations the trampoline exists for — a task pool, an accepting
-    // socket — are not written yet.
+    // mechanism and nothing in `core/list` uses it: those combinators keep
+    // their loops, which are faster than a call per element can be. The
+    // operation the trampoline exists for is `host.HostTasks.parallel`, whose
+    // row is in the `core/host` block above.
     //
     // `Arg::Elems` and not `Arg::List`, because the source's element type is
     // what `generic_element` answers and what the entry thunk is generated at.
@@ -1121,116 +1143,182 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
-    // `TestFs`'s seventeen. `self` is `struct TestFs(I64)` and carries a handle,
-    // so it is `Arg::Scalar` here as `MemFs`'s is — including on the two
-    // builders and on `readOnly`, which read the receiver's view rather than
-    // ignoring it.
+    // `TestFs`'s twenty-two, every one over a **handle**: a `TestFs` is a handle
+    // and a fault plan since the plan landed, and an argument crosses as its
+    // leaves, so a row taking `self` would be handed three values where it
+    // expects one. The eleven methods of `Fs` are Buri bodies over these rows,
+    // and `host_testing.buri` says why the plan stays in the program — an
+    // `IoError` carries a `Str` on `.Other`, which §2.1 cannot name.
     //
     // `snapshot` answers a `[(Str, Str)]`, which is a list like any other at
     // this boundary: `Ret::Out` writes the descriptor, and the element width is
-    // the tuple's layout rather than anything this table names.
-    Entry { key: "host_testing.fs", symbol: "buri_rt_host_testing_fs", args: &[], ret: Ret::Out },
+    // the tuple's layout rather than anything this table names. The three
+    // builders and `newFs` answer the handle itself and so are `Ret::Scalar`,
+    // `newNet`'s shape.
     Entry {
-        key: "host_testing.TestFs.files",
-        symbol: "buri_rt_host_testing_test_fs_files",
-        args: &[Arg::Scalar, Arg::List],
-        ret: Ret::Out,
+        key: "host_testing.newFs",
+        symbol: "buri_rt_host_testing_new_fs",
+        args: &[],
+        ret: Ret::Scalar,
     },
     Entry {
-        key: "host_testing.TestFs.filesBytes",
-        symbol: "buri_rt_host_testing_test_fs_files_bytes",
+        key: "host_testing.fsFiles",
+        symbol: "buri_rt_host_testing_fs_files",
         args: &[Arg::Scalar, Arg::List],
-        ret: Ret::Out,
+        ret: Ret::Scalar,
     },
     Entry {
-        key: "host_testing.TestFs.readOnly",
-        symbol: "buri_rt_host_testing_test_fs_read_only",
+        key: "host_testing.fsFilesBytes",
+        symbol: "buri_rt_host_testing_fs_files_bytes",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.fsReadOnly",
+        symbol: "buri_rt_host_testing_fs_read_only",
         args: &[Arg::Scalar],
-        ret: Ret::Out,
+        ret: Ret::Scalar,
     },
     Entry {
-        key: "host_testing.TestFs.read",
-        symbol: "buri_rt_host_testing_test_fs_read",
+        key: "host_testing.fsWithPlan",
+        symbol: "buri_rt_host_testing_fs_with_plan",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.fsRead",
+        symbol: "buri_rt_host_testing_fs_read",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.snapshot",
-        symbol: "buri_rt_host_testing_test_fs_snapshot",
+        key: "host_testing.fsSnapshot",
+        symbol: "buri_rt_host_testing_fs_snapshot",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestFs.calls",
-        symbol: "buri_rt_host_testing_test_fs_calls",
+        key: "host_testing.fsCalls",
+        symbol: "buri_rt_host_testing_fs_calls",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
     Entry {
-        key: "host_testing.TestFs.readFile",
-        symbol: "buri_rt_host_testing_test_fs_read_file",
+        key: "host_testing.fsReadFile",
+        symbol: "buri_rt_host_testing_fs_read_file",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.writeFile",
-        symbol: "buri_rt_host_testing_test_fs_write_file",
+        key: "host_testing.fsWriteFile",
+        symbol: "buri_rt_host_testing_fs_write_file",
         args: &[Arg::Scalar, Arg::Str, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.fileExists",
-        symbol: "buri_rt_host_testing_test_fs_file_exists",
+        key: "host_testing.fsFileExists",
+        symbol: "buri_rt_host_testing_fs_file_exists",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Int(8),
     },
     Entry {
-        key: "host_testing.TestFs.readDir",
-        symbol: "buri_rt_host_testing_test_fs_read_dir",
+        key: "host_testing.fsReadDir",
+        symbol: "buri_rt_host_testing_fs_read_dir",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.readFileBytes",
-        symbol: "buri_rt_host_testing_test_fs_read_file_bytes",
+        key: "host_testing.fsReadFileBytes",
+        symbol: "buri_rt_host_testing_fs_read_file_bytes",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.writeFileBytes",
-        symbol: "buri_rt_host_testing_test_fs_write_file_bytes",
+        key: "host_testing.fsWriteFileBytes",
+        symbol: "buri_rt_host_testing_fs_write_file_bytes",
         args: &[Arg::Scalar, Arg::Str, Arg::List],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.appendFile",
-        symbol: "buri_rt_host_testing_test_fs_append_file",
+        key: "host_testing.fsAppendFile",
+        symbol: "buri_rt_host_testing_fs_append_file",
         args: &[Arg::Scalar, Arg::Str, Arg::List],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.renameFile",
-        symbol: "buri_rt_host_testing_test_fs_rename_file",
+        key: "host_testing.fsRenameFile",
+        symbol: "buri_rt_host_testing_fs_rename_file",
         args: &[Arg::Scalar, Arg::Str, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.removeFile",
-        symbol: "buri_rt_host_testing_test_fs_remove_file",
+        key: "host_testing.fsRemoveFile",
+        symbol: "buri_rt_host_testing_fs_remove_file",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.makeDir",
-        symbol: "buri_rt_host_testing_test_fs_make_dir",
+        key: "host_testing.fsMakeDir",
+        symbol: "buri_rt_host_testing_fs_make_dir",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
     Entry {
-        key: "host_testing.TestFs.syncFile",
-        symbol: "buri_rt_host_testing_test_fs_sync_file",
+        key: "host_testing.fsSyncFile",
+        symbol: "buri_rt_host_testing_fs_sync_file",
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
+    },
+    // The fault plan's promise. The plan never crosses — it is a list of Buri
+    // values holding an `IoError`, and §2.1 cannot name an error variant that
+    // carries a field, so matching is the `Eq` the `Call` records derive and
+    // happens in `host_testing.buri`. These carry the half a program cannot
+    // keep: `addFsFault` and `addNetFault` say what an entry would read like in
+    // a failure message, `noteFault` records that one fired, and `test.leave`
+    // reports the rest. `noteFsCall` is the twelfth way into a log — a call the
+    // plan failed never reaches the row that would have recorded it, and it is
+    // still a call.
+    Entry {
+        key: "host_testing.addFsFault",
+        symbol: "buri_rt_host_testing_add_fs_fault",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.addNetFault",
+        symbol: "buri_rt_host_testing_add_net_fault",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.faultFails",
+        symbol: "buri_rt_host_testing_fault_fails",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.noteFault",
+        symbol: "buri_rt_host_testing_note_fault",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.noteFsCall",
+        symbol: "buri_rt_host_testing_note_fs_call",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.netRebind",
+        symbol: "buri_rt_host_testing_net_rebind",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.netWithPlan",
+        symbol: "buri_rt_host_testing_net_with_plan",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
     },
     // The call log's remaining four. `spelled` is an `FsCall` constructor's
     // decode and not a filesystem operation: a test writing a call down performs
@@ -1269,6 +1357,76 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_testing_net_calls",
         args: &[Arg::Scalar],
         ret: Ret::Out,
+    },
+    // -- tasks(): the order the work happens in ------------------------------
+    //
+    // `parallel` is the closure trampoline's third key and the reason the double
+    // is worth having: the test's scheduler reaches its steps through the same
+    // entry thunk the real one reaches them through. `self` is `Arg::Scalar`
+    // where `host.HostTasks.parallel`'s is `Arg::Dropped`, because a `TestTasks`
+    // is a handle and the runtime has to ask it which order this run schedules
+    // in; `items` is `Arg::Elems` and `f` is `Arg::Step`, exactly as they are
+    // there, and `ctx` — the caller's whole context, which the step is handed —
+    // is `Arg::Dropped` between them.
+    Entry {
+        key: "host_testing.TestTasks.parallel",
+        symbol: "buri_rt_host_testing_test_tasks_parallel",
+        args: &[Arg::Scalar, Arg::Dropped, Arg::Elems, Arg::Step],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.tasks",
+        symbol: "buri_rt_host_testing_tasks",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.anyOrder",
+        symbol: "buri_rt_host_testing_test_tasks_any_order",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.everyOrder",
+        symbol: "buri_rt_host_testing_test_tasks_every_order",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.seed",
+        symbol: "buri_rt_host_testing_test_tasks_seed",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.calls",
+        symbol: "buri_rt_host_testing_test_tasks_calls",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.runs",
+        symbol: "buri_rt_host_testing_test_tasks_runs",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.TestTasks.orders",
+        symbol: "buri_rt_host_testing_test_tasks_orders",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.TestTasks.replan",
+        symbol: "buri_rt_host_testing_test_tasks_replan",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestTasks.addFault",
+        symbol: "buri_rt_host_testing_test_tasks_add_fault",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
     },
     Entry {
         key: "host_testing.clock",
@@ -1343,6 +1501,17 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
+    // The one key here that no Buri declaration produces: `middle::monomorphize`
+    // emits it after every `test` body, so that "a fault whose call never
+    // happens fails the test" is checked once for all three backends rather than
+    // three times in three entry points. [`TEST_ENTER`] is the other half and is
+    // called from `emit.rs`'s `test_entry_point` instead, because it is the
+    // *runner's* protocol — which block to run — and this is the *program's*
+    // rule.
+    Entry { key: "test.leave", symbol: TEST_LEAVE, args: &[Arg::Scalar], ret: Ret::Void },
+    // And the other half of it, emitted after: whether to run this body again,
+    // which is how `TestTasks.everyOrder` reruns it once per completion order.
+    Entry { key: "test.replay", symbol: TEST_REPLAY, args: &[Arg::Scalar], ret: Ret::Scalar },
 ];
 
 pub fn entry(key: &str) -> Option<&'static Entry> {
@@ -1377,9 +1546,20 @@ pub const ABORT_ASSERT: &str = "buri_rt_abort_assert";
 /// `test` block at `index`, and a note of which one it is for the record an
 /// abort writes. `cli/runtime/testing.rs` states the protocol.
 pub const TEST_ENTER: &str = "buri_rt_test_enter";
+/// `buri_rt_test_leave(index)` — the end of a `test` block: every fault the
+/// block planned has happened, or the block fails now with the ones that did
+/// not. Reached through the table above rather than from `test_entry_point`,
+/// because `middle::monomorphize` emits the call inside the body's own function
+/// and so all three backends get it from one place.
+pub const TEST_LEAVE: &str = "buri_rt_test_leave";
 /// `buri_rt_test_fail_compared(kind, len, actual, len, expected, len)` — `-> !`,
 /// a failed comparison with both values already rendered by the `Show`
 /// `middle::derives` generated at their type.
+/// `buri_rt_test_replay(index) -> u8` — whether to run this `test` body again,
+/// which `TestTasks.everyOrder` answers yes to once per completion order.
+/// Emitted by `middle::monomorphize` immediately after [`TEST_LEAVE`], and
+/// reached through the table for the same reason.
+pub const TEST_REPLAY: &str = "buri_rt_test_replay";
 pub const TEST_FAIL_COMPARED: &str = "buri_rt_test_fail_compared";
 /// `buri_rt_test_fail_expected(kind, len, shown, len)` — `-> !`, `failExpected`
 /// with its one value rendered.
@@ -1405,6 +1585,19 @@ pub const DECREF: &str = "buri_rt_decref";
 pub const ARGV_INIT: &str = "buri_rt_argv_init";
 /// `buri_rt_flush()` — required before every return path from `main`.
 pub const FLUSH: &str = "buri_rt_flush";
+/// `buri_rt_frames_are_per_carrier()` — the artifact's one statement about
+/// itself, made once at startup (`cli/runtime/lib.rs` §6).
+///
+/// **This backend makes it and the frame-threaded one does not**, and that is
+/// a fact about where a Buri frame lives rather than a difference of opinion
+/// about scheduling. Here a Buri function is an ordinary LLVM function and its
+/// locals are `alloca`s, so a carrier's 512 KiB thread stack is its own and the
+/// runtime may run two `Tasks.parallel` steps at once. There a program has one
+/// Buri stack — the `buri$stencil$stack` block its `main` guards — and a step
+/// runs in a frame the *call site* set aside, so two of them would share it.
+/// Saying nothing is the safe answer, which is why the call is here and not a
+/// parameter of one over there.
+pub const FRAMES_PER_CARRIER: &str = "buri_rt_frames_are_per_carrier";
 /// `buri_rt_i128_divmod(a_lo, a_hi, b_lo, b_hi, signed, quot, rem)`.
 pub const I128_DIVMOD: &str = "buri_rt_i128_divmod";
 /// `buri_rt_i128_checked(op, a_lo, a_hi, b_lo, b_hi, signed, out) -> i32` and
@@ -1508,6 +1701,34 @@ mod tests {
     use super::*;
     use crate::compiler::backend::runtime_native::symbol_for;
 
+    /// **The two carrier-stack entries are symbols with no row, and that is
+    /// the answer rather than an omission.**
+    ///
+    /// `buri_rt_stack_acquire` and `buri_rt_stack_release` are `buri_rt_*`
+    /// entries this backend never calls, and the reason is the whole shape of
+    /// the B7/B8 pair: a Buri frame here *is* a machine frame, so a carrier
+    /// entering through `carrier.rs`'s door needs no second stack and no guard
+    /// of its own — its thread's is the OS's. The frame-threaded backend calls
+    /// them from `stencil/asm.rs`, by name, out of a hand-written shim rather
+    /// than through any table.
+    ///
+    /// A row here would be worse than useless: [`ENTRIES`] is keyed by
+    /// *intrinsic key*, and these two have none — no Buri expression names
+    /// them and none should. This is the same two-directional test
+    /// `host_net_fetch_has_a_symbol_and_no_row` makes, for the same reason: an
+    /// absence with a reason, asserted, so that adding one is a deliberate act.
+    #[test]
+    fn the_carrier_stack_entries_have_symbols_and_no_row() {
+        use crate::compiler::backend::carrier;
+        for symbol in [carrier::STACK_ACQUIRE, carrier::STACK_RELEASE] {
+            assert!(symbol.starts_with("buri_rt_"), "{symbol} is not a runtime symbol");
+            assert!(
+                !ENTRIES.iter().any(|e| e.symbol == symbol),
+                "{symbol} gained a row: this backend's door takes no Buri stack"
+            );
+        }
+    }
+
     /// Every entry's symbol is the one the contract's rule produces, so the
     /// table is a *subset* of the contract rather than a second opinion about
     /// it. The three examples `cli/runtime/lib.rs` §1 and VALUE-MODEL.md §10
@@ -1557,6 +1778,10 @@ mod tests {
             // is open-coded the same way.
             "host_testing.alloc",
             "host_testing.TestAlloc.allocate",
+            // Buri bodies, for the reason two paragraphs up.
+            "host_testing.fs",
+            "host_testing.TestFs.readFile",
+            "host_testing.TestFs.faults",
             // The archive has no body for `core/fs`'s real filesystem past
             // `fileExists` (`cli/runtime/host.rs`). Not a missing *shape*:
             // `MemFs`'s three are the same `Result<T, IoError>` and are in the
@@ -1586,8 +1811,15 @@ mod tests {
             // way to invoke, and its answer is the `Result<Response, NetError>`
             // §2.1 cannot name — and it is why widening §2.1 later changes
             // nothing about the double. Its *log* is a different question and
-            // has three rows above: `newNet`, `recordFetch` and
-            // `netCalls` cross nothing §2.1 restricts.
+            // has five rows above: `newNet`, `netRebind`, `netWithPlan`,
+            // `recordFetch` and `netCalls` cross nothing §2.1 restricts. So does
+            // its **fault plan**, which is the same wall a third time: the plan
+            // is a list of Buri values holding a `NetError`, so it stays in the
+            // program and only its rendering and its fired flags cross.
+            //
+            // `host_testing.fs` is absent for a different reason and is not a
+            // gap: `fs()` is a Buri body too now, because a `TestFs` is a handle
+            // and a plan. `newFs` is the row that mints the handle.
         ] {
             assert!(entry(absent).is_none(), "{absent}");
         }
@@ -1670,5 +1902,35 @@ mod tests {
                 (None, Some(_)) => panic!("{} is runtime-driven and has no `Arg::Step`", e.key),
             }
         }
+    }
+
+    /// The two tables agree about where each key's **context** is: this one
+    /// spells it `Arg::Dropped` at that index, the other spells it
+    /// `Entry::ctx`, and they describe one C signature.
+    ///
+    /// One direction only, on purpose. `Arg::Dropped` also covers a zero-sized
+    /// receiver — `HostStdout` is an empty struct — which `runtime_table.rs`
+    /// needs no column for, because a value of no bytes spreads to no leaves
+    /// there anyway. A **context** is the case where that reasoning fails: it
+    /// is dropped whatever it weighs, and `C: Alloc` is an ordinary bound that
+    /// an ordinary implementing value satisfies (SPEC 10.1), so the argument
+    /// can arrive carrying a handle. Hence: every context the other table names
+    /// must be dropped here.
+    #[test]
+    fn an_entry_names_the_context_the_other_table_drops() {
+        use crate::compiler::backend::runtime_table;
+        let mut checked = 0usize;
+        for shared in runtime_table::ENTRIES {
+            let Some(at) = shared.ctx else { continue };
+            let Some(here) = ENTRIES.iter().find(|e| e.key == shared.key) else { continue };
+            assert_eq!(
+                here.args.get(at),
+                Some(&Arg::Dropped),
+                "{}: argument {at} is the context and this table does not drop it",
+                shared.key
+            );
+            checked += 1;
+        }
+        assert!(checked > 20, "only {checked} contexts were checked against both tables");
     }
 }

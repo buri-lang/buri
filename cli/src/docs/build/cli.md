@@ -71,7 +71,7 @@ Build-graph rules:
 | `no-such-module` | A path that names no module. There are two kinds and no others: `core/...` and `//...`. |
 | `module-outside-repository` | A `//...` path used where there is no repository to be relative to. |
 | `host-import` | An import of `core/host` from a module other than the one exporting `main`. The context `main` builds is the program's whole effect budget; a second module able to import `core/host` would be a second place authority enters. |
-| `host-not-granted` | A `main` binding an effect the output's platform does not grant — `Ui: host.ui` under `platform: JS`, `Net: host.net` under `platform: WEB`. A platform *is* the set of effects its host exports, so the name is simply not there, and the fix names the platforms that do grant it — or, for an effect no platform grants yet, says only to drop it. |
+| `host-not-granted` | A `main` binding an effect the output's platform does not grant — `Ui: host.ui` under `platform: JS`, `Net: host.net` under `platform: WEB`. A platform *is* the set of effects its host exports, so the name is simply not there, and the fix names the platforms that do grant it — or, for an effect no platform grants at all, says only to drop it. |
 | `internal-import` | An import of a module internal to another package's library. |
 | `binary-internal-import` | A binary's source importing a module internal to the library beside it. The boundary is the *rule's*, not the directory's, so being in the same package is not enough. |
 | `binary-source-import` | A library's source importing a module that belongs to the binary beside it. The binary depends on the library, not the other way round. |
@@ -134,9 +134,10 @@ thing is worse than no rule:
   off: a shadowed binding with the same spelling silences the finding rather
   than producing a wrong one.
 - `discarded-result` cannot be about `let _ = <Result>`, because that is
-  already a hard type error — `result-discarded`, in the error catalog. The only
-  way a `Result` is dropped on purpose is `ignore`, so that is what the rule
-  reports — it is the grep, run for you.
+  already a hard type error — `result-discarded`, in the error catalog — as is
+  a `_` further down the pattern, and as is leaving the `Result` standing as a
+  statement. The only way a `Result` is dropped on purpose is `ignore`, so that
+  is what the rule reports — it is the grep, run for you.
 - `test-without-assertion` is **transitive**. Read as "the body contains no
   `assert`" it fires on every test that asserts through a helper, which is most
   of the ones worth writing. A test passes the rule if anything reachable from

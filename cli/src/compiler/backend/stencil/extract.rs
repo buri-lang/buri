@@ -39,6 +39,7 @@
 use super::elfobj as elf;
 use super::machobj as macho;
 use super::library::{Hole, HoleKind, Site, SiteKind, Stencil};
+use super::library::{refuse_hole_name, refuse_stencil_name};
 
 const NOP: u32 = 0xd503_201f;
 
@@ -273,6 +274,15 @@ fn finish_arm64(raws: Vec<RawFn>) -> Result<Vec<Stencil>, String> {
         let mut code = raw.code;
         let mut sites = raw.sites;
 
+        // A function the compiler carved out of a stencil is a function too,
+        // and on Mach-O it is one in `__text` named `_st_<parent>.cold.<n>`,
+        // which the `st_` filter above lets straight through. Refused before
+        // anything reads its bytes: half a function is not a stencil, whatever
+        // its body decodes to. `library::refuse_stencil_name` says why.
+        if let Some(e) = refuse_stencil_name(&sname) {
+            return Err(e);
+        }
+
         // Clang zeroes the scratch registers it used for `adrp` pairs just
         // before a tail call. They are caller-saved, unused by the
         // continuation's prototype, and provably dead; dropping the trailing
@@ -285,6 +295,17 @@ fn finish_arm64(raws: Vec<RawFn>) -> Result<Vec<Stencil>, String> {
         let mut holes: Vec<Hole> = Vec::new();
         for RawSite { off, hole: hk, site: sk, name: hname } in &sites {
             let (off, hk, sk, hname) = (*off, *hk, *sk, hname.clone());
+            // A name check before the shape checks, because a hole whose target
+            // the compiler invented is wrong however well-formed the
+            // instruction under it is. `st_decref_drop.cold.1` is a perfectly
+            // good `b`, and the function it reaches is one no stencil library
+            // carries. On ELF the outlined half gets its own section and the
+            // two readers above refuse it there; Mach-O has no section prefixes
+            // and this is the only place it can be caught, so it is written
+            // once, in `library.rs`, and applied by every finisher.
+            if let Some(e) = refuse_hole_name(&sname, &hname) {
+                return Err(e);
+            }
             // Shape checks, so that a clang that stopped emitting the expected
             // pair fails here rather than at run time in patched machine code.
             let Some(w) = word(&code, off as usize) else {

@@ -660,9 +660,23 @@ impl CDriver {
                 // 2.19 MB either way — which is why the test that polices this
                 // measures the stripped size.
                 flags.push("-Wl,--gc-sections".into());
-                // What `std` reaches for. Harmless where glibc has folded them
-                // in, and required where it has not — the same three
-                // `tests/native/runtime.rs` passes for the same archive.
+                // What `std` and the runtime archive reach for, and what
+                // macOS gets for free because libSystem is all of them at
+                // once. Harmless where glibc has folded them in, and required
+                // where it has not — the same three `tests/native/runtime.rs`
+                // passes for the same archive.
+                //
+                // `-lm` is load-bearing rather than defensive: `tokio`'s
+                // multi-thread worker calls libm's `pow` (its mean-poll-time
+                // estimator), and since the carrier pool made
+                // `rt::Launch::launch` reachable, `libburi_rt.a` carries that
+                // worker in every Buri program. Without `-lm` a Linux link
+                // ends at `undefined reference to 'pow'`.
+                //
+                // They come *after* the archive on the command line
+                // (`Linker::link` below), which is the half that matters to a
+                // left-to-right ELF linker: `-lm` ahead of `libburi_rt.a`
+                // resolves nothing.
                 flags.push("-lpthread".into());
                 flags.push("-ldl".into());
                 flags.push("-lm".into());

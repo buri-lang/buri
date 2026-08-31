@@ -5,17 +5,8 @@ message: this discards a `Result`
 note: "`ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these"
 fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
 ---
+A dropped `Result` is a failure nobody has read. Sometimes that is the right call, and this rule does not say otherwise — it says that every place the call was made should be in one report, rather than scattered where only a reader who thought to look would find it.
 
-Discarding a results hides a failure you have not understood or have not planned for. Instead, make sure you explicitly handle it.
+This rule cannot be about `let _ = someResult()`, and the reason is worth stating: that is already a hard type error, `result-discarded`, so no program that compiles contains one. Leaving the `Result` standing as a statement is the same error. What is left is `ignore` — the deliberate, greppable drop — and `ignore` is therefore what this reports. The rule is the grep, run for you.
 
-```
-# bad
-let _ = io.println(ctx, "Hello world");
-
-# better
-let result = io.println(ctx, "Hello world");
-match (result) {
-  .Ok(_) => { ... },
-  .Err(_) => { ... },
-}
-```
+If the failure does matter, the edit is `match` to handle it or `?` to propagate it. If it genuinely does not — a cache write whose failure changes nothing a caller could act on — then leaving the `ignore` where it is and letting this warning stand is a legitimate outcome. The point of the rule is that somebody decided, not that the count reaches zero.

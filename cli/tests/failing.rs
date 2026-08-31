@@ -123,10 +123,10 @@ fn corpus() -> PathBuf {
 ///
 /// One test rather than one per case, because `run_corpus` collects mismatches
 /// and reports all of them: a reworded failure moves every case that shows it,
-/// and reading eighteen diffs at once is the point of recording them.
+/// and reading twenty diffs at once is the point of recording them.
 #[test]
 fn recorded_failure_reports() {
-    run_corpus(&corpus(), "failing", 18);
+    run_corpus(&corpus(), "failing", 20);
 }
 
 /// A case is a manifest, a repository, and the goldens the manifest names —
@@ -139,7 +139,7 @@ fn recorded_failure_reports() {
 #[test]
 fn every_case_is_a_manifest_a_repository_and_the_goldens_it_names() {
     let mut wrong = Vec::new();
-    for dir in case_dirs(&corpus(), "CASE.textproto", 18) {
+    for dir in case_dirs(&corpus(), "CASE.textproto", 20) {
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
 
         let mut entries: Vec<String> = std::fs::read_dir(&dir)
@@ -189,7 +189,7 @@ fn every_case_is_a_manifest_a_repository_and_the_goldens_it_names() {
 #[test]
 fn no_recorded_report_pins_a_time_or_a_path() {
     let mut wrong = Vec::new();
-    for dir in case_dirs(&corpus(), "CASE.textproto", 18) {
+    for dir in case_dirs(&corpus(), "CASE.textproto", 20) {
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
         let Ok(entries) = std::fs::read_dir(dir.join("expected")) else { continue };
         for e in entries.filter_map(Result::ok) {
@@ -234,7 +234,7 @@ fn no_recorded_report_pins_a_time_or_a_path() {
 fn every_case_documents_itself_and_runs_the_test_command() {
     let mut docs: Vec<(String, String)> = Vec::new();
     let mut wrong = Vec::new();
-    for dir in case_dirs(&corpus(), "CASE.textproto", 18) {
+    for dir in case_dirs(&corpus(), "CASE.textproto", 20) {
         let case = load_case(&dir);
         let runs_test = case.steps.iter().any(|s| match s {
             Step::Run { args, .. } => args.first().is_some_and(|a| a == "test"),
@@ -280,7 +280,7 @@ fn the_default_backend_prints_the_report_the_javascript_one_does() {
     let known: &[(&str, usize)] = &[];
     let mut differ: Vec<(String, usize)> = Vec::new();
     let mut how: Vec<String> = Vec::new();
-    for dir in case_dirs(&corpus(), "CASE.textproto", 18) {
+    for dir in case_dirs(&corpus(), "CASE.textproto", 20) {
         let case = load_case(&dir);
         let pinned = transcript(&case, false);
         let default = transcript(&case, true);
