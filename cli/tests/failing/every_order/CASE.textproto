@@ -14,9 +14,12 @@
 #  * **A fault whose task is never reached fails the test**, which is E6's
 #    post-condition (`buri_rt_test_leave`) at the third double.
 #
-# The failure/seed line D6 adds will land in this golden: the runtime records the
-# order and the seed today (`testing.rs`'s `task_order_note`) and nothing prints
-# it yet, so re-blessing this case is part of that slice.
+# D6's order line is in this golden now, and it is a fourth claim: the run that
+# failed was the **sixth of six**, which is the same fact the first block asserts
+# read off the report instead of out of the body. The two fault blocks schedule
+# in program order and say nothing, which is the elision — there is nothing about
+# program order to replay. `cli/tests/failing/task_order/` is where the sentence
+# itself is the subject.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
