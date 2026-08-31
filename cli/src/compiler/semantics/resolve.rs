@@ -3286,11 +3286,11 @@ fn main(): () {}
     /// the source.
     ///
     /// It is not a contrived order. `cli/tests/conformance`'s
-    /// `lib/semantics/test/effects.buri` spreads `core/testing/context`'s
-    /// `Hermetic`, and the day the migration to `core/host/testing` made that
-    /// file the first in its package to import the module, the module was
-    /// discovered *through* it — so `Hermetic` was minted second and eleven
-    /// tests started failing on a file nothing had edited.
+    /// `lib/semantics/test/effects.buri` spreads a declaration written above
+    /// its own, and the day a migration made that file the first in its package
+    /// to import the module the base came from, the module was discovered
+    /// *through* it — so the base was minted second and eleven tests started
+    /// failing on a file nothing had edited.
     ///
     /// [`Checker::ctx_decls_reached`] is the fix: a use checks its declaration
     /// if checking has not reached it yet.

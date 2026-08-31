@@ -2,13 +2,14 @@
 //!
 //! Test-only, by the `testing` path segment: importable only from a test
 //! source (SPEC rule 35). One implementation per effect, the same shape as
-//! `core/testing/context`, so a test builds the context it wants rather than
+//! `core/host/testing`, so a test builds the context it wants rather than
 //! being handed a world.
 //!
 //! Only the two graph effects are here. A page's requests used to need a
 //! third — `ui/effect`'s callback-shaped `Fetch`, and a `noFetch()` that
 //! refused — and a page asks for `Net` now, so the double a test wants is
-//! `core/testing/context`'s `noNet()` or one it writes itself.
+//! `core/host/testing`'s `net()`, which refuses every request until `respond`
+//! says what to answer, or one it writes itself.
 //!
 //! The implementations are the real reactive runtime with no document
 //! attached. That is deliberate: the graph is what the tests here are about,
@@ -163,7 +164,7 @@ export fn variables(): Str;
 /// A reactive computation receives a `Scope`, which grants reading the graph
 /// and nothing else, so it cannot write a signal to say that it ran. This is
 /// how a test sees the order watchers were scheduled in and how many times a
-/// memo recomputed — the same shape as `core/testing/context`'s captured
+/// memo recomputed — the same shape as `core/host/testing`'s captured
 /// stdout, and for the same reason: Buri has no mutation, so the state lives
 /// on the runner's side and this value names it.
 ///

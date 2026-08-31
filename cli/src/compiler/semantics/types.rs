@@ -530,7 +530,7 @@ pub struct CheckedContext {
     /// The generated type: exactly the effects bound, and nothing else.
     pub ty: CtxTypeId,
     /// The nullary function that builds a fresh one. The parentheses in
-    /// `Hermetic()` are not decoration: a test's `Fs` and its captured
+    /// a test context are not decoration: a test's `Fs` and its captured
     /// `Stdout` accumulate what the test does to them, so two tests sharing
     /// one value would share its state.
     pub ctor: FnId,

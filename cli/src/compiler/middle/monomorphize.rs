@@ -2129,8 +2129,9 @@ mod tests {
     }
 
     /// Shape three: the `impl` head is generic and the method is not.
-    /// `impl<C: Fs> Fs for ReadOnly<C>` in `core/testing/context`, reached as
-    /// `ReadOnly<HostFs>`. The old arithmetic got this one right by
+    /// `impl<C: Fs> Fs for Guarded<C>` — an attenuating wrapper over any
+    /// filesystem — reached as `Guarded<HostFs>`. The old arithmetic got this
+    /// one right by
     /// coincidence — the receiver's arguments happened to be the impl's, in
     /// order.
     #[test]

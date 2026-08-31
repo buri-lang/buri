@@ -977,7 +977,13 @@ parity meant. They are:
   two `Str`s the backend would have to build. This subsumes float→integer
   entirely: no float-to-integer conversion is exact, so every one of them is
   this shape.
-* **`json.*` and `derivePrimJson`** — a descriptor-driven walker.
+* **`json.*`, and `ToJson::toJson` called directly on a primitive** —
+  `json.decode` is a descriptor-driven walker, and the five `bool.toJson` /
+  `char.toJson` / `str.toJson` / `num.<T>.toJson` keys are the trait's own
+  leaves. `derivePrimJson` was on this line and is not any more: both backends
+  build `Json`'s primitive arm now (VALUE-MODEL.md §12 row 10), and the five
+  keys above are the same answer reached through the trait rather than through
+  the derive.
 * **`core/math`'s thirteen transcendentals**, which are refused rather than
   unwritten; `cli/runtime/math.rs` argues it.
 

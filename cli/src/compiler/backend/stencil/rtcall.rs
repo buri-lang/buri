@@ -716,7 +716,7 @@ impl Jit<'_> {
         // runtime entry takes, because what reads it is the step and not the
         // runtime. One that owned a count would need a retain per element, and
         // no context does: `core/host`'s are empty structs and
-        // `core/testing/context`'s carry a handle.
+        // `core/host/testing`'s carry a handle.
         let supplied: Vec<(u32, ir::Type)> =
             call.ctx.into_iter().filter_map(|i| args.get(i).copied()).collect();
         if supplied.len() != ctx_at.len() {

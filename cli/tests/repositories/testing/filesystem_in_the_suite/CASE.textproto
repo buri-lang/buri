@@ -3,7 +3,7 @@
 # This repository is what is left of the `--accept` case, and the difference
 # between the two is the whole of E13. `lib/report`'s suite declared
 # `test { data: ["test/golden/statement.txt", ...] }`; the runner read those
-# files off disk and handed them to the suite as `Hermetic()`'s `data()`, a
+# files off disk and handed them to the suite as its filesystem, a
 # linked test binary has no runner to be handed them by, and so `buri test`
 # refused to run this suite natively at all — one build-file field deciding
 # which backend a program was allowed to run on, to hide an answer the two

@@ -1,25 +1,18 @@
-//! `core/testing/context` and `core/host/testing` — the test runner's
-//! platform, natively — and the runner's own protocol, at the bottom of this
-//! file.
-//!
-//! The two modules are one handle table and two vocabularies.
-//! `core/testing/context` — free constructors, `Hermetic()` — comes first and
-//! is unchanged. `core/host/testing`, further down, is `core/host`'s names
-//! *called* rather than referred to, with configuration as a builder that
-//! answers a new handle; its own section states what is different.
+//! `core/host/testing` — the test runner's platform, natively — and the
+//! runner's own protocol, at the bottom of this file.
 //!
 //! Two halves of one subject, and the second is the shorter: a native test
 //! binary tells `buri test` which block it was in when it aborted, and with
 //! what, so that the report a failing suite prints is the same report whichever
 //! backend ran it. "The runner's side" below is that side.
 //!
-//! `testing_context.buri`'s header says why every implementation there carries
-//! an `I64` handle rather than its state: a captured stdout and a seeded
-//! generator accumulate what a test does to them, Buri has no mutation, and so
-//! the state lives on the runner's side and the value in the program names it.
-//! On JavaScript "the runner's side" is `runtime.js`'s `$t.h` array
-//! (`$handle`/`$slot`); here it is [`TABLE`], and the two are the same design
-//! written twice because the *program* is what has to behave identically.
+//! `host_testing.buri`'s header says why every double carries an `I64` handle
+//! rather than its state: a captured stdout and a seeded generator accumulate
+//! what a test does to them, Buri has no mutation, and so the state lives on
+//! the runner's side and the value in the program names it. On JavaScript "the
+//! runner's side" is `runtime.js`'s `$t.h` array (`$handle`/`$slot`); here it
+//! is [`TABLE`], and the two are the same design written twice because the
+//! *program* is what has to behave identically.
 //!
 //! ## Why this is in the archive at all
 //!
@@ -31,11 +24,11 @@
 //! shape and are already here for the same reason.
 //!
 //! `alloc()` and `TestAlloc::allocate` are the exception and are deliberately
-//! **not** here: `$testing_context_TestAlloc_allocate` answers the byte count
-//! it was handed and reads no state at all, so both backends open-code it and
-//! the handle names nothing.
+//! **not** here: `$host_testing_TestAlloc_allocate` answers the byte count it
+//! was handed and reads no state at all, so both backends open-code it and the
+//! handle names nothing.
 //!
-//! ## `MemFs`'s eleven methods, and the divergence that used to be here
+//! ## `Fs`'s eleven methods, and the divergence that used to be here
 //!
 //! Most answer a `Result<T, IoError>`, which was the shape neither native
 //! backend had a `Ret` for and the reason the original four were held back. It
@@ -50,17 +43,17 @@
 //! There was one answer this file and `runtime.js` gave differently, and it is
 //! worth recording that it is gone rather than leaving a reader to wonder. A
 //! suite's `BUILD.buri` could declare `test { data: [...] }`; the JavaScript
-//! runner read those files off disk and handed them to the suite as `data()`,
-//! and a linked test binary has no runner to be handed them by — so `data()`
-//! here was empty and a declared file read `.Err(.NotFound)` where `buri test`
-//! read its contents. The toolchain hid that by refusing to run such a suite
-//! natively at all.
+//! runner read those files off disk and handed them to the suite as its
+//! filesystem, and a linked test binary has no runner to be handed them by — so
+//! a declared file read `.Err(.NotFound)` here where `buri test` read its
+//! contents. The toolchain hid that by refusing to run such a suite natively at
+//! all.
 //!
-//! The field is retired (`retired-test-data`). `data()` is empty on both
-//! backends now, which is what it was always specified to be on a package that
-//! declared nothing, and a suite that wants a filesystem writes one with
-//! `files([...])` — text in the suite, read the same way by both. Nothing in
-//! this file can see a `BUILD.buri`, and nothing needs to.
+//! The field is retired (`retired-test-data`). A fresh `fs()` is empty on both
+//! backends, which is what a package declaring nothing was always specified to
+//! get, and a suite that wants a filesystem writes one with
+//! `fs().files([...])` — text in the suite, read the same way by both. Nothing
+//! in this file can see a `BUILD.buri`, and nothing needs to.
 //!
 //! ## Ownership
 //!
@@ -80,20 +73,18 @@ use std::sync::Mutex;
 /// other's, because the Buri type of the value carrying the handle says which
 /// one made it.
 enum Slot {
-    /// `CaptureOut` and `CaptureErr` — the transcript, as text.
+    /// `TestStdout` and `TestStderr` — the transcript, as text.
     Text(String),
     /// `TestStdin` — the lines, how many have been read, the octets where it
-    /// was built by `stdinBytes` rather than by `stdin`, and the reads made
-    /// through this handle.
+    /// was built by `bytes` rather than by `lines`, and the reads made through
+    /// this handle.
     ///
-    /// `calls` is `core/host/testing`'s and stays empty for a
-    /// `core/testing/context` stdin, which has no `calls()` to read it with.
-    /// One field costs a `Vec` that is never allocated until something is
-    /// pushed to it; a second variant would cost every `readLine` a second arm
-    /// that answered the same thing.
+    /// A stream is lines or octets and never both, and one slot holds either:
+    /// a second variant would cost every `readLine` a second arm that answered
+    /// the same thing.
     Stdin { lines: Vec<String>, at: usize, bytes: Option<Vec<u8>>, calls: Vec<StdinLog> },
-    /// `MemFs` — the files, in insertion order, and the directories `makeDir`
-    /// has been asked for.
+    /// The file store — the files, in insertion order, and the directories
+    /// `makeDir` has been asked for.
     ///
     /// A `Vec` of pairs rather than a map, because the JavaScript side is an
     /// object and `readDir` reads its keys: a map would be a second ordering to
@@ -116,12 +107,12 @@ enum Slot {
     /// [`Slot::Files`] store its files live in, and whether writes through this
     /// view are refused.
     ///
-    /// The one shape that names another slot, and it is what folds
-    /// `core/testing/context`'s `ReadOnly<C>` wrapper into a method. The
-    /// wrapper holds the inner value, so a read through it sees whatever that
-    /// filesystem holds now; `readOnly` here installs a second view onto the
-    /// same store and keeps that property, where a flag inside `Slot::Files`
-    /// would have forced either a copy or a builder that edited its receiver.
+    /// The one shape that names another slot, and it is what makes `readOnly`
+    /// a method rather than a wrapper type. An attenuating wrapper holds the
+    /// inner value, so a read through it sees whatever that filesystem holds
+    /// now; `readOnly` here installs a second view onto the same store and
+    /// keeps that property, where a flag inside `Slot::Files` would have forced
+    /// either a copy or a builder that edited its receiver.
     ///
     /// `store` is always an index below the view's own, because the store is
     /// installed first — which is what makes reading a view one lookup rather
@@ -231,8 +222,9 @@ fn lock() -> std::sync::MutexGuard<'static, Vec<Slot>> {
 
 /// Record a slot and answer the handle that names it.
 ///
-/// Fresh every call, which is what makes `Hermetic()` a *call*: what one test
-/// writes is invisible to the next (`testing_context.buri`'s header).
+/// Fresh every call, which is what makes a double a *call* rather than a
+/// value referred to: what one test writes is invisible to the next
+/// (`host_testing.buri`'s header).
 fn install(slot: Slot) -> i64 {
     let mut table = lock();
     table.push(slot);
@@ -347,30 +339,12 @@ unsafe fn pairs(xs: *const u8, count: u64) -> Vec<(String, String)> {
 }
 
 // ---------------------------------------------------------------------------
-// Captured output
+// What every double is written out of
 // ---------------------------------------------------------------------------
-
-/// `captureOut()` — a fresh, empty transcript.
-///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_capture_out(out: *mut i64) {
-    let handle = install(Slot::Text(String::new()));
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
-
-/// `captureErr()` — the same, for standard error.
-///
-/// # Safety
-/// As [`buri_rt_testing_context_capture_out`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_capture_err(out: *mut i64) {
-    let handle = install(Slot::Text(String::new()));
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
+//
+// A transcript, a filesystem store and the two generators are read and written
+// from more than one entry below, so they are functions here rather than bodies
+// there. Nothing in this section crosses the ABI.
 
 fn append(handle: i64, bytes: &[u8], newline: bool) {
     with(handle, (), |slot| {
@@ -395,183 +369,12 @@ macro_rules! sink {
     };
 }
 
-sink!(buri_rt_testing_context_capture_out_print, false);
-sink!(buri_rt_testing_context_capture_out_println, true);
-sink!(buri_rt_testing_context_capture_err_eprint, false);
-sink!(buri_rt_testing_context_capture_err_eprintln, true);
-
-/// `Stdout::writeBytes`, into a captured stream.
-///
-/// Captured as the **text the octets spell**, so `captured` answers one
-/// question rather than two — `testing_context.buri:39-41` states that and
-/// `$testing_context_CaptureOut_writeBytes` implements it. Octets that are not
-/// UTF-8 become one character per byte, which is what
-/// `String.fromCharCode.apply(null, b)` does on the other backend.
-///
-/// # Safety
-/// `ptr` must be readable for `len` bytes, or null with `len == 0`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_capture_out_write_bytes(
-    handle: i64,
-    ptr: *const u8,
-    len: u64,
-) {
-    if ptr.is_null() || len == 0 {
-        return;
-    }
-    // SAFETY: the caller promises `len` readable bytes.
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
-    let text = match std::str::from_utf8(bytes) {
-        Ok(text) => text.to_string(),
-        Err(_) => bytes.iter().map(|b| char::from(*b)).collect(),
-    };
-    with(handle, (), |slot| {
-        if let Slot::Text(buffer) = slot {
-            buffer.push_str(&text);
-        }
-    });
-}
-
 fn transcript(handle: i64) -> String {
     with(handle, String::new(), |slot| match slot {
         Slot::Text(text) => text.clone(),
         _ => String::new(),
     })
 }
-
-/// `CaptureOut::captured` — everything written to this sink so far.
-///
-/// # Safety
-/// `out` must be writable and aligned for a [`BuriStr`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_capture_out_captured(
-    handle: i64,
-    out: *mut BuriStr,
-) {
-    let text = transcript(handle);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(str_of(&text)) }
-}
-
-/// `CaptureErr::capturedErr`.
-///
-/// # Safety
-/// As [`buri_rt_testing_context_capture_out_captured`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_capture_err_captured_err(
-    handle: i64,
-    out: *mut BuriStr,
-) {
-    let text = transcript(handle);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(str_of(&text)) }
-}
-
-// ---------------------------------------------------------------------------
-// Input
-// ---------------------------------------------------------------------------
-
-/// `stdin(lines)` — reads those lines, then end-of-input.
-///
-/// # Safety
-/// `xs` points at `count` [`BuriStr`]s; `out` is writable and aligned for an
-/// `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_stdin(
-    xs: *const u8,
-    count: u64,
-    out: *mut i64,
-) {
-    // SAFETY: forwarded to the caller.
-    let lines = unsafe { strings(xs, count) };
-    let handle = install(Slot::Stdin { lines, at: 0, bytes: None, calls: Vec::new() });
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
-
-/// `stdinBytes(b)` — the binary twin of [`buri_rt_testing_context_stdin`].
-///
-/// A stdin built from octets answers `.None` to `readLine`, exactly as
-/// `$testing_context_TestStdin_readLine`'s `if (s.bytes) return undefined`
-/// does: the two are separate streams and a test picks one.
-///
-/// # Safety
-/// `ptr` is readable for `len` bytes, or null with `len == 0`; `out` is
-/// writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_stdin_bytes(
-    ptr: *const u8,
-    len: u64,
-    out: *mut i64,
-) {
-    let bytes = if ptr.is_null() || len == 0 {
-        Vec::new()
-    } else {
-        // SAFETY: the caller promises `len` readable bytes.
-        unsafe { std::slice::from_raw_parts(ptr, len as usize) }.to_vec()
-    };
-    let handle = install(Slot::Stdin { lines: Vec::new(), at: 0, bytes: Some(bytes), calls: Vec::new() });
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
-
-/// `TestStdin::readLine` — `.Some(line)` or `.None` at end of input.
-///
-/// # Safety
-/// `out` must be writable and aligned for a [`BuriStr`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_test_stdin_read_line(
-    handle: i64,
-    out: *mut BuriStr,
-) -> i32 {
-    let line = with(handle, None, |slot| match slot {
-        Slot::Stdin { lines, at, bytes, .. } if bytes.is_none() => {
-            let line = lines.get(*at).cloned();
-            if line.is_some() {
-                *at = at.saturating_add(1);
-            }
-            line
-        }
-        _ => None,
-    });
-    let Some(line) = line else { return 0 };
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(str_of(&line)) };
-    BURI_OK
-}
-
-/// `TestStdin::readBytes` — up to `n` octets, and `.None` when there were none.
-///
-/// # Safety
-/// `out` must be writable and aligned for a [`BuriList`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_test_stdin_read_bytes(
-    handle: i64,
-    n: i64,
-    out: *mut BuriList,
-) -> i32 {
-    let taken = with(handle, None, |slot| match slot {
-        Slot::Stdin { at, bytes: Some(bytes), .. } => {
-            if *at >= bytes.len() || n <= 0 {
-                return None;
-            }
-            let end = at.saturating_add(n as usize).min(bytes.len());
-            let chunk = bytes.get(*at..end).unwrap_or(&[]).to_vec();
-            *at = end;
-            Some(chunk)
-        }
-        _ => None,
-    });
-    let Some(chunk) = taken else { return 0 };
-    let value = list_of_bytes(&chunk);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(value) };
-    BURI_OK
-}
-
-// ---------------------------------------------------------------------------
-// Filesystem
-// ---------------------------------------------------------------------------
 
 /// `IoError`'s variant indices, in declaration order in `core/effect`, for the
 /// two errors this filesystem produces.
@@ -582,12 +385,11 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_stdin_read_bytes(
 const IO_NOT_FOUND: i32 = 0;
 const IO_ALREADY_EXISTS: i32 = 3;
 
-/// The bytes a `MemFs` handle holds at `path`, or `None` where there is no file
-/// there.
+/// The bytes a store holds at `path`, or `None` where there is no file there.
 ///
-/// A handle that names no `Files` slot cannot arise from a program — `data()`,
-/// `files()` and `filesBytes()` are the only constructors of the type — so the
-/// fallback is "empty" rather than an abort, per [`with`]'s rule.
+/// A handle that names no `Files` slot cannot arise from a program — `newFs` is
+/// the only constructor of one — so the fallback is "empty" rather than an
+/// abort, per [`with`]'s rule.
 fn fs_read(handle: i64, path: &str) -> Option<Vec<u8>> {
     with(handle, None, |slot| match slot {
         Slot::Files { entries, .. } => {
@@ -620,482 +422,13 @@ fn fs_put(handle: i64, path: String, body: Vec<u8>) {
     });
 }
 
-/// `data()` — in-memory, and **empty**.
-///
-/// The specified answer, and now the only one: nothing seeds this any more, on
-/// either backend. `conformance/lib/semantics/test/effects.buri`'s "data is an
-/// empty package filesystem when no test data is declared" is what asserts it,
-/// and there is no longer a package for which the second half of that sentence
-/// is false. The module header has what used to be here.
-///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_data(out: *mut i64) {
-    let handle = install(Slot::Files { entries: Vec::new(), dirs: Vec::new() });
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
-
-/// `files(entries)` — in-memory, containing exactly these, as the UTF-8 the
-/// text spells.
-///
-/// # Safety
-/// `xs` points at `count` `(Str, Str)` elements; `out` is writable and aligned
-/// for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_files(
-    xs: *const u8,
-    count: u64,
-    out: *mut i64,
-) {
-    // SAFETY: forwarded to the caller.
-    let entries = unsafe { pairs(xs, count) };
-    let entries = entries.into_iter().map(|(k, v)| (k, v.into_bytes())).collect();
-    let handle = install(Slot::Files { entries, dirs: Vec::new() });
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
-
-/// `filesBytes(entries)` — the byte twin, for a fixture that is not text.
-///
-/// # Safety
-/// `xs` points at `count` `(Str, [U8])` elements; `out` is writable and aligned
-/// for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_files_bytes(
-    xs: *const u8,
-    count: u64,
-    out: *mut i64,
-) {
-    // SAFETY: forwarded to the caller.
-    let entries = unsafe { byte_pairs(xs, count) };
-    let handle = install(Slot::Files { entries, dirs: Vec::new() });
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
-
-/// `MemFs.readFile(self, path) -> Result<Str, IoError>` — `lib.rs` §2.1's
-/// shape, and the first entry in this archive to use it.
-///
-/// `$testing_context_MemFs_readFile` is `p in f ? $ok(...) : $err([0])`, so
-/// there is exactly one failure and it is `NotFound`. No path normalisation:
-/// the key is the string a fixture wrote, compared as bytes, which is what
-/// `p in f` is.
-///
-/// The stored octets are decoded lossily, as a real filesystem's `readFile`
-/// decodes them — a file that is not text is `readFileBytes`'s business.
-///
-/// # Safety
-/// `ptr`/`len` describe a readable range; `out` is writable and aligned for a
-/// [`BuriStr`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_read_file(
-    handle: i64,
-    _base: *mut u8,
-    ptr: *const u8,
-    len: u64,
-    out: *mut BuriStr,
-) -> i32 {
-    // SAFETY: the caller promises the range.
-    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
-    let Some(body) = fs_read(handle, &path) else { return IO_NOT_FOUND };
-    let value = str_of(&String::from_utf8_lossy(&body));
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(value) };
-    BURI_OK
-}
-
-/// `MemFs.writeFile(self, path, body) -> Result<(), IoError>`.
-///
-/// **No out-pointer**, because `()` occupies no bytes — `lib.rs` §2.1's second
-/// bullet. It cannot fail: `$testing_context_MemFs_writeFile` is an assignment
-/// followed by `$ok(0)`, and a `MemFs` that refused a write would be
-/// `readOnly()`, which `testing_context.buri` writes in Buri rather than here.
-///
-/// A write to a path that is already there **replaces** it in place rather than
-/// appending a second entry, so `files([("a","1")])` written twice reads back
-/// once — the same statement as `files[p] = b` on an object.
-///
-/// # Safety
-/// Both ranges are readable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_write_file(
-    handle: i64,
-    _pbase: *mut u8,
-    pptr: *const u8,
-    plen: u64,
-    _bbase: *mut u8,
-    bptr: *const u8,
-    blen: u64,
-) -> i32 {
-    // SAFETY: the caller promises both ranges.
-    let (path, body) = unsafe {
-        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
-    };
-    fs_put(handle, path, body);
-    BURI_OK
-}
-
-/// `MemFs.fileExists(self, path) -> Bool` — a plain scalar, and the one of the
-/// four that was never about `Result`.
-///
-/// True for a file, and for a directory `makeDir` recorded: `existsSync`
-/// answers both, and a `makeDir` a test could not then see would be a fake
-/// diverging from what it stands in for.
-///
-/// # Safety
-/// The range is readable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_file_exists(
-    handle: i64,
-    _base: *mut u8,
-    ptr: *const u8,
-    len: u64,
-) -> u8 {
-    // SAFETY: the caller promises the range.
-    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
-    let found = with(handle, false, |slot| match slot {
-        Slot::Files { entries, dirs } => {
-            entries.iter().any(|(k, _)| *k == path) || dirs.contains(&path)
-        }
-        _ => false,
-    });
-    u8::from(found)
-}
-
-/// `MemFs.readDir(self, path) -> Result<[Str], IoError>`.
-///
-/// Transcribed from `$testing_context_MemFs_readDir`, including the two things
-/// about it that are easy to get subtly different:
-///
-///   * **A directory that holds nothing is still not an error.** Only a path
-///     that names nothing at all would be, and this filesystem has no way to
-///     tell the two apart — so it never fails, and the `Result` is here because
-///     the `Fs` effect declares it.
-///   * **One entry per immediate child, deduplicated**, so `a/b/c` under `a`
-///     lists `b` and not `b/c`. `""` and `"."` are the root; any other path
-///     loses one trailing slash and gains one.
-///
-/// The directories `makeDir` recorded are listed alongside the files, so an
-/// empty directory a test created is visible.
-///
-/// The order is `sort()`'s, which on JavaScript is **UTF-16 code-unit** order —
-/// the same comparison [`crate::buri_rt_str_compare`] makes, and not byte
-/// order, which differs where one name has an astral character exactly where
-/// another has one in U+E000..U+FFFF.
-///
-/// # Safety
-/// The range is readable; `out` is writable and aligned for a [`BuriList`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_read_dir(
-    handle: i64,
-    _base: *mut u8,
-    ptr: *const u8,
-    len: u64,
-    out: *mut BuriList,
-) -> i32 {
-    // SAFETY: the caller promises the range.
-    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
-    let prefix = if path.is_empty() || path == "." {
-        String::new()
-    } else {
-        format!("{}/", path.trim_end_matches('/'))
-    };
-    let mut names: Vec<String> = Vec::new();
-    with(handle, (), |slot| {
-        if let Slot::Files { entries, dirs } = slot {
-            let keys = entries.iter().map(|(k, _)| k).chain(dirs.iter());
-            for key in keys {
-                let Some(rest) = key.strip_prefix(prefix.as_str()) else { continue };
-                let Some(first) = rest.split('/').next().filter(|s| !s.is_empty()) else {
-                    continue;
-                };
-                if !names.iter().any(|n| n == first) {
-                    names.push(first.to_string());
-                }
-            }
-        }
-    });
-    names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
-    let value = list_of_strs(&names);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(value) };
-    BURI_OK
-}
-
-/// `MemFs.readFileBytes(self, path) -> Result<[U8], IoError>` — the octets as
-/// they were stored.
-///
-/// # Safety
-/// The range is readable; `out` is writable and aligned for a [`BuriList`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_read_file_bytes(
-    handle: i64,
-    _base: *mut u8,
-    ptr: *const u8,
-    len: u64,
-    out: *mut BuriList,
-) -> i32 {
-    // SAFETY: the caller promises the range.
-    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
-    let Some(body) = fs_read(handle, &path) else { return IO_NOT_FOUND };
-    let value = list_of_bytes(&body);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(value) };
-    BURI_OK
-}
-
-/// `MemFs.writeFileBytes(self, path, body) -> Result<(), IoError>` — replaces
-/// the file, or creates it. Cannot fail.
-///
-/// # Safety
-/// Both ranges are readable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_write_file_bytes(
-    handle: i64,
-    _pbase: *mut u8,
-    pptr: *const u8,
-    plen: u64,
-    bptr: *const u8,
-    blen: u64,
-) -> i32 {
-    // SAFETY: the caller promises both ranges.
-    let (path, body) = unsafe {
-        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
-    };
-    fs_put(handle, path, body);
-    BURI_OK
-}
-
-/// `MemFs.appendFile(self, path, body) -> Result<(), IoError>` — adds the
-/// octets to the end, creating the file when it is absent. Cannot fail.
-///
-/// # Safety
-/// Both ranges are readable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_append_file(
-    handle: i64,
-    _pbase: *mut u8,
-    pptr: *const u8,
-    plen: u64,
-    bptr: *const u8,
-    blen: u64,
-) -> i32 {
-    // SAFETY: the caller promises both ranges.
-    let (path, body) = unsafe {
-        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
-    };
-    with(handle, (), |slot| {
-        if let Slot::Files { entries, .. } = slot {
-            match entries.iter_mut().find(|(k, _)| *k == path) {
-                Some(entry) => entry.1.extend_from_slice(&body),
-                None => entries.push((path, body)),
-            }
-        }
-    });
-    BURI_OK
-}
-
-/// `MemFs.renameFile(self, from, to) -> Result<(), IoError>` — replaces `to`.
-///
-/// `.Err(.NotFound)` where `from` names nothing, which is what `rename(2)`
-/// answers. A move within one map is atomic for free, so the guarantee a real
-/// filesystem works for is the one this gets by construction.
-///
-/// # Safety
-/// Both ranges are readable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_rename_file(
-    handle: i64,
-    _fbase: *mut u8,
-    fptr: *const u8,
-    flen: u64,
-    _tbase: *mut u8,
-    tptr: *const u8,
-    tlen: u64,
-) -> i32 {
-    // SAFETY: the caller promises both ranges.
-    let (from, to) = unsafe {
-        (
-            String::from_utf8_lossy(view(fptr, flen)).into_owned(),
-            String::from_utf8_lossy(view(tptr, tlen)).into_owned(),
-        )
-    };
-    with(handle, IO_NOT_FOUND, |slot| {
-        let Slot::Files { entries, .. } = slot else { return IO_NOT_FOUND };
-        let Some(at) = entries.iter().position(|(k, _)| *k == from) else {
-            return IO_NOT_FOUND;
-        };
-        let (_, body) = entries.remove(at);
-        match entries.iter_mut().find(|(k, _)| *k == to) {
-            Some(entry) => entry.1 = body,
-            None => entries.push((to, body)),
-        }
-        BURI_OK
-    })
-}
-
-/// `MemFs.removeFile(self, path) -> Result<(), IoError>`.
-///
-/// `.Err(.NotFound)` where the path names nothing, as `unlink(2)` answers:
-/// `core/fs`'s `remove` says why that is not `.Ok`.
-///
-/// # Safety
-/// The range is readable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_remove_file(
-    handle: i64,
-    _base: *mut u8,
-    ptr: *const u8,
-    len: u64,
-) -> i32 {
-    // SAFETY: the caller promises the range.
-    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
-    with(handle, IO_NOT_FOUND, |slot| {
-        let Slot::Files { entries, .. } = slot else { return IO_NOT_FOUND };
-        let Some(at) = entries.iter().position(|(k, _)| *k == path) else {
-            return IO_NOT_FOUND;
-        };
-        entries.remove(at);
-        BURI_OK
-    })
-}
-
-/// `MemFs.makeDir(self, path) -> Result<(), IoError>` — parents included, an
-/// existing directory `.Ok`, and a path already naming a file
-/// `.Err(.AlreadyExists)`.
-///
-/// # Safety
-/// The range is readable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_make_dir(
-    handle: i64,
-    _base: *mut u8,
-    ptr: *const u8,
-    len: u64,
-) -> i32 {
-    // SAFETY: the caller promises the range.
-    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
-    let clean = fs_clean(&path).to_string();
-    if clean.is_empty() {
-        return BURI_OK;
-    }
-    with(handle, BURI_OK, |slot| {
-        let Slot::Files { entries, dirs } = slot else { return BURI_OK };
-        if entries.iter().any(|(k, _)| *k == clean) {
-            return IO_ALREADY_EXISTS;
-        }
-        let parts: Vec<&str> = clean.split('/').collect();
-        for i in 0..parts.len() {
-            let at = parts.get(..=i).unwrap_or(&[]).join("/");
-            if !at.is_empty() && !dirs.contains(&at) {
-                dirs.push(at);
-            }
-        }
-        BURI_OK
-    })
-}
-
-/// `MemFs.syncFile(self, path) -> Result<(), IoError>` — nothing to flush.
-///
-/// So it answers whether there was anything to have flushed: `.Ok` for a file
-/// or a directory this filesystem holds, `.Err(.NotFound)` otherwise, which is
-/// what opening the path on a real one would say.
-///
-/// # Safety
-/// The range is readable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_mem_fs_sync_file(
-    handle: i64,
-    _base: *mut u8,
-    ptr: *const u8,
-    len: u64,
-) -> i32 {
-    // SAFETY: the caller promises the range.
-    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
-    let clean = fs_clean(&path).to_string();
-    if clean.is_empty() {
-        return BURI_OK;
-    }
-    with(handle, IO_NOT_FOUND, |slot| match slot {
-        Slot::Files { entries, dirs } => {
-            let held =
-                entries.iter().any(|(k, _)| *k == path) || dirs.contains(&clean);
-            if held {
-                BURI_OK
-            } else {
-                IO_NOT_FOUND
-            }
-        }
-        _ => IO_NOT_FOUND,
-    })
-}
-
-// ---------------------------------------------------------------------------
-// Clock
-// ---------------------------------------------------------------------------
-
-/// `clockAt(millis)` — starts there and advances only when a test advances it.
-///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_clock_at(millis: i64, out: *mut i64) {
-    let handle = install(Slot::Clock(millis));
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
-
-/// `TestClock::nowMillis`.
-#[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_testing_context_test_clock_now_millis(handle: i64) -> i64 {
-    with(handle, 0, |slot| match slot {
-        Slot::Clock(now) => *now,
-        _ => 0,
-    })
-}
-
+/// Move a test clock forward, which is all `sleepMillis` does.
 fn advance(handle: i64, millis: i64) {
     with(handle, (), |slot| {
         if let Slot::Clock(now) = slot {
             *now = now.wrapping_add(millis);
         }
     });
-}
-
-/// `TestClock::sleepMillis` — moves the clock without sleeping, which is what
-/// `$testing_context_TestClock_sleepMillis` does and the whole point of a test
-/// clock.
-#[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_testing_context_test_clock_sleep_millis(handle: i64, millis: i64) {
-    advance(handle, millis);
-}
-
-/// `TestClock::advance`.
-#[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_testing_context_test_clock_advance(handle: i64, millis: i64) {
-    advance(handle, millis);
-}
-
-// ---------------------------------------------------------------------------
-// Randomness
-// ---------------------------------------------------------------------------
-
-/// `randSeed(seed)` — seeded, so a failure reproduces.
-///
-/// The state is the seed's low 32 bits, and zero becomes one, which is
-/// `(Math.trunc(seed) >>> 0) || 1` written in a language that has integers.
-/// A zero state is a fixed point of xorshift and would answer zero forever.
-///
-/// # Safety
-/// `out` must be writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_rand_seed(seed: i64, out: *mut i64) {
-    let state = seed as u32;
-    let handle = install(Slot::Rand(if state == 0 { 1 } else { state }));
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
 }
 
 /// One xorshift32 step, byte for byte `$nextRand`'s: the sequence is part of
@@ -1115,104 +448,6 @@ fn next(handle: i64) -> u32 {
     })
 }
 
-/// `TestRand::nextInt` — uniform enough for a fixture, in `lo ..< hi`.
-///
-/// An empty range aborts with the same message `host.HostRand.nextInt` and
-/// `runtime.js` use, which `cli/tests/crash/random_range_empty` pins.
-#[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_testing_context_test_rand_next_int(
-    handle: i64,
-    lo: i64,
-    hi: i64,
-) -> i64 {
-    if hi <= lo {
-        crate::buri_rt_abort_random_range();
-    }
-    let span = hi.wrapping_sub(lo);
-    lo.wrapping_add(i64::from(next(handle)) % span)
-}
-
-/// `TestRand::nextFloat` — `x / 2^32`, as `$testing_context_TestRand_nextFloat`.
-#[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_testing_context_test_rand_next_float(handle: i64) -> f64 {
-    f64::from(next(handle)) / 4294967296.0
-}
-
-// ---------------------------------------------------------------------------
-// Environment
-// ---------------------------------------------------------------------------
-
-/// `envOf(variables, arguments)` — these, and nothing the host has.
-///
-/// # Safety
-/// `vars` points at `nvars` `(Str, Str)` elements and `args` at `nargs`
-/// [`BuriStr`]s; `out` is writable and aligned for an `i64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_env_of(
-    vars: *const u8,
-    nvars: u64,
-    args: *const u8,
-    nargs: u64,
-    out: *mut i64,
-) {
-    // SAFETY: forwarded to the caller.
-    let (vars, args) = unsafe { (pairs(vars, nvars), strings(args, nargs)) };
-    let handle = install(Slot::Env { vars, args });
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(handle) }
-}
-
-/// `TestEnv::variable` — `.Some(value)` or `.None`.
-///
-/// The **last** binding of a name wins, because
-/// `for (const e of vars) v[e[0]] = e[1]` is what builds the object on the
-/// other backend and each assignment overwrites the one before it. A duplicate
-/// in an `envOf` fixture is a mistake either way; agreeing about which mistake
-/// costs one `rev`.
-///
-/// # Safety
-/// The name must be a live `Str` view; `out` writable and aligned for a
-/// [`BuriStr`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_test_env_variable(
-    handle: i64,
-    _base: *mut u8,
-    ptr: *const u8,
-    len: u64,
-    out: *mut BuriStr,
-) -> i32 {
-    // SAFETY: forwarded to the caller.
-    let name = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
-    let found = with(handle, None, |slot| match slot {
-        Slot::Env { vars, .. } => {
-            vars.iter().rev().find(|(k, _)| *k == name).map(|(_, v)| v.clone())
-        }
-        _ => None,
-    });
-    let Some(value) = found else { return 0 };
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(str_of(&value)) };
-    BURI_OK
-}
-
-/// `TestEnv::args`.
-///
-/// # Safety
-/// `out` must be writable and aligned for a [`BuriList`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_testing_context_test_env_args(
-    handle: i64,
-    out: *mut BuriList,
-) {
-    let args = with(handle, Vec::new(), |slot| match slot {
-        Slot::Env { args, .. } => args.clone(),
-        _ => Vec::new(),
-    });
-    let value = list_of_strs(&args);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(value) }
-}
-
 // ---------------------------------------------------------------------------
 // `core/host/testing` — the same doubles, under `core/host`'s names
 // ---------------------------------------------------------------------------
@@ -1222,8 +457,7 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_env_args(
 // — the Buri type of the value carrying the handle says which one made it.
 // Two tables would be two allocators for one array.
 //
-// Two things are different from `core/testing/context`, and both are the point
-// of the module rather than an accident of it:
+// Two things are the shape of the module, and both are deliberate:
 //
 //   * **Every constructor takes no arguments.** `clock()` is at zero and
 //     `rand()` is at seed zero; a test that wants another says so with a
@@ -1235,9 +469,8 @@ pub unsafe extern "C" fn buri_rt_testing_context_test_env_args(
 //     `let base = env(); base.arguments([..])` safe to write twice.
 //
 // `alloc()` and `TestAlloc::allocate` are absent for the reason the module
-// header gives about `core/testing/context`'s: both native backends open-code
-// them, because the handle names nothing and `allocate` answers the count it
-// was handed.
+// header gives: both native backends open-code them, because the handle names
+// nothing and `allocate` answers the count it was handed.
 //
 // One shape is genuinely new rather than a second spelling: `TestFs` is a
 // *view* onto a store, so that `readOnly` can attenuate a filesystem without
@@ -1281,8 +514,20 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdout_write_bytes(
     ptr: *const u8,
     len: u64,
 ) {
-    // SAFETY: forwarded to the caller.
-    unsafe { buri_rt_testing_context_capture_out_write_bytes(handle, ptr, len) }
+    if ptr.is_null() || len == 0 {
+        return;
+    }
+    // SAFETY: the caller promises `len` readable bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
+    let text = match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_string(),
+        Err(_) => bytes.iter().map(|b| char::from(*b)).collect(),
+    };
+    with(handle, (), |slot| {
+        if let Slot::Text(buffer) = slot {
+            buffer.push_str(&text);
+        }
+    });
 }
 
 /// `TestStdout::captured`.
@@ -1671,7 +916,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read(
 ///
 /// **UTF-16 code-unit order**, which is `sort()`'s on the other backend and the
 /// comparison [`crate::buri_rt_str_compare`] makes: the same reason
-/// `buri_rt_testing_context_mem_fs_read_dir` sorts that way, and the same two
+/// `buri_rt_host_testing_fs_read_dir` sorts that way, and the same two
 /// strings it would differ on.
 ///
 /// Files only. A directory `makeDir` recorded holds no octets and is not a
@@ -1778,7 +1023,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_file_exists(
 /// `TestFs.readDir(self, path) -> Result<[Str], IoError>` — one entry per
 /// immediate child, deduplicated, in UTF-16 code-unit order.
 ///
-/// `buri_rt_testing_context_mem_fs_read_dir`'s two subtleties, unchanged: a
+/// `readDir`'s two subtleties, unchanged: a
 /// directory that holds nothing is still not an error, and the directories
 /// `makeDir` recorded are listed alongside the files.
 ///
@@ -2089,7 +1334,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_clock_at(
 /// `TestClock::nowMillis`.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_test_clock_now_millis(handle: i64) -> i64 {
-    buri_rt_testing_context_test_clock_now_millis(handle)
+    with(handle, 0, |slot| match slot {
+        Slot::Clock(now) => *now,
+        _ => 0,
+    })
 }
 
 /// `TestClock::sleepMillis` — moves the clock without sleeping.
@@ -2098,8 +1346,8 @@ pub extern "C" fn buri_rt_host_testing_test_clock_sleep_millis(handle: i64, mill
     advance(handle, millis);
 }
 
-/// `rand()` — seeded at zero, which is the state `randSeed(0)` produces: a
-/// zero state is a fixed point of xorshift, so it becomes one.
+/// `rand()` — seeded at zero, and a zero state is a fixed point of xorshift,
+/// so it becomes one. `seed(0)` reaches the same state by the same rule.
 ///
 /// # Safety
 /// `out` must be writable and aligned for an `i64`.
@@ -2127,16 +1375,23 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_rand_seed(
     unsafe { out.write(handle) }
 }
 
-/// `TestRand::nextInt`, the same xorshift32 sequence `randSeed` draws.
+/// `TestRand::nextInt` — uniform enough for a fixture, in `lo ..< hi`.
+///
+/// An empty range aborts with the same message `host.HostRand.nextInt` and
+/// `runtime.js` use, which `cli/tests/crash/random_range_empty` pins.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_test_rand_next_int(handle: i64, lo: i64, hi: i64) -> i64 {
-    buri_rt_testing_context_test_rand_next_int(handle, lo, hi)
+    if hi <= lo {
+        crate::buri_rt_abort_random_range();
+    }
+    let span = hi.wrapping_sub(lo);
+    lo.wrapping_add(i64::from(next(handle)) % span)
 }
 
-/// `TestRand::nextFloat`.
+/// `TestRand::nextFloat` — `x / 2^32`, as `$host_testing_TestRand_nextFloat`.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_test_rand_next_float(handle: i64) -> f64 {
-    buri_rt_testing_context_test_rand_next_float(handle)
+    f64::from(next(handle)) / 4294967296.0
 }
 
 /// `env()` — no variables and no arguments.
@@ -2207,20 +1462,37 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
     unsafe { out.write(fresh) }
 }
 
-/// `TestEnv::variable`.
+/// `TestEnv::variable` — `.Some(value)` or `.None`.
+///
+/// The **last** binding of a name wins, because
+/// `for (const e of vars) v[e[0]] = e[1]` is what builds the object on the
+/// other backend and each assignment overwrites the one before it. A duplicate
+/// in a `variables` fixture is a mistake either way; agreeing about which
+/// mistake costs one `rev`.
 ///
 /// # Safety
-/// As [`buri_rt_testing_context_test_env_variable`].
+/// The name must be a live `Str` view; `out` writable and aligned for a
+/// [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_test_env_variable(
     handle: i64,
-    base: *mut u8,
+    _base: *mut u8,
     ptr: *const u8,
     len: u64,
     out: *mut BuriStr,
 ) -> i32 {
     // SAFETY: forwarded to the caller.
-    unsafe { buri_rt_testing_context_test_env_variable(handle, base, ptr, len, out) }
+    let name = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let found = with(handle, None, |slot| match slot {
+        Slot::Env { vars, .. } => {
+            vars.iter().rev().find(|(k, _)| *k == name).map(|(_, v)| v.clone())
+        }
+        _ => None,
+    });
+    let Some(value) = found else { return 0 };
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&value)) };
+    BURI_OK
 }
 
 /// `TestEnv::args`.
@@ -2837,6 +2109,49 @@ const FS_CALL_NAMES: [&str; 11] = [
 /// index of the first block this process is to run.
 const RESUME: &str = "BURI_TEST_FROM";
 
+/// The environment variable holding the order `tasks().anyOrder()` schedules
+/// with — one number for every block, or a comma-separated list in the binary's
+/// own block numbering.
+///
+/// The list is what a batched binary needs: its blocks belong to several suites
+/// and each suite's seed is its own action key's ([`commands::test::seed_of`],
+/// on the other side of this protocol). **Absent means nothing is driving this
+/// process**, and the default is then the one D5 chose — the last rank, the
+/// reverse of program order — so a binary run by hand, and the conformance
+/// harness that drives the backends directly, are unchanged by any of this.
+const SEED: &str = "BURI_TEST_SEED";
+
+/// The seeds the runner supplied, in the binary's block numbering. Empty where
+/// nothing supplied any.
+///
+/// Read once, for [`resume_at`]'s reason: the environment cannot change under a
+/// process that has no way to set one.
+fn seeds() -> &'static [u128] {
+    static ASKED: std::sync::OnceLock<Vec<u128>> = std::sync::OnceLock::new();
+    ASKED.get_or_init(|| seeds_from(&std::env::var(SEED).unwrap_or_default()))
+}
+
+/// The list a `BURI_TEST_SEED` names. A malformed entry is no entry rather than
+/// a panic: this is a report's detail, and a runner that wrote nonsense should
+/// cost a suite its replay line and not its verdict.
+fn seeds_from(text: &str) -> Vec<u128> {
+    text.split(',').filter(|s| !s.trim().is_empty()).filter_map(|s| s.trim().parse().ok()).collect()
+}
+
+/// The seed for the block at `index`, or `None` where the runner supplied none.
+///
+/// One entry applies to every block — the single-suite case, which is almost
+/// every case — and a longer list is read at the block's own position. A list
+/// too short for the block it is asked about answers `None` rather than
+/// somebody else's seed.
+fn seed_at(seeds: &[u128], index: i64) -> Option<u128> {
+    match seeds {
+        [] => None,
+        [only] => Some(*only),
+        many => usize::try_from(index).ok().and_then(|i| many.get(i)).copied(),
+    }
+}
+
 /// Where this process is in the suite, and what the assertion that ended it
 /// had to say.
 struct Runner {
@@ -3048,6 +2363,16 @@ pub(crate) fn note_failure(parts: &[&[u8]]) {
         quote_into(&actual, &mut line);
         line.push_str(",\"expected\":");
         quote_into(&expected, &mut line);
+    }
+    // The order the tasks completed in, and the seed that replays it. Beside
+    // the message rather than inside a nested object, because it is a fact
+    // about the *run* and not about the abort: the same sentence is worth
+    // printing under a failure that carried no rendered values at all. Elided
+    // where a block scheduled nothing, which is almost every block, so a suite
+    // that never says `tasks()` writes the bytes it always wrote.
+    if let Some(note) = task_order_note() {
+        line.push_str(",\"order\":");
+        quote_into(&note, &mut line);
     }
     line.push_str("}\n");
     use std::io::Write;
@@ -3379,7 +2704,14 @@ fn task_order(handle: i64, count: usize) -> Vec<i64> {
             }
             replay.pass
         }
-        ORDER_SEEDED if seed < 0 => orders.saturating_sub(1),
+        // `anyOrder()` with no seed of its own: the program's content names the
+        // order (D-10), and the last rank — the reverse of program order —
+        // where nothing named a program. The rank wraps, which is what makes a
+        // content-derived number legal at every length.
+        ORDER_SEEDED if seed < 0 => match seed_at(seeds(), runner().at) {
+            Some(from_content) => from_content % orders.max(1),
+            None => orders.saturating_sub(1),
+        },
         ORDER_SEEDED => (seed as u128) % orders.max(1),
         _ => 0,
     };
@@ -3568,28 +2900,45 @@ pub extern "C" fn buri_rt_test_replay(index: i64) -> u8 {
 mod tests {
     use super::*;
 
-#[test]
-fn probe_two_read_lines() {
-    let lines = list_of_strs(&[String::from("one"), String::from("two")]);
-    let mut handle = 0_i64;
-    unsafe { buri_rt_testing_context_stdin(lines.ptr, lines.len, &raw mut handle) };
-    let mut a = BuriStr::empty();
-    let mut b = BuriStr::empty();
-    let ra = unsafe { buri_rt_testing_context_test_stdin_read_line(handle, &raw mut a) };
-    let rb = unsafe { buri_rt_testing_context_test_stdin_read_line(handle, &raw mut b) };
-    assert_eq!(ra, BURI_OK);
-    assert_eq!(rb, BURI_OK);
-    assert_eq!(unsafe { a.as_str() }, "one");
-    assert_eq!(unsafe { b.as_str() }, "two");
-    let mut c = BuriStr::empty();
-    assert_eq!(unsafe { buri_rt_testing_context_test_stdin_read_line(handle, &raw mut c) }, 0);
-}
+    #[test]
+    fn two_read_lines_then_end_of_input() {
+        let lines = list_of_strs(&[String::from("one"), String::from("two")]);
+        let (mut empty, mut handle) = (0_i64, 0_i64);
+        // SAFETY: both are live, aligned `i64`s, and `lines` is a live `[Str]`.
+        unsafe {
+            buri_rt_host_testing_stdin(&raw mut empty);
+            buri_rt_host_testing_test_stdin_lines(
+                empty,
+                lines.ptr,
+                lines.len,
+                &raw mut handle,
+            );
+        }
+        let mut a = BuriStr::empty();
+        let mut b = BuriStr::empty();
+        // SAFETY: both destinations are live and aligned.
+        let (ra, rb) = unsafe {
+            (
+                buri_rt_host_testing_test_stdin_read_line(handle, &raw mut a),
+                buri_rt_host_testing_test_stdin_read_line(handle, &raw mut b),
+            )
+        };
+        assert_eq!(ra, BURI_OK);
+        assert_eq!(rb, BURI_OK);
+        // SAFETY: both were written by a call that answered `BURI_OK`.
+        assert_eq!(unsafe { a.as_str() }, "one");
+        // SAFETY: as above.
+        assert_eq!(unsafe { b.as_str() }, "two");
+        let mut c = BuriStr::empty();
+        // SAFETY: the destination is live and aligned.
+        assert_eq!(unsafe { buri_rt_host_testing_test_stdin_read_line(handle, &raw mut c) }, 0);
+    }
 
     #[test]
     fn a_transcript_accumulates_and_reads_back() {
         let mut handle = 0_i64;
         // SAFETY: `handle` is a live, aligned `i64`.
-        unsafe { buri_rt_testing_context_capture_out(&raw mut handle) };
+        unsafe { buri_rt_host_testing_stdout(&raw mut handle) };
         append(handle, b"hello", true);
         append(handle, b"there", false);
         assert_eq!(transcript(handle), "hello\nthere");
@@ -3600,8 +2949,8 @@ fn probe_two_read_lines() {
         let (mut a, mut b) = (0_i64, 0_i64);
         // SAFETY: both are live, aligned `i64`s.
         unsafe {
-            buri_rt_testing_context_capture_out(&raw mut a);
-            buri_rt_testing_context_capture_out(&raw mut b);
+            buri_rt_host_testing_stdout(&raw mut a);
+            buri_rt_host_testing_stdout(&raw mut b);
         }
         append(a, b"one", false);
         assert_eq!(transcript(a), "one");
@@ -3615,7 +2964,7 @@ fn probe_two_read_lines() {
     fn the_generator_is_the_javascript_one() {
         let mut handle = 0_i64;
         // SAFETY: `handle` is a live, aligned `i64`.
-        unsafe { buri_rt_testing_context_rand_seed(0, &raw mut handle) };
+        unsafe { buri_rt_host_testing_rand(&raw mut handle) };
         // xorshift32 from a state of 1: 270369, 67634689, 2647435461, …
         assert_eq!(next(handle), 270_369);
         assert_eq!(next(handle), 67_634_689);
@@ -3624,13 +2973,16 @@ fn probe_two_read_lines() {
 
     #[test]
     fn a_test_clock_moves_only_when_moved() {
-        let mut handle = 0_i64;
-        // SAFETY: `handle` is a live, aligned `i64`.
-        unsafe { buri_rt_testing_context_clock_at(1_000, &raw mut handle) };
-        assert_eq!(buri_rt_testing_context_test_clock_now_millis(handle), 1_000);
-        buri_rt_testing_context_test_clock_sleep_millis(handle, 5);
-        buri_rt_testing_context_test_clock_advance(handle, 5);
-        assert_eq!(buri_rt_testing_context_test_clock_now_millis(handle), 1_010);
+        let (mut origin, mut handle) = (0_i64, 0_i64);
+        // SAFETY: both are live, aligned `i64`s.
+        unsafe {
+            buri_rt_host_testing_clock(&raw mut origin);
+            buri_rt_host_testing_test_clock_at(origin, 1_000, &raw mut handle);
+        }
+        assert_eq!(buri_rt_host_testing_test_clock_now_millis(handle), 1_000);
+        buri_rt_host_testing_test_clock_sleep_millis(handle, 5);
+        buri_rt_host_testing_test_clock_sleep_millis(handle, 5);
+        assert_eq!(buri_rt_host_testing_test_clock_now_millis(handle), 1_010);
     }
 
     /// A handle nothing installed reads as empty rather than aborting, which is
@@ -3638,7 +2990,7 @@ fn probe_two_read_lines() {
     #[test]
     fn an_unknown_handle_is_inert() {
         assert_eq!(transcript(9_999_999), "");
-        assert_eq!(buri_rt_testing_context_test_clock_now_millis(-1), 0);
+        assert_eq!(buri_rt_host_testing_test_clock_now_millis(-1), 0);
     }
 
     /// The escapes `JSON.stringify` writes, because `commands/test.rs` reads
@@ -3660,8 +3012,14 @@ fn probe_two_read_lines() {
 
     /// A process nothing is driving runs every block and writes no record: a
     /// binary run by hand is the program it always was.
+    ///
+    /// It takes the lock for [`buri_rt_test_enter`]'s sake rather than for its
+    /// own: entering a block resets the per-process run counter `everyOrder`
+    /// walks, so a case that enters one at all is a case that writes what
+    /// `the_body_is_run_once_per_order` is in the middle of reading.
     #[test]
     fn nothing_is_skipped_and_nothing_is_written_without_a_runner() {
+        let _alone = one_runner_at_a_time();
         assert!(resume_at().is_none(), "the test process itself is not a test binary");
         assert_eq!(buri_rt_test_enter(0), 1);
         assert_eq!(buri_rt_test_enter(9), 1);
@@ -3869,6 +3227,55 @@ fn probe_two_read_lines() {
                  — replay it with `tasks().seed(1)`"
             ))
         );
+    }
+
+    /// The seed protocol, as the two pure halves it is made of.
+    ///
+    /// Written against the functions rather than against the environment
+    /// because `BURI_TEST_SEED` is read once per process ([`seeds`]) and a test
+    /// that set it would be a test of `cargo test`'s thread scheduling.
+    /// `commands/test.rs` writes the other side of these two literals.
+    #[test]
+    fn a_seed_list_is_read_by_the_block_it_belongs_to() {
+        // Nothing, whitespace and rubbish are all "the runner said nothing":
+        // this is a report's detail, and a suite should not lose its verdict to
+        // one.
+        assert_eq!(seeds_from(""), Vec::<u128>::new());
+        assert_eq!(seeds_from(" , ,"), Vec::<u128>::new());
+        assert_eq!(seeds_from("7,not a number,9"), vec![7, 9]);
+        // A `u128` is the width the whole list is read at, because a rank is
+        // taken modulo `n!` and a `u128` holds `34!`.
+        assert_eq!(seeds_from(&u128::MAX.to_string()), vec![u128::MAX]);
+
+        // One entry is every block's — the single-suite case, which is almost
+        // every case.
+        assert_eq!(seed_at(&[7], 0), Some(7));
+        assert_eq!(seed_at(&[7], 40), Some(7));
+        // A list is read at the block's own position, which is what a batched
+        // binary needs: its blocks belong to several suites and each suite's
+        // seed is its own.
+        assert_eq!(seed_at(&[7, 8, 9], 2), Some(9));
+        // And nothing rather than somebody else's seed, for a block outside the
+        // list and for a process nothing is driving (`at` is then -1).
+        assert_eq!(seed_at(&[7, 8, 9], 3), None);
+        assert_eq!(seed_at(&[7, 8, 9], -1), None);
+        assert_eq!(seed_at(&[], 0), None);
+    }
+
+    /// A content-derived seed is a rank, so it is legal at every length — and
+    /// the order it names is the order `seed(n)` names, which is the whole
+    /// reason the report's line is worth pasting back.
+    #[test]
+    fn a_seed_past_the_last_rank_names_the_order_its_remainder_does() {
+        // Six orders of three tasks. A 128-bit digest is not a number anybody
+        // wrote down, and every one of them is a legal seed.
+        for seed in [0u128, 5, 6, 7, u128::MAX] {
+            assert_eq!(permutation(3, seed), permutation(3, seed % 6), "seed {seed}");
+        }
+        // The degenerate lengths, where `orders_of` is one and the remainder is
+        // zero however large the digest.
+        assert_eq!(permutation(0, u128::MAX), Vec::<i64>::new());
+        assert_eq!(permutation(1, u128::MAX), vec![0]);
     }
 
     /// A fault is matched here rather than in the program, because a task's

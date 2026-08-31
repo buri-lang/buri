@@ -124,6 +124,13 @@ extern int32_t buri_rt_host_net_fetch(int32_t method, uint8_t *ubase, const uint
                                       const uint8_t *bptr, uint64_t blen, int64_t *out_status,
                                       BuriList *out_headers, BuriList *out_body,
                                       BuriStr *out_err);
+/* The three doors `cli/runtime/net.rs` exports: which halves of the networking
+ * stack this archive was built with, whether it has one at all, and whether it
+ * has QUIC. The last is the interesting one, because `net-h3` is the feature
+ * that is off by default. */
+extern int64_t buri_rt_net_capabilities(void);
+extern int32_t buri_rt_net_available(void);
+extern int32_t buri_rt_net_h3_available(void);
 extern int64_t buri_rt_host_clock_now_millis(void);
 extern void buri_rt_host_clock_sleep_millis(int64_t millis);
 extern int64_t buri_rt_host_rand_next_int(int64_t lo, int64_t hi);
@@ -398,7 +405,7 @@ static int mode_fs(const char *dir) {
 /* The sequence issue #1 exists for, against a real filesystem: a log that is
  * appended to, a commit point that is a call, and a checkpoint that swaps in
  * atomically. `conformance/lib/semantics/test/effects.buri` runs the same
- * sequence against `MemFs`, and the two have to agree. */
+ * sequence against the `fs()` double, and the two have to agree. */
 static int mode_wal(const char *dir) {
   char root[4096], log[4096], tmp[4096], checkpoint[4096];
   snprintf(root, sizeof root, "%s/wal", dir);
@@ -585,6 +592,16 @@ static int mode_net(const char *url) {
   } else {
     printf("err=%d message=%.*s\n", result, bytes_of(err), chars_of(err));
   }
+  return 0;
+}
+
+/* What the archive says it was built with, asked the way a linked program asks
+ * it: through the C ABI rather than by reading the feature file beside the
+ * archive. The two answers have to agree, and `cli/tests/native/runtime.rs` is
+ * where they are compared. */
+static int mode_net_features(void) {
+  printf("caps=%lld net=%d h3=%d\n", (long long)buri_rt_net_capabilities(),
+         buri_rt_net_available(), buri_rt_net_h3_available());
   return 0;
 }
 
@@ -818,6 +835,9 @@ int main(int argc, char **argv) {
   }
   if (strcmp(mode, "net") == 0 && argc > 2) {
     return mode_net(argv[2]);
+  }
+  if (strcmp(mode, "net-features") == 0) {
+    return mode_net_features();
   }
   if (strcmp(mode, "exit") == 0) {
     buri_rt_host_stdout_println(S("buffered, and flushed by the exit"));

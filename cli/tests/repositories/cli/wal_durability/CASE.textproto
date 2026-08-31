@@ -2,7 +2,7 @@
 #
 # `buri run` is the one command that hands a program authority, so it is the
 # only place a checked-in case can reach `host.fs` at all — everything before
-# `run` in the pipeline is hermetic, and `MemFs` is what a `test` block sees.
+# `run` in the pipeline is hermetic, and `fs()` is what a `test` block sees.
 #
 # The claims, in the order the program makes them:
 #
@@ -16,7 +16,7 @@
 #   * `remove` deletes, and says `NotFound` the second time rather than
 #     answering `.Ok` to a path that names nothing.
 #
-# The same sequence runs against `MemFs` in
+# The same sequence runs against the `fs()` double in
 # `conformance/lib/semantics/test/effects.buri` and against the native runtime
 # in `cli/tests/native/runtime.rs`. Three implementations of one story is the
 # point: a divergence is a failure in exactly one of them.

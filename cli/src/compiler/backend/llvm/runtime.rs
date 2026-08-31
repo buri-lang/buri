@@ -167,7 +167,7 @@ pub enum Ret {
     /// carrying no fields, so the tag is the whole of it.
     ///
     /// The out-pointer is **omitted where `T` is zero-sized**
-    /// (`MemFs.writeFile`'s `Result<(), IoError>`), for the reason [`Ret::Out`]
+    /// (`TestFs.writeFile`'s `Result<(), IoError>`), for the reason [`Ret::Out`]
     /// omits it: a parameter for a value with no bytes is one the archive and
     /// the backend can disagree about for free.
     Res,
@@ -726,112 +726,6 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Elems, Arg::Dropped, Arg::Step],
         ret: Ret::Out,
     },
-    // -- core/testing/context's stateful half ---------------------------------
-    //
-    // `cli/runtime/testing.rs`'s header is the argument for these being in the
-    // archive rather than open-coded: each names a slot in one mutable table,
-    // which is `runtime.js`'s `$t.h` written for a language that has statics.
-    // The rows are `stencil/runtime.rs`'s, one for one.
-    //
-    // Two things are not obvious and are the same in both tables:
-    //
-    //  * **Every constructor is `Ret::Out`.** `struct CaptureOut(I64)` is a
-    //    struct, and `middle/layout.rs` gives every struct `Repr::Aggregate`
-    //    however few fields it has, so the result is an aggregate and §2 rule 2
-    //    puts it through an out-pointer. Declaring it as returning one word
-    //    would agree with the archive by accident on both supported targets.
-    //  * **`self` is `Arg::Scalar` and not `Arg::Dropped`.** These receivers
-    //    carry the handle; `core/host`'s are empty structs and these are not,
-    //    which is the distinction `native/llvm.rs`'s
-    //    `a_stateful_context_is_dropped_at_the_runtime_boundary` exists for.
-    //
-    // `alloc` and `TestAlloc.allocate` are open-coded (`emit.rs`), and
-    // `MemFs`'s are a named gap for the reason `cli/runtime/testing.rs`'s
-    // header gives.
-    Entry {
-        key: "testing_context.captureOut",
-        symbol: "buri_rt_testing_context_capture_out",
-        args: &[],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "testing_context.captureErr",
-        symbol: "buri_rt_testing_context_capture_err",
-        args: &[],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "testing_context.CaptureOut.print",
-        symbol: "buri_rt_testing_context_capture_out_print",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Void,
-    },
-    Entry {
-        key: "testing_context.CaptureOut.println",
-        symbol: "buri_rt_testing_context_capture_out_println",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Void,
-    },
-    Entry {
-        key: "testing_context.CaptureOut.writeBytes",
-        symbol: "buri_rt_testing_context_capture_out_write_bytes",
-        args: &[Arg::Scalar, Arg::List],
-        ret: Ret::Void,
-    },
-    Entry {
-        key: "testing_context.CaptureOut.captured",
-        symbol: "buri_rt_testing_context_capture_out_captured",
-        args: &[Arg::Scalar],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "testing_context.CaptureErr.eprint",
-        symbol: "buri_rt_testing_context_capture_err_eprint",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Void,
-    },
-    Entry {
-        key: "testing_context.CaptureErr.eprintln",
-        symbol: "buri_rt_testing_context_capture_err_eprintln",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Void,
-    },
-    Entry {
-        key: "testing_context.CaptureErr.capturedErr",
-        symbol: "buri_rt_testing_context_capture_err_captured_err",
-        args: &[Arg::Scalar],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "testing_context.stdin",
-        symbol: "buri_rt_testing_context_stdin",
-        args: &[Arg::List],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "testing_context.stdinBytes",
-        symbol: "buri_rt_testing_context_stdin_bytes",
-        args: &[Arg::List],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "testing_context.TestStdin.readLine",
-        symbol: "buri_rt_testing_context_test_stdin_read_line",
-        args: &[Arg::Scalar],
-        ret: Ret::Sum,
-    },
-    Entry {
-        key: "testing_context.TestStdin.readBytes",
-        symbol: "buri_rt_testing_context_test_stdin_read_bytes",
-        args: &[Arg::Scalar, Arg::Scalar],
-        ret: Ret::Sum,
-    },
-    Entry {
-        key: "testing_context.data",
-        symbol: "buri_rt_testing_context_data",
-        args: &[],
-        ret: Ret::Out,
-    },
     // -- core/bytes ---------------------------------------------------------
     //
     // `Arg::List` at every `[U8]` argument, and the two alternatives are both
@@ -934,155 +828,27 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Sum,
     },
-    Entry {
-        key: "testing_context.files",
-        symbol: "buri_rt_testing_context_files",
-        args: &[Arg::List],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "testing_context.filesBytes",
-        symbol: "buri_rt_testing_context_files_bytes",
-        args: &[Arg::List],
-        ret: Ret::Out,
-    },
-    // `MemFs`'s eleven. `self` is `struct MemFs(I64)` and carries a handle, so it
-    // is `Arg::Scalar` and not `Arg::Dropped` — the same distinction
-    // `a_stateful_context_is_dropped_at_the_runtime_boundary` exists for.
-    Entry {
-        key: "testing_context.MemFs.readFile",
-        symbol: "buri_rt_testing_context_mem_fs_read_file",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Res,
-    },
-    Entry {
-        key: "testing_context.MemFs.writeFile",
-        symbol: "buri_rt_testing_context_mem_fs_write_file",
-        args: &[Arg::Scalar, Arg::Str, Arg::Str],
-        ret: Ret::Res,
-    },
-    Entry {
-        key: "testing_context.MemFs.fileExists",
-        symbol: "buri_rt_testing_context_mem_fs_file_exists",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Int(8),
-    },
-    Entry {
-        key: "testing_context.MemFs.readDir",
-        symbol: "buri_rt_testing_context_mem_fs_read_dir",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Res,
-    },
-    // The seven `core/fs` grew for issue #1. `Arg::List` at every `[U8]`, for
-    // the reason `core/bytes`' group above gives.
-    Entry {
-        key: "testing_context.MemFs.readFileBytes",
-        symbol: "buri_rt_testing_context_mem_fs_read_file_bytes",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Res,
-    },
-    Entry {
-        key: "testing_context.MemFs.writeFileBytes",
-        symbol: "buri_rt_testing_context_mem_fs_write_file_bytes",
-        args: &[Arg::Scalar, Arg::Str, Arg::List],
-        ret: Ret::Res,
-    },
-    Entry {
-        key: "testing_context.MemFs.appendFile",
-        symbol: "buri_rt_testing_context_mem_fs_append_file",
-        args: &[Arg::Scalar, Arg::Str, Arg::List],
-        ret: Ret::Res,
-    },
-    Entry {
-        key: "testing_context.MemFs.renameFile",
-        symbol: "buri_rt_testing_context_mem_fs_rename_file",
-        args: &[Arg::Scalar, Arg::Str, Arg::Str],
-        ret: Ret::Res,
-    },
-    Entry {
-        key: "testing_context.MemFs.removeFile",
-        symbol: "buri_rt_testing_context_mem_fs_remove_file",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Res,
-    },
-    Entry {
-        key: "testing_context.MemFs.makeDir",
-        symbol: "buri_rt_testing_context_mem_fs_make_dir",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Res,
-    },
-    Entry {
-        key: "testing_context.MemFs.syncFile",
-        symbol: "buri_rt_testing_context_mem_fs_sync_file",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Res,
-    },
-    Entry {
-        key: "testing_context.clockAt",
-        symbol: "buri_rt_testing_context_clock_at",
-        args: &[Arg::Scalar],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "testing_context.TestClock.nowMillis",
-        symbol: "buri_rt_testing_context_test_clock_now_millis",
-        args: &[Arg::Scalar],
-        ret: Ret::Scalar,
-    },
-    Entry {
-        key: "testing_context.TestClock.sleepMillis",
-        symbol: "buri_rt_testing_context_test_clock_sleep_millis",
-        args: &[Arg::Scalar, Arg::Scalar],
-        ret: Ret::Void,
-    },
-    Entry {
-        key: "testing_context.TestClock.advance",
-        symbol: "buri_rt_testing_context_test_clock_advance",
-        args: &[Arg::Scalar, Arg::Scalar],
-        ret: Ret::Void,
-    },
-    Entry {
-        key: "testing_context.randSeed",
-        symbol: "buri_rt_testing_context_rand_seed",
-        args: &[Arg::Scalar],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "testing_context.TestRand.nextInt",
-        symbol: "buri_rt_testing_context_test_rand_next_int",
-        args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar],
-        ret: Ret::Scalar,
-    },
-    Entry {
-        key: "testing_context.TestRand.nextFloat",
-        symbol: "buri_rt_testing_context_test_rand_next_float",
-        args: &[Arg::Scalar],
-        ret: Ret::Scalar,
-    },
-    Entry {
-        key: "testing_context.envOf",
-        symbol: "buri_rt_testing_context_env_of",
-        args: &[Arg::List, Arg::List],
-        ret: Ret::Out,
-    },
-    Entry {
-        key: "testing_context.TestEnv.variable",
-        symbol: "buri_rt_testing_context_test_env_variable",
-        args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Sum,
-    },
-    Entry {
-        key: "testing_context.TestEnv.args",
-        symbol: "buri_rt_testing_context_test_env_args",
-        args: &[Arg::Scalar],
-        ret: Ret::Out,
-    },
-    // -- core/host/testing --------------------------------------------------
+    // -- core/host/testing's stateful half ------------------------------------
     //
-    // `core/host`'s names for a test source, over the same handle table. Every
-    // receiver is `Arg::Scalar` for the reason stated above `testing_context`'s
-    // rows: these carry a handle, and `core/host`'s own implementations are
-    // empty structs that do not.
+    // `cli/runtime/testing.rs`'s header is the argument for these being in the
+    // archive rather than open-coded: each names a slot in one mutable table,
+    // which is `runtime.js`'s `$t.h` written for a language that has statics.
+    // The rows are `stencil/runtime.rs`'s, one for one.
+    //
+    // Two things are not obvious and are the same in both tables:
+    //
+    //  * **Every constructor is `Ret::Out`.** `struct TestStdout(I64)` is a
+    //    struct, and `middle/layout.rs` gives every struct `Repr::Aggregate`
+    //    however few fields it has, so the result is an aggregate and §2 rule 2
+    //    puts it through an out-pointer. Declaring it as returning one word
+    //    would agree with the archive by accident on both supported targets.
+    //  * **`self` is `Arg::Scalar` and not `Arg::Dropped`.** These receivers
+    //    carry the handle; `core/host`'s are empty structs and these are not,
+    //    which is the distinction `native/llvm.rs`'s
+    //    `a_stateful_context_is_dropped_at_the_runtime_boundary` exists for.
+    //
+    // `Arg::List` at every `[U8]` argument, for the reason `core/bytes`' group
+    // above gives.
     //
     // A **builder** — `at`, `seed`, `variables`, `arguments` — takes its receiver
     // and answers a fresh handle through the out-pointer, so it is
@@ -1851,11 +1617,8 @@ mod tests {
             "list.sortBy",
             "json.encode",
             // Open-coded, and named here so that "it has no symbol" and "the
-            // backend cannot compile it" stay two different statements.
-            "testing_context.alloc",
-            "testing_context.TestAlloc.allocate",
-            // `core/host/testing`'s allocator is the same two instructions and
-            // is open-coded the same way.
+            // backend cannot compile it" stay two different statements: the
+            // allocator is two instructions on both native backends.
             "host_testing.alloc",
             "host_testing.TestAlloc.allocate",
             // Buri bodies, for the reason two paragraphs up.
@@ -1864,7 +1627,7 @@ mod tests {
             "host_testing.TestFs.faults",
             // The archive has no body for `core/fs`'s real filesystem past
             // `fileExists` (`cli/runtime/host.rs`). Not a missing *shape*:
-            // `MemFs`'s three are the same `Result<T, IoError>` and are in the
+            // `TestFs`'s three are the same `Result<T, IoError>` and are in the
             // table above, under `Ret::Res`.
             "host.HostFs.readFile",
             "host.HostFs.writeFile",

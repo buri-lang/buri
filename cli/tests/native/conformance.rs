@@ -27,15 +27,17 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Thirty-one of the forty files are in it** — the number the
-//! harness prints, and one the prose had off by one before
-//! `semantics/generics.buri` joined them. `semantics/http.buri` is the
+//! **Thirty-two of the forty-one files are in it** — the number the
+//! harness prints, and one the prose has now had off by one twice: before
+//! `semantics/generics.buri` joined them, and again after
+//! `codegen/step_trampoline.buri` did. Both counts are re-derived from the
+//! harness rather than incremented by hand. `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
 //! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
 //! `semantics/host_testing.buri` is the
-//! thirtieth — `core/host/testing`'s seven doubles, which are the same handle
-//! table `core/testing/context`'s implementations already use, so it needed
-//! nothing the archive did not have. `semantics/anonymous.buri` is the
+//! thirtieth — `core/host/testing`'s seven doubles, which are handles over the
+//! table `cli/runtime/testing.rs` already carried, so it needed nothing the
+//! archive did not have. `semantics/anonymous.buri` is the
 //! twenty-ninth and `semantics/elision.buri` the twenty-eighth, with
 //! `collections/ordmap.buri` the twenty-seventh; none of them needed anything
 //! the backend did not already have.
@@ -55,8 +57,14 @@
 //!     files, and `numbers/conversions.buri` carries a second problem behind
 //!     the first — two of its blocks assert the JavaScript *bound*, which
 //!     VALUE-MODEL.md §12 row 2 has already ruled is not the native one.
-//!  2. **`json.*` and `derivePrimJson`.** A descriptor-driven walker, which is
-//!     what `runtime.js` does. `json/decoding.buri` and `json/encoding.buri`.
+//!  2. **`json.*`, and `ToJson::toJson` at a primitive.** `json.decode` is a
+//!     descriptor-driven walker, which is what `runtime.js` does.
+//!     `json/decoding.buri` and `json/encoding.buri`. `derivePrimJson` was the
+//!     second half of this reason and is not any more — both native backends
+//!     build `Json`'s primitive arm now (VALUE-MODEL.md §12 row 10) — so what
+//!     holds `json/encoding.buri` out is the five keys a *direct* `x.toJson()`
+//!     produces, which is the same answer reached through the trait rather
+//!     than through the derive.
 //!  3. **`core/math`'s thirteen transcendentals**, which are refused rather
 //!     than unwritten — `cli/runtime/math.rs` argues it. `numbers/floats.buri`.
 //!  4. **The reactive graph.** `ui/effect`'s `Ui` entries and `ui/testing`'s
@@ -73,49 +81,79 @@
 //!
 //! # The `core/host/testing` migration, and why this list did not move
 //!
-//! Several of the reasons above are written in terms of `Hermetic()`, which
-//! instantiates all nine implementations whether a test uses one or not — and
-//! `cli/tests/migrate.rs` is now replacing it, package by package, with a
-//! context that names only what the function under test needs. The first batch
-//! is `lib/data` and `lib/collections`: two hundred and sixty-four sites, of
-//! which two hundred and sixty bind `Alloc` and four bind nothing at all. The
-//! second is `lib/semantics`, `lib/json` and `lib/proto`: a hundred and
-//! forty-nine more, of which a hundred and forty-seven bind `Alloc` and the
-//! last two bind `Clock` as well or instead.
+//! Several of the reasons below are written in terms of a context that binds
+//! every effect whether a test uses one or not, because that is what the
+//! corpus used to write. Every one of those sites now names only what the
+//! function under test needs — four hundred and sixty-four rewritten in three
+//! batches, then two hundred and forty-seven narrowed again once
+//! `unused-context-bound` had removed the dead bounds keeping their bindings
+//! alive — and the old module they were written against is gone.
 //!
-//! **Neither batch moved a row of the table below.** The first batch's eight
-//! files were already in the native set. The second reaches three that are
-//! *out* — `json/decoding.buri`, `json/encoding.buri` and `proto/json.buri` —
-//! and not one of them was excluded for a context: the reasons are
-//! `json.decode`, `derivePrimJson` and an inexact `F64 -> I64`, and
-//! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run on
-//! the migrated corpus and still reports each of them. So the census is the
-//! same thirty files and 1,393 blocks it was before.
+//! **Not one row of the table below moved.** The migration reached three
+//! excluded files — `json/decoding.buri`, `json/encoding.buri` and
+//! `proto/json.buri` — and none of them was excluded for a context: the
+//! reasons were `json.decode`, `derivePrimJson` — now `ToJson::toJson` at a
+//! primitive, the derive's leaf having landed — and an inexact `F64 -> I64`.
+//! It reached two more in batch three, `numbers/floats.buri` and
+//! `text/json.buri`, excluded for `core/math`'s transcendentals and for
+//! `num.U32.toChar`; neither reason was ever about the testing context.
+//! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run at
+//! every step and still reports each of them.
 //!
 //! That is the honest report: the migration removed the pressure the
 //! exclusions named, and no excluded file was waiting on it. The historical
 //! reasons are left where they are — what a ledger records is why a file *was*
-//! out — with a note beside the ones the migration has overtaken. The batches
-//! that follow should re-run that test and move any row the narrowing lets in.
+//! out — with a note beside the ones the migration has overtaken.
 //!
-//! Two files in `lib/semantics` are not migrated, and both say so in
-//! `cli/tests/migrate.rs`: `effects.buri` is `core/testing/context`'s own
-//! conformance file and moves with the module in E12, and `http.buri` keeps
-//! `noNet()`, which has no twin until `net()` lands.
+//! # The narrowing pass, and the answer to the question this section asked
 //!
-//! Batch three — `lib/text`, `lib/crypto`, `lib/calendar`, `lib/numbers`,
-//! `lib/memory`, `lib/canary`, `lib/codegen` — is one that reaches excluded
-//! files, and **the table below is still unchanged**. Fifty-one sites across
-//! five files, every one of them `Alloc`, plus the two `lib/codegen` files that
-//! imported `alloc` from the old module and now import it from the new one.
-//! Seven of the nine files are already in the set; the two that are not —
-//! `numbers/floats.buri` and `text/json.buri` — are excluded for `core/math`'s
-//! transcendentals and for `num.U32.toChar` respectively, and neither reason
-//! was ever about the testing context.
+//! The migration derived each *migrated* site's bindings from the compiler, so
+//! those were minimal the day they were written. What it could not reach was
+//! the contexts nobody migrated — the ones written by hand — and the bindings
+//! a **dead bound** kept alive. `unused-context-bound`'s fix over the two
+//! corpora settled both, in that order, because the second follows from the
+//! first: `fn note<C: Alloc + Stdout>` whose body only prints forces
+//! `Alloc: alloc()` into the context of every test that calls it.
+//!
+//! Fifteen dead bounds went, over three rounds (the rule has a fixed point and
+//! reaching it takes as many passes as the call graph is deep), and **two
+//! hundred and forty-seven contexts then shrank** — two hundred and thirty-nine
+//! here and eight in `cli/tests/example` — dropping 251 bindings: 176 `Alloc`,
+//! 72 `Watch` and 3 `Net`. Fifty-eight of them were reachable *only* after the
+//! bounds went, measured by running the same sweep against the tree before
+//! them.
+//!
+//! **The contexts the migration derived are almost exactly where it left
+//! them**, which is the measurement that says its fixpoint was minimal rather
+//! than merely settled. Of the six files that moved, three are `lib/ui`, a
+//! package the migration never listed; `semantics/effects.buri` is one of the
+//! two files it was told to hold; and `semantics/host_testing.buri` was
+//! written by hand against `core/host/testing` rather than rewritten from a
+//! world assembled for it — no commit in its history builds one. That leaves
+//! `semantics/evaluation.buri`, which is migrated and dropped fifty-one
+//! `Alloc`s: fifty of them are the dead bound on `note` and its nine
+//! neighbours, which the migration could not have seen, and the fifty-first is
+//! one binding it genuinely left behind, out of the four hundred and
+//! sixty-four sites its three batches wrote here.
+//!
+//! **The table below is unchanged, and this time the question was live.**
+//! Several exclusion reasons are written in terms of a context that
+//! instantiates everything, and the three `lib/ui` files are the ones that
+//! actually carried surplus bindings — 64 `Watch` between them.
 //! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run and
-//! agrees: both refusals still name what they always named. So the census is
-//! unchanged again, and this is the honest report of it rather than a row moved
-//! to look like progress.
+//! every one of the nine still names what it named. One refusal did get
+//! shorter: `ui/theme.buri` no longer reaches `ui_testing.observer`, because
+//! none of its five contexts binds `Watch` any more. It is still out for
+//! `install`, `variables`, `render`, `stylesheet` and the `Headless` pair —
+//! the document and the reactive graph, which is a reason no wave of this
+//! backend retires. So the census is the same 32 files and 1,529 blocks, and
+//! `lib/ui`'s exclusion is now stated in terms of what it is really about.
+//!
+//! The half of this the corpus keeps for itself is
+//! `language::conformance::no_conformance_context_asks_for_a_bound_it_does_not_use`:
+//! this corpus is deliberately not lint-clean, and that one code is the one it
+//! is held to zero over, because a dead bound put back here is contexts put
+//! back everywhere that calls it.
 //!
 //! # The harness used to be the biggest exclusion, and it was never about the
 //! backend
@@ -133,8 +171,9 @@
 //! # What the backend gained to take the rest
 //!
 //!  * **`cli/runtime/lib.rs` §2.1, a `Result<T, E>` a runtime entry can
-//!    answer** — the shape that was recorded as deferred twice over. `MemFs`'s
-//!    four methods are the first entries to use it, and they are what
+//!    answer** — the shape that was recorded as deferred twice over. The
+//!    filesystem double's four methods are the first entries to use it, and
+//!    they are what
 //!    `semantics/effects.buri` and `semantics/evaluation.buri` were waiting
 //!    for.
 //!  * **`core/char`'s eight** (`cli/runtime/char.rs`), including `\p{L}` as a
@@ -231,8 +270,8 @@ const PACKAGES: &[Case] = &[
     included("vectors/simd.buri"),
     // It used to be the only file that built a testing context and still
     // compiled, because the one it builds is `alloc` and that one reads no
-    // state. The *stateful* half — `captureOut`, `stdin`, `clockAt`,
-    // `randSeed`, `envOf`, `data` — is in the archive now
+    // state. The *stateful* half — a captured stream, a stdin, a clock, a
+    // seeded generator, an environment, a filesystem — is in the archive now
     // (`cli/runtime/testing.rs`), which is what moved the four files below it
     // into this set.
     included("codegen/strings.buri"),
@@ -273,22 +312,15 @@ const PACKAGES: &[Case] = &[
     // said so on the day it stopped being true.
     included("canary/canary.buri"),
     // The two that the testing context and `list.sortBy` between them let in.
-    // Both were excluded for a `Hermetic` context — which instantiates all
-    // nine implementations whether a test uses them or not — and
-    // `calendar/date.buri` for `list.sortBy` as well.
+    // Both were excluded for a context that bound every effect whether a test
+    // used it or not, and `calendar/date.buri` for `list.sortBy` as well.
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what said
     // so on the day each stopped being true.
     //
-    // `collections/bitset.buri` no longer builds one: it is in the first batch
-    // of the `core/host/testing` migration and binds `Alloc` alone. The reason
-    // above is why it *was* out, and it is left standing because the reason a
-    // file was excluded is the thing this ledger records — but the pressure it
-    // names is gone from that file, and from the other seven in `lib/data` and
-    // `lib/collections`. See the migration paragraph in the module doc.
-    //
-    // `calendar/date.buri` no longer builds one either — batch three moved its
-    // five sites to `context { Alloc: alloc() }` — and the same applies: the
-    // reason above is why it *was* out.
+    // Neither builds one any more: both name `Alloc` alone. The reason above is
+    // why each *was* out, and it is left standing because the reason a file was
+    // excluded is the thing this ledger records — but the pressure it names is
+    // gone from those files and from every other in the corpus.
     included("calendar/date.buri"),
     included("collections/bitset.buri"),
     // It was the one file the backend compiled and got *wrong*, and
@@ -338,10 +370,10 @@ const PACKAGES: &[Case] = &[
     // something to be exercised by, so a backend that could not compile this
     // file would be a backend the key had failed on.
     included("codegen/step_trampoline.buri"),
-    // The four `//lib/semantics` files. Two of them reach `MemFs`'s methods
-    // and were waiting on `cli/runtime/lib.rs` §2.1 — the `Result<T, E>`
-    // shape — as well as on the repository; the other two build a `Hermetic`
-    // context, which instantiates `MemFs` whether a test reads a file or not.
+    // The four `//lib/semantics` files. Two of them reach the filesystem
+    // double's methods and were waiting on `cli/runtime/lib.rs` §2.1 — the
+    // `Result<T, E>` shape — as well as on the repository; the other two built
+    // a context binding a filesystem whether a test read a file or not.
     included("semantics/effects.buri"),
     included("semantics/evaluation.buri"),
     included("semantics/traits.buri"),
@@ -351,8 +383,8 @@ const PACKAGES: &[Case] = &[
     // `Subst::default_unconstrained` makes it `()`.
     included("semantics/generics.buri"),
     // The fifth: which positions of a type constructor hand a value back
-    // (SPEC 10.2). It reaches nothing the four above do not — a `Hermetic`
-    // context, `list.mapCtx`, `[Str].join` and `str.format` — so it is in the
+    // (SPEC 10.2). It reaches nothing the four above do not — a test context,
+    // `list.mapCtx`, `[Str].join` and `str.format` — so it is in the
     // native set from the day it was written.
     included("semantics/variance.buri"),
     // The sixth: a field a literal leaves out is an explicit `.None` by the
@@ -365,17 +397,15 @@ const PACKAGES: &[Case] = &[
     // that out loud on the native one too (SPEC 12.3).
     included("semantics/anonymous.buri"),
     // The eighth: `core/host/testing`'s ten doubles. Seven of them are handles
-    // over `cli/runtime/testing.rs`'s table — the same table
-    // `core/testing/context`'s implementations use; `TestAlloc` is the two
+    // over `cli/runtime/testing.rs`'s table; `TestAlloc` is the two
     // instructions both backends open-code, and `TestNet` and `TestProc` are
     // Buri bodies with no row at all. So the file reaches nothing the archive
     // did not already have. It is here rather than folded into `effects.buri`
-    // because the claim is about the *other* module: the two spellings of the
-    // test platform coexist, and this is the one that has to keep agreeing with
-    // the JavaScript runner while the migration runs.
+    // because the two ask different questions: `effects.buri` is about contexts
+    // and `host_testing.buri` is about the doubles a context binds.
     included("semantics/host_testing.buri"),
     // The ninth: `Request` and `Response`, the two types `Net.fetch` speaks in.
-    // No `Net` call in it reaches the network — `noNet()` refuses and the rest
+    // No `Net` call in it reaches the network — a fresh `net()` refuses and the rest
     // is construction — so what this proves natively is the *shape*: a struct
     // holding a `[Header]` and a `[U8]`, its derived `Eq` and `Show`, and the
     // `core/bytes` pair underneath the text constructors.
@@ -397,7 +427,15 @@ const PACKAGES: &[Case] = &[
              every widening and every `wrapTo*`",
     ),
     excluded("json/decoding.buri", "`json.decode`, and core/char's classifiers"),
-    excluded("json/encoding.buri", "`derivePrimJson` at every primitive"),
+    // `derivePrimJson` was this row's reason and is not any more: both native
+    // backends have a body for it (VALUE-MODEL.md §12 row 10). What is left is
+    // its sibling — `ToJson::toJson` called *directly* on a primitive, which
+    // reaches a backend as `bool.toJson`, `char.toJson`, `str.toJson`,
+    // `num.I64.toJson` and `num.F64.toJson`, five ordinary intrinsic keys with
+    // no body. They are the same three-way answer `json_prim` already gives
+    // and are a slice of their own, because letting this file in moves the
+    // census ratchet.
+    excluded("json/encoding.buri", "`ToJson::toJson` at every primitive"),
     // `core/bytes` and `char.toDigit` are emitted now, and this file needs
     // nothing else.
     included("proto/failures.buri"),
@@ -480,13 +518,11 @@ fn skip_reason() -> Option<String> {
 ///
 /// The print is the point: the corpus is 26 files and 1187 test blocks, and a
 /// host that ran none of them reports the same four passing tests as a host
-/// that ran all of them.
+/// that ran all of them. On a runner it is not a print but a panic —
+/// `harness/ci.rs` reads `BURI_CI` and the workflow sets it everywhere.
 fn supported() -> bool {
     match skip_reason() {
-        Some(why) => {
-            eprintln!("native conformance: skipped ({why})");
-            false
-        }
+        Some(why) => !crate::ci::skipped("native conformance", &why),
         None => true,
     }
 }
@@ -846,16 +882,15 @@ fn the_native_set_passes() {
     assert!(ran > 0, "no conformance file ran natively");
 }
 
-/// `core/testing/context`, natively, against the numbers and strings the
+/// `core/host/testing`, natively, against the numbers and strings the
 /// JavaScript runner answers.
 ///
-/// The stateful half of the testing context is a **handle table on the
-/// runner's side** (`testing_context.buri`'s header), which on JavaScript is
-/// `runtime.js`'s `$t.h` and natively is `cli/runtime/testing.rs`. Two
-/// conformance files instantiate all nine implementations by building a
-/// `Hermetic` context and neither reads one back, so a table that answered the
-/// empty string to every `captured()` would pass the suite above unchanged.
-/// This is the test that would not.
+/// The stateful half of the test platform is a **handle table on the runner's
+/// side** (`host_testing.buri`'s header), which on JavaScript is
+/// `runtime.js`'s `$t.h` and natively is `cli/runtime/testing.rs`. A
+/// conformance file may bind a double and never read it back, so a table that
+/// answered the empty string to every `captured()` would pass the suite above
+/// unchanged. This is the test that would not.
 ///
 /// Every assertion is a literal written into the source, so the two backends
 /// either both pass it or disagree about the language — which is the argument
@@ -864,7 +899,7 @@ fn the_native_set_passes() {
 /// `scratchpad/tctxcheck` and `buri test` runs it on the JavaScript backend:
 /// **12 passed, 0 failed**, the same twelve blocks this runs natively.
 ///
-/// The seeded rows are the load-bearing ones. `randSeed` is xorshift32 and the
+/// The seeded rows are the load-bearing ones. `rand` is xorshift32 and the
 /// *sequence* is part of what a seeded test asserts, so `69, 89` from a seed of
 /// zero checks that the two runtimes are the same generator rather than two
 /// reproducible ones.
@@ -879,14 +914,13 @@ fn the_native_set_passes() {
 /// `Result`. `rc.rs`'s `a_consumed_scrutinee_is_dropped_once_on_every_arm` is
 /// that shape as a unit test; these blocks are it through the real assertion.
 #[test]
-fn the_testing_context_agrees_with_the_runner() {
+fn the_test_platform_agrees_with_the_runner() {
     if !supported() {
         return;
     }
     const SOURCE: &str = r##"from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import {
-  alloc, captureOut, captureErr, captured, capturedErr,
-  clockAt, randSeed, envOf, stdin, stdinBytes,
+from "core/host/testing/lib.buri" import {
+  alloc, clock, env, rand, stderr, stdin, stdout,
 };
 from "core/effect/lib.buri" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
 from "core/list/lib.buri" import * as list;
@@ -904,15 +938,15 @@ fn shout<C: Stderr>(ctx: C, what: Str): () {
 }
 
 test "captured reads back what a function printed" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   speak(ctx, "hello");
   assert.eq(sink.captured(), "[hello]\n");
 }
 
 test "a fresh sink is empty and stays independent" {
-  let first = captureOut();
-  let second = captureOut();
+  let first = stdout();
+  let second = stdout();
   let ctx = context { Alloc: alloc(), Stdout: first };
   speak(ctx, "one");
   assert.eq(second.captured(), "");
@@ -920,7 +954,7 @@ test "a fresh sink is empty and stays independent" {
 }
 
 test "captured accumulates in the order things were printed" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let _ = ctx.print("a");
   let _ = ctx.println("b");
@@ -929,51 +963,51 @@ test "captured accumulates in the order things were printed" {
 }
 
 test "writeBytes is captured as the text the octets spell" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
   let _ = ctx.writeBytes([104, 105]);
   assert.eq(sink.captured(), "hi");
 }
 
 test "standard error is its own transcript" {
-  let out = captureOut();
-  let err = captureErr();
+  let out = stdout();
+  let err = stderr();
   let ctx = context { Alloc: alloc(), Stdout: out, Stderr: err };
   shout(ctx, "bad");
-  assert.eq(err.capturedErr(), "<bad\n");
+  assert.eq(err.captured(), "<bad\n");
   assert.eq(out.captured(), "");
 }
 
 test "a test clock starts where it was put and moves only when moved" {
-  let clock = clockAt(1000);
-  let ctx = context { Alloc: alloc(), Clock: clock };
+  let dial = clock().at(1000);
+  let ctx = context { Alloc: alloc(), Clock: dial };
   assert.eq(ctx.nowMillis(), 1000);
   assert.eq(ctx.nowMillis(), 1000);
   let _ = ctx.sleepMillis(5);
   assert.eq(ctx.nowMillis(), 1005);
-  let _ = clock.advance(10);
+  let _ = dial.sleepMillis(10);
   assert.eq(ctx.nowMillis(), 1015);
 }
 
 test "a seeded generator is the same sequence on every backend" {
-  let ctx = context { Alloc: alloc(), Rand: randSeed(0) };
+  let ctx = context { Alloc: alloc(), Rand: rand().seed(0) };
   assert.eq(ctx.nextInt(0, 100), 69);
   assert.eq(ctx.nextInt(0, 100), 89);
   assert.eq(ctx.nextInt(10, 11), 10);
-  let ctx2 = context { Alloc: alloc(), Rand: randSeed(7) };
+  let ctx2 = context { Alloc: alloc(), Rand: rand().seed(7) };
   assert.eq(ctx2.nextInt(0, 1000), 583);
 }
 
 test "two generators with the same seed agree with each other" {
-  let a = context { Alloc: alloc(), Rand: randSeed(42) };
-  let b = context { Alloc: alloc(), Rand: randSeed(42) };
+  let a = context { Alloc: alloc(), Rand: rand().seed(42) };
+  let b = context { Alloc: alloc(), Rand: rand().seed(42) };
   assert.eq(a.nextInt(0, 1000000), b.nextInt(0, 1000000));
 }
 
 test "an environment holds what it was given and nothing else" {
   let ctx = context {
     Alloc: alloc(),
-    Env: envOf([("HOME", "/tmp"), ("LANG", "C")], ["--verbose", "x"]),
+    Env: env().variables([("HOME", "/tmp"), ("LANG", "C")]).arguments(["--verbose", "x"]),
   };
   assert.eq(assert.some(ctx.variable("HOME")), "/tmp");
   assert.eq(assert.some(ctx.variable("LANG")), "C");
@@ -984,20 +1018,20 @@ test "an environment holds what it was given and nothing else" {
 }
 
 test "an empty environment has no variables and no arguments" {
-  let ctx = context { Alloc: alloc(), Env: envOf([], []) };
+  let ctx = context { Alloc: alloc(), Env: env() };
   assert.isTrue(ctx.variable("HOME").isNone());
   assert.eq(ctx.args().len(), 0);
 }
 
 test "stdin reads its lines, then end of input" {
-  let ctx = context { Alloc: alloc(), Stdin: stdin(["one", "two"]) };
+  let ctx = context { Alloc: alloc(), Stdin: stdin().lines(["one", "two"]) };
   assert.eq(assert.some(ctx.readLine()), "one");
   assert.eq(assert.some(ctx.readLine()), "two");
   assert.isTrue(ctx.readLine().isNone());
 }
 
-test "stdinBytes reads octets, and readLine finds nothing there" {
-  let ctx = context { Alloc: alloc(), Stdin: stdinBytes([1, 2, 3, 4]) };
+test "a stdin of octets reads them, and readLine finds nothing there" {
+  let ctx = context { Alloc: alloc(), Stdin: stdin().bytes([1, 2, 3, 4]) };
   let first = assert.some(ctx.readBytes(3));
   assert.eq(first.len(), 3);
   assert.eq(assert.some(first.get(0)), 1);
@@ -1009,11 +1043,11 @@ test "stdinBytes reads octets, and readLine finds nothing there" {
   assert.isTrue(ctx.readLine().isNone());
 }
 "##;
-    if refusal("testing-context", SOURCE).is_err() {
+    if refusal("host-testing", SOURCE).is_err() {
         return;
     }
-    let Some((status, out, err, blocks)) = run("testing-context", SOURCE) else {
-        panic!("the front end refused the testing-context fixture");
+    let Some((status, out, err, blocks)) = run("host-testing", SOURCE) else {
+        panic!("the front end refused the host-testing fixture");
     };
     assert_eq!(status, 0, "stdout:\n{out}\nstderr:\n{err}");
     assert_eq!(blocks, 12, "the fixture lost a `test` block");
@@ -1056,7 +1090,7 @@ fn self_through_a_context_is_the_implementing_type() {
         return;
     }
     const SOURCE: &str = r#"from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { alloc, clockAt };
+from "core/host/testing/lib.buri" import { alloc, clock };
 from "core/effect/lib.buri" import {
   Alloc, Clock, Listen, Net, Request, Response, Sockets, Tasks,
 };
@@ -1085,7 +1119,7 @@ test "the handler is handed the implementation" {
 test "and a task is handed the context" {
   let ctx = context {
     Alloc: alloc(),
-    Clock: clockAt(5),
+    Clock: clock().at(5),
     Tasks: SerialTasks { label: "serial", bias: 4 },
   };
   let out = ctx.parallel(ctx, [1], fn(c, i, item) => c.nowMillis() + item);
