@@ -69,6 +69,7 @@
 //! ```buri
 //! from "core/effect" import { Alloc, Stdout, Tasks };
 //! from "core/host" import * as host;
+//! from "core/io" import * as io;
 //! from "core/list" import * as list;
 //! from "core/str" import * as str;
 //! from "core/tasks" import * as tasks;
@@ -77,7 +78,7 @@
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
 //!   let labelled = tasks.parallel(ctx, ["a", "b", "c"], fn(c, i, name) =>
 //!     str.format(c, "${i}:${name}"));
-//!   let _ = ctx.println(labelled.join(ctx, " "));
+//!   let _ = io.println(ctx, labelled.join(ctx, " ")).ignore();
 //!   .Ok(())
 //! }
 //! ```

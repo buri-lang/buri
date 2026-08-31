@@ -26,6 +26,7 @@
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
+//! from "core/io" import * as io;
 //! from "core/json" import { Json };
 //! from "core/json" import * as json;
 //!
@@ -38,7 +39,7 @@
 //!   let name = doc.get("name").andThen(fn(v) => v.asStr()).withDefault("?");
 //!   // Key order is preserved, which is why an object is an association list
 //!   // here rather than a map.
-//!   let _ = ctx.println("${name}: ${json.stringify(ctx, doc)}");
+//!   let _ = io.println(ctx, "${name}: ${json.stringify(ctx, doc)}").ignore();
 //!   .Ok(())
 //! }
 //! ```
@@ -622,6 +623,7 @@ derive Eq, Show for DecodeError;
 /// ```buri run
 /// from "core/effect" import { Alloc, Stdout };
 /// from "core/host" import * as host;
+/// from "core/io" import * as io;
 /// from "core/json" import { DecodeError, ToJson, FromJson };
 /// from "core/json" import * as json;
 ///
@@ -638,11 +640,11 @@ derive Eq, Show for DecodeError;
 ///   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
 ///   let shape = Shape.Line(Point { x: 0, y: 0 }, Point { x: 3, y: 4 });
 ///   let text = json.stringify(ctx, json.encode(ctx, shape));
-///   let _ = ctx.println(text);
+///   let _ = io.println(ctx, text).ignore();
 ///
 ///   // The type comes from the annotation, not from a type argument.
 ///   let back: Result<Shape, DecodeError> = json.decode(ctx, json.encode(ctx, shape));
-///   let _ = ctx.println("${back == .Ok(shape)}");
+///   let _ = io.println(ctx, "${back == .Ok(shape)}").ignore();
 ///   .Ok(())
 /// }
 /// ```

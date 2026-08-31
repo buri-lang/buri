@@ -26,8 +26,8 @@ test "an allocation past a fixed budget" {
     let ctx = context {
         Alloc: buffer,
     };
-    let _ = ctx.allocate(32);
-    let _ = ctx.allocate(40);
+    let _ = alloc.allocate(ctx, 32);
+    let _ = alloc.allocate(ctx, 40);
     assert.eq(1, 1);
 }
 

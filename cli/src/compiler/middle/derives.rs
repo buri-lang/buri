@@ -2178,6 +2178,7 @@ mod tests {
     const POINT: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct P { x: Int, y: Str }
 derive Eq, Ord, Show, Hash for P;
@@ -2186,11 +2187,11 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let a = P { x: 1, y: "a" };
   let b = P { x: 2, y: "b" };
-  let _ = ctx.println("${a == b}");
-  let _ = ctx.println(a.show(ctx));
-  let _ = ctx.println("${a.hash()}");
+  let _ = io.println(ctx, "${a == b}").ignore();
+  let _ = io.println(ctx, a.show(ctx)).ignore();
+  let _ = io.println(ctx, "${a.hash()}").ignore();
   let o = a.compare(b);
-  let _ = ctx.println("${o == .Less}");
+  let _ = io.println(ctx, "${o == .Less}").ignore();
   .Ok(())
 }
 "#;
@@ -2447,6 +2448,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct A { x: Int, y: Int }
 struct B { p: Int, q: Int }
@@ -2455,8 +2457,8 @@ derive Show for B;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println(A { x: 1, y: 2 }.show(ctx));
-  let _ = ctx.println(B { p: 3, q: 4 }.show(ctx));
+  let _ = io.println(ctx, A { x: 1, y: 2 }.show(ctx)).ignore();
+  let _ = io.println(ctx, B { p: 3, q: 4 }.show(ctx)).ignore();
   .Ok(())
 }
 "#;
@@ -2489,6 +2491,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Shape { Dot, Line(Int, Int) }
 derive Eq, Show for Shape;
@@ -2496,8 +2499,8 @@ derive Eq, Show for Shape;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let a = Shape.Line(1, 2);
-  let _ = ctx.println("${a == .Dot}");
-  let _ = ctx.println(a.show(ctx));
+  let _ = io.println(ctx, "${a == .Dot}").ignore();
+  let _ = io.println(ctx, a.show(ctx)).ignore();
   .Ok(())
 }
 "#;
@@ -2528,6 +2531,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct P { x: Int }
 derive Eq, Show for P;
@@ -2535,7 +2539,7 @@ derive Eq, Show for P;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let xs = [P { x: 1 }];
-  let _ = ctx.println("${xs == [P { x: 2 }]}");
+  let _ = io.println(ctx, "${xs == [P { x: 2 }]}").ignore();
   .Ok(())
 }
 "#;
@@ -2555,6 +2559,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Meters { v: Int }
 struct Seconds { v: Int }
@@ -2565,10 +2570,10 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let a = Meters { v: 1 };
   let b = Seconds { v: 1 };
-  let _ = ctx.println("${a == Meters { v: 2 }}");
-  let _ = ctx.println("${b == Seconds { v: 2 }}");
-  let _ = ctx.println(a.show(ctx));
-  let _ = ctx.println(b.show(ctx));
+  let _ = io.println(ctx, "${a == Meters { v: 2 }}").ignore();
+  let _ = io.println(ctx, "${b == Seconds { v: 2 }}").ignore();
+  let _ = io.println(ctx, a.show(ctx)).ignore();
+  let _ = io.println(ctx, b.show(ctx)).ignore();
   .Ok(())
 }
 "#;
@@ -2591,6 +2596,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Rose { Leaf(Int), Node([Rose]) }
 derive Eq for Rose;
@@ -2598,7 +2604,7 @@ derive Eq for Rose;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let a = Rose.Node([Rose.Leaf(1)]);
-  let _ = ctx.println("${a == Rose.Leaf(2)}");
+  let _ = io.println(ctx, "${a == Rose.Leaf(2)}").ignore();
   .Ok(())
 }
 "#;
@@ -2629,6 +2635,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/json" import { DecodeError, ToJson, FromJson };
 from "core/json" import * as json;
 
@@ -2639,7 +2646,7 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let p = P { x: 1 };
   let back: Result<P, DecodeError> = json.decode(ctx, json.encode(ctx, p));
-  let _ = ctx.println("${back == .Ok(p)}");
+  let _ = io.println(ctx, "${back == .Ok(p)}").ignore();
   .Ok(())
 }
 "#;
@@ -2664,6 +2671,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct P { x: Int }
 derive Eq, Show for P;
@@ -2680,7 +2688,7 @@ export fn seek(n: Int, needle: P): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${seek(3, P { x: 2 })}");
+  let _ = io.println(ctx, "${seek(3, P { x: 2 })}").ignore();
   .Ok(())
 }
 "#;

@@ -285,12 +285,13 @@ const NOTIFICATIONS: &[&str] = &[
 /// call, so that a position request has something under it.
 const SURFACE_PROGRAM: &str = r#"from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn answer(): Int { 41 }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("answer=${answer()}");
+  let _ = io.println(ctx, "answer=${answer()}").ignore();
   .Ok(())
 }
 "#;

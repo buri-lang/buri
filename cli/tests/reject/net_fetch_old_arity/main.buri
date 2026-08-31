@@ -10,9 +10,10 @@
 // does not inflect its count. The `EXPECT` line quotes what a user reads.)
 from "core/effect" import { Alloc, Net };
 from "core/host" import * as host;
+from "core/net/http" import * as http;
 
 fn outcome<C: Alloc + Net>(ctx: C, url: Str): Str {
-  match (ctx.fetch("GET", url, "")) {
+  match (http.send(ctx, "GET", url, "")) {
     .Ok(_r) => "ok",
     .Err(_e) => "err",
   }

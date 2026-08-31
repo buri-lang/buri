@@ -13,6 +13,7 @@
 // this per slot rather than everywhere.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/list" import * as list;
 
 fn adders<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
@@ -33,8 +34,8 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let fs = adders(ctx, 0, []);
   let gs = scalers(ctx, 7, 0, []);
-  let _ = ctx.println("${fs.map(ctx, fn(f) => f(100)).len()} ${sumTo(100, 0)}");
-  let _ = ctx.println("${fs.get(0).map(fn(f) => f(100)) ?? -1} ${fs.get(3).map(fn(f) => f(100)) ?? -1}");
-  let _ = ctx.println("${gs.get(0).map(fn(g) => g(2)) ?? -1} ${gs.get(2).map(fn(g) => g(2)) ?? -1}");
+  let _ = io.println(ctx, "${fs.map(ctx, fn(f) => f(100)).len()} ${sumTo(100, 0)}").ignore();
+  let _ = io.println(ctx, "${fs.get(0).map(fn(f) => f(100)) ?? -1} ${fs.get(3).map(fn(f) => f(100)) ?? -1}").ignore();
+  let _ = io.println(ctx, "${gs.get(0).map(fn(g) => g(2)) ?? -1} ${gs.get(2).map(fn(g) => g(2)) ?? -1}").ignore();
   .Ok(())
 }

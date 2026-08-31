@@ -51,12 +51,13 @@ fn program(answer: i32) -> String {
         r#"
 from "core/effect" import {{ Alloc, Stdout }};
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn answer(): Int {{ {answer} }}
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{ Alloc: host.alloc, Stdout: host.stdout }};
-  let _ = ctx.println("answer=${{answer()}}");
+  let _ = io.println(ctx, "answer=${{answer()}}").ignore();
   .Ok(())
 }}
 "#

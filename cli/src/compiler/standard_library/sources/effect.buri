@@ -49,20 +49,41 @@ export effect Alloc {
   fn allocate(self, bytes: Int): Region;
 }
 
+/// Writing to standard output.
+///
+/// **Every operation answers `Result<(), IoError>`**, and that is a statement
+/// about what writing to a stream *is*: a closed pipe, a full disk and a
+/// revoked permission are things that happen to a print, and a signature saying
+/// `()` was claiming they do not. The `Result` is not optional to look at —
+/// discarding one is `result-discarded`, in both of the two places a value can
+/// be dropped — so a program that does not care says so in the one greppable
+/// spelling there is:
+///
+/// ```text
+/// io.println(ctx, "ready").ignore();
+/// ```
+///
+/// That is the whole of the cost, and it buys the thing the old shape could not
+/// give: a program writing to a pipe its reader has gone away from can *notice*.
+/// Before this, a stream error was reported by the platform at flush time and
+/// surfaced only as `main`'s exit status, which is the one place a program can
+/// no longer act on it.
 export effect Stdout {
-  fn print(self, text: Template): ();
-  fn println(self, text: Template): ();
+  fn print(self, text: Template): Result<(), IoError>;
+  fn println(self, text: Template): Result<(), IoError>;
   /// Octets, written through unchanged.
   ///
   /// `print` takes a `Template` and the platform encodes it; this takes bytes
   /// and the platform encodes nothing. A program speaking a binary protocol
   /// over a pipe needs the second, and could not get it by rendering the first.
-  fn writeBytes(self, b: [U8]): ();
+  fn writeBytes(self, b: [U8]): Result<(), IoError>;
 }
 
+/// Writing to standard error, on `Stdout`'s terms — including the `Result`,
+/// and for its reasons. The two streams fail in the same ways.
 export effect Stderr {
-  fn eprint(self, text: Template): ();
-  fn eprintln(self, text: Template): ();
+  fn eprint(self, text: Template): Result<(), IoError>;
+  fn eprintln(self, text: Template): Result<(), IoError>;
 }
 
 export effect Stdin {

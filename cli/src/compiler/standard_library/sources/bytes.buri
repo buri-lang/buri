@@ -19,15 +19,16 @@
 //! it stopped at rather than one recomputed afterwards.
 //!
 //! ```buri run
+//! from "core/bytes" import * as bytes;
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
-//! from "core/bytes" import * as bytes;
+//! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
 //!   let raw = bytes.toUtf8(ctx, "hi €");
 //!   // Four characters, six bytes: the euro sign is three of them.
-//!   let _ = ctx.println("${raw.len()} bytes, ${bytes.toHex(ctx, raw)}, ${bytes.toBase64(ctx, raw)}");
+//!   let _ = io.println(ctx, "${raw.len()} bytes, ${bytes.toHex(ctx, raw)}, ${bytes.toBase64(ctx, raw)}").ignore();
 //!   .Ok(())
 //! }
 //! ```

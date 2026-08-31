@@ -6,6 +6,7 @@
 // at the type name (SPEC 12.3).
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Shape {
   Rect { width: Int, height: Int },
@@ -16,8 +17,8 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let s: Shape = { width: 2, height: 3 };
   let _ = match (s) {
-    .Rect { width, height } => ctx.println("${width} ${height}"),
-    .Dot => ctx.println("dot"),
+    .Rect { width, height } => io.println(ctx, "${width} ${height}").ignore(),
+    .Dot => io.println(ctx, "dot").ignore(),
   };
   .Ok(())
 }

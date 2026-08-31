@@ -1,0 +1,16 @@
+// EXPECT: `Stdout` is an effect, so `println` is not called on a context
+//
+// The shape a `ctx` rule alone would miss: the receiver's type is a type
+// parameter, and the effect is reached through its bound list.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+fn announce<C: Stdout>(ctx: C, what: Str): () {
+  ctx.println("${what}")
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = announce(ctx, "ready");
+  .Ok(())
+}

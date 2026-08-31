@@ -2667,11 +2667,12 @@ mod tests {
             r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println(str.format(ctx, "${1 + 1}"));
+  let _ = io.println(ctx, str.format(ctx, "${1 + 1}")).ignore();
   .Ok(())
 }
 "#,
@@ -2685,13 +2686,14 @@ export fn main(): Result<(), Str> {
             r#"
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/host" import * as host;
-from "core/tasks" import * as tasks;
+from "core/io" import * as io;
 from "core/str" import * as str;
+from "core/tasks" import * as tasks;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let doubled = tasks.parallel(ctx, [1, 2, 3], fn(c, i, n) => n * 2);
-  let _ = ctx.println(str.format(ctx, "${doubled.len()}"));
+  let _ = io.println(ctx, str.format(ctx, "${doubled.len()}")).ignore();
   .Ok(())
 }
 "#,
@@ -3141,6 +3143,7 @@ export fn main(): Result<(), Str> {
     const TREE: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Tree { Leaf, Node(Str, [Tree]) }
 
@@ -3154,7 +3157,7 @@ export fn label(t: Tree, other: Str): Str {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let t = Tree.Node("root", [Tree.Leaf]);
-  let _ = ctx.println(label(t, "none"));
+  let _ = io.println(ctx, label(t, "none")).ignore();
   .Ok(())
 }
 "#;
@@ -3162,6 +3165,7 @@ export fn main(): Result<(), Str> {
     const PROGRAM: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct P { name: Str, n: Int }
 
@@ -3186,7 +3190,7 @@ export fn main(): Result<(), Str> {
   let n = size(p);
   let xs = wrap(p);
   let ys = twice("b");
-  let _ = ctx.println("${n} ${xs.len()} ${ys.len()}");
+  let _ = io.println(ctx, "${n} ${xs.len()} ${ys.len()}").ignore();
   .Ok(())
 }
 "#;
@@ -3209,6 +3213,7 @@ export fn main(): Result<(), Str> {
     const CHURN: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Row { name: Str, tags: [Str] }
 
@@ -3225,7 +3230,7 @@ export fn churn<C: Alloc>(ctx: C, n: Int, acc: [Str]): [Str] {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let out = churn(ctx, 3, []);
-  let _ = ctx.println("${out.len()}");
+  let _ = io.println(ctx, "${out.len()}").ignore();
   .Ok(())
 }
 "#;
@@ -3272,6 +3277,7 @@ export fn main(): Result<(), Str> {
     const DRAIN: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/list" import * as list;
 
 export fn drain<C: Alloc>(ctx: C, xs: [Int], acc: [Int]): [Int] {
@@ -3284,7 +3290,7 @@ export fn drain<C: Alloc>(ctx: C, xs: [Int], acc: [Int]): [Int] {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let out = drain(ctx, [1, 2, 3, 4], []);
-  let _ = ctx.println("${out.len()}");
+  let _ = io.println(ctx, "${out.len()}").ignore();
   .Ok(())
 }
 "#;
@@ -3374,6 +3380,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
@@ -3393,7 +3400,7 @@ export fn take<C: Alloc>(ctx: C, xs: [Str]): [Str] {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${tell(ctx, ["a", "b"])} ${take(ctx, ["a", "b"]).len()}");
+  let _ = io.println(ctx, "${tell(ctx, ["a", "b"])} ${take(ctx, ["a", "b"]).len()}").ignore();
   .Ok(())
 }
 "#;
@@ -3428,6 +3435,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn even(n: Int, s: Str, t: Str): Str {
   if (n <= 0) { s } else { odd(n - 1, t, s) }
@@ -3439,7 +3447,7 @@ export fn odd(n: Int, s: Str, t: Str): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println(even(4, "a", "b"));
+  let _ = io.println(ctx, even(4, "a", "b")).ignore();
   .Ok(())
 }
 "#;
@@ -3465,6 +3473,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn tag<C: Alloc>(ctx: C, n: Int, prefix: Str, acc: [Str]): [Str] {
   if (n <= 0) {
@@ -3478,7 +3487,7 @@ export fn tag<C: Alloc>(ctx: C, n: Int, prefix: Str, acc: [Str]): [Str] {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let out = tag(ctx, 2, "p", ["a"]);
-  let _ = ctx.println("${out.len()}");
+  let _ = io.println(ctx, "${out.len()}").ignore();
   .Ok(())
 }
 "#;
@@ -3606,6 +3615,7 @@ export fn main(): Result<(), Str> {
             r#"
 from "core/effect" import {{ Alloc, Stdout }};
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn same({params}): Bool {{
   {chain}
@@ -3613,7 +3623,7 @@ export fn same({params}): Bool {{
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{ Alloc: host.alloc, Stdout: host.stdout }};
-  let _ = ctx.println("${{same({args})}}");
+  let _ = io.println(ctx, "${{same({args})}}").ignore();
   .Ok(())
 }}
 "#,
@@ -3643,6 +3653,7 @@ export fn main(): Result<(), Str> {{
         const SRC: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -3652,7 +3663,7 @@ export fn main(): Result<(), Str> {
     .Some(s) => s.len() > 0,
     .None => false,
   };
-  let _ = ctx.println("${ok}");
+  let _ = io.println(ctx, "${ok}").ignore();
   .Ok(())
 }
 "#;
@@ -3819,6 +3830,7 @@ export fn main(): Result<(), Str> {
         const SRC: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/list" import * as list;
 
 fn two<C: Alloc>(ctx: C, n: Int): ([Int], [Int]) {
@@ -3833,7 +3845,7 @@ export fn sizes<C: Alloc>(ctx: C, n: Int): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${sizes(ctx, 2)}");
+  let _ = io.println(ctx, "${sizes(ctx, 2)}").ignore();
   .Ok(())
 }
 "#;
@@ -3858,6 +3870,7 @@ export fn main(): Result<(), Str> {
         const SRC: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 fn size(s: Str): Int { s.len() }
@@ -3868,7 +3881,7 @@ export fn shown<C: Alloc>(ctx: C, n: Int): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${shown(ctx, 2)}");
+  let _ = io.println(ctx, "${shown(ctx, 2)}").ignore();
   .Ok(())
 }
 "#;
@@ -3894,6 +3907,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/list" import * as list;
 
 struct Row { name: Str, tags: [Str] }
@@ -3912,7 +3926,7 @@ export fn main(): Result<(), Str> {
     .None => "none",
   };
   let total = rows.fold(fn(acc: Int, r: Row) => acc + r.tags.len(), 0);
-  let _ = ctx.println("${joined} ${shown} ${total}");
+  let _ = io.println(ctx, "${joined} ${shown} ${total}").ignore();
   .Ok(())
 }
 "#;
@@ -3929,6 +3943,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Pair { One(Str), Two(Str, Str) }
 
@@ -3943,7 +3958,7 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let p = Pair.Two("a", "b");
   let q = swap(p);
-  let _ = ctx.println(match (q) { .One(a) => a, .Two(a, _) => a });
+  let _ = io.println(ctx, match (q) { .One(a) => a, .Two(a, _) => a }).ignore();
   .Ok(())
 }
 "#;
@@ -3974,6 +3989,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Pair { One(Str), Two(Str, Str) }
 
@@ -3997,7 +4013,7 @@ export fn swapped(p: Pair, other: Pair): Pair {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println(first(swapped(Pair.Two("a", "b"), Pair.One("c"))));
+  let _ = io.println(ctx, first(swapped(Pair.Two("a", "b"), Pair.One("c")))).ignore();
   .Ok(())
 }
 "#;
@@ -4025,6 +4041,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Shape { Nil, One(Str), Two(Str, Str) }
 
@@ -4051,7 +4068,7 @@ export fn pick(s: Shape, d: Str): Str {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let a = reshape(Shape.Two("a", "b"), "z");
-  let _ = ctx.println(pick(a, "z"));
+  let _ = io.println(ctx, pick(a, "z")).ignore();
   .Ok(())
 }
 "#;
@@ -4091,6 +4108,7 @@ export fn main(): Result<(), Str> {
         let src = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn double(n: Int): Int { n * 2 }
 
@@ -4098,7 +4116,7 @@ export fn quadruple(n: Int): Int { double(double(n)) }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${quadruple(2)}");
+  let _ = io.println(ctx, "${quadruple(2)}").ignore();
   .Ok(())
 }
 "#;
@@ -4153,6 +4171,7 @@ export fn main(): Result<(), Str> {
         const SRC: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
@@ -4163,7 +4182,7 @@ export fn showFirst<C: Alloc>(ctx: C, o: Option<Str>): Str {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let built = list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => str.format(c, "n${i}"));
-  let _ = ctx.println(showFirst(ctx, built.get(1)));
+  let _ = io.println(ctx, showFirst(ctx, built.get(1))).ignore();
   .Ok(())
 }
 "#;
@@ -4200,6 +4219,7 @@ export fn main(): Result<(), Str> {
         const SRC: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/list" import * as list;
 
 fn takeOne<C: Alloc>(ctx: C, xs: [Int]): Option<(Int, [Int])> {
@@ -4221,7 +4241,7 @@ export fn drain<C: Alloc>(ctx: C, xs: [Int], acc: [Int]): [Int] {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${drain(ctx, [1, 2], []).len()}");
+  let _ = io.println(ctx, "${drain(ctx, [1, 2], []).len()}").ignore();
   .Ok(())
 }
 "#;
@@ -4278,6 +4298,7 @@ export fn main(): Result<(), Str> {
         const SRC: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn twice<C: Alloc>(ctx: C, n: Int): Int {
   let g: fn(Int) => Int = fn(x) => x + n;
@@ -4286,7 +4307,7 @@ export fn twice<C: Alloc>(ctx: C, n: Int): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${twice(ctx, 1)}");
+  let _ = io.println(ctx, "${twice(ctx, 1)}").ignore();
   .Ok(())
 }
 "#;
@@ -4333,6 +4354,7 @@ export fn main(): Result<(), Str> {
         const SRC: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/list" import * as list;
 
 struct Pair { a: [Str], b: [Str] }
@@ -4345,7 +4367,7 @@ export fn keep<C: Alloc>(ctx: C): [Str] { mk(ctx).a }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${firstLen(ctx)} ${keep(ctx).len()}");
+  let _ = io.println(ctx, "${firstLen(ctx)} ${keep(ctx).len()}").ignore();
   .Ok(())
 }
 "#;
@@ -4595,8 +4617,9 @@ export fn main(): Result<(), Str> {
     fn a_compiled_program_agrees() {
         let src = r#"
 from "core/effect" import { Alloc, Fs, Stdout };
-from "core/host" import * as host;
 from "core/fs" import * as fs;
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn double(n: Int): Int { n * 2 }
 
@@ -4607,7 +4630,7 @@ export fn load<C: Alloc + Fs>(ctx: C, path: Str): Str {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
   let text = load(ctx, "a.txt");
-  let _ = ctx.println("${text}${double(2)}");
+  let _ = io.println(ctx, "${text}${double(2)}").ignore();
   .Ok(())
 }
 "#;

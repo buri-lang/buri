@@ -3,6 +3,7 @@
 
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 from "//lib/money" import { describe };
 from "//lib/routes" import { Route };
@@ -10,6 +11,6 @@ from "//lib/routes" import { Route };
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let leftover = 1;
-  let _ = ctx.println(describe(Route { name: "health" }));
+  let _ = io.println(ctx, describe(Route { name: "health" })).ignore();
   .Ok(())
 }

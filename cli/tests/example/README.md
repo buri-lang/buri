@@ -284,6 +284,7 @@ example lives in a *different* repository's documentation.
 ```buri run
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 from "//lib/money" import { fromCents };
 
@@ -292,7 +293,7 @@ export fn main(): Result<(), Str> {
     Alloc:  host.alloc,
     Stdout: host.stdout,
   };
-  let _ = ctx.println("a latte costs ${fromCents(450).format(ctx)}");
+  let _ = io.println(ctx, "a latte costs ${fromCents(450).format(ctx)}").ignore();
   .Ok(())
 }
 ```

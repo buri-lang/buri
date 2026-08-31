@@ -111,6 +111,7 @@ fn a_host_array_is_never_written_through() {
 const GROW: &str = r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/list" import * as list;
 
 struct State { total: Int, items: [Int] }
@@ -151,7 +152,7 @@ fn foldRuns<C: Alloc>(ctx: C, k: Int, runs: Int, n: Int, acc: Int): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${buildRuns(ctx, 0, RUNS, SIZE, 0)} ${foldRuns(ctx, 0, RUNS, SIZE, 0)}");
+  let _ = io.println(ctx, "${buildRuns(ctx, 0, RUNS, SIZE, 0)} ${foldRuns(ctx, 0, RUNS, SIZE, 0)}").ignore();
   .Ok(())
 }
 "#;

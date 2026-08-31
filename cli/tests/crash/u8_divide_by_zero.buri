@@ -1,13 +1,14 @@
 // CRASH: division by zero
 from "core/effect" import { Alloc, Stdout, Env };
-from "core/host" import * as host;
 from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn ratio(a: U8, b: U8): U8 { a / b }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
   let zero: U8 = env.args(ctx).len().wrapToU8();
-  let _ = ctx.println("${ratio(10, zero)}");
+  let _ = io.println(ctx, "${ratio(10, zero)}").ignore();
   .Ok(())
 }

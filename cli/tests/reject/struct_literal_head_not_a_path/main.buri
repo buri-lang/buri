@@ -1,6 +1,7 @@
 // EXPECT: the head of a struct literal must be a type
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Holder { export a: Int }
 
@@ -13,6 +14,6 @@ fn build(): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${build()}");
+  let _ = io.println(ctx, "${build()}").ignore();
   .Ok(())
 }

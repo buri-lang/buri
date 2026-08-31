@@ -2,6 +2,7 @@
 // every hole renders on its own, the array and the call are both avoidable.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
@@ -10,10 +11,10 @@ export fn main(): Result<(), Str> {
   let n = 42;
   let x = 1.5;
 
-  let _ = ctx.println("hello ${name}");
-  let _ = ctx.println("${n} and ${x} and ${name}");
-  let _ = ctx.println("no holes at all");
+  let _ = io.println(ctx, "hello ${name}").ignore();
+  let _ = io.println(ctx, "${n} and ${x} and ${name}").ignore();
+  let _ = io.println(ctx, "no holes at all").ignore();
   let joined = str.format(ctx, "n=${n}");
-  let _ = ctx.println("${joined}${joined}");
+  let _ = io.println(ctx, "${joined}${joined}").ignore();
   .Ok(())
 }

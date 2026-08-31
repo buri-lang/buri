@@ -666,6 +666,15 @@ pub fn assemble(
         Wrap::Body | Wrap::Expr => {
             body.push_str("from \"core/effect\" import * as __effect;\n");
             body.push_str("from \"core/host\" import * as __host;\n");
+            // `core/io` under its ordinary name, and it is the one import here
+            // that is not `__`-prefixed — deliberately, because a fragment
+            // writes `io.println(ctx, ...)` and that spelling is the thing
+            // being documented. An effect is performed by handing the context
+            // to a function (SPEC 10.2), so a body fragment that prints needs
+            // this module and has nowhere of its own to import it: an `import`
+            // inside `main` is not a statement. The two above are hidden
+            // because nothing writes them; this one is written constantly.
+            body.push_str("from \"core/io\" import * as io;\n");
             body.push_str("export fn main(): Result<(), Str> {\n");
             body.push_str("  let ctx = context {\n");
             for e in &block.effects {
@@ -1111,7 +1120,7 @@ mod tests {
     fn a_statement_fragment_compiles_with_a_context() {
         let doc = "```buri wrap=body\n\
                    let a = 5;\n\
-                   let _ = ctx.println(\"a is ${a}\");\n\
+                   let _ = io.println(ctx, \"a is ${a}\").ignore();\n\
                    ```\n";
         assert_eq!(check(doc), "");
     }
@@ -1209,7 +1218,7 @@ mod tests {
                    ```\n\
                    ```buri use=pt wrap=body\n\
                    let p = Point { x: 1, y: 2 };\n\
-                   let _ = ctx.println(\"${p.x}\");\n\
+                   let _ = io.println(ctx, \"${p.x}\").ignore();\n\
                    ```\n";
         assert_eq!(check(doc), "");
     }
@@ -1218,7 +1227,7 @@ mod tests {
     fn a_harness_is_reusable() {
         let doc = "```buri use=shapes wrap=body\n\
                    let a = area(.Circle(2.0));\n\
-                   let _ = ctx.println(\"${a}\");\n\
+                   let _ = io.println(ctx, \"${a}\").ignore();\n\
                    ```\n";
         assert_eq!(check(doc), "");
     }
@@ -1250,7 +1259,7 @@ mod tests {
 
     #[test]
     fn a_run_block_must_pin_its_output() {
-        let doc = "```buri run wrap=body\nlet _ = ctx.println(\"hi\");\n```\n";
+        let doc = "```buri run wrap=body\nlet _ = io.println(ctx, \"hi\").ignore();\n```\n";
         assert!(check(doc).contains("```stdout"));
     }
 
@@ -1264,7 +1273,7 @@ mod tests {
             return;
         }
         let good = "```buri run wrap=body\n\
-                    let _ = ctx.println(\"basket total: $36.50\");\n\
+                    let _ = io.println(ctx, \"basket total: $36.50\").ignore();\n\
                     ```\n\
                     ```stdout\n\
                     basket total: $36.50\n\
@@ -1272,7 +1281,7 @@ mod tests {
         assert_eq!(check(good), "");
 
         let wrong = "```buri run wrap=body\n\
-                     let _ = ctx.println(\"one thing\");\n\
+                     let _ = io.println(ctx, \"one thing\").ignore();\n\
                      ```\n\
                      ```stdout\n\
                      another thing\n\

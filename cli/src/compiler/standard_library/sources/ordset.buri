@@ -11,6 +11,7 @@
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
+//! from "core/io" import * as io;
 //! from "core/ordset" import * as ordset;
 //! from "core/str" import * as str;
 //!
@@ -20,7 +21,7 @@
 //!   // In order, with no sort: that is what this costs a hash set's constant
 //!   // lookup for.
 //!   let shown = ids.toList(ctx).mapCtx(ctx, fn(c, i) => str.fromInt(c, i)).join(ctx, " ");
-//!   let _ = ctx.println("${ids.len()} unique: ${shown}");
+//!   let _ = io.println(ctx, "${ids.len()} unique: ${shown}").ignore();
 //!   .Ok(())
 //! }
 //! ```

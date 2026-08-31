@@ -1,9 +1,10 @@
 // EXPECT: an expression statement is legal only in a test source
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  ctx.println("hi");
+  io.println(ctx, "hi").ignore();
   .Ok(())
 }

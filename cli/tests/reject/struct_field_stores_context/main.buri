@@ -1,7 +1,8 @@
 // EXPECT: carries an effect, so it must be named `ctx`
 from "core/effect" import { Alloc, Fs, Stdout };
-from "core/host" import * as host;
 from "core/fs" import * as fs;
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Holder<C> { export inner: C }
 
@@ -12,6 +13,6 @@ fn stash<C: Fs>(held: Holder<C>, path: Str): Bool {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
   let found = stash(Holder { inner: ctx }, "x");
-  let _ = ctx.println("${found}");
+  let _ = io.println(ctx, "${found}").ignore();
   .Ok(())
 }

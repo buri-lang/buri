@@ -357,14 +357,29 @@ fn append(handle: i64, bytes: &[u8], newline: bool) {
     });
 }
 
+/// The four captured writers.
+///
+/// Each answers `Result<(), IoError>`, and each answers `.Ok(())`: a captured
+/// stream is a `String` this runner owns, so there is nothing here to fail. The
+/// shape is the *effect's* rather than the implementation's — a test writes the
+/// same line a program does, and a double that could not fail is still a double
+/// of something that can.
 macro_rules! sink {
     ($name:ident, $newline:expr) => {
         /// # Safety
-        /// The three `Str` parameters must describe a live view.
+        /// The three `Str` parameters must describe a live view. `_out_err` is
+        /// never written: this never fails.
         #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(handle: i64, _base: *mut u8, ptr: *const u8, len: u64) {
+        pub unsafe extern "C" fn $name(
+            handle: i64,
+            _base: *mut u8,
+            ptr: *const u8,
+            len: u64,
+            _out_err: *mut crate::value::BuriStr,
+        ) -> i32 {
             // SAFETY: forwarded to the caller.
-            append(handle, unsafe { view(ptr, len) }, $newline)
+            append(handle, unsafe { view(ptr, len) }, $newline);
+            crate::BURI_OK
         }
     };
 }
@@ -507,15 +522,17 @@ sink!(buri_rt_host_testing_test_stderr_eprintln, true);
 /// `captured` answers one question rather than two.
 ///
 /// # Safety
-/// `ptr` must be readable for `len` bytes, or null with `len == 0`.
+/// `ptr` must be readable for `len` bytes, or null with `len == 0`. `_out_err`
+/// is never written: a captured stream cannot fail.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_test_stdout_write_bytes(
     handle: i64,
     ptr: *const u8,
     len: u64,
-) {
+    _out_err: *mut crate::value::BuriStr,
+) -> i32 {
     if ptr.is_null() || len == 0 {
-        return;
+        return crate::BURI_OK;
     }
     // SAFETY: the caller promises `len` readable bytes.
     let bytes = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
@@ -528,6 +545,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdout_write_bytes(
             buffer.push_str(&text);
         }
     });
+    crate::BURI_OK
 }
 
 /// `TestStdout::captured`.

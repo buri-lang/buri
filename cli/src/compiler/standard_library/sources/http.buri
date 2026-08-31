@@ -28,13 +28,14 @@
 //! ```buri
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
+//! from "core/io" import * as io;
 //! from "core/net/http" import * as http;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
 //!   let reply = http.text(ctx, "pong").withHeader(ctx, "X-Served-By", "buri");
 //!   let kind = reply.header("content-type").withDefault("none");
-//!   let _ = ctx.println("${reply.status} ${kind}");
+//!   let _ = io.println(ctx, "${reply.status} ${kind}").ignore();
 //!   .Ok(())
 //! }
 //! ```

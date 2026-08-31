@@ -2,6 +2,7 @@
 // `switch` would do.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn code(name: Str): Int {
   match (name) {
@@ -17,6 +18,6 @@ fn code(name: Str): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${code("get")} ${code("delete")} ${code("nope")}");
+  let _ = io.println(ctx, "${code("get")} ${code("delete")} ${code("nope")}").ignore();
   .Ok(())
 }

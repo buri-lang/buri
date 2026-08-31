@@ -2,6 +2,7 @@
 // whatever its siblings already established.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Status { Ok_, NotFound, Gone, Teapot, Server(Int) }
 
@@ -22,7 +23,7 @@ fn small(n: Int): Bool {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${kind(Status.Gone)} ${kind(Status.Ok_)} ${kind(Status.Server(503))}");
-  let _ = ctx.println("${small(2)} ${small(9)}");
+  let _ = io.println(ctx, "${kind(Status.Gone)} ${kind(Status.Ok_)} ${kind(Status.Server(503))}").ignore();
+  let _ = io.println(ctx, "${small(2)} ${small(9)}").ignore();
   .Ok(())
 }

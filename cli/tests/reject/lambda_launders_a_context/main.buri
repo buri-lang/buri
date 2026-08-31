@@ -5,6 +5,7 @@
 // signature with no `ctx` parameter, and the purity theorem would be false."
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
   fn() => f(x)
@@ -12,7 +13,7 @@ fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let sneaky = wrap(ctx, fn(c) => c.println("SMUGGLED: I/O from fn() => ()"));
+  let sneaky = wrap(ctx, fn(c) => io.println(c, "SMUGGLED: I/O from fn() => ()").ignore());
   let _ = sneaky();
   .Ok(())
 }

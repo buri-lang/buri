@@ -1,6 +1,7 @@
 // EXPECT: `a` is bound twice
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn sumPair(p: (Int, Int)): Int {
   match (p) {
@@ -10,6 +11,6 @@ fn sumPair(p: (Int, Int)): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${sumPair((1, 2))}");
+  let _ = io.println(ctx, "${sumPair((1, 2))}").ignore();
   .Ok(())
 }

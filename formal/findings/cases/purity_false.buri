@@ -6,6 +6,7 @@
 // It prints twice.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
   fn() => f(x)
@@ -20,8 +21,8 @@ fn runTwice(f: fn() => ()): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let sneaky = wrap(ctx, fn(c) => c.println("effect from a pure function"));
+  let sneaky = wrap(ctx, fn(c) => io.println(c, "effect from a pure function").ignore());
   let n = runTwice(sneaky);
-  let _ = ctx.println("runTwice returned ${n}");
+  let _ = io.println(ctx, "runTwice returned ${n}").ignore();
   .Ok(())
 }

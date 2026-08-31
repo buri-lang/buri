@@ -1,7 +1,8 @@
 // EXPECT: carries an effect, so it must be named `ctx`
 from "core/effect" import { Alloc, Fs, Net, Stdout };
-from "core/host" import * as host;
 from "core/fs" import * as fs;
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): Bool {
   fs.exists(ctx, "x")
@@ -9,6 +10,6 @@ fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): Bool {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Fs: host.fs, Net: host.net, Stdout: host.stdout };
-  let _ = ctx.println("${twoWorlds(ctx, ctx)}");
+  let _ = io.println(ctx, "${twoWorlds(ctx, ctx)}").ignore();
   .Ok(())
 }

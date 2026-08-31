@@ -46,6 +46,7 @@ grants the effect now, and the reason says why — nothing more.
 ```buri fail code=host-not-granted platform=JS
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "ui/effect" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
@@ -55,7 +56,7 @@ export fn main(): Result<(), Str> {
     Ui: host.ui,
     Watch: host.watch,
   };
-  let _ = ctx.println("this program has no page to mount into");
+  let _ = io.println(ctx, "this program has no page to mount into").ignore();
   .Ok(())
 }
 ```

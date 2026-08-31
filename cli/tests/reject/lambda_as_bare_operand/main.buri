@@ -1,6 +1,7 @@
 // EXPECT: expected an expression, found `fn`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn doubled(): Int {
   let f = 2 * fn(x: Int) => x;
@@ -9,6 +10,6 @@ fn doubled(): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${doubled()}");
+  let _ = io.println(ctx, "${doubled()}").ignore();
   .Ok(())
 }

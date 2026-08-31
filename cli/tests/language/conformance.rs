@@ -303,6 +303,7 @@ fn tail_calls_run_in_constant_stack_on_v8() {
         r#"
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn countDown(n: Int, acc: Int): Int {
   if (n == 0) { acc } else { countDown(n - 1, acc + 1) }
@@ -334,15 +335,15 @@ fn searchDown(n: Int): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("self: ${countDown(10000000, 0)}");
-  let _ = ctx.println("mutual: ${pingA(10000001)}");
+  let _ = io.println(ctx, "self: ${countDown(10000000, 0)}").ignore();
+  let _ = io.println(ctx, "mutual: ${pingA(10000001)}").ignore();
   // The right operand of a short-circuiting operator is a tail position too.
   // These three are the shapes of `all`, `any` and a linear search, and each
   // of them recursed on the JavaScript stack until the backend learned to
   // descend into `&&`, `||` and `??`.
-  let _ = ctx.println("and: ${everyBelow(2000000)}");
-  let _ = ctx.println("or: ${anyBelow(2000000)}");
-  let _ = ctx.println("coalesce: ${searchDown(2000000)}");
+  let _ = io.println(ctx, "and: ${everyBelow(2000000)}").ignore();
+  let _ = io.println(ctx, "or: ${anyBelow(2000000)}").ignore();
+  let _ = io.println(ctx, "coalesce: ${searchDown(2000000)}").ignore();
   .Ok(())
 }
 "#,

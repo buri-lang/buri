@@ -11,7 +11,13 @@
 // either both pass it or disagree about the language. `cli/tests/native/
 // conformance.rs` runs this same file through the copy-and-patch backend.
 
-from "core/testing/assert" import * as assert;
+from "core/alloc" import * as alloc;
+from "core/effect" import {
+  Alloc, Clock, Env, Fs, Header, IoError, Net, NetError, Proc, Rand, Region,
+  Request, Response, Stderr, Stdin, Stdout, Tasks,
+};
+from "core/env" import * as env;
+from "core/fs" import * as fs;
 // The doubles, and the call log's constructors: one per method, ordinary
 // functions of the same module, so a test writes the call it expects the way
 // the code under test made it.
@@ -21,45 +27,47 @@ from "core/host/testing" import {
   removeFile, renameFile, stderr, stdin, stdout, syncFile, task, tasks,
   writeFile, writeFileBytes,
 };
-from "core/effect" import {
-  Alloc, Clock, Env, Fs, Header, IoError, Net, NetError, Proc, Rand, Region,
-  Request, Response, Stderr, Stdin, Stdout, Tasks,
-};
+from "core/io" import * as io;
 from "core/net/http" import * as http;
+from "core/proc" import * as proc;
+from "core/random" import * as random;
 from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+from "core/testing/assert" import * as assert;
+from "core/time" import * as time;
 
 // Ordinary functions over the effects, so what the doubles are asked is what a
 // program would ask them rather than what a test can reach directly.
 
 fn speak<C: Stdout>(ctx: C, what: Str): () {
-  let _ = ctx.print("[");
-  let _ = ctx.print(what);
-  let _ = ctx.println("]");
+  let _ = io.print(ctx, "[").ignore();
+  let _ = io.print(ctx, what).ignore();
+  let _ = io.println(ctx, "]").ignore();
 }
 
 fn shout<C: Stderr>(ctx: C, what: Str): () {
-  let _ = ctx.eprint("<");
-  let _ = ctx.eprintln(what);
+  let _ = io.eprint(ctx, "<").ignore();
+  let _ = io.eprintln(ctx, what).ignore();
 }
 
 fn elapsed<C: Clock>(ctx: C, waiting: Int): I64 {
-  let before = ctx.nowMillis();
-  let _ = ctx.sleepMillis(waiting);
-  ctx.nowMillis() - before
+  let before = time.now(ctx).0;
+  let _ = time.sleepMs(ctx, waiting);
+  time.now(ctx).0 - before
 }
 
 fn stop<C: Proc>(ctx: C, code: Int): () {
-  ctx.exitWith(code)
+  proc.exit(ctx, code)
 }
 
 fn loadText<C: Fs>(ctx: C, path: Str): Result<Str, IoError> {
-  ctx.readFile(path)
+  fs.readText(ctx, path)
 }
 
 /// One request out and the status back — a function that reaches the network
 /// and reports only what its caller cares about.
 fn statusOf<C: Net>(ctx: C, request: Request): Result<Int, NetError> {
-  match (ctx.fetch(request)) {
+  match (http.send(ctx, request)) {
     .Ok(response) => .Ok(response.status),
     .Err(e) => .Err(e),
   }
@@ -72,15 +80,15 @@ fn ping<C: Alloc + Net>(ctx: C, url: Str): Result<Response, NetError> {
 }
 
 fn saveText<C: Fs>(ctx: C, path: Str, body: Str): Result<(), IoError> {
-  ctx.writeFile(path, body)
+  fs.writeText(ctx, path, body)
 }
 
 /// Appends what is at `source` to what is at `into`, creating `into` when it is
 /// absent — one function under test that reads, writes and reports.
 fn copyInto<C: Fs>(ctx: C, source: Str, into: Str): Result<(), IoError> {
-  match (ctx.readFileBytes(source)) {
+  match (fs.readBytes(ctx, source)) {
     .Err(e) => .Err(e),
-    .Ok(body) => ctx.appendFile(into, body),
+    .Ok(body) => fs.append(ctx, into, body),
   }
 }
 
@@ -108,8 +116,8 @@ fn which<T>(r: Result<T, IoError>): Str {
 
 test "the test allocator answers the count it was asked for" {
   let ctx = context { Alloc: alloc() };
-  assert.eq(ctx.allocate(64), Region(64));
-  assert.eq(ctx.allocate(0), Region(0));
+  assert.eq(alloc.allocate(ctx, 64), Region(64));
+  assert.eq(alloc.allocate(ctx, 0), Region(0));
 }
 
 // -----------------------------------------------------------------------------
@@ -135,7 +143,7 @@ test "each call to stdout is a stream of its own" {
 test "writeBytes is captured as the text the octets spell" {
   let sink = stdout();
   let ctx = context { Stdout: sink };
-  let _ = ctx.writeBytes([104, 105]);
+  let _ = io.writeBytes(ctx, [104, 105]).ignore();
   assert.eq(sink.captured(), "hi");
 }
 
@@ -156,15 +164,15 @@ test "standard error is its own transcript, under the same method name" {
 
 test "a fresh stdin is already at end of input" {
   let ctx = context { Stdin: stdin() };
-  assert.none(ctx.readLine());
-  assert.none(ctx.readBytes(1));
+  assert.none(io.readLine(ctx));
+  assert.none(io.readBytes(ctx, 1));
 }
 
 test "lines reads the lines it was given, then end of input" {
   let ctx = context { Stdin: stdin().lines(["first", "second"]) };
-  assert.eq(assert.some(ctx.readLine()), "first");
-  assert.eq(assert.some(ctx.readLine()), "second");
-  assert.none(ctx.readLine());
+  assert.eq(assert.some(io.readLine(ctx)), "first");
+  assert.eq(assert.some(io.readLine(ctx)), "second");
+  assert.none(io.readLine(ctx));
 }
 
 test "each call to stdin is a cursor of its own" {
@@ -172,27 +180,27 @@ test "each call to stdin is a cursor of its own" {
   let second = stdin().lines(["a", "b"]);
   let one = context { Stdin: first };
   let two = context { Stdin: second };
-  assert.eq(assert.some(one.readLine()), "a");
-  assert.eq(assert.some(one.readLine()), "b");
-  assert.none(one.readLine());
+  assert.eq(assert.some(io.readLine(one)), "a");
+  assert.eq(assert.some(io.readLine(one)), "b");
+  assert.none(io.readLine(one));
   // The second stream was never read, so it is still at its first line.
-  assert.eq(assert.some(two.readLine()), "a");
+  assert.eq(assert.some(io.readLine(two)), "a");
 }
 
 test "bytes takes exactly what it asks for, then end of input" {
   let ctx = context { Stdin: stdin().bytes([1, 2, 3, 4]) };
   let head: [U8] = [1, 2, 3];
   let tail: [U8] = [4];
-  assert.eq(assert.some(ctx.readBytes(3)), head);
-  assert.eq(assert.some(ctx.readBytes(3)), tail);
-  assert.none(ctx.readBytes(3));
+  assert.eq(assert.some(io.readBytes(ctx, 3)), head);
+  assert.eq(assert.some(io.readBytes(ctx, 3)), tail);
+  assert.none(io.readBytes(ctx, 3));
 }
 
 test "a stdin of lines has no octets and one of octets has no lines" {
   let lines = context { Stdin: stdin().lines(["a"]) };
-  assert.none(lines.readBytes(1));
+  assert.none(io.readBytes(lines, 1));
   let octets = context { Stdin: stdin().bytes([104, 105]) };
-  assert.none(octets.readLine());
+  assert.none(io.readLine(octets));
 }
 
 test "the last builder in the chain is the stream" {
@@ -200,11 +208,11 @@ test "the last builder in the chain is the stream" {
   // than composing the way `TestEnv`'s two builders do.
   let want: [U8] = [65];
   let octets = context { Stdin: stdin().lines(["a"]).bytes([65]) };
-  assert.eq(assert.some(octets.readBytes(1)), want);
-  assert.none(octets.readLine());
+  assert.eq(assert.some(io.readBytes(octets, 1)), want);
+  assert.none(io.readLine(octets));
   let text = context { Stdin: stdin().bytes([65]).lines(["a"]) };
-  assert.eq(assert.some(text.readLine()), "a");
-  assert.none(text.readBytes(1));
+  assert.eq(assert.some(io.readLine(text)), "a");
+  assert.none(io.readBytes(text, 1));
 }
 
 test "a builder answers a new stdin and leaves its receiver at end of input" {
@@ -212,8 +220,8 @@ test "a builder answers a new stdin and leaves its receiver at end of input" {
   let filled = empty.lines(["x"]);
   let a = context { Stdin: empty };
   let b = context { Stdin: filled };
-  assert.eq(assert.some(b.readLine()), "x");
-  assert.none(a.readLine());
+  assert.eq(assert.some(io.readLine(b)), "x");
+  assert.none(io.readLine(a));
 }
 
 // -----------------------------------------------------------------------------
@@ -223,8 +231,8 @@ test "a builder answers a new stdin and leaves its receiver at end of input" {
 test "a fresh filesystem holds nothing" {
   let empty = fs();
   let ctx = context { Fs: empty };
-  assert.isTrue(ctx.readFile("a").isErr());
-  assert.isFalse(ctx.fileExists("a"));
+  assert.isTrue(fs.readText(ctx, "a").isErr());
+  assert.isFalse(fs.exists(ctx, "a"));
   assert.eq(empty.snapshot().len(), 0);
 }
 
@@ -244,7 +252,7 @@ test "reading a path the filesystem does not have gives IoError.NotFound" {
 
 test "an empty file is a file, not an absent one" {
   let ctx = context { Fs: fs().files([("e", "")]) };
-  assert.isTrue(ctx.fileExists("e"));
+  assert.isTrue(fs.exists(ctx, "e"));
   assert.eq(assert.ok(loadText(ctx, "e")), "");
 }
 
@@ -276,9 +284,9 @@ test "filesBytes is the byte twin, and composes with files in either order" {
   let two = fs().filesBytes([("b", raw)]).files([("t", "text")]);
   let a = context { Fs: one };
   let b = context { Fs: two };
-  assert.eq(assert.ok(a.readFileBytes("b")), raw);
-  assert.eq(assert.ok(a.readFile("t")), "text");
-  assert.eq(assert.ok(b.readFile("b")), "hi");
+  assert.eq(assert.ok(fs.readBytes(a, "b")), raw);
+  assert.eq(assert.ok(fs.readText(a, "t")), "text");
+  assert.eq(assert.ok(fs.readText(b, "b")), "hi");
   assert.eq(one.snapshot(), two.snapshot());
 }
 
@@ -292,50 +300,50 @@ test "a builder answers a new filesystem and leaves its receiver alone" {
 test "octets a text encoding cannot carry survive a round trip" {
   let ctx = context { Fs: fs() };
   let raw: [U8] = [0, 1, 254, 255, 128];
-  assert.ok(ctx.writeFileBytes("blob", raw));
-  assert.eq(assert.ok(ctx.readFileBytes("blob")), raw);
+  assert.ok(fs.writeBytes(ctx, "blob", raw));
+  assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
 }
 
 test "append creates the file when it is absent, then adds to the end" {
   let ctx = context { Fs: fs() };
   let whole: [U8] = [1, 10, 2, 20];
-  assert.ok(ctx.appendFile("log", [1, 10]));
-  assert.ok(ctx.appendFile("log", [2, 20]));
-  assert.eq(assert.ok(ctx.readFileBytes("log")), whole);
+  assert.ok(fs.append(ctx, "log", [1, 10]));
+  assert.ok(fs.append(ctx, "log", [2, 20]));
+  assert.eq(assert.ok(fs.readBytes(ctx, "log")), whole);
 }
 
 test "rename replaces the destination and leaves nothing at the source" {
   let store = fs().files([("from", "F"), ("to", "T")]);
   let ctx = context { Fs: store };
-  assert.ok(ctx.renameFile("from", "to"));
+  assert.ok(fs.rename(ctx, "from", "to"));
   assert.eq(store.snapshot(), [("to", "F")]);
-  assert.eq(which(ctx.renameFile("gone", "to")), "NotFound");
+  assert.eq(which(fs.rename(ctx, "gone", "to")), "NotFound");
 }
 
 test "remove of a missing file is NotFound, not a silent success" {
   let ctx = context { Fs: fs().files([("a", "A")]) };
-  assert.ok(ctx.removeFile("a"));
-  assert.eq(which(ctx.removeFile("a")), "NotFound");
+  assert.ok(fs.remove(ctx, "a"));
+  assert.eq(which(fs.remove(ctx, "a")), "NotFound");
 }
 
 test "makeDir creates the parents, and a path already naming a file does not" {
   let ctx = context { Fs: fs().files([("f", "F")]) };
-  assert.ok(ctx.makeDir("a/b/c"));
-  assert.isTrue(ctx.fileExists("a"));
-  assert.isTrue(ctx.fileExists("a/b/c"));
-  assert.eq(which(ctx.makeDir("f")), "AlreadyExists");
+  assert.ok(fs.makeDir(ctx, "a/b/c"));
+  assert.isTrue(fs.exists(ctx, "a"));
+  assert.isTrue(fs.exists(ctx, "a/b/c"));
+  assert.eq(which(fs.makeDir(ctx, "f")), "AlreadyExists");
 }
 
 test "readDir lists the immediate children, files and directories alike" {
   let ctx = context { Fs: fs().files([("d/one", "1"), ("d/deep/two", "2")]) };
-  assert.ok(ctx.makeDir("d/empty"));
-  assert.eq(assert.ok(ctx.readDir("d")), ["deep", "empty", "one"]);
+  assert.ok(fs.makeDir(ctx, "d/empty"));
+  assert.eq(assert.ok(fs.listDir(ctx, "d")), ["deep", "empty", "one"]);
 }
 
 test "sync answers whether there was anything to have flushed" {
   let ctx = context { Fs: fs().files([("a", "A")]) };
-  assert.ok(ctx.syncFile("a"));
-  assert.eq(which(ctx.syncFile("missing")), "NotFound");
+  assert.ok(fs.sync(ctx, "a"));
+  assert.eq(which(fs.sync(ctx, "missing")), "NotFound");
 }
 
 // -----------------------------------------------------------------------------
@@ -346,9 +354,9 @@ test "readOnly forwards every read" {
   let raw: [U8] = [7, 8];
   let ctx = context { Fs: fs().files([("a", "A")]).filesBytes([("blob", raw)]).readOnly() };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
-  assert.eq(assert.ok(ctx.readFileBytes("blob")), raw);
-  assert.isTrue(ctx.fileExists("a"));
-  assert.isTrue(assert.ok(ctx.readDir("")).len() >= 1);
+  assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
+  assert.isTrue(fs.exists(ctx, "a"));
+  assert.isTrue(assert.ok(fs.listDir(ctx, "")).len() >= 1);
 }
 
 test "a write through readOnly FAILS" {
@@ -364,17 +372,17 @@ test "readOnly refuses a write to a path that does not exist either" {
 
 test "every writing half of the surface FAILS through readOnly" {
   let ctx = context { Fs: fs().files([("a", "A")]).readOnly() };
-  assert.eq(assert.err(ctx.writeFileBytes("a", [1])), .ReadOnly);
-  assert.eq(assert.err(ctx.appendFile("a", [1])), .ReadOnly);
-  assert.eq(assert.err(ctx.renameFile("a", "b")), .ReadOnly);
-  assert.eq(assert.err(ctx.removeFile("a")), .ReadOnly);
-  assert.eq(assert.err(ctx.makeDir("d")), .ReadOnly);
-  assert.eq(assert.ok(ctx.readFile("a")), "A");
+  assert.eq(assert.err(fs.writeBytes(ctx, "a", [1])), .ReadOnly);
+  assert.eq(assert.err(fs.append(ctx, "a", [1])), .ReadOnly);
+  assert.eq(assert.err(fs.rename(ctx, "a", "b")), .ReadOnly);
+  assert.eq(assert.err(fs.remove(ctx, "a")), .ReadOnly);
+  assert.eq(assert.err(fs.makeDir(ctx, "d")), .ReadOnly);
+  assert.eq(assert.ok(fs.readText(ctx, "a")), "A");
 }
 
 test "sync is not a write, so readOnly forwards it" {
   let ctx = context { Fs: fs().files([("a", "A")]).readOnly() };
-  assert.ok(ctx.syncFile("a"));
+  assert.ok(fs.sync(ctx, "a"));
 }
 
 test "readOnly ATTENUATES the same filesystem rather than copying it" {
@@ -433,7 +441,7 @@ test "snapshot sorts by path and not by insertion, even after a rewrite" {
   let store = fs().files([("z", "Z"), ("m", "M"), ("a", "A")]);
   let ctx = context { Fs: store };
   assert.ok(saveText(ctx, "m", "M2"));
-  assert.ok(ctx.removeFile("z"));
+  assert.ok(fs.remove(ctx, "z"));
   assert.eq(store.snapshot(), [("a", "A"), ("m", "M2")]);
 }
 
@@ -446,8 +454,8 @@ test "snapshot reads octets back as the text they spell" {
 test "snapshot is files only: a directory holds no octets" {
   let store = fs().files([("a", "A")]);
   let ctx = context { Fs: store };
-  assert.ok(ctx.makeDir("d"));
-  assert.isTrue(ctx.fileExists("d"));
+  assert.ok(fs.makeDir(ctx, "d"));
+  assert.isTrue(fs.exists(ctx, "d"));
   assert.eq(store.snapshot(), [("a", "A")]);
 }
 
@@ -681,10 +689,10 @@ test "a function under test is asserted through the network it was given" {
 
 test "a test clock starts at zero and moves only when it is moved" {
   let ctx = context { Clock: clock() };
-  assert.eq(ctx.nowMillis(), 0);
-  assert.eq(ctx.nowMillis(), 0);
+  assert.eq(time.now(ctx).0, 0);
+  assert.eq(time.now(ctx).0, 0);
   assert.eq(elapsed(ctx, 5), 5);
-  assert.eq(ctx.nowMillis(), 5);
+  assert.eq(time.now(ctx).0, 5);
 }
 
 test "at answers a new clock and leaves the one it was called on alone" {
@@ -692,9 +700,9 @@ test "at answers a new clock and leaves the one it was called on alone" {
   let later = origin.at(1000);
   let a = context { Clock: origin };
   let b = context { Clock: later };
-  let _ = b.sleepMillis(7);
-  assert.eq(b.nowMillis(), 1007);
-  assert.eq(a.nowMillis(), 0);
+  let _ = time.sleepMs(b, 7);
+  assert.eq(time.now(b).0, 1007);
+  assert.eq(time.now(a).0, 0);
 }
 
 // -----------------------------------------------------------------------------
@@ -703,29 +711,29 @@ test "at answers a new clock and leaves the one it was called on alone" {
 
 test "an unseeded generator is the same sequence on every backend" {
   let ctx = context { Rand: rand() };
-  assert.eq(ctx.nextInt(0, 100), 69);
-  assert.eq(ctx.nextInt(0, 100), 89);
-  assert.eq(ctx.nextInt(10, 11), 10);
+  assert.eq(random.int(ctx, 0, 100), 69);
+  assert.eq(random.int(ctx, 0, 100), 89);
+  assert.eq(random.int(ctx, 10, 11), 10);
 }
 
 test "seed answers a new generator at the start of its sequence" {
   let base = rand();
   let seeded = base.seed(7);
   let ctx = context { Rand: seeded };
-  assert.eq(ctx.nextInt(0, 1000), 583);
+  assert.eq(random.int(ctx, 0, 1000), 583);
   let other = context { Rand: base };
-  assert.eq(other.nextInt(0, 100), 69);
+  assert.eq(random.int(other, 0, 100), 69);
 }
 
 test "two generators at the same seed agree with each other" {
   let a = context { Rand: rand().seed(42) };
   let b = context { Rand: rand().seed(42) };
-  assert.eq(a.nextInt(0, 1000000), b.nextInt(0, 1000000));
+  assert.eq(random.int(a, 0, 1000000), random.int(b, 0, 1000000));
 }
 
 test "a seeded generator answers a float in the unit interval" {
   let ctx = context { Rand: rand().seed(1) };
-  let x = ctx.nextFloat();
+  let x = random.float(ctx);
   assert.isTrue(x >= 0.0);
   assert.isTrue(x < 1.0);
 }
@@ -736,8 +744,8 @@ test "a seeded generator answers a float in the unit interval" {
 
 test "a fresh environment has no variables and no arguments" {
   let ctx = context { Env: env() };
-  assert.isTrue(ctx.variable("HOME").isNone());
-  assert.eq(ctx.args().len(), 0);
+  assert.isTrue(env.get(ctx, "HOME").isNone());
+  assert.eq(env.args(ctx).len(), 0);
 }
 
 test "the two builders compose in either order" {
@@ -745,10 +753,10 @@ test "the two builders compose in either order" {
   let two = env().arguments(["--verbose"]).variables([("HOME", "/tmp")]);
   let a = context { Alloc: alloc(), Env: one };
   let b = context { Alloc: alloc(), Env: two };
-  assert.eq(assert.some(a.variable("HOME")), "/tmp");
-  assert.eq(assert.some(b.variable("HOME")), "/tmp");
-  assert.eq(a.args().join(a, " "), "--verbose");
-  assert.eq(b.args().join(b, " "), "--verbose");
+  assert.eq(assert.some(env.get(a, "HOME")), "/tmp");
+  assert.eq(assert.some(env.get(b, "HOME")), "/tmp");
+  assert.eq(env.args(a).join(a, " "), "--verbose");
+  assert.eq(env.args(b).join(b, " "), "--verbose");
 }
 
 test "a builder answers a new environment and leaves its receiver empty" {
@@ -756,8 +764,8 @@ test "a builder answers a new environment and leaves its receiver empty" {
   let filled = empty.variables([("LANG", "C")]);
   let a = context { Env: empty };
   let b = context { Env: filled };
-  assert.isTrue(a.variable("LANG").isNone());
-  assert.eq(assert.some(b.variable("LANG")), "C");
+  assert.isTrue(env.get(a, "LANG").isNone());
+  assert.eq(assert.some(env.get(b, "LANG")), "C");
 }
 
 test "an environment holds what it was given and nothing else" {
@@ -765,10 +773,10 @@ test "an environment holds what it was given and nothing else" {
     Alloc: alloc(),
     Env: env().variables([("HOME", "/tmp"), ("LANG", "C")]).arguments(["--verbose", "x"]),
   };
-  assert.eq(assert.some(ctx.variable("HOME")), "/tmp");
-  assert.eq(assert.some(ctx.variable("LANG")), "C");
-  assert.isTrue(ctx.variable("PATH").isNone());
-  let args = ctx.args();
+  assert.eq(assert.some(env.get(ctx, "HOME")), "/tmp");
+  assert.eq(assert.some(env.get(ctx, "LANG")), "C");
+  assert.isTrue(env.get(ctx, "PATH").isNone());
+  let args = env.args(ctx);
   assert.eq(args.len(), 2);
   assert.eq(args.join(ctx, " "), "--verbose x");
 }
@@ -836,17 +844,17 @@ test "every method of Fs is logged under its own name" {
   let store = fs().files([("a", "A"), ("b", "B")]);
   let ctx = context { Fs: store };
   let raw: [U8] = [104, 105];
-  let _ = assert.ok(ctx.readFile("a"));
-  assert.ok(ctx.writeFile("a", "A2"));
-  assert.isTrue(ctx.fileExists("a"));
-  let _ = assert.ok(ctx.readDir(""));
-  let _ = assert.ok(ctx.readFileBytes("a"));
-  assert.ok(ctx.writeFileBytes("c", raw));
-  assert.ok(ctx.appendFile("c", raw));
-  assert.ok(ctx.renameFile("b", "d"));
-  assert.ok(ctx.removeFile("d"));
-  assert.ok(ctx.makeDir("dir"));
-  assert.ok(ctx.syncFile("a"));
+  let _ = assert.ok(fs.readText(ctx, "a"));
+  assert.ok(fs.writeText(ctx, "a", "A2"));
+  assert.isTrue(fs.exists(ctx, "a"));
+  let _ = assert.ok(fs.listDir(ctx, ""));
+  let _ = assert.ok(fs.readBytes(ctx, "a"));
+  assert.ok(fs.writeBytes(ctx, "c", raw));
+  assert.ok(fs.append(ctx, "c", raw));
+  assert.ok(fs.rename(ctx, "b", "d"));
+  assert.ok(fs.remove(ctx, "d"));
+  assert.ok(fs.makeDir(ctx, "dir"));
+  assert.ok(fs.sync(ctx, "a"));
   assert.eq(
     store.calls(),
     [
@@ -870,8 +878,8 @@ test "octets are logged as the text they spell, as snapshot reads them back" {
   let ctx = context { Fs: store };
   let hi: [U8] = [104, 105];
   let raw: [U8] = [104, 255];
-  assert.ok(ctx.writeFileBytes("b", hi));
-  assert.ok(ctx.writeFileBytes("c", raw));
+  assert.ok(fs.writeBytes(ctx, "b", hi));
+  assert.ok(fs.writeBytes(ctx, "c", raw));
   // The constructor spells the octets exactly as the log does, so a fixture
   // that is not text is still a call a test can write down.
   assert.eq(store.calls(), [writeFileBytes("b", hi), writeFileBytes("c", raw)]);
@@ -1029,16 +1037,16 @@ test "a retry is two calls to the same url, and the log says so" {
 test "a stream logs the reads it was asked for, with what they asked for" {
   let input = stdin().bytes([1, 2, 3, 4]);
   let ctx = context { Stdin: input };
-  let _ = assert.some(ctx.readBytes(3));
-  let _ = assert.some(ctx.readBytes(3));
+  let _ = assert.some(io.readBytes(ctx, 3));
+  let _ = assert.some(io.readBytes(ctx, 3));
   assert.eq(input.calls(), [readBytes(3), readBytes(3)]);
 }
 
 test "a read that found nothing is still a read that was made" {
   let input = stdin();
   let ctx = context { Stdin: input };
-  assert.none(ctx.readLine());
-  assert.none(ctx.readBytes(8));
+  assert.none(io.readLine(ctx));
+  assert.none(io.readBytes(ctx, 8));
   assert.eq(input.calls(), [readLine(), readBytes(8)]);
 }
 
@@ -1047,9 +1055,9 @@ test "a stdin builder answers a new stream with a log of its own" {
   let filled = empty.lines(["x"]);
   let a = context { Stdin: empty };
   let b = context { Stdin: filled };
-  assert.none(a.readLine());
-  assert.eq(assert.some(b.readLine()), "x");
-  assert.none(b.readLine());
+  assert.none(io.readLine(a));
+  assert.eq(assert.some(io.readLine(b)), "x");
+  assert.none(io.readLine(b));
   assert.eq(empty.calls(), [readLine()]);
   assert.eq(filled.calls(), [readLine(), readLine()]);
 }
@@ -1120,11 +1128,11 @@ derive Eq, Show for Configuration;
 /// Merges the three files of a configuration directory, naming the first that
 /// could not be read.
 fn getConfiguration<C: Alloc + Fs>(ctx: C): Result<Configuration, Str> {
-  match (ctx.readFile("app/config.toml")) {
+  match (fs.readText(ctx, "app/config.toml")) {
     .Err(e) => .Err(reported(ctx, "app/config.toml", e)),
-    .Ok(config) => match (ctx.readFile("app/secrets.env")) {
+    .Ok(config) => match (fs.readText(ctx, "app/secrets.env")) {
       .Err(e) => .Err(reported(ctx, "app/secrets.env", e)),
-      .Ok(secrets) => match (ctx.readFile("app/overrides.json")) {
+      .Ok(secrets) => match (fs.readText(ctx, "app/overrides.json")) {
         .Err(e) => .Err(reported(ctx, "app/overrides.json", e)),
         .Ok(_extra) => .Ok(Configuration {
           name: quoted(config),
@@ -1172,7 +1180,7 @@ fn commitThree<C: Alloc + Fs>(ctx: C, entries: [[U8]]): Result<(), Str> {
 fn commitFrom<C: Alloc + Fs>(ctx: C, entries: [[U8]], i: Int): Result<(), Str> {
   match (entries.get(i)) {
     .None => .Ok(()),
-    .Some(entry) => match (ctx.appendFile("wal", entry)) {
+    .Some(entry) => match (fs.append(ctx, "wal", entry)) {
       .Err(e) => .Err(reported(ctx, "wal", e)),
       .Ok(_written) => commitFrom(ctx, entries, i + 1),
     },
@@ -1182,9 +1190,9 @@ fn commitFrom<C: Alloc + Fs>(ctx: C, entries: [[U8]], i: Int): Result<(), Str> {
 /// Fetches the configuration from upstream and caches it, retrying a timeout
 /// once. Nothing is written unless an answer arrived.
 fn refreshFromUpstream<C: Alloc + Fs + Net>(ctx: C, request: Request): Result<(), Str> {
-  match (ctx.fetch(request)) {
+  match (http.send(ctx, request)) {
     .Ok(answer) => cached(ctx, answer),
-    .Err(.Timeout) => match (ctx.fetch(request)) {
+    .Err(.Timeout) => match (http.send(ctx, request)) {
       .Ok(answer) => cached(ctx, answer),
       .Err(_again) => .Err("upstream: timeout"),
     },
@@ -1195,7 +1203,7 @@ fn refreshFromUpstream<C: Alloc + Fs + Net>(ctx: C, request: Request): Result<()
 fn cached<C: Alloc + Fs>(ctx: C, answer: Response): Result<(), Str> {
   match (http.bodyText(ctx, answer.body)) {
     .Err(_bad) => .Err("upstream: not text"),
-    .Ok(text) => match (ctx.writeFile("app/cache.json", text)) {
+    .Ok(text) => match (fs.writeText(ctx, "app/cache.json", text)) {
       .Err(e) => .Err(reported(ctx, "app/cache.json", e)),
       .Ok(_written) => .Ok(()),
     },
@@ -1325,13 +1333,13 @@ test "a fault on one method leaves the other alone" {
   let files = fs().files([("a", "A")]).faults([readFileBytes("a").fails(.NotFound)]);
   let ctx = context { Fs: files };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
-  assert.isTrue(ctx.readFileBytes("a").isErr());
+  assert.isTrue(fs.readBytes(ctx, "a").isErr());
 }
 
 test "a call the plan failed is a call, and it performed nothing" {
   let files = fs().files([("a", "A")]).faults([removeFile("a").fails(.PermissionDenied)]);
   let ctx = context { Fs: files };
-  assert.eq(which(ctx.removeFile("a")), "PermissionDenied");
+  assert.eq(which(fs.remove(ctx, "a")), "PermissionDenied");
   assert.eq(files.calls(), [removeFile("a")]);
   assert.eq(files.snapshot(), [("a", "A")]);
 }
@@ -1339,7 +1347,7 @@ test "a call the plan failed is a call, and it performed nothing" {
 test "an error that carries text carries it back unchanged" {
   let files = fs().faults([makeDir("d").fails(.Other("no space"))]);
   let ctx = context { Fs: files };
-  assert.eq(ctx.makeDir("d"), .Err(.Other("no space")));
+  assert.eq(fs.makeDir(ctx, "d"), .Err(.Other("no space")));
 }
 
 /// Every variant of `IoError`, including the one that carries a `Str`: the plan
@@ -1356,13 +1364,13 @@ test "every IoError variant a plan can name crosses unchanged" {
     readFile("other").fails(.Other("spelled out")),
   ]);
   let ctx = context { Fs: files };
-  assert.eq(ctx.readFile("notFound"), .Err(.NotFound));
-  assert.eq(ctx.readFile("denied"), .Err(.PermissionDenied));
-  assert.eq(ctx.readFile("readOnly"), .Err(.ReadOnly));
-  assert.eq(ctx.readFile("exists"), .Err(.AlreadyExists));
-  assert.eq(ctx.readFile("notADirectory"), .Err(.NotADirectory));
-  assert.eq(ctx.readFile("crossDevice"), .Err(.CrossDevice));
-  assert.eq(ctx.readFile("other"), .Err(.Other("spelled out")));
+  assert.eq(fs.readText(ctx, "notFound"), .Err(.NotFound));
+  assert.eq(fs.readText(ctx, "denied"), .Err(.PermissionDenied));
+  assert.eq(fs.readText(ctx, "readOnly"), .Err(.ReadOnly));
+  assert.eq(fs.readText(ctx, "exists"), .Err(.AlreadyExists));
+  assert.eq(fs.readText(ctx, "notADirectory"), .Err(.NotADirectory));
+  assert.eq(fs.readText(ctx, "crossDevice"), .Err(.CrossDevice));
+  assert.eq(fs.readText(ctx, "other"), .Err(.Other("spelled out")));
 }
 
 test "every NetError variant a plan can name crosses unchanged" {
@@ -1379,11 +1387,11 @@ test "every NetError variant a plan can name crosses unchanged" {
     fetch(aborted).fails(.Aborted),
   ]);
   let ctx = context { Net: server };
-  assert.eq(ctx.fetch(timeout), .Err(.Timeout));
-  assert.eq(ctx.fetch(refused), .Err(.Refused));
-  assert.eq(ctx.fetch(badUrl), .Err(.BadUrl("u")));
-  assert.eq(ctx.fetch(transport), .Err(.Transport("t")));
-  assert.eq(ctx.fetch(aborted), .Err(.Aborted));
+  assert.eq(http.send(ctx, timeout), .Err(.Timeout));
+  assert.eq(http.send(ctx, refused), .Err(.Refused));
+  assert.eq(http.send(ctx, badUrl), .Err(.BadUrl("u")));
+  assert.eq(http.send(ctx, transport), .Err(.Transport("t")));
+  assert.eq(http.send(ctx, aborted), .Err(.Aborted));
 }
 
 /// A failed request never reaches the responder, which is what makes `respond`
@@ -1397,8 +1405,8 @@ test "a request the plan fails does not reach the responder" {
     .respond(fn(_request) => .Ok(answer))
     .faults([fetch(request).fails(.Refused)]);
   let live = context { Net: server };
-  assert.eq(live.fetch(request), .Err(.Refused));
-  assert.eq(assert.ok(live.fetch(other)).status, 200);
+  assert.eq(http.send(live, request), .Err(.Refused));
+  assert.eq(assert.ok(http.send(live, other)).status, 200);
   assert.eq(server.calls(), [fetch(request), fetch(other)]);
 }
 
@@ -1416,8 +1424,8 @@ test "a net fault matches the whole request" {
   let answer = http.text(ctx, "ok");
   let server = net().respond(fn(_request) => .Ok(answer)).faults([fetch(tagged).fails(.Aborted)]);
   let live = context { Net: server };
-  assert.eq(assert.ok(live.fetch(plain)).status, 200);
-  assert.eq(live.fetch(tagged), .Err(.Aborted));
+  assert.eq(assert.ok(http.send(live, plain)).status, 200);
+  assert.eq(http.send(live, tagged), .Err(.Aborted));
 }
 
 // --- the plan travels with the double -----------------------------------------
@@ -1481,7 +1489,7 @@ test "respond keeps the plan" {
   let answer = http.text(ctx, "ok");
   let server = net().faults([fetch(request).fails(.Timeout)]).respond(fn(_r) => .Ok(answer));
   let live = context { Net: server };
-  assert.eq(live.fetch(request), .Err(.Timeout));
+  assert.eq(http.send(live, request), .Err(.Timeout));
 }
 
 // --- the promise ---------------------------------------------------------------
@@ -1538,14 +1546,14 @@ test "a plan whose entries all fire leaves the block passing" {
 /// Every item labelled with its own index, one task each — a fan-out whose
 /// answer says which index each task was handed.
 fn labelled<C: Tasks>(ctx: C, items: [Int]): [Int] {
-  ctx.parallel(ctx, items, fn(_c, i, item) => i * 100 + item)
+  tasks.parallel(ctx, items, fn(_c, i, item) => i * 100 + item)
 }
 
 /// The same fan-out, with each task **reading the clock out of the context it
 /// was handed** — so the answer says which value arrived and not only that one
 /// did.
 fn stamped<C: Alloc + Clock + Tasks>(ctx: C, items: [Int]): [Str] {
-  ctx.parallel(ctx, items, fn(c, i, item) => str.format(c, "${c.nowMillis()}:${i}:${item}"))
+  tasks.parallel(ctx, items, fn(c, i, item) => str.format(c, "${c.nowMillis()}:${i}:${item}"))time.now(c).0}:${i}:${item}"))
 }
 
 test "a task run by the double is handed the caller's context" {
@@ -1567,8 +1575,8 @@ test "the context survives a nested parallel through the double" {
   // second boundary.
   let scheduler = tasks();
   let ctx = context { Clock: clock().at(2), Tasks: scheduler };
-  let out = ctx.parallel(ctx, [10], fn(c, i, x) =>
-    c.parallel(c, [x, x], fn(d, j, y) => d.nowMillis() + y + j).fold(fn(a, m) => a + m, 0));
+  let out = tasks.parallel(ctx, [10], fn(c, i, x) =>
+    c.parallel(c, [x, x], fn(d, j, y) => d.nowMillis() + y + j).fold(fn(a, m) => a + m, 0))tasks.parallel(c, [x, x], fn(d, j, y) => d.nowMillis() + y + j)time.now(d).0 + y + j).fold(fn(a, m) => a + m, 0));
   assert.eq(out, [25]);
   // The inner fan-out's two tasks both finish before the outer one does, and a
   // call is logged when its step *returns* — so the outer task's own entry is

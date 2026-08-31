@@ -2,6 +2,7 @@
 // rebinding is a parallel move, and most of these need no temporary at all.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn sumTo(n: Int, acc: Int): Int {
   if (n == 0) { acc } else { sumTo(n - 1, acc + n) }
@@ -23,7 +24,7 @@ fn swapDown(a: Int, b: Int, fuel: Int): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${sumTo(100, 0)} ${fib(30, 0, 1)} ${countDigits(12345, 0)}");
-  let _ = ctx.println("${swapDown(1, 2, 3)} ${swapDown(1, 2, 4)}");
+  let _ = io.println(ctx, "${sumTo(100, 0)} ${fib(30, 0, 1)} ${countDigits(12345, 0)}").ignore();
+  let _ = io.println(ctx, "${swapDown(1, 2, 3)} ${swapDown(1, 2, 4)}").ignore();
   .Ok(())
 }

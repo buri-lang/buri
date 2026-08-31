@@ -4,6 +4,7 @@
 // Prediction: this exhaustive match is rejected.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn describe(x: Option<Bool>): Int {
   match (x) {
@@ -15,6 +16,6 @@ fn describe(x: Option<Bool>): Int {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let n = describe(.Some(true));
-  let _ = ctx.println("${n}");
+  let _ = io.println(ctx, "${n}").ignore();
   .Ok(())
 }

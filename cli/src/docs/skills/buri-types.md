@@ -284,7 +284,7 @@ is transitive because `C` stays opaque downstream.
 
 ```buri
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
-    let _ = io.println(ctx, msg);
+    let _ = io.println(ctx, msg).ignore();
     // fs.readText(ctx, "/etc/passwd")   // ERROR: C is not bounded by Fs
 }
 ```

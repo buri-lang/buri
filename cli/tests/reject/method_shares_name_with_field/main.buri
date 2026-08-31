@@ -1,6 +1,7 @@
 // EXPECT: `side` is already a field of `Square`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Square { export side: Int }
 
@@ -13,6 +14,6 @@ impl Square {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let sq = Square { side: 3 };
-  let _ = ctx.println("${sq.side}");
+  let _ = io.println(ctx, "${sq.side}").ignore();
   .Ok(())
 }

@@ -1,5 +1,6 @@
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "//lib/shop" import { currency, listing, worth };
 
 export fn main(): Result<(), Str> {
@@ -8,6 +9,6 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
     };
     let shelf = [listing("plain", 100)];
-    let _ = ctx.println("${worth(shelf).show(ctx)} ${currency}");
+    let _ = io.println(ctx, "${worth(shelf).show(ctx)} ${currency}").ignore();
     .Ok(())
 }

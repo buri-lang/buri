@@ -1,6 +1,7 @@
 // EXPECT: expected `U8`, found `I32`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn sameNumber(a: U8, b: I32): Bool {
   a == b
@@ -8,6 +9,6 @@ fn sameNumber(a: U8, b: I32): Bool {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${sameNumber(1, 1)}");
+  let _ = io.println(ctx, "${sameNumber(1, 1)}").ignore();
   .Ok(())
 }

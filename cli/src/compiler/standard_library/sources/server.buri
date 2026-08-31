@@ -1,0 +1,64 @@
+//! core/net/server — accepting connections, and writing back on them.
+//!
+//! `core/net/http` is the client half: `http.send(ctx, request)` makes one
+//! request and answers one response. This is the other half — a program that
+//! *is* a server rather than one that talks to one — and they are two modules
+//! because they are two authorities. `Net` in a context means the program talks
+//! to servers; `Listen` means it accepts connections, and `Sockets` means it
+//! can push on one somebody else accepted.
+//!
+//! **The same two types.** `Request` and `Response` are `core/effect`'s, the
+//! ones `core/net/http` re-exports: there is one shape for an HTTP message in
+//! this language, not one per direction, so a handler here answers with the
+//! same `Response` a client reads.
+//!
+//! **This module is a door, not yet a design.** No platform grants `Listen` or
+//! `Sockets` today — `core/host` declares the implementations and the grant
+//! table gives them no platform — so nothing here has a caller, and it is
+//! deliberately four thin functions rather than a server vocabulary. It exists
+//! because an effect method that no standard-library function calls is a method
+//! nothing outside `core/*` can perform: an effect is reached by handing the
+//! context to a function (SPEC 10.2), and these are those functions. The
+//! vocabulary a real server wants — routing, middleware, a `Socket` handle with
+//! its own methods, a `CloseReason` instead of a wire code — grows here when a
+//! platform grants the effects.
+
+from "core/effect" import { Listen, NetError, Request, Response, Sockets };
+from "core/effect" export { NetError, Request, Response };
+
+/// Accepts connections on `address:port`, answers each request with
+/// `onRequest`, and returns when the process is asked to shut down.
+///
+/// The handler is a parameter rather than a capture because an effect-carrying
+/// value may be passed only as `self` or `ctx` (SPEC 10.6), so it is *handed*
+/// what it needs. What it is handed is this context — `C`, the caller's own —
+/// which is what makes a handler able to allocate, print, or read a clock while
+/// it answers.
+export fn listen<C: Listen>(
+  ctx: C,
+  address: Str,
+  port: Int,
+  onRequest: fn(C, Request) => Response,
+): Result<(), NetError> {
+  ctx.listen(address, port, onRequest)
+}
+
+/// Enqueues a text frame on an open socket. Never waits: the frame goes to the
+/// socket's outbound buffer, and a socket whose buffer is full is closed rather
+/// than its writer blocked.
+export fn sendText<C: Sockets>(ctx: C, socket: Int, text: Str): () {
+  ctx.socketSendText(socket, text)
+}
+
+/// Enqueues a binary frame, on `sendText`'s terms.
+export fn sendBytes<C: Sockets>(ctx: C, socket: Int, body: [U8]): () {
+  ctx.socketSendBytes(socket, body)
+}
+
+/// Closes the socket, with the wire code and reason the far side is told.
+///
+/// A message sent afterwards is dropped rather than refused: the other end may
+/// already be gone, so "did this arrive" was never answerable here.
+export fn close<C: Sockets>(ctx: C, socket: Int, code: Int, reason: Str): () {
+  ctx.socketClose(socket, code, reason)
+}

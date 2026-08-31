@@ -1,6 +1,7 @@
 // EXPECT: needs a known expected type
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn mystery(): Int {
   let v = .Some(3);
@@ -12,6 +13,6 @@ fn mystery(): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${mystery()}");
+  let _ = io.println(ctx, "${mystery()}").ignore();
   .Ok(())
 }

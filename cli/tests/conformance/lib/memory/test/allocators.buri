@@ -50,8 +50,8 @@ test "a closure environment charges its record" {
 test "a general-purpose allocator counts every request" {
   let gp = alloc.generalPurpose();
   let ctx = context { Alloc: gp };
-  let _ = ctx.allocate(64);
-  let _ = ctx.allocate(alloc.strBytes(5));
+  let _ = alloc.allocate(ctx, 64);
+  let _ = alloc.allocate(ctx, alloc.strBytes(5));
   assert.eq(gp.stats().allocations, 2);
   assert.eq(gp.stats().bytes, 85);
 }
@@ -59,7 +59,7 @@ test "a general-purpose allocator counts every request" {
 test "a request for nothing is still a request" {
   let gp = alloc.generalPurpose();
   let ctx = context { Alloc: gp };
-  let _ = ctx.allocate(0);
+  let _ = alloc.allocate(ctx, 0);
   assert.eq(gp.stats().allocations, 1);
   assert.eq(gp.stats().bytes, 0);
 }
@@ -75,9 +75,9 @@ test "two general-purpose allocators count separately" {
   let b = alloc.generalPurpose();
   let first = context { Alloc: a };
   let second = context { Alloc: b };
-  let _ = first.allocate(10);
-  let _ = second.allocate(20);
-  let _ = second.allocate(2);
+  let _ = alloc.allocate(first, 10);
+  let _ = alloc.allocate(second, 20);
+  let _ = alloc.allocate(second, 2);
   assert.eq(a.stats().allocations, 1);
   assert.eq(a.stats().bytes, 10);
   assert.eq(b.stats().allocations, 2);
@@ -87,7 +87,7 @@ test "two general-purpose allocators count separately" {
 test "stats are a value, and compare as one" {
   let gp = alloc.generalPurpose();
   let ctx = context { Alloc: gp };
-  let _ = ctx.allocate(16);
+  let _ = alloc.allocate(ctx, 16);
   assert.eq(gp.stats(), Stats { allocations: 1, bytes: 16 });
   assert.notEq(gp.stats(), Stats { allocations: 1, bytes: 17 });
 }
@@ -98,7 +98,7 @@ test "stats render" {
   // `Alloc`, so it can satisfy nothing else.
   let gp = alloc.generalPurpose();
   let ctx = context { Alloc: gp };
-  let _ = ctx.allocate(16);
+  let _ = alloc.allocate(ctx, 16);
   assert.eq(gp.stats().show(ctx), "Stats { allocations: 1, bytes: 16 }");
 }
 
@@ -107,8 +107,8 @@ test "stats render" {
 test "an arena counts what was charged since it was made" {
   let a = alloc.arena();
   let ctx = context { Alloc: a };
-  let _ = ctx.allocate(alloc.listBytes(4, 8));
-  let _ = ctx.allocate(alloc.strBytes(3));
+  let _ = alloc.allocate(ctx, alloc.listBytes(4, 8));
+  let _ = alloc.allocate(ctx, alloc.strBytes(3));
   assert.eq(a.stats().allocations, 2);
   assert.eq(a.stats().bytes, 67);
 }
@@ -118,9 +118,9 @@ test "an arena per phase attributes without subtracting" {
   let check = alloc.arena();
   let parsing = context { Alloc: parse };
   let checking = context { Alloc: check };
-  let _ = parsing.allocate(100);
-  let _ = checking.allocate(7);
-  let _ = parsing.allocate(1);
+  let _ = alloc.allocate(parsing, 100);
+  let _ = alloc.allocate(checking, 7);
+  let _ = alloc.allocate(parsing, 1);
   assert.eq(parse.stats().bytes, 101);
   assert.eq(check.stats().bytes, 7);
 }
@@ -132,7 +132,7 @@ test "a fixed buffer reports its budget and what is left of it" {
   let ctx = context { Alloc: buffer };
   assert.eq(buffer.budget, 64);
   assert.eq(buffer.remaining(), 64);
-  let _ = ctx.allocate(24);
+  let _ = alloc.allocate(ctx, 24);
   assert.eq(buffer.remaining(), 40);
   assert.eq(buffer.stats().allocations, 1);
   assert.eq(buffer.stats().bytes, 24);
@@ -141,8 +141,8 @@ test "a fixed buffer reports its budget and what is left of it" {
 test "a request that exactly fills the budget is not an overrun" {
   let buffer = alloc.fixedBuffer(48);
   let ctx = context { Alloc: buffer };
-  let _ = ctx.allocate(16);
-  let _ = ctx.allocate(32);
+  let _ = alloc.allocate(ctx, 16);
+  let _ = alloc.allocate(ctx, 32);
   assert.eq(buffer.remaining(), 0);
   assert.eq(buffer.stats().bytes, 48);
 }
@@ -165,6 +165,6 @@ test "a copy of an allocator shares its counter" {
   // visible on the original. There is one budget, not two.
   let buffer = alloc.fixedBuffer(100);
   let ctx = context { Alloc: buffer };
-  let _ = ctx.allocate(30);
+  let _ = alloc.allocate(ctx, 30);
   assert.eq(buffer.remaining(), 70);
 }

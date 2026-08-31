@@ -3,6 +3,7 @@
 // copy is unobservable.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Point { x: Int, y: Int }
 
@@ -26,7 +27,7 @@ export fn main(): Result<(), Str> {
   let b = moved(a, 10, 20);
   let l = Line { from_: a, to: b, label: "first" };
   let m = relabelled(l, "second");
-  let _ = ctx.println("${b.x},${b.y}");
-  let _ = ctx.println("${m.label} ${span(m)}");
+  let _ = io.println(ctx, "${b.x},${b.y}").ignore();
+  let _ = io.println(ctx, "${m.label} ${span(m)}").ignore();
   .Ok(())
 }

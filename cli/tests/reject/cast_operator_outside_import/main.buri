@@ -1,10 +1,11 @@
 // EXPECT: expected `;`, found `as`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let d = 5 as U8;
-  let _ = ctx.println("${d}");
+  let _ = io.println(ctx, "${d}").ignore();
   .Ok(())
 }

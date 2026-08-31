@@ -5,8 +5,9 @@
 // has and a one-construct case does not.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
-from "core/str" import * as str;
+from "core/io" import * as io;
 from "core/list" import * as list;
+from "core/str" import * as str;
 
 enum Tok { Num(Int), Plus, Minus, Star, Slash, LParen, RParen, End }
 
@@ -140,12 +141,12 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let toks = [Tok.Num(2), Tok.Plus, Tok.Num(3), Tok.Star, Tok.Num(4), Tok.Minus, Tok.LParen, Tok.Num(10), Tok.Slash, Tok.Num(5), Tok.RParen];
   let parsed = parseSum(Cursor { toks: toks, at: 0 });
-  let _ = ctx.println(match (parsed) {
+  let _ = io.println(ctx, match (parsed) {
     .Ok(pair) => match (eval(pair.0)) {
       .Ok(v) => "value ${v} depth ${depth(pair.0)}",
       .Err(e) => "eval error ${describe(e)}",
     },
     .Err(e) => "parse error ${describe(e)}",
-  });
+  }).ignore();
   .Ok(())
 }

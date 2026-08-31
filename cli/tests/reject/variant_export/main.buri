@@ -1,6 +1,7 @@
 // EXPECT: a variant carries no `export` of its own
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 // `export` before a variant was the old spelling. It is kept here, and only
 // here, so that the error a file written against the old syntax gets — and the
@@ -14,6 +15,6 @@ export enum Shape {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let s: Shape = .Square(2.0);
-  let _ = ctx.println(match (s) { .Circle(_) => "round", .Square(_) => "square" });
+  let _ = io.println(ctx, match (s) { .Circle(_) => "round", .Square(_) => "square" }).ignore();
   .Ok(())
 }

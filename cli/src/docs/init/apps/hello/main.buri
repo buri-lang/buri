@@ -3,6 +3,7 @@
 
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "//libs/greeting" import { greeting };
 
 export fn main(): Result<(), Str> {
@@ -11,6 +12,6 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
     };
 
-    let _ = ctx.println(greeting());
+    let _ = io.println(ctx, greeting()).ignore();
     .Ok(())
 }

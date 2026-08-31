@@ -1,6 +1,7 @@
 // EXPECT: a `test` declaration is legal only in a test source
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 test "a test in a binary source" {
   let n = 1;
@@ -8,6 +9,6 @@ test "a test in a binary source" {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("hi");
+  let _ = io.println(ctx, "hi").ignore();
   .Ok(())
 }

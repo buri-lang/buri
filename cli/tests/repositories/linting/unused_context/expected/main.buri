@@ -7,6 +7,7 @@
 
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 /// The finding. A label's width is its length; nothing here touches the world,
@@ -18,7 +19,7 @@ fn width<C: Alloc>(label: Str): Int {
 
 /// A method the context itself declares. Calling it reads the parameter.
 fn announce<C: Stdout>(ctx: C, label: Str): () {
-  ctx.println("-- ${label}")
+  io.println(ctx, "-- ${label}").ignore()
 }
 
 /// A callee that asks for a context of its own. Handing it over is a use.
@@ -36,7 +37,7 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let label = "ledger";
   let _ = announce(ctx, label);
-  let _ = ctx.println("${banner(ctx, label)} is ${width(label)} wide");
-  let _ = ctx.println(rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label));
+  let _ = io.println(ctx, "${banner(ctx, label)} is ${width(label)} wide").ignore();
+  let _ = io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).ignore();
   .Ok(())
 }

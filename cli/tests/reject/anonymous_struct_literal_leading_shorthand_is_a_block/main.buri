@@ -13,6 +13,7 @@
 // `World { hi, hello }` and `{ hi: hi, hello }` both build the struct.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct World { export hi: Str, export hello: Option<Str> }
 
@@ -22,6 +23,6 @@ fn build(hi: Str, hello: Option<Str>): World {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println(build("hi", .None).hi);
+  let _ = io.println(ctx, build("hi", .None).hi).ignore();
   .Ok(())
 }

@@ -29,6 +29,7 @@ compiled — `buri docs cli docs` says what that guarantees and how. The
 ```buri run
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Shape {
   Circle(Float),
@@ -59,7 +60,7 @@ export fn main(): Result<(), Str> {
 
   let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
   let total = shapes.map(ctx, fn(s) => s.area()).sumFloat();
-  let _ = ctx.println("total area: ${total}");
+  let _ = io.println(ctx, "total area: ${total}").ignore();
   .Ok(())
 }
 ```

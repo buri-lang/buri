@@ -15,6 +15,7 @@
 // wearing the clothes of advice.
 from "core/effect" import { Alloc, Listen, Sockets, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
@@ -23,6 +24,6 @@ export fn main(): Result<(), Str> {
     Listen: host.listen,
     Sockets: host.sockets,
   };
-  let _ = ctx.println("no platform accepts a connection");
+  let _ = io.println(ctx, "no platform accepts a connection").ignore();
   .Ok(())
 }

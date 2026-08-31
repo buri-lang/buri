@@ -1,7 +1,8 @@
 from "core/effect" import { Alloc, Stdout };
+from "core/io" import * as io;
 
 /// Writes, and answers something a test can be wrong about.
 export fn announce<C: Alloc + Stdout>(ctx: C, name: Str): Int {
-    let _ = ctx.println("announcing ${name}");
+    let _ = io.println(ctx, "announcing ${name}").ignore();
     name.len()
 }

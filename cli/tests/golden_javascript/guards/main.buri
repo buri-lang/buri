@@ -2,6 +2,7 @@
 // match runs inside a loop the first success breaks out of.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn size(n: Int): Str {
   match (n) {
@@ -14,6 +15,6 @@ fn size(n: Int): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${size(500)} ${size(50)} ${size(5)} ${size(0)}");
+  let _ = io.println(ctx, "${size(500)} ${size(50)} ${size(5)} ${size(0)}").ignore();
   .Ok(())
 }

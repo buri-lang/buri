@@ -3,6 +3,7 @@
 // knows their shape.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Bad { Missing(Str), NotANumber(Str) }
 
@@ -39,14 +40,14 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let pairs = [("port", "8080"), ("host", "local")];
   let fallback = lookup(pairs, "missing") ?? "none";
-  let _ = ctx.println("${fallback}");
-  let _ = ctx.println(match (port(pairs)) {
+  let _ = io.println(ctx, "${fallback}").ignore();
+  let _ = io.println(ctx, match (port(pairs)) {
     .Ok(n) => "port ${n}",
     .Err(e) => "bad ${reason(e)}",
-  });
-  let _ = ctx.println(match (port([])) {
+  }).ignore();
+  let _ = io.println(ctx, match (port([])) {
     .Ok(n) => "port ${n}",
     .Err(e) => "bad ${reason(e)}",
-  });
+  }).ignore();
   .Ok(())
 }

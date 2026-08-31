@@ -20,6 +20,7 @@
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
+//! from "core/io" import * as io;
 //! from "core/map" import * as map;
 //!
 //! export fn main(): Result<(), Str> {
@@ -27,7 +28,7 @@
 //!   let counts = map.of(ctx, [("a", 1), ("b", 2)]).insert(ctx, "a", 9);
 //!   // Inserting an existing key replaces its value and leaves the size alone.
 //!   let a = counts.get("a").withDefault(0);
-//!   let _ = ctx.println("a=${a}, ${counts.len()} entries");
+//!   let _ = io.println(ctx, "a=${a}, ${counts.len()} entries").ignore();
 //!   .Ok(())
 //! }
 //! ```

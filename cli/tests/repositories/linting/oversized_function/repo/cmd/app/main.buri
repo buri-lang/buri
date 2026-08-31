@@ -50,6 +50,6 @@ fn spell(n: I64): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, spell(7));
+  let _ = io.println(ctx, spell(7)).ignore();
   .Ok(())
 }

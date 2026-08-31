@@ -3,6 +3,7 @@
 // is represented like the ones that do.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Shape { Empty, Circle(F64), Rect { width: F64, height: F64 }, Square(F64) }
 
@@ -17,9 +18,9 @@ fn area(s: Shape): F64 {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${area(Shape.Empty)}");
-  let _ = ctx.println("${area(Shape.Circle(2.0))}");
-  let _ = ctx.println("${area(Shape.Rect { width: 3.0, height: 4.0 })}");
-  let _ = ctx.println("${area(Shape.Square(5.0))}");
+  let _ = io.println(ctx, "${area(Shape.Empty)}").ignore();
+  let _ = io.println(ctx, "${area(Shape.Circle(2.0))}").ignore();
+  let _ = io.println(ctx, "${area(Shape.Rect { width: 3.0, height: 4.0 })}").ignore();
+  let _ = io.println(ctx, "${area(Shape.Square(5.0))}").ignore();
   .Ok(())
 }

@@ -1,11 +1,12 @@
 // EXPECT: there is no assignment; a binding is given its value once
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let n = 1;
   n = 2;
-  let _ = ctx.println("${n}");
+  let _ = io.println(ctx, "${n}").ignore();
   .Ok(())
 }

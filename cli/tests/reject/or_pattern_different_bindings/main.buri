@@ -1,6 +1,7 @@
 // EXPECT: or-pattern alternatives must bind the same names
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Either { Left(Int), Right(Int) }
 
@@ -12,6 +13,6 @@ fn value(e: Either): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${value(Either.Left(1))}");
+  let _ = io.println(ctx, "${value(Either.Left(1))}").ignore();
   .Ok(())
 }

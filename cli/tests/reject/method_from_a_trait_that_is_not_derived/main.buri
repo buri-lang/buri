@@ -1,6 +1,7 @@
 // EXPECT: has no method `show`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct State { export code: Int }
 
@@ -9,6 +10,6 @@ derive Eq for State;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let s = State { code: 1 };
-  let _ = ctx.println(s.show(ctx));
+  let _ = io.println(ctx, s.show(ctx)).ignore();
   .Ok(())
 }

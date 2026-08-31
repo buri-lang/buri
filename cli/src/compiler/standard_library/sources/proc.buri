@@ -1,0 +1,29 @@
+//! core/proc — ending the process.
+//!
+//! One function, because `Proc` declares one operation. It is a module of its
+//! own rather than a line in `core/io` for the reason the effects are split at
+//! all: exiting is a different authority from printing, and a reader of a
+//! context can see which of them a program was given.
+//!
+//! `exit` and not `exitWith`, which reads as a method — the name was written
+//! for `ctx.exitWith(3)`, and the call is now `proc.exit(ctx, 3)`, which is the
+//! sentence.
+//!
+//! Granted on LINUX, MACOS and JS, and withheld from WEB: a page has no process
+//! to exit, and a mounted interface stays live.
+
+from "core/effect" import { Proc };
+
+/// Ends the process with `code`, immediately.
+///
+/// It does not return, and there is no way to say so in a signature — a
+/// function whose type says `()` and never produces one is the honest shape
+/// available. Nothing after the call runs.
+///
+/// **A `main` that ends normally should return rather than call this.**
+/// `.Ok(())` exits 0 and `.Err(msg)` prints `msg` and exits 1, which is the
+/// whole of the ordinary vocabulary; this is for the program that has to name
+/// a *particular* status — a tool whose exit code is part of its interface.
+export fn exit<C: Proc>(ctx: C, code: Int): () {
+  ctx.exitWith(code)
+}

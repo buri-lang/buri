@@ -4,6 +4,7 @@
 
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 from "//lib/units" import { Depth, Height, Sounding, reading, deepest, metres };
@@ -13,6 +14,6 @@ export fn main(): Result<(), Str> {
   let low: Depth = reading(3.0);
   let high: Height = reading(4.0);
   let deep: Sounding = deepest(low, high);
-  let _ = ctx.println(str.format(ctx, "${metres(deep)}"));
+  let _ = io.println(ctx, str.format(ctx, "${metres(deep)}")).ignore();
   .Ok(())
 }

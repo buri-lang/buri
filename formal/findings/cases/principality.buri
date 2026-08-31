@@ -3,6 +3,7 @@
 // there a bound that I64 fails but another integer type satisfies?
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/num" import { Neg, Wrapping };
 
 fn negate<T: Neg>(x: T): T { -x }
@@ -12,6 +13,6 @@ export fn main(): Result<(), Str> {
   // Only constraint on this literal is `T: Neg`. Defaulting picks I64, which
   // has Neg -- so this should work.
   let a = negate(5);
-  let _ = ctx.println("negate(5) = ${a}");
+  let _ = io.println(ctx, "negate(5) = ${a}").ignore();
   .Ok(())
 }

@@ -1357,17 +1357,50 @@ function $convF32(v, target) {
 // The one place the narrowing could lose something is a byte count above 2^53,
 // which no allocator on the other side of it would honour anyway.
 
+// Output is buffered, so the write a program *calls* and the write the platform
+// *performs* are two different moments: `println` fills `out`, and only a full
+// buffer — or the exit path — reaches the descriptor. A failure discovered then
+// belongs to some earlier print, and the honest thing a buffered stream can
+// promise is that it reaches the next caller rather than being dropped. So it
+// is held in `pending` and answered by the next write, which is what makes
+// `Result<(), IoError>` a claim this runtime can keep. `cli/runtime/host.rs`'s
+// `PENDING` is the same mechanism on the other backend.
+//
+// The first failure wins: a closed pipe fails every write after the first, and
+// the one worth reporting is the one that says what went wrong before the
+// program was writing into nothing.
 const $host = {
   out: [],
   err: [],
+  pending: null,
+  note(e) {
+    if (this.pending === null) this.pending = e;
+  },
+  // The `Result` arm the next write answers with, and the point at which a held
+  // failure stops being held.
+  reported() {
+    const e = this.pending;
+    this.pending = null;
+    return e === null ? $ok(0) : $err($ioErr(e));
+  },
   flush() {
     if (this.out.length) {
-      $write(1, this.out.join(""));
+      const text = this.out.join("");
       this.out = [];
+      try {
+        $write(1, text);
+      } catch (e) {
+        this.note(e);
+      }
     }
     if (this.err.length) {
-      $write(2, this.err.join(""));
+      const text = this.err.join("");
       this.err = [];
+      try {
+        $write(2, text);
+      } catch (e) {
+        this.note(e);
+      }
     }
   },
 };
@@ -1551,21 +1584,28 @@ function $alloc_arenaLeave(previous) {
 function $host_HostStdout_print(self, t) {
   $host.out.push(t);
   if ($host.out.length > 64) $host.flush();
-  return 0;
+  return $host.reported();
 }
 
 function $host_HostStdout_println(self, t) {
   $host.out.push(t + "\n");
   if ($host.out.length > 64) $host.flush();
-  return 0;
+  return $host.reported();
 }
 
 // Octets, written through unchanged. The buffered text stream is flushed
 // first, so the two orderings a program can see are the one it wrote.
+//
+// Unbuffered, so unlike the four text writers this one can answer its *own*
+// failure — and it reports a held one first, because that failure is older.
 function $host_HostStdout_writeBytes(self, b) {
   $host.flush();
-  $writeRaw(1, b);
-  return 0;
+  try {
+    $writeRaw(1, b);
+  } catch (e) {
+    $host.note(e);
+  }
+  return $host.reported();
 }
 
 function $writeRaw(fd, bytes) {
@@ -1584,12 +1624,12 @@ function $writeRaw(fd, bytes) {
 
 function $host_HostStderr_eprint(self, t) {
   $host.err.push(t);
-  return 0;
+  return $host.reported();
 }
 
 function $host_HostStderr_eprintln(self, t) {
   $host.err.push(t + "\n");
-  return 0;
+  return $host.reported();
 }
 
 // --- Standard input ---------------------------------------------------------
@@ -3542,14 +3582,18 @@ function $host_testing_stderr() {
   return $handle({ text: "" });
 }
 
+// The five captured writers answer `Result<(), IoError>` and always answer
+// `.Ok(())`: a captured stream is a string this runner owns, so there is
+// nothing to fail. The shape is the effect's rather than the implementation's —
+// a test writes the same line a program does.
 function $host_testing_TestStdout_print(self, t) {
   $slot(self).text += t;
-  return 0;
+  return $ok(0);
 }
 
 function $host_testing_TestStdout_println(self, t) {
   $slot(self).text += t + "\n";
-  return 0;
+  return $ok(0);
 }
 
 // Captured as the text the octets spell, so `captured` answers one question
@@ -3557,7 +3601,7 @@ function $host_testing_TestStdout_println(self, t) {
 function $host_testing_TestStdout_writeBytes(self, b) {
   const r = $bytes_fromUtf8(null, b);
   $slot(self).text += r[0] === 0 ? r[1] : String.fromCharCode.apply(null, b);
-  return 0;
+  return $ok(0);
 }
 
 function $host_testing_TestStdout_captured(self) {
@@ -3566,12 +3610,12 @@ function $host_testing_TestStdout_captured(self) {
 
 function $host_testing_TestStderr_eprint(self, t) {
   $slot(self).text += t;
-  return 0;
+  return $ok(0);
 }
 
 function $host_testing_TestStderr_eprintln(self, t) {
   $slot(self).text += t + "\n";
-  return 0;
+  return $ok(0);
 }
 
 function $host_testing_TestStderr_captured(self) {

@@ -1,6 +1,7 @@
 // EXPECT: a `Result` may not be discarded
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn parse(text: Str): Result<Int, Str> {
   if (text == "") { .Err("empty") } else { .Ok(1) }
@@ -17,6 +18,6 @@ export fn main(): Result<(), Str> {
   // wildcard rather than about the head of the pattern.
   let (count, _) = (1, parse("hi"));
   let Job { name, outcome: _ } = Job { name: "one", outcome: parse("ho") };
-  let _ = ctx.println("${count} ${name}");
+  let _ = io.println(ctx, "${count} ${name}").ignore();
   .Ok(())
 }

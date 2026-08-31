@@ -2,6 +2,7 @@
 // identity of an immutable value, so each of these could be built once.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Level { Debug, Info, Warn, Error_(Str) }
 
@@ -28,8 +29,8 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let a = defaultConfig();
   let b = defaultConfig();
-  let _ = ctx.println("${a.retries + b.retries} ${a.label}");
-  let _ = ctx.println("${severity(quiet())} ${severity(Level.Error_("x"))}");
-  let _ = ctx.println("${origin().0} ${primes().len()} ${primes().sum()}");
+  let _ = io.println(ctx, "${a.retries + b.retries} ${a.label}").ignore();
+  let _ = io.println(ctx, "${severity(quiet())} ${severity(Level.Error_("x"))}").ignore();
+  let _ = io.println(ctx, "${origin().0} ${primes().len()} ${primes().sum()}").ignore();
   .Ok(())
 }

@@ -19,6 +19,7 @@
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
+//! from "core/io" import * as io;
 //! from "core/queue" import * as queue;
 //! from "core/str" import * as str;
 //!
@@ -34,7 +35,7 @@
 //!     },
 //!     .None => "the queue was empty",
 //!   };
-//!   let _ = ctx.println("${message}");
+//!   let _ = io.println(ctx, "${message}").ignore();
 //!   .Ok(())
 //! }
 //! ```

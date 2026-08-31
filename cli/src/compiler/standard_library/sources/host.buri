@@ -26,15 +26,15 @@ impl Alloc for HostAlloc {
 
 export struct HostStdout {}
 impl Stdout for HostStdout {
-  fn print(self, text: Template): ();
-  fn println(self, text: Template): ();
-  fn writeBytes(self, b: [U8]): ();
+  fn print(self, text: Template): Result<(), IoError>;
+  fn println(self, text: Template): Result<(), IoError>;
+  fn writeBytes(self, b: [U8]): Result<(), IoError>;
 }
 
 export struct HostStderr {}
 impl Stderr for HostStderr {
-  fn eprint(self, text: Template): ();
-  fn eprintln(self, text: Template): ();
+  fn eprint(self, text: Template): Result<(), IoError>;
+  fn eprintln(self, text: Template): Result<(), IoError>;
 }
 
 export struct HostStdin {}

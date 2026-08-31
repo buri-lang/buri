@@ -435,7 +435,7 @@ same value and cannot use, or pass on, anything its bounds do not name:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, Stdout };
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
-  let _ = io.println(ctx, msg);
+  let _ = io.println(ctx, msg).ignore();
   // fs.readText(ctx, "/etc/passwd")     // ERROR: C is not bounded by Fs
   // dangerous(ctx)                      // ERROR: dangerous needs C: Fs
 }

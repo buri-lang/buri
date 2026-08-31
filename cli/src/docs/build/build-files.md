@@ -369,7 +369,7 @@ who wrote the edge that pulled the code in.
   method resolves through its receiver's type rather than through scope, so
 
   ```buri repo=cli/tests/example
-# from "core/effect" import { Alloc };
+  # from "core/effect" import { Alloc };
   from "//lib/ledger" import { Entry };
   // `amount` is a Cents from //lib/money, and `format` is one of its methods —
   // no import names //lib/money, and this target still depends on it.

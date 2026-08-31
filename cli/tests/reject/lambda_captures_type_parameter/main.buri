@@ -4,6 +4,7 @@
 // is fine — and then `hide(ctx)` hands back a closure holding a capability.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn hide<T>(x: T): fn() => T {
   fn() => x
@@ -13,6 +14,6 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let smuggler = hide(ctx);
   let recovered = smuggler();
-  let _ = recovered.println("laundered");
+  let _ = io.println(recovered, "laundered").ignore();
   .Ok(())
 }

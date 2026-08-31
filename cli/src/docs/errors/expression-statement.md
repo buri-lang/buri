@@ -24,11 +24,24 @@ statement form. A test source is the one exception, which is what lets
 Between this rule and `result-discarded` there are exactly two places a value
 can be thrown away — bound to a `_`, or left standing — and a `Result` is
 refused in both, which is what makes must-use total rather than a convention.
-So when the statement has type `Result`, the fix above says `.ignore()`
-instead: `let _ = ...;` would only trade this error for that one.
+So a statement whose type is `Result` is *both* errors at once, and the fix has
+to answer both: `.ignore()` alone settles the type and leaves the statement
+standing, `let _ = ...;` alone binds a `Result` that may not be dropped. The
+edit is the two together, and it is what a program printing a line writes:
+
+```buri role=entry
+# from "core/effect" import { Alloc, Stdout };
+# from "core/host" import * as host;
+# from "core/io" import * as io;
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "ready").ignore();
+  .Ok(())
+}
+```
 
 ## A program that provokes it
 
-```buri fail code=expression-statement wrap=body
-ctx.println("ready");
+```buri fail code=expression-statement wrap=body effects=Stdout,Alloc
+io.println(ctx, "ready");
 ```

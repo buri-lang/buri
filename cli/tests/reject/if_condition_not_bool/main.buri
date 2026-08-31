@@ -1,6 +1,7 @@
 // EXPECT: expected `Bool`, found `I64`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn truthy(n: Int): Int {
   if (n) { 1 } else { 0 }
@@ -8,6 +9,6 @@ fn truthy(n: Int): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${truthy(1)}");
+  let _ = io.println(ctx, "${truthy(1)}").ignore();
   .Ok(())
 }

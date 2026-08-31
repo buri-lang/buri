@@ -55,7 +55,7 @@ export fn main(): Result<(), Str> {
     Watch: host.watch,
   };
   let width = signal(ctx, 40);
-  let _ = io.println(ctx, "both");
+  let _ = io.println(ctx, "both").ignore();
   // The background folds to a class naming `var(--both-bg)`; the width cannot
   // fold at all and is written on the element, every time the signal changes.
   let page = ui.column([.Background(Token.Bg.color())], [

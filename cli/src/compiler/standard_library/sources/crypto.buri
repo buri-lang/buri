@@ -26,14 +26,15 @@
 //! property. Passwords want a memory-hard function with a work factor.
 //!
 //! ```buri run
+//! from "core/crypto" import * as crypto;
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
-//! from "core/crypto" import * as crypto;
+//! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
 //!   let d = crypto.sha256Text(ctx, "abc");
-//!   let _ = ctx.println("${d.toHex(ctx)}");
+//!   let _ = io.println(ctx, "${d.toHex(ctx)}").ignore();
 //!   .Ok(())
 //! }
 //! ```

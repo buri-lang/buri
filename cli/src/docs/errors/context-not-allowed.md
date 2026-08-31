@@ -27,13 +27,14 @@ what the capture rule exists to prevent.
 ```buri fail code=context-not-allowed
 # from "core/effect" import { Alloc, Stdout };
 # from "core/host" import * as host;
+# from "core/io" import * as io;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let make = fn(n: Int) => {
     let inner = context { Alloc: host.alloc, Stdout: host.stdout };
     n
   };
-  let _ = ctx.println("${make(1)}");
+  let _ = io.println(ctx, "${make(1)}").ignore();
   .Ok(())
 }
 ```

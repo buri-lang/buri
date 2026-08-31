@@ -26,9 +26,10 @@ winner.
 ```buri fail code=duplicate-bound
 # from "core/effect" import { Alloc, Stdout };
 # from "core/host" import * as host;
+# from "core/io" import * as io;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("ready");
+  let _ = io.println(ctx, "ready").ignore();
   .Ok(())
 }
 ```

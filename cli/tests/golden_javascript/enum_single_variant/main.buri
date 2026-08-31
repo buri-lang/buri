@@ -2,6 +2,7 @@
 // weight and the backend already knows it.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Wrapped { Only(Int, Str) }
 
@@ -13,6 +14,6 @@ fn describe(w: Wrapped): Template {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println(describe(Wrapped.Only(7, "seven")));
+  let _ = io.println(ctx, describe(Wrapped.Only(7, "seven"))).ignore();
   .Ok(())
 }

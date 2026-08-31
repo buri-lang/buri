@@ -1,6 +1,7 @@
 // EXPECT: needs an `Option` return type
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn firstOf(xs: [Int]): Result<Int, Str> {
   let n = xs.first()?;
@@ -10,8 +11,8 @@ fn firstOf(xs: [Int]): Result<Int, Str> {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let _ = match (firstOf([1])) {
-    .Ok(n) => ctx.println("${n}"),
-    .Err(e) => ctx.println("${e}"),
+    .Ok(n) => io.println(ctx, "${n}").ignore(),
+    .Err(e) => io.println(ctx, "${e}").ignore(),
   };
   .Ok(())
 }

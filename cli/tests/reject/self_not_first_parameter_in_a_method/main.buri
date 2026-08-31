@@ -6,6 +6,7 @@
 // reach rule 26 are a `trait` body and the `impl` that supplies it.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export struct Square { export side: Int }
 
@@ -25,6 +26,6 @@ impl Scale for Square {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let square = Square { side: 3 };
-  let _ = ctx.println("${square.side}");
+  let _ = io.println(ctx, "${square.side}").ignore();
   .Ok(())
 }

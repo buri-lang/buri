@@ -14,6 +14,7 @@
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/effect" import { Alloc, Fs, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "ui/effect" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
@@ -24,6 +25,6 @@ export fn main(): Result<(), Str> {
     Ui: host.ui,
     Watch: host.watch,
   };
-  let _ = ctx.println("a page does not read files");
+  let _ = io.println(ctx, "a page does not read files").ignore();
   .Ok(())
 }

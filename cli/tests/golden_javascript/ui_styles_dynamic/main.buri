@@ -30,7 +30,7 @@ export fn main(): Result<(), Str> {
   };
   let lit = signal(ctx, false);
   let width = signal(ctx, 120);
-  let _ = io.println(ctx, "dynamic");
+  let _ = io.println(ctx, "dynamic").ignore();
   let page = ui.column([], [
     ui.row([.When(.Cell(lit), [.Background(.Rgb(220, 38, 38))], [.Background(.Rgb(22, 163, 74))])], []),
     ui.row([.Computed(fn(scope) => [.Width(.Px(width.get(scope)))])], []),

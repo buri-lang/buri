@@ -5,11 +5,12 @@
 
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 from "//lib/ledger" import { priceOf };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("price: ${priceOf(3).format(ctx)}");
+  let _ = io.println(ctx, "price: ${priceOf(3).format(ctx)}").ignore();
   .Ok(())
 }

@@ -22,6 +22,7 @@
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
+//! from "core/io" import * as io;
 //! from "core/simd" import * as simd;
 //!
 //! export fn main(): Result<(), Str> {
@@ -31,7 +32,7 @@
 //!   // No loop and no ordering: the shape a backend with vector registers can
 //!   // lower directly.
 //!   let stepped = position.add(velocity.scale(2.0));
-//!   let _ = ctx.println("${stepped.lane(0)} ${stepped.lane(1)} ${stepped.dot(stepped)}");
+//!   let _ = io.println(ctx, "${stepped.lane(0)} ${stepped.lane(1)} ${stepped.dot(stepped)}").ignore();
 //!   .Ok(())
 //! }
 //! ```

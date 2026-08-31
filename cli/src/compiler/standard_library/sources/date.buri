@@ -18,9 +18,10 @@
 //! the whole range of `Int` and uses nothing but integer arithmetic.
 //!
 //! ```buri run
+//! from "core/date" import * as date;
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
-//! from "core/date" import * as date;
+//! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -31,7 +32,7 @@
 //!   // Adding a year to the 29th clamps to the 28th: the other answer would be
 //!   // the 1st of March, which is a different day.
 //!   let next = date.formatDate(ctx, leapDay.addYears(1));
-//!   let _ = ctx.println("${date.formatDate(ctx, leapDay)} is ${day}, +1y is ${next}");
+//!   let _ = io.println(ctx, "${date.formatDate(ctx, leapDay)} is ${day}, +1y is ${next}").ignore();
 //!   .Ok(())
 //! }
 //! ```

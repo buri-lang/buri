@@ -5,12 +5,13 @@
 // still required — and it is the only field named here.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Point { export x: Int, export y: Int, export label: Option<Str> }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let p = Point { x: 1 };
-  let _ = ctx.println("${p.x}");
+  let _ = io.println(ctx, "${p.x}").ignore();
   .Ok(())
 }

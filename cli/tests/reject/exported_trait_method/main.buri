@@ -3,8 +3,9 @@
 // satisfies a trait is not: conformance belongs to the type, so the method is
 // visible wherever the type is and there is nothing left for `export` to say.
 from "core/effect" import { Alloc, Stdout };
-from "core/order" import { Eq };
 from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/order" import { Eq };
 
 export struct Version { export major: Int }
 
@@ -14,6 +15,6 @@ impl Eq for Version {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${Version { major: 1 } == Version { major: 1 }}");
+  let _ = io.println(ctx, "${Version { major: 1 } == Version { major: 1 }}").ignore();
   .Ok(())
 }

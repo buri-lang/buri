@@ -232,25 +232,25 @@ pub const ENTRIES: &[Entry] = &[
         key: "host.HostStdout.print",
         symbol: "buri_rt_host_stdout_print",
         args: &[Arg::Dropped, Arg::Str],
-        ret: Ret::Void,
+        ret: Ret::Res,
     },
     Entry {
         key: "host.HostStdout.println",
         symbol: "buri_rt_host_stdout_println",
         args: &[Arg::Dropped, Arg::Str],
-        ret: Ret::Void,
+        ret: Ret::Res,
     },
     Entry {
         key: "host.HostStderr.eprint",
         symbol: "buri_rt_host_stderr_eprint",
         args: &[Arg::Dropped, Arg::Str],
-        ret: Ret::Void,
+        ret: Ret::Res,
     },
     Entry {
         key: "host.HostStderr.eprintln",
         symbol: "buri_rt_host_stderr_eprintln",
         args: &[Arg::Dropped, Arg::Str],
-        ret: Ret::Void,
+        ret: Ret::Res,
     },
     // Bytes, not text: no `base`, because the runtime writes them and keeps
     // nothing.
@@ -258,7 +258,7 @@ pub const ENTRIES: &[Entry] = &[
         key: "host.HostStdout.writeBytes",
         symbol: "buri_rt_host_stdout_write_bytes",
         args: &[Arg::Dropped, Arg::List],
-        ret: Ret::Void,
+        ret: Ret::Res,
     },
     // -- the scalar capabilities -------------------------------------------
     Entry {
@@ -878,19 +878,19 @@ pub const ENTRIES: &[Entry] = &[
         key: "host_testing.TestStdout.print",
         symbol: "buri_rt_host_testing_test_stdout_print",
         args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Void,
+        ret: Ret::Res,
     },
     Entry {
         key: "host_testing.TestStdout.println",
         symbol: "buri_rt_host_testing_test_stdout_println",
         args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Void,
+        ret: Ret::Res,
     },
     Entry {
         key: "host_testing.TestStdout.writeBytes",
         symbol: "buri_rt_host_testing_test_stdout_write_bytes",
         args: &[Arg::Scalar, Arg::List],
-        ret: Ret::Void,
+        ret: Ret::Res,
     },
     Entry {
         key: "host_testing.TestStdout.captured",
@@ -902,13 +902,13 @@ pub const ENTRIES: &[Entry] = &[
         key: "host_testing.TestStderr.eprint",
         symbol: "buri_rt_host_testing_test_stderr_eprint",
         args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Void,
+        ret: Ret::Res,
     },
     Entry {
         key: "host_testing.TestStderr.eprintln",
         symbol: "buri_rt_host_testing_test_stderr_eprintln",
         args: &[Arg::Scalar, Arg::Str],
-        ret: Ret::Void,
+        ret: Ret::Res,
     },
     Entry {
         key: "host_testing.TestStderr.captured",

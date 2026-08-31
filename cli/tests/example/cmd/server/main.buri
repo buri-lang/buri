@@ -3,8 +3,9 @@
 // rule lib.buri follows for a library.
 
 from "core/effect" import { Alloc, Env, Fs, Stdout };
-from "core/host" import * as host;
 from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 from "//lib/ledger" import { entry };
@@ -35,7 +36,7 @@ export fn main(): Result<(), Str> {
   match (append(ctx, path, [entry("startup", fromCents(0))])) {
     .Err(_) => .Err(str.format(ctx, "could not open the ledger log at ${path}")),
     .Ok(_) => {
-      let _ = ctx.println("serving ${hit.name} at ${hit.path} from ${path}");
+      let _ = io.println(ctx, "serving ${hit.name} at ${hit.path} from ${path}").ignore();
       .Ok(())
     },
   }

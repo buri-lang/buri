@@ -1,6 +1,7 @@
 from "core/effect" import { Alloc, Env, Stdout };
 from "core/env" import * as env;
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 // The binary's surface for its own test suite.
 from "//tools/report/flags.buri" export { Flags, parseFlags };
@@ -16,6 +17,6 @@ export fn main(): Result<(), Str> {
     Env:    host.env,
   };
   let flags = parseFlags(env.args(ctx));
-  let _ = ctx.println("${render(ctx, 1905)} ${flags.title}");
+  let _ = io.println(ctx, "${render(ctx, 1905)} ${flags.title}").ignore();
   .Ok(())
 }

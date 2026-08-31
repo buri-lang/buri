@@ -1,6 +1,7 @@
 // EXPECT: expected `F64`, found `Int`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn mixed(): Float {
   1 + 1.0
@@ -8,6 +9,6 @@ fn mixed(): Float {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${mixed()}");
+  let _ = io.println(ctx, "${mixed()}").ignore();
   .Ok(())
 }

@@ -918,23 +918,27 @@ fn the_test_platform_agrees_with_the_runner() {
     if !supported() {
         return;
     }
-    const SOURCE: &str = r##"from "core/testing/assert" import * as assert;
+    const SOURCE: &str = r##"from "core/effect" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
+from "core/env" import * as env;
 from "core/host/testing" import {
   alloc, clock, env, rand, stderr, stdin, stdout,
 };
-from "core/effect" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
+from "core/io" import * as io;
 from "core/list" import * as list;
+from "core/random" import * as random;
 from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "core/time" import * as time;
 
 fn speak<C: Stdout>(ctx: C, what: Str): () {
-  let _ = ctx.print("[");
-  let _ = ctx.print(what);
-  let _ = ctx.println("]");
+  let _ = io.print(ctx, "[").ignore();
+  let _ = io.print(ctx, what).ignore();
+  let _ = io.println(ctx, "]").ignore();
 }
 
 fn shout<C: Stderr>(ctx: C, what: Str): () {
-  let _ = ctx.eprint("<");
-  let _ = ctx.eprintln(what);
+  let _ = io.eprint(ctx, "<").ignore();
+  let _ = io.eprintln(ctx, what).ignore();
 }
 
 test "captured reads back what a function printed" {
@@ -956,16 +960,16 @@ test "a fresh sink is empty and stays independent" {
 test "captured accumulates in the order things were printed" {
   let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
-  let _ = ctx.print("a");
-  let _ = ctx.println("b");
-  let _ = ctx.print("c");
+  let _ = io.print(ctx, "a").ignore();
+  let _ = io.println(ctx, "b").ignore();
+  let _ = io.print(ctx, "c").ignore();
   assert.eq(sink.captured(), "ab\nc");
 }
 
 test "writeBytes is captured as the text the octets spell" {
   let sink = stdout();
   let ctx = context { Alloc: alloc(), Stdout: sink };
-  let _ = ctx.writeBytes([104, 105]);
+  let _ = io.writeBytes(ctx, [104, 105]).ignore();
   assert.eq(sink.captured(), "hi");
 }
 
@@ -981,27 +985,27 @@ test "standard error is its own transcript" {
 test "a test clock starts where it was put and moves only when moved" {
   let dial = clock().at(1000);
   let ctx = context { Alloc: alloc(), Clock: dial };
-  assert.eq(ctx.nowMillis(), 1000);
-  assert.eq(ctx.nowMillis(), 1000);
-  let _ = ctx.sleepMillis(5);
-  assert.eq(ctx.nowMillis(), 1005);
-  let _ = dial.sleepMillis(10);
-  assert.eq(ctx.nowMillis(), 1015);
+  assert.eq(time.now(ctx).0, 1000);
+  assert.eq(time.now(ctx).0, 1000);
+  let _ = time.sleepMs(ctx, 5);
+  assert.eq(time.now(ctx).0, 1005);
+  let _ = time.sleepMs(dial, 10);
+  assert.eq(time.now(ctx).0, 1015);
 }
 
 test "a seeded generator is the same sequence on every backend" {
   let ctx = context { Alloc: alloc(), Rand: rand().seed(0) };
-  assert.eq(ctx.nextInt(0, 100), 69);
-  assert.eq(ctx.nextInt(0, 100), 89);
-  assert.eq(ctx.nextInt(10, 11), 10);
+  assert.eq(random.int(ctx, 0, 100), 69);
+  assert.eq(random.int(ctx, 0, 100), 89);
+  assert.eq(random.int(ctx, 10, 11), 10);
   let ctx2 = context { Alloc: alloc(), Rand: rand().seed(7) };
-  assert.eq(ctx2.nextInt(0, 1000), 583);
+  assert.eq(random.int(ctx2, 0, 1000), 583);
 }
 
 test "two generators with the same seed agree with each other" {
   let a = context { Alloc: alloc(), Rand: rand().seed(42) };
   let b = context { Alloc: alloc(), Rand: rand().seed(42) };
-  assert.eq(a.nextInt(0, 1000000), b.nextInt(0, 1000000));
+  assert.eq(random.int(a, 0, 1000000), random.int(b, 0, 1000000));
 }
 
 test "an environment holds what it was given and nothing else" {
@@ -1009,38 +1013,38 @@ test "an environment holds what it was given and nothing else" {
     Alloc: alloc(),
     Env: env().variables([("HOME", "/tmp"), ("LANG", "C")]).arguments(["--verbose", "x"]),
   };
-  assert.eq(assert.some(ctx.variable("HOME")), "/tmp");
-  assert.eq(assert.some(ctx.variable("LANG")), "C");
-  assert.isTrue(ctx.variable("PATH").isNone());
-  let args = ctx.args();
+  assert.eq(assert.some(env.get(ctx, "HOME")), "/tmp");
+  assert.eq(assert.some(env.get(ctx, "LANG")), "C");
+  assert.isTrue(env.get(ctx, "PATH").isNone());
+  let args = env.args(ctx);
   assert.eq(args.len(), 2);
   assert.eq(args.join(ctx, " "), "--verbose x");
 }
 
 test "an empty environment has no variables and no arguments" {
   let ctx = context { Alloc: alloc(), Env: env() };
-  assert.isTrue(ctx.variable("HOME").isNone());
-  assert.eq(ctx.args().len(), 0);
+  assert.isTrue(env.get(ctx, "HOME").isNone());
+  assert.eq(env.args(ctx).len(), 0);
 }
 
 test "stdin reads its lines, then end of input" {
   let ctx = context { Alloc: alloc(), Stdin: stdin().lines(["one", "two"]) };
-  assert.eq(assert.some(ctx.readLine()), "one");
-  assert.eq(assert.some(ctx.readLine()), "two");
-  assert.isTrue(ctx.readLine().isNone());
+  assert.eq(assert.some(io.readLine(ctx)), "one");
+  assert.eq(assert.some(io.readLine(ctx)), "two");
+  assert.isTrue(io.readLine(ctx).isNone());
 }
 
 test "a stdin of octets reads them, and readLine finds nothing there" {
   let ctx = context { Alloc: alloc(), Stdin: stdin().bytes([1, 2, 3, 4]) };
-  let first = assert.some(ctx.readBytes(3));
+  let first = assert.some(io.readBytes(ctx, 3));
   assert.eq(first.len(), 3);
   assert.eq(assert.some(first.get(0)), 1);
   assert.eq(assert.some(first.get(2)), 3);
-  let rest = assert.some(ctx.readBytes(3));
+  let rest = assert.some(io.readBytes(ctx, 3));
   assert.eq(rest.len(), 1);
   assert.eq(assert.some(rest.get(0)), 4);
-  assert.isTrue(ctx.readBytes(1).isNone());
-  assert.isTrue(ctx.readLine().isNone());
+  assert.isTrue(io.readBytes(ctx, 1).isNone());
+  assert.isTrue(io.readLine(ctx).isNone());
 }
 "##;
     if refusal("host-testing", SOURCE).is_err() {
@@ -1089,11 +1093,14 @@ fn self_through_a_context_is_the_implementing_type() {
     if !supported() {
         return;
     }
-    const SOURCE: &str = r#"from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc, clock };
-from "core/effect" import {
+    const SOURCE: &str = r#"from "core/effect" import {
   Alloc, Clock, Listen, Net, Request, Response, Sockets, Tasks,
 };
+from "core/host/testing" import { alloc, clock };
+from "core/net/server" import * as server;
+from "core/tasks" import * as tasks;
+from "core/testing/assert" import * as assert;
+from "core/time" import * as time;
 from "//lib/semantics" import {
   OneShotListen, QuietSockets, SerialTasks, TeapotNet, runInOrder, runInOrderNamed, serveOnce,
 };
@@ -1104,12 +1111,12 @@ test "the handler is handed the implementation" {
     Listen: OneShotListen { bindsTo: "10.0.0.1" },
     Tasks: SerialTasks { label: "serial", bias: 4 },
   };
-  assert.ok(ctx.listen("10.0.0.1", 0, fn(server, request) => Response {
+  assert.ok(server.listen(ctx, "10.0.0.1", 0, fn(server, request) => Response {
     status: if (server.bindsTo == request.url) { 200 } else { 500 },
     headers: [],
     body: [],
   }));
-  let _ = assert.err(ctx.listen("127.0.0.1", 0, fn(server, request) => Response {
+  let _ = assert.err(server.listen(ctx, "127.0.0.1", 0, fn(server, request) => Response {
     status: if (server.bindsTo == request.url) { 200 } else { 500 },
     headers: [],
     body: [],
@@ -1122,7 +1129,7 @@ test "and a task is handed the context" {
     Clock: clock().at(5),
     Tasks: SerialTasks { label: "serial", bias: 4 },
   };
-  let out = ctx.parallel(ctx, [1], fn(c, i, item) => c.nowMillis() + item);
+  let out = tasks.parallel(ctx, [1], fn(c, i, item) => c.nowMillis() + item)time.now(c).0 + item);
   assert.eq(out[0] ?? 0, 6);
 }
 
