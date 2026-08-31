@@ -11,8 +11,7 @@
 // through the re-export, which is where a program is meant to meet them.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { noNet };
-from "core/host/testing/lib.buri" import { alloc };
+from "core/host/testing/lib.buri" import { alloc, net };
 from "core/effect/lib.buri" import { Alloc, Net };
 from "core/net/http/lib.buri" import { Header, Method, NetError, Request, Response };
 from "core/bytes/lib.buri" import * as bytes;
@@ -253,7 +252,7 @@ test "bodyText decodes octets and refuses what is not text" {
 // -----------------------------------------------------------------------------
 
 test "send, get and post all reach the same Net.fetch" {
-  let ctx = context { Alloc: alloc(), Net: noNet() };
+  let ctx = context { Alloc: alloc(), Net: net() };
   assert.eq(assert.err(http.send(ctx, http.request(.Get, "http://x/"))), .Refused);
   assert.eq(assert.err(http.get(ctx, "http://x/")), .Refused);
   assert.eq(assert.err(http.post(ctx, "http://x/", "body")), .Refused);

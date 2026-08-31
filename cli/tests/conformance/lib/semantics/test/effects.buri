@@ -3,7 +3,7 @@
 // This file used to carry a recorded compiler bug in this comment: an effect
 // *inherited* through a `..spread` could not be used, because the binding the
 // spread copied did not carry the implementing type the base had recorded, and
-// so `context { ..Hermetic(), Fs: files([]) }` typechecked but any call through
+// so `context { ..Defaults(), Fs: fs() }` typechecked but any call through
 // the inherited `Clock` failed at monomorphization with "`Clock` could not be
 // resolved to a concrete type". It is fixed — the spread keeps that type
 // (`semantics/expressions.rs`, `check_context_body`) — and the section
@@ -12,9 +12,8 @@
 // compile-time claim as much as a runtime one.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import {
-  Hermetic, alloc, captureOut, captureErr, captured, capturedErr, stdin, stdinBytes, files,
-  filesBytes, data, readOnly, noNet, clockAt, advance, randSeed, envOf,
+from "core/host/testing/lib.buri" import {
+  alloc, clock, env, fs, net, rand, stderr, stdin, stdout,
 };
 from "core/effect/lib.buri" import {
   Alloc, Clock, Env, Fs, IoError, Listen, Net, Rand, Request, Response, Sockets, Stderr, Stdin,
@@ -42,37 +41,56 @@ from "//lib/semantics/lib.buri" import {
 // Named context declarations in a test source (SPEC 11.3)
 // -----------------------------------------------------------------------------
 
+/// Every effect, at the default the double it names is born with: nothing
+/// captured, nothing on stdin, an empty filesystem, a network that refuses, a
+/// clock at zero, a seeded generator, and no variables and no arguments.
+///
+/// A test binds what it needs and no more, so nine bindings is not what a suite
+/// writes — it is what the spreads below are *about*. An effect a declaration
+/// never names has to arrive from somewhere, and this is the somewhere.
+context Defaults {
+  Alloc: alloc(),
+  Stdout: stdout(),
+  Stderr: stderr(),
+  Stdin: stdin(),
+  Fs: fs(),
+  Net: net(),
+  Clock: clock(),
+  Rand: rand(),
+  Env: env(),
+}
+
 /// Begins with a spread and replaces one binding.
 context Fixture {
-  ..Hermetic(),
-  Fs: files([("config.toml", "port=8080"), ("empty.txt", "")]),
+  ..Defaults(),
+  Fs: fs().files([("config.toml", "port=8080"), ("empty.txt", "")]),
 }
 
 /// A second declaration built from the first, replacing that same binding.
 context OtherPort {
   ..Fixture(),
-  Fs: files([("config.toml", "port=9999")]),
+  Fs: fs().files([("config.toml", "port=9999")]),
 }
 
-/// A third, built from the second: two spreads between this and `Hermetic`,
+/// A third, built from the second: two spreads between this and `Defaults`,
 /// with an effect replaced here that neither of them named.
 context DeepFixture {
   ..OtherPort(),
-  Clock: clockAt(1234),
+  Clock: clock().at(1234),
 }
 
 /// A spread whose replacement is a *generic* wrapper. The binding written here
 /// is `Guarded<TestFs>`, so what a later spread carries is an implementing type
 /// with type arguments of its own rather than a bare one.
 context WrappedFixture {
-  ..Hermetic(),
-  Fs: guarded(files([("a", "A")])),
+  ..Defaults(),
+  Fs: guarded(fs().files([("a", "A")])),
 }
 
 /// A context assembled from scratch, naming only two effects.
 context Tiny {
   Alloc: alloc(),
-  Fs: files([("a", "A")]),
+  Fs: fs().files([("a", "A")]),
 }
 
 /// A context that binds *my* implementations rather than the runner's.
@@ -89,14 +107,14 @@ context Mine {
 /// The whole world, written out, so a test can use every effect in it.
 context World {
   Alloc: alloc(),
-  Stdout: captureOut(),
-  Stderr: captureErr(),
-  Stdin: stdin(["a line"]),
-  Fs: files([("w", "W")]),
-  Net: noNet(),
-  Clock: clockAt(1000),
-  Rand: randSeed(4),
-  Env: envOf([("K", "V")], ["arg"]),
+  Stdout: stdout(),
+  Stderr: stderr(),
+  Stdin: stdin().lines(["a line"]),
+  Fs: fs().files([("w", "W")]),
+  Net: net(),
+  Clock: clock().at(1000),
+  Rand: rand().seed(4),
+  Env: env().variables([("K", "V")]).arguments(["arg"]),
 }
 
 // -----------------------------------------------------------------------------
@@ -115,8 +133,8 @@ test "a context binds one implementation per effect it names" {
   assert.isTrue(random.int(ctx, 0, 10) >= 0);
 }
 
-test "Hermetic is a context binding every effect at hermetic defaults" {
-  let ctx = Hermetic();
+test "a declaration may bind every effect at its double's default" {
+  let ctx = Defaults();
   assert.isFalse(fs.exists(ctx, "nothing"));
   assert.eq(time.now(ctx).0, 0);
   assert.none(io.readLine(ctx));
@@ -127,7 +145,7 @@ test "Hermetic is a context binding every effect at hermetic defaults" {
 }
 
 test "a context expression binds the effects it names" {
-  let ctx = context { Alloc: alloc(), Fs: files([("x", "1")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("x", "1")]) };
   assert.eq(assert.ok(loadText(ctx, "x")), "1");
 }
 
@@ -169,13 +187,13 @@ test "a replacement replaces wholesale rather than merging" {
 }
 
 test "an inline context expression may start from a named one" {
-  let ctx = context { ..Fixture(), Fs: files([("config.toml", "port=1")]) };
+  let ctx = context { ..Fixture(), Fs: fs().files([("config.toml", "port=1")]) };
   assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=1");
 }
 
 test "an inline context expression may start from another inline one" {
-  let base = context { Alloc: alloc(), Fs: files([("a", "1")]) };
-  let ctx = context { ..base, Fs: files([("a", "2")]) };
+  let base = context { Alloc: alloc(), Fs: fs().files([("a", "1")]) };
+  let ctx = context { ..base, Fs: fs().files([("a", "2")]) };
   assert.eq(assert.ok(loadText(ctx, "a")), "2");
 }
 
@@ -190,7 +208,7 @@ test "an inline context expression may start from another inline one" {
 // -----------------------------------------------------------------------------
 
 test "an effect inherited through a spread can be called" {
-  // `Fixture` names `Fs` and nothing else; `Clock` is `Hermetic`'s.
+  // `Fixture` names `Fs` and nothing else; `Clock` is `Defaults`'s.
   let ctx = Fixture();
   assert.eq(stamp(ctx).0, 0);
 }
@@ -209,7 +227,7 @@ test "every effect a spread supplies can be called, not only the one replaced" {
 }
 
 test "an inherited effect survives a second spread" {
-  // Two levels: `OtherPort` spreads `Fixture`, which spreads `Hermetic`.
+  // Two levels: `OtherPort` spreads `Fixture`, which spreads `Defaults`.
   let ctx = OtherPort();
   assert.eq(stamp(ctx).0, 0);
   assert.isTrue(random.int(ctx, 0, 10) >= 0);
@@ -226,14 +244,14 @@ test "a binding written after two spreads beats the twice-inherited one" {
 }
 
 test "an inherited effect can be called from an inline context expression" {
-  let ctx = context { ..Hermetic(), Fs: files([("a", "1")]) };
+  let ctx = context { ..Defaults(), Fs: fs().files([("a", "1")]) };
   assert.eq(stamp(ctx).0, 0);
   assert.eq(assert.ok(loadText(ctx, "a")), "1");
   assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
 }
 
 test "a spread with nothing written after it inherits every binding" {
-  let ctx = context { ..Hermetic() };
+  let ctx = context { ..Defaults() };
   assert.eq(stamp(ctx).0, 0);
   assert.isFalse(fs.exists(ctx, "nothing"));
   assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
@@ -242,9 +260,9 @@ test "a spread with nothing written after it inherits every binding" {
 test "an inherited binding is the same value, not a fresh one" {
   // The spread reads the implementation out of the base rather than building
   // another, so the capture this test holds is the one the call writes to.
-  let sink = captureOut();
-  let base = context { Alloc: alloc(), Stdout: sink, Clock: clockAt(5) };
-  let ctx = context { ..base, Clock: clockAt(9) };
+  let sink = stdout();
+  let base = context { Alloc: alloc(), Stdout: sink, Clock: clock().at(5) };
+  let ctx = context { ..base, Clock: clock().at(9) };
   greet(ctx, "through the spread");
   assert.eq(sink.captured(), "hello through the spread\n");
   assert.eq(stamp(ctx).0, 9);
@@ -254,7 +272,7 @@ test "a spread carries an implementing type's own type arguments with it" {
   // `Guarded<TestFs>`, inherited: the wrapper's `impl<C: Fs> Fs for Guarded<C>`
   // is instantiated from a receiver the spread carried, `TestFs` and all, so
   // what travels is a whole type rather than a constructor.
-  let ctx = context { ..WrappedFixture(), Clock: clockAt(3) };
+  let ctx = context { ..WrappedFixture(), Clock: clock().at(3) };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
   assert.eq(stamp(ctx).0, 3);
@@ -290,17 +308,17 @@ test "two contexts from one declaration are two values, not one handle" {
 }
 
 test "an inline context expression is fresh too" {
-  let a = context { Alloc: alloc(), Fs: files([]) };
+  let a = context { Alloc: alloc(), Fs: fs().files([]) };
   assert.ok(saveText(a, "f", "1"));
-  let b = context { Fs: files([]) };
+  let b = context { Fs: fs().files([]) };
   assert.isFalse(fs.exists(b, "f"));
 }
 
 test "freshness applies to a captured stream as well" {
-  let first = captureOut();
+  let first = stdout();
   let a = context { Stdout: first };
   greet(a, "one");
-  let second = captureOut();
+  let second = stdout();
   // The stream is bound into a context here rather than left loose: what this
   // asserts is that a *reachable* second stream is still empty, and a binding
   // nothing calls is the only way to say so.
@@ -310,11 +328,11 @@ test "freshness applies to a captured stream as well" {
 }
 
 // -----------------------------------------------------------------------------
-// files() / data() / readOnly()
+// fs(), its builders, and readOnly()
 // -----------------------------------------------------------------------------
 
 test "files contains exactly the entries it was given" {
-  let ctx = context { Alloc: alloc(), Fs: files([("a", "A"), ("b", "B")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A"), ("b", "B")]) };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.eq(assert.ok(loadText(ctx, "b")), "B");
   assert.isTrue(loadText(ctx, "c").isErr());
@@ -323,7 +341,7 @@ test "files contains exactly the entries it was given" {
 test "reading a path files does not have gives IoError.NotFound" {
   // `core/effect` declares the variant, and an unknown path is what `.NotFound`
   // is for; the match is exhaustive so a fourth answer cannot hide.
-  let ctx = context { Alloc: alloc(), Fs: files([("a", "A")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]) };
   let which = match (loadText(ctx, "missing")) {
     .Ok(_v) => "ok",
     .Err(.NotFound) => "NotFound",
@@ -338,36 +356,36 @@ test "reading a path files does not have gives IoError.NotFound" {
 }
 
 test "files reports existence" {
-  let ctx = context { Fs: files([("a", "A")]) };
+  let ctx = context { Fs: fs().files([("a", "A")]) };
   assert.isTrue(fs.exists(ctx, "a"));
   assert.isFalse(fs.exists(ctx, "b"));
 }
 
 test "an empty file is a file, not an absent one" {
-  let ctx = context { Alloc: alloc(), Fs: files([("e", "")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("e", "")]) };
   assert.isTrue(fs.exists(ctx, "e"));
   assert.eq(assert.ok(loadText(ctx, "e")), "");
 }
 
 test "a write to files is readable back" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([]) };
   assert.eq(assert.ok(roundTrip(ctx, "note", "hello")), "hello");
 }
 
 test "a write to files replaces the previous body" {
-  let ctx = context { Alloc: alloc(), Fs: files([("a", "one")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "one")]) };
   assert.ok(saveText(ctx, "a", "two"));
   assert.eq(assert.ok(loadText(ctx, "a")), "two");
 }
 
-test "data is an empty package filesystem when no test data is declared" {
-  let ctx = context { Alloc: alloc(), Fs: data() };
+test "a fresh filesystem is empty, and nothing seeds it" {
+  let ctx = context { Alloc: alloc(), Fs: fs() };
   assert.isTrue(loadText(ctx, "config.toml").isErr());
   assert.isFalse(fs.exists(ctx, "config.toml"));
 }
 
-test "reading a path data does not have gives IoError.NotFound" {
-  let ctx = context { Alloc: alloc(), Fs: data() };
+test "reading a path a fresh filesystem does not have gives IoError.NotFound" {
+  let ctx = context { Alloc: alloc(), Fs: fs() };
   let which = match (loadText(ctx, "missing")) {
     .Ok(_v) => "ok",
     .Err(.NotFound) => "NotFound",
@@ -381,80 +399,80 @@ test "reading a path data does not have gives IoError.NotFound" {
   assert.eq(which, "NotFound");
 }
 
-test "data is writable within one test" {
-  let ctx = context { Alloc: alloc(), Fs: data() };
+test "a fresh filesystem is writable within one test" {
+  let ctx = context { Alloc: alloc(), Fs: fs() };
   assert.eq(assert.ok(roundTrip(ctx, "scratch", "x")), "x");
 }
 
 test "readOnly forwards reads" {
-  let ctx = context { Alloc: alloc(), Fs: readOnly(files([("a", "A")])) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]).readOnly() };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.isTrue(fs.exists(ctx, "a"));
 }
 
 test "a write through readOnly FAILS" {
-  let ctx = context { Alloc: alloc(), Fs: readOnly(files([("a", "A")])) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]).readOnly() };
   assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
 }
 
 test "readOnly refuses a write to a path that does not exist either" {
-  let ctx = context { Alloc: alloc(), Fs: readOnly(files([])) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([]).readOnly() };
   assert.eq(assert.err(saveText(ctx, "new", "B")), .ReadOnly);
 }
 
 test "readOnly leaves the wrapped filesystem untouched" {
-  let ctx = context { Alloc: alloc(), Fs: readOnly(files([("a", "A")])) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]).readOnly() };
   assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
 }
 
 test "listDir sees the entries" {
-  let ctx = context { Alloc: alloc(), Fs: files([("a", "A")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]) };
   assert.isTrue(assert.ok(fs.listDir(ctx, "")).len() >= 1);
 }
 
 // -----------------------------------------------------------------------------
 // The binary, appending, renaming half of core/fs (issue #1)
 //
-// Every block here runs against `MemFs`, and `cli/tests/native/runtime.rs`'s
+// Every block here runs against `TestFs`, and `cli/tests/native/runtime.rs`'s
 // `wal` mode runs the same sequence against a real filesystem through
 // `buri_rt_host_fs_*`. That the two agree is the point of the fake.
 // -----------------------------------------------------------------------------
 
 test "writeBytes and readBytes carry octets a text encoding cannot" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([]) };
   let raw: [U8] = [0, 1, 254, 255, 128];
   assert.ok(fs.writeBytes(ctx, "blob", raw));
   assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
 }
 
 test "readBytes of a path that is not there is NotFound" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([]) };
   assert.eq(assert.err(fs.readBytes(ctx, "missing")), .NotFound);
 }
 
 test "filesBytes is the byte twin of files" {
   let raw: [U8] = [255, 0, 17];
-  let ctx = context { Alloc: alloc(), Fs: filesBytes([("blob", raw)]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().filesBytes([("blob", raw)]) };
   assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
   assert.isTrue(fs.exists(ctx, "blob"));
 }
 
 test "text written as octets reads back as text" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([]) };
   assert.ok(fs.writeBytes(ctx, "note", bytes.toUtf8(ctx, "héllo")));
   assert.eq(assert.ok(fs.readText(ctx, "note")), "héllo");
 }
 
 test "writeBytes replaces the whole file" {
-  let ctx = context { Alloc: alloc(), Fs: files([("a", "one")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "one")]) };
   let two: [U8] = [50];
   assert.ok(fs.writeBytes(ctx, "a", two));
   assert.eq(assert.ok(fs.readBytes(ctx, "a")), two);
 }
 
 test "append CREATES the file when it is absent" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([]) };
   let record: [U8] = [1, 2];
   assert.isFalse(fs.exists(ctx, "log"));
   assert.ok(fs.append(ctx, "log", record));
@@ -463,79 +481,79 @@ test "append CREATES the file when it is absent" {
 }
 
 test "append adds to the end rather than replacing" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([]) };
   assert.ok(fs.append(ctx, "log", [1, 2]));
   assert.ok(fs.append(ctx, "log", [3]));
   assert.eq(assert.ok(fs.readBytes(ctx, "log")), [1, 2, 3]);
 }
 
 test "rename REPLACES the destination" {
-  let ctx = context { Alloc: alloc(), Fs: files([("new", "N"), ("old", "O")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("new", "N"), ("old", "O")]) };
   assert.ok(fs.rename(ctx, "new", "old"));
   assert.eq(assert.ok(fs.readText(ctx, "old")), "N");
 }
 
 test "rename leaves nothing at the source" {
-  let ctx = context { Fs: files([("new", "N")]) };
+  let ctx = context { Fs: fs().files([("new", "N")]) };
   assert.ok(fs.rename(ctx, "new", "old"));
   assert.isFalse(fs.exists(ctx, "new"));
   assert.isTrue(fs.exists(ctx, "old"));
 }
 
 test "rename of a source that is not there is NotFound" {
-  let ctx = context { Fs: files([]) };
+  let ctx = context { Fs: fs().files([]) };
   assert.eq(assert.err(fs.rename(ctx, "missing", "other")), .NotFound);
 }
 
 test "remove deletes the file" {
-  let ctx = context { Alloc: alloc(), Fs: files([("a", "A")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]) };
   assert.ok(fs.remove(ctx, "a"));
   assert.isFalse(fs.exists(ctx, "a"));
   assert.isTrue(fs.readText(ctx, "a").isErr());
 }
 
 test "remove OF A MISSING FILE is NotFound, not a silent success" {
-  let ctx = context { Fs: files([]) };
+  let ctx = context { Fs: fs().files([]) };
   assert.eq(assert.err(fs.remove(ctx, "never-there")), .NotFound);
 }
 
 test "makeDir ON AN EXISTING DIRECTORY is Ok" {
-  let ctx = context { Fs: files([]) };
+  let ctx = context { Fs: fs().files([]) };
   assert.ok(fs.makeDir(ctx, "tenants/one"));
   assert.ok(fs.makeDir(ctx, "tenants/one"));
   assert.isTrue(fs.exists(ctx, "tenants/one"));
 }
 
 test "makeDir creates the parents too" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([]) };
   assert.ok(fs.makeDir(ctx, "a/b/c"));
   assert.eq(assert.ok(fs.listDir(ctx, "a")), ["b"]);
   assert.eq(assert.ok(fs.listDir(ctx, "a/b")), ["c"]);
 }
 
 test "makeDir where a file already sits is AlreadyExists" {
-  let ctx = context { Fs: files([("a", "A")]) };
+  let ctx = context { Fs: fs().files([("a", "A")]) };
   assert.eq(assert.err(fs.makeDir(ctx, "a")), .AlreadyExists);
 }
 
 test "sync of a file that is there is Ok" {
-  let ctx = context { Fs: files([("a", "A")]) };
+  let ctx = context { Fs: fs().files([("a", "A")]) };
   assert.ok(fs.sync(ctx, "a"));
 }
 
 test "sync of a path that is not there is NotFound" {
-  let ctx = context { Fs: files([]) };
+  let ctx = context { Fs: fs().files([]) };
   assert.eq(assert.err(fs.sync(ctx, "missing")), .NotFound);
 }
 
 test "readOnly forwards readBytes" {
   let raw: [U8] = [7, 8];
-  let ctx = context { Alloc: alloc(), Fs: readOnly(filesBytes([("blob", raw)])) };
+  let ctx = context { Alloc: alloc(), Fs: fs().filesBytes([("blob", raw)]).readOnly() };
   assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
 }
 
 test "every writing half of the new surface FAILS through readOnly" {
-  let ctx = context { Alloc: alloc(), Fs: readOnly(files([("a", "A")])) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]).readOnly() };
   assert.eq(assert.err(fs.writeBytes(ctx, "a", [1])), .ReadOnly);
   assert.eq(assert.err(fs.append(ctx, "a", [1])), .ReadOnly);
   assert.eq(assert.err(fs.rename(ctx, "a", "b")), .ReadOnly);
@@ -545,14 +563,14 @@ test "every writing half of the new surface FAILS through readOnly" {
 }
 
 test "sync is not a write, so readOnly forwards it" {
-  let ctx = context { Fs: readOnly(files([("a", "A")])) };
+  let ctx = context { Fs: fs().files([("a", "A")]).readOnly() };
   assert.ok(fs.sync(ctx, "a"));
 }
 
 /// The whole reason the seven exist: a log that is appended to, a commit point
 /// that is a call, and a checkpoint that swaps in atomically.
 test "a write-ahead log commits through append, sync and rename" {
-  let ctx = context { Alloc: alloc(), Fs: files([]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([]) };
   assert.ok(fs.makeDir(ctx, "wal"));
 
   // Two records, each one append, with the commit point stated after each.
@@ -577,18 +595,18 @@ test "a write-ahead log commits through append, sync and rename" {
 }
 
 // -----------------------------------------------------------------------------
-// captureOut / captureErr
+// stdout / stderr
 // -----------------------------------------------------------------------------
 
 test "captured reads back what a function printed" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Stdout: sink };
   greet(ctx, "world");
   assert.eq(sink.captured(), "hello world\n");
 }
 
 test "a fresh capture is empty" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Stdout: sink };
   assert.eq(sink.captured(), "");
   greet(ctx, "x");
@@ -596,14 +614,14 @@ test "a fresh capture is empty" {
 }
 
 test "captured accumulates in the order things were printed" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Stdout: sink };
   shout(ctx, ["a", "b", "c"]);
   assert.eq(sink.captured(), "abc");
 }
 
 test "print does not add a newline and println does" {
-  let sink = captureOut();
+  let sink = stdout();
   let ctx = context { Stdout: sink };
   io.print(ctx, "one");
   io.println(ctx, "two");
@@ -612,8 +630,8 @@ test "print does not add a newline and println does" {
 }
 
 test "two captures in one test are independent" {
-  let a = captureOut();
-  let b = captureOut();
+  let a = stdout();
+  let b = stdout();
   let actx = context { Stdout: a };
   let bctx = context { Stdout: b };
   greet(actx, "one");
@@ -624,72 +642,72 @@ test "two captures in one test are independent" {
   assert.eq(b.captured(), "hello two\n");
 }
 
-test "capturedErr reads back what went to stderr" {
-  let sink = captureErr();
+test "captured reads back what went to stderr" {
+  let sink = stderr();
   let ctx = context { Stderr: sink };
   io.eprintln(ctx, "to stderr");
-  assert.eq(sink.capturedErr(), "to stderr\n");
+  assert.eq(sink.captured(), "to stderr\n");
 }
 
 test "stdout and stderr are separate streams" {
-  let out = captureOut();
-  let err = captureErr();
+  let out = stdout();
+  let err = stderr();
   let ctx = context { Stdout: out, Stderr: err };
   io.print(ctx, "O");
   io.eprint(ctx, "E");
   assert.eq(out.captured(), "O");
-  assert.eq(err.capturedErr(), "E");
+  assert.eq(err.captured(), "E");
 }
 
 test "a captured stream keeps a passing test quiet" {
-  let ctx = Hermetic();
+  let ctx = Defaults();
   greet(ctx, "quiet");
   io.eprintln(ctx, "quiet");
 }
 
 // -----------------------------------------------------------------------------
-// envOf
+// env
 // -----------------------------------------------------------------------------
 
-test "envOf answers the variables it was given" {
-  let ctx = context { Env: envOf([("HOME", "/root"), ("LANG", "C")], []) };
+test "env answers the variables it was given" {
+  let ctx = context { Env: env().variables([("HOME", "/root"), ("LANG", "C")]).arguments([]) };
   assert.eq(assert.some(env.get(ctx, "HOME")), "/root");
   assert.eq(assert.some(env.get(ctx, "LANG")), "C");
 }
 
-test "envOf reports an unset variable as None" {
-  let ctx = context { Env: envOf([("HOME", "/root")], []) };
+test "env reports an unset variable as None" {
+  let ctx = context { Env: env().variables([("HOME", "/root")]).arguments([]) };
   assert.none(env.get(ctx, "PATH"));
 }
 
-test "envOf answers the arguments it was given" {
-  let ctx = context { Env: envOf([], ["--verbose", "file.txt"]) };
+test "env answers the arguments it was given" {
+  let ctx = context { Env: env().variables([]).arguments(["--verbose", "file.txt"]) };
   assert.eq(env.args(ctx), ["--verbose", "file.txt"]);
 }
 
-test "envOf keeps arguments in order" {
-  let ctx = context { Env: envOf([], ["one", "two", "three"]) };
+test "env keeps arguments in order" {
+  let ctx = context { Env: env().variables([]).arguments(["one", "two", "three"]) };
   assert.eq(assert.some(env.args(ctx).first()), "one");
   assert.eq(assert.some(env.args(ctx).last()), "three");
 }
 
-test "Hermetic has no variables and no arguments" {
-  let ctx = Hermetic();
+test "a default environment has no variables and no arguments" {
+  let ctx = Defaults();
   assert.none(env.get(ctx, "HOME"));
   assert.eq(env.args(ctx), []);
 }
 
 // -----------------------------------------------------------------------------
-// clockAt
+// clock
 // -----------------------------------------------------------------------------
 
-test "clockAt starts at the instant it was given" {
-  let ctx = context { Clock: clockAt(1_000) };
+test "a clock starts at the instant it was given" {
+  let ctx = context { Clock: clock().at(1_000) };
   assert.eq(stamp(ctx).0, 1000);
 }
 
 test "a test clock does not move on its own" {
-  let ctx = context { Clock: clockAt(500) };
+  let ctx = context { Clock: clock().at(500) };
   let a = stamp(ctx);
   let b = stamp(ctx);
   let c = stamp(ctx);
@@ -699,36 +717,36 @@ test "a test clock does not move on its own" {
 }
 
 test "a test clock moves only when the test advances it" {
-  let clock = clockAt(500);
-  let ctx = context { Clock: clock };
+  let dial = clock().at(500);
+  let ctx = context { Clock: dial };
   let start = stamp(ctx);
   assert.eq(stamp(ctx).0, 500);
-  clock.advance(250);
+  dial.sleepMillis(250);
   assert.eq(stamp(ctx).0, 750);
   assert.eq(elapsed(ctx, start), 250);
 }
 
 test "advancing repeatedly accumulates" {
-  let clock = clockAt(0);
-  let ctx = context { Clock: clock };
-  clock.advance(1);
-  clock.advance(2);
-  clock.advance(3);
+  let dial = clock().at(0);
+  let ctx = context { Clock: dial };
+  dial.sleepMillis(1);
+  dial.sleepMillis(2);
+  dial.sleepMillis(3);
   assert.eq(stamp(ctx).0, 6);
 }
 
 test "advancing one clock does not move another" {
-  let a = clockAt(0);
-  let b = clockAt(0);
+  let a = clock().at(0);
+  let b = clock().at(0);
   let actx = context { Clock: a };
   let bctx = context { Clock: b };
-  a.advance(100);
+  a.sleepMillis(100);
   assert.eq(stamp(actx).0, 100);
   assert.eq(stamp(bctx).0, 0);
 }
 
 test "sleepMs advances a test clock too, without sleeping" {
-  let ctx = context { Clock: clockAt(500) };
+  let ctx = context { Clock: clock().at(500) };
   let start = stamp(ctx);
   time.sleepMs(ctx, 250);
   assert.eq(stamp(ctx).0, 750);
@@ -736,7 +754,7 @@ test "sleepMs advances a test clock too, without sleeping" {
 }
 
 test "the movement accumulates" {
-  let ctx = context { Clock: clockAt(0) };
+  let ctx = context { Clock: clock().at(0) };
   time.sleepMs(ctx, 1);
   time.sleepMs(ctx, 2);
   time.sleepMs(ctx, 3);
@@ -744,79 +762,79 @@ test "the movement accumulates" {
 }
 
 test "the test clock is deterministic across contexts" {
-  let a = context { Clock: clockAt(77) };
-  let b = context { Clock: clockAt(77) };
+  let a = context { Clock: clock().at(77) };
+  let b = context { Clock: clock().at(77) };
   assert.eq(stamp(a), stamp(b));
 }
 
 test "each context gets its own clock" {
-  let a = context { Clock: clockAt(0) };
-  let b = context { Clock: clockAt(0) };
+  let a = context { Clock: clock().at(0) };
+  let b = context { Clock: clock().at(0) };
   time.sleepMs(a, 100);
   assert.eq(stamp(a).0, 100);
   assert.eq(stamp(b).0, 0);
 }
 
-test "Hermetic's clock starts at zero" {
-  let ctx = Hermetic();
+test "a default clock starts at zero" {
+  let ctx = Defaults();
   assert.eq(stamp(ctx).0, 0);
 }
 
 // -----------------------------------------------------------------------------
-// randSeed
+// rand
 // -----------------------------------------------------------------------------
 
 test "the same seed gives the same first draw" {
-  let a = context { Rand: randSeed(7) };
-  let b = context { Rand: randSeed(7) };
+  let a = context { Rand: rand().seed(7) };
+  let b = context { Rand: rand().seed(7) };
   assert.eq(random.int(a, 0, 1000), random.int(b, 0, 1000));
 }
 
 test "the same seed gives the same sequence, not just the first draw" {
-  let a = context { Rand: randSeed(7) };
-  let b = context { Rand: randSeed(7) };
+  let a = context { Rand: rand().seed(7) };
+  let b = context { Rand: rand().seed(7) };
   assert.eq(random.int(a, 0, 1000), random.int(b, 0, 1000));
   assert.eq(random.int(a, 0, 1000), random.int(b, 0, 1000));
   assert.eq(random.int(a, 0, 1000), random.int(b, 0, 1000));
 }
 
 test "a seeded run reproduces as a whole" {
-  let a = context { Alloc: alloc(), Rand: randSeed(11) };
-  let b = context { Alloc: alloc(), Rand: randSeed(11) };
+  let a = context { Alloc: alloc(), Rand: rand().seed(11) };
+  let b = context { Alloc: alloc(), Rand: rand().seed(11) };
   let xs = [1, 2, 3, 4, 5].mapCtx(a, fn(c, _i) => random.int(c, 0, 100000));
   let ys = [1, 2, 3, 4, 5].mapCtx(b, fn(c, _i) => random.int(c, 0, 100000));
   assert.eq(xs, ys);
 }
 
 test "a different seed gives a different sequence" {
-  let a = context { Alloc: alloc(), Rand: randSeed(1) };
-  let b = context { Alloc: alloc(), Rand: randSeed(2) };
+  let a = context { Alloc: alloc(), Rand: rand().seed(1) };
+  let b = context { Alloc: alloc(), Rand: rand().seed(2) };
   let xs = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(a, fn(c, _i) => random.int(c, 0, 1000000));
   let ys = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(b, fn(c, _i) => random.int(c, 0, 1000000));
   assert.notEq(xs, ys);
 }
 
 test "a draw advances the seeded sequence" {
-  let ctx = context { Alloc: alloc(), Rand: randSeed(9) };
+  let ctx = context { Alloc: alloc(), Rand: rand().seed(9) };
   let xs = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(c, _i) => random.int(c, 0, 1000000));
   // Eight draws from a million: all-equal would mean the seed never advanced.
   assert.isTrue(xs.any(fn(x) => x != assert.some(xs.first())));
 }
 
 test "a seeded draw stays inside its range" {
-  let ctx = context { Alloc: alloc(), Rand: randSeed(3) };
+  let ctx = context { Alloc: alloc(), Rand: rand().seed(3) };
   let xs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].mapCtx(ctx, fn(c, _i) => random.int(c, 10, 20));
   assert.isTrue(xs.all(fn(x) => x >= 10 && x < 20));
 }
 
 test "the same seed gives the same floats" {
-  let a = context { Rand: randSeed(5) };
-  let b = context { Rand: randSeed(5) };
+  let a = context { Rand: rand().seed(5) };
+  let b = context { Rand: rand().seed(5) };
   assert.eq(random.float(a), random.float(b));
 }
 
 test "a seeded float is in [0, 1)" {
-  let ctx = context { Rand: randSeed(5) };
+  let ctx = context { Rand: rand().seed(5) };
   let x = random.float(ctx);
   assert.isTrue(x >= 0.0);
   assert.isTrue(x < 1.0);
@@ -827,20 +845,20 @@ test "a seeded float is in [0, 1)" {
 // -----------------------------------------------------------------------------
 
 test "stdin reads the lines it was given, then end-of-input" {
-  let ctx = context { Stdin: stdin(["first", "second"]) };
+  let ctx = context { Stdin: stdin().lines(["first", "second"]) };
   assert.eq(assert.some(io.readLine(ctx)), "first");
   assert.eq(assert.some(io.readLine(ctx)), "second");
   assert.none(io.readLine(ctx));
 }
 
 test "an empty stdin is immediately at end-of-input" {
-  let ctx = context { Stdin: stdin([]) };
+  let ctx = context { Stdin: stdin().lines([]) };
   assert.none(io.readLine(ctx));
 }
 
 test "each context gets its own stdin cursor" {
-  let a = context { Stdin: stdin(["x"]) };
-  let b = context { Stdin: stdin(["x"]) };
+  let a = context { Stdin: stdin().lines(["x"]) };
+  let b = context { Stdin: stdin().lines(["x"]) };
   assert.eq(assert.some(io.readLine(a)), "x");
   assert.none(io.readLine(a));
   assert.eq(assert.some(io.readLine(b)), "x");
@@ -853,45 +871,45 @@ test "each context gets its own stdin cursor" {
 // request/response protocol over a pipe needs, and the two are not mixed.
 
 test "readBytes takes exactly what it asks for" {
-  let ctx = context { Stdin: stdinBytes([1.wrapToU8(), 2.wrapToU8(), 3.wrapToU8()]) };
+  let ctx = context { Stdin: stdin().bytes([1.wrapToU8(), 2.wrapToU8(), 3.wrapToU8()]) };
   assert.eq(assert.some(io.readBytes(ctx, 2)), [1.wrapToU8(), 2.wrapToU8()]);
   assert.eq(assert.some(io.readBytes(ctx, 2)), [3.wrapToU8()]);
   assert.none(io.readBytes(ctx, 2));
 }
 
 test "an empty byte stdin is immediately at end-of-input" {
-  let ctx = context { Stdin: stdinBytes([]) };
+  let ctx = context { Stdin: stdin().bytes([]) };
   assert.none(io.readBytes(ctx, 1));
 }
 
 test "writeBytes writes the octets through, and they are the text they spell" {
-  let out = captureOut();
+  let out = stdout();
   let ctx = context { Stdout: out };
   let _ = io.writeBytes(ctx, [104.wrapToU8(), 105.wrapToU8()]);
   assert.eq(out.captured(), "hi");
 }
 
 // -----------------------------------------------------------------------------
-// noNet
+// net
 // -----------------------------------------------------------------------------
 
-test "noNet refuses a GET" {
-  let ctx = context { Alloc: alloc(), Net: noNet() };
+test "a fresh network refuses a GET" {
+  let ctx = context { Alloc: alloc(), Net: net() };
   assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
 }
 
-test "noNet refuses a POST" {
-  let ctx = context { Alloc: alloc(), Net: noNet() };
+test "a fresh network refuses a POST" {
+  let ctx = context { Alloc: alloc(), Net: net() };
   assert.eq(assert.err(http.post(ctx, "http://example.com", "body")), .Refused);
 }
 
-test "noNet refuses a raw fetch through the effect method" {
-  let ctx = context { Alloc: alloc(), Net: noNet() };
+test "a fresh network refuses a raw fetch through the effect method" {
+  let ctx = context { Alloc: alloc(), Net: net() };
   assert.eq(assert.err(fetchBody(ctx, "http://example.com")), .Refused);
 }
 
-test "Hermetic refuses the network" {
-  let ctx = Hermetic();
+test "a default network refuses" {
+  let ctx = Defaults();
   assert.eq(
     http.errorText(assert.err(http.get(ctx, "http://x"))),
     "the connection was refused",
@@ -913,7 +931,7 @@ test "MY readFile decides what is missing" {
 }
 
 test "MY writeFile decides what a write does" {
-  // The runner's `files()` would have accepted this write, and `readOnly`
+  // The runner's `fs()` would have accepted this write, and `readOnly()`
   // would have failed it with `.ReadOnly`; mine fails it with a third error,
   // so the error names which implementation ran.
   let ctx = Mine();
@@ -967,7 +985,7 @@ test "one binding may be mine and the rest the runner's" {
   let ctx = context {
     Alloc: alloc(),
     Fs: StaticFs { only: "k", body: "v" },
-    Clock: clockAt(3),
+    Clock: clock().at(3),
   };
   assert.eq(assert.ok(loadText(ctx, "k")), "v");
   assert.eq(time.now(ctx).0, 3);
@@ -981,19 +999,9 @@ test "a fake is an ordinary value, so two of them are independent" {
   assert.eq(assert.ok(loadText(b, "b")), "B");
 }
 
-test "my Fs may be wrapped by the runner's readOnly attenuator" {
-  let ctx = context {
-    Alloc: alloc(),
-    Fs: readOnly(StaticFs { only: "k", body: "v" }),
-  };
-  assert.eq(assert.ok(loadText(ctx, "k")), "v");
-  // ReadOnly's own error, not mine: the wrapper never reaches my writeFile.
-  assert.eq(assert.err(saveText(ctx, "k", "w")), .ReadOnly);
-}
-
 test "a confined callee receives the same value" {
   // `stamp` names only Clock, so it can do nothing else with this context.
-  let ctx = context { Clock: FrozenClock { at: 9 }, Fs: files([]) };
+  let ctx = context { Clock: FrozenClock { at: 9 }, Fs: fs().files([]) };
   assert.eq(stamp(ctx).0, 9);
   assert.isFalse(fs.exists(ctx, "anything"));
 }
@@ -1003,16 +1011,16 @@ test "a confined callee receives the same value" {
 // -----------------------------------------------------------------------------
 
 test "my own attenuator forwards the reads it chose to forward" {
-  let ctx = context { Alloc: alloc(), Fs: guarded(files([("a", "A")])) };
+  let ctx = context { Alloc: alloc(), Fs: guarded(fs().files([("a", "A")])) };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.isTrue(fs.exists(ctx, "a"));
   assert.isFalse(fs.exists(ctx, "b"));
 }
 
 test "my own attenuator refuses the writes it chose to refuse" {
-  // The wrapped `files()` would have accepted this write; the wrapper never
+  // The wrapped filesystem would have accepted this write; the wrapper never
   // reaches it, and the error is the wrapper's own.
-  let ctx = context { Alloc: alloc(), Fs: guarded(files([("a", "A")])) };
+  let ctx = context { Alloc: alloc(), Fs: guarded(fs().files([("a", "A")])) };
   assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
 }
@@ -1025,7 +1033,7 @@ test "my own attenuator may wrap my own implementation" {
 }
 
 test "my own attenuator may wrap the runner's attenuator" {
-  let ctx = context { Alloc: alloc(), Fs: guarded(readOnly(files([("a", "A")]))) };
+  let ctx = context { Alloc: alloc(), Fs: guarded(fs().files([("a", "A")]).readOnly()) };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   // The outer wrapper decides, so it is mine and not `.ReadOnly`.
   assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
@@ -1192,10 +1200,10 @@ test "a context binding two effects reaches both through bounds" {
 // none of these do.
 
 test "a step reads an effect out of the context it is handed" {
-  // The reduced repro. `clockAt(5)` is stateful, so the answer says which value
+  // The reduced repro. `clock().at(5)` is stateful, so the answer says which value
   // arrived and not only how wide it was: a step handed the scheduler read `0`.
   let runner = SerialTasks { label: "s", bias: 0 };
-  let ctx = context { Alloc: alloc(), Clock: clockAt(5), Tasks: runner };
+  let ctx = context { Alloc: alloc(), Clock: clock().at(5), Tasks: runner };
   let out = tasks.parallel(ctx, [7, 9], fn(c, i, x) => c.nowMillis() + x);
   assert.eq(out, [12, 14]);
 }
@@ -1205,7 +1213,7 @@ test "a step uses two effects from its context in one expression" {
   // and reads the second: a step handed one effect's implementation could
   // satisfy neither, and a step handed a context missing one would not compile.
   let runner = SerialTasks { label: "s", bias: 0 };
-  let ctx = context { Alloc: alloc(), Clock: clockAt(5), Tasks: runner };
+  let ctx = context { Alloc: alloc(), Clock: clock().at(5), Tasks: runner };
   let out = tasks.parallel(ctx, [7, 9], fn(c, i, x) => str.format(c, "${c.nowMillis()}:${i}:${x}"));
   assert.eq(out, ["5:0:7", "5:1:9"]);
 }
@@ -1216,7 +1224,7 @@ test "a nested parallel is made with the context the outer step was handed" {
   // "the full context" means, since a value that only looked right at the first
   // boundary would lose its clock at the second.
   let runner = SerialTasks { label: "s", bias: 0 };
-  let ctx = context { Alloc: alloc(), Clock: clockAt(5), Tasks: runner };
+  let ctx = context { Alloc: alloc(), Clock: clock().at(5), Tasks: runner };
   let out = tasks.parallel(ctx, [7], fn(c, i, x) =>
     tasks.parallel(c, [x, x], fn(d, j, y) => d.nowMillis() + y + j)
       .fold(fn(a, m) => a + m, 0));
@@ -1238,7 +1246,7 @@ test "an ordinary Buri implementation hands its steps the context" {
   // point: `parallel` is implementable by anyone (SPEC 10.9), rather than only
   // by the compiler's trampoline.
   let runner = SerialTasks { label: "s", bias: 0 };
-  let ctx = context { Clock: clockAt(11), Tasks: runner };
+  let ctx = context { Clock: clock().at(11), Tasks: runner };
   let out = ctx.parallel(ctx, [1, 2], fn(c, i, item) => c.nowMillis() + i * 10 + item);
   assert.eq(out[0] ?? 0, 12);
   assert.eq(out[1] ?? 0, 23);
@@ -1251,7 +1259,7 @@ test "an ordinary Buri implementation hands its steps the context" {
 //
 // `<C: Alloc>` is an ordinary bound, so the argument at `C` need not be a
 // `context { … }` record — anything that implements `Alloc` satisfies it, and
-// `core/testing/context`'s `alloc()` is a `struct TestAlloc(I64)` that does.
+// `core/host/testing`'s `alloc()` is a `struct TestAlloc(I64)` that does.
 // Every block above passes a context, and every one of these deliberately does
 // not.
 //
@@ -1298,7 +1306,7 @@ test "one value satisfying two effects discharges a two-effect bound" {
   // Both bindings are live, and neither is asked for at the *call*: `ticking`
   // demands nothing, and what needs `Alloc` and `Clock` is `Ticking`'s own two
   // `impl`s, which the monomorphiser reaches and the checker does not.
-  let both = ticking(context { Alloc: alloc(), Clock: clockAt(5) });
+  let both = ticking(context { Alloc: alloc(), Clock: clock().at(5) });
   assert.eq(stampedWith(both, [1]), [1, 5]);
 }
 

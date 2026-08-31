@@ -181,7 +181,7 @@ pub enum Ret {
     /// no fields.
     ///
     /// The out-pointer is **omitted where `T` is zero-sized**, which is
-    /// `MemFs.writeFile`'s `Result<(), IoError>`. A parameter for a value that
+    /// `TestFs.writeFile`'s `Result<(), IoError>`. A parameter for a value that
     /// occupies no bytes is one the two sides can disagree about for free, and
     /// `Ret::Out` already drops it for the same reason.
     Res,
@@ -410,8 +410,8 @@ pub const ENTRIES: &[Entry] = &[
     // `allocate(self, bytes) -> Region`. `self` is `HostAlloc`, an empty
     // struct, so it flattens to nothing and the C call is the one `i64`; the
     // result is `struct Region(I64)`, whose single leaf is what makes
-    // [`Ret::Scalar`] right where `testing_context.captureOut`'s
-    // `struct CaptureOut(I64)` needs [`Ret::Out`] — the difference is the *C*
+    // [`Ret::Scalar`] right where `host_testing.stdout`'s
+    // `struct TestStdout(I64)` needs [`Ret::Out`] — the difference is the *C*
     // signature, and `buri_rt_host_alloc_allocate` returns an `i64` rather
     // than a struct.
     //
@@ -467,177 +467,29 @@ pub const ENTRIES: &[Entry] = &[
     e("alloc.arenaRelease", "buri_rt_alloc_arena_release", Ret::Scalar),
     e("alloc.arenaCount", "buri_rt_alloc_arena_count", Ret::Scalar),
     e("alloc.arenaTotal", "buri_rt_alloc_arena_total", Ret::Scalar),
-    // -- core/testing/context's stateful half ---------------------------------
+    // -- core/host/testing's stateful half -----------------------------------
     //
+    // `core/host`'s names for a test source, over one handle table.
     // `cli/runtime/testing.rs`'s header is the argument for these being in the
     // archive rather than open-coded: each names a slot in one mutable table,
     // which is `runtime.js`'s `$t.h` written for a language that has statics.
     //
     // Every **constructor** is `Ret::Out` and not `Ret::Scalar`, and that is
-    // the one non-obvious row here. `struct CaptureOut(I64)` is a struct, and
+    // the one non-obvious row here. `struct TestStdout(I64)` is a struct, and
     // `middle/layout.rs` gives every struct `Repr::Aggregate` however few
     // fields it has — so the result is an aggregate and §2 rule 2 puts it
     // through an out-pointer. Declaring it as returning one word would agree
     // with the archive by accident on both supported targets and be an ABI
     // disagreement nothing diagnoses.
     //
-    // `alloc` and `TestAlloc.allocate` are **not** here: they read no state and
-    // both backends open-code them (`emit.rs`).
+    // `TestFs`'s eleven methods answer a `Result<T, IoError>`, which was the
+    // shape this table had no `Ret` for; §2.1 is that shape and [`Ret::Res`] is
+    // the row for it. `host.HostFs.readFile` is still absent, and for a
+    // different reason: the archive has a body for it and this table has no
+    // row, which is a gap rather than a shape.
     //
-    // `MemFs`'s eleven **are** here now. Most answer a `Result<T, IoError>`,
-    // which was the shape this table had no `Ret` for and the reason the
-    // original four were held back; §2.1 is that shape and [`Ret::Res`] is the
-    // row for it. `host.HostFs.readFile` is still absent, and for a different
-    // reason: the archive has a body for it and this table has no row, which is
-    // a gap rather than a shape.
-    e("testing_context.captureOut", "buri_rt_testing_context_capture_out", Ret::Out),
-    e("testing_context.captureErr", "buri_rt_testing_context_capture_err", Ret::Out),
-    e("testing_context.CaptureOut.print", "buri_rt_testing_context_capture_out_print", Ret::Void),
-    e(
-        "testing_context.CaptureOut.println",
-        "buri_rt_testing_context_capture_out_println",
-        Ret::Void,
-    ),
-    e(
-        "testing_context.CaptureOut.writeBytes",
-        "buri_rt_testing_context_capture_out_write_bytes",
-        Ret::Void,
-    ),
-    e(
-        "testing_context.CaptureOut.captured",
-        "buri_rt_testing_context_capture_out_captured",
-        Ret::Out,
-    ),
-    e("testing_context.CaptureErr.eprint", "buri_rt_testing_context_capture_err_eprint", Ret::Void),
-    e(
-        "testing_context.CaptureErr.eprintln",
-        "buri_rt_testing_context_capture_err_eprintln",
-        Ret::Void,
-    ),
-    e(
-        "testing_context.CaptureErr.capturedErr",
-        "buri_rt_testing_context_capture_err_captured_err",
-        Ret::Out,
-    ),
-    e("testing_context.stdin", "buri_rt_testing_context_stdin", Ret::Out),
-    e("testing_context.stdinBytes", "buri_rt_testing_context_stdin_bytes", Ret::Out),
-    e(
-        "testing_context.TestStdin.readLine",
-        "buri_rt_testing_context_test_stdin_read_line",
-        Ret::Opt,
-    ),
-    e(
-        "testing_context.TestStdin.readBytes",
-        "buri_rt_testing_context_test_stdin_read_bytes",
-        Ret::Opt,
-    ),
-    e("testing_context.data", "buri_rt_testing_context_data", Ret::Out),
-    e("testing_context.files", "buri_rt_testing_context_files", Ret::Out),
-    e("testing_context.filesBytes", "buri_rt_testing_context_files_bytes", Ret::Out),
-    e(
-        "testing_context.MemFs.readFile",
-        "buri_rt_testing_context_mem_fs_read_file",
-        Ret::Res,
-    ),
-    // `Result<(), IoError>` — `Ret::Res` with no out-pointer, because `()`
-    // occupies no bytes.
-    e(
-        "testing_context.MemFs.writeFile",
-        "buri_rt_testing_context_mem_fs_write_file",
-        Ret::Res,
-    ),
-    e(
-        "testing_context.MemFs.fileExists",
-        "buri_rt_testing_context_mem_fs_file_exists",
-        Ret::Scalar,
-    ),
-    e(
-        "testing_context.MemFs.readDir",
-        "buri_rt_testing_context_mem_fs_read_dir",
-        Ret::Res,
-    ),
-    // The seven `core/fs` grew for issue #1. `Extra::None` at the three taking
-    // a `[U8]`, for `core/bytes`' reason: the element type is fixed at `U8`, so
-    // there is no `T` for rule 4's stride-and-glue pair to describe.
-    e(
-        "testing_context.MemFs.readFileBytes",
-        "buri_rt_testing_context_mem_fs_read_file_bytes",
-        Ret::Res,
-    ),
-    e(
-        "testing_context.MemFs.writeFileBytes",
-        "buri_rt_testing_context_mem_fs_write_file_bytes",
-        Ret::Res,
-    ),
-    e(
-        "testing_context.MemFs.appendFile",
-        "buri_rt_testing_context_mem_fs_append_file",
-        Ret::Res,
-    ),
-    e(
-        "testing_context.MemFs.renameFile",
-        "buri_rt_testing_context_mem_fs_rename_file",
-        Ret::Res,
-    ),
-    e(
-        "testing_context.MemFs.removeFile",
-        "buri_rt_testing_context_mem_fs_remove_file",
-        Ret::Res,
-    ),
-    e(
-        "testing_context.MemFs.makeDir",
-        "buri_rt_testing_context_mem_fs_make_dir",
-        Ret::Res,
-    ),
-    e(
-        "testing_context.MemFs.syncFile",
-        "buri_rt_testing_context_mem_fs_sync_file",
-        Ret::Res,
-    ),
-    e("testing_context.clockAt", "buri_rt_testing_context_clock_at", Ret::Out),
-    e(
-        "testing_context.TestClock.nowMillis",
-        "buri_rt_testing_context_test_clock_now_millis",
-        Ret::Scalar,
-    ),
-    e(
-        "testing_context.TestClock.sleepMillis",
-        "buri_rt_testing_context_test_clock_sleep_millis",
-        Ret::Void,
-    ),
-    e("testing_context.TestClock.advance", "buri_rt_testing_context_test_clock_advance", Ret::Void),
-    e("testing_context.randSeed", "buri_rt_testing_context_rand_seed", Ret::Out),
-    e(
-        "testing_context.TestRand.nextInt",
-        "buri_rt_testing_context_test_rand_next_int",
-        Ret::Scalar,
-    ),
-    e(
-        "testing_context.TestRand.nextFloat",
-        "buri_rt_testing_context_test_rand_next_float",
-        Ret::Scalar,
-    ),
-    e("testing_context.envOf", "buri_rt_testing_context_env_of", Ret::Out),
-    e(
-        "testing_context.TestEnv.variable",
-        "buri_rt_testing_context_test_env_variable",
-        Ret::Opt,
-    ),
-    e(
-        "testing_context.TestEnv.args",
-        "buri_rt_testing_context_test_env_args",
-        Ret::Out,
-    ),
-    // -- core/host/testing --------------------------------------------------
-    //
-    // `core/host`'s names for a test source, over the same handle table. The
-    // shapes are `testing_context`'s shapes: the difference between the two
-    // modules is in the *Buri* surface — a constructor takes no arguments and a
-    // builder answers a new handle — and a shape column cannot see that.
-    //
-    // `alloc` and `TestAlloc.allocate` are open-coded, as
-    // `testing_context`'s are, and are named in
-    // [`the_unimplemented_surface_is_not_claimed`] for the same reason.
+    // `alloc` and `TestAlloc.allocate` are open-coded and are named in
+    // [`the_unimplemented_surface_is_not_claimed`].
     //
     // `proc` and `TestProc.exitWith` are absent and are not named there either,
     // for `TestNet.fetch`'s reason rather than the allocator's: both are Buri
@@ -869,7 +721,7 @@ mod tests {
             "json.decode",
             // `cli/runtime/host.rs` has a body for every one of these, and
             // this backend still has no row: the gap is the row, not the
-            // body. Not a *shape* either — `MemFs`'s are the same
+            // body. Not a *shape* either — `TestFs`'s are the same
             // `Result<T, IoError>` and are in the table above — which is the
             // distinction this list exists to keep.
             "host.HostFs.readFile",
@@ -909,11 +761,8 @@ mod tests {
             // gap: `fs()` is a Buri body too now, because a `TestFs` is a handle
             // and a plan. `newFs` is the row that mints the handle.
             // Open-coded, and named here so that "it has no symbol" and "the
-            // backend cannot compile it" stay two different statements.
-            "testing_context.alloc",
-            "testing_context.TestAlloc.allocate",
-            // `core/host/testing`'s allocator is the same two instructions and
-            // is open-coded the same way.
+            // backend cannot compile it" stay two different statements: the
+            // allocator is two instructions on both native backends.
             "host_testing.alloc",
             "host_testing.TestAlloc.allocate",
             // Buri bodies, for the reason two paragraphs up.
@@ -969,7 +818,6 @@ mod tests {
         ("list", "core/list/lib.buri"),
         ("math", "core/math/lib.buri"),
         ("str", "core/str/lib.buri"),
-        ("testing_context", "core/testing/context/lib.buri"),
     ];
 
     /// Every `fn <name>` in `source`, answered as the index of its `ctx`
@@ -1081,7 +929,7 @@ mod tests {
             checked += 1;
         }
         // A scan that matched nothing would pass every assertion above.
-        assert!(checked > 180, "only {checked} rows were read against a declaration");
+        assert!(checked > 140, "only {checked} rows were read against a declaration");
         assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 29);
     }
 

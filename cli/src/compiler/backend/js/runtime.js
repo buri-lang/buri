@@ -3448,7 +3448,7 @@ function $ui_testing_Rendered_identity(self, name, at) {
 
 // --- The test platform ------------------------------------------------------------
 //
-// The structs carry an I64 handle rather than their state, because Buri has no
+// The doubles carry an I64 handle rather than their state, because Buri has no
 // mutation. Each call to a constructor allocates a fresh one, which is why a
 // named context is called rather than referred to.
 
@@ -3475,258 +3475,11 @@ function $slot(x) {
   return $t.h[Number(x[0])];
 }
 
-function $testing_context_alloc() {
-  return $handle({});
-}
-
-function $testing_context_TestAlloc_allocate(self, n) {
-  return [Number(n)];
-}
-
-function $testing_context_captureOut() {
-  return $handle({ text: "" });
-}
-
-function $testing_context_captureErr() {
-  return $handle({ text: "" });
-}
-
-function $testing_context_CaptureOut_print(self, t) {
-  $slot(self).text += t;
-  return 0;
-}
-
-function $testing_context_CaptureOut_println(self, t) {
-  $slot(self).text += t + "\n";
-  return 0;
-}
-
-function $testing_context_CaptureErr_eprint(self, t) {
-  $slot(self).text += t;
-  return 0;
-}
-
-function $testing_context_CaptureErr_eprintln(self, t) {
-  $slot(self).text += t + "\n";
-  return 0;
-}
-
-function $testing_context_CaptureOut_captured(self) {
-  return $slot(self).text;
-}
-
-function $testing_context_CaptureErr_capturedErr(self) {
-  return $slot(self).text;
-}
-
-function $testing_context_stdin(lines) {
-  return $handle({ lines: lines.slice(), at: 0 });
-}
-
-function $testing_context_TestStdin_readLine(self) {
-  const s = $slot(self);
-  if (s.bytes) return undefined;
-  return s.at < s.lines.length ? $some(s.lines[s.at++]) : undefined;
-}
-
-function $testing_context_stdinBytes(b) {
-  return $handle({ lines: [], at: 0, bytes: b.slice() });
-}
-
-function $testing_context_TestStdin_readBytes(self, want) {
-  const s = $slot(self);
-  const n = Number(want);
-  const src = s.bytes || [];
-  if (s.at >= src.length || n <= 0) return undefined;
-  const out = src.slice(s.at, s.at + n);
-  s.at += out.length;
-  return out;
-}
-
-// The captured stream is text, so octets are captured as the text they spell:
-// `captured` answers one question rather than two.
-function $testing_context_CaptureOut_writeBytes(self, b) {
-  const r = $bytes_fromUtf8(null, b);
-  $slot(self).text += r[0] === 0 ? r[1] : String.fromCharCode.apply(null, b);
-  return 0;
-}
-
-// In-memory, rooted at the package directory, and empty.
-//
-// It used to be seeded from the suite's `test { data: [...] }`, which the
-// runner read off disk and spliced in beside this file — so `data()` answered
-// one thing here and another in a linked test binary, which has no runner. The
-// field is retired (`retired-test-data`) and `files([...])` is where a suite
-// says what its filesystem holds, in text both backends read the same way.
-//
-// A slot holds octets per path and the directories `makeDir` has been asked
-// for: a flat map has no empty directory otherwise, and `readDir` after
-// `makeDir` has to see one.
-function $testing_context_data() {
-  return $handle({ files: {}, dirs: [] });
-}
-
-function $testing_context_files(entries) {
-  const files = {};
-  for (const e of entries) files[e[0]] = $bytes_toUtf8(null, e[1]);
-  return $handle({ files, dirs: [] });
-}
-
-function $testing_context_filesBytes(entries) {
-  const files = {};
-  for (const e of entries) files[e[0]] = e[1].slice();
-  return $handle({ files, dirs: [] });
-}
-
-function $testing_context_MemFs_readFile(self, p) {
-  const f = $slot(self).files;
-  return p in f ? $ok($utf8Lossy(f[p])) : $err([0]);
-}
-
-function $testing_context_MemFs_writeFile(self, p, b) {
-  $slot(self).files[p] = $bytes_toUtf8(null, b);
-  return $ok(0);
-}
-
-function $testing_context_MemFs_fileExists(self, p) {
-  const s = $slot(self);
-  return p in s.files || s.dirs.includes(p);
-}
-
-function $testing_context_MemFs_readDir(self, p) {
-  // A directory that holds nothing is still not an error; only a path that
-  // names nothing at all is.
-  const prefix = p === "" || p === "." ? "" : p.replace(/\/$/, "") + "/";
-  const s = $slot(self);
-  const out = [];
-  for (const k of Object.keys(s.files).concat(s.dirs)) {
-    if (k.startsWith(prefix)) {
-      const rest = k.slice(prefix.length);
-      if (rest && !out.includes(rest.split("/")[0])) out.push(rest.split("/")[0]);
-    }
-  }
-  return $ok(out.sort());
-}
-
-function $testing_context_MemFs_readFileBytes(self, p) {
-  const f = $slot(self).files;
-  return p in f ? $ok(f[p].slice()) : $err([0]);
-}
-
-function $testing_context_MemFs_writeFileBytes(self, p, b) {
-  $slot(self).files[p] = b.slice();
-  return $ok(0);
-}
-
-function $testing_context_MemFs_appendFile(self, p, b) {
-  const f = $slot(self).files;
-  f[p] = (p in f ? f[p] : []).concat(b);
-  return $ok(0);
-}
-
-function $testing_context_MemFs_renameFile(self, from, to) {
-  const f = $slot(self).files;
-  if (!(from in f)) return $err([0]);
-  f[to] = f[from];
-  delete f[from];
-  return $ok(0);
-}
-
-function $testing_context_MemFs_removeFile(self, p) {
-  const f = $slot(self).files;
-  if (!(p in f)) return $err([0]);
-  delete f[p];
-  return $ok(0);
-}
-
-// Parents included, an existing directory is `.Ok`, and a path already naming
-// a file is `.AlreadyExists` — the three answers `mkdir -p` gives.
-function $testing_context_MemFs_makeDir(self, p) {
-  const s = $slot(self);
-  const clean = p.replace(/\/+$/, "");
-  if (clean === "" || clean === ".") return $ok(0);
-  if (clean in s.files) return $err([3]);
-  const parts = clean.split("/");
-  for (let i = 0; i < parts.length; i++) {
-    const at = parts.slice(0, i + 1).join("/");
-    if (at !== "" && !s.dirs.includes(at)) s.dirs.push(at);
-  }
-  return $ok(0);
-}
-
-// Nothing to flush, so this answers whether there is anything to have flushed.
-function $testing_context_MemFs_syncFile(self, p) {
-  const s = $slot(self);
-  const clean = p.replace(/\/+$/, "");
-  if (clean === "" || clean === ".") return $ok(0);
-  return p in s.files || s.dirs.includes(clean) ? $ok(0) : $err([0]);
-}
-
-function $testing_context_clockAt(ms) {
-  // Millis in and millis out are both `I64`, so this one counts in `BigInt`.
-  return $handle({ now: ms });
-}
-
-function $testing_context_TestClock_nowMillis(self) {
-  return $slot(self).now;
-}
-
-function $testing_context_TestClock_sleepMillis(self, ms) {
-  $slot(self).now += ms;
-  return 0;
-}
-
-function $testing_context_TestClock_advance(self, ms) {
-  $slot(self).now += ms;
-  return 0;
-}
-
-// Seeded, so a failure reproduces.
-function $testing_context_randSeed(seed) {
-  return $handle({ s: Number(BigInt.asUintN(32, seed)) || 1 });
-}
-
-function $nextRand(s) {
-  // xorshift32, which is enough for a test fixture and is exactly
-  // reproducible across engines.
-  let x = s.s;
-  x = (x ^ (x << 13)) >>> 0;
-  x = (x ^ (x >>> 17)) >>> 0;
-  x = (x ^ (x << 5)) >>> 0;
-  s.s = x;
-  return x;
-}
-
-function $testing_context_TestRand_nextInt(self, lo, hi) {
-  if (hi <= lo) $abort("random range is empty");
-  return lo + (BigInt($nextRand($slot(self))) % (hi - lo));
-}
-
-function $testing_context_TestRand_nextFloat(self) {
-  return $nextRand($slot(self)) / 4294967296;
-}
-
-function $testing_context_envOf(vars, args) {
-  const v = {};
-  for (const e of vars) v[e[0]] = e[1];
-  return $handle({ vars: v, args: args.slice() });
-}
-
-function $testing_context_TestEnv_variable(self, name) {
-  const v = $slot(self).vars;
-  return name in v ? $some(v[name]) : undefined;
-}
-
-function $testing_context_TestEnv_args(self) {
-  return $slot(self).args.slice();
-}
-
 // --- core/host/testing --------------------------------------------------------------
 //
-// `core/host`'s names, called rather than referred to, over the same `$t.h`
-// table: one handle store, because two would be two allocators for one array
-// and no program can tell the two families of handle apart anyway — the Buri
-// type of the value carrying a handle says which slot shape made it.
+// `core/host`'s names, called rather than referred to, over the `$t.h` table:
+// one handle store, and the Buri type of the value carrying a handle says which
+// slot shape made it.
 //
 // Configuration answers a *new* handle rather than editing the one it was
 // called on, so `clock()` and `clock().at(1000)` are two clocks and a test
@@ -3764,7 +3517,7 @@ function $host_testing_TestStdout_println(self, t) {
 }
 
 // Captured as the text the octets spell, so `captured` answers one question
-// rather than two — `$testing_context_CaptureOut_writeBytes` exactly.
+// rather than two, which is what `cli/runtime/testing.rs` writes as well.
 function $host_testing_TestStdout_writeBytes(self, b) {
   const r = $bytes_fromUtf8(null, b);
   $slot(self).text += r[0] === 0 ? r[1] : String.fromCharCode.apply(null, b);
@@ -3836,13 +3589,12 @@ function $host_testing_TestStdin_calls(self) {
 
 // A `TestFs` handle is a *view*: the files and directories it reads and writes,
 // and whether writes through this view are refused. `readOnly` answers a second
-// view over the *same* two objects, which is what folds `ReadOnly<C>` into a
-// method without turning it into a copy — the wrapper holds the inner value, so
-// a read through it sees whatever the filesystem holds now.
+// view over the *same* two objects, which is what makes `readOnly` a method
+// without turning it into a copy — an attenuating view holds the inner
+// filesystem, so a read through it sees whatever that holds now.
 //
 // The slot holds octets per path and the directories `makeDir` has been asked
-// for, exactly as `$testing_context_data`'s does: a flat map has no empty
-// directory otherwise. `plan` names the fault plan this view fails through, or
+// for, because a flat map has no empty directory otherwise. `plan` names the fault plan this view fails through, or
 // `-1` where nothing has called `faults`; it travels with a builder exactly as
 // `ro` does.
 //
@@ -4471,8 +4223,20 @@ function $host_testing_TestClock_sleepMillis(self, ms) {
   return 0;
 }
 
-// The same xorshift32 `$nextRand` steps, so a seeded sequence is the *same*
-// sequence here, in `core/testing/context`, and in `cli/runtime/testing.rs`.
+// The same xorshift32 steps as `cli/runtime/testing.rs`'s `next`, so a seeded
+// sequence is the *same* sequence on both backends and not merely a
+// reproducible one on each.
+function $nextRand(s) {
+  // xorshift32, which is enough for a test fixture and is exactly
+  // reproducible across engines.
+  let x = s.s;
+  x = (x ^ (x << 13)) >>> 0;
+  x = (x ^ (x >>> 17)) >>> 0;
+  x = (x ^ (x << 5)) >>> 0;
+  s.s = x;
+  return x;
+}
+
 function $host_testing_rand() {
   return $handle({ s: 1 });
 }
