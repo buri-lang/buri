@@ -55,7 +55,10 @@ Every heap allocation has a **16-byte header immediately before the payload**:
   ptr -  8   u64  cap    bit 63: shared — every block of a program that can
                                  reach a task boundary, and no block of one
                                  that cannot (§2.1)
-                         bits 0..62: usable payload bytes
+                         bit 62: arena — served out of a `core/alloc::scoped`
+                                 arena, so not the platform allocator's to
+                                 give back (§2.2)
+                         bits 0..61: usable payload bytes
   ptr        ...  payload
 ```
 
@@ -129,6 +132,26 @@ across a move rather than clearing it, so growing a block cannot silently
 un-share it, and the LLVM `str.concat` probe reads it a **second** time for a
 different question — a marked block is never unique, so the in-place arm is not
 taken on one (MEMORY.md §5.1).
+
+### 2.2 Bit 62 of `cap` is the arena bit
+
+Set means *this block was served out of a `core/alloc::scoped` arena* (MEMORY.md
+§7.2.1). It is the **runtime's alone**: nothing a backend emits tests it, and
+exactly two functions read it — `buri_rt_free`, which does the accounting and
+then returns rather than calling `dealloc` because the pages go back in one
+`munmap` when the scope ends, and `buri_rt_realloc`, which grows such a block by
+allocating a new one because a bump allocator cannot grow what it handed out.
+
+It is declared in `middle::layout` anyway, as `CAP_ARENA_FLAG`, for one reason:
+`CAP_MASK` is declared there and every reader of a `cap` word in emitted code
+masks with it. Putting the bit where the mask is means an element count cannot
+pick it up and the bit cannot be spent twice.
+
+**Why a header bit and not a side table.** "Whose is this block" has to be
+answered on the free path, which is the hottest cold path there is, and a word
+that is already loaded answers it for nothing. A side table would put a lookup
+in front of every free in the process to serve the scopes. A capacity that
+reached 2^62 bytes would collide with it, which is four exabytes in one value.
 
 ## 3. `Str`
 
@@ -477,17 +500,26 @@ know the capture layout, and there is no type through which to tell it.
 ```
 env - 16   the ordinary 16-byte heap header (§2)
 env +  0   u64  drop_glue   the release function for this environment's record
-env +  8   ...  the captured locals, at their record layout
+env +  8   u64  copy_glue   the deep-copy function for the same record
+env + 16   ...  the captured locals, at their record layout
 ```
 
 `Ty::Fn` says what a function takes and answers, and nothing about what it
-captured, so `decref` of a closure has no type from which to derive the function
-that releases the environment's contents. One universal glue reads word 0 and
-calls it on `env + 8`; the per-type release function is generated the same way
-every other drop glue is, from `middle::layout`. Eight bytes per closure, against
-a closure whose captures could not be freed. The rejected alternative — a glue
-pointer beside `code` in the closure value — costs the same eight bytes in a
-value that is copied far more often than the block is allocated.
+captured, so **neither** of the two operations a generic path performs on an
+environment can be derived from the type at the site that performs it. `decref`
+of a closure has no type from which to derive the release; `core/alloc::copyOut`
+has none from which to derive the copy (MEMORY.md §7.2.1). One universal glue
+reads word 0 and calls it on `env + 16`, a second reads word 1 and does the
+same, and both per-type functions are generated the way every other glue is,
+from `middle::layout`. Sixteen bytes per closure, against a closure whose
+captures could not be freed and could not leave a scope.
+
+The rejected alternative for the first word — a glue pointer beside `code` in
+the closure *value* — costs the same eight bytes in a value that is copied far
+more often than the block is allocated. The rejected alternative for the second
+— one word pointing at a static `{ release, copy }` pair — costs eight bytes per
+*type* rather than per closure, and puts a second load in front of every drop of
+every closure in the language.
 
 ## 8. Contexts cost nothing
 

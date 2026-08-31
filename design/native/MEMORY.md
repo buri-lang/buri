@@ -237,7 +237,8 @@ about the transitive closure of a heap. A `[Str]` handed to a step is a block
 whose *elements* the step counts; a `Str` inside a closure's environment is a
 block two carriers count. So a per-value mark has to be a deep, type-directed
 walk of everything reachable from the call's arguments — `Helper::Walk`'s
-shape, which G5 generalises — and a *shallow* one is exactly the under-set the
+shape, which G5's `Helper::Copy` has since generalised (§7.2.1) — and a
+*shallow* one is exactly the under-set the
 asymmetry forbids. The program-wide answer is sound by construction rather than
 by audit: a value that reaches a carrier by a route the compiler cannot see
 — a block the runtime built itself, a `Str` from `host.rs`, whatever an FFI
@@ -846,7 +847,7 @@ accounting policies over the one real allocator. They are not three allocators.
   feature, and it is worth naming precisely so nobody attempts the backend half
   first: without it, an arena in this language has no scope to end at (§4).
 
-#### 7.2.1 Amendment: the scope exists, and holds reservations rather than values
+#### 7.2.1 Amendment: the scope exists, and holds the values too
 
 The scoped context above is `core/alloc`'s **`scoped(ctx, body)`**, and the
 value it hands the body is **`Scoped<C>`** — an attenuating wrapper on
@@ -864,25 +865,54 @@ than a block; `arenaRelease` `munmap`s every block when `body` returns.
 reserved pages **and** gave them back" is one assertion rather than two
 half-ones.
 
-**What is *not* in it, yet, is values.** A `[Str]` built inside a scope is a
-`buri_rt_alloc` block on the reference-counted heap, exactly where it was
-before: §7.3.1's gap is the reason — the native ABI drops the context argument
-from every runtime call, so the operation that builds a list never learns which
-allocator asked for it. So the honest reading of a scope today is *a real,
-bounded, bulk-released reservation with an allocator of its own*, not a
-lifetime for the values built under it.
+**The values are in it too, and this is the paragraph that changed.** The slice
+that added the arena (G4) held it to *charges*, for the reason §7.3.1 gives: the
+native ABI drops the context argument from every runtime call, so the operation
+that builds a list cannot be **told** which allocator asked for it. The answer
+is not to tell it. `scoped` calls `buri_rt_alloc_arena_enter` before `body` and
+`buri_rt_alloc_arena_leave` after, and for that dynamic extent — on that
+carrier — `buri_rt_alloc` serves out of the arena and stamps `CAP_ARENA` (bit 62
+of `cap`) into the header. `buri_rt_free` reads that bit, does the accounting
+and returns; the pages go back in one `munmap`.
 
-**The interim soundness rule, stated so it can be checked:** `allocate` answers
-a `Region`, which carries the charge and not an address, so nothing the
-language can name points into an arena, so the bulk release cannot dangle —
-whatever the escape bit (§5.5) says about any block, and whatever G6's
-decommit does with the heap's or the carrier stacks' pages, which are different
-mappings. The alternative reading was considered and rejected: serving Buri
-blocks from the arena now would mean keeping every arena alive forever in case
-a marked block escaped, and an arena that is never released is not an arena.
-The copy-out glue — a `Helper::Copy` beside `Helper::Walk`, deep-copying the
-return value, an actor message, a `Reply.answer` and a socket send — is what
-closes it, and it is the next slice.
+That is an *over*-approximation of "charged to the `Scoped`": every allocation
+in the extent is the scope's, whoever asked. It is the safe end of §5.5's
+asymmetry. A block that should have been on the heap and is in the arena leaves
+with the answer or dies with the scope, which is correct and occasionally costs
+a copy; a block that should have been in the arena and is on the heap is also
+correct and merely misses the optimisation. The active arena is a **thread-local**
+and `rt.rs`'s carrier loop saves and restores it around a stack switch, so it
+belongs to the *task* rather than to the thread the task is on this turn — which
+is what makes a scope per request safe, and what makes a task started inside a
+scope allocate on the platform heap.
+
+**What makes the bulk free sound is the copy at the boundary.** Exactly one
+value leaves a scope — `body`'s answer — and `core/alloc::copyOut` deep-copies
+it onto the caller's allocator before the pages go back. The copy is generated,
+not called: `Helper::Copy` in the frame-threaded backend and `Job::Copy` under
+LLVM are `Helper::Walk`'s recursion with `buri_rt_copy_block` where the release
+walk has `decref`. The two functions the walk reaches a block through —
+`buri_rt_copy_block` and `buri_rt_copy_str`, the second because a `Str`'s `ptr`
+points *into* its block and has to be rebased — are the whole of the runtime's
+half. **A copy is not a share**: nothing in the path increments a count, so the
+answer's blocks are fresh and uniquely owned and the source's counts do not
+move.
+
+The **invariant** the arrangement rests on is one sentence, and it is checkable:
+*a value's lifetime never exceeds the dynamic extent it was created in, except
+by being the answer — and the answer is copied.* Buri has no mutable global
+state and no way to stash a value where a scope cannot see it; the runtime's own
+tables (`testing.rs`, `net.rs`) keep Rust copies rather than Buri blocks. The
+alternative reading — keep every arena alive for ever in case something escaped
+— was rejected in G4 and stays rejected: an arena that is never released is not
+an arena.
+
+A **closure** costs one word for this. `Ty::Fn` does not record what was
+captured, so the environment block has always carried its own release function
+in the word before the record; it now carries its copy function in the word
+after that (`ENV_FIELDS` is 16). The alternative — one word pointing at a static
+pair per type — costs the same eight bytes per type instead of per closure and
+puts a second load in front of every drop of every closure in the language.
 
 ### 7.3 The hook is already there
 

@@ -268,7 +268,8 @@
 //!
 //! ```text
 //!   p - 16   u64  rc     reference count, or IMMORTAL (u64::MAX)
-//!   p -  8   u64  cap    usable payload bytes
+//!   p -  8   u64  cap    bit 63 shared, bit 62 arena, bits 0..61 usable
+//!                        payload bytes — read through `memory::cap_of`
 //!   p        ...  payload, 16-byte aligned
 //! ```
 //!
@@ -325,19 +326,40 @@
 //!
 //! ## 5.2 The scope, which *is* allocation
 //!
-//! Five more, and they are the one exception to the paragraph above:
+//! Seven more, and they are the one exception to the paragraph above:
 //! [`buri_rt_alloc_arena_create`], [`buri_rt_alloc_arena_allocate`],
-//! [`buri_rt_alloc_arena_release`], [`buri_rt_alloc_arena_count`] and
-//! [`buri_rt_alloc_arena_total`] are `core/alloc`'s `scoped`, and an arena really
-//! maps the bytes it is charged and really `munmap`s them when the scope ends.
-//! Its charges are the same defined numbers `runtime.js` produces; its *pages*
-//! have no counterpart there and need none, because no program can ask about
-//! them. [`buri_rt_heap_stats`]'s `arena_bytes` and `arena_released_bytes` are
-//! how a test does.
+//! [`buri_rt_alloc_arena_release`], [`buri_rt_alloc_arena_count`],
+//! [`buri_rt_alloc_arena_total`], [`buri_rt_alloc_arena_enter`] and
+//! [`buri_rt_alloc_arena_leave`] are `core/alloc`'s `scoped`, and an arena
+//! really maps the bytes it is charged and really `munmap`s them when the scope
+//! ends. Its charges are the same defined numbers `runtime.js` produces; its
+//! *pages* have no counterpart there and need none, because no program can ask
+//! about them. [`buri_rt_heap_stats`]'s `arena_bytes` and
+//! `arena_released_bytes` are how a test does.
 //!
-//! **No Buri value is inside an arena**, and `memory.rs`'s G4 section is where
-//! that is argued rather than asserted: `allocate` answers a `Region`, which
-//! carries the charge and not an address, so the bulk release cannot dangle.
+//! **The last two are the ones that make Buri values live in an arena.**
+//! `enter` makes the arena the one [`buri_rt_alloc`] serves out of, for *this
+//! carrier* and for the dynamic extent of `body`; `leave` puts back whatever
+//! was there before. That is how the context this ABI drops (§2 rule 1's
+//! neighbour, `runtime_table::Entry::ctx`) is restored without putting it back
+//! in every signature. `memory.rs`'s G5 section is the argument.
+//!
+//! ## 5.3 The copy out of a scope
+//!
+//! Two more, and they are the runtime's half of a walk the *backends* generate:
+//! [`buri_rt_copy_block`] duplicates one block and hands the fresh one to the
+//! type's own copy glue, and [`buri_rt_copy_str`] does the same for a `Str`,
+//! whose `ptr` points into its block and has to be rebased onto the copy.
+//!
+//! The division is the same one §2's "a key carries no type arguments" draws:
+//! everything that depends on a **type** is in the generated walk, where the
+//! type is known, and everything that depends on a **block** is here, where the
+//! header is. This archive is compiled once against no Buri type at all, so a
+//! copy that had to know a layout could not live in it.
+//!
+//! **Neither of them increments a count.** *A copy is not a share* is the
+//! property `core/alloc::scoped`'s bulk free rests on, and it is a property of
+//! these two functions rather than of the callers.
 //!
 //! ## 6. Startup and shutdown, which the generated entry point owns
 //!

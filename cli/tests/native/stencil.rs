@@ -711,6 +711,77 @@ export fn main(): Result<(), Str> {
     assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
 }
 
+/// **A program full of scopes leaks nothing**, which is the leak half of G5.
+///
+/// A scope's blocks are served out of its own `mmap`s and their `free` is a
+/// no-op — the pages go back in one `munmap` — so the accounting has to be done
+/// on the way past or every scope in a process would read as a leak. And the
+/// answer that *leaves* a scope is a deep copy the caller owns, so the copy has
+/// to be released like anything else or every scope would leak its result.
+/// Both are one number here: **zero live blocks at exit**, over a program whose
+/// scopes answer a nested `[[Str]]`, an enum with a payload and a closure whose
+/// environment was built inside.
+///
+/// No `test` block can make this assertion from inside the language —
+/// `buri_rt_heap_stats` is not reachable from Buri and should not be — which is
+/// why the conformance corpus's thirty copy-out cases next door assert values
+/// and this asserts blocks.
+#[test]
+fn a_scope_leaks_nothing() {
+    if !supported() {
+        return;
+    }
+    let ran = run_with(
+        "scopeleaks",
+        r#"
+from "core/host/lib.buri" import { stdout };
+from "core/alloc/lib.buri" import * as alloc;
+from "core/effect/lib.buri" import { Alloc };
+from "core/str/lib.buri" import * as str;
+from "core/list/lib.buri" import * as list;
+
+export enum Answer { Nothing, Text(Str), Many([Str]) }
+
+fn built<C: Alloc>(ctx: C, unit: Str, times: Int): Str { unit.repeat(ctx, times) }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: alloc.generalPurpose() };
+
+  let nested = alloc.scoped(ctx, fn(c) => [
+    [built(c, "a", 2), built(c, "b", 3)],
+    [built(c, "c", 1)],
+  ]);
+  let answer = alloc.scoped(ctx, fn(c) => Answer.Many([built(c, "m", 2)]));
+  let f = alloc.scoped(ctx, fn(c) => {
+    let captured = built(c, "z", 4);
+    fn() => captured
+  });
+  // A scope whose body allocates a great deal and answers almost nothing: the
+  // blocks it made die with the arena and none of them is the answer.
+  let n = alloc.scoped(ctx, fn(c) => {
+    let churn = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(c, fn(d, i) => built(d, "q", i * 64));
+    churn.len()
+  });
+
+  let shown = match (answer) {
+    .Many(xs) => xs.join(ctx, ","),
+    .Text(t) => t,
+    .Nothing => "none",
+  };
+  let flat = nested.mapCtx(ctx, fn(c, xs) => xs.join(c, "+")).join(ctx, "|");
+  let _ = stdout.println("${flat} ${shown} ${f()} ${n}");
+  .Ok(())
+}
+"#,
+        Some(ALLOC_PROBE),
+    );
+    assert_eq!(ran.status, 0, "{}", ran.stderr);
+    assert_eq!(ran.stdout, "aa+bbb|c mm zzzz 8\n", "{}", ran.stderr);
+    let (total, live) = probed(&ran.stderr);
+    assert!(total > 20, "the program allocated {total} blocks, so this asserts little");
+    assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
+}
+
 /// The five shapes `glue.rs` added, each of which is a **pair** that has to
 /// balance.
 ///
@@ -1216,6 +1287,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "data/patterns.buri",
     "data/strings.buri",
     "memory/allocators.buri",
+    "memory/copyout.buri",
     "memory/scoped.buri",
     "numbers/bits.buri",
     "numbers/integers.buri",

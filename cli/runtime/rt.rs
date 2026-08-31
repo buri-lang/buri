@@ -405,6 +405,18 @@ pub(crate) struct Task {
     ok: AtomicBool,
     /// Everybody waiting for `done`, woken once.
     waiters: Mutex<Vec<Waker>>,
+    /// G5: the `core/alloc` scope this task is inside — the arena, and the bump
+    /// window into it (`memory::ArenaSlot`).
+    ///
+    /// **On the task and not on the thread**, because since B9 two tasks share
+    /// a carrier's thread and the arena a value is allocated out of belongs to
+    /// the one whose stack is running. A task that parks inside a `scoped`
+    /// leaves its scope here and finds it again on whichever carrier resumes
+    /// it, and the carrier's own slot goes back to what it was.
+    ///
+    /// A `Mutex` rather than an atomic because it is three words now; it is
+    /// taken twice per turn of a task, which is nowhere near anything hot.
+    arena: Mutex<crate::memory::ArenaSlot>,
 }
 
 // SAFETY: every field is either atomic, behind a `Mutex`, or an `UnsafeCell`
@@ -690,6 +702,21 @@ fn leave(task: &Task) {
     unsafe { switch::buri_rt_task_switch(task.sp.get(), carrier) };
 }
 
+/// The scope a parked task left behind, and where it is put back.
+fn task_arena(task: &Task) -> crate::memory::ArenaSlot {
+    match task.arena.lock() {
+        Ok(g) => *g,
+        Err(poisoned) => *poisoned.into_inner(),
+    }
+}
+
+fn set_task_arena(task: &Task, slot: crate::memory::ArenaSlot) {
+    match task.arena.lock() {
+        Ok(mut g) => *g = slot,
+        Err(poisoned) => *poisoned.into_inner() = slot,
+    }
+}
+
 /// What every carrier thread does, for the life of the process.
 ///
 /// **This loop is the slice.** Before B9 a carrier ran a job to completion and
@@ -703,12 +730,21 @@ fn carrier_loop() {
         armed = false;
         set_running(Arc::as_ptr(&task));
         task.state.store(RUNNING, Ordering::Release);
+        // G5: the arena belongs to the task, not to the thread it is on this
+        // turn. The carrier's own slot goes aside, the task's comes in, and the
+        // two are exchanged again on the way back — so a task that parks inside
+        // a `core/alloc::scoped` finds its arena on whichever carrier resumes
+        // it, and a carrier between tasks is inside no scope at all.
+        let carrier_arena = crate::memory::arena_slot_of_carrier();
+        crate::memory::set_arena_slot_of_carrier(task_arena(&task));
         // SAFETY: the task came off the queue, so no other carrier is running
         // it, and its saved context is either the frame `spawn_task` prepared
         // or one this very call wrote on a previous turn. The `Arc` held here
         // keeps the task — and the stack under that context — alive for the
         // whole of it.
         unsafe { switch::buri_rt_task_switch(carrier_slot(), *task.sp.get()) };
+        set_task_arena(&task, crate::memory::arena_slot_of_carrier());
+        crate::memory::set_arena_slot_of_carrier(carrier_arena);
         set_running(std::ptr::null());
 
         if task.why.load(Ordering::Acquire) == WHY_DONE {
@@ -813,6 +849,7 @@ fn spawn_task(body: Box<dyn FnOnce() + Send>) -> Arc<Task> {
         done: AtomicBool::new(false),
         ok: AtomicBool::new(false),
         waiters: Mutex::new(Vec::new()),
+        arena: Mutex::new(crate::memory::ArenaSlot::NONE),
     });
     // The task's *own* address travels in the frame, and the `Arc` that keeps
     // it alive travels on the queue: the launch pad hands the address back and

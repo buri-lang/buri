@@ -384,6 +384,20 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
+    // G5's pair: which arena the platform allocator serves out of, for this
+    // carrier and for the dynamic extent of `scoped`'s body.
+    Entry {
+        key: "alloc.arenaEnter",
+        symbol: "buri_rt_alloc_arena_enter",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "alloc.arenaLeave",
+        symbol: "buri_rt_alloc_arena_leave",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
     // -- core/str, the pure half (`cli/runtime/text.rs`) ---------------------
     //
     // Every one of these takes `self` as a full `Str`: the `base` is passed
@@ -1649,6 +1663,21 @@ pub const FRAMES_PER_CARRIER: &str = "buri_rt_frames_are_per_carrier";
 /// answer: the runtime's fan-out is gated on the same latch, so an entry point
 /// that lost this call runs its tasks one at a time.
 pub const VALUES_MAY_CROSS_TASKS: &str = "buri_rt_values_may_cross_tasks";
+
+/// `void *buri_rt_copy_block(void *p, void (*glue)(void *))` — a fresh block
+/// holding the same bytes, with `rc == 1` and nothing shared with the original.
+///
+/// G5's half of the copy out of a scope. The *type*-dependent half is the
+/// per-type walk each backend generates (`Unit::copy_rc`,
+/// `stencil/glue.rs`'s `Helper::Copy`); this is the block-dependent half, and
+/// the division is where it is because this archive is compiled once against no
+/// Buri type and a walk knows no header.
+pub const COPY_BLOCK: &str = "buri_rt_copy_block";
+
+/// `void buri_rt_copy_str(void *value)` — [`COPY_BLOCK`] for a `Str`, whose
+/// `ptr` points *into* its block and has to be rebased onto the copy
+/// (VALUE-MODEL.md §3).
+pub const COPY_STR: &str = "buri_rt_copy_str";
 /// `buri_rt_i128_divmod(a_lo, a_hi, b_lo, b_hi, signed, quot, rem)`.
 pub const I128_DIVMOD: &str = "buri_rt_i128_divmod";
 /// `buri_rt_i128_checked(op, a_lo, a_hi, b_lo, b_hi, signed, out) -> i32` and

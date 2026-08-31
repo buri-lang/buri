@@ -33,8 +33,9 @@
 //! handed to a step is a block whose *elements* the step counts, and a `Str`
 //! inside a closure's environment is a block two carriers count. So a mark
 //! derived from a call site has to be a deep, type-directed walk of everything
-//! reachable from the arguments — `Helper::Walk`'s shape, which G5 is the
-//! slice that generalises — and a *shallow* one is precisely the under-count
+//! reachable from the arguments — `Helper::Walk`'s shape, which G5's
+//! `Helper::Copy` has since generalised — and a *shallow* one is precisely the
+//! under-count
 //! MEMORY.md §5.5 forbids:
 //!
 //! > **An over-set bit costs one copy.** … **An under-counted reference is a
@@ -48,8 +49,10 @@
 //! anyway, because the *allocator* is what marks. What it costs is atomic
 //! reference counting throughout a program that uses `core/tasks`, which is
 //! the price MEMORY.md §5.4 puts on threads rather than a price this shape
-//! adds. Narrowing it is a later slice with G5's machinery in hand, and the
-//! narrowing is an optimisation over an answer that is already correct.
+//! adds. **Narrowing it is now possible and has not been done**: G5's
+//! `Helper::Copy` is the deep type-directed walk a per-value mark needs, and
+//! spending it that way is an optimisation over an answer that is already
+//! correct rather than a fix for one that is wrong.
 //!
 //! Two properties of the count survive the fork, and both were the reason the
 //! bit is in `cap` rather than in the count itself (MEMORY.md §5.1,

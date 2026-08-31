@@ -290,11 +290,18 @@ allocator's totals do not move; when `body` returns, the arena's pages go back
 to the platform. Everything else is unchanged: the body prints on the same
 stdout, reads the same files and fans out onto the same tasks.
 
-What it does **not** yet do is hold the values built inside it — a `[Str]` a
-scope builds is on the ordinary reference-counted heap and is freed when its
-last reference goes. So a scope today is a bounded reservation with an
-allocator of its own, not a lifetime; scope a request, and do not expect it to
-free a list.
+It holds the **values** too. A `[Str]` a scope builds is in the arena's own
+pages, and they go back with the rest when `body` returns — so a scope is a
+lifetime and not only a budget. The one value that leaves is `body`'s answer,
+and it is deep-copied onto the caller's allocator first, at every depth: a
+nested list, an enum's payload, a closure's captured environment. You never
+write the copy and cannot observe it except as a cost.
+
+Two consequences worth knowing. **Answer only what you need** — the copy is
+proportional to what leaves, so a scope that answers a whole parsed document
+copies a whole parsed document. And **a task started inside a scope allocates
+outside it**, on the ordinary heap: the arena belongs to the carrier that
+entered the scope, and a step of a `Tasks.parallel` runs somewhere else.
 
 What an allocator is told about is narrower than what the cost model defines,
 identically on both backends: **every `allocate(ctx, n)`, and nothing else.**
@@ -310,11 +317,11 @@ and reported to no allocator. The model is written down beside `Alloc` in
   *i* of `T`, at `T`'s *i*-th field type" needs dependent or row types, and
   [`SPEC.md` §5.5](../SPEC.md) has no records. Write the two-field
   struct yourself; on the JavaScript backend that is all a library would do.
-- **Bulk reclamation of *values*.** `scoped` bounds a context's lifetime and
-  releases the arena's pages, so the reservation half is here; the values built
-  inside a scope are still on the reference-counted heap. Freeing those in bulk
-  needs a deep copy at the scope's boundary, so that what leaves a scope does
-  not point into it.
+- **Bulk reclamation outside a scope.** `scoped` frees in bulk because it knows
+  when it is over and copies its answer out. `Arena` — the type you carry
+  around — has no boundary to copy at, so it stays a counter: it answers "how
+  much did parsing charge?" and reclaims nothing a `GeneralPurpose` would not
+  have reclaimed anyway.
 - **Automatic accounting of the list and string rows.** Stated above: the cost
   model defines them and no allocator is told about them.
 

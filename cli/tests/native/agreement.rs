@@ -2526,6 +2526,135 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **A value leaves a scope alive, on every backend.**
+///
+/// `core/alloc::scoped` serves the body's blocks out of its own `mmap`s and
+/// unmaps them when the body returns (G5), so the answer is deep-copied onto
+/// the caller's allocator on the way out. This is that claim as a program: four
+/// answers built inside scopes out of blocks the *program* allocated — a nested
+/// `[[Str]]`, an enum variant carrying a list, a closure's captured
+/// environment — read after the scopes have ended, and the first one read again
+/// after two further scopes have mapped and released pages of their own.
+///
+/// **Every string in it is built rather than written.** A literal is `IMMORTAL`
+/// and lives in the artifact's constant pool, so a version of this program that
+/// answered literals would print the right thing whatever the copy glue did.
+/// `repeat` allocates, which is what makes the last line a use-after-free
+/// detector rather than a spelling check.
+///
+/// The conformance corpus has the same shapes with thirty cases
+/// (`lib/memory/test/copyout.buri`), and `native::conformance` runs that file
+/// through the frame-threaded backend. This is here because it is the one place
+/// the **LLVM** backend's own copy glue — a different walk, in a different
+/// file — is held to the same answer.
+#[test]
+fn a_value_leaves_a_scope_alive_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "copy out of a scope",
+        r#"
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/alloc/lib.buri" import * as alloc;
+from "core/list/lib.buri" import * as list;
+
+enum Answer {
+  Nothing,
+  Text(Str),
+  Many([Str]),
+}
+
+/// A `Str` this program allocated, rather than one the compiler interned.
+fn built<C: Alloc>(ctx: C, unit: Str, times: Int): Str {
+  unit.repeat(ctx, times)
+}
+
+fn flatten<C: Alloc>(ctx: C, xss: [[Str]]): Str {
+  xss.mapCtx(ctx, fn(c, xs) => xs.join(c, "+")).join(ctx, "|")
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+
+  let nested = alloc.scoped(ctx, fn(c) => [
+    [built(c, "a", 2), built(c, "b", 3)],
+    [built(c, "c", 1)],
+  ]);
+  let _ = ctx.println(flatten(ctx, nested));
+
+  let answer = alloc.scoped(ctx, fn(c) => Answer.Many([built(c, "m", 2), built(c, "n", 3)]));
+  let _ = ctx.println(match (answer) {
+    .Nothing => "none",
+    .Text(t) => t,
+    .Many(xs) => xs.join(ctx, ","),
+  });
+
+  let f = alloc.scoped(ctx, fn(c) => {
+    let captured = built(c, "z", 4);
+    fn() => captured
+  });
+  let _ = ctx.println(f());
+
+  // Two more scopes, each mapping and releasing pages of its own. An address
+  // that had escaped the first arena is one these are entitled to hand out
+  // again — so the last line is the first line only if the answer was copied.
+  let churn = alloc.scoped(ctx, fn(c) => built(c, "q", 4096));
+  let more = alloc.scoped(ctx, fn(c) => [built(c, "r", 2048)]);
+  let _ = ctx.println("${churn.len()} ${more.len()}");
+  let _ = ctx.println(flatten(ctx, nested));
+  .Ok(())
+}
+"#,
+        concat!("aa+bbb|c\n", "mm,nnn\n", "zzzz\n", "4096 1\n", "aa+bbb|c\n"),
+    );
+}
+
+/// **A scope per task, each on its own carrier.**
+///
+/// The arena a scope serves out of is a property of the **carrier**
+/// (`memory::arena_slot_of_carrier`), not of the process — so sixteen steps of
+/// one `Tasks.parallel` can each open a scope, allocate in it and answer out of
+/// it at the same moment, and none of them can see another's arena or unmap
+/// another's pages. That is the note's server workload — a scope per request —
+/// with the server taken out of it, and it is the case that would fail if the
+/// active arena were a global.
+///
+/// The scope is **inside** the step and not around the fan-out, which is
+/// deliberate: `can_park` does not propagate through an indirect call today, so
+/// a JavaScript caller of *any* generic wrapper whose callback parks does not
+/// await it — reproduced with no `core/alloc` in the program at all, and
+/// recorded in `reports/wave8-g5.md`. Putting the scope inside the step is the
+/// shape a request handler has anyway.
+#[test]
+fn a_scope_per_task_answers_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "a scope per task",
+        r#"
+from "core/effect/lib.buri" import { Alloc, Stdout, Tasks };
+from "core/host/lib.buri" import * as host;
+from "core/alloc/lib.buri" import * as alloc;
+from "core/tasks/lib.buri" import * as tasks;
+from "core/list/lib.buri" import * as list;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let ns = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  let out = tasks.parallel(ctx, ns, fn(c, i, n) =>
+    alloc.scoped(c, fn(d) => "-".repeat(d, n + 1)));
+  let _ = ctx.println(out.join(ctx, ","));
+  let _ = ctx.println("${out.len()}");
+  .Ok(())
+}
+"#,
+        concat!(
+            "-,--,---,----,-----,------,-------,--------,---------,----------,",
+            "-----------,------------,-------------,--------------,",
+            "---------------,----------------\n16\n"
+        ),
+    );
+}
+
 /// A task that aborts stops the program, with the same message and the same
 /// status on every backend — and with what was printed before it flushed.
 ///
