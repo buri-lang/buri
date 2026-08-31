@@ -8,6 +8,7 @@
 use crate::abort::{buri_rt_abort_alloc_budget, buri_rt_abort_oom};
 use std::alloc::{alloc, alloc_zeroed, dealloc, realloc, Layout};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 /// A reference count that is never decremented and never freed.
 ///
@@ -1444,7 +1445,7 @@ const MAP_ANON: i32 = 0x20;
 const MAP_FAILED: usize = usize::MAX;
 
 thread_local! {
-    /// The blocks this carrier has mapped and is not currently inside.
+    /// The blocks **this thread** has mapped and is not currently inside.
     ///
     /// A **free list rather than a single pointer**, because entries nest: an
     /// entry thunk that calls Buri code which calls out and comes back in
@@ -1453,31 +1454,159 @@ thread_local! {
     /// case correct at the price of address space, which is the price this
     /// whole mechanism is already paying.
     ///
-    /// Thread-local, so no lock is taken on the path a carrier actually runs,
-    /// and so a thread that ends takes its blocks with it: the destructor
-    /// unmaps them.
-    static STACKS: core::cell::RefCell<Blocks> =
-        const { core::cell::RefCell::new(Blocks { idle: Vec::new(), since_decommit: 0 }) };
+    /// **Thread-local was the whole answer until B9, and is now the fallback.**
+    /// A block belongs to whoever is *inside* it, and since the carrier thread
+    /// became a stack switch that is a **task**, not a thread: a task that
+    /// parks holding a Buri stack is resumed on whichever carrier picks it up,
+    /// and a list keyed by thread would hand its block to somebody else in the
+    /// meantime. So a running task uses its own list ([`Blocks`] lives on
+    /// `rt::Task`) and this one serves everything that is not a task — `main`'s
+    /// own thread, a carrier between tasks, and every build without `net`,
+    /// which has no tasks at all. [`stack_list`] is the two-line function that
+    /// chooses, and B7's handover note is where this was predicted.
+    static STACKS: core::cell::RefCell<Blocks> = const { core::cell::RefCell::new(Blocks::new()) };
 }
 
-/// A carrier's idle blocks, unmapped when the thread ends, and the release
-/// counter [`STACK_DECOMMIT_EVERY`] is measured against.
-struct Blocks {
+/// A free list of idle Buri data stacks, and the release counter
+/// [`STACK_DECOMMIT_EVERY`] is measured against.
+///
+/// One of these belongs to each running task and one to each thread; which is
+/// in play is [`stack_list`]'s answer. Public to the crate because `rt::Task`
+/// owns one.
+pub(crate) struct Blocks {
     idle: Vec<*mut u8>,
     since_decommit: u32,
 }
 
-impl Drop for Blocks {
-    fn drop(&mut self) {
-        for p in self.idle.drain(..) {
-            // SAFETY: every pointer in this list came from `map_stack` and was
-            // mapped with exactly this length; a block that is *in* the list is
-            // one no entry thunk is inside.
-            unsafe {
-                munmap(p.cast(), BURI_RT_STACK_BYTES);
-            }
+impl Blocks {
+    pub(crate) const fn new() -> Self {
+        Blocks { idle: Vec::new(), since_decommit: 0 }
+    }
+
+    /// A block nothing on this list is inside.
+    fn acquire(&mut self) -> *mut u8 {
+        match self.idle.pop() {
+            Some(p) => p,
+            None => map_stack(),
         }
     }
+
+    /// Give `base` back, decommitting it where the three clauses
+    /// [`buri_rt_stack_release`] states are met.
+    ///
+    /// # Safety
+    /// `base` came from [`Blocks::acquire`] on **this** list and nothing is
+    /// inside it.
+    unsafe fn release(&mut self, base: *mut u8) {
+        // SAFETY: the caller promises a live block nothing is inside.
+        let deep = !unsafe { watermark_intact(base) };
+        self.since_decommit += 1;
+        // Three clauses, and the middle one is the retained set: the *first*
+        // idle block a list has is the one its next entry will be handed, and
+        // every block after it is a nested entry's, which is rare by
+        // construction and not worth keeping warm.
+        let go =
+            deep || !self.idle.is_empty() || self.since_decommit >= STACK_DECOMMIT_EVERY;
+        if go {
+            self.since_decommit = 0;
+        }
+        if !go || decommit_stack(base) {
+            self.idle.push(base);
+        }
+    }
+}
+
+impl Drop for Blocks {
+    /// **A list that ends gives its blocks to the pool, not to the kernel.**
+    ///
+    /// Before B9 this was a `munmap` per block and that was right, because the
+    /// only lists were threads' and a carrier thread never ended. A *task*
+    /// ends constantly — one per step of a `Tasks.parallel` — so unmapping
+    /// here would put an `mmap` and an `mprotect` in front of every step that
+    /// enters Buri code, to give back address space that costs nothing. The
+    /// blocks go to [`POOL`] instead, decommitted, and the pool's own cap is
+    /// where the kernel eventually gets them back.
+    fn drop(&mut self) {
+        for p in self.idle.drain(..) {
+            // SAFETY: every pointer in this list came from `map_stack`, was
+            // mapped with exactly this length, and is one nothing is inside.
+            unsafe { retire_stack(p) };
+        }
+    }
+}
+
+/// Idle Buri data stacks that belong to no list.
+///
+/// A `usize` rather than a pointer so the vector is `Send`: what travels is an
+/// address, and every use of it is inside this file.
+///
+/// **Why a global pool exists at all**, when B7 was content with a per-thread
+/// one: a task's list dies with the task, and the mapping in it is worth more
+/// than the two system calls it would cost the next task to make a new one.
+/// The pool is what carries a block from a task that has ended to a task that
+/// is starting, across whatever carrier either ran on.
+static POOL: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+/// How many idle blocks the pool holds before it starts unmapping them.
+///
+/// Sixty-four, and it is a **resident**-set number rather than an address-space
+/// one: a pooled block has been decommitted, so it holds the retained prefix's
+/// pages and no more — sixty-four of them is at most 16 MiB of reservation
+/// that is warm and 4 GiB that is not. A cap is needed at all because a burst
+/// of ten thousand tasks would otherwise leave ten thousand mappings behind
+/// for a process that has gone quiet.
+const STACK_POOL_MAX: usize = 64;
+
+fn pool() -> MutexGuard<'static, Vec<usize>> {
+    match POOL.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// Hand a block nobody is inside to the pool, or to the kernel where the pool
+/// is full.
+///
+/// # Safety
+/// `base` came from [`map_stack`] and nothing is inside it.
+unsafe fn retire_stack(base: *mut u8) {
+    // SAFETY: the caller's promise. A block on its way out is decommitted
+    // whatever the watermark says: there is no next entry on this list to keep
+    // it warm for.
+    if !decommit_stack(base) {
+        // Retired by `decommit_stack` itself, which unmapped it.
+        return;
+    }
+    let mut pool = pool();
+    if pool.len() < STACK_POOL_MAX {
+        pool.push(base as usize);
+        return;
+    }
+    drop(pool);
+    // SAFETY: `base` came from `map_stack` with exactly this length and is on
+    // no list.
+    unsafe {
+        munmap(base.cast(), BURI_RT_STACK_BYTES);
+    }
+}
+
+/// The list a `buri_rt_stack_acquire` on this thread draws on: **the running
+/// task's own** where a task is running, and this thread's otherwise.
+///
+/// `#[inline(never)]` on `rt`'s side of it, and that is the load-bearing part:
+/// the address of a thread-local is a value a compiler may cache, and a task
+/// that switched carriers between the cache and the use would write through
+/// the wrong thread's slot. Everything this function reaches for is read
+/// through a call the compiler cannot see past.
+fn stack_list<T>(f: impl FnOnce(&mut Blocks) -> T) -> T {
+    #[cfg(feature = "net")]
+    if let Some(mine) = crate::rt::running_task_blocks() {
+        // SAFETY: `running_task_blocks` answers the list of the task running
+        // on *this* thread, and a task runs on one carrier at a time, so this
+        // is the only live reference to it.
+        return f(unsafe { &mut *mine });
+    }
+    STACKS.with(|s| f(&mut s.borrow_mut()))
 }
 
 /// Maps one 64 MiB stack with its own 1 MiB `PROT_NONE` guard on top.
@@ -1486,6 +1615,12 @@ impl Drop for Blocks {
 /// page, so the cost of a carrier that enters Buri code once and returns is
 /// two system calls and the pages it actually used.
 fn map_stack() -> *mut u8 {
+    // A block the pool is holding is one that has already been mapped, given
+    // its guard, and decommitted, so taking it is a lock and a pop against two
+    // system calls.
+    if let Some(p) = pool().pop() {
+        return p as *mut u8;
+    }
     // SAFETY: a fresh anonymous private mapping; no fd, no fixed address.
     let p = unsafe {
         mmap(
@@ -1541,29 +1676,31 @@ unsafe fn watermark_intact(base: *mut u8) -> bool {
     unsafe { base.add(BURI_RT_STACK_WARM).cast::<u64>().read() == BURI_RT_STACK_WATERMARK }
 }
 
-/// **This carrier's Buri data stack**: the base a generated entry thunk puts
-/// in `x0` (`rdi` on x86-64) before it calls into frame-threaded code.
+/// **The running task's Buri data stack**: the base a generated entry thunk
+/// puts in `x0` (`rdi` on x86-64) before it calls into frame-threaded code.
 ///
-/// The block is this thread's alone and carries its own `PROT_NONE` guard, so
-/// a runaway recursion on a carrier faults at *its* boundary rather than
-/// walking into whatever the linker placed after the process's static block.
+/// The block is the caller's alone and carries its own `PROT_NONE` guard, so a
+/// runaway recursion on a carrier faults at *its* boundary rather than walking
+/// into whatever the linker placed after the process's static block.
 ///
-/// Answers a block that is **not** in use by any other entry on this thread —
-/// nested entries get different blocks — and it is the caller's business to
-/// hand the same pointer back to [`buri_rt_stack_release`]. A carrier that
+/// **Whose block it is changed in B9** and the entry point did not, which is
+/// what "behind the same ABI" means for this pair. B7 answered *this thread's*
+/// free list; a parked task now outlives the carrier that started it, so the
+/// answer is *this task's* list where a task is running and this thread's
+/// where none is. [`stack_list`] is the whole of the difference.
+///
+/// Answers a block that is **not** in use by any other entry on the same list
+/// — nested entries get different blocks — and it is the caller's business to
+/// hand the same pointer back to [`buri_rt_stack_release`]. A caller that
 /// enters Buri code repeatedly pays the mapping once: the block goes back on
-/// this thread's free list rather than to the kernel.
+/// the list rather than to the kernel.
 ///
 /// `main` never calls this. The process's own carrier keeps the `__bss` block
 /// `backend/stencil/asm.rs` emits, which is why a program that never starts a
 /// second carrier makes no system call it did not make before.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_stack_acquire() -> *mut u8 {
-    let idle = STACKS.with(|s| s.borrow_mut().idle.pop());
-    match idle {
-        Some(p) => p,
-        None => map_stack(),
-    }
+    stack_list(Blocks::acquire)
 }
 
 /// **Gives an idle carrier stack's pages back to the kernel** and the block
@@ -1587,19 +1724,22 @@ pub extern "C" fn buri_rt_stack_acquire() -> *mut u8 {
 /// 3. [`STACK_DECOMMIT_EVERY`] releases have gone by, which is the floor under
 ///    clause 1's failure mode.
 ///
-/// The address space is **not** unmapped: a carrier is reused
-/// (`cli/runtime/rt.rs`'s pool never retires one), so giving back the
-/// reservation would cost an `mmap` and an `mprotect` per entry to buy
+/// The address space is **not** unmapped: the list is reused, so giving back
+/// the reservation would cost an `mmap` and an `mprotect` per entry to buy
 /// nothing — the reservation is free, and it is the *resident pages* that are
-/// not. The mapping goes away when the thread does.
+/// not. The mapping goes away when [`POOL`] is full, which since B9 is where a
+/// block that outlives its list ends up.
 ///
 /// A null pointer is ignored rather than aborting, for the reason
 /// [`buri_rt_decref`]'s null check gives: a released nothing is a caller that
 /// never acquired, which is a no-op and not a corruption.
 ///
 /// # Safety
-/// `base` is null, or a block from [`buri_rt_stack_acquire`] on **this**
-/// thread that no entry thunk is still inside. It became an `unsafe fn` in G6
+/// `base` is null, or a block from [`buri_rt_stack_acquire`] taken by **this
+/// task, or by this thread while no task is running** — whichever
+/// [`stack_list`] answered then must be the one it answers now, which is what
+/// an entry thunk's acquire/release bracket guarantees — and that no entry
+/// thunk is still inside. It became an `unsafe fn` in G6
 /// and the reason is the watermark: this function now *reads* the block it is
 /// handed, where before it only filed the pointer away, so a pointer that
 /// names something else is a read of something else.
@@ -1608,27 +1748,8 @@ pub unsafe extern "C" fn buri_rt_stack_release(base: *mut u8) {
     if base.is_null() {
         return;
     }
-    // SAFETY: `base` is a block this carrier is releasing, so it is live and
-    // nothing is inside it.
-    let deep = !unsafe { watermark_intact(base) };
-    let decommit = STACKS.with(|s| {
-        let mut blocks = s.borrow_mut();
-        blocks.since_decommit += 1;
-        // Three clauses, and the middle one is the retained set: the *first*
-        // idle block a carrier has is the one its next entry will be handed,
-        // and every block after it is a nested entry's, which is rare by
-        // construction and not worth keeping warm.
-        let go = deep
-            || !blocks.idle.is_empty()
-            || blocks.since_decommit >= STACK_DECOMMIT_EVERY;
-        if go {
-            blocks.since_decommit = 0;
-        }
-        go
-    });
-    if !decommit || decommit_stack(base) {
-        STACKS.with(|s| s.borrow_mut().idle.push(base));
-    }
+    // SAFETY: the caller's promise, forwarded to the list that handed it out.
+    stack_list(|blocks| unsafe { blocks.release(base) });
 }
 
 /// Hands `[base + WARM, base + USABLE)` back to the kernel, leaving the
@@ -1700,6 +1821,140 @@ fn decommit_stack(base: *mut u8) -> bool {
     // of the tail the block goes back to the free list holding.
     unsafe { arm_watermark(base) };
     true
+}
+
+// ---------------------------------------------------------------------------
+// The per-task machine stack (design/native track B, slice B9)
+// ---------------------------------------------------------------------------
+//
+// The *other* stack. Everything above this line is the Buri data stack — the
+// upward-growing block `middle::layout` addresses frames on. What follows is
+// the ordinary downward-growing machine stack a task's own control flow lives
+// on: the return-address chain, `cli/runtime`'s Rust frames, and — under the
+// LLVM backend, where a Buri frame *is* a machine frame — the Buri frames too.
+//
+// **This closes `reports/wave6-b7b8.md` §5.2**, which recorded that a carrier's
+// recursion depth was two different numbers on the two backends: 64 MiB of
+// acquired Buri stack under the frame-threaded backend and a 512 KiB thread
+// stack under LLVM. A task's machine stack is mapped here, at
+// `BURI_RT_STACK_BYTES`, so the two are one number. `CARRIER_STACK_BYTES` in
+// `rt.rs` still sizes the carrier *thread*, and no longer bounds any Buri code:
+// a carrier's own stack now holds a scheduler loop and nothing else.
+
+/// Map one task machine stack: [`BURI_RT_STACK_USABLE`] usable with a
+/// [`BURI_RT_STACK_GUARD`] `PROT_NONE` guard **below** it.
+///
+/// Below, not above, and that is the one thing that differs from
+/// [`map_stack`]: a machine stack grows *down*, so the guard goes where the
+/// deepest frame would land. A runaway recursion on a task therefore faults on
+/// its own guard, at its own boundary, exactly as
+/// `a_runaway_recursion_on_a_carrier_faults_at_its_own_guard` requires of the
+/// other stack.
+fn map_task_stack() -> *mut u8 {
+    if let Some(p) = task_pool().pop() {
+        return p as *mut u8;
+    }
+    // SAFETY: a fresh anonymous private mapping; no fd, no fixed address.
+    let p = unsafe {
+        mmap(
+            core::ptr::null_mut(),
+            BURI_RT_STACK_BYTES,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANON,
+            -1,
+            0,
+        )
+    };
+    if p.is_null() || p as usize == MAP_FAILED {
+        buri_rt_abort_oom(BURI_RT_STACK_BYTES as u64);
+    }
+    let p = p.cast::<u8>();
+    assert!(
+        (p as usize).is_multiple_of(BURI_RT_STACK_ALIGN),
+        "a task stack was not mapped at a page boundary"
+    );
+    // SAFETY: `p` names `BURI_RT_STACK_BYTES` of this process's own mapping
+    // and the guard is the bottom `BURI_RT_STACK_GUARD` of it.
+    let rc = unsafe { mprotect(p.cast(), BURI_RT_STACK_GUARD, PROT_NONE) };
+    assert!(rc == 0, "a task stack could not be given its guard");
+    p
+}
+
+/// Idle task machine stacks, capped the way [`POOL`] is and for the same
+/// reason.
+static TASK_POOL: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+fn task_pool() -> MutexGuard<'static, Vec<usize>> {
+    match TASK_POOL.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// A machine stack for a task, and the address of its **top** — the high end,
+/// which is where a downward-growing stack starts.
+///
+/// The pair `(base, top)`: `base` is what [`buri_rt_task_stack_release`] takes
+/// back, and `top` is what `switch::prepare` builds a frame at.
+pub(crate) fn buri_rt_task_stack_acquire() -> (*mut u8, *mut u8) {
+    let base = map_task_stack();
+    (base, base.wrapping_add(BURI_RT_STACK_BYTES))
+}
+
+/// Give a finished task's machine stack back, decommitted.
+///
+/// Called from the **carrier's** stack and never from the task's own, which is
+/// the whole of why the carrier loop reaps a finished task rather than the task
+/// reaping itself: a stack cannot free the ground it is standing on.
+///
+/// The retained prefix is [`BURI_RT_STACK_WARM`] at the **top** — a task that
+/// stays shallow touches the top and nothing else, so what this releases is
+/// never what the next task refaults, which is G6's argument at the other
+/// stack's other end.
+///
+/// # Safety
+/// `base` came from [`buri_rt_task_stack_acquire`] and no thread is running on
+/// it.
+pub(crate) unsafe fn buri_rt_task_stack_release(base: *mut u8) {
+    if base.is_null() {
+        return;
+    }
+    let low = base.wrapping_add(BURI_RT_STACK_GUARD);
+    let len = BURI_RT_STACK_USABLE - BURI_RT_STACK_WARM;
+    // SAFETY: `[base + GUARD, base + BYTES - WARM)` is inside the mapping
+    // `map_task_stack` made, is a whole number of pages at a page boundary,
+    // and nothing is running on it.
+    let p = unsafe {
+        mmap(
+            low.cast(),
+            len,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANON | MAP_FIXED,
+            -1,
+            0,
+        )
+    };
+    if p.is_null() || p as usize == MAP_FAILED {
+        // `decommit_stack`'s reasoning, at the other stack: a range this file
+        // can no longer describe is retired whole rather than handed on.
+        //
+        // SAFETY: `base` came from `map_task_stack` with exactly this length.
+        unsafe {
+            munmap(base.cast(), BURI_RT_STACK_BYTES);
+        }
+        return;
+    }
+    DECOMMITTED_BYTES.fetch_add(len as u64, Ordering::Relaxed);
+    let mut pool = task_pool();
+    if pool.len() < STACK_POOL_MAX {
+        pool.push(base as usize);
+        return;
+    }
+    drop(pool);
+    // SAFETY: as above; the pool is full and this block is on no list.
+    unsafe {
+        munmap(base.cast(), BURI_RT_STACK_BYTES);
+    }
 }
 
 #[cfg(test)]
