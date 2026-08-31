@@ -84,6 +84,36 @@
 //! see it — which is why both frames are now in every build and every case
 //! below runs over both.
 //!
+//! ### 2.2 A frame's return word is a `ret` target and not a `call` target
+//!
+//! The switch's last instruction is a `ret`, so whatever a frame's return word
+//! names is entered with the pointer that `ret` leaves behind — the frame's
+//! high end, which §2.1 has just made sixteen-byte aligned. **That is not the
+//! state the C ABI enters a function in.** SysV x86-64 asks for a sixteen-byte
+//! aligned stack pointer *at the call instruction*, so a compiled function's
+//! first instruction sees one eight bytes below an aligned one — the return
+//! address the `call` pushed — and lays every frame it has out from there.
+//! AAPCS64 has no such offset to lose: the return address is a register, `sp`
+//! is sixteen-byte aligned at every instruction boundary, and a function
+//! entered by `ret` is entered exactly as one entered by `bl`.
+//!
+//! So on x86-64 the two states are one word apart, and no frame can produce
+//! both: the return address is the frame's *last* word by construction — the
+//! word above it is the caller's, not this frame's — and a frame of an even
+//! number of words therefore always leaves an aligned pointer behind. **The
+//! eight bytes have to be spent by the code that is landed on**, which is the
+//! whole reason [`buri_rt_task_launch`] is assembly rather than a Rust
+//! `extern "C" fn`: it is the one sequence in this runtime entered in the `ret`
+//! state, and its `call buri_rt_task_main` is the instruction that converts.
+//!
+//! Anything else planted in a frame's return word needs the same pad, and that
+//! is not a detail a case may skip: a compiled function landed on directly
+//! believes it is eight bytes further down than it is, and every stack pointer
+//! it then hands the switch is eight bytes out. [`plant_return`] therefore
+//! plants [`entry_pad`] and never the caller's own function, and
+//! `a_saved_context_is_a_stack_pointer_the_abi_would_accept` reads the pointer
+//! the pad was entered with back out and asserts it.
+//!
 //! ## 3. Why hand-written, and why three of them
 //!
 //! `swapcontext` itself is refused for three reasons and each is on its own
@@ -215,7 +245,57 @@ pub(crate) unsafe fn prepare(top: *mut u8, arg: *mut u8) -> *mut u8 {
     sp.cast()
 }
 
-/// Replace the address a prepared frame will `ret` into.
+/// The cases' own launch pad: the four instructions — five on x86-64, where one
+/// of them is a landing pad — that turn the state the switch's `ret` leaves
+/// into the state the C ABI enters a function in.
+///
+/// Instruction for instruction `switch_*.s`'s [`buri_rt_task_launch`], with
+/// two differences, and both of them are what make it a *case's* pad. It calls
+/// through the frame's argument register rather than straight into
+/// `buri_rt_task_main`, so a case can name its own probe without `rt.rs`'s task
+/// table; and it hands the callee the stack pointer it was itself entered with,
+/// which is the one thing about §2.2's entry state that a Rust function has no
+/// other way to see.
+///
+/// It is `#[cfg(test)]` and it is the only assembly here that is not one of the
+/// three blocks. That is a cost worth naming: the alternative is a case that
+/// lands a compiled function on a `ret` state, which on x86-64 is eight bytes
+/// of lie under every frame that function then pushes — the exact fault §2.2
+/// describes, in the one place that is supposed to catch it.
+#[cfg(test)]
+#[unsafe(naked)]
+extern "C" fn entry_pad() {
+    #[cfg(target_arch = "x86_64")]
+    core::arch::naked_asm!(
+        // The landing pad the pad's own address deserves, for the reason
+        // `switch_linux_x86_64.s` gives at its two entry points.
+        "endbr64",
+        // `prepare` left the frame pointer's word zero and the switch restored
+        // it; keep it that way, so a walker coming up this stack stops at the
+        // task's base rather than in whatever the last tenant left.
+        "xor rbp, rbp",
+        // The pointer the `ret` left behind, as the callee's first argument.
+        "mov rdi, rsp",
+        // `call` and not `jmp`: the eight bytes it pushes are §2.2's, and after
+        // the push the callee's first instruction sees exactly what a C caller
+        // leaves it.
+        "call rbx",
+        "ud2",
+    );
+    #[cfg(target_arch = "aarch64")]
+    core::arch::naked_asm!(
+        "mov  x29, xzr",
+        "mov  x0, sp",
+        // `sp` is sixteen-byte aligned at every instruction boundary on this
+        // architecture, a function's first one included, so there is nothing
+        // here to convert: `blr` is the pad.
+        "blr  x19",
+        "brk  #1",
+    );
+}
+
+/// Point a prepared frame at a target of the caller's choosing, behind the same
+/// kind of pad a real task is reached through.
 ///
 /// **For measurements and for this file's own cases only**, which is why it is
 /// `#[cfg(test)]`: a real task is reached through [`buri_rt_task_launch`],
@@ -223,13 +303,26 @@ pub(crate) unsafe fn prepare(top: *mut u8, arg: *mut u8) -> *mut u8 {
 /// own entry would be testing a path no task takes. What it buys is that a
 /// case about the *switch* need not also drag in `rt.rs`'s task table.
 ///
+/// What lands in the return word is [`entry_pad`] and never `target` itself —
+/// §2.2 — and `target` lands in the frame's **argument** word, which is the
+/// callee-saved register the pad calls through and the same word
+/// `buri_rt_task_launch` reads its argument out of. Both of [`prepare`]'s two
+/// words are therefore replaced, not one.
+///
+/// `target` is entered as `extern "C" fn(*mut u8)` and is handed the stack
+/// pointer the pad was entered with; a target that does not care may declare
+/// itself with no parameter, as the C ABI allows.
+///
 /// # Safety
 /// `sp` came from [`prepare`] and no context is running on that frame.
 #[cfg(test)]
 pub(crate) unsafe fn plant_return(sp: *mut u8, target: *const ()) {
-    // SAFETY: the caller's promise; the word is inside the frame `prepare`
+    // SAFETY: the caller's promise; both words are inside the frame `prepare`
     // wrote.
-    unsafe { sp.cast::<usize>().add(FRAME.ret).write(target as usize) };
+    unsafe {
+        sp.cast::<usize>().add(FRAME.arg).write(target as usize);
+        sp.cast::<usize>().add(FRAME.ret).write(entry_pad as *const () as usize);
+    }
 }
 
 #[cfg(test)]
@@ -250,6 +343,9 @@ mod tests {
     static SUM: AtomicU64 = AtomicU64::new(0);
     /// Where the probe's own frame was, read back to prove it was the block.
     static WAS: AtomicUsize = AtomicUsize::new(0);
+    /// The stack pointer [`entry_pad`] was entered with, which is the one the
+    /// switch's `ret` left behind and the whole of §2.2's question.
+    static ENTRY: AtomicUsize = AtomicUsize::new(0);
 
     /// The three blocks and the frame each of them builds.
     ///
@@ -348,11 +444,16 @@ mod tests {
         digits.parse().unwrap_or_else(|_| panic!("{file}'s `{head}` is not a number: {rest}"))
     }
 
-    /// Reached by the switch's own `ret`, on a stack this thread has never
-    /// run on. It aborts rather than panicking on any surprise: an unwind out
-    /// of a frame with no landing pad above it is not a test failure, it is a
-    /// second fault on top of the first.
-    extern "C" fn probe() {
+    /// Reached through [`entry_pad`], on a stack this thread has never run on.
+    /// It aborts rather than panicking on any surprise: an unwind out of a
+    /// frame with no landing pad above it is not a test failure, it is a second
+    /// fault on top of the first.
+    ///
+    /// `entry_sp` is the pointer the pad was entered with — the switch's own
+    /// `ret` state, before the pad spent §2.2's eight bytes on it — and is the
+    /// only view a Rust function gets of what the frame arithmetic delivered.
+    extern "C" fn probe(entry_sp: *mut u8) {
+        ENTRY.store(entry_sp as usize, Ordering::SeqCst);
         // Four kilobytes of frame, written and read, so that a switch which
         // had left `sp` where it found it would corrupt the caller instead of
         // quietly passing.
@@ -385,12 +486,13 @@ mod tests {
     /// signal rather than a wrong answer, which is why the case asserts *where*
     /// the far frame was as well as what it computed.
     ///
-    /// The launch pad is deliberately **not** in this path: `prepare`'s return
-    /// word is overwritten with the probe, because
-    /// [`buri_rt_task_launch`]'s own next instruction is a call to
-    /// `buri_rt_task_main`, which is `rt.rs`'s and needs a task. The pad is
-    /// what every case in `rt.rs` enters a task through, so it is covered
-    /// there and the two halves are separable here.
+    /// [`buri_rt_task_launch`] is deliberately **not** in this path: its own
+    /// next instruction is a call to `buri_rt_task_main`, which is `rt.rs`'s
+    /// and needs a task. It is what every case in `rt.rs` enters a task
+    /// through, so it is covered there and the two halves are separable here.
+    /// What *is* in this path is [`entry_pad`], because the launch pad's other
+    /// job cannot be skipped: a compiled function is not landed on directly on
+    /// either architecture — see §2.2.
     #[test]
     fn a_prepared_frame_runs_and_switches_back() {
         let _one = ONE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -411,6 +513,7 @@ mod tests {
         AWAY.store((&raw mut away) as usize, Ordering::SeqCst);
         SUM.store(0, Ordering::SeqCst);
         WAS.store(0, Ordering::SeqCst);
+        ENTRY.store(0, Ordering::SeqCst);
 
         // SAFETY: `home` is this thread's own word, and `there` is the frame
         // just built, which nothing else is running.
@@ -573,14 +676,30 @@ mod tests {
         AWAY.store((&raw mut away) as usize, Ordering::SeqCst);
         SUM.store(0, Ordering::SeqCst);
         WAS.store(0, Ordering::SeqCst);
+        ENTRY.store(0, Ordering::SeqCst);
 
         // SAFETY: `home` is this thread's own word, and `there` is the frame
         // just built, which nothing else is running.
         unsafe { buri_rt_task_switch(&raw mut home, there) };
         assert_eq!(SUM.load(Ordering::SeqCst), (0..512u64).sum(), "the far frame did not run");
 
-        for (what, sp) in [("prepare's", there), ("the switch's own", home), ("the far stack's", away)]
-        {
+        // What the `ret` left behind, which is the frame's high end and is what
+        // every pad in this runtime is written to expect (§2.2).
+        let entry = ENTRY.load(Ordering::SeqCst);
+        assert_eq!(
+            entry, top as usize,
+            "the frame's return word was entered with {entry:#x} rather than the stack top \
+             {top:?} it was built under: the frame is {} words and the pointer a `ret` leaves \
+             is the frame's high end",
+            FRAME.words,
+        );
+
+        for (what, sp) in [
+            ("prepare's", there),
+            ("the entry pad's", entry as *mut u8),
+            ("the switch's own", home),
+            ("the far stack's", away),
+        ] {
             assert!(
                 (sp as usize).is_multiple_of(16),
                 "{what} saved stack pointer is {sp:?}, which is not 16-byte aligned: the frame \

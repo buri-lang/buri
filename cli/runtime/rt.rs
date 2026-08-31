@@ -2783,7 +2783,11 @@ mod tests {
         ///
         /// The two statics are read **once**, outside the loop, so that what
         /// the loop times is the switch and not two atomic loads beside it.
-        extern "C" fn pong() {
+        ///
+        /// The argument is the stack pointer `switch::plant_return`'s entry pad
+        /// was entered with, which this measurement does not want; it is named
+        /// rather than dropped because the pad passes it either way.
+        extern "C" fn pong(_entry_sp: *mut u8) {
             let home = HOME.load(Ordering::SeqCst) as *const *mut u8;
             let away = AWAY.load(Ordering::SeqCst) as *mut *mut u8;
             if home.is_null() || away.is_null() {
@@ -2805,8 +2809,9 @@ mod tests {
         // SAFETY: the top of a live block nothing else is running on.
         let start = unsafe { switch::prepare(top, std::ptr::null_mut()) };
         // The launch pad calls `buri_rt_task_main`, which wants a task; this
-        // measurement wants the switch alone, so the frame returns straight
-        // into `pong`.
+        // measurement wants the switch alone, so the frame is pointed at `pong`
+        // instead — behind `plant_return`'s own pad, which is the launch pad's
+        // stack-alignment half without its task half (`switch.rs` §2.2).
         //
         // **The two saved contexts live in a heap cell and are read back
         // `read_volatile`**, which is not fussiness: they are written by the
