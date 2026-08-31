@@ -510,7 +510,30 @@ fn the_network_effect_fetches() {
     let port = listener.local_addr().unwrap().port();
 
     let server = std::thread::spawn(move || {
-        let (mut sock, _) = listener.accept().unwrap();
+        // Every wait this thread does is bounded, because the test joins it: a
+        // driver that never connects, or that connects and stops talking, has
+        // to become a failing assertion here rather than a suite that runs
+        // until CI kills it. `cli/runtime/tls.rs`'s own server was the same
+        // shape and was the hang that made the point.
+        let patience = std::time::Duration::from_secs(60);
+        let deadline = std::time::Instant::now() + patience;
+        listener.set_nonblocking(true).unwrap();
+        let mut sock = loop {
+            match listener.accept() {
+                Ok((sock, _)) => break sock,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "the driver did not connect within {patience:?}"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                Err(e) => panic!("the probe listener could not accept: {e}"),
+            }
+        };
+        sock.set_nonblocking(false).unwrap();
+        sock.set_read_timeout(Some(patience)).unwrap();
+        sock.set_write_timeout(Some(patience)).unwrap();
         let mut request = Vec::new();
         let mut buf = [0_u8; 1024];
         // Read until the headers are complete *and* the four-octet body the
