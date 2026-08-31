@@ -862,8 +862,9 @@ pub const BURI_RT_STACK_BYTES: usize = BURI_RT_STACK_USABLE + BURI_RT_STACK_GUAR
 /// Two requirements and the second is the larger: every frame offset is
 /// computed from a base of zero so the base must satisfy the widest alignment
 /// a layout asks for (sixteen), and [`mprotect`] wants a page and arm64 macOS
-/// pages are 16 KiB. `mmap` already answers page-aligned on both platforms;
-/// asserting it is what makes that an observed fact rather than an assumption.
+/// pages are 16 KiB. `mmap` promises only *page* alignment, and a page is
+/// 4 KiB on x86-64 Linux, so this is a number [`map_stack`] has to **make**
+/// true rather than one it may read off the kernel's answer.
 pub const BURI_RT_STACK_ALIGN: usize = 16 * 1024;
 
 // The three calls this file makes into the C library, declared rather than
@@ -927,7 +928,7 @@ impl Drop for Blocks {
     fn drop(&mut self) {
         for p in self.0.drain(..) {
             // SAFETY: every pointer in this list came from `map_stack` and was
-            // mapped with exactly this length; a block that is *in* the list is
+            // trimmed to exactly this length; a block that is *in* the list is
             // one no entry thunk is inside.
             unsafe {
                 munmap(p.cast(), BURI_RT_STACK_BYTES);
@@ -936,30 +937,80 @@ impl Drop for Blocks {
     }
 }
 
-/// Maps one 64 MiB stack with its own 1 MiB `PROT_NONE` guard on top.
+/// The over-long reservation [`map_stack`] asks the kernel for: the stack, the
+/// guard, and one alignment of slack to be trimmed off the ends.
+const BURI_RT_STACK_RESERVE: usize = BURI_RT_STACK_BYTES + BURI_RT_STACK_ALIGN;
+
+/// Where the kept block sits inside a [`BURI_RT_STACK_RESERVE`] mapping that
+/// began at `raw`, and how many bytes are left over below and above it.
+///
+/// Answers `(base, head, tail)`, where `base` is 16 KiB aligned, the
+/// `BURI_RT_STACK_BYTES` from `base` are the block, and `head + tail` is the
+/// whole alignment of slack — the reservation asks for one and keeps none of
+/// it, so what it hands back to the kernel is exactly what it asked extra for.
+///
+/// Split out of [`map_stack`] because it is the half that can be *checked*.
+/// `mmap` answers a page boundary and a page is 16 KiB on arm64 macOS, so on
+/// that host every `raw` is already aligned and the interesting branch never
+/// runs — a test that only allocated stacks there would agree just as happily
+/// with code that did no trimming at all. Odd bases here run it on purpose.
+fn stack_trim(raw: usize) -> (usize, usize, usize) {
+    let base = raw.next_multiple_of(BURI_RT_STACK_ALIGN);
+    let head = base - raw;
+    (base, head, BURI_RT_STACK_ALIGN - head)
+}
+
+/// Maps one 64 MiB stack with its own 1 MiB `PROT_NONE` guard on top, at a
+/// 16 KiB boundary whatever page size the host has.
 ///
 /// Zero-filled by the kernel and never faulted in until a frame lands on a
 /// page, so the cost of a carrier that enters Buri code once and returns is
-/// two system calls and the pages it actually used.
+/// four system calls and the pages it actually used. Four rather than two
+/// because a bare `BURI_RT_STACK_BYTES` request answers only *page* aligned,
+/// which is the 16 KiB this block needs on arm64 macOS and a one-in-four coin
+/// flip on x86-64 Linux. So the request is [`BURI_RT_STACK_RESERVE`] — one
+/// alignment long — and the misaligned head and the remainder above the block
+/// go straight back, leaving exactly the reservation on a boundary.
 fn map_stack() -> *mut u8 {
     // SAFETY: a fresh anonymous private mapping; no fd, no fixed address.
-    let p = unsafe {
+    let raw = unsafe {
         mmap(
             core::ptr::null_mut(),
-            BURI_RT_STACK_BYTES,
+            BURI_RT_STACK_RESERVE,
             PROT_READ | PROT_WRITE,
             MAP_PRIVATE | MAP_ANON,
             -1,
             0,
         )
     };
-    if p.is_null() || p as usize == MAP_FAILED {
-        buri_rt_abort_oom(BURI_RT_STACK_BYTES as u64);
+    if raw.is_null() || raw as usize == MAP_FAILED {
+        buri_rt_abort_oom(BURI_RT_STACK_RESERVE as u64);
     }
-    // `mmap` answers page-aligned and a page is at least 4 KiB, but the frame
-    // offsets this block is addressed with were computed against `STACK_ALIGN`
-    // and the guard below has to start on a page. Both are the same question
-    // and this is where it is asked.
+    let (base, head, tail) = stack_trim(raw as usize);
+    // SAFETY: both ranges are ends of the mapping just made, which nothing has
+    // been handed a pointer into yet. Both start on a page — `raw` does
+    // because `mmap` answered it, and `base + BURI_RT_STACK_BYTES` does
+    // because both terms are multiples of 16 KiB, which is a whole number of
+    // pages on every host this runtime is built for. `munmap` rounds a length
+    // up to a page and unmapping what is already unmapped is not an error, so
+    // a page the reservation shares with nothing is the worst either call can
+    // reach. A zero-length range is skipped rather than passed: `munmap`
+    // refuses one, and on a 16 KiB-page host the head is always empty.
+    let freed = unsafe {
+        let a = if head == 0 { 0 } else { munmap(raw, head) };
+        let b = if tail == 0 {
+            0
+        } else {
+            munmap((base + BURI_RT_STACK_BYTES) as *mut core::ffi::c_void, tail)
+        };
+        a | b
+    };
+    assert!(freed == 0, "a carrier stack's alignment slack could not be given back");
+    let p = base as *mut core::ffi::c_void;
+    // Now an invariant rather than a hope. The frame offsets this block is
+    // addressed with were computed against `STACK_ALIGN` and the guard below
+    // has to start on a page; both are the same question and the trim above is
+    // the answer, so this is what says the trim worked.
     assert!(
         (p as usize).is_multiple_of(BURI_RT_STACK_ALIGN),
         "mmap answered a block that is not 16 KiB aligned"
@@ -1103,6 +1154,74 @@ mod tests {
     #[test]
     fn releasing_a_null_stack_is_a_no_op() {
         buri_rt_stack_release(core::ptr::null_mut());
+    }
+
+    /// **The trim aligns any base the kernel could answer and keeps exactly
+    /// the reservation.**
+    ///
+    /// The deterministic half of the alignment guarantee, and the reason
+    /// `stack_trim` is a function at all: `map_stack` sees only the host's
+    /// page size, so on arm64 macOS every base it is handed is 16 KiB aligned
+    /// already and the branch that does the work never runs. These bases are
+    /// the ones a 4 KiB-page kernel answers — the case that turned `assert!`
+    /// into a failing test on x86-64 Linux — plus a base of one byte, which no
+    /// kernel answers and which nothing in the arithmetic may care about.
+    #[test]
+    fn the_trim_aligns_any_base_and_keeps_the_whole_reservation() {
+        const K: usize = 1024;
+        for raw in [
+            0x1_0000_0000,
+            0x1_0000_0000 + 4 * K,
+            0x1_0000_0000 + 8 * K,
+            0x1_0000_0000 + 12 * K,
+            0x1_0000_0000 + BURI_RT_STACK_ALIGN,
+            0x7f88_c000_0000 + 4 * K,
+            1,
+        ] {
+            let (base, head, tail) = stack_trim(raw);
+            assert!(
+                base.is_multiple_of(BURI_RT_STACK_ALIGN),
+                "the trim left base {base:#x} unaligned"
+            );
+            assert_eq!(head, base - raw, "the head is the distance up to the base");
+            // Every byte of the slack is given back and none of the block is:
+            // the two ends and the block are the whole reservation, and the
+            // block sits between them.
+            assert_eq!(
+                head + BURI_RT_STACK_BYTES + tail,
+                BURI_RT_STACK_RESERVE,
+                "the trim kept slack or gave away the block"
+            );
+            assert_eq!(raw + head, base);
+            assert_eq!(base + BURI_RT_STACK_BYTES + tail, raw + BURI_RT_STACK_RESERVE);
+        }
+    }
+
+    /// **Every block a carrier is handed is aligned, however many are live.**
+    ///
+    /// The other half, and the one that reads the real kernel's answer: four
+    /// nested acquires are four separate mappings, so on a 4 KiB-page host
+    /// this is four independent draws against an alignment that used to be
+    /// luck. Each is written at its last usable byte too, because a block
+    /// whose guard moved with the base would fault there rather than answer.
+    #[test]
+    fn every_live_carrier_stack_is_aligned() {
+        let blocks: Vec<*mut u8> = (0..4).map(|_| buri_rt_stack_acquire()).collect();
+        for &b in &blocks {
+            assert!(
+                (b as usize).is_multiple_of(BURI_RT_STACK_ALIGN),
+                "a carrier was handed a block at {b:p}, which is not 16 KiB aligned"
+            );
+            // SAFETY: `b` names `BURI_RT_STACK_USABLE` writable bytes, and the
+            // guard begins at the byte after this one.
+            unsafe {
+                b.add(BURI_RT_STACK_USABLE - 1).write(0xcd);
+                assert_eq!(b.add(BURI_RT_STACK_USABLE - 1).read(), 0xcd);
+            }
+        }
+        for b in blocks {
+            buri_rt_stack_release(b);
+        }
     }
 
 
