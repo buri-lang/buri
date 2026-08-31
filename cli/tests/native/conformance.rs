@@ -1070,17 +1070,17 @@ test "a stdin of octets reads them, and readLine finds nothing there" {
 ///
 /// Both halves of the substitution are here in one source:
 ///
-/// * `ctx.listen(…)` on the **context value**, whose handler reads
-///   `server.bindsTo` — a field of `OneShotListen`, which a context does not
-///   have. `semantics/expressions.rs`'s `implementing_ty` is what makes it
-///   compile, and `OneShotListen` invoking the handler is what makes the
-///   answer depend on the bytes being right.
+/// * `server.listen(ctx, …)` with a **context value**, whose handler *prints*
+///   — an effect this context grants and `OneShotListen` does not. Every call
+///   goes through `core/net/server` now, whose body is generic, and inside a
+///   generic body a `Self`-spelled handler is handed the receiver, so what
+///   arrives is the caller's whole context. `middle/monomorphize.rs`'s
+///   `rewrite_call_args` is what makes the value agree with that type; before
+///   it, the acceptor arrived instead and the process died reading its bytes.
 /// * `serveOnce(ctx, …)` and `runInOrder(ctx, …)`, which reach the same
-///   method through a **bounded type parameter**. The front end cannot settle
-///   `Self` there — a generic body is checked once for every instantiation at
-///   once — so `middle/monomorphize.rs`'s `rewrite_call_args` is what makes
-///   the call land on a handler with the implementation's layout. Before it,
-///   this exited `-1` with no stdout and no stderr.
+///   method through a **bounded type parameter**, so the wrapper is one layer
+///   further from the call and the same adaptation has to survive it. Before
+///   `rewrite_call_args`, this exited `-1` with no stdout and no stderr.
 ///
 /// And the rule's other side, which is `Tasks.parallel`'s: a step is handed the
 /// caller's **context**, spelled `ctx: C` in the declaration rather than `Self`.
@@ -1094,9 +1094,10 @@ fn self_through_a_context_is_the_implementing_type() {
         return;
     }
     const SOURCE: &str = r#"from "core/effect" import {
-  Alloc, Clock, Listen, Net, Request, Response, Sockets, Tasks,
+  Alloc, Clock, Listen, Net, Request, Response, Sockets, Stdout, Tasks,
 };
-from "core/host/testing" import { alloc, clock };
+from "core/host/testing" import { alloc, clock, stdout };
+from "core/io" import * as io;
 from "core/net/server" import * as server;
 from "core/tasks" import * as tasks;
 from "core/testing/assert" import * as assert;
@@ -1105,22 +1106,31 @@ from "//lib/semantics" import {
   OneShotListen, QuietSockets, SerialTasks, TeapotNet, runInOrder, runInOrderNamed, serveOnce,
 };
 
-test "the handler is handed the implementation" {
+test "the handler is handed the caller's context" {
+  let sink = stdout();
   let ctx = context {
     Alloc: alloc(),
     Listen: OneShotListen { bindsTo: "10.0.0.1" },
+    Stdout: sink,
     Tasks: SerialTasks { label: "serial", bias: 4 },
   };
-  assert.ok(server.listen(ctx, "10.0.0.1", 0, fn(server, request) => Response {
-    status: if (server.bindsTo == request.url) { 200 } else { 500 },
-    headers: [],
-    body: [],
+  assert.ok(server.listen(ctx, "10.0.0.1", 0, fn(c, request) => {
+    io.println(c, "hit ${request.url}").ignore();
+    Response {
+      status: if (request.url == "10.0.0.1") { 200 } else { 500 },
+      headers: [],
+      body: [],
+    }
   }));
-  let _ = assert.err(server.listen(ctx, "127.0.0.1", 0, fn(server, request) => Response {
-    status: if (server.bindsTo == request.url) { 200 } else { 500 },
-    headers: [],
-    body: [],
+  let _ = assert.err(server.listen(ctx, "127.0.0.1", 0, fn(c, request) => {
+    io.println(c, "hit ${request.url}").ignore();
+    Response {
+      status: if (request.url == "10.0.0.1") { 200 } else { 500 },
+      headers: [],
+      body: [],
+    }
   }));
+  assert.eq(sink.captured(), "hit 10.0.0.1\nhit 127.0.0.1\n");
 }
 
 test "and a task is handed the context" {
@@ -1150,7 +1160,8 @@ test "and through a bound the call still lands" {
     else {
         panic!(
             "the front end refused the `Self`-through-a-context fixture — which is what it did \
-             before `implementing_ty`, because a handler cannot read a field of a context"
+             before `rewrite_call_args`, because a handler cannot use an effect the acceptor \
+             does not grant"
         );
     };
     assert_eq!(status, 0, "stdout:\n{out}\nstderr:\n{err}");

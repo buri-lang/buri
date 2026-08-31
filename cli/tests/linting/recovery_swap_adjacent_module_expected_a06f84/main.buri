@@ -1,0 +1,58 @@
+// A `ctx` parameter says a function touches the world; its bounds say which
+// parts of it. There are three ways a body uses one — a method the bound
+// declares, a callee whose own bound names it, and a function-typed parameter
+// that is handed the whole context — and the three functions below the first
+// two use one each. The first two ask for capabilities they never exercise.
+
+from "core/effect" import { Alloc, Clock, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+/// The finding. `io.println` asks for `Stdout` and for nothing else, so
+/// `Alloc` here is a demand on every caller for a capability the body never
+/// uses.
+fn announce<C: Stdout>(ctx: C, label: Str): () {
+  io.println(ctx, "-- ${label}").ignore()
+}
+
+/// Two of them on one parameter, and one rewrite rather than two: the byte
+/// ranges that delete `Alloc` and `Clock` both claim the `+` between them, so
+/// the removal is computed once and both findings carry it.
+fn shout<C: Stdout>(ctx: C, label: Str): () {
+  io.println(ctx, "!! ${label}").ignore()
+}
+
+/// A method the bound itself declares. `println` comes from `Stdout` and from
+/// nowhere else — a method on a type parameter can only come from its bounds —
+/// so calling it is the use.
+fn whisper<C: Stdout>(ctx: C, label: Str): () {
+  io.println(ctx, ".. ${label}").ignore()
+}
+
+/// A callee that asks for one of its own. `str.format<C: Alloc>` puts `Alloc`
+/// on this `C`, which is the whole of why the bound is here.
+fn banner<C: Alloc>(ctx: C, label: Str): Str {
+  str.format(ctx, "== ${label} ==")
+}
+
+/// A function-typed parameter, which uses **every** bound. `render` is handed
+/// the whole context and nothing here can say which part of it the callback
+/// reaches, so `Clock` stays even though no line below names a clock.
+fn rendered<C: + Alloc Clock>(ctx: C, render: fn(C, Str) => Str, label: Str): Str {
+  render(ctx, label)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Clock: host.clock,
+    Stdout: host.stdout,
+  };
+  let label = "ledger";
+  let _ = announce(ctx, label);
+  let _ = shout(ctx, label);
+  let _ = whisper(ctx, banner(ctx, label));
+  let _ = whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label));
+  .Ok(())
+}

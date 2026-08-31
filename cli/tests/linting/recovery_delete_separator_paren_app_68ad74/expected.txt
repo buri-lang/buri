@@ -1,7 +1,7 @@
 error: a call argument ends with `,` [missing-separator]
   --> lib/recovery_delete_separator_paren_app_68ad74/main.buri:12:25
    |
-12 |   let _ = io.println(ctx describe());
+12 |   let _ = io.println(ctx describe()).ignore();
    |                         ^
    |
    = fix: write `,` here

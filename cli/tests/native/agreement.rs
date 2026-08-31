@@ -1872,11 +1872,11 @@ fn row_12_alloc_accounting() {
 const ALLOCATE: &str = r#"
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc, Region };
-from "core/host" import { stdout, alloc };
+from "core/host" import { alloc as platform, stdout };
 from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
-  let r = alloc.allocate(64);
+  let r = alloc.allocate(platform, 64);
   let n = r.0;
   let _ = io.println(stdout, "${n}").ignore();
   .Ok(())
@@ -2548,6 +2548,7 @@ from "core/effect" import {
   Alloc, IoError, Listen, NetError, Region, Request, Response, Stdout,
 };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/net/server" import * as server;
 
 /// An `Alloc` that is not zero-sized, so the context binding it is a word wide.
@@ -2613,11 +2614,11 @@ impl<C: Listen> Listen for Wrap<C> {
 
 /// A handler written against a bound, which is what a request handler is.
 fn served<C: Listen + Stdout>(ctx: C): Int {
-  let answered = server.listen(ctx, "10.0.0.1", 0, fn(server, request) => {
+  let answered = server.listen(ctx, "10.0.0.1", 0, fn(c, request) => {
     // The handler *uses* what it is handed, on a bound its own `C` declares
     // and the acceptor does not. A handler that ignored its first parameter
     // would pass whatever arrived.
-    let _ = server.println("handler on ${request.url}");
+    let _ = io.println(c, "handler on ${request.url}").ignore();
     Response { status: 200, headers: [], body: [] }
   });
   match (answered) { .Ok(_) => 1, .Err(_) => 0 }
@@ -2634,9 +2635,9 @@ export fn main(): Result<(), Str> {
     Stdout: host.stdout,
     Listen: OneShot { bindsTo: "10.0.0.1" },
   };
-  let _ = host.stdout.println("entering");
+  let _ = io.println(host.stdout, "entering").ignore();
   let n = wrapped(ctx, fn(c) => served(c));
-  let _ = host.stdout.println("served ${n}");
+  let _ = io.println(host.stdout, "served ${n}").ignore();
   .Ok(())
 }
 "#,

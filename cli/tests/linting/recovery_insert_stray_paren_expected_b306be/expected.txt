@@ -1,7 +1,7 @@
 error: expected the rest of the string, found `@` [unexpected-token]
   --> lib/recovery_insert_stray_paren_expected_b306be/main.buri:16:30
    |
-16 |   io.println(ctx, "-- ${label@ }")
+16 |   io.println(ctx, "-- ${label@ }").ignore()
    |                              ^
    |
    = expected: the rest of the string

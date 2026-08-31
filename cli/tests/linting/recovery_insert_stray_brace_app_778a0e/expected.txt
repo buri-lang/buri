@@ -18,7 +18,7 @@ error: expected an identifier, found `?` [unexpected-token]
 error: there is nothing named `ctx` in scope [unresolved-name]
   --> lib/recovery_insert_stray_brace_app_778a0e/main.buri:14:22
    |
-14 |   let _ = io.println(ctx, banner());
+14 |   let _ = io.println(ctx, banner()).ignore();
    |                      ^^^
    |
    = fix: declare `ctx` as a parameter of this function

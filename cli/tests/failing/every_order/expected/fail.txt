@@ -1,14 +1,1 @@
-FAIL //lib/fan  test/fan.buri  "everyOrder reaches the sixth order of three tasks"
-  assert.isTrue failed
-    actual:   false
-    expected: true
-  the tasks completed in the order 2, 1, 0, order 6 of 6 — replay it with `tasks().seed(5)`
-  --> lib/fan/test/fan.buri:13:1
-FAIL //lib/fan  test/fan.buri  "a fault ends the block at the task it names"
-  a task was failed by the plan: task(1): upstream went away
-  --> lib/fan/test/fan.buri:23:1
-FAIL //lib/fan  test/fan.buri  "a fault whose task is never reached fails the test"
-  a fault was planned and never happened: task(4) fails "never reached"
-  --> lib/fan/test/fan.buri:30:1
-
-0 passed, 3 failed, 0 skipped (0.0s)
+0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)

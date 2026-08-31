@@ -1,3 +1,19 @@
+error: expected `()`, found `Result<(), IoError>` [type-mismatch]
+  --> lib/recovery_delete_closer_brace_stamp_3ba62e/lib.buri:17:52
+   |
+17 | export fn stamp<C: Stdout>(ctx: C, label: Str): () {
+   |                                                    ^ the declared return type is `()`
+   |
+   = expected: `()`
+   = actual: `Result<(), IoError>`
+   = fix: produce a `()` here, or change what surrounds it to accept a `Result<(), IoError>`
+error: `Template` has no method `ignore` [no-such-method]
+  --> lib/recovery_delete_closer_brace_stamp_3ba62e/lib.buri:18:33
+   |
+18 |   io.println(ctx, "-- ${label}".ignore()
+   |                                 ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/num` lists every method `Template` has, and one may not be added to it from outside `core/num`
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_brace_stamp_3ba62e/lib.buri:19:1
    |
@@ -6,7 +22,7 @@ error: this call is missing its closing `)` [unclosed-delimiter]
    |
   --> lib/recovery_delete_closer_brace_stamp_3ba62e/lib.buri:18:13
    |
-18 |   io.println(ctx, "-- ${label}"
+18 |   io.println(ctx, "-- ${label}".ignore()
    |             ^ opened here
    |
    = fix: write `)` here

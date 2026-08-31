@@ -9,7 +9,7 @@ warning: this comment is marked `TODO` [warning-comment]
 error: expected an expression, found `?` [unexpected-token]
   --> lib/recovery_insert_stray_paren_app_08e5a1/main.buri:14:27
    |
-14 |   let _ = io.println(ctx, ? banner());
+14 |   let _ = io.println(ctx, ? banner()).ignore();
    |                           ^
    |
    = expected: an expression

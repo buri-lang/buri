@@ -1,14 +1,14 @@
 error: a call argument ends with `,` [missing-separator]
   --> lib/recovery_swap_adjacent_paren_stamp_add7ef/lib.buri:18:17
    |
-18 |   io.println(ctx"-- ${ ,label}")
+18 |   io.println(ctx"-- ${ ,label}").ignore()
    |                 ^
    |
    = fix: write `,` here
 error: expected an expression, found `,` [unexpected-token]
   --> lib/recovery_swap_adjacent_paren_stamp_add7ef/lib.buri:18:24
    |
-18 |   io.println(ctx"-- ${ ,label}")
+18 |   io.println(ctx"-- ${ ,label}").ignore()
    |                        ^
    |
    = expected: an expression

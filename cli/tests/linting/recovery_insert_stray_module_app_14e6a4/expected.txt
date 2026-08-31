@@ -1,0 +1,17 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_insert_stray_module_app_14e6a4/main.buri:16:20
+   |
+16 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: expected a declaration, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_module_app_14e6a4/main.buri:26:1
+   |
+26 | , fn banner<C: Alloc>(ctx: C, label: Str): Str {
+   | ^
+   |
+   = expected: a declaration
+   = actual: `,`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

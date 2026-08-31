@@ -1,7 +1,7 @@
 error: an expression statement is legal only in a test source [expression-statement]
   --> lib/recovery_insert_stray_brace_stamp_e883b8/lib.buri:18:3
    |
-18 |   io.extra println(ctx, "-- ${label}")
+18 |   io.extra println(ctx, "-- ${label}").ignore()
    |   ^^^^^^^^
    |
    = a block is `let`s followed by a result expression
@@ -9,22 +9,22 @@ error: an expression statement is legal only in a test source [expression-statem
 error: "core/io" has no member `extra` [no-such-member]
   --> lib/recovery_insert_stray_brace_stamp_e883b8/lib.buri:18:6
    |
-18 |   io.extra println(ctx, "-- ${label}")
+18 |   io.extra println(ctx, "-- ${label}").ignore()
    |      ^^^^^
    |
-   = the module exports `eprint`, `eprintln`, `print`, `println`, `readBytes`, `readLine` and `writeBytes`
+   = the module exports `IoError`, `eprint`, `eprintln`, `print`, `println`, `readBytes`, `readLine` and `writeBytes`
    = fix: correct the member name, or check `buri docs core/io`
 error: a statement ends with `;` [missing-terminator]
   --> lib/recovery_insert_stray_brace_stamp_e883b8/lib.buri:18:11
    |
-18 |   io.extra println(ctx, "-- ${label}")
+18 |   io.extra println(ctx, "-- ${label}").ignore()
    |           ^
    |
    = fix: write `;` here
 error: there is nothing named `println` in scope [unresolved-name]
   --> lib/recovery_insert_stray_brace_stamp_e883b8/lib.buri:18:12
    |
-18 |   io.extra println(ctx, "-- ${label}")
+18 |   io.extra println(ctx, "-- ${label}").ignore()
    |            ^^^^^^^
    |
    = fix: declare `println`, or import it — a name is in scope only from this module's own declarations and its imports

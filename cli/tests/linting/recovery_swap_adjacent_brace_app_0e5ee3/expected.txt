@@ -9,7 +9,7 @@ warning: this comment is marked `TODO` [warning-comment]
 error: expected a pattern, found `=` [unexpected-token]
   --> lib/recovery_swap_adjacent_brace_app_0e5ee3/main.buri:14:7
    |
-14 |   let = _ io.println(ctx, banner());
+14 |   let = _ io.println(ctx, banner()).ignore();
    |       ^
    |
    = expected: a pattern

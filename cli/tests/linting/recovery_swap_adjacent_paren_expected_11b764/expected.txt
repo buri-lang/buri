@@ -1,0 +1,16 @@
+error: expected `=>`, found `Str` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_expected_11b764/main.buri:32:50
+   |
+32 | fn rendered<C: Alloc>(ctx: C, render: fn(C, Str) Str =>, label: Str): Str {
+   |                                                  ^^^
+   |
+   = expected: `=>`
+   = actual: `Str`
+   = fix: write `=>` here
+error: there is nothing named `rendered` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_expected_11b764/main.buri:41:27
+   |
+41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).ignore();
+   |                           ^^^^^^^^
+   |
+   = fix: declare `rendered`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -1,16 +1,16 @@
 error: //lib/money/cents.buri is internal to //lib/money [internal-import]
- --> cmd/app/main.buri:8:6
+ --> cmd/app/main.buri:9:6
   |
-8 | from "//lib/money/cents.buri" import { fromCents };
+9 | from "//lib/money/cents.buri" import { fromCents };
   |      ^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = only names re-exported by lib/money/lib.buri are available
   = fix: import the library instead: from "//lib/money" import { ... }
 error: there is nothing named `fromCents` in scope [unresolved-name]
-  --> cmd/app/main.buri:12:23
+  --> cmd/app/main.buri:13:27
    |
-12 |   let _ = ctx.println(fromCents(450).format(ctx));
-   |                       ^^^^^^^^^
+13 |   let _ = io.println(ctx, fromCents(450).format(ctx)).ignore();
+   |                           ^^^^^^^^^
    |
    = fix: declare `fromCents`, or import it — a name is in scope only from this module's own declarations and its imports
 

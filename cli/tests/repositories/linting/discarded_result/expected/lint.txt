@@ -1,7 +1,7 @@
 warning: this discards a `Result` [discarded-result]
-  --> cmd/app/main.buri:14:11
+  --> cmd/app/main.buri:20:11
    |
-14 |   let _ = record().ignore();
+20 |   let _ = record().ignore();
    |           ^^^^^^^^^^^^^^^^^
    |
    = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
@@ -18,6 +18,16 @@ warning: this discards a `Result` [discarded-result]
      the same error. What is left is ignore — the deliberate, greppable drop —
      and ignore is therefore what this reports. The rule is the grep, run for
      you.
+
+     A dropped print is passed over, and it is the exception that keeps the rule
+     usable. Stdout and Stderr answer Result<(), IoError> because a closed pipe
+     is a thing that happens, so nearly every line a program writes is a Result
+     — and the failure a print reports is the one a program can least act on,
+     because the stream it would report the failure *on* is the stream that
+     failed. io.println(ctx, x).ignore() is punctuation rather than a decision,
+     and a report dominated by it is a report nobody reads. Every other dropped
+     Result is still here, fs.writeText(...).ignore() included: a failed write
+     is a failure somebody chose not to look at.
 
      If the failure does matter, the edit is match to handle it or ? to
      propagate it. If it genuinely does not — a cache write whose failure

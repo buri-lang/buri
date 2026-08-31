@@ -1,0 +1,31 @@
+warning: this discards a `Result` [discarded-result]
+  --> lib/recovery_insert_stray_brace_app_c7c595/main.buri:20:11
+   |
+20 |   let _ = record().ignore();
+   |           ^^^^^^^^^^^^^^^^^
+   |
+   = `ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these
+   = fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
+error: `Ok` holds 1 values, but 2 were given [wrong-value-count]
+  --> lib/recovery_insert_stray_brace_app_c7c595/main.buri:22:3
+   |
+22 |   .Ok(()extra )
+   |   ^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_brace_app_c7c595/main.buri:22:9
+   |
+22 |   .Ok(()extra )
+   |         ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_c7c595/main.buri:22:9
+   |
+22 |   .Ok(()extra )
+   |         ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

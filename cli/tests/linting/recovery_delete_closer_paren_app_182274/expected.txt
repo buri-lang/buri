@@ -9,20 +9,20 @@ warning: `total` takes 6 parameters [too-many-parameters]
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_paren_app_182274/main.buri:15:52
    |
-15 |   let _ = io.println(ctx, "${total(1, 2, 3, 4, 5, 6}");
+15 |   let _ = io.println(ctx, "${total(1, 2, 3, 4, 5, 6}").ignore();
    |                                                    ^^
    |
   --> lib/recovery_delete_closer_paren_app_182274/main.buri:15:35
    |
-15 |   let _ = io.println(ctx, "${total(1, 2, 3, 4, 5, 6}");
+15 |   let _ = io.println(ctx, "${total(1, 2, 3, 4, 5, 6}").ignore();
    |                                   ^ opened here
    |
    = fix: write `)` here
 error: expected the rest of the string, found `;` [unexpected-token]
-  --> lib/recovery_delete_closer_paren_app_182274/main.buri:15:55
+  --> lib/recovery_delete_closer_paren_app_182274/main.buri:15:64
    |
-15 |   let _ = io.println(ctx, "${total(1, 2, 3, 4, 5, 6}");
-   |                                                       ^
+15 |   let _ = io.println(ctx, "${total(1, 2, 3, 4, 5, 6}").ignore();
+   |                                                                ^
    |
    = expected: the rest of the string
    = actual: `;`

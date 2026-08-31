@@ -10,7 +10,7 @@ error: expected `=`, found `context` [unexpected-token]
 error: there is nothing named `ctx` in scope [unresolved-name]
   --> lib/recovery_swap_adjacent_brace_app_a5b4a0/main.buri:13:22
    |
-13 |   let _ = io.println(ctx, "done");
+13 |   let _ = io.println(ctx, "done").ignore();
    |                      ^^^
    |
    = fix: declare `ctx` as a parameter of this function

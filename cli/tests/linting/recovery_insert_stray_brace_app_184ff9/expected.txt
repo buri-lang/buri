@@ -14,7 +14,7 @@ warning: `core/effect` is imported twice [duplicate-import]
 error: expected `;`, found `@` [unexpected-token]
   --> lib/recovery_insert_stray_brace_app_184ff9/main.buri:16:36
    |
-16 |   let _ = print(ctx, "half a line")@ ;
+16 |   let _ = print(ctx, "half a line")@ .ignore();
    |                                    ^
    |
    = expected: `;`

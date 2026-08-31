@@ -24,6 +24,6 @@ fn ladder(n: I64): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${size(5000)} ${ladder(1}");
+  let _ = io.println(ctx, "${size(5000)} ${ladder(1}").ignore();
   .Ok(())
 }

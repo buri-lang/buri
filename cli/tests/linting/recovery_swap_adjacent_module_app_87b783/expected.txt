@@ -18,7 +18,7 @@ error: expected a function body, found a string literal [unexpected-token]
 error: there is nothing named `banner` in scope [unresolved-name]
   --> lib/recovery_swap_adjacent_module_app_87b783/main.buri:14:27
    |
-14 |   let _ = io.println(ctx, banner());
+14 |   let _ = io.println(ctx, banner()).ignore();
    |                           ^^^^^^
    |
    = fix: declare `banner`, or import it — a name is in scope only from this module's own declarations and its imports

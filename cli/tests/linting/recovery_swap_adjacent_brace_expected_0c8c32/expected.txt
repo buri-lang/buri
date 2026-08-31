@@ -1,9 +1,0 @@
-error: expected `=`, found `ctx` [unexpected-token]
-  --> lib/recovery_swap_adjacent_brace_expected_0c8c32/main.buri:40:9
-   |
-40 |   let _ ctx =.println(rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label));
-   |         ^^^
-   |
-   = expected: `=`
-   = actual: `ctx`
-   = fix: write `=` here

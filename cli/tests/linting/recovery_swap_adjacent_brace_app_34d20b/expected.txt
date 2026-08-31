@@ -18,7 +18,7 @@ error: expected `{`, found `Alloc` [unexpected-token]
 error: there is nothing named `ctx` in scope [unresolved-name]
   --> lib/recovery_swap_adjacent_brace_app_34d20b/main.buri:14:22
    |
-14 |   let _ = io.println(ctx, banner());
+14 |   let _ = io.println(ctx, banner()).ignore();
    |                      ^^^
    |
    = fix: declare `ctx` as a parameter of this function
