@@ -11,9 +11,15 @@
 //!
 //! **`http://` and `https://`.** Absolute-URI parsing, `Host`, the caller's own
 //! request headers, octet request bodies with `Content-Length`, chunked and
-//! identity response bodies, the response's header fields, and a connect/read
-//! deadline — over cleartext, or over TLS 1.2 and 1.3 with the server's
-//! certificate checked against the host's trust anchors.
+//! identity response bodies, the response's header fields, and a deadline on
+//! every step of the exchange — over cleartext, or over TLS 1.2 and 1.3 with
+//! the server's certificate checked against the host's trust anchors.
+//!
+//! **Every step**, and the word is load-bearing: the name lookup, the connect,
+//! the TLS handshake, each write and each read. [`DEADLINE`] says what that is
+//! worth and [`within`] is how the one step the socket options cannot bound —
+//! `getaddrinfo` — is bounded anyway. A `fetch` that could hang forever would
+//! hang a carrier forever, and a carrier is not the caller's to lose.
 //!
 //! **The scheme changes one thing and one thing only: whether the socket is
 //! wrapped.** [`Transport`] is the seam, `tls.rs` is what fills it, and
@@ -42,7 +48,8 @@
 //! the same rule `CloseReason`'s wire codes follow.
 
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
 /// `NetError`'s variants, in declaration order in `effect.buri`. The index is
@@ -105,6 +112,19 @@ pub struct HttpResponse {
     pub body: Vec<u8>,
 }
 
+/// How long any one step of a request may take before it is a `Timeout`.
+///
+/// **Every** step: the name lookup, the connect, the handshake, each write and
+/// each read. That is what makes "a `Net.fetch` returns" a property of this
+/// client rather than a property of the network it is pointed at — a peer that
+/// accepts and says nothing, a route that swallows the SYN, a resolver that
+/// never answers, all end here with the same answer instead of holding the
+/// calling thread for as long as the process lives.
+///
+/// It is per step and not a budget across them, which is the shape the socket
+/// options have — `SO_RCVTIMEO` is per read — and making the whole exchange
+/// share one deadline would mean re-deriving the remainder before every call.
+/// The bound that matters is that there *is* one.
 const DEADLINE: Duration = Duration::from_secs(30);
 
 struct Url<'a> {
@@ -210,6 +230,83 @@ fn io_fail(e: &std::io::Error) -> NetFail {
     }
 }
 
+/// The address to dial, found within the deadline.
+///
+/// **A name lookup is the one step of a dial that the socket options cannot
+/// bound.** `connect_timeout` takes a `Duration`, `SO_RCVTIMEO` and
+/// `SO_SNDTIMEO` bound the reads and the writes, and `getaddrinfo` — which is
+/// what `to_socket_addrs` is on every host this runtime targets — takes as long
+/// as the resolver takes. On a machine whose DNS is answered that is a
+/// millisecond; on one whose packets to the resolver are dropped it is minutes,
+/// and on one whose resolver is gone it can be *never*. A `Net.fetch` that
+/// never returns is not a slow program, it is a stuck one, and the calling
+/// thread is a carrier that nothing can take back.
+///
+/// So the lookup happens on a thread of its own and this one waits for it with
+/// [`within`]. An address literal — which is what every loopback probe in this
+/// repository and every URL with an IP in it is — skips the whole arrangement:
+/// there is nothing to ask anybody.
+fn resolve(host: &str, port: u16, deadline: Duration) -> Result<SocketAddr, NetFail> {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Ok(SocketAddr::new(ip, port));
+    }
+    let name = host.to_string();
+    let found = within(deadline, "the name lookup", move || {
+        (name.as_str(), port)
+            .to_socket_addrs()
+            .map(|addrs| addrs.collect::<Vec<_>>())
+            .map_err(|e| e.to_string())
+    })?;
+    match found {
+        Err(e) => Err(NetFail::Transport(format!("could not resolve {host}: {e}"))),
+        Ok(addrs) => addrs
+            .into_iter()
+            .next()
+            .ok_or_else(|| NetFail::Transport(format!("no address for {host}"))),
+    }
+}
+
+/// Run `work` on a thread of its own and wait `deadline` for its answer.
+///
+/// The deadline is on the *wait*, not on the work: nothing here can cancel a
+/// `getaddrinfo` that is already in the kernel, and pretending otherwise would
+/// be a worse lie than the hang. What it can do is stop the caller waiting on
+/// it, which is the difference between a request that fails and a process that
+/// has to be killed. The abandoned thread holds a `Sender` and a name, finishes
+/// whenever the resolver lets it, and sends into a channel nobody is listening
+/// to; a process that exits before then takes it with it.
+///
+/// `work` is a parameter rather than the lookup written inline because that is
+/// what makes the bound testable — a test hands it something that never
+/// finishes and gets its answer in milliseconds, which is precisely the case
+/// the network cannot be asked to reproduce on demand.
+fn within<T: Send + 'static>(
+    deadline: Duration,
+    what: &str,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, NetFail> {
+    let (answer, wait) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name(String::from("buri-rt-net"))
+        .spawn(move || {
+            let _ = answer.send(work());
+        })
+        .map_err(|e| {
+            NetFail::Transport(format!("{what} needs a thread, and one could not be started: {e}"))
+        })?;
+    match wait.recv_timeout(deadline) {
+        Ok(value) => Ok(value),
+        Err(RecvTimeoutError::Timeout) => Err(NetFail::Timeout),
+        // The thread ended without sending, which for a closure that cannot
+        // return early means it panicked. Its own message has already been
+        // printed by the panic hook; this is the caller being told that the
+        // step has no answer rather than being told to keep waiting.
+        Err(RecvTimeoutError::Disconnected) => {
+            Err(NetFail::Transport(format!("{what} ended without an answer")))
+        }
+    }
+}
+
 /// One request, one response.
 ///
 /// `method` is a `Method` tag, `headers` the request's own fields — sent after
@@ -221,18 +318,30 @@ pub fn fetch(
     headers: &[(String, String)],
     body: &[u8],
 ) -> Result<HttpResponse, NetFail> {
+    fetch_within(DEADLINE, method, url, headers, body)
+}
+
+/// [`fetch`], with the deadline as a parameter.
+///
+/// The parameter exists so that "the dial is bounded" can be *asserted* rather
+/// than read: a test that wanted to see [`DEADLINE`] fire would have to wait
+/// thirty seconds for it, and a test nobody runs is the state the hang below
+/// was found in. The public entry passes the constant, so there is exactly one
+/// policy and one caller of it.
+fn fetch_within(
+    deadline: Duration,
+    method: i32,
+    url: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> Result<HttpResponse, NetFail> {
     let url = parse(url)?;
 
-    let mut addrs = (url.host, url.port)
-        .to_socket_addrs()
-        .map_err(|e| NetFail::Transport(format!("could not resolve {}: {e}", url.host)))?;
-    let addr = addrs
-        .next()
-        .ok_or_else(|| NetFail::Transport(format!("no address for {}", url.host)))?;
+    let addr = resolve(url.host, url.port, deadline)?;
 
-    let sock = TcpStream::connect_timeout(&addr, DEADLINE).map_err(|e| io_fail(&e))?;
-    sock.set_read_timeout(Some(DEADLINE)).map_err(|e| io_fail(&e))?;
-    sock.set_write_timeout(Some(DEADLINE)).map_err(|e| io_fail(&e))?;
+    let sock = TcpStream::connect_timeout(&addr, deadline).map_err(|e| io_fail(&e))?;
+    sock.set_read_timeout(Some(deadline)).map_err(|e| io_fail(&e))?;
+    sock.set_write_timeout(Some(deadline)).map_err(|e| io_fail(&e))?;
     // A request/response exchange is one write and one read, so Nagle can only
     // add a round trip's worth of delay to the front of it.
     let _ = sock.set_nodelay(true);
@@ -284,7 +393,13 @@ fn wrap(sock: TcpStream, url: &Url<'_>) -> Result<Transport, NetFail> {
     }
     #[cfg(feature = "net")]
     {
-        let stream = crate::tls::connect(sock, url.host).map_err(NetFail::Transport)?;
+        // `tls::connect` answers a `NetFail` rather than a sentence, because a
+        // handshake has two ways to fail that a caller answers differently: a
+        // certificate that did not check out is a `Transport` carrying the
+        // refusal, and a peer that stopped talking part way through it is the
+        // same `Timeout` a stalled read is. A `String` could only have been the
+        // first of those.
+        let stream = crate::tls::connect(sock, url.host)?;
         Ok(Transport::Tls(Box::new(stream)))
     }
     #[cfg(not(feature = "net"))]
@@ -387,4 +502,74 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     }
     let last = haystack.len() - needle.len();
     (0..=last).find(|i| haystack.get(*i..*i + needle.len()) == Some(needle))
+}
+
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    /// How long a bounded step is allowed to take before the claim this file
+    /// makes — that it is bounded — is the thing that failed.
+    ///
+    /// Two orders of magnitude above the deadlines the cases below set, so a
+    /// loaded machine is not a failing one, and three below the sixty-minute
+    /// job timeout that used to be how a hang here was reported.
+    const SOON: Duration = Duration::from_secs(5);
+
+    /// A step that never finishes ends at the deadline rather than at the end
+    /// of the process.
+    ///
+    /// The work here is a sleep rather than a name lookup because a lookup that
+    /// hangs is a property of the *machine* — it is what a CI runner with its
+    /// egress blackholed has and a developer's laptop does not — and the bound
+    /// has to be provable on both. What is under test is [`within`]: the caller
+    /// stops waiting even though the work has not stopped working.
+    #[test]
+    fn a_step_that_never_finishes_ends_at_the_deadline() {
+        let start = Instant::now();
+        let answer = within(Duration::from_millis(50), "the test's own step", || {
+            std::thread::sleep(Duration::from_secs(60));
+            0_u8
+        });
+        assert!(matches!(answer, Err(NetFail::Timeout)), "a step that never answers is a Timeout");
+        assert!(start.elapsed() < SOON, "the wait took {:?}", start.elapsed());
+    }
+
+    /// An address literal is dialled, not looked up.
+    ///
+    /// A deadline of nothing at all is the assertion: any lookup would time out
+    /// against it, so an answer proves no lookup happened.
+    #[test]
+    fn an_address_literal_is_not_looked_up() {
+        assert_eq!(
+            resolve("127.0.0.1", 443, Duration::ZERO).ok(),
+            Some(SocketAddr::from(([127, 0, 0, 1], 443)))
+        );
+        assert_eq!(
+            resolve("::1", 8443, Duration::ZERO).ok(),
+            Some(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 8443)))
+        );
+    }
+
+    /// A dial to an address nothing answers for ends at the deadline.
+    ///
+    /// `192.0.2.1` is TEST-NET-1 (RFC 5737): an address reserved for
+    /// documentation, which no host on the internet is allowed to be and which
+    /// nothing on the way there is allowed to answer for. What it does with a
+    /// SYN depends on the network the test is run on — dropped on the floor
+    /// here, "no route to host" there — and this case asserts the half that has
+    /// to be true on all of them: `fetch` comes back, and it comes back when
+    /// this client's deadline says so rather than when the kernel's own connect
+    /// timeout does, which on this platform is over a minute.
+    #[test]
+    fn a_dial_that_goes_nowhere_ends_at_the_deadline() {
+        let start = Instant::now();
+        let answer =
+            fetch_within(Duration::from_millis(250), 0, "http://192.0.2.1:81/probe", &[], b"");
+        assert!(answer.is_err(), "TEST-NET-1 answered an HTTP request");
+        assert!(start.elapsed() < SOON, "the dial took {:?}", start.elapsed());
+    }
 }
