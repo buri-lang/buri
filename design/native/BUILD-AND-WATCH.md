@@ -80,8 +80,8 @@ nothing reaches does not reach the archive. Two of the five are still in exactly
 that state — `hyper` and `tungstenite` — and three are not.
 
 **`tokio` was linked first, once and deliberately.** `cli/runtime/rt.rs` is the
-carrier runtime — the reactor handle, the run baton, the carrier pool with its
-512 KiB stacks and the task table — and `Clock::sleepMillis` and `Net::fetch`
+carrier runtime — the reactor handle, the carrier pool with its 512 KiB stacks
+and the task table — and `Clock::sleepMillis` and `Net::fetch`
 wait on it through `park_on`, so the reactor and its timer wheel are in the
 archive on purpose:
 

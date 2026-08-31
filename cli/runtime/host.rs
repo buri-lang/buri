@@ -777,16 +777,17 @@ pub extern "C" fn buri_rt_host_clock_now_millis() -> i64 {
 /// `Clock::sleepMillis`. A negative or zero duration returns immediately.
 ///
 /// **A suspension point** (`rt.rs` §2): with the `net` feature the wait is the
-/// reactor's timer wheel and the carrier gives up the run baton for its
-/// duration, so another carrier may run Buri code meanwhile. Without the
-/// feature there is no reactor and this is `thread::sleep`, which is what it
-/// has always been.
+/// reactor's timer wheel rather than the carrier, so the carrier is idle and
+/// the processor is free. Without the feature there is no reactor and this is
+/// `thread::sleep`, which is what it has always been.
 ///
-/// The two are now distinguishable, and `Tasks.parallel` is what distinguishes
+/// The two are distinguishable, and `Tasks.parallel` is what distinguishes
 /// them: two steps that each sleep here finish in one sleep's time rather than
-/// two, because the first gives the baton to the second while it waits. Outside
-/// a fan-out the sleeping thread is still the only one there is, and the two
-/// answer the same nothing after the same wait.
+/// two. Until G3 that was because the sleeping carrier gave the *run baton* to
+/// the other one; there is no baton now, and the answer is simpler — they are
+/// two threads, and both of them are asleep. Outside a fan-out the sleeping
+/// thread is still the only one there is, and the two answer the same nothing
+/// after the same wait.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_clock_sleep_millis(millis: i64) {
     if millis > 0 {

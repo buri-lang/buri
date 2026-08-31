@@ -816,6 +816,17 @@ pub struct Program {
     pub units: Vec<String>,
     /// Every source type the IR names, interned.
     pub types: Vec<TypeInfo>,
+    /// Whether any value of this program can come to be reachable from a
+    /// second carrier — `middle::rc::crosses_tasks`, carried here because both
+    /// native backends need it at their **entry points**, which is the one
+    /// place in an artifact that is not a function of any one `Func`.
+    ///
+    /// True makes `main` call `buri_rt_values_may_cross_tasks`, which marks
+    /// every block the program allocates and lets `Tasks.parallel` fan its
+    /// steps out. False emits nothing, and a program that emits nothing is the
+    /// program it was before track G — the *safe* answer either way, because
+    /// the runtime's fan-out is gated on the same latch.
+    pub crosses_tasks: bool,
 }
 
 impl Program {
@@ -1454,6 +1465,7 @@ mod tests {
             }],
             units: vec!["m".into()],
             types: Vec::new(),
+            crosses_tasks: false,
         }
     }
 
