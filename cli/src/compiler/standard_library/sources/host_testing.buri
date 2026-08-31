@@ -1128,11 +1128,15 @@ impl NetCall {
 /// name one line a reader can paste back. A seed past the last one wraps, so a
 /// number derived from a program's content is a legal seed at every length.
 ///
-/// `anyOrder()` with no seed is the **reverse** of program order, which is the
-/// single order most likely to catch a program that depended on the order it
-/// was given. It is deliberately not a random one: a suite whose result changed
-/// between two runs of the same program could not be cached, and a failure
-/// nobody can reproduce is a failure nobody fixes.
+/// `anyOrder()` with no seed is the order **this suite's own content** names:
+/// the runner derives it from the suite's action key, the hash of every source
+/// in its closure that the result cache is already keyed on. So the order a
+/// suite schedules in changes exactly when the verdict that order produced
+/// stops being reusable, and never on a run that changed nothing. It is
+/// deliberately not a random one: a suite whose result changed between two runs
+/// of the same program could not be cached, and a failure nobody can reproduce
+/// is a failure nobody fixes. A block that means one particular order says
+/// `seed(n)`; the failure report names the seed that replays the one it hit.
 ///
 /// ## A bare handle, where `TestFs` and `TestNet` carry two things
 ///

@@ -48,7 +48,7 @@ pub fn definition(
         // `visibility` is a label field too, and the entries in it that are not
         // packages — `//visibility:public` — simply name no package.
         "dependencies" | "visibility" => label_target(session, path, entry),
-        "sources" | "proto_sources" | "data" => file_target(path, entry),
+        "sources" | "proto_sources" => file_target(path, entry),
         // `tags` under a rule and `tags` under `forbids` both name a tag.
         "tags" => tag_target(session, path, entry),
         _ => None,
@@ -58,9 +58,9 @@ pub fn definition(
 /// Every string in a build file that names a file, underlined.
 ///
 /// The same two producers `definition` answers with, run over all of them
-/// instead of over the one under the cursor: a `sources` or `data` entry is a
-/// file beside this one, and a dependency label is a package, which is its
-/// `BUILD.buri`.
+/// instead of over the one under the cursor: a `sources` or `proto_sources`
+/// entry is a file beside this one, and a dependency label is a package, which
+/// is its `BUILD.buri`.
 ///
 /// A `tags` entry is deliberately not a link. What a tag names is a block
 /// inside `REPO.buri` — a line rather than a file — and a `DocumentLink` has
@@ -74,7 +74,7 @@ pub fn links(session: &Session, path: &Path, text: &str) -> Value {
             // `//visibility:public` is in a label field and names no package,
             // so it resolves to nothing and gets no underline.
             "dependencies" | "visibility" => label_path(session, path, entry),
-            "sources" | "proto_sources" | "data" => file_path(path, entry),
+            "sources" | "proto_sources" => file_path(path, entry),
             _ => None,
         };
         if let Some(target) = target {
@@ -170,8 +170,8 @@ fn label_path(session: &Session, build_file: &Path, label: &str) -> Option<PathB
     Some(file)
 }
 
-/// A source or data entry is a path relative to the package's own directory,
-/// which is the directory this build file is in.
+/// A source entry is a path relative to the package's own directory, which is
+/// the directory this build file is in.
 fn file_target(build_file: &Path, entry: &str) -> Option<Value> {
     Some(convert::top_of(&file_path(build_file, entry)?))
 }
@@ -363,7 +363,7 @@ pub fn completion(session: &Session, path: &Path, text: &str, position: Position
         (Some(field), true) => match field.as_str() {
             "dependencies" => labels(session),
             "visibility" => visibilities(session),
-            "sources" | "proto_sources" | "data" => files(path, text, field),
+            "sources" | "proto_sources" => files(path, text, field),
             "tags" => tags(session),
             _ => Vec::new(),
         },

@@ -8,6 +8,5 @@ binary {
     test {
         sources: ["test/app.buri"]
         dependencies: ["//lib/shop/testing"]
-        data: ["test/rates.csv"]
     }
 }

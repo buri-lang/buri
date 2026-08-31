@@ -1,0 +1,16 @@
+# Nothing here decides what the suite's filesystem holds, and nothing here
+# decides which backend the suite is allowed to run on. Those used to be the
+# same sentence: `test { data: [...] }` named files on disk, only the
+# JavaScript runner could read them and hand them over, and so a suite that
+# declared any was sent to JavaScript whatever the invocation asked for.
+#
+# The suite writes its own filesystem now (`test/render.buri`), and this rule
+# names no platform — so `buri test` runs it wherever the invocation says,
+# which on a toolchain with a native backend is a linked test binary.
+library {
+    sources: ["render.buri"]
+
+    test {
+        sources: ["test/render.buri"]
+    }
+}

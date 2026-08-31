@@ -1811,7 +1811,7 @@ Both are fixed positions with fixed names, so you never scan a signature.
 The platform. `core/host` exports one value per effect the platform grants —
 `host.alloc`, `host.stdout`, `host.stderr`, `host.stdin`, `host.fs`, `host.net`,
 `host.clock`, `host.rand`, `host.env`, `host.proc`, and on a platform with a
-document `host.ui`, `host.watch`, `host.fetch` — and it is importable only from
+document `host.ui` and `host.watch` — and it is importable only from
 the module that exports `main`. `main` assembles them into the one context
 the program has:
 
@@ -2258,7 +2258,7 @@ pre-assembled world:
 | `alloc()` | `Alloc` | Real, from a per-test arena the runner reclaims. |
 | `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` is how a test reads it back. |
 | `stdin([Str])` | `Stdin` | Reads the given lines, then end-of-input. |
-| `data()` | `Fs` | In-memory, rooted at the package directory, containing exactly `test { data: [...] }`. |
+| `data()` | `Fs` | In-memory, rooted at the package directory, and empty. |
 | `files([(Str, Str)])` | `Fs` | In-memory, containing exactly these entries. |
 | `readOnly(F)` | `Fs` | Wraps an `Fs` so every write fails. |
 | `noNet()` | `Net` | Refuses every connection. |

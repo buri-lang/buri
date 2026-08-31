@@ -1,8 +1,8 @@
 # `buri gen` writes the fields that restate the sources and no others. That
 # split is the whole design of the command, and it is two claims: the six
 # managed fields come back derived, and everything else — `tags`, `platforms`,
-# `timeout_seconds`, `visibility`, `test.data`, `test.platforms`, and every
-# comment — comes back saying exactly what it said.
+# `timeout_seconds`, `visibility`, `test.platforms`, and every comment — comes
+# back saying exactly what it said.
 #
 # `lib/money/BUILD.buri` starts as CLI.md says a package may start: the policy
 # written out and the rule otherwise empty. So the recorded file is also the

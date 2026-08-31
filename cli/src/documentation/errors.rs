@@ -215,6 +215,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("refutable-pattern", "A `let` pattern must match every value"),
     e!("relative-import", "Every module path is absolute"),
     e!("reserved-word", "Reserved words are not identifiers"),
+    e!("retired-test-data", "A suite's filesystem is written in the suite", &["build/build-files", "build/testing"]),
     e!("rest-pattern-not-last", "A rest pattern comes last"),
     e!("result-discarded", "A `Result` may not be discarded", &["build/cli"]),
     e!("self-not-first", "`self` is the first parameter or nothing"),

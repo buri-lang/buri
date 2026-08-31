@@ -59,6 +59,7 @@ name: CI
 # `concurrency` group below still collapses superseded runs of each.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -96,9 +97,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, arch: arm64 }
-          - { os: ubuntu-24.04, arch: x86_64 }
-          - { os: ubuntu-24.04-arm, arch: arm64 }
+          - { os: blacksmith-12vcpu-macos-latest, arch: arm64 }
+          - { os: blacksmith-4vcpu-ubuntu-2404, arch: x86_64 }
+          - { os: blacksmith-4vcpu-ubuntu-2404-arm, arch: arm64 }
     runs-on: ${{ matrix.os }}
     env:
       CC: clang
@@ -238,7 +239,7 @@ jobs:
   # ---------------------------------------------------------------------------
   linux-arm64:
     name: linux arm64 (the programs run)
-    runs-on: ubuntu-24.04-arm
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     env:
       CC: clang
     timeout-minutes: 75
@@ -439,7 +440,7 @@ jobs:
   # ---------------------------------------------------------------------------
   linux-x86_64:
     name: linux x86_64 (the programs run)
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       CC: clang
     timeout-minutes: 75
@@ -603,7 +604,7 @@ jobs:
   # ---------------------------------------------------------------------------
   release:
     name: release build (x86_64, advisory)
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       CC: clang
     timeout-minutes: 75
@@ -682,7 +683,12 @@ jobs:
   # time. A request has to take seven times longer than it does before this job
   # has an opinion, so a red X here is a regression and not a noisy neighbour —
   # which is the whole bar for a timing gate, because one that cries wolf gets
-  # deleted. If a future runner is genuinely slower,
+  # deleted. A shared runner can still desert one request for a whole
+  # timeslice, so neither test fails on a single reading: a run with a request
+  # over the bar measures its session again, up to three times, and holds each
+  # request to its fastest attempt (`best_of` in `repositories.rs`). The bar
+  # stays 50 ms, and something genuinely slower is slower in every attempt.
+  # If a future runner is genuinely slower,
   # the tests read `BURI_PERF_BUDGET_SCALE` — a multiplier on the 50 ms,
   # defaulting to 1 — so the widening is one `env:` line here rather than an
   # edit to the assertion. Nothing sets it today, and the numbers above are why.
@@ -694,7 +700,7 @@ jobs:
   # ---------------------------------------------------------------------------
   language-server-budget:
     name: language server budget (arm64)
-    runs-on: ubuntu-24.04-arm
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     env:
       BURI_PERF: 1
     # The whole step — a cold, link-time-optimized release build of the
@@ -726,7 +732,7 @@ jobs:
   # needs no job of its own: every `test` leg above is one.
   # ---------------------------------------------------------------------------
   minimal:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -747,7 +753,7 @@ jobs:
   # by formal/lean-toolchain; elan reads it.
   # ---------------------------------------------------------------------------
   lean:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - name: Install elan
@@ -755,7 +761,7 @@ jobs:
           curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
           ./elan-init -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-      - uses: actions/cache@v4
+      - uses: useblacksmith/cache@v5
         with:
           path: formal/.lake
           key: lake-${{ runner.os }}-${{ hashFiles('formal/lean-toolchain', 'formal/lakefile.toml') }}
@@ -783,7 +789,7 @@ jobs:
   # named for it.
   # ---------------------------------------------------------------------------
   tree-sitter:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -809,7 +815,7 @@ jobs:
   # build but a green one that shipped a toolchain with no native backend.
   # ---------------------------------------------------------------------------
   nix:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v16

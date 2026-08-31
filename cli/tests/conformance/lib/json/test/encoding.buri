@@ -6,7 +6,7 @@
 // both halves changed together.
 
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
 from "core/effect/lib.buri" import { Alloc };
 from "core/json/lib.buri" import { Json, ToJson };
 from "core/json/lib.buri" import * as json;
@@ -25,36 +25,36 @@ fn text<T: ToJson, C: Alloc>(ctx: C, value: T): Str {
 // --- the scalars ----------------------------------------------------------------
 
 test "a Bool is a JSON boolean" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, true), "true");
   assert.eq(text(ctx, false), "false");
 }
 
 test "an Int is a JSON number" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, 0), "0");
   assert.eq(text(ctx, -17), "-17");
 }
 
 test "a Float is a JSON number, and a whole one keeps no point" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, 1.5), "1.5");
   assert.eq(text(ctx, 3.0), "3");
 }
 
 test "a Str is a JSON string, escaped" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, "hi"), "\"hi\"");
   assert.eq(text(ctx, "a\"b"), "\"a\\\"b\"");
 }
 
 test "a Char is a one-character JSON string" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, 'q'), "\"q\"");
 }
 
 test "unit is null" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, ()), "null");
 }
 
@@ -62,7 +62,7 @@ test "unit is null" {
 /// declaration order, and nothing in the language pins them together. This is
 /// the seam, so it is asserted directly rather than through `stringify`.
 test "the encoder builds the Json this module declares" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(json.encode(ctx, ()), Json.Null);
   assert.eq(json.encode(ctx, true), Json.Bool(true));
   assert.eq(json.encode(ctx, 1), Json.Num(1.0));
@@ -77,24 +77,24 @@ test "the encoder builds the Json this module declares" {
 // --- containers -----------------------------------------------------------------
 
 test "a list is an array" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, [1, 2, 3]), "[1,2,3]");
   assert.eq(text(ctx, [point(1, 2)]), "[{\"x\":1,\"y\":2}]");
 }
 
 test "an empty list is an empty array" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let empty: [Int] = [];
   assert.eq(text(ctx, empty), "[]");
 }
 
 test "a tuple is an array, because a tuple is positional" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, (1, "a")), "[1,\"a\"]");
 }
 
 test "an Option is its payload, or null" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let some: Option<Int> = .Some(4);
   let none: Option<Int> = .None;
   assert.eq(text(ctx, some), "4");
@@ -102,7 +102,7 @@ test "an Option is its payload, or null" {
 }
 
 test "JSON has one null, so a nested Option flattens onto it" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let inner: Option<Option<Int>> = .Some(.None);
   let outer: Option<Option<Int>> = .None;
   assert.eq(text(ctx, inner), "null");
@@ -112,12 +112,12 @@ test "JSON has one null, so a nested Option flattens onto it" {
 // --- structs --------------------------------------------------------------------
 
 test "a struct with named fields is an object, in declaration order" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, point(1, 2)), "{\"x\":1,\"y\":2}");
 }
 
 test "a struct nests" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   let s = Segment {
     start: point(0, 0),
     stop: point(3, 4),
@@ -131,18 +131,18 @@ test "a struct nests" {
 }
 
 test "a struct with positional fields is an array, a one-field one included" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, Meters(5)), "[5]");
   assert.eq(text(ctx, Pair(1, "a")), "[1,\"a\"]");
 }
 
 test "a struct with nothing in it is an empty object" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, Hollow {}), "{}");
 }
 
 test "one of everything" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     text(ctx, everything()),
     "{\"flag\":true,\"letter\":\"q\",\"ratio\":1.5,\"text\":\"hi\",\"nothing\":null,\"both\":[7,\"z\"],\"present\":{\"x\":1,\"y\":2},\"absent\":null,\"many\":[{\"x\":3,\"y\":4}]}",
@@ -150,7 +150,7 @@ test "one of everything" {
 }
 
 test "one derive over a generic type writes a document per instantiation" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     text(ctx, Wrapper { value: point(1, 2), tag: "p" }),
     "{\"value\":{\"x\":1,\"y\":2},\"tag\":\"p\"}",
@@ -164,14 +164,14 @@ test "one derive over a generic type writes a document per instantiation" {
 // --- enums ----------------------------------------------------------------------
 
 test "a variant with no fields is its own name" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, Colour.Red), "\"Red\"");
   assert.eq(text(ctx, Colour.Blue), "\"Blue\"");
   assert.eq(text(ctx, Shape.Empty), "\"Empty\"");
 }
 
 test "a variant with positional fields is a one-member object holding an array" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, Shape.Circle(2)), "{\"Circle\":[2]}");
   assert.eq(
     text(ctx, Shape.Line(point(0, 0), point(1, 1))),
@@ -180,7 +180,7 @@ test "a variant with positional fields is a one-member object holding an array" 
 }
 
 test "a variant with named fields is a one-member object holding an object" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(
     text(ctx, Shape.Rect { width: 3, height: 4 }),
     "{\"Rect\":{\"width\":3,\"height\":4}}",
@@ -190,13 +190,13 @@ test "a variant with named fields is a one-member object holding an object" {
 // --- recursion ------------------------------------------------------------------
 
 test "a type that recurses through a list encodes to the bottom" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, rose(0)), "{\"Leaf\":[0]}");
   assert.eq(text(ctx, rose(1)), "{\"Branch\":[[{\"Leaf\":[1]},{\"Leaf\":[0]}]]}");
 }
 
 test "a type that recurses through an Option of a list encodes to the bottom" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(text(ctx, chain(0)), "{\"head\":0,\"rest\":null}");
   assert.eq(
     text(ctx, chain(2)),
@@ -205,7 +205,7 @@ test "a type that recurses through an Option of a list encodes to the bottom" {
 }
 
 test "recursion is not a fixed depth" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   // Deep enough that a walker that unrolled a fixed number of levels, or that
   // built a descriptor per level, would be visible.
   let deep = rose(60);

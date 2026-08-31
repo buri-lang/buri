@@ -2118,16 +2118,38 @@ function $ui_write(cell, v) {
   return 0;
 }
 
-// One update transaction. Event handlers and fetch callbacks land inside one,
-// so N writes cause one pass over the watchers.
+// One update transaction: N writes cause one pass over the watchers rather
+// than N.
+//
+// The transaction is the handler's *synchronous* run, and that is the whole of
+// the decision now that a handler can wait. A page grants `Net`, so a press
+// may write "asking the server", suspend on the answer, and write again when
+// it arrives — and those are two transactions, not one held open across the
+// wait. Holding it open would mean the first notice did not reach the document
+// until the request it announced had already finished, which is the opposite
+// of what it is for.
+//
+// What the promise still owes is its failure. A synchronous handler that
+// aborts throws out of the listener; an awaiting one would settle a rejected
+// promise nobody is holding, and the abort would be a line in a console rather
+// than an error. Rethrowing it from a fresh task is what makes the two behave
+// alike.
 function $ui_flush(f) {
   $ui.depth++;
+  let pending;
   try {
-    f();
+    pending = f();
   } finally {
     $ui.depth--;
   }
   if ($ui.depth === 0) $ui_drain();
+  if (pending !== null && typeof pending === "object" && typeof pending.then === "function") {
+    pending.then(undefined, (e) => {
+      setTimeout(() => {
+        throw e;
+      }, 0);
+    });
+  }
   return 0;
 }
 
@@ -2161,26 +2183,6 @@ function $host_HostWatch_read(self, id) {
 
 function $ui_effect_Scope_read(self, id) {
   return $ui_read(id);
-}
-
-// A `Request` is `[method, url, headers, body]` and a `FetchError` is
-// `[tag, ...payload]` with the tag order `ui/effect` declares:
-// Timeout, Refused, BadUrl, Transport, Aborted.
-function $host_HostFetch_fetch(self, request, done) {
-  const settle = (r) => $ui_flush(() => done(self, r));
-  try {
-    const req = new XMLHttpRequest();
-    req.open(request[0], request[1], true);
-    for (const h of request[2]) req.setRequestHeader(h[0], h[1]);
-    req.onload = () => settle($ok([req.status, req.responseText]));
-    req.onerror = () => settle($err([3, "transport"]));
-    req.ontimeout = () => settle($err([0]));
-    req.onabort = () => settle($err([4]));
-    req.send(request[3] === "" ? null : request[3]);
-  } catch (e) {
-    settle($err([3, String((e && e.message) || e)]));
-  }
-  return 0;
 }
 
 // --- The document -----------------------------------------------------------
@@ -3383,7 +3385,12 @@ function $ui_testing_Rendered_identity(self, name, at) {
 // this is, how many there are, and the order the report would name. `$run`
 // resets all three as a block starts, which is what `buri_rt_test_enter` does
 // natively.
-const $t = { h: [], data: {}, fail: null, from: 0, pass: 0n, total: 1n, note: null };
+// `seed` is the order `tasks().anyOrder()` schedules with, spliced in by
+// `commands/test.rs` beside the fixed clock: a constant of the program, derived
+// from the program's own action key (D-10). `null` is a run nothing spliced one
+// into — a hand-written driver, or an artifact run directly — and the default is
+// then the one D5 chose, the last rank.
+const $t = { h: [], fail: null, from: 0, pass: 0n, total: 1n, note: null, seed: null };
 
 function $handle(v) {
   $t.h.push(v);
@@ -3470,15 +3477,19 @@ function $testing_context_CaptureOut_writeBytes(self, b) {
   return 0;
 }
 
-// In-memory, rooted at the package directory, containing exactly test.data.
+// In-memory, rooted at the package directory, and empty.
+//
+// It used to be seeded from the suite's `test { data: [...] }`, which the
+// runner read off disk and spliced in beside this file — so `data()` answered
+// one thing here and another in a linked test binary, which has no runner. The
+// field is retired (`retired-test-data`) and `files([...])` is where a suite
+// says what its filesystem holds, in text both backends read the same way.
 //
 // A slot holds octets per path and the directories `makeDir` has been asked
 // for: a flat map has no empty directory otherwise, and `readDir` after
 // `makeDir` has to see one.
 function $testing_context_data() {
-  const files = {};
-  for (const k of Object.keys($t.data)) files[k] = $bytes_toUtf8(null, $t.data[k]);
-  return $handle({ files, dirs: [] });
+  return $handle({ files: {}, dirs: [] });
 }
 
 function $testing_context_files(entries) {
@@ -4083,7 +4094,13 @@ function $torder(self, n) {
     if ($t.total <= 1n) $t.total = orders;
     rank = $t.pass;
   } else if (s.mode === $TASKS_SEEDED) {
-    rank = s.seed < 0n ? (orders > 0n ? orders - 1n : 0n) : s.seed % (orders > 0n ? orders : 1n);
+    const wrap = orders > 0n ? orders : 1n;
+    // `anyOrder()` with no seed of its own: the program's content names the
+    // order, and the last rank — the reverse of program order — where nothing
+    // named a program. The rank wraps, which is what makes a content-derived
+    // number legal at every length.
+    const fallback = $t.seed === null ? (orders > 0n ? orders - 1n : 0n) : $t.seed % wrap;
+    rank = s.seed < 0n ? fallback : s.seed % wrap;
   }
   const order = $tpermutation(n, rank);
   // The first fan-out of the run, not the last: `everyOrder` enumerates the

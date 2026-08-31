@@ -10,8 +10,8 @@
 //!
 //!   * **Self-trigger immunity.** A build writes into `.buri/`, which is not a
 //!     declared input of anything, so nothing the toolchain writes can wake
-//!     the loop. The one mode that does write to the source tree — `--accept`
-//!     — is refused alongside `--watch` in `arguments::parse`.
+//!     the loop. No mode of `buri test` writes to the source tree, so there is
+//!     nothing else to hold off.
 //!   * **`.git/`, `target/` and `node_modules/` are not watched**, without an
 //!     ignore list, because they are not inputs anybody declared.
 //!
@@ -62,8 +62,8 @@ const SWEEP: Duration = Duration::from_millis(150);
 ///   * every path `actions::contribute` enumerates for every member of the
 ///     target's closure — the rule's entry point, its `sources`, its
 ///     `proto_sources`, and its `testing/` sources;
-///   * every path `actions::test_key` enumerates — the suite's `sources`, its
-///     `data`, and the closure of every library its `test { dependencies }` and
+///   * every path `actions::test_key` enumerates — the suite's `sources` and
+///     the closure of every library its `test { dependencies }` and
 ///     `testing { dependencies }` name;
 ///   * every `BUILD.buri` in the repository;
 ///   * the repository's `REPO.buri`.
@@ -107,7 +107,7 @@ pub fn inputs(session: &Session, targets: &[TargetId]) -> Vec<PathBuf> {
         // run and are not in this run's key.
         let package = session.workspace.package(target.package);
         if let Some(suite) = package.test_suite(target.kind) {
-            for x in suite.sources.iter().chain(&suite.data) {
+            for x in &suite.sources {
                 out.insert(package.dir.join(&x.value));
             }
         }

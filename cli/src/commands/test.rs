@@ -39,7 +39,6 @@ use crate::compiler::modules::Unit;
 use crate::compiler::middle::monomorphize;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use std::io::Write;
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 /// The JavaScript runtime `buri run` and the test runner execute artifacts
@@ -58,9 +57,8 @@ enum Provenance {
 /// The two sides of a failed comparison.
 ///
 /// One value rather than two `Option`s: with two, `actual: Some` and
-/// `expected: None` is representable, and it makes `--accept` silently rewrite
-/// nothing while the failure prints a half diff there is nothing to compare
-/// against.
+/// `expected: None` is representable, and a half diff is one there is nothing
+/// to compare against.
 struct Diff {
     actual: String,
     expected: String,
@@ -71,9 +69,14 @@ struct Diff {
 /// A message and a diff belong to a failure and to nothing else, so they live
 /// inside the failing variant. A passing test carrying a diff is no longer a
 /// value anything can build.
+///
+/// `order` is the same argument a third time: the sentence naming the order the
+/// tasks completed in, and the seed that replays it, is something only a failure
+/// has. A block that scheduled nothing — which is almost every block — has
+/// `None`, and a passing one has nowhere to put it.
 enum Verdict {
     Passed,
-    Failed { message: String, diff: Option<Diff> },
+    Failed { message: String, diff: Option<Diff>, order: Option<String> },
 }
 
 struct Case {
@@ -93,8 +96,6 @@ struct Case {
 struct Outcome {
     cases: Vec<Case>,
     skipped: usize,
-    /// Golden files `--accept` rewrote, for the blank line before the summary.
-    accepted: usize,
 }
 
 /// Where a run's platform came from.
@@ -119,10 +120,10 @@ enum Chosen {
 /// toolchain rather than a fact about the code. A golden that records what a
 /// suite printed is unchanged by a note about how it was printed.
 ///
-/// The toolchain's reason is stated once per pass and the suite's once per
-/// suite, for the same reason: "this build has no native backend" is one fact
-/// however many suites meet it, and "this suite declares `test { data }`" is a
-/// different fact about each one.
+/// The reason is stated once per pass, because "this build has no native
+/// backend" is one fact however many suites meet it. There is no per-suite
+/// reason any more: `test { data }` was the only one a build file could give,
+/// and it is retired.
 ///
 /// **A missing intrinsic is not on this list.** It used to be, and rerouting a
 /// suite onto JavaScript because the native backend had no body for something
@@ -145,11 +146,6 @@ impl Notices {
         eprintln!("note: {reason}, so a suite that names no platform runs on javascript");
     }
 
-    /// A reason that belongs to this suite: what it declares, rather than what
-    /// the toolchain can build.
-    fn suite(&mut self, label: &str, reason: &str) {
-        eprintln!("note: {label} runs on javascript — {reason}");
-    }
 }
 
 /// Where a pass's own output goes.
@@ -342,19 +338,26 @@ fn one_pass(
             continue;
         }
         suites += 1;
-        match run_suite(&mut session, target, args, &mut out, &mut notices, &mut pre) {
+        match run_suite(&mut session, target, args, &mut notices, &mut pre) {
             Ok(outcome) => {
                 skipped += outcome.skipped;
-                printed |= outcome.accepted > 0;
                 for c in &outcome.cases {
                     if c.provenance == Provenance::Cache {
                         cached += 1;
                     }
                     match &c.verdict {
                         Verdict::Passed => passed += 1,
-                        Verdict::Failed { message, diff } => {
+                        Verdict::Failed { message, diff, order } => {
                             failed += 1;
-                            report_failure(&session, target, c, message, diff.as_ref(), &mut out);
+                            report_failure(
+                                &session,
+                                target,
+                                c,
+                                message,
+                                diff.as_ref(),
+                                order.as_deref(),
+                                &mut out,
+                            );
                             printed = true;
                         }
                     }
@@ -408,9 +411,9 @@ fn one_pass(
         "{passed} passed, {failed} failed, {skipped} skipped{uncompiled_note} ({elapsed:.1}s{note})"
     ));
     // Silent only when there was nothing to do: every case came out of the
-    // cache, none failed, nothing was accepted, and nothing was asked for by
-    // name. `--explain` is never silent — a transcript of what the cache did is
-    // exactly what somebody running it wants to read.
+    // cache, none failed, and nothing was asked for by name. `--explain` is
+    // never silent — a transcript of what the cache did is exactly what
+    // somebody running it wants to read.
     let quiet = !args.flags.explain
         && !hard_error
         && failed == 0
@@ -424,14 +427,10 @@ fn one_pass(
 /// Whether a run's verdicts may be written to the cache.
 ///
 /// Only a clean run is worth remembering: a failure is what you are trying to
-/// fix, and re-running it should re-run it. `--filter` and `--accept` are
-/// outside the cache in both directions — `--accept` is the one mode that
-/// writes to the source tree, and a mode that writes must not also be one that
-/// can be served.
+/// fix, and re-running it should re-run it. `--filter` is outside the cache in
+/// both directions, because the verdicts of a subset are not the suite's.
 fn may_cache(cases: &[Case], flags: &arguments::Flags) -> bool {
-    cases.iter().all(|c| matches!(c.verdict, Verdict::Passed))
-        && flags.filter.is_none()
-        && !flags.accept
+    cases.iter().all(|c| matches!(c.verdict, Verdict::Passed)) && flags.filter.is_none()
 }
 
 /// The same, and additionally that there is something to remember.
@@ -471,7 +470,6 @@ fn run_suite(
     session: &mut Session,
     target: TargetId,
     args: &arguments::Args,
-    out: &mut Out,
     notices: &mut Notices,
     pre: &mut Prepass,
 ) -> Result<Outcome, Diagnostics> {
@@ -525,29 +523,14 @@ fn run_suite(
         // statement and the flag does not overrule it.
         vec![(p, Chosen::Asked)]
     } else {
-        // The invocation's answer first, then the suite's, so that a toolchain
-        // with no native backend states that once instead of giving every
-        // `data:` suite a reason that is not the operative one.
-        let wanted = default_platform(&args.flags, notices);
-        // The suite's own fallback is a fact about the *build file* rather than
-        // about the program, and the only one that can be answered before
-        // anything is compiled. The JavaScript runner hands the suite its
-        // `test { data: [...] }` entries as the in-memory filesystem `data()`
-        // answers; a linked test binary has no runner to be handed them by, so
-        // `data()` is empty there and every read of a declared file would
-        // answer the wrong thing — silently, since an empty filesystem is a
-        // filesystem (`cli/runtime/testing.rs`'s header states the divergence
-        // and what would close it).
-        if wanted.is_native() && suite(session, target).is_some_and(|x| !x.data.is_empty()) {
-            notices.suite(
-                &session.workspace.label(target),
-                "a native test binary has no runner to hand it `test { data }`, so its \
-                 `data()` filesystem would be empty",
-            );
-            vec![(Platform::Js, Chosen::Default)]
-        } else {
-            vec![(wanted, Chosen::Default)]
-        }
+        // The invocation's answer, and nothing of the suite's: no build-file
+        // field decides which backend a suite is allowed to run on. One did —
+        // `test { data }`, whose entries only a runner could hand a suite, so a
+        // suite that declared any was sent back to JavaScript rather than let
+        // `data()` answer differently on the two backends. The field is retired
+        // (`retired-test-data`) and a suite's filesystem is written in the
+        // suite now, where both backends read the same text.
+        vec![(default_platform(&args.flags, notices), Chosen::Default)]
     };
     let mut outcome = Outcome::default();
     for (platform, chosen) in runs {
@@ -560,11 +543,10 @@ fn run_suite(
             );
             continue;
         }
-        match run_on(session, target, platform, chosen, args, out, pre) {
+        match run_on(session, target, platform, chosen, args, pre) {
             Ok(one) => {
                 outcome.cases.extend(one.cases);
                 outcome.skipped += one.skipped;
-                outcome.accepted += one.accepted;
             }
             Err(d) => diagnostics.extend(d.items),
         }
@@ -575,19 +557,12 @@ fn run_suite(
     Ok(outcome)
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the selection is four independent facts — which suite, where it runs, \
-              who asked, and what the invocation said — and the sink is where the \
-              report goes; none is derivable from another"
-)]
 fn run_on(
     session: &mut Session,
     target: TargetId,
     platform: Platform,
     chosen: Chosen,
     args: &arguments::Args,
-    sink: &mut Out,
     pre: &mut Prepass,
 ) -> Result<Outcome, Diagnostics> {
     let mut diagnostics = Diagnostics::new();
@@ -662,7 +637,7 @@ fn run_on(
 
     if platform.is_native() {
         let out =
-            run_native(session, target, platform, args, sink, &key, program, &analysis, skipped);
+            run_native(session, target, platform, args, &key, program, &analysis, skipped);
         // The checked program is tens of milliseconds of `free` at a hundred
         // thousand lines, and by here the verdict already exists. `Loaded`
         // holds its modules behind `Rc` — shared with the session's parse
@@ -697,10 +672,11 @@ fn run_on(
         &mut diagnostics,
     )?;
 
-    // The runner's in-memory `Fs` contains exactly `test { data: [...] }`, and
-    // nothing else on disk is visible.
-    let data = load_test_data(session, target);
-    source.push_str(&format!("\n$t.data={data};\n"));
+    // The order `anyOrder()` schedules with, spliced rather than set in the
+    // environment: this path writes the artifact, so the seed is a constant of
+    // the program the way the fixed clock below is. [`seed_of`] says why it is
+    // the action key.
+    source.push_str(&format!("\n$t.seed={}n;\n", seed_of(&key)));
     // The action's clock, spliced in after the runtime is defined and before a
     // test could reach one. A test has no name for `core/host` to begin with;
     // this is what keeps a suite's *record* the same bytes twice, so that
@@ -759,9 +735,7 @@ fn run_on(
         );
         return Err(diagnostics);
     }
-    let accepted =
-        if args.flags.accept { accept_goldens(session, target, &cases, sink) } else { 0 };
-    Ok(Outcome { cases, skipped, accepted })
+    Ok(Outcome { cases, skipped })
 }
 
 /// Whether a suite may be *executed* on `platform`.
@@ -795,9 +769,6 @@ fn native_ready(platform: Platform, flags: &arguments::Flags) -> bool {
 /// anything, which is why it does not consult the fallbacks — a notice belongs
 /// to the suite that earns it.
 fn warm_linker(args: &arguments::Args) {
-    if args.flags.accept {
-        return;
-    }
     let platform = match selected_platform(&args.flags) {
         Some(p) => p,
         None => crate::compiler::driver::host_native_platform(),
@@ -854,18 +825,6 @@ fn selected_platform(flags: &arguments::Flags) -> Option<Platform> {
 /// for everything this program reaches — is [`native_gap`], asked once the
 /// program exists.
 fn default_platform(flags: &arguments::Flags, notices: &mut Notices) -> Platform {
-    // `--accept` rewrites a golden file from the two sides of the comparison
-    // that failed. A native run reports both now (`run_native`), so this is no
-    // longer about what the runner can see — it is the *suite* rule arrived at
-    // once for the invocation: the only file `accept_goldens` will rewrite is
-    // one the suite declared in `test { data: [...] }`, and a suite that
-    // declares any runs on JavaScript whatever else is true, because a native
-    // test binary has no runner to be handed those entries by.
-    if flags.accept {
-        notices.pass("--accept rewrites a file the suite declared in `test { data }`, which \
-                      only the JavaScript runner is handed");
-        return Platform::Js;
-    }
     let native = crate::compiler::driver::host_native_platform();
     if native_ready(native, flags) {
         return native;
@@ -996,10 +955,8 @@ impl Prepass {
 /// The action key for one suite on one platform.
 ///
 /// Memoised for the pass. A key is a pure function of the repository's bytes and
-/// the invocation, and nothing a `buri test` pass does writes a source — with
-/// one exception, `--accept`, which rewrites a golden a suite declared in
-/// `test { data }`. That is why the memo is only ever *filled* by the batch
-/// prepass, which `--accept` returns from before it looks at a suite.
+/// the invocation, and nothing a `buri test` pass does writes a source, so an
+/// answer cannot go stale inside one pass.
 fn test_key_for(
     session: &Session,
     target: TargetId,
@@ -1026,7 +983,7 @@ fn served(
     key: &crate::build::cache::ActionKey,
     args: &arguments::Args,
 ) -> Option<Outcome> {
-    if args.flags.force || args.flags.filter.is_some() || args.flags.accept {
+    if args.flags.force || args.flags.filter.is_some() {
         return None;
     }
     let bytes = crate::build::cache::Cache::open(&session.root).get(key)?;
@@ -1046,7 +1003,7 @@ fn served(
         platform,
         key,
     );
-    Some(Outcome { cases, skipped: 0, accepted: 0 })
+    Some(Outcome { cases, skipped: 0 })
 }
 
 /// One suite, executed as a native binary.
@@ -1081,16 +1038,15 @@ fn served(
 ///   tests it leaves out.
 #[allow(
     clippy::too_many_arguments,
-    reason = "the front end's output, the selection, the key and the sink are each \
-              needed here and none of them is derivable from the others; bundling \
-              them into a struct would name the arguments twice"
+    reason = "the front end's output, the selection and the key are each needed \
+              here and none of them is derivable from the others; bundling them \
+              into a struct would name the arguments twice"
 )]
 fn run_native(
     session: &mut Session,
     target: TargetId,
     platform: Platform,
     args: &arguments::Args,
-    sink: &mut Out,
     key: &crate::build::cache::ActionKey,
     mut program: monomorphize::Program,
     analysis: &crate::compiler::driver::Analysis,
@@ -1109,7 +1065,7 @@ fn run_native(
         .map(|t| (t.name.clone(), t.module.clone()))
         .collect();
     if selected.is_empty() {
-        return Ok(Outcome { cases: Vec::new(), skipped, accepted: 0 });
+        return Ok(Outcome { cases: Vec::new(), skipped });
     }
 
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
@@ -1130,7 +1086,7 @@ fn run_native(
     let limit = suite(session, target).and_then(|x| x.timeout_seconds);
     let program_path = binary.path().display().to_string();
 
-    let blocks = match run_blocks(&program_path, limit, selected.len()) {
+    let blocks = match run_blocks(&program_path, limit, selected.len(), &seed_of(key).to_string()) {
         Ok(Some(blocks)) => blocks,
         Ok(None) => return Err(timed_out(session, target, limit)),
         Err(e) => {
@@ -1158,15 +1114,42 @@ fn run_native(
         crate::build::cache::Cache::open(&session.root).put(key, record.as_bytes());
     }
     locate(session, &program, &mut cases);
-    let accepted =
-        if args.flags.accept { accept_goldens(session, target, &cases, sink) } else { 0 };
     crate::parallel::discard(program);
-    Ok(Outcome { cases, skipped, accepted })
+    Ok(Outcome { cases, skipped })
 }
 
 /// The environment variable a native test binary reads the block to start at
 /// from. `cli/runtime/testing.rs` is the other half.
 const RESUME: &str = "BURI_TEST_FROM";
+
+/// The environment variable a native test binary reads the seed
+/// `tasks().anyOrder()` schedules with from. `cli/runtime/testing.rs` is the
+/// other half, and the JavaScript path splices `$t.seed` instead of setting an
+/// environment variable because it writes the artifact itself.
+///
+/// One number applies to every block. A comma-separated list is per block, in
+/// the binary's own numbering, which is what a batched binary needs: its blocks
+/// belong to several suites and a suite's order is its own.
+const SEED: &str = "BURI_TEST_SEED";
+
+/// The order `anyOrder()` schedules with, for a suite whose key is `key`.
+///
+/// **The action key is the content hash** (D-10). It is a hash of every source
+/// in the suite's closure and of the invocation that would build it, which is
+/// exactly the question "is the record this run would produce still the record
+/// the cache holds?" — so deriving the seed from it makes the two move together
+/// by construction: an order changes exactly when the verdict that order
+/// produced stops being reusable, and never on a run that changed nothing.
+/// That is the whole of what keeps [`crate::build::cache::Cache::put`] pure
+/// here; a clock or a generator in this position would store a record that the
+/// next run could not have produced.
+///
+/// The first 32 hex digits, because a rank is taken modulo `n!` and a `u128`
+/// holds `34!`. Which half of the digest is used is arbitrary and this is the
+/// half `--explain` already prints the front of.
+fn seed_of(key: &crate::build::cache::ActionKey) -> u128 {
+    u128::from_str_radix(key.as_str().get(..32).unwrap_or("0"), 16).unwrap_or(0)
+}
 
 /// What one numbered block of a test binary did.
 ///
@@ -1176,7 +1159,7 @@ const RESUME: &str = "BURI_TEST_FROM";
 /// than the runtime's.
 enum Block {
     Passed,
-    Failed { message: String, diff: Option<Diff> },
+    Failed { message: String, diff: Option<Diff>, order: Option<String> },
 }
 
 /// Runs a native test binary until every one of its `count` blocks has a
@@ -1187,18 +1170,25 @@ enum Block {
 /// start at and `buri_rt_test_enter` skips what is already reported. A clean run
 /// is one process, which is the case that has to stay cheap.
 ///
+/// `seeds` is [`SEED`]'s value, the same for every process this makes: the order
+/// a block schedules in is a fact about the program and not about which process
+/// happened to reach it, so a suite resumed after a failure is a suite scheduled
+/// the way the run before it was.
+///
 /// `Ok(None)` is the timeout, which belongs to whoever declared it — a limit is
 /// a suite's, and the diagnostic naming the suite is the caller's to raise.
 fn run_blocks(
     program: &str,
     limit: Option<u32>,
     count: usize,
+    seeds: &str,
 ) -> std::io::Result<Option<Vec<Block>>> {
     let mut blocks: Vec<Block> = Vec::with_capacity(count);
     let mut from = 0usize;
     while from < count {
         let start = from.to_string();
-        let out = match execute(program, None, limit, &[(RESUME, start.as_str())])? {
+        let out =
+            match execute(program, None, limit, &[(RESUME, start.as_str()), (SEED, seeds)])? {
             Execution::Finished(out) => out,
             Execution::TimedOut => return Ok(None),
         };
@@ -1232,7 +1222,11 @@ fn run_blocks(
         while blocks.len() < at {
             blocks.push(Block::Passed);
         }
-        blocks.push(Block::Failed { message, diff: noted.and_then(|n| n.diff) });
+        let (diff, order) = match noted {
+            Some(n) => (n.diff, n.order),
+            None => (None, None),
+        };
+        blocks.push(Block::Failed { message, diff, order });
         from = at + 1;
     }
     Ok(Some(blocks))
@@ -1243,7 +1237,9 @@ fn run_blocks(
 fn record_of(name: &str, module: &str, block: &Block) -> String {
     match block {
         Block::Passed => passing_record(name, module),
-        Block::Failed { message, diff } => failing_record(name, module, message, diff.as_ref()),
+        Block::Failed { message, diff, order } => {
+            failing_record(name, module, message, diff.as_ref(), order.as_deref())
+        }
     }
 }
 
@@ -1277,7 +1273,7 @@ fn record_of(name: &str, module: &str, block: &Block) -> String {
 // `check_tags` asks of a single suite and is the honest set for a binary that
 // links both.
 //
-// Four more conditions, and each of them is a way for two suites to disagree
+// Three more conditions, and each of them is a way for two suites to disagree
 // about what building or running them means:
 //
 // - **The same platform.** Every member runs on [`default_platform`]'s answer,
@@ -1285,8 +1281,6 @@ fn record_of(name: &str, module: &str, block: &Block) -> String {
 //   request, and a request is served on its own.
 // - **The same profile.** `--release` is the invocation's, so this is free — but
 //   it is named because it is in every `codegen` key and a batch has one link.
-// - **No `test { data }`.** Such a suite runs on JavaScript anyway
-//   (`default_platform`'s rule), so it is never a candidate.
 // - **No `timeout_seconds`.** A limit is a suite's own, and a shared process
 //   would make it a limit on everybody's tests together. A suite that declares
 //   one keeps its own process.
@@ -1330,8 +1324,8 @@ fn record_of(name: &str, module: &str, block: &Block) -> String {
 /// The suites this pass ran in shared binaries, and what each one's tests did.
 ///
 /// Empty is the answer that costs nothing and changes nothing: a repository with
-/// one suite, a pass whose suites are all cached, `--accept`, `--output=`, a
-/// toolchain with no native backend. The loop below neither knows nor cares —
+/// one suite, a pass whose suites are all cached, `--output=`, a toolchain with
+/// no native backend. The loop below neither knows nor cares —
 /// a suite that is not in here is compiled, linked and run exactly as it was.
 fn run_batches(
     session: &mut Session,
@@ -1340,10 +1334,9 @@ fn run_batches(
     notices: &mut Notices,
 ) -> Prepass {
     let mut pre = Prepass::default();
-    // A batch is only ever the *default's* answer. `--accept` routes to
-    // JavaScript for the whole pass, and `--output=` is a request — served the
-    // way requests are, one suite at a time.
-    if args.flags.accept || args.flags.output.is_some() {
+    // A batch is only ever the *default's* answer: `--output=` is a request,
+    // and a request is served the way requests are, one suite at a time.
+    if args.flags.output.is_some() {
         return pre;
     }
     // The build file's half of the question, before the platform is decided, so
@@ -1399,12 +1392,11 @@ fn run_batches(
 ///
 /// Everything here is decidable before a byte is compiled, and each condition is
 /// a way two suites would disagree about what building or running them means —
-/// a declared platform is a request rather than a preference, `data` sends the
-/// suite to JavaScript, and a declared timeout has to bound one suite's process
-/// rather than several suites'.
+/// a declared platform is a request rather than a preference, and a declared
+/// timeout has to bound one suite's process rather than several suites'.
 fn may_batch(session: &Session, target: TargetId) -> bool {
     let Some(suite) = suite(session, target) else { return false };
-    suite.platforms.is_empty() && suite.data.is_empty() && suite.timeout_seconds.is_none()
+    suite.platforms.is_empty() && suite.timeout_seconds.is_none()
 }
 
 /// Whether this suite's verdict is already on disk under its own key.
@@ -1421,7 +1413,7 @@ fn already_cached(
     args: &arguments::Args,
     pre: &mut Prepass,
 ) -> bool {
-    if args.flags.force || args.flags.filter.is_some() || args.flags.accept {
+    if args.flags.force || args.flags.filter.is_some() {
         return false;
     }
     // Kept, because the loop below asks for the same key again to report the
@@ -1606,7 +1598,6 @@ fn run_batch(
                 Outcome {
                     cases: Vec::new(),
                     skipped: skipped.get(i).copied().unwrap_or(0),
-                    accepted: 0,
                 },
             ));
         }
@@ -1631,6 +1622,7 @@ fn run_batch(
 
     // Reported per suite, because the `test` action is per suite: the batch is
     // how the verdicts were produced, not what they are keyed on.
+    let mut seeds: Vec<u128> = Vec::with_capacity(members.len());
     for &target in members {
         let key = test_key_for(session, target, platform, args, pre);
         crate::build::cache::explain(
@@ -1641,10 +1633,25 @@ fn run_batch(
             platform,
             &key,
         );
+        seeds.push(seed_of(&key));
     }
+    // One seed per *block*, because the blocks of one binary belong to several
+    // suites here and a suite's order is its own key's. This is what makes a
+    // suite schedule the same way whether it was batched or run alone: a report
+    // a reader cannot reproduce with `buri test //that/one` is a report that
+    // names the wrong seed.
+    let per_block: Vec<String> = selected
+        .iter()
+        .map(|(i, _, _)| seeds.get(*i).copied().unwrap_or_default().to_string())
+        .collect();
     // No limit: a suite that declared one is not in a batch, so there is no
     // suite here whose `timeout_seconds` a shared process could misrepresent.
-    let blocks = match run_blocks(&binary.path().display().to_string(), None, selected.len()) {
+    let blocks = match run_blocks(
+        &binary.path().display().to_string(),
+        None,
+        selected.len(),
+        &per_block.join(","),
+    ) {
         Ok(Some(blocks)) => blocks,
         _ => return,
     };
@@ -1665,7 +1672,7 @@ fn run_batch(
         locate(session, &program, &mut cases);
         pre.done.push((
             target,
-            Outcome { cases, skipped: skipped.get(i).copied().unwrap_or(0), accepted: 0 },
+            Outcome { cases, skipped: skipped.get(i).copied().unwrap_or(0) },
         ));
     }
 
@@ -1710,7 +1717,19 @@ fn passing_record(name: &str, module: &str) -> String {
 
 /// One test that aborted, in the shape `$run` writes for a caught throw — the
 /// message and, where the assertion had them, both rendered values.
-fn failing_record(name: &str, module: &str, message: &str, diff: Option<&Diff>) -> String {
+///
+/// `order` is a sibling of `error` rather than a field inside it, on both
+/// backends, because it is a fact about the *run* and not about the throw: the
+/// same sentence would be worth printing under a failure that carried no
+/// assertion at all. Elided where there is none, so the record of a suite that
+/// schedules nothing is the bytes it always was.
+fn failing_record(
+    name: &str,
+    module: &str,
+    message: &str,
+    diff: Option<&Diff>,
+    order: Option<&str>,
+) -> String {
     let error = match diff {
         Some(d) => format!(
             "{{\"message\":{},\"actual\":{},\"expected\":{}}}",
@@ -1720,8 +1739,12 @@ fn failing_record(name: &str, module: &str, message: &str, diff: Option<&Diff>) 
         ),
         None => format!("{{\"message\":{}}}", json_quote(message)),
     };
+    let order = match order {
+        Some(note) => format!(",\"order\":{}", json_quote(note)),
+        None => String::new(),
+    };
     format!(
-        "{{\"name\":{},\"module\":{},\"ms\":0,\"ok\":false,\"error\":{error}}}",
+        "{{\"name\":{},\"module\":{},\"ms\":0,\"ok\":false,\"error\":{error}{order}}}",
         json_quote(name),
         json_quote(module)
     )
@@ -1732,6 +1755,10 @@ struct Noted {
     at: usize,
     message: String,
     diff: Option<Diff>,
+    /// The order sentence the runtime assembled, where the block scheduled
+    /// anything. `cli/runtime/testing.rs`'s `task_order_note` writes it and
+    /// `note_failure` puts it on the line; this is the field it arrives in.
+    order: Option<String>,
 }
 
 /// The line a native test binary writes when a block aborts.
@@ -1746,7 +1773,12 @@ fn noted_failure(stdout: &str) -> Option<Noted> {
         (Some(actual), Some(expected)) => Some(Diff { actual, expected }),
         _ => None,
     };
-    Some(Noted { at, message: field(&chunk, "message").unwrap_or_default(), diff })
+    Some(Noted {
+        at,
+        message: field(&chunk, "message").unwrap_or_default(),
+        diff,
+        order: field(&chunk, "order"),
+    })
 }
 
 /// Attaches each case to the source location of the test it names.
@@ -1860,126 +1892,6 @@ fn execute(
     }
 }
 
-// ---------------------------------------------------------------------------
-// --accept
-// ---------------------------------------------------------------------------
-
-/// Rewrites the declared `data` files whose contents a failing `assert.eq`
-/// expected, and prints a diff for each.
-///
-/// Rewriting a golden file is not something a hermetic action may do, so this
-/// is a separate mode rather than a step in the normal path (TESTING.md, "Test
-/// data and golden files"). Three things bound it, and all three are visible
-/// here: only a file listed in `data` is considered, a file that does not exist
-/// is never created, and the value written is the one the test actually
-/// produced. Everything else about the run is unchanged — the failure is still
-/// reported and still counted, because what `--accept` changes is the source
-/// tree, not the verdict.
-fn accept_goldens(session: &Session, target: TargetId, cases: &[Case], out: &mut Out) -> usize {
-    let Some(suite) = suite(session, target) else { return 0 };
-    if suite.data.is_empty() {
-        return 0;
-    }
-    let dir = session.workspace.package(target.package).dir.clone();
-    let label = session.workspace.label(target);
-    let mut accepted = 0usize;
-    for c in cases {
-        let Verdict::Failed { diff: Some(diff), .. } = &c.verdict else { continue };
-        // Only a text assertion can name a file's contents, and `$show` renders
-        // a `Str` as a JSON string. Anything else is a failure `--accept` has
-        // no opinion about.
-        let (Some(actual), Some(expected)) = (unquote(&diff.actual), unquote(&diff.expected))
-        else {
-            continue;
-        };
-        for d in &suite.data {
-            let path = dir.join(&d.value);
-            // Never creates a file: a golden that is not there is a golden
-            // nobody declared the contents of, and inventing one would make
-            // `--accept` a way to add test data by running the tests.
-            let Ok(body) = std::fs::read_to_string(&path) else { continue };
-            if body != expected {
-                continue;
-            }
-            if std::fs::write(&path, &actual).is_err() {
-                continue;
-            }
-            print_diff(&label, &d.value, &body, &actual, out);
-            accepted += 1;
-            break;
-        }
-    }
-    accepted
-}
-
-/// The diff `--accept` prints for one rewritten golden.
-///
-/// Line-oriented, with the common head and tail elided, because what a reader
-/// checks is the lines that moved.
-fn print_diff(label: &str, file: &str, before: &str, after: &str, out: &mut Out) {
-    out.line(&format!("accepted {label}  {file}"));
-    let old: Vec<&str> = before.lines().collect();
-    let new: Vec<&str> = after.lines().collect();
-    let head = old.iter().zip(new.iter()).take_while(|(a, b)| a == b).count();
-    // The elided tail must not reach back past the elided head, or the two
-    // would overlap and the middle would be printed inside out — which is what
-    // the two caps are for.
-    let tail = old
-        .iter()
-        .rev()
-        .zip(new.iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count()
-        .min(old.len() - head)
-        .min(new.len() - head);
-    for line in old.get(head..old.len() - tail).unwrap_or_default() {
-        out.line(&format!("  -{line}"));
-    }
-    for line in new.get(head..new.len() - tail).unwrap_or_default() {
-        out.line(&format!("  +{line}"));
-    }
-}
-
-/// A JSON string literal back to the text it stands for, or `None` when the
-/// rendering is not one.
-fn unquote(shown: &str) -> Option<String> {
-    let inner = shown.strip_prefix('"')?.strip_suffix('"')?;
-    let mut out = String::with_capacity(inner.len());
-    let mut chars = inner.chars();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            out.push(c);
-            continue;
-        }
-        match chars.next()? {
-            'n' => out.push('\n'),
-            't' => out.push('\t'),
-            'r' => out.push('\r'),
-            'b' => out.push('\u{8}'),
-            'f' => out.push('\u{c}'),
-            'u' => {
-                let hex: String = chars.by_ref().take(4).collect();
-                let code = u32::from_str_radix(&hex, 16).ok()?;
-                out.push(char::from_u32(code)?);
-            }
-            other => out.push(other),
-        }
-    }
-    Some(out)
-}
-
-fn load_test_data(session: &Session, target: TargetId) -> String {
-    let Some(suite) = suite(session, target) else { return "{}".into() };
-    let dir = session.workspace.package(target.package).dir.clone();
-    let mut fields = Vec::new();
-    for d in &suite.data {
-        let p: PathBuf = dir.join(&d.value);
-        let body = std::fs::read_to_string(&p).unwrap_or_default();
-        fields.push(format!("{}:{}", javascript::quote(&d.value), javascript::quote(&body)));
-    }
-    format!("{{{}}}", fields.join(","))
-}
-
 /// The runner writes one JSON array; this reads it without a JSON library,
 /// because the shape is fixed and known.
 fn parse_results(text: &str) -> Vec<Case> {
@@ -1994,13 +1906,17 @@ fn parse_results(text: &str) -> Vec<Case> {
         let verdict = if chunk.contains("\"ok\":true") {
             Verdict::Passed
         } else {
-            // Half a diff is no diff: one side alone can neither be printed
-            // against anything nor accepted into a golden.
+            // Half a diff is no diff: one side alone is not something the
+            // other can be printed against.
             let diff = match (field(&chunk, "actual"), field(&chunk, "expected")) {
                 (Some(actual), Some(expected)) => Some(Diff { actual, expected }),
                 _ => None,
             };
-            Verdict::Failed { message: field(&chunk, "message").unwrap_or_default(), diff }
+            Verdict::Failed {
+                message: field(&chunk, "message").unwrap_or_default(),
+                diff,
+                order: field(&chunk, "order"),
+            }
         };
         cases.push(Case {
             provenance: Provenance::Ran,
@@ -2113,6 +2029,7 @@ fn report_failure(
     c: &Case,
     message: &str,
     diff: Option<&Diff>,
+    order: Option<&str>,
     out: &mut Out,
 ) {
     let label = session.workspace.label(target);
@@ -2125,6 +2042,16 @@ fn report_failure(
         out.line(&format!("    actual:   {}", d.actual));
         out.line(&format!("    expected: {}", d.expected));
     }
+    // After the values and before the location, which is the order the three
+    // answer a reader's questions: *what went wrong*, *between which two
+    // values*, and *what would have to be true to see it again*. The location
+    // stays last because it is the line the editor jumps to.
+    //
+    // Indented like the message rather than like the diff: it is a sentence
+    // about this failure, not a third side of the comparison.
+    if let Some(note) = order {
+        out.line(&indented(note));
+    }
     if let Some(loc) = &c.location {
         out.line(&format!("  --> {loc}"));
     }
@@ -2133,17 +2060,6 @@ fn report_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_json_string_comes_back_as_the_text_it_stands_for() {
-        assert_eq!(unquote("\"zero\"").as_deref(), Some("zero"));
-        assert_eq!(unquote("\"a\\tb\\n\"").as_deref(), Some("a\tb\n"));
-        assert_eq!(unquote("\"say \\\"hi\\\"\"").as_deref(), Some("say \"hi\""));
-        assert_eq!(unquote("\"\\u0041\"").as_deref(), Some("A"));
-        // Not a string rendering: `--accept` has no opinion about these.
-        assert_eq!(unquote("19"), None);
-        assert_eq!(unquote(".Some(1)"), None);
-    }
 
     /// One line per `FAIL`, whatever the title holds.
     #[test]
@@ -2200,6 +2116,29 @@ mod tests {
         ]));
     }
 
+    /// The seed a suite schedules with is a function of its key and of nothing
+    /// else.
+    ///
+    /// The point of the row in `DECISIONS.md` stated as a test: two calls agree,
+    /// two different keys disagree, and nothing here reads a clock. A generator
+    /// in this position would make `Cache::put` store a record the next run
+    /// could not have produced.
+    #[test]
+    fn a_suites_seed_is_its_own_key_and_nothing_else() {
+        let one = crate::build::cache::ActionKey::of(b"a suite");
+        let two = crate::build::cache::ActionKey::of(b"another suite");
+        assert_eq!(seed_of(&one), seed_of(&one));
+        assert_ne!(seed_of(&one), seed_of(&two));
+        // The first 32 hex digits of the digest, read as a `u128`.
+        let front = one.as_str().get(..32).expect("a key is 64 hex digits");
+        assert_eq!(seed_of(&one), u128::from_str_radix(front, 16).unwrap());
+        // Every key is 64 hex digits by construction (`ActionKey`'s two
+        // constructors both hash), so the fallbacks in `seed_of` are unreachable
+        // and this is the claim that keeps them so.
+        assert_eq!(two.as_str().len(), 64);
+        assert!(two.as_str().chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
     /// A native record is read back by the parser that reads a JavaScript one.
     ///
     /// Written as a round trip rather than against a literal, because what has
@@ -2209,13 +2148,15 @@ mod tests {
     #[test]
     fn a_record_this_runner_writes_is_one_it_reads() {
         let diff = Diff { actual: String::from("\"a\\tb\""), expected: String::from("2") };
+        let note = "the tasks completed in the order 0, 2, 1 — replay it with `tasks().seed(1)`";
         let record = format!(
-            "[{},{}]",
+            "[{},{},{}]",
             passing_record("a title", "//lib/x/test/x"),
-            failing_record("say \"hi\"", "//lib/x/test/x", "assert.eq failed", Some(&diff))
+            failing_record("say \"hi\"", "//lib/x/test/x", "assert.eq failed", Some(&diff), None),
+            failing_record("scheduled", "//lib/x/test/x", "assert.eq failed", None, Some(note))
         );
         let cases = parse_results(&record);
-        assert_eq!(cases.len(), 2);
+        assert_eq!(cases.len(), 3);
         assert_eq!(cases[0].name, "a title");
         assert_eq!(cases[0].module, "//lib/x/test/x");
         assert!(matches!(cases[0].verdict, Verdict::Passed));
@@ -2223,12 +2164,24 @@ mod tests {
         // a rendered value: `$show` already escaped them, and the record
         // escapes what it is handed.
         assert_eq!(cases[1].name, "say \"hi\"");
-        let Verdict::Failed { message, diff: Some(d) } = &cases[1].verdict else {
+        let Verdict::Failed { message, diff: Some(d), order } = &cases[1].verdict else {
             panic!("the failing record did not read back as a failure");
         };
         assert_eq!(message, "assert.eq failed");
         assert_eq!(d.actual, "\"a\\tb\"");
         assert_eq!(d.expected, "2");
+        // A failure that scheduled nothing carries no order, and that is a
+        // *missing* key rather than an empty one: the record of a suite that
+        // never says `tasks()` is the bytes it was before this slice.
+        assert_eq!(*order, None);
+        assert!(!record.contains("\"order\":\"\""));
+        // And the two travel independently — an order with no diff is the shape
+        // a faulted task produces, which has a message and no pair.
+        let Verdict::Failed { diff, order, .. } = &cases[2].verdict else {
+            panic!("the scheduled record did not read back as a failure");
+        };
+        assert!(diff.is_none());
+        assert_eq!(order.as_deref(), Some(note));
     }
 
     /// The line a native test binary writes when a block aborts.
@@ -2244,6 +2197,9 @@ mod tests {
         assert_eq!(noted.message, "assert.eq failed");
         let diff = noted.diff.expect("both sides were there");
         assert_eq!((diff.actual.as_str(), diff.expected.as_str()), ("1", "2"));
+        // A block that scheduled nothing says nothing about an order, which is
+        // the case every block that never writes `tasks()` is in.
+        assert_eq!(noted.order, None);
         // An abort that is not an assertion has a message and no pair, and a
         // run that said nothing at all has no record — which is the case the
         // caller attributes to the block it asked for.
@@ -2251,6 +2207,25 @@ mod tests {
         assert!(plain.diff.is_none());
         assert!(noted_failure("").is_none());
         assert!(noted_failure("assert.eq failed\n").is_none());
+        // The order sentence, in the position `note_failure` writes it: after
+        // the pair where there is one, and beside the message where there is
+        // not. Both literals are the contract with the other crate.
+        let scheduled = noted_failure(
+            "{\"i\":1,\"message\":\"assert.eq failed\",\"actual\":\"1\",\"expected\":\"2\",\
+             \"order\":\"the tasks completed in the order 1, 0 — replay it with `tasks().seed(1)`\"}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            scheduled.order.as_deref(),
+            Some("the tasks completed in the order 1, 0 — replay it with `tasks().seed(1)`")
+        );
+        let faulted = noted_failure(
+            "{\"i\":2,\"message\":\"a task was failed by the plan: task(1): gone\",\
+             \"order\":\"the tasks completed in the order 1, 0 — replay it with `tasks().seed(1)`\"}\n",
+        )
+        .unwrap();
+        assert!(faulted.diff.is_none());
+        assert!(faulted.order.is_some());
     }
 
     /// A JSON string literal is JSON: the runner's own parser looks for a

@@ -1,9 +1,0 @@
-error: expected `=`, found `fetch` [unexpected-token]
-  --> main.buri:56:11
-   |
-56 |     let _ fetch =(ctx, get("https://example.invalid/b"), fn(c, result) => {
-   |           ^^^^^
-   |
-   = expected: `=`
-   = actual: `fetch`
-   = fix: write `=` here

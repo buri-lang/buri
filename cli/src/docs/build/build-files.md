@@ -127,7 +127,6 @@ library {
   test {
     sources: ["test/ledger.buri"]
     dependencies: ["//lib/testing/fakes"]
-    data: ["test/golden/ledger.txt"]
   }
 }
 ```
@@ -407,7 +406,7 @@ with both rules in it is divided; what matters *to a build file* is the other
 half of the split.
 
 **The contents of `tags`, `platforms`, and `timeout_seconds` are preserved**,
-along with `visibility`, `outputs`, `test.data`, and every comment. Those fields
+along with `visibility`, `outputs`, and every comment. Those fields
 are decisions somebody made rather than facts derivable from the sources, and a
 tool that dropped a `tags` entry while tidying `sources` would silently widen
 what a library is allowed to link into. So `buri gen //...` across the whole

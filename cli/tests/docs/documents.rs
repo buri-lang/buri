@@ -330,9 +330,18 @@ fn an_unknown_topic_exits_two_with_a_suggestion() {
 /// `--check-reproducible`, `query --output=proto`, and `lint --fix` were all
 /// documented and all rejected by the parser. The command table is now the one
 /// list of flags; this holds the prose to it.
+///
+/// A *retired* flag is not an invented one. The binary knows every name in
+/// `arguments::RETIRED` and answers it with a sentence saying what replaced it,
+/// so a page that records the retirement is naming something the toolchain
+/// still has an answer for — which is the whole reason the page says it.
 #[test]
 fn no_document_invents_a_flag() {
-    let known: Vec<&str> = buri::commands::FLAGS.iter().map(|f| f.name).collect();
+    let known: Vec<&str> = buri::commands::FLAGS
+        .iter()
+        .map(|f| f.name)
+        .chain(buri::commands::arguments::RETIRED.iter().map(|(name, _)| *name))
+        .collect();
     let mut invented = Vec::new();
     for doc in &documents() {
         // `design/` is where the gaps are audited, so naming an absent flag is
