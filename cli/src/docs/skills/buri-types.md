@@ -257,8 +257,8 @@ let ctx = context {
 };
 
 context Fixture {
-    ..Hermetic(),
-    Fs: files([("config.toml", "port=8080")]),
+    Alloc: alloc(),
+    Fs: fs().files([("config.toml", "port=8080")]),
 }
 ```
 

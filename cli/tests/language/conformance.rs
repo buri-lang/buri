@@ -438,6 +438,36 @@ fn the_example_monorepo_is_clean() {
 }
 
 // ---------------------------------------------------------------------------
+// A test context names only what it needs
+// ---------------------------------------------------------------------------
+
+/// Neither corpus asks a caller for a capability its body never exercises.
+///
+/// The conformance corpus is not lint-clean and is not meant to be: it holds
+/// unread fields, unconstructed variants and discarded results *on purpose*,
+/// because those are what several of its cases are about. **`unused-context-bound`
+/// is different**, and this is the one code held to zero over it.
+///
+/// The reason is the note's rule — a test context names only the effects the
+/// function under test needs — and the chain that makes it a *corpus* property
+/// rather than a signature one. A dead bound is a demand on every caller, so
+/// `fn note<C: Alloc + Stdout>` forces `Alloc: alloc()` into the context of
+/// every test that calls it, and that context is then wider than the test.
+/// Removing the fifteen dead bounds this corpus carried is what let two
+/// hundred and forty-seven of its contexts shrink; leaving one in would put
+/// them back, one test at a time and invisibly.
+///
+/// `cli/tests/example` is held to the same line by
+/// [`the_example_monorepo_is_clean`], which asks for `no findings` at all.
+#[test]
+fn no_conformance_context_asks_for_a_bound_it_does_not_use() {
+    let corpus = Scratch::copy_of("conformance-bounds", &conformance_repo());
+    // The corpus has findings, so the run exits 1; what is asserted is which
+    // findings, not how many.
+    corpus.run(&["lint", "//...", "--error-format=json"]).silent_about("unused-context-bound");
+}
+
+// ---------------------------------------------------------------------------
 // Where a lint finding may point
 // ---------------------------------------------------------------------------
 

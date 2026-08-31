@@ -32,7 +32,7 @@
 //! | native, Linux | `fsync(2)` | the process, and the operating system |
 //! | native, macOS | `fcntl(F_FULLFSYNC)` | those two, and the drive's own cache |
 //! | JavaScript runner | `fs.fsyncSync` | the process, and the operating system |
-//! | `core/testing/context`'s `MemFs` | nothing to flush | the test that wrote it |
+//! | `core/host/testing`'s `TestFs` | nothing to flush | the test that wrote it |
 //!
 //! The row that is easy to read past is macOS on the JavaScript runner: node's
 //! `fsync` is the plain `fsync(2)`, which on macOS asks the drive to write its
