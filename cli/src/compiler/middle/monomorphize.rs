@@ -316,13 +316,11 @@ pub struct Monomorphizer<'a> {
     ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
     module_paths: Vec<String>,
     /// The locals of the body being rewritten, parked here so that
-    /// [`Monomorphizer::rewrite`] can retype the ones a corrected `Self`
-    /// reaches. See [`Monomorphizer::rewrite_call_args`].
+    /// [`Monomorphizer::rewrite_call_args`] can add the ones the adapter it
+    /// builds needs. A `LocalId` is an index into one function's table, so an
+    /// adapter's parameters have to be entries in the table of the function
+    /// the adapter is written into.
     locals: Vec<typed::Local>,
-    /// `Some((context, implementation))` while the arguments of one trait call
-    /// are being rewritten, and `None` everywhere else. See
-    /// [`Monomorphizer::rewrite_call_args`].
-    self_fix: Option<(Ty, Ty)>,
 }
 
 pub fn run(
@@ -343,7 +341,6 @@ pub fn run(
         ctx_layouts: HashMap::default(),
         module_paths,
         locals: Vec::new(),
-        self_fix: None,
     };
 
     let program_roots = match roots {
@@ -769,81 +766,131 @@ impl<'a> Monomorphizer<'a> {
     // Rewriting
     // -----------------------------------------------------------------------
 
-    /// One substitution, with the `Self` correction below applied after it.
+    /// One substitution.
     ///
-    /// Every type this pass writes goes through here, so a correction that is
-    /// active covers the whole subtree it is active over — expression types,
-    /// pattern types, and the type arguments a nested call carries — rather
-    /// than the one type somebody remembered.
+    /// Every type this pass writes goes through here. It used to apply a
+    /// `Self` *correction* on the way out — see
+    /// [`Monomorphizer::rewrite_call_args`] for what replaced it and why.
     fn sub(&self, ty: &Ty, targs: &[Ty]) -> Ty {
-        let out = substitute(ty, targs, None);
-        match &self.self_fix {
-            Some((from, to)) => replace_ty(&out, from, to),
-            None => out,
-        }
+        substitute(ty, targs, None)
     }
 
-    /// Applies the active `Self` correction to the locals a binder introduces.
+    /// Appends a local to the table of the body being rewritten and answers
+    /// its id.
     ///
-    /// A lambda's parameters and a pattern's bindings are locals of the
-    /// *enclosing* function, whose table was substituted before this pass
-    /// walked the body; a correction made here has to reach them, or the
-    /// closure keeps the layout the correction just disowned.
-    fn retype_locals(&mut self, ids: &[LocalId]) {
-        let Some((from, to)) = self.self_fix.clone() else { return };
-        for id in ids {
-            // `get_mut`, because a module-level `let` is inlined by rewriting
-            // its body against whatever table is parked, and its local ids are
-            // not this function's.
-            if let Some(l) = self.locals.get_mut(id.index()) {
-                l.ty = replace_ty(&l.ty, &from, &to);
-            }
-        }
+    /// Only [`Monomorphizer::rewrite_call_args`] uses this, for the receiver
+    /// it binds and the parameters of the adapter it builds. A body is walked
+    /// with its table parked on `self.locals` and the table is put back
+    /// afterwards, so an entry added here reaches the emitted function.
+    fn new_local(&mut self, name: &str, ty: Ty, span: Span) -> LocalId {
+        let id = LocalId(self.locals.len() as u32);
+        self.locals.push(typed::Local { name: String::from(name), ty, span });
+        id
     }
 
-    /// The arguments of a trait or effect call, with `Self` corrected where
-    /// *this instantiation* is what moved it.
+    /// The arguments of a trait or effect call, with a `Self`-spelled callback
+    /// **adapted** where *this instantiation* is what moved `Self`.
     ///
     /// `Self` is the implementing type, and `semantics/expressions.rs`'s
     /// `implementing_ty` reads it off the context's bindings wherever the front
     /// end can see a context. It cannot see one through a bounded type
-    /// parameter: `fn serveOnce<C: Listen + …>(ctx: C, …)` is checked once for
-    /// every instantiation at once (SPEC 13.5), so `Self` there is `C` — right
-    /// when `C` is the implementation, and wrong when `C` turns out to be a
-    /// context, which satisfies an effect by *naming* an implementation rather
-    /// than by being one. Here `C` is known, so here is where that is put
-    /// right: a method whose signature names `Self` — `Listen`'s
-    /// `onRequest: fn(Self, Request) => Response` — otherwise hands the
-    /// caller's handler the context's layout while the `impl` body hands it the
-    /// implementation's, which typechecks and then reads the wrong bytes.
+    /// parameter: `fn serveOnce<C: Listen + ...>(ctx: C, ...)` is checked once
+    /// for every instantiation at once (SPEC 13.5), so `Self` there is `C` —
+    /// right when `C` is the implementation, and wrong when `C` turns out to be
+    /// a context, which satisfies an effect by *naming* an implementation
+    /// rather than by being one. Here `C` is known, so here is where that is
+    /// put right.
+    ///
+    /// # Why the callback is adapted rather than retyped
+    ///
+    /// This used to *retype* the argument: `Self` was rewritten from the
+    /// context down to the implementation through the whole argument subtree,
+    /// so a handler's parameter got the layout the acceptor was going to hand
+    /// it. That is right for a handler that ignores what it is handed, and it
+    /// is a miscompile for one that does anything with it — because the rest of
+    /// the subtree was rewritten too. An effect wrapper is the shape where that
+    /// shows:
+    ///
+    /// ```text
+    /// impl<C: Listen> Listen for Scoped<C> {
+    ///   fn listen(self, .., onRequest: fn(Scoped<C>, Request) => Response) .. {
+    ///     let arena = self.1;
+    ///     self.0.listen(.., fn(c, request) => onRequest(Scoped(c, arena), request))
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// `onRequest` was built by the caller at `Scoped<C>` and `Scoped(c, arena)`
+    /// is a `Scoped<C>` — but rewriting `C` to the implementation inside the
+    /// lambda turned it into a `Scoped<`*acceptor*`>`, a struct of a different
+    /// width, passed to a closure expecting the other one. Both native backends
+    /// then read past the value; JavaScript lays nothing out and did not
+    /// notice. Nothing scoped the rewrite to the positions the declaration
+    /// actually spells `Self`, and nothing could have: the value that reaches
+    /// the handler at run time is the acceptor, and no rewriting of types makes
+    /// a `Scoped<C>` out of one.
+    ///
+    /// **So the value is corrected instead of the type.** The callback keeps
+    /// the type the front end gave it — `fn(C, ...)`, at the receiver — and
+    /// what is passed down is an adapter that drops the acceptor and hands the
+    /// callback the receiver:
+    ///
+    /// ```text
+    /// { let __recv = <receiver>;
+    ///   __recv.listen(.., { let __handler = <callback>;
+    ///                       fn(__a0, request) => __handler(__recv, request) }) }
+    /// ```
+    ///
+    /// `__a0` carries the implementation's type, so the acceptor's own call is
+    /// laid out the way its `impl` body wrote it, and the callback is entered
+    /// at exactly the type the caller built it at. In the wrapper above `c` is
+    /// then the context `self.0` — which is what `Scoped(c, arena)` always
+    /// meant, and is `self` rebuilt.
+    ///
+    /// # The rule this settles
+    ///
+    /// **Inside a generic body, a `Self`-spelled callback is handed the
+    /// receiver.** That is what the front end already types it as, and it is
+    /// the only value the body can use: nothing in `C: Listen` names what
+    /// implements `Listen` for `C`, so a handler written there can neither read
+    /// the acceptor's fields nor call `C`'s other bounds on it. The receiver
+    /// satisfies every bound `C` declares, which the acceptor need not — the
+    /// gap recorded as "unsound-in-waiting" when `implementing_ty` landed is
+    /// closed by this, not merely stopped from crashing.
+    ///
+    /// **Where the caller can see the context, `Self` is still the
+    /// implementation.** `ctx.listen(.., fn(server, ..) => server.bindsTo)` on
+    /// a `context` value is checked with `implementing_ty` and never reaches
+    /// here, so a handler may still read a field of the acceptor exactly where
+    /// the acceptor's type is in view.
     ///
     /// **A callback meant to receive the caller's context is not spelled
-    /// `Self` and never reaches this correction.** `Tasks.parallel` takes
-    /// `ctx: C` beside `self` and its step is `fn(C, Int, A) => B`, so `C` is
-    /// an ordinary type argument, already the caller's context at every
-    /// instantiation, with nothing here to fix. That is the difference this
-    /// pass used to erase: it retyped `parallel`'s step down to the
-    /// implementation, and the step then read the scheduler where it expected a
-    /// clock. Only `Self` is corrected, because only `Self` means the
-    /// implementation (SPEC 10.6).
+    /// `Self` and never reaches this.** `Tasks.parallel` takes `ctx: C` beside
+    /// `self` and its step is `fn(C, Int, A) => B`, so `C` is an ordinary type
+    /// argument, already the caller's context at every instantiation, with
+    /// nothing here to do. Only `Self` is adapted, because only `Self` means
+    /// the implementation (SPEC 10.6).
     ///
-    /// **Only the arguments the declaration spells with `Self`.** A trait
-    /// method's other parameters cannot be a context — an effect-carrying
-    /// parameter must be named `ctx` (SPEC 10.6, `effect-param-not-ctx`) — but
-    /// a *method-generic* one instantiated at this same context would be an
-    /// ordinary use of that type and not a `Self` at all, so the declaration
-    /// says which arguments are in scope rather than the shape of a type.
+    /// **Only the arguments the declaration spells with `Self`, and only at the
+    /// parameter positions it spells it in.** A trait method's other parameters
+    /// cannot be a context — an effect-carrying parameter must be named `ctx`
+    /// (SPEC 10.6, `effect-param-not-ctx`) — but a *method-generic* one
+    /// instantiated at this same context would be an ordinary use of that type
+    /// and not a `Self` at all, so the declaration says what is in scope rather
+    /// than the shape of a type.
     ///
-    /// The receiver is left alone: [`Monomorphizer::resolve_trait_call`] reads
-    /// the implementation out of it with a `CtxGet`, which is what makes the
-    /// context the right type there.
+    /// The receiver is left alone past being bound to a local:
+    /// [`Monomorphizer::resolve_trait_call`] reads the implementation out of it
+    /// with a `CtxGet`, which is what makes the context the right type there.
     ///
-    /// A `Self` **result** is not corrected, and no effect declares one: only
-    /// an effect can be a context binding (`context-binding-not-an-effect`),
-    /// only a platform module can declare an effect (`effect-outside-platform`),
-    /// and none of the standard library's returns `Self`. A result escapes into
-    /// the caller's own locals, which is a wider correction than this one and
-    /// worth writing the day such an effect exists.
+    /// A `Self` **result**, and a `Self` that is not a callback parameter, are
+    /// left alone: no effect declares either — only an effect can be a context
+    /// binding (`context-binding-not-an-effect`), only a platform module can
+    /// declare an effect (`effect-outside-platform`), and `Listen.listen` is
+    /// the standard library's only `Self`-spelled parameter. A value at the
+    /// context's type reaching a parameter at the implementation's is a type
+    /// error the native IR verifier reports, which is the right failure for a
+    /// shape nothing can write yet.
     fn rewrite_call_args(
         &mut self,
         trait_id: TraitId,
@@ -852,8 +899,8 @@ impl<'a> Monomorphizer<'a> {
         recv_at: &Ty,
         args: Vec<typed::Expr>,
         targs: &[Ty],
-    ) -> Vec<typed::Expr> {
-        let fix = match (recv, recv_at) {
+    ) -> (Vec<typed::Expr>, Option<typed::Stmt>) {
+        let implementation = match (recv, recv_at) {
             // The front end had the row in hand and used it.
             (Ty::Ctx(_), _) => None,
             (_, Ty::Ctx(id)) => self
@@ -861,29 +908,127 @@ impl<'a> Monomorphizer<'a> {
                 .ctx_type(*id)
                 .get(trait_id)
                 .cloned()
-                .filter(|imp| imp != recv_at)
-                .map(|imp| (recv_at.clone(), imp)),
+                .filter(|imp| imp != recv_at),
             _ => None,
         };
-        let Some(fix) = fix else { return self.rewrite_all(args, targs) };
-        let spelled: Vec<bool> = self
+        let mut out = self.rewrite_all(args, targs);
+        let Some(implementation) = implementation else { return (out, None) };
+
+        // Which parameter of which argument the *declaration* spells `Self`.
+        // Argument 0 is the receiver and is never one of these.
+        let spelled: Vec<Vec<usize>> = self
             .tables()
             .trait_(trait_id)
             .methods
             .get(method)
-            .map(|m| m.params.iter().map(|p| mentions_self(&p.ty)).collect())
+            .map(|m| m.params.iter().map(|p| self_positions(&p.ty)).collect())
             .unwrap_or_default();
-        let mut out = Vec::with_capacity(args.len());
-        for (i, a) in args.into_iter().enumerate() {
-            if i == 0 || !spelled.get(i).copied().unwrap_or(false) {
-                out.push(self.rewrite(a, targs));
-                continue;
-            }
-            let saved = self.self_fix.replace(fix.clone());
-            out.push(self.rewrite(a, targs));
-            self.self_fix = saved;
+        let adapt: Vec<(usize, Vec<usize>)> = (1..out.len())
+            .filter_map(|i| {
+                let at = spelled.get(i)?;
+                (!at.is_empty()).then(|| (i, at.clone()))
+            })
+            .collect();
+        if adapt.is_empty() {
+            return (out, None);
         }
-        out
+
+        // The receiver is bound once: the call reads it, and so does every
+        // adapter, and a lambda captures locals rather than expressions.
+        let Some(receiver) = out.first() else { return (out, None) };
+        let recv_ty = receiver.ty.clone();
+        let span = receiver.span;
+        let bound = self.new_local("__recv", recv_ty.clone(), span);
+        let stands_for = typed::Expr::new(ExprKind::Local(bound), recv_ty.clone(), span);
+        let Some(slot) = out.first_mut() else { return (out, None) };
+        let receiver = std::mem::replace(slot, stands_for);
+        let prelude = typed::Stmt::Let {
+            pattern: typed::Pattern {
+                kind: PatKind::Bind { local: bound, sub: None },
+                ty: recv_ty.clone(),
+                span,
+            },
+            value: receiver,
+            span,
+        };
+
+        for (i, at) in adapt {
+            let Some(argument) = out.get(i) else { continue };
+            let callback_ty = argument.ty.clone();
+            let span = argument.span;
+            let Ty::Fn(params, ret) = callback_ty.clone() else { continue };
+            let held = self.new_local("__handler", callback_ty.clone(), span);
+            // The adapter's own parameters: the implementation's type where the
+            // declaration spelled `Self`, the declared type everywhere else.
+            let mut binders = Vec::with_capacity(params.len());
+            let mut forwarded = Vec::with_capacity(params.len());
+            for (k, p) in params.iter().enumerate() {
+                let is_self = at.contains(&k);
+                let ty = if is_self { implementation.clone() } else { p.clone() };
+                let id = self.new_local(&format!("__a{k}"), ty.clone(), span);
+                binders.push(id);
+                forwarded.push(if is_self {
+                    typed::Expr::new(ExprKind::Local(bound), recv_ty.clone(), span)
+                } else {
+                    typed::Expr::new(ExprKind::Local(id), ty, span)
+                });
+            }
+            let adapter_ty = Ty::Fn(
+                params
+                    .iter()
+                    .enumerate()
+                    .map(|(k, p)| {
+                        if at.contains(&k) {
+                            implementation.clone()
+                        } else {
+                            p.clone()
+                        }
+                    })
+                    .collect(),
+                ret.clone(),
+            );
+            let body = typed::Expr::new(
+                ExprKind::CallValue {
+                    callee: Box::new(typed::Expr::new(
+                        ExprKind::Local(held),
+                        callback_ty.clone(),
+                        span,
+                    )),
+                    args: forwarded,
+                },
+                (*ret).clone(),
+                span,
+            );
+            let adapter = typed::Expr::new(
+                ExprKind::Lambda {
+                    params: binders,
+                    body: Box::new(body),
+                    captures: vec![bound, held],
+                },
+                adapter_ty.clone(),
+                span,
+            );
+            let Some(slot) = out.get_mut(i) else { continue };
+            let callback =
+                std::mem::replace(slot, typed::Expr::new(ExprKind::Error, Ty::Error, span));
+            *slot = typed::Expr::new(
+                ExprKind::Block {
+                    stmts: vec![typed::Stmt::Let {
+                        pattern: typed::Pattern {
+                            kind: PatKind::Bind { local: held, sub: None },
+                            ty: callback_ty,
+                            span,
+                        },
+                        value: callback,
+                        span,
+                    }],
+                    tail: Some(Box::new(adapter)),
+                },
+                adapter_ty,
+                span,
+            );
+        }
+        (out, Some(prelude))
     }
 
     fn rewrite(&mut self, mut e: typed::Expr, targs: &[Ty]) -> typed::Expr {
@@ -903,8 +1048,19 @@ impl<'a> Monomorphizer<'a> {
             ExprKind::CallTrait { trait_id, method, recv, targs: mt, args } => {
                 let recv_at = self.sub(&recv, targs);
                 let mt: Vec<Ty> = mt.iter().map(|t| self.sub(t, targs)).collect();
-                let args = self.rewrite_call_args(trait_id, method, &recv, &recv_at, args, targs);
-                self.resolve_trait_call(trait_id, method, recv_at, mt, args, e.span)
+                let (args, prelude) =
+                    self.rewrite_call_args(trait_id, method, &recv, &recv_at, args, targs);
+                let call = self.resolve_trait_call(trait_id, method, recv_at, mt, args, e.span);
+                // The receiver's binding scopes over the call *and* over the
+                // adapters in its arguments, so it is a statement in front of
+                // the whole call rather than part of one argument.
+                match prelude {
+                    None => call,
+                    Some(stmt) => ExprKind::Block {
+                        stmts: vec![stmt],
+                        tail: Some(Box::new(typed::Expr::new(call, e.ty.clone(), e.span))),
+                    },
+                }
             }
             ExprKind::FnRef(callee) => {
                 let typed::Callee::Decl { id, targs: ft } = callee else {
@@ -1016,7 +1172,6 @@ impl<'a> Monomorphizer<'a> {
                     .collect(),
             },
             ExprKind::Lambda { params, body, captures } => {
-                self.retype_locals(&params);
                 ExprKind::Lambda {
                     params,
                     body: Box::new(self.rewrite(*body, targs)),
@@ -1086,7 +1241,6 @@ impl<'a> Monomorphizer<'a> {
         p.ty = self.sub(&p.ty, targs);
         p.kind = match p.kind {
             PatKind::Bind { local, sub } => {
-                self.retype_locals(std::slice::from_ref(&local));
                 PatKind::Bind {
                     local,
                     sub: sub.map(|s| Box::new(self.rewrite_pattern(*s, targs))),
@@ -1439,40 +1593,33 @@ impl<'a> Monomorphizer<'a> {
 }
 
 // ---------------------------------------------------------------------------
-// Correcting `Self` where an instantiation moved it
+// Where an instantiation moved `Self`
 // ---------------------------------------------------------------------------
 
-/// Whether a declaration spells `Self` anywhere in a type.
+/// The parameter positions a declared **callback** type spells exactly `Self`
+/// at, and nothing for any other type.
 ///
 /// Read off the **trait's** declaration, which still holds `Ty::SelfTy`: by the
 /// time a call reaches this pass its own types have had `Self` substituted
 /// away, so the declaration is the only place left that says which positions
 /// were `Self` to begin with.
-fn mentions_self(ty: &Ty) -> bool {
-    match ty {
-        Ty::SelfTy => true,
-        Ty::Con(_, xs) | Ty::Tuple(xs) => xs.iter().any(mentions_self),
-        Ty::Array(e) => mentions_self(e),
-        Ty::Fn(ps, r) => ps.iter().any(mentions_self) || mentions_self(r),
-        _ => false,
-    }
-}
-
-/// Every occurrence of `from` in `ty`, replaced by `to`.
-fn replace_ty(ty: &Ty, from: &Ty, to: &Ty) -> Ty {
-    if ty == from {
-        return to.clone();
-    }
-    match ty {
-        Ty::Con(id, xs) => Ty::Con(*id, xs.iter().map(|x| replace_ty(x, from, to)).collect()),
-        Ty::Array(e) => Ty::Array(Box::new(replace_ty(e, from, to))),
-        Ty::Tuple(es) => Ty::Tuple(es.iter().map(|e| replace_ty(e, from, to)).collect()),
-        Ty::Fn(ps, r) => Ty::Fn(
-            ps.iter().map(|p| replace_ty(p, from, to)).collect(),
-            Box::new(replace_ty(r, from, to)),
-        ),
-        other => other.clone(),
-    }
+///
+/// **Exactly `Self`, and only in a parameter of a function type**, because that
+/// is the whole of what [`Monomorphizer::rewrite_call_args`] can adapt: it
+/// passes the receiver where the acceptor would have passed itself, and a
+/// receiver is a value of one type rather than an element of a list of them or
+/// a field of a struct of them. `[Self]`, `(Self, Int)` and a `Self` **result**
+/// all answer nothing here, and no effect declares one — `Listen.listen`'s
+/// `onRequest: fn(Self, Request) => Response` is the standard library's only
+/// `Self`-spelled parameter.
+fn self_positions(ty: &Ty) -> Vec<usize> {
+    let Ty::Fn(params, _) = ty else { return Vec::new() };
+    params
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| matches!(p, Ty::SelfTy))
+        .map(|(i, _)| i)
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -2206,74 +2353,54 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Correcting `Self` where an instantiation moved it
+    // Where an instantiation moved `Self`
     // -----------------------------------------------------------------------
     //
-    // The two halves of the correction are pure and are tested as such: which
-    // parameters of a declaration are in scope for it, and what it does to a
-    // type. Whether it *fires* is a property of a whole program, and
+    // Which callback parameters the adapter is built for is pure and is tested
+    // as such. Whether it *fires*, and what arrives at the handler when it
+    // does, are properties of a whole program:
     // `cli/tests/native/conformance.rs`'s
-    // `self_through_a_context_is_the_implementing_type` is that half — the one
-    // that used to exit with no output at all.
+    // `self_through_a_context_is_the_implementing_type` and
+    // `cli/tests/native/agreement.rs`'s
+    // `a_handler_a_wrapper_rebuilt_is_entered_on_every_backend` are that half —
+    // the two shapes that used to exit with no output at all.
 
-    /// A declaration is in scope exactly where it wrote `Self`, at any depth.
+    /// A callback parameter spelled `Self` is what the adapter is built for.
     #[test]
-    fn a_declaration_that_spells_self_is_the_one_in_scope() {
-        // `Listen.listen`'s handler, and `Tasks.parallel`'s.
-        assert!(mentions_self(&Ty::Fn(vec![Ty::SelfTy, int()], Box::new(string()))));
-        assert!(mentions_self(&Ty::Fn(
-            vec![Ty::SelfTy, int(), P0],
-            Box::new(P1)
-        )));
-        // The receiver itself, and a `Self` under a constructor or a list.
-        assert!(mentions_self(&Ty::SelfTy));
-        assert!(mentions_self(&con(3, vec![Ty::SelfTy])));
-        assert!(mentions_self(&Ty::Array(Box::new(Ty::SelfTy))));
-        assert!(mentions_self(&Ty::Tuple(vec![int(), Ty::SelfTy])));
-        // And a `Self` in a function type's *result*, which a handler that
-        // answers one would be.
-        assert!(mentions_self(&Ty::Fn(vec![int()], Box::new(Ty::SelfTy))));
+    fn a_callback_parameter_spelled_self_is_in_scope() {
+        // `Listen.listen`'s handler, and the same shape with generics beside
+        // it.
+        assert_eq!(self_positions(&Ty::Fn(vec![Ty::SelfTy, int()], Box::new(string()))), vec![0]);
+        assert_eq!(self_positions(&Ty::Fn(vec![Ty::SelfTy, int(), P0], Box::new(P1))), vec![0]);
+        // Every position, not only the first.
+        assert_eq!(
+            self_positions(&Ty::Fn(vec![int(), Ty::SelfTy, Ty::SelfTy], Box::new(Ty::Unit))),
+            vec![1, 2]
+        );
     }
 
     /// Everything else is out of scope, including the method's own generics.
     ///
-    /// This is what keeps the correction from touching an argument that is
-    /// genuinely at the context's type: `Tasks.parallel<C, A, B>`'s `ctx: C` is
-    /// an ordinary use of `C`, instantiated at the caller's context and meant to
-    /// stay there, and a correction that read the shape of a type rather than
-    /// the declaration would rewrite it to the implementation and hand every
-    /// step the scheduler.
+    /// This is what keeps the adapter off an argument that is genuinely at the
+    /// context's type: `Tasks.parallel<C, A, B>`'s step is `fn(C, Int, A) => B`,
+    /// an ordinary use of `C` instantiated at the caller's context and meant to
+    /// stay there, and something that read the shape of a type rather than the
+    /// declaration would hand every step the scheduler instead.
     #[test]
-    fn a_declaration_without_self_is_out_of_scope() {
-        assert!(!mentions_self(&int()));
-        assert!(!mentions_self(&Ty::Array(Box::new(P0))));
-        assert!(!mentions_self(&Ty::Fn(vec![P0, int()], Box::new(P1))));
-        assert!(!mentions_self(&Ty::Unit));
-        assert!(!mentions_self(&Ty::Ctx(CtxTypeId(0))));
-    }
-
-    /// The correction is a whole-type replacement, at every depth, and leaves
-    /// everything else alone.
-    #[test]
-    fn the_correction_replaces_the_context_wherever_it_stands() {
-        let ctx = Ty::Ctx(CtxTypeId(4));
-        let imp = con(10, vec![]);
-        // The shape that crashed: a handler's first parameter.
-        assert_eq!(
-            replace_ty(&Ty::Fn(vec![ctx.clone(), int()], Box::new(string())), &ctx, &imp),
-            Ty::Fn(vec![imp.clone(), int()], Box::new(string()))
-        );
-        // Nested, and under every constructor the walk knows.
-        assert_eq!(
-            replace_ty(&Ty::Array(Box::new(Ty::Tuple(vec![ctx.clone(), int()]))), &ctx, &imp),
-            Ty::Array(Box::new(Ty::Tuple(vec![imp.clone(), int()])))
-        );
-        assert_eq!(replace_ty(&con(5, vec![ctx.clone()]), &ctx, &imp), con(5, vec![imp.clone()]));
-        // A different context is a different type and is not touched.
-        let other = Ty::Ctx(CtxTypeId(5));
-        assert_eq!(replace_ty(&other, &ctx, &imp), other);
-        // And a type that never mentions it comes back unchanged.
-        assert_eq!(replace_ty(&Ty::Fn(vec![int()], Box::new(P0)), &ctx, &imp), Ty::Fn(vec![int()], Box::new(P0)));
+    fn everything_else_is_out_of_scope() {
+        assert!(self_positions(&Ty::Fn(vec![P0, int()], Box::new(P1))).is_empty());
+        // The receiver itself: argument 0, which the caller skips anyway.
+        assert!(self_positions(&Ty::SelfTy).is_empty());
+        // A `Self` the adapter cannot supply one value for.
+        assert!(self_positions(&con(3, vec![Ty::SelfTy])).is_empty());
+        assert!(self_positions(&Ty::Array(Box::new(Ty::SelfTy))).is_empty());
+        assert!(self_positions(&Ty::Tuple(vec![int(), Ty::SelfTy])).is_empty());
+        // A `Self` in a callback's *result*, which no effect declares.
+        assert!(self_positions(&Ty::Fn(vec![int()], Box::new(Ty::SelfTy))).is_empty());
+        // And types with no `Self` in them at all.
+        assert!(self_positions(&int()).is_empty());
+        assert!(self_positions(&Ty::Unit).is_empty());
+        assert!(self_positions(&Ty::Ctx(CtxTypeId(0))).is_empty());
     }
 
     /// Every rejection says something specific enough to act on.

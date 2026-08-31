@@ -242,6 +242,23 @@ fn served<C: Listen>(ctx: C): Bool {
         .isOk()
 }
 
+/// The same call with a handler that **uses** what it is handed.
+///
+/// Inside a generic body a `Self`-spelled handler is handed the receiver, so
+/// what arrives here is the `Scoped<C>` this was called on — and a handler may
+/// therefore charge the scope and print on the caller's stdout, neither of
+/// which the acceptor grants. A handler that ignored its first parameter, like
+/// `served` above, would pass whatever arrived.
+fn servedUsing<C: Alloc + Listen + Stdout>(ctx: C): Bool {
+    ctx
+        .listen("127.0.0.1", 8080, fn(c, request) => {
+            let _ = c.println("handled ${request.url}");
+            let _ = c.allocate(16);
+            Response { status: 200, headers: [], body: [] }
+        })
+        .isOk()
+}
+
 // -----------------------------------------------------------------------------
 // `Alloc` does not forward
 // -----------------------------------------------------------------------------
@@ -463,23 +480,25 @@ test "a scope forwards sockets" {
     assert.eq(alloc.scoped(ctx, fn(c) => pushed(c)), 1);
 }
 
-// `Listen` is forwarded here like every other effect, and **one** of its two
-// paths is exercised: the refusal, where the acceptor answers without calling
-// the handler at all. The other — the acceptor *invoking* the handler the
-// wrapper rebuilt — is a call the stencil backend faults on, and the fault has
-// nothing to do with scopes. The report for this slice carries the minimal
-// repro, which uses no `core/alloc`: a `Wrap<C>(C, I64)` with an unbounded
-// `Alloc` impl and a `Listen` impl that rebuilds its handler, wrapping a
-// context whose `Alloc` implementation is a one-field struct. Rebuilding is
-// fine and forwarding is fine; entering the rebuilt handler faults. Drop the
-// field from that struct and it does not.
+// `Listen` is the one forward that is not a forward: `listen` hands its handler
+// `Self`, which is `Scoped<C>` at the wrapper and the acceptor inside it, so
+// this `impl` rebuilds the handler rather than passing it along. Both of its
+// paths are exercised below — the refusal, where the acceptor answers without
+// calling the handler at all, and the acceptor *invoking* the handler the
+// wrapper rebuilt.
 //
-// So the two cases below are the halves that can be run everywhere: the
-// forward through the wrapper, and the acceptor's own handler-calling path
-// with nothing wrapped. `Listen.listen` is also the signature `core/effect`
-// says will change the day a platform grants the effect — `onRequest` becomes
-// `fn(C, Request) => Response`, and the handler stops being rebuilt at all —
-// so the call this cannot make today is a call that will not exist.
+// The second used to be a call both native backends faulted on. Inside a
+// generic body `Self` is the receiver — nothing in `C: Listen`'s bounds names
+// what implements `Listen` for `C` — and monomorphization used to make that
+// true by retyping the handler down to the implementation, which rewrote
+// `Scoped<C>` into a `Scoped<`acceptor`>` on the way past and handed the
+// caller's closure a struct of the wrong width. It adapts the call instead
+// now: the acceptor's own `Self` is dropped at the boundary and the receiver
+// is passed, so `Scoped(c, arena)` is the `Scoped<C>` it was written to be.
+// `middle/monomorphize.rs`'s `rewrite_call_args` is the rule, and
+// `cli/tests/native/agreement.rs`'s
+// `a_handler_a_wrapper_rebuilt_is_entered_on_every_backend` is the same shape
+// with no `core/alloc` in it at all.
 
 test "a scope forwards listening" {
     // A real `listen` through the wrapper: `Scoped<C>` builds the adapter, the
@@ -489,6 +508,23 @@ test "a scope forwards listening" {
         Listen: OneShot { bindsTo: "" },
     };
     assert.isFalse(alloc.scoped(ctx, fn(c) => served(c)));
+}
+
+test "a scope forwards listening onto a handler the acceptor calls" {
+    // The half this file could not run before. The acceptor calls the handler
+    // the wrapper rebuilt, and what arrives is the scope: the handler prints on
+    // the caller's stdout and charges the scope's arena, and the caller's own
+    // allocator does not move.
+    let out = testing.stdout();
+    let gp = alloc.generalPurpose();
+    let ctx = context {
+        Alloc: gp,
+        Listen: OneShot { bindsTo: "127.0.0.1" },
+        Stdout: out,
+    };
+    assert.isTrue(alloc.scoped(ctx, fn(c) => servedUsing(c)));
+    assert.eq(out.captured(), "handled 127.0.0.1\n");
+    assert.eq(gp.stats(), Stats { allocations: 0, bytes: 0 });
 }
 
 test "an acceptor answers the handler it is given" {

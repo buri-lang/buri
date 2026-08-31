@@ -232,6 +232,15 @@ export effect Tasks {
 /// caller's context takes that context as a `ctx` parameter and names it, the
 /// way `parallel` does. This one hands the acceptor, so it writes `Self`.
 ///
+/// **Inside a generic body it is the receiver instead**, and that is the same
+/// rule read where the implementation has no name. In
+/// `fn serve<C: Listen>(ctx: C, …)` nothing in `C`'s bounds says what
+/// implements `Listen` for `C`, so a handler written there could do nothing
+/// with the acceptor — while the receiver satisfies every bound `C` declares.
+/// `middle/monomorphize.rs`'s `rewrite_call_args` adapts the call so that the
+/// receiver is what arrives, which is what lets a wrapper such as
+/// `core/alloc`'s `Scoped<C>` rebuild a handler at all.
+///
 /// **It will want a `ctx` too**, and that is a signature change rather than a
 /// rule change. `core/net/server`'s hooks — `onRequest`, and the websocket's
 /// `onOpen`/`onMessage`/`onClose` — are written against the caller's `C`: they

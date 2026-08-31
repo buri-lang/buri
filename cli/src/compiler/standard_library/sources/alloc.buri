@@ -542,16 +542,20 @@ impl<C: Tasks> Tasks for Scoped<C> {
 // read into a local first, because a lambda may not capture an effect-carrying
 // value and `self` is one; an `I64` is ordinary data.
 //
-// **Known gap, and it is the backend's rather than this wrapper's.** Under the
-// frame-threaded native backend, an acceptor that *invokes* a handler rebuilt
-// this way faults. Forwarding is fine and a refusal comes back correctly; it
-// is entering the rebuilt handler that does not, and the same fault reproduces
-// with a hand-written wrapper and no `core/alloc` in the program at all, so
-// nothing here can fix it. `core/effect` says `listen` gains a `ctx: C` the
-// day a platform grants the effect, at which point `onRequest` becomes
-// `fn(C, Request) => Response` and this body becomes an ordinary forward with
-// no lambda in it — so the shape that faults is one the language is already
-// on its way to not needing.
+// **`c` is the context, and that is a rule rather than an accident.** Inside a
+// generic body a `Self`-spelled handler is handed the receiver: nothing in
+// `C: Listen`'s bounds names what implements `Listen` for `C`, so the acceptor
+// is a value this body could do nothing with, while the receiver satisfies
+// every bound `C` declares. `middle/monomorphize.rs`'s `rewrite_call_args`
+// makes that true by adapting the call — the acceptor's own `Self` is dropped
+// at the boundary and `self.0` is passed — so `Scoped(c, arena)` here is
+// `self` rebuilt. Both native backends used to fault entering this handler,
+// because the retyping that preceded the adapter rewrote `Scoped<C>` into a
+// `Scoped<`acceptor`>` on its way past.
+//
+// `core/effect` says `listen` gains a `ctx: C` the day a platform grants the
+// effect, at which point `onRequest` becomes `fn(C, Request) => Response` and
+// this body becomes an ordinary forward with no lambda in it.
 impl<C: Listen> Listen for Scoped<C> {
   fn listen(
     self,
