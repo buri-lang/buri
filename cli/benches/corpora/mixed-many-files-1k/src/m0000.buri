@@ -4,68 +4,72 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/str" import * as str;
-from "core/list" import * as list;
 from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/str" import * as str;
 
+derive Eq, Show for Node0;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node0 {
-  export label: Str,
-  export value: Int,
-  export weight: Float,
+    export label: Str,
+    export value: Int,
+    export weight: Float,
 }
 
-derive Eq, Show for Node0;
-
-export fn seed0(): Int { 1 }
+export fn seed0(): Int {
+    1
+}
 
 /// Folds this module's seed together with its dependencies'.
 export fn blend0(base: Int): Int {
-  base + seed0()
-}
-
-/// An enum of 7 variants, matched exhaustively below.
-export enum State0_0 {
-  Idle,
-  Running(Int),
-  Failed { code: Int, message: Str },
-  Step3(Int, Str),
-  Step4(Int, Str),
-  Step5(Int, Str),
-  Step6(Int, Str),
+    base + seed0()
 }
 
 derive Eq, Show for State0_0;
+/// An enum of 7 variants, matched exhaustively below.
+export enum State0_0 {
+    Idle,
+    Running(Int),
+    Failed { code: Int, message: Str },
+    Step3(Int, Str),
+    Step4(Int, Str),
+    Step5(Int, Str),
+    Step6(Int, Str),
+}
 
 /// The match every enum in a real program has somewhere.
 export fn rank0_0(state: State0_0): Int {
-  match (state) {
-    .Idle => 0,
-    .Running(ticks) => ticks + 1,
-    .Failed { code, .. } => code * -1,
-    .Step3(k, _) => k + 3,
-    .Step4(k, _) => k + 4,
-    .Step5(k, _) => k + 5,
-    .Step6(k, _) => k + 6,
-  }
+    match (state) {
+        .Idle => 0,
+        .Running(ticks) => ticks + 1,
+        .Failed { code, .. } => code * -1,
+        .Step3(k, _) => k + 3,
+        .Step4(k, _) => k + 4,
+        .Step5(k, _) => k + 5,
+        .Step6(k, _) => k + 6,
+    }
 }
 
 /// Construction, so the variants are reachable from a root.
 export fn start0_0(ticks: Int): State0_0 {
-  if (ticks == 0) { .Idle } else if (ticks < 97) { .Running(ticks) }
-  else { .Failed { code: ticks, message: "overrun" } }
+    if (ticks == 0) {
+        .Idle
+    } else if (ticks < 97) {
+        .Running(ticks)
+    } else {
+        .Failed { code: ticks, message: "overrun" }
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe0_0<C: Alloc>(ctx: C): Int {
-  let s = start0_0(5);
-  rank0_0(s) + s.show(ctx).len()
+    let s = start0_0(5);
+    rank0_0(s) + s.show(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
 export fn reach0<C: Alloc>(ctx: C): Int {
-  0
-    + probe0_0(ctx)
+    0 + probe0_0(ctx)
 }

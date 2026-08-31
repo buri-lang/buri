@@ -4,72 +4,68 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/str" import * as str;
-from "core/list" import * as list;
 from "core/effect" import { Alloc };
-from "//bench/m0002.buri" import { Node2, seed2, blend2, reach2 };
-from "//bench/m0003.buri" import { Node3, seed3, blend3, reach3 };
-from "//bench/m0004.buri" import { Node4, seed4, blend4, reach4 };
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "//bench/m0002.buri" import { blend2, Node2, reach2, seed2 };
+from "//bench/m0003.buri" import { blend3, Node3, reach3, seed3 };
+from "//bench/m0004.buri" import { blend4, Node4, reach4, seed4 };
 
+derive Eq, Show for Node5;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node5 {
-  export label: Str,
-  export value: Int,
-  export weight: Float,
+    export label: Str,
+    export value: Int,
+    export weight: Float,
 }
 
-derive Eq, Show for Node5;
-
-export fn seed5(): Int { 9596 }
+export fn seed5(): Int {
+    9596
+}
 
 /// Folds this module's seed together with its dependencies'.
 export fn blend5(base: Int): Int {
-  let d0 = blend2(base) + seed2();
-  let d1 = blend3(base) + seed3();
-  let d2 = blend4(base) + seed4();
-  d0 + d1 + d2 + seed5()
+    let d0 = blend2(base) + seed2();
+    let d1 = blend3(base) + seed3();
+    let d2 = blend4(base) + seed4();
+    d0 + d1 + d2 + seed5()
 }
 
 /// Reads a dependency's record, so the import carries a type as
 /// well as a function.
 export fn lift5(n: Node2): Node5 {
-  Node5 { label: n.label, value: n.value + seed5(), weight: n.weight }
-}
-
-/// A record with 3 fields, derived comparisons and two methods.
-export struct Rec5_0 {
-  export f0: Int,
-  export f1: Str,
-  export f2: Float,
+    Node5 { label: n.label, value: n.value + seed5(), weight: n.weight }
 }
 
 derive Eq, Show for Rec5_0;
+/// A record with 3 fields, derived comparisons and two methods.
+export struct Rec5_0 {
+    export f0: Int,
+    export f1: Str,
+    export f2: Float,
+}
 
 impl Rec5_0 {
-  /// A pure accessor, of the kind that is most of a real impl block.
-  export fn scaled(self, factor: Int): Int {
-    self.f0 * factor + 654
-  }
+    /// A pure accessor, of the kind that is most of a real impl block.
+    export fn scaled(self, factor: Int): Int {
+        self.f0 * factor + 654
+    }
 
-  /// Allocates, and says so with `C: Alloc`.
-  export fn render<C: Alloc>(self, ctx: C): Str {
-    str.format(ctx, "rec5_0: ${self.f0}/${self.f1}")
-  }
+    /// Allocates, and says so with `C: Alloc`.
+    export fn render<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "rec5_0: ${self.f0}/${self.f1}")
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe5_0<C: Alloc>(ctx: C): Int {
-  let r = Rec5_0 { f0: 7, f1: "probe", f2: 1.5 };
-  r.scaled(3) + r.render(ctx).len()
+    let r = Rec5_0 { f0: 7, f1: "probe", f2: 1.5 };
+    r.scaled(3) + r.render(ctx).len()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
 export fn reach5<C: Alloc>(ctx: C): Int {
-  0
-    + probe5_0(ctx)
-    + reach2(ctx)
-    + reach3(ctx)
-    + reach4(ctx)
+    0 + probe5_0(ctx) + reach2(ctx) + reach3(ctx) + reach4(ctx)
 }

@@ -4,312 +4,320 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/str" import * as str;
-from "core/list" import * as list;
 from "core/effect" import { Alloc };
-from "//bench/m0002.buri" import { Node2, seed2, blend2, reach2 };
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "//bench/m0002.buri" import { blend2, Node2, reach2, seed2 };
 
+derive Eq, Show for Node6;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node6 {
-  export label: Str,
-  export value: Int,
-  export weight: Float,
+    export label: Str,
+    export value: Int,
+    export weight: Float,
 }
 
-derive Eq, Show for Node6;
-
-export fn seed6(): Int { 7515 }
+export fn seed6(): Int {
+    7515
+}
 
 /// Folds this module's seed together with its dependencies'.
 export fn blend6(base: Int): Int {
-  let d0 = blend2(base) + seed2();
-  d0 + seed6()
+    let d0 = blend2(base) + seed2();
+    d0 + seed6()
 }
 
 /// Reads a dependency's record, so the import carries a type as
 /// well as a function.
 export fn lift6(n: Node2): Node6 {
-  Node6 { label: n.label, value: n.value + seed6(), weight: n.weight }
+    Node6 { label: n.label, value: n.value + seed6(), weight: n.weight }
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
 export fn digest6_0<C: Alloc>(ctx: C): Int {
-  let xs: [Int] = [3296, 612, 1095, 1626, 1950, 6721, 5564];
-  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
-  let total = kept.fold(fn(acc, x) => acc + x, 0);
-  total + xs.len()
+    let xs: [Int] = [3296, 612, 1095, 1626, 1950, 6721, 5564];
+    let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+    let total = kept.fold(fn(acc, x) => acc + x, 0);
+    total + xs.len()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain6_0(): Int {
-  let empty: [Int] = list.empty<Int>();
-  empty.len()
+    let empty: [Int] = list.empty<Int>();
+    empty.len()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_0<C: Alloc>(ctx: C): Int {
-  digest6_0(ctx) + drain6_0()
-}
-
-/// An enum of 7 variants, matched exhaustively below.
-export enum State6_1 {
-  Idle,
-  Running(Int),
-  Failed { code: Int, message: Str },
-  Step3(Int, Str),
-  Step4(Int, Str),
-  Step5(Int, Str),
-  Step6(Int, Str),
+    digest6_0(ctx) + drain6_0()
 }
 
 derive Eq, Show for State6_1;
+/// An enum of 7 variants, matched exhaustively below.
+export enum State6_1 {
+    Idle,
+    Running(Int),
+    Failed { code: Int, message: Str },
+    Step3(Int, Str),
+    Step4(Int, Str),
+    Step5(Int, Str),
+    Step6(Int, Str),
+}
 
 /// The match every enum in a real program has somewhere.
 export fn rank6_1(state: State6_1): Int {
-  match (state) {
-    .Idle => 0,
-    .Running(ticks) => ticks + 1,
-    .Failed { code, .. } => code * -1,
-    .Step3(k, _) => k + 3,
-    .Step4(k, _) => k + 4,
-    .Step5(k, _) => k + 5,
-    .Step6(k, _) => k + 6,
-  }
+    match (state) {
+        .Idle => 0,
+        .Running(ticks) => ticks + 1,
+        .Failed { code, .. } => code * -1,
+        .Step3(k, _) => k + 3,
+        .Step4(k, _) => k + 4,
+        .Step5(k, _) => k + 5,
+        .Step6(k, _) => k + 6,
+    }
 }
 
 /// Construction, so the variants are reachable from a root.
 export fn start6_1(ticks: Int): State6_1 {
-  if (ticks == 0) { .Idle } else if (ticks < 47) { .Running(ticks) }
-  else { .Failed { code: ticks, message: "overrun" } }
+    if (ticks == 0) {
+        .Idle
+    } else if (ticks < 47) {
+        .Running(ticks)
+    } else {
+        .Failed { code: ticks, message: "overrun" }
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_1<C: Alloc>(ctx: C): Int {
-  let s = start6_1(5);
-  rank6_1(s) + s.show(ctx).len()
-}
-
-/// A record with 5 fields, derived comparisons and two methods.
-export struct Rec6_2 {
-  export f0: Int,
-  export f1: Str,
-  export f2: Float,
-  export f3: Bool,
-  export f4: Int,
+    let s = start6_1(5);
+    rank6_1(s) + s.show(ctx).len()
 }
 
 derive Eq, Show for Rec6_2;
+/// A record with 5 fields, derived comparisons and two methods.
+export struct Rec6_2 {
+    export f0: Int,
+    export f1: Str,
+    export f2: Float,
+    export f3: Bool,
+    export f4: Int,
+}
 
 impl Rec6_2 {
-  /// A pure accessor, of the kind that is most of a real impl block.
-  export fn scaled(self, factor: Int): Int {
-    self.f0 * factor + 607
-  }
+    /// A pure accessor, of the kind that is most of a real impl block.
+    export fn scaled(self, factor: Int): Int {
+        self.f0 * factor + 607
+    }
 
-  /// Allocates, and says so with `C: Alloc`.
-  export fn render<C: Alloc>(self, ctx: C): Str {
-    str.format(ctx, "rec6_2: ${self.f0}/${self.f1}")
-  }
+    /// Allocates, and says so with `C: Alloc`.
+    export fn render<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "rec6_2: ${self.f0}/${self.f1}")
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_2<C: Alloc>(ctx: C): Int {
-  let r = Rec6_2 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
-  r.scaled(3) + r.render(ctx).len()
+    let r = Rec6_2 { f0: 7, f1: "probe", f2: 1.5, f3: true, f4: 7 };
+    r.scaled(3) + r.render(ctx).len()
 }
 
 /// String building through interpolation, which is a template
 /// literal in the lexer and a `format` call in the backend.
 export fn label6_3<C: Alloc>(ctx: C, id: Int, name: Str): Str {
-  let prefix = if (id < 0) { "bravo" } else { "golf" };
-  let body = str.format(ctx, "${prefix}-${name}-${id}");
-  body.toUpper(ctx)
+    let prefix = if (id < 0) { "bravo" } else { "golf" };
+    let body = str.format(ctx, "${prefix}-${name}-${id}");
+    body.toUpper(ctx)
 }
 
 /// Literals of the kinds the lexer has separate paths for: decimal,
 /// hexadecimal, float, char, escaped string.
 export fn constants6_3(): (Int, Int, Float, Char, Str) {
-  (500918, 0xA8AE, 676.879, 'q', "a\ttab and a \"quote\"")
+    (500918, 0xA8AE, 676.879, 'q', "a\ttab and a \"quote\"")
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_3<C: Alloc>(ctx: C): Int {
-  let (a, b, _, _, e) = constants6_3();
-  label6_3(ctx, a, e).len() + b
+    let (a, b, _, _, e) = constants6_3();
+    label6_3(ctx, a, e).len() + b
 }
 
 /// A body of 5 bindings over integer arithmetic — the shape most
 /// lines in most programs actually have.
 export fn compute6_4(input: Int): Int {
-  let a0 = input * 9 + 668;
-  let a1 = a0 + 54;
-  let a2 = a1 + 26;
-  let a3 = a2 + 95;
-  let a4 = a3 - 66;
-  if (a4 > 3209) { a4 } else { a4 - 19 }
+    let a0 = input * 9 + 668;
+    let a1 = a0 + 54;
+    let a2 = a1 + 26;
+    let a3 = a2 + 95;
+    let a4 = a3 - 66;
+    if (a4 > 3209) { a4 } else { a4 - 19 }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_4<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  compute6_4(7)
-}
-
-/// An enum of 7 variants, matched exhaustively below.
-export enum State6_5 {
-  Idle,
-  Running(Int),
-  Failed { code: Int, message: Str },
-  Step3(Int, Str),
-  Step4(Int, Str),
-  Step5(Int, Str),
-  Step6(Int, Str),
+    let _ = ctx;
+    compute6_4(7)
 }
 
 derive Eq, Show for State6_5;
+/// An enum of 7 variants, matched exhaustively below.
+export enum State6_5 {
+    Idle,
+    Running(Int),
+    Failed { code: Int, message: Str },
+    Step3(Int, Str),
+    Step4(Int, Str),
+    Step5(Int, Str),
+    Step6(Int, Str),
+}
 
 /// The match every enum in a real program has somewhere.
 export fn rank6_5(state: State6_5): Int {
-  match (state) {
-    .Idle => 0,
-    .Running(ticks) => ticks + 1,
-    .Failed { code, .. } => code * -1,
-    .Step3(k, _) => k + 3,
-    .Step4(k, _) => k + 4,
-    .Step5(k, _) => k + 5,
-    .Step6(k, _) => k + 6,
-  }
+    match (state) {
+        .Idle => 0,
+        .Running(ticks) => ticks + 1,
+        .Failed { code, .. } => code * -1,
+        .Step3(k, _) => k + 3,
+        .Step4(k, _) => k + 4,
+        .Step5(k, _) => k + 5,
+        .Step6(k, _) => k + 6,
+    }
 }
 
 /// Construction, so the variants are reachable from a root.
 export fn start6_5(ticks: Int): State6_5 {
-  if (ticks == 0) { .Idle } else if (ticks < 20) { .Running(ticks) }
-  else { .Failed { code: ticks, message: "overrun" } }
+    if (ticks == 0) {
+        .Idle
+    } else if (ticks < 20) {
+        .Running(ticks)
+    } else {
+        .Failed { code: ticks, message: "overrun" }
+    }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_5<C: Alloc>(ctx: C): Int {
-  let s = start6_5(5);
-  rank6_5(s) + s.show(ctx).len()
+    let s = start6_5(5);
+    rank6_5(s) + s.show(ctx).len()
 }
 
 /// A body of 5 bindings over integer arithmetic — the shape most
 /// lines in most programs actually have.
 export fn compute6_6(input: Int): Int {
-  let a0 = input * 8 + 873;
-  let a1 = a0 - 28;
-  let a2 = a1 - 85;
-  let a3 = a2 * 72;
-  let a4 = a3 - 72;
-  if (a4 > 6224) { a4 } else { a4 - 23 }
+    let a0 = input * 8 + 873;
+    let a1 = a0 - 28;
+    let a2 = a1 - 85;
+    let a3 = a2 * 72;
+    let a4 = a3 - 72;
+    if (a4 > 6224) { a4 } else { a4 - 23 }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_6<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  compute6_6(7)
+    let _ = ctx;
+    compute6_6(7)
 }
 
 /// A body of 9 bindings over integer arithmetic — the shape most
 /// lines in most programs actually have.
 export fn compute6_7(input: Int): Int {
-  let a0 = input * 7 + 580;
-  let a1 = a0 - 7;
-  let a2 = a1 * 96;
-  let a3 = a2 - 2;
-  let a4 = a3 - 29;
-  let a5 = a4 - 8;
-  let a6 = a5 - 30;
-  let a7 = a6 * 77;
-  let a8 = a7 + 70;
-  if (a8 > 5555) { a8 } else { a8 - 60 }
+    let a0 = input * 7 + 580;
+    let a1 = a0 - 7;
+    let a2 = a1 * 96;
+    let a3 = a2 - 2;
+    let a4 = a3 - 29;
+    let a5 = a4 - 8;
+    let a6 = a5 - 30;
+    let a7 = a6 * 77;
+    let a8 = a7 + 70;
+    if (a8 > 5555) { a8 } else { a8 - 60 }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_7<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  compute6_7(7)
+    let _ = ctx;
+    compute6_7(7)
 }
 
 /// A generic over an unconstrained parameter, instantiated below.
 export fn firstOr6_8<T>(xs: [T], fallback: T): T {
-  match (xs.first()) {
-    .Some(v) => v,
-    .None => fallback,
-  }
+    match (xs.first()) {
+        .Some(v) => v,
+        .None => fallback,
+    }
 }
 
 /// A generic with a bound, which is the case the checker does real
 /// work for: the bound has to be discharged at each instantiation.
 export fn describeAll6_8<T: Show, C: Alloc>(ctx: C, xs: [T]): [Str] {
-  xs.mapCtx(ctx, fn(c, x) => x.show(c))
+    xs.mapCtx(ctx, fn(c, x) => x.show(c))
 }
 
 /// Two instantiations, so monomorphization has copies to make.
 export fn useGeneric6_8(ns: [Int], ss: [Str]): Int {
-  firstOr6_8<Int>(ns, 0) + firstOr6_8<Str>(ss, "").len()
+    firstOr6_8<Int>(ns, 0) + firstOr6_8<Str>(ss, "").len()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_8<C: Alloc>(ctx: C): Int {
-  useGeneric6_8([1, 2], ["a"]) + describeAll6_8(ctx, [1, 2]).len()
+    useGeneric6_8([1, 2], ["a"]) + describeAll6_8(ctx, [1, 2]).len()
 }
 
 /// A body of 4 bindings over integer arithmetic — the shape most
 /// lines in most programs actually have.
 export fn compute6_9(input: Int): Int {
-  let a0 = input * 8 + 281;
-  let a1 = a0 + 65;
-  let a2 = a1 - 76;
-  let a3 = a2 + 6;
-  if (a3 > 8732) { a3 } else { a3 - 20 }
+    let a0 = input * 8 + 281;
+    let a1 = a0 + 65;
+    let a2 = a1 - 76;
+    let a3 = a2 + 6;
+    if (a3 > 8732) { a3 } else { a3 - 20 }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_9<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  compute6_9(7)
+    let _ = ctx;
+    compute6_9(7)
 }
 
 /// A body of 10 bindings over integer arithmetic — the shape most
 /// lines in most programs actually have.
 export fn compute6_10(input: Int): Int {
-  let a0 = input * 7 + 548;
-  let a1 = a0 * 76;
-  let a2 = a1 - 51;
-  let a3 = a2 * 95;
-  let a4 = a3 * 51;
-  let a5 = a4 + 6;
-  let a6 = a5 * 29;
-  let a7 = a6 * 56;
-  let a8 = a7 - 49;
-  let a9 = a8 * 28;
-  if (a9 > 4016) { a9 } else { a9 - 58 }
+    let a0 = input * 7 + 548;
+    let a1 = a0 * 76;
+    let a2 = a1 - 51;
+    let a3 = a2 * 95;
+    let a4 = a3 * 51;
+    let a5 = a4 + 6;
+    let a6 = a5 * 29;
+    let a7 = a6 * 56;
+    let a8 = a7 - 49;
+    let a9 = a8 * 28;
+    if (a9 > 4016) { a9 } else { a9 - 58 }
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe6_10<C: Alloc>(ctx: C): Int {
-  let _ = ctx;
-  compute6_10(7)
+    let _ = ctx;
+    compute6_10(7)
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
 export fn reach6<C: Alloc>(ctx: C): Int {
-  0
-    + probe6_0(ctx)
-    + probe6_1(ctx)
-    + probe6_2(ctx)
-    + probe6_3(ctx)
-    + probe6_4(ctx)
-    + probe6_5(ctx)
-    + probe6_6(ctx)
-    + probe6_7(ctx)
-    + probe6_8(ctx)
-    + probe6_9(ctx)
-    + probe6_10(ctx)
-    + reach2(ctx)
+    0
+        + probe6_0(ctx)
+        + probe6_1(ctx)
+        + probe6_2(ctx)
+        + probe6_3(ctx)
+        + probe6_4(ctx)
+        + probe6_5(ctx)
+        + probe6_6(ctx)
+        + probe6_7(ctx)
+        + probe6_8(ctx)
+        + probe6_9(ctx)
+        + probe6_10(ctx)
+        + reach2(ctx)
 }

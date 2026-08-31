@@ -4,69 +4,65 @@
 //! here is meant to be read; it is meant to be *compiled*, at a
 //! controlled size and with the construct mix of real source.
 
-from "core/str" import * as str;
-from "core/list" import * as list;
 from "core/effect" import { Alloc };
-from "//bench/m0011.buri" import { Node11, seed11, blend11, reach11 };
-from "//bench/m0004.buri" import { Node4, seed4, blend4, reach4 };
-from "//bench/m0008.buri" import { Node8, seed8, blend8, reach8 };
-from "//bench/m0000.buri" import { Node0, seed0, blend0, reach0 };
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "//bench/m0000.buri" import { blend0, Node0, reach0, seed0 };
+from "//bench/m0004.buri" import { blend4, Node4, reach4, seed4 };
+from "//bench/m0008.buri" import { blend8, Node8, reach8, seed8 };
+from "//bench/m0011.buri" import { blend11, Node11, reach11, seed11 };
 
+derive Eq, Show for Node14;
 /// The record every module in this corpus exports, so that an import
 /// of any module resolves to a known shape.
 export struct Node14 {
-  export label: Str,
-  export value: Int,
-  export weight: Float,
+    export label: Str,
+    export value: Int,
+    export weight: Float,
 }
 
-derive Eq, Show for Node14;
-
-export fn seed14(): Int { 867 }
+export fn seed14(): Int {
+    867
+}
 
 /// Folds this module's seed together with its dependencies'.
 export fn blend14(base: Int): Int {
-  let d0 = blend11(base) + seed11();
-  let d1 = blend4(base) + seed4();
-  let d2 = blend8(base) + seed8();
-  let d3 = blend0(base) + seed0();
-  d0 + d1 + d2 + d3 + seed14()
+    let d0 = blend11(base) + seed11();
+    let d1 = blend4(base) + seed4();
+    let d2 = blend8(base) + seed8();
+    let d3 = blend0(base) + seed0();
+    d0 + d1 + d2 + d3 + seed14()
 }
 
 /// Reads a dependency's record, so the import carries a type as
 /// well as a function.
 export fn lift14(n: Node11): Node14 {
-  Node14 { label: n.label, value: n.value + seed14(), weight: n.weight }
+    Node14 { label: n.label, value: n.value + seed14(), weight: n.weight }
 }
 
 /// A fold and a filter over a literal list, with lambdas — closures
 /// are their own path in both the checker and the backend.
 export fn digest14_0<C: Alloc>(ctx: C): Int {
-  let xs: [Int] = [1978, 7983, 6903, 7119, 9903, 3484];
-  let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
-  let total = kept.fold(fn(acc, x) => acc + x, 0);
-  total + xs.len()
+    let xs: [Int] = [1978, 7983, 6903, 7119, 9903, 3484];
+    let kept = xs.filter(ctx, fn(x) => x % 2 == 0);
+    let total = kept.fold(fn(acc, x) => acc + x, 0);
+    total + xs.len()
 }
 
 /// An empty list of an explicit type, which is the other side of
 /// inference: nothing constrains the element type but the annotation.
 export fn drain14_0(): Int {
-  let empty: [Int] = list.empty<Int>();
-  empty.len()
+    let empty: [Int] = list.empty<Int>();
+    empty.len()
 }
 
 /// Reaches everything above from one call. See `reach` below.
 export fn probe14_0<C: Alloc>(ctx: C): Int {
-  digest14_0(ctx) + drain14_0()
+    digest14_0(ctx) + drain14_0()
 }
 
 /// Every declaration in this module, reachable from one call, so that
 /// monomorphization has to visit the whole of it.
 export fn reach14<C: Alloc>(ctx: C): Int {
-  0
-    + probe14_0(ctx)
-    + reach11(ctx)
-    + reach4(ctx)
-    + reach8(ctx)
-    + reach0(ctx)
+    0 + probe14_0(ctx) + reach11(ctx) + reach4(ctx) + reach8(ctx) + reach0(ctx)
 }

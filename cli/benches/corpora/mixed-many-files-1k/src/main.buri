@@ -27,25 +27,43 @@ from "//bench/m0016.buri" import { blend16, reach16 };
 /// The entry point. `main` is the only module that may import
 /// `core/host`, so it is the only place the context can be built.
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc };
-  let total = 0
-    + blend0(1) + reach0(ctx)
-    + blend1(2) + reach1(ctx)
-    + blend2(3) + reach2(ctx)
-    + blend3(4) + reach3(ctx)
-    + blend4(5) + reach4(ctx)
-    + blend5(6) + reach5(ctx)
-    + blend6(7) + reach6(ctx)
-    + blend7(8) + reach7(ctx)
-    + blend8(9) + reach8(ctx)
-    + blend9(10) + reach9(ctx)
-    + blend10(11) + reach10(ctx)
-    + blend11(12) + reach11(ctx)
-    + blend12(13) + reach12(ctx)
-    + blend13(14) + reach13(ctx)
-    + blend14(15) + reach14(ctx)
-    + blend15(16) + reach15(ctx)
-    + blend16(17) + reach16(ctx)
-    ;
-  if (total == 0) { .Err("empty") } else { .Ok(()) }
+    let ctx = context {
+        Alloc: host.alloc,
+    };
+    let total = 0
+        + blend0(1)
+        + reach0(ctx)
+        + blend1(2)
+        + reach1(ctx)
+        + blend2(3)
+        + reach2(ctx)
+        + blend3(4)
+        + reach3(ctx)
+        + blend4(5)
+        + reach4(ctx)
+        + blend5(6)
+        + reach5(ctx)
+        + blend6(7)
+        + reach6(ctx)
+        + blend7(8)
+        + reach7(ctx)
+        + blend8(9)
+        + reach8(ctx)
+        + blend9(10)
+        + reach9(ctx)
+        + blend10(11)
+        + reach10(ctx)
+        + blend11(12)
+        + reach11(ctx)
+        + blend12(13)
+        + reach12(ctx)
+        + blend13(14)
+        + reach13(ctx)
+        + blend14(15)
+        + reach14(ctx)
+        + blend15(16)
+        + reach15(ctx)
+        + blend16(17)
+        + reach16(ctx);
+    if (total == 0) { .Err("empty") } else { .Ok(()) }
 }
