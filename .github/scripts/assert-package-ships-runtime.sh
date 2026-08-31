@@ -30,7 +30,12 @@ missing=0
 # A here-string rather than a pipe into `grep -q`: `set -o pipefail` and a grep
 # that exits on its first match make the pipeline's status SIGPIPE, which reads
 # as "no match" and would turn every one of these assertions inside out.
-for f in lib.rs manifest.toml manifest.lock; do
+# The three `.s` files are named one by one rather than counted, because
+# `cli/runtime/switch.rs` reaches each of them through `include_str!` at compile
+# time: one missing from the tarball is not a smaller archive, it is a
+# `cargo install buri` that fails in the build script with "couldn't read".
+for f in lib.rs manifest.toml manifest.lock \
+         switch_macos_arm64.s switch_linux_arm64.s switch_linux_x86_64.s; do
   if ! grep -qx "runtime/$f" <<<"$listed"; then
     echo "::error::runtime/$f is not in the published buri crate. A cargo install from a registry tarball would fail in cli/build.rs with no runtime to compile. The usual cause is a Cargo.toml that has appeared under cli/ — cargo package skips the directory that holds one."
     missing=1
@@ -38,11 +43,12 @@ for f in lib.rs manifest.toml manifest.lock; do
 done
 
 sources=$(grep -c '^runtime/.*\.rs$' <<<"$listed" || true)
-# Seventeen at the time of writing — sixteen until `tls.rs`. The bar is a floor
-# rather than an equality so that adding a runtime source is not a CI failure,
-# and it is not merely `> 0` so that shipping one file out of seventeen is not a
-# pass. Raising it with each new source is what keeps the floor tight.
-if [ "$sources" -lt 17 ]; then
+# Nineteen at the time of writing — seventeen until `rt.rs`, eighteen until
+# `switch.rs`. The bar is a floor rather than an equality so that adding a
+# runtime source is not a CI failure, and it is not merely `> 0` so that
+# shipping one file out of nineteen is not a pass. Raising it with each new
+# source is what keeps the floor tight.
+if [ "$sources" -lt 19 ]; then
   echo "::error::the published buri crate carries $sources runtime sources; cli/runtime holds more than that. cargo package is dropping some of them."
   missing=1
 fi

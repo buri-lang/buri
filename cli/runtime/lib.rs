@@ -460,6 +460,12 @@ mod rng;
 /// reactor to hold and nothing here compiles.
 #[cfg(feature = "net")]
 pub mod rt;
+/// The machine-stack switch `rt.rs` suspends a task with: three hand-written
+/// `(arch, os)` blocks behind one `buri_rt_task_switch`. Behind `net` because
+/// the scheduler that calls it is, and because a runtime with no tasks has
+/// nothing to switch.
+#[cfg(feature = "net")]
+mod switch;
 mod testing;
 mod text;
 /// TLS for `http`'s `https://` half. Behind the `net` feature because it *is*
@@ -507,8 +513,12 @@ static FRAMES_PER_CARRIER: std::sync::atomic::AtomicBool =
 /// answers is "where does a Buri frame live", and a program has one answer.
 ///
 /// * The **LLVM** backend calls it. A Buri frame there is a machine frame —
-///   `alloca`s in an ordinary function — so a carrier's 512 KiB thread stack is
-///   its own and two tasks may be in flight at once.
+///   `alloca`s in an ordinary function — so the stack a task runs on is its
+///   own and two tasks may be in flight at once. Since B9 that stack is one
+///   this runtime maps, `memory::BURI_RT_STACK_BYTES` wide with a guard, so
+///   the depth a task may recurse to is the same number on both backends;
+///   before it, it was a carrier's 512 KiB thread stack, which is the
+///   asymmetry `reports/wave6-b7b8.md` §5.2 recorded.
 /// * The **frame-threaded** backend does not, and must not until each carrier
 ///   owns a Buri stack (track B, B7). Today a program has exactly one, the
 ///   `buri$stencil$stack` block its `main` guards, and an entry thunk works in a

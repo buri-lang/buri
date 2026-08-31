@@ -669,3 +669,165 @@ fn the_runtime_crate_answers_its_own_tests() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+// ---------------------------------------------------------------------------
+// B9: the three machine-stack switches
+// ---------------------------------------------------------------------------
+
+/// The three hand-written blocks, by the `StencilTarget` each belongs to.
+///
+/// `include_str!` rather than a read at run time: the test is a statement
+/// about the files this toolchain was **built** from, and a path read at run
+/// time would pass against a working tree the archive does not contain.
+const SWITCH_BLOCKS: [(&str, &str, &str); 3] = [
+    ("macos-arm64", "arm64-apple-darwin", include_str!("../../runtime/switch_macos_arm64.s")),
+    (
+        "linux-arm64",
+        "aarch64-unknown-linux-gnu",
+        include_str!("../../runtime/switch_linux_arm64.s"),
+    ),
+    (
+        "linux-x86_64",
+        "x86_64-unknown-linux-gnu",
+        include_str!("../../runtime/switch_linux_x86_64.s"),
+    ),
+];
+
+/// **Every switch block assembles for the machine it is written for**, and the
+/// object says which machine that was.
+///
+/// `cli/build.rs` builds the runtime archive for the **host triple alone**, so
+/// two of the three blocks in `cli/runtime/` are never compiled by anything
+/// this repository runs — which is exactly the shape of a file that rots. The
+/// stencil library has the same problem and answers it the same way, by
+/// building all three targets from one host with `cc --target=`; this is that
+/// assertion for the switch.
+///
+/// Three things per block, and the second is the one that would catch a
+/// copy-and-paste: it assembles, the object it produces is **for the right
+/// machine** (read out of the container's own header rather than trusted), and
+/// both of its symbols are in it under the spelling that platform uses.
+///
+/// A host whose `cc` cannot target one of the triples skips *that* triple with
+/// a line on standard error, exactly as `sources::can_build` does — a Nix
+/// cross-wrapper and a bare Linux box are both real, and neither is a reason
+/// to fail a test about three files.
+#[test]
+fn the_three_switch_blocks_assemble_for_their_targets() {
+    let dir = workspace().join("switch");
+    std::fs::create_dir_all(&dir).unwrap();
+    let cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
+    let mut built = 0;
+
+    for (slug, triple, source) in SWITCH_BLOCKS {
+        let src = dir.join(format!("{slug}.s"));
+        let obj = dir.join(format!("{slug}.o"));
+        std::fs::write(&src, source).unwrap();
+        let _ = std::fs::remove_file(&obj);
+
+        let out = Command::new(&cc)
+            .args(["-c", "-x", "assembler"])
+            .arg(format!("--target={triple}"))
+            .arg("-o")
+            .arg(&obj)
+            .arg(&src)
+            .output()
+            .unwrap_or_else(|e| panic!("could not run {cc}: {e}"));
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            // A clang with no back end for this triple is a host limitation
+            // and not a broken block; anything else is the block.
+            let unsupported = stderr.contains("unknown target")
+                || stderr.contains("unsupported")
+                || stderr.contains("No available targets");
+            assert!(unsupported, "{slug} did not assemble for {triple}:\n{stderr}");
+            eprintln!("switch: this cc cannot target {triple}, skipping {slug}");
+            continue;
+        }
+
+        let bytes = std::fs::read(&obj).unwrap();
+        assert!(!bytes.is_empty(), "{slug} assembled to an empty object");
+        assert_eq!(
+            container_machine(&bytes),
+            Some(slug_machine(slug)),
+            "{slug} produced an object for the wrong machine",
+        );
+        // The symbol table is plain text in both containers, and the spelling
+        // is the platform's: Darwin puts a leading underscore on a C symbol
+        // and ELF does not.
+        let text = String::from_utf8_lossy(&bytes);
+        let lead = if slug == "macos-arm64" { "_" } else { "" };
+        for name in ["buri_rt_task_switch", "buri_rt_task_launch", "buri_rt_task_main"] {
+            assert!(
+                text.contains(&format!("{lead}{name}")),
+                "{slug}'s object does not name {lead}{name}",
+            );
+        }
+        built += 1;
+    }
+
+    assert!(built > 0, "not one of the three switch blocks could be assembled on this host");
+}
+
+/// What machine an object file says it is for: `(container, machine)`.
+///
+/// Read out of the two headers by hand, which is nine lines and no dependency.
+/// ELF: `e_machine` at byte 18, little-endian. Mach-O 64: `cputype` at byte 4.
+fn container_machine(bytes: &[u8]) -> Option<(&'static str, u32)> {
+    if bytes.len() < 20 {
+        return None;
+    }
+    if &bytes[..4] == b"\x7fELF" {
+        return Some(("elf", u32::from(u16::from_le_bytes([bytes[18], bytes[19]]))));
+    }
+    let magic = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    if magic == 0xfeed_facf {
+        return Some(("macho", u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]])));
+    }
+    None
+}
+
+/// The `(container, machine)` each block must produce.
+fn slug_machine(slug: &str) -> (&'static str, u32) {
+    match slug {
+        // `CPU_TYPE_ARM64` = `CPU_TYPE_ARM | CPU_ARCH_ABI64`.
+        "macos-arm64" => ("macho", 0x0100_000c),
+        // `EM_AARCH64`.
+        "linux-arm64" => ("elf", 183),
+        // `EM_X86_64`.
+        "linux-x86_64" => ("elf", 62),
+        other => panic!("no machine for {other}"),
+    }
+}
+
+/// **The two AArch64 blocks are one body.**
+///
+/// They are the same instructions under two object formats, and the whole of
+/// the difference is meant to be the leading underscore and ELF's `.type` /
+/// `.size` / `.note.GNU-stack` directives. A fix applied to one and not the
+/// other is the failure this catches, and it is the one a reader of two nearly
+/// identical files will not notice.
+///
+/// Compared as *instructions*: every line that is not blank, not a comment and
+/// not a directive, with a Darwin label's underscore removed.
+#[test]
+fn the_two_aarch64_switch_blocks_are_one_body() {
+    fn instructions(source: &str, lead: &str) -> Vec<String> {
+        source
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//") && !l.starts_with('.'))
+            .map(|l| {
+                let l = l.trim();
+                match l.strip_prefix(lead) {
+                    Some(rest) if !lead.is_empty() && l.ends_with(':') => rest.to_string(),
+                    _ => l.replace(&format!(" {lead}buri_rt"), " buri_rt"),
+                }
+            })
+            .collect()
+    }
+    let darwin = instructions(SWITCH_BLOCKS[0].2, "_");
+    let linux = instructions(SWITCH_BLOCKS[1].2, "");
+    assert!(!darwin.is_empty(), "the darwin block has no instructions");
+    assert_eq!(darwin, linux, "the two AArch64 switch blocks have drifted apart");
+}
