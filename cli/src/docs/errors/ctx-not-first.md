@@ -27,6 +27,6 @@ signature.
 # from "core/effect" import { Stdout };
 # from "core/io" import * as io;
 fn shout<C: Stdout>(times: Int, ctx: C): () {
-  io.println(ctx, "loud")
+  io.println(ctx, "loud").ignore()
 }
 ```

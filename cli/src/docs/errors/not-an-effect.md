@@ -22,12 +22,13 @@ them.
 ## A program that provokes it
 
 ```buri fail code=not-an-effect
-# from "core/host" import * as host;
 from "core/effect" import { Alloc, Region, Stdout };
+# from "core/host" import * as host;
+# from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Region: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("ready");
+  let _ = io.println(ctx, "ready").ignore();
   .Ok(())
 }
 ```

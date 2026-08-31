@@ -72,20 +72,21 @@
 //! from "core/alloc" import * as alloc;
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
+//! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!   let gp = alloc.generalPurpose();
 //!   let ctx = context { Alloc: gp, Stdout: host.stdout };
-//!   let _ = ctx.allocate(64);
-//!   let _ = ctx.allocate(alloc.strBytes(5));
+//!   let _ = alloc.allocate(ctx, 64);
+//!   let _ = alloc.allocate(ctx, alloc.strBytes(5));
 //!   let s = gp.stats();
-//!   let _ = ctx.println("${s.allocations} allocations, ${s.bytes} bytes");
+//!   let _ = io.println(ctx, "${s.allocations} allocations, ${s.bytes} bytes").ignore();
 //!
 //!   // A budget refuses rather than reports: this one has 32 bytes left.
 //!   let buffer = alloc.fixedBuffer(64);
 //!   let small = context { Alloc: buffer };
-//!   let _ = small.allocate(32);
-//!   let _ = ctx.println("${buffer.remaining()} of ${buffer.budget} left");
+//!   let _ = alloc.allocate(small, 32);
+//!   let _ = io.println(ctx, "${buffer.remaining()} of ${buffer.budget} left").ignore();
 //!   .Ok(())
 //! }
 //! ```
@@ -99,6 +100,24 @@ from "core/effect" import {
   Alloc, Clock, Env, Fs, Listen, Net, Proc, Rand, Sockets, Stderr, Stdin, Stdout, Tasks,
   IoError, NetError, Region, Request, Response,
 };
+
+// --- The door onto the effect -------------------------------------------------
+
+/// `bytes` bytes, charged to whichever allocator the context binds.
+///
+/// This is `Alloc`'s only operation and this is the only way to reach it: an
+/// effect is performed by handing the context to a function, never by calling a
+/// method on it (SPEC 10.2). Everything else in this module is either an
+/// allocator to bind or arithmetic over the cost model, and the two meet here —
+/// `alloc.allocate(ctx, alloc.listBytes(xs.len(), 8))` is the model's
+/// `16 + n * stride(T)`, charged.
+///
+/// `allocate` and not `bytes`, which would collide in the reader's head with
+/// `strBytes`, `listBytes` and `closureBytes` above — those are pure arithmetic
+/// and take no context, and this is the one that does something.
+export fn allocate<C: Alloc>(ctx: C, bytes: Int): Region {
+  ctx.allocate(bytes)
+}
 
 // --- The cost model, as arithmetic --------------------------------------------
 //
@@ -465,22 +484,22 @@ impl<C> Alloc for Scoped<C> {
 // Everything below here forwards, and says nothing else.
 
 impl<C: Stdout> Stdout for Scoped<C> {
-  fn print(self, text: Template): () {
+  fn print(self, text: Template): Result<(), IoError> {
     self.0.print(text)
   }
-  fn println(self, text: Template): () {
+  fn println(self, text: Template): Result<(), IoError> {
     self.0.println(text)
   }
-  fn writeBytes(self, b: [U8]): () {
+  fn writeBytes(self, b: [U8]): Result<(), IoError> {
     self.0.writeBytes(b)
   }
 }
 
 impl<C: Stderr> Stderr for Scoped<C> {
-  fn eprint(self, text: Template): () {
+  fn eprint(self, text: Template): Result<(), IoError> {
     self.0.eprint(text)
   }
-  fn eprintln(self, text: Template): () {
+  fn eprintln(self, text: Template): Result<(), IoError> {
     self.0.eprintln(text)
   }
 }

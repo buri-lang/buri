@@ -6,6 +6,7 @@
 // type rather than deciding one (SPEC 12.3).
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Holder<T> { export only: T, export slot: Option<T> }
 
@@ -14,6 +15,6 @@ fn first<T>(h: Holder<T>): T { h.only }
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let n = first({ only: 1 });
-  let _ = ctx.println("${n}");
+  let _ = io.println(ctx, "${n}").ignore();
   .Ok(())
 }

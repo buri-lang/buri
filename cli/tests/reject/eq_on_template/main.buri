@@ -1,12 +1,13 @@
 // EXPECT: `Template` does not implement `Eq`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let n = 1;
   let a: Template = "n = ${n}";
   let same = a == a;
-  let _ = ctx.println("${same}");
+  let _ = io.println(ctx, "${same}").ignore();
   .Ok(())
 }

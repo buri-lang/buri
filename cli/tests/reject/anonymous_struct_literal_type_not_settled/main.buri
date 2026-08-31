@@ -12,6 +12,7 @@
 // "hi" })` binds `T` before the argument is checked, and compiles.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct World { export hi: Str, export hello: Option<Str> }
 
@@ -22,6 +23,6 @@ fn same<T: Eq>(a: T, b: T): Bool { a == b }
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let yes: Bool = same({ hi: "hi" }, World { hi: "hi" });
-  let _ = ctx.println("${yes}");
+  let _ = io.println(ctx, "${yes}").ignore();
   .Ok(())
 }

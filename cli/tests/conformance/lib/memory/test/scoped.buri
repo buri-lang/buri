@@ -27,8 +27,17 @@ from "core/effect" import {
     Alloc, Clock, Env, Fs, Listen, Net, NetError, Proc, Rand, Request, Response,
     Sockets, Stderr, Stdin, Stdout, Tasks,
 };
+from "core/env" import * as env;
+from "core/fs" import * as fs;
 from "core/host/testing" import * as testing;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/proc" import * as proc;
+from "core/random" import * as random;
+from "core/tasks" import * as tasks;
 from "core/testing/assert" import * as assert;
+from "core/time" import * as time;
 
 // -----------------------------------------------------------------------------
 // Fakes for the two effects that have no test double
@@ -105,27 +114,27 @@ impl Sockets for Quiet {
 // and the wrapper has to satisfy it.
 
 fn charge<C: Alloc>(ctx: C, bytes: Int): Int {
-    let region = ctx.allocate(bytes);
+    let region = alloc.allocate(ctx, bytes);
     region.0
 }
 
 fn printed<C: Stdout>(ctx: C): () {
-    let _ = ctx.print("a");
-    let _ = ctx.println("b");
-    ctx.writeBytes([99])
+    let _ = io.print(ctx, "a").ignore();
+    let _ = io.println(ctx, "b").ignore();
+    io.writeBytes(ctx, [99]).ignore()
 }
 
 fn warned<C: Stderr>(ctx: C): () {
-    let _ = ctx.eprint("x");
-    ctx.eprintln("y")
+    let _ = io.eprint(ctx, "x").ignore();
+    io.eprintln(ctx, "y").ignore()
 }
 
 fn firstLine<C: Stdin>(ctx: C): Str {
-    ctx.readLine() ?? "none"
+    io.readLine(ctx) ?? "none"
 }
 
 fn readBack<C: Fs>(ctx: C, path: Str): Str {
-    match (ctx.readFile(path)) {
+    match (fs.readText(ctx, path)) {
         .Ok(text) => text,
         .Err(_e) => "missing",
     }
@@ -135,27 +144,27 @@ fn readBack<C: Fs>(ctx: C, path: Str): Str {
 /// build error. The answers are not asserted — a `TestFs` under a scope answers
 /// exactly what it answers without one — only that each call reaches one.
 fn wroteEveryWay<C: Fs>(ctx: C): Int {
-    let wroteBytes = match (ctx.writeFileBytes("b", [1])) {
+    let wroteBytes = match (fs.writeBytes(ctx, "b", [1])) {
         .Ok(_u) => 8,
         .Err(_e) => 0,
     };
-    let appended = match (ctx.appendFile("b", [2])) {
+    let appended = match (fs.append(ctx, "b", [2])) {
         .Ok(_u) => 16,
         .Err(_e) => 0,
     };
-    let wroteText = match (ctx.writeFile("c", "c")) {
+    let wroteText = match (fs.writeText(ctx, "c", "c")) {
         .Ok(_u) => 32,
         .Err(_e) => 0,
     };
-    let renamed = match (ctx.renameFile("c", "d")) {
+    let renamed = match (fs.rename(ctx, "c", "d")) {
         .Ok(_u) => 64,
         .Err(_e) => 0,
     };
-    let removed = match (ctx.removeFile("d")) {
+    let removed = match (fs.remove(ctx, "d")) {
         .Ok(_u) => 128,
         .Err(_e) => 0,
     };
-    let made = match (ctx.makeDir("e")) {
+    let made = match (fs.makeDir(ctx, "e")) {
         .Ok(_u) => 256,
         .Err(_e) => 0,
     };
@@ -166,16 +175,16 @@ fn wroteEveryWay<C: Fs>(ctx: C): Int {
 /// `syncFile` is here rather than there because it is not a write — it is the
 /// commit point of one, and there is nothing it could be hiding.
 fn readEveryWay<C: Fs>(ctx: C): Int {
-    let exists = if (ctx.fileExists("a")) { 1 } else { 0 };
-    let dir = match (ctx.readDir(".")) {
+    let exists = if (fs.exists(ctx, "a")) { 1 } else { 0 };
+    let dir = match (fs.listDir(ctx, ".")) {
         .Ok(_e) => 2,
         .Err(_e) => 0,
     };
-    let bytes = match (ctx.readFileBytes("a")) {
+    let bytes = match (fs.readBytes(ctx, "a")) {
         .Ok(_b) => 4,
         .Err(_e) => 0,
     };
-    let synced = match (ctx.syncFile("b")) {
+    let synced = match (fs.sync(ctx, "b")) {
         .Ok(_u) => 512,
         .Err(_e) => 0,
     };
@@ -191,43 +200,43 @@ fn touchedEveryFile<C: Fs>(ctx: C): Int {
 
 fn status<C: Net>(ctx: C): Int {
     let request = Request { method: .Get, url: "http://x/", headers: [], body: [] };
-    match (ctx.fetch(request)) {
+    match (http.send(ctx, request)) {
         .Ok(response) => response.status,
         .Err(_e) => 0,
     }
 }
 
 fn ticked<C: Clock>(ctx: C): I64 {
-    let _ = ctx.sleepMillis(0);
-    ctx.nowMillis()
+    let _ = time.sleepMs(ctx, 0);
+    time.now(ctx).0
 }
 
 fn rolled<C: Rand>(ctx: C): Int {
-    ctx.nextInt(1, 1000)
+    random.int(ctx, 1, 1000)
 }
 
 fn variable<C: Env>(ctx: C, name: Str): Str {
-    ctx.variable(name) ?? "unset"
+    env.get(ctx, name) ?? "unset"
 }
 
 fn firstArgument<C: Env>(ctx: C): Str {
-    ctx.args()[0] ?? "none"
+    env.args(ctx)[0] ?? "none"
 }
 
 fn exited<C: Proc>(ctx: C): Int {
-    let _ = ctx.exitWith(0);
+    let _ = proc.exit(ctx, 0);
     1
 }
 
 fn indexed<C: Tasks>(ctx: C, items: [Int]): Int {
-    let out = ctx.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
+    let out = tasks.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
     (out[0] ?? 0) + (out[1] ?? 0)
 }
 
 fn pushed<C: Sockets>(ctx: C): Int {
-    let _ = ctx.socketSendText(1, "hi");
-    let _ = ctx.socketSendBytes(1, [1, 2]);
-    let _ = ctx.socketClose(1, 1000, "done");
+    let _ = server.sendText(ctx, 1, "hi");
+    let _ = server.sendBytes(ctx, 1, [1, 2]);
+    let _ = server.close(ctx, 1, 1000, "done");
     1
 }
 
@@ -252,8 +261,8 @@ fn served<C: Listen>(ctx: C): Bool {
 fn servedUsing<C: Alloc + Listen + Stdout>(ctx: C): Bool {
     ctx
         .listen("127.0.0.1", 8080, fn(c, request) => {
-            let _ = c.println("handled ${request.url}");
-            let _ = c.allocate(16);
+            let _ = io.println(c, "handled ${request.url}").ignore();
+            let _ = alloc.allocate(c, 16);
             Response { status: 200, headers: [], body: [] }
         })
         .isOk()
@@ -549,11 +558,11 @@ test "an acceptor answers the handler it is given" {
 // this expression unchanged.
 
 fn handle<C: Alloc + Fs + Stdout>(ctx: C, request: Request): Response {
-    let _ = ctx.println("serving");
+    let _ = io.println(ctx, "serving").ignore();
     // The charge a handler makes on its own behalf, which under `dispatch` is
     // the scope's and not the server's.
-    let _ = ctx.allocate(alloc.strBytes(request.url.len()));
-    match (ctx.readFile(request.url)) {
+    let _ = alloc.allocate(ctx, alloc.strBytes(request.url.len()));
+    match (fs.readText(ctx, request.url)) {
         .Ok(_body) => Response { status: 200, headers: [], body: [] },
         .Err(_e) => Response { status: 404, headers: [], body: [] },
     }

@@ -2,6 +2,7 @@
 // today the clearest case of a linear scan.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn roman(n: Int): Str {
   match (n) {
@@ -21,6 +22,6 @@ fn roman(n: Int): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${roman(1)} ${roman(9)} ${roman(10)} ${roman(11)}");
+  let _ = io.println(ctx, "${roman(1)} ${roman(9)} ${roman(10)} ${roman(11)}").ignore();
   .Ok(())
 }

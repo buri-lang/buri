@@ -5,6 +5,7 @@
 
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 from "//lib/label" import { stamp };
 
@@ -25,6 +26,6 @@ fn apply<C: Alloc>(ctx: C, measure: fn(C, Str) => Int, label: Str): Int {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let label = "ledger";
-  let _ = ctx.println("${apply(ctx, plain, label)} and ${stamp(ctx, label)}");
+  let _ = io.println(ctx, "${apply(ctx, plain, label)} and ${stamp(ctx, label)}").ignore();
   .Ok(())
 }

@@ -1,6 +1,7 @@
 // EXPECT: `T` has no method `len`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn measure<T>(x: T): Int {
   x.len()
@@ -9,6 +10,6 @@ fn measure<T>(x: T): Int {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let n = measure(1);
-  let _ = ctx.println("${n}");
+  let _ = io.println(ctx, "${n}").ignore();
   .Ok(())
 }

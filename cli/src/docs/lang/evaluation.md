@@ -34,8 +34,8 @@ eliminate work only where the result is indistinguishable, and calls that consum
 an effect are never indistinguishable.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let _ = io.println(ctx, "first");
-let _ = io.println(ctx, "second");    // guaranteed to print second
+let _ = io.println(ctx, "first").ignore();
+let _ = io.println(ctx, "second").ignore();    // guaranteed to print second
 ```
 
 ### 8.3 Recursion and tail calls

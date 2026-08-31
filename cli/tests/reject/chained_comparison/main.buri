@@ -1,6 +1,7 @@
 // EXPECT: comparison operators are non-associative
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn between(a: Int, b: Int, c: Int): Bool {
   a < b < c
@@ -8,6 +9,6 @@ fn between(a: Int, b: Int, c: Int): Bool {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${between(1, 2, 3)}");
+  let _ = io.println(ctx, "${between(1, 2, 3)}").ignore();
   .Ok(())
 }

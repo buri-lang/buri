@@ -11,13 +11,14 @@
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let buffer = alloc.fixedBuffer(64);
   let ctx = context { Alloc: buffer, Stdout: host.stdout };
-  let _ = ctx.allocate(32);
-  let _ = ctx.println("${buffer.remaining()} bytes left");
-  let _ = ctx.allocate(40);
-  let _ = ctx.println("unreachable");
+  let _ = alloc.allocate(ctx, 32);
+  let _ = io.println(ctx, "${buffer.remaining()} bytes left").ignore();
+  let _ = alloc.allocate(ctx, 40);
+  let _ = io.println(ctx, "unreachable").ignore();
   .Ok(())
 }

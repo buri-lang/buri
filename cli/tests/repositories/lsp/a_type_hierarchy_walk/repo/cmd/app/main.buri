@@ -1,5 +1,6 @@
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "//lib/promo" import { discount };
 from "//lib/shop" import { listing };
 
@@ -9,6 +10,6 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
     };
     let owed: I64 = listing("plain", 100).cents() + discount(20).cents();
-    let _ = ctx.println("owed: ${owed.show(ctx)}");
+    let _ = io.println(ctx, "owed: ${owed.show(ctx)}").ignore();
     .Ok(())
 }

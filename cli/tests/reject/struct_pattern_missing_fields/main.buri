@@ -1,6 +1,7 @@
 // EXPECT: this pattern does not mention `y`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Point { export x: Int, export y: Int }
 
@@ -11,6 +12,6 @@ fn xOf(p: Point): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${xOf(Point { x: 1, y: 2 })}");
+  let _ = io.println(ctx, "${xOf(Point { x: 1, y: 2 })}").ignore();
   .Ok(())
 }

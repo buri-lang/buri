@@ -9,6 +9,8 @@ from "core/effect" import { Alloc, Env, Fs, Proc, Stdout };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
 from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/proc" import * as proc;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
@@ -19,15 +21,15 @@ export fn main(): Result<(), Str> {
     Proc:   host.proc,
   };
   let args = env.args(ctx);
-  let _ = ctx.println("argc ${args.len()}");
-  let _ = ctx.println("argv ${args.join(ctx, " ")}");
+  let _ = io.println(ctx, "argc ${args.len()}").ignore();
+  let _ = io.println(ctx, "argv ${args.join(ctx, " ")}").ignore();
   let note = match (fs.readText(ctx, "note.txt")) {
     .Ok(text) => text.trim(),
     .Err(_) => "no note",
   };
-  let _ = ctx.println("note ${note}");
+  let _ = io.println(ctx, "note ${note}").ignore();
 
   // `if` is an expression, so both branches produce the same `()`.
-  let _ = if (args.any(fn(a) => a == "--fail")) { ctx.exitWith(3) } else { () };
+  let _ = if (args.any(fn(a) => a == "--fail")) { proc.exit(ctx, 3) } else { () };
   .Ok(())
 }

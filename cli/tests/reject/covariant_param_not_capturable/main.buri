@@ -20,6 +20,6 @@ fn later<T>(p: Prop<T>): fn() => Prop<T> {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "unreachable");
+  let _ = io.println(ctx, "unreachable").ignore();
   .Ok(())
 }

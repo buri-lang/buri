@@ -1,6 +1,7 @@
 // EXPECT: `Outer` does not implement `Eq`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/order" import { Eq };
 
 struct Inner { export x: Int }
@@ -12,6 +13,6 @@ derive Eq for Outer;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let a = Outer { inner: Inner { x: 1 } };
-  let _ = ctx.println("${a == a}");
+  let _ = io.println(ctx, "${a == a}").ignore();
   .Ok(())
 }

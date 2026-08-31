@@ -335,7 +335,7 @@ fn run_in_full(
             argv.push("--color=never");
         }
     }
-    cmd.args(&argv).current_dir(dir);
+    env.args(cmd, &argv).current_dir(dir);
     for (name, value) in env {
         cmd.env(name, value);
     }

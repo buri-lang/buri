@@ -1,6 +1,7 @@
 from "core/effect" import { Alloc, Env, Stdout };
-from "core/host" import * as host;
 from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 from "//lib/ledger" import { entry };
 from "//lib/money" import { fromCents };
@@ -27,6 +28,6 @@ export fn main(): Result<(), Str> {
     entry("coffee", fromCents(450)),
     entry("books", fromCents(3200)),
   ];
-  let _ = ctx.println(render(ctx, entries, flags.verbose));
+  let _ = io.println(ctx, render(ctx, entries, flags.verbose)).ignore();
   .Ok(())
 }

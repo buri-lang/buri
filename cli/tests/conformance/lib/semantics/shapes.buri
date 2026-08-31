@@ -9,16 +9,18 @@ from "core/effect" import {
   Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Region, Request, Response, Sockets,
   Stdout, Tasks,
 };
-from "core/net/http" import * as http;
-from "core/num" import { Add, Div, Mul, Neg, Rem, Sub };
-from "core/order" import { Eq, Hash, Ord, Order, Show };
-from "core/time" import { Instant };
 
 from "core/fs" import * as fs;
 from "core/io" import * as io;
 from "core/list" import * as list;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/num" import { Add, Div, Mul, Neg, Rem, Sub };
+from "core/order" import { Eq, Hash, Ord, Order, Show };
 from "core/order" import * as order;
 from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+from "core/time" import { Instant };
 from "core/time" import * as time;
 
 // =============================================================================
@@ -734,11 +736,11 @@ export fn roundTrip<C: Alloc + Fs>(ctx: C, path: Str, body: Str): Result<Str, Io
 }
 
 export fn greet<C: Stdout>(ctx: C, name: Str): () {
-  io.println(ctx, "hello ${name}")
+  io.println(ctx, "hello ${name}").ignore()
 }
 
 export fn shout<C: Stdout>(ctx: C, parts: [Str]): () {
-  parts.foldCtx(ctx, fn(c, acc, p) => { let _ = io.print(c, "${p}"); acc }, ())
+  parts.foldCtx(ctx, fn(c, acc, p) => { let _ = io.print(c, "${p}").ignore(); acc }, ())
 }
 
 export fn stamp<C: Clock>(ctx: C): Instant {
@@ -1010,22 +1012,20 @@ impl Sockets for QuietSockets {
 /// that reads a field off the handler's first parameter calls `listen` on the
 /// context value itself, where the implementing type is in view.
 export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
-  let _ = ctx.socketSendText(7, "opened");
-  let _ = ctx.socketSendBytes(7, []);
-  let _ = ctx.socketClose(7, 1000, "done");
-  let fetched = match (ctx.fetch(Request { method: .Get, url: url, headers: [], body: [] })) {
+  let _ = server.sendText(ctx, 7, "opened");
+  let _ = server.sendBytes(ctx, 7, []);
+  let _ = server.close(ctx, 7, 1000, "done");
+  let fetched = match (http.send(ctx, Request { method: .Get, url: url, headers: [], body: [] })) {
     .Ok(reply) => reply.status,
     .Err(_) => 0,
   };
-  let served = ctx.listen(
-    "127.0.0.1",
+  let served = server.listen(ctx, "127.0.0.1",
     0,
     fn(c, request) => Response {
       status: if (request.url == "127.0.0.1") { 200 } else { 404 },
       headers: [],
       body: [],
-    },
-  );
+    },);
   match (served) {
     .Ok(_) => fetched,
     .Err(_) => 0 - fetched,
@@ -1088,7 +1088,7 @@ impl Tasks for SerialTasks {
 /// used to lose: `Self` there was `C` until `C` was known, and the correction
 /// made at instantiation handed the step the implementation instead.
 export fn runInOrder<C: Tasks>(ctx: C, items: [Int]): Int {
-  let out = ctx.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
+  let out = tasks.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
   (out[0] ?? 0) + (out[1] ?? 0)
 }
 
@@ -1101,7 +1101,7 @@ export fn runInOrder<C: Tasks>(ctx: C, items: [Int]): Int {
 /// — a step's first parameter has the caller's bounds — and `test/effects.buri`
 /// runs it for the answer.
 export fn runInOrderNamed<C: Alloc + Tasks>(ctx: C, items: [Int]): [Str] {
-  ctx.parallel(ctx, items, fn(c, i, item) => str.format(c, "${i}:${item}"))
+  tasks.parallel(ctx, items, fn(c, i, item) => str.format(c, "${i}:${item}"))
 }
 
 // =============================================================================
@@ -1209,7 +1209,7 @@ export fn ticking<C>(ctx: C): Ticking<C> {
 /// Both bounds used through one parameter: the clock's answer, appended with
 /// the allocator's.
 export fn stampedWith<C: Alloc + Clock>(ctx: C, into: [Int]): [Int] {
-  into.push(ctx, ctx.nowMillis())
+  into.push(ctx, time.now(ctx).0)
 }
 
 // =============================================================================
@@ -1220,7 +1220,7 @@ export fn stampedWith<C: Alloc + Clock>(ctx: C, into: [Int]): [Int] {
 /// transcript back with `captured`, so the order in which the parts of an
 /// expression ran is an exact string.
 export fn note<C: Stdout>(ctx: C, mark: Str): () {
-  io.print(ctx, "${mark}")
+  io.print(ctx, "${mark}").ignore()
 }
 
 /// Appends `mark` and returns `value`, so an expression built out of these

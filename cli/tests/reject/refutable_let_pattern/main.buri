@@ -1,6 +1,7 @@
 // EXPECT: this pattern does not match every value of its type
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn unwrap(o: Option<Int>): Int {
   let .Some(n) = o;
@@ -9,6 +10,6 @@ fn unwrap(o: Option<Int>): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${unwrap(.Some(3))}");
+  let _ = io.println(ctx, "${unwrap(.Some(3))}").ignore();
   .Ok(())
 }

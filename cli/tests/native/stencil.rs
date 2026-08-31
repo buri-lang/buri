@@ -298,8 +298,9 @@ fn hello_world_prints_and_exits_zero() {
         "hello",
         r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 export fn main(): Result<(), Str> {
-  let _ = stdout.println("hello, world");
+  let _ = io.println(stdout, "hello, world").ignore();
   .Ok(())
 }
 "#,
@@ -345,10 +346,11 @@ fn a_literal_zero_divisor_still_aborts() {
             &format!(
                 r#"
 from "core/host" import {{ stdout }};
+from "core/io" import * as io;
 fn one(): Int {{ 1 }}
 export fn main(): Result<(), Str> {{
   let n = one();
-  let _ = stdout.println("${{{expr}}}");
+  let _ = io.println(stdout, "${{{expr}}}").ignore();
   .Ok(())
 }}
 "#
@@ -376,10 +378,11 @@ fn a_non_zero_literal_divisor_still_divides() {
         "divk",
         r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 fn seven(): Int { 7 }
 export fn main(): Result<(), Str> {
   let n = seven();
-  let _ = stdout.println("${n / 2} ${n % 2}");
+  let _ = io.println(stdout, "${n / 2} ${n % 2}").ignore();
   .Ok(())
 }
 "#,
@@ -399,9 +402,10 @@ fn calls_and_branches_thread_one_frame() {
         "frames",
         r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 fn fib(n: Int): Int { if (n < 2) { n } else { fib(n - 1) + fib(n - 2) } }
 export fn main(): Result<(), Str> {
-  let _ = stdout.println("${fib(20)}");
+  let _ = io.println(stdout, "${fib(20)}").ignore();
   .Ok(())
 }
 "#,
@@ -424,10 +428,11 @@ fn a_narrow_signed_integer_renders_signed() {
         "narrow",
         r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 export struct S { a: I8, b: I16, c: I32 }
 export fn main(): Result<(), Str> {
   let s = S { a: -3, b: -300, c: -70000 };
-  let _ = stdout.println("${s.a} ${s.b} ${s.c}");
+  let _ = io.println(stdout, "${s.a} ${s.b} ${s.c}").ignore();
   .Ok(())
 }
 "#,
@@ -448,10 +453,11 @@ fn string_literals_come_out_of_the_constant_pool() {
         "literals",
         r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 export fn main(): Result<(), Str> {
   let a = "one";
   let b = "two";
-  let _ = stdout.println("${a}-${b}");
+  let _ = io.println(stdout, "${a}-${b}").ignore();
   .Ok(())
 }
 "#,
@@ -470,9 +476,10 @@ fn concatenation_keeps_the_ascii_flag() {
     let ran = run(
         "concat",
         r#"
-from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc };
+from "core/host" import { stdout };
+from "core/io" import * as io;
 from "core/str" import * as str;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
@@ -481,7 +488,7 @@ export fn main(): Result<(), Str> {
   let c = "é";
   let ascii = str.format(ctx, "${a}${b}");
   let wide = str.format(ctx, "${a}${c}");
-  let _ = stdout.println("${ascii} ${wide} ${ascii.len()} ${wide.len()}");
+  let _ = io.println(stdout, "${ascii} ${wide} ${ascii.len()} ${wide.len()}").ignore();
   .Ok(())
 }
 "#,
@@ -502,9 +509,10 @@ fn runtime_entries_answer_through_an_out_pointer() {
     let ran = run(
         "rtshapes",
         r#"
-from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc };
+from "core/host" import { stdout };
+from "core/io" import * as io;
 from "core/str" import * as str;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
@@ -514,7 +522,7 @@ export fn main(): Result<(), Str> {
   let bad = "x".toInt();
   let shown = match (n) { .Some(v) => str.format(ctx, "${v}"), .None => "none" };
   let missing = match (bad) { .Some(v) => str.format(ctx, "${v}"), .None => "none" };
-  let _ = stdout.println("[${t}] ${shown} ${missing}");
+  let _ = io.println(stdout, "[${t}] ${shown} ${missing}").ignore();
   .Ok(())
 }
 "#,
@@ -541,14 +549,15 @@ fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
     let messages = refusal(
         "refusal",
         r#"
-from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc };
+from "core/host" import { stdout };
+from "core/io" import * as io;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
   let x: F64 = 2.5;
   let n = x.toI64();
-  let _ = stdout.println("${n ?? 0}");
+  let _ = io.println(stdout, "${n ?? 0}").ignore();
   .Ok(())
 }
 "#,
@@ -573,9 +582,10 @@ fn emission_is_deterministic() {
     }
     let source = r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 export fn main(): Result<(), Str> {
   let a = "a";
-  let _ = stdout.println("${a}b ${1 + 2}");
+  let _ = io.println(stdout, "${a}b ${1 + 2}").ignore();
   .Ok(())
 }
 "#;
@@ -652,6 +662,7 @@ fn string_ordering_is_a_call_and_a_register_barrier() {
         "strord",
         r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 from "core/order" import { Order };
 export struct P { a: Int, b: Str }
 derive Eq, Ord for P;
@@ -659,7 +670,7 @@ fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => 
 export fn main(): Result<(), Str> {
   let p = P { a: 1, b: "m" };
   let q = P { a: 1, b: "n" };
-  let _ = stdout.println("${name(p.compare(q))} ${name(q.compare(p))} ${name(p.compare(p))} ${p == q}");
+  let _ = io.println(stdout, "${name(p.compare(q))} ${name(q.compare(p))} ${name(p.compare(p))} ${p == q}").ignore();
   .Ok(())
 }
 "#,
@@ -695,11 +706,12 @@ fn nothing_is_leaked() {
     let ran = run_with(
         "leaks",
         r#"
-from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc };
-from "core/str" import * as str;
+from "core/host" import { stdout };
+from "core/io" import * as io;
 from "core/json" import { Json, ToJson };
+from "core/str" import * as str;
 
 export struct Boxed { label: Str, n: Int }
 export enum Held { Empty, Full(Str) }
@@ -728,7 +740,7 @@ export fn main(): Result<(), Str> {
   let c = hold(str.format(ctx, "three ${3}"));
   let shown = match (c) { .Full(s) => s, .Empty => "none" };
   let d = Note { text: str.format(ctx, "four ${4}") }.toJson(ctx);
-  let _ = stdout.println("${a} ${b.label} ${shown} ${noteText(d)}");
+  let _ = io.println(stdout, "${a} ${b.label} ${shown} ${noteText(d)}").ignore();
   .Ok(())
 }
 "#,
@@ -763,11 +775,12 @@ fn a_scope_leaks_nothing() {
     let ran = run_with(
         "scopeleaks",
         r#"
-from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc };
-from "core/str" import * as str;
+from "core/host" import { stdout };
+from "core/io" import * as io;
 from "core/list" import * as list;
+from "core/str" import * as str;
 
 export enum Answer { Nothing, Text(Str), Many([Str]) }
 
@@ -798,7 +811,7 @@ export fn main(): Result<(), Str> {
     .Nothing => "none",
   };
   let flat = nested.mapCtx(ctx, fn(c, xs) => xs.join(c, "+")).join(ctx, "|");
-  let _ = stdout.println("${flat} ${shown} ${f()} ${n}");
+  let _ = io.println(stdout, "${flat} ${shown} ${f()} ${n}").ignore();
   .Ok(())
 }
 "#,
@@ -838,9 +851,10 @@ fn the_glue_balances() {
     let ran = run_with(
         "glue",
         r#"
-from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc };
+from "core/host" import { stdout };
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 export struct Row { names: [Str] }
@@ -859,7 +873,7 @@ export fn main(): Result<(), Str> {
   let more = names.push(ctx, str.format(ctx, "d${4}"));
   let row = Row { names: more };
   let t = Tree.Node(Tree.Node(Tree.Leaf, str.format(ctx, "x${1}")), "y");
-  let _ = stdout.println("${row.show(ctx)} ${depth(t)} ${row.names.len()}");
+  let _ = io.println(stdout, "${row.show(ctx)} ${depth(t)} ${row.names.len()}").ignore();
   .Ok(())
 }
 "#,
@@ -895,6 +909,7 @@ fn the_numeric_surface_answers_at_its_own_width() {
         "numeric",
         r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 from "core/num" import * as num;
 export fn main(): Result<(), Str> {
   let a: U8 = 200;
@@ -903,12 +918,12 @@ export fn main(): Result<(), Str> {
   let d: I128 = num.maxValue<I128>();
   let e: U128 = 340282366920938463463374607431768211455;
   let f: I64 = -5;
-  let _ = stdout.println("${a.checkedAdd(100) ?? 7} ${a.saturatingAdd(100)} ${a.wrappingAdd(100)}");
-  let _ = stdout.println("${b.checkedSub(1) ?? 7} ${b.saturatingSub(1)} ${b.wrappingSub(1)}");
-  let _ = stdout.println("${c.checkedMul(2) ?? 7} ${c.saturatingMul(2)} ${c.wrappingMul(2)}");
-  let _ = stdout.println("${d.checkedAdd(1) ?? 7} ${d.saturatingAdd(1)} ${d.wrappingAdd(1)}");
-  let _ = stdout.println("${e} ${e.checkedAdd(1) ?? 7} ${f.abs()} ${f.signum()}");
-  let _ = stdout.println("${c.checkedDiv(0) ?? 7} ${num.minValue<I8>().checkedDiv(-1) ?? 7}");
+  let _ = io.println(stdout, "${a.checkedAdd(100) ?? 7} ${a.saturatingAdd(100)} ${a.wrappingAdd(100)}").ignore();
+  let _ = io.println(stdout, "${b.checkedSub(1) ?? 7} ${b.saturatingSub(1)} ${b.wrappingSub(1)}").ignore();
+  let _ = io.println(stdout, "${c.checkedMul(2) ?? 7} ${c.saturatingMul(2)} ${c.wrappingMul(2)}").ignore();
+  let _ = io.println(stdout, "${d.checkedAdd(1) ?? 7} ${d.saturatingAdd(1)} ${d.wrappingAdd(1)}").ignore();
+  let _ = io.println(stdout, "${e} ${e.checkedAdd(1) ?? 7} ${f.abs()} ${f.signum()}").ignore();
+  let _ = io.println(stdout, "${c.checkedDiv(0) ?? 7} ${num.minValue<I8>().checkedDiv(-1) ?? 7}").ignore();
   .Ok(())
 }
 "#,
@@ -944,6 +959,7 @@ fn a_narrowing_conversion_answers_a_result() {
         "convert",
         r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 from "core/num" import * as num;
 export fn main(): Result<(), Str> {
   let a: I128 = 1700000000123456789;
@@ -952,11 +968,11 @@ export fn main(): Result<(), Str> {
   let d: U64 = 18446744073709551615;
   let e: I64 = -1;
   let f: I64 = 3000000000;
-  let _ = stdout.println("${a.toI64().withDefault(7)} ${b.toI64().withDefault(7)} ${c.toI64().withDefault(7)}");
-  let _ = stdout.println("${d.toI64().withDefault(7)} ${e.toU64().withDefault(7)} ${f.toI32().withDefault(7)}");
+  let _ = io.println(stdout, "${a.toI64().withDefault(7)} ${b.toI64().withDefault(7)} ${c.toI64().withDefault(7)}").ignore();
+  let _ = io.println(stdout, "${d.toI64().withDefault(7)} ${e.toU64().withDefault(7)} ${f.toI32().withDefault(7)}").ignore();
   let shown = match (b.toI64()) { .Ok(_) => "ok", .Err(r) => r.value };
   let named = match (b.toI64()) { .Ok(_) => "ok", .Err(r) => r.target };
-  let _ = stdout.println("${shown} ${named}");
+  let _ = io.println(stdout, "${shown} ${named}").ignore();
   .Ok(())
 }
 "#,
@@ -989,9 +1005,10 @@ fn the_list_surface_is_the_one_the_language_specifies() {
     let ran = run(
         "lists",
         r#"
-from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc };
+from "core/host" import { stdout };
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 export struct Row { key: Int, tag: Str }
@@ -1010,7 +1027,7 @@ export fn main(): Result<(), Str> {
   let flat = [["p", "q"], [], ["r"]].flatten(ctx).join(ctx, "");
   let sum = [1, 2, 3].foldResult(fn(acc, x) => .Ok(acc + x), 0) ?? -1;
   let stop = [1, 9, 3].foldResult(fn(acc, x) => if (x == 9) { .Err(-2) } else { .Ok(acc + x) }, 0) ?? -1;
-  let _ = stdout.println("${tags} ${found} ${at} ${pairs.len()} ${flat} ${sum} ${stop}");
+  let _ = io.println(stdout, "${tags} ${found} ${at} ${pairs.len()} ${flat} ${sum} ${stop}").ignore();
   .Ok(())
 }
 "#,
@@ -1036,9 +1053,10 @@ fn a_none_with_a_niche_is_not_walked() {
     let ran = run_with(
         "niche",
         r#"
-from "core/host" import { stdout };
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc };
+from "core/host" import { stdout };
+from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
@@ -1050,7 +1068,7 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
   let xs = [str.format(ctx, "a${1}"), str.format(ctx, "b${2}"), str.format(ctx, "c${3}")];
   let seen = list.range(ctx, 0, 4).map(ctx, fn(i) => pick(xs, i) ?? "-").join(ctx, "");
-  let _ = stdout.println(seen);
+  let _ = io.println(stdout, seen).ignore();
   .Ok(())
 }
 "#,
@@ -1083,6 +1101,7 @@ fn a_unique_concat_loop_allocates_logarithmically() {
         "concat-loop",
         r#"
 from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn build(s: Str, i: Int): Str {
@@ -1091,7 +1110,7 @@ export fn build(s: Str, i: Int): Str {
 
 export fn main(): Result<(), Str> {
   let s = build("", 1000);
-  let _ = stdout.println("${s.len()} ${s.slice(0, 4)}");
+  let _ = io.println(stdout, "${s.len()} ${s.slice(0, 4)}").ignore();
   .Ok(())
 }
 "#,
@@ -1119,16 +1138,17 @@ fn a_shared_concat_does_not_mutate_what_is_shared() {
         "concat-shared",
         r#"
 from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let base = "ab".concat(alloc, "cd");
   let a = base.concat(alloc, "-one");
   let b = base.concat(alloc, "-two");
-  let _ = stdout.println(base);
-  let _ = stdout.println(a);
-  let _ = stdout.println(b);
-  let _ = stdout.println(base);
+  let _ = io.println(stdout, base).ignore();
+  let _ = io.println(stdout, a).ignore();
+  let _ = io.println(stdout, b).ignore();
+  let _ = io.println(stdout, base).ignore();
   .Ok(())
 }
 "#,
@@ -1149,6 +1169,7 @@ fn appending_to_a_view_does_not_disturb_its_siblings() {
         "concat-view",
         r#"
 from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
@@ -1156,10 +1177,10 @@ export fn main(): Result<(), Str> {
   let head = whole.slice(0, 4);
   let tail = whole.slice(5, 10);
   let grown = head.concat(alloc, "!!");
-  let _ = stdout.println(head);
-  let _ = stdout.println(tail);
-  let _ = stdout.println(grown);
-  let _ = stdout.println(whole);
+  let _ = io.println(stdout, head).ignore();
+  let _ = io.println(stdout, tail).ignore();
+  let _ = io.println(stdout, grown).ignore();
+  let _ = io.println(stdout, whole).ignore();
   .Ok(())
 }
 "#,
@@ -1185,14 +1206,15 @@ fn a_borrowed_local_survives_a_sibling_that_holds_its_last_mention() {
         "borrow-across-siblings",
         r#"
 from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let base = "ab".concat(alloc, "cd");
   let a = base.concat(alloc, "-one");
   let b = base.concat(alloc, "-two");
-  let _ = stdout.println("${base} ${a} ${b} ${base.len()}");
-  let _ = stdout.println("${b} ${b.len()}");
+  let _ = io.println(stdout, "${base} ${a} ${b} ${base.len()}").ignore();
+  let _ = io.println(stdout, "${b} ${b.len()}").ignore();
   .Ok(())
 }
 "#,
@@ -1562,9 +1584,10 @@ fn the_products_own_link_produces_a_program_that_runs() {
     let target = Target { platform, arch: link::host_arch() };
     let source = r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 fn sumTo(n: Int, acc: Int): Int { if (n <= 0) { acc } else { sumTo(n - 1, acc + n) } }
 export fn main(): Result<(), Str> {
-  let _ = stdout.println("${sumTo(1000, 0)}");
+  let _ = io.println(stdout, "${sumTo(1000, 0)}").ignore();
   .Ok(())
 }
 "#;
@@ -1731,8 +1754,9 @@ export fn main(): Result<(), Str> { .Ok(()) }
             "hello",
             r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 export fn main(): Result<(), Str> {
-  let _ = stdout.println("hello, world");
+  let _ = io.println(stdout, "hello, world").ignore();
   .Ok(())
 }
 "#,
@@ -2098,9 +2122,10 @@ fn a_second_carrier_recurses_ten_thousand_frames_on_its_own_stack() {
     }
     let source = r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }
 export fn main(): Result<(), Str> {
-  let _ = stdout.println("depth ${f(10000)}");
+  let _ = io.println(stdout, "depth ${f(10000)}").ignore();
   .Ok(())
 }
 "#;
@@ -2141,9 +2166,10 @@ fn a_runaway_recursion_on_a_carrier_faults_at_its_own_guard() {
     use std::os::unix::process::ExitStatusExt;
     let source = r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }
 export fn main(): Result<(), Str> {
-  let _ = stdout.println("depth ${f(5000000)}");
+  let _ = io.println(stdout, "depth ${f(5000000)}").ignore();
   .Ok(())
 }
 "#;
@@ -2435,9 +2461,10 @@ fn cross_units(source: &str, arch: Arch) -> Option<Vec<buri::compiler::backend::
 /// a runtime call.
 const CROSS_PROGRAM: &str = r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 fn sumTo(n: Int, acc: Int): Int { if (n <= 0) { acc } else { sumTo(n - 1, acc + n) } }
 export fn main(): Result<(), Str> {
-  let _ = stdout.println("sum=${sumTo(1000, 0)}");
+  let _ = io.println(stdout, "sum=${sumTo(1000, 0)}").ignore();
   .Ok(())
 }
 "#;
@@ -2839,6 +2866,7 @@ fn interpolating_in_a_loop_leaks_nothing() {
         format!(
             r#"
 from "core/host" import {{ stdout, alloc }};
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 fn go(n: Int, acc: Int): Int {{
@@ -2846,13 +2874,13 @@ fn go(n: Int, acc: Int): Int {{
     let h = "ab".repeat(alloc, 3);
     let p = (h, h);
     let s = str.format(alloc, "[${{p.0}}][${{p.1}}]");
-    let _ = stdout.println("${{n}}");
+    let _ = io.println(stdout, "${{n}}").ignore();
     go(n - 1, acc + s.len())
   }}
 }}
 
 export fn main(): Result<(), Str> {{
-  let _ = stdout.println("total ${{go({n}, 0)}}");
+  let _ = io.println(stdout, "total ${{go({n}, 0)}}").ignore();
   .Ok(())
 }}
 "#

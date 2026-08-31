@@ -215,6 +215,8 @@ its test sources import it by its module path:
 ```buri repo=cli/tests/example package=//cmd/server
 // cmd/server/main.buri
 
+from "core/io" import * as io;
+
 from "//cmd/server/routes.buri" export { Route, route };
 
 from "//cmd/server/routes.buri" import { route };
@@ -226,7 +228,7 @@ export fn main(): Result<(), Str> {
     Alloc:  host.alloc,
     Stdout: host.stdout,
   };
-  let _ = ctx.println("listening on ${route("/entries").name}");
+  let _ = io.println(ctx, "listening on ${route("/entries").name}").ignore();
   .Ok(())
 }
 ```
@@ -387,13 +389,14 @@ no method could read it would be state kept for its own sake, so `exitWith`
 absorbs the call and answers `()`.
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc, fs };
 from "core/effect" import { Alloc, Fs, IoError };
+# from "core/fs" import * as fs;
+from "core/host/testing" import { alloc, fs };
+# from "core/testing/assert" import * as assert;
 # fn archive<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
-#   match (ctx.readFile(path)) {
+#   match (fs.readText(ctx, path)) {
 #     .Err(e) => .Err(e),
-#     .Ok(body) => ctx.writeFile("{path}.bak", body),
+#     .Ok(body) => fs.writeText(ctx, "{path}.bak", body),
 #   }
 # }
 
@@ -413,10 +416,13 @@ test "a read-only filesystem refuses the write, and nothing is written" {
 ```
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc, clock, env, stdout };
 from "core/effect" import { Alloc, Clock, Env, Stdout };
-# fn logPath<C: Env>(ctx: C): Str { ctx.variable("LEDGER_LOG") ?? "ledger.log" }
+# from "core/env" import * as env;
+from "core/host/testing" import { alloc, clock, env, stdout };
+# from "core/io" import * as io;
+# from "core/testing/assert" import * as assert;
+# from "core/time" import * as time;
+# fn logPath<C: Env>(ctx: C): Str { env.get(ctx, "LEDGER_LOG") ?? "ledger.log" }
 
 context Fixture {
   Alloc: alloc(),
@@ -435,8 +441,8 @@ test "falls back when the variable is unset" {
 test "a context names only the effects the function under test needs" {
   let sink = stdout();
   let ctx = context { Alloc: alloc(), Clock: clock().at(1000), Stdout: sink };
-  let now = ctx.nowMillis();
-  let _ = ctx.println("started at {now}");
+  let now = time.now(ctx).0;
+  let _ = io.println(ctx, "started at {now}").ignore();
   assert.eq(sink.captured(), "started at 1000\n");
 }
 ```
@@ -586,12 +592,13 @@ these are ordinary functions of `core/host/testing`: `readFile(path)`,
 one prints.
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc, fs, net, readFile, fetch };
 from "core/effect" import { Alloc, Fs, IoError, Net, NetError, Response };
+# from "core/fs" import * as fs;
+from "core/host/testing" import { alloc, fs, net, readFile, fetch };
 from "core/net/http" import * as http;
+# from "core/testing/assert" import * as assert;
 # fn cached<C: Alloc + Fs + Net>(ctx: C, url: Str): Result<Response, NetError> {
-#   match (ctx.readFile("cache")) {
+#   match (fs.readText(ctx, "cache")) {
 #     .Ok(_body) => .Ok(http.status(200)),
 #     .Err(_e) => http.get(ctx, url),
 #   }
@@ -648,13 +655,14 @@ number. Matching is the `Eq` those records derive, which is what makes a fault
 readable: it is spelled exactly as `calls()` reports the call it names.
 
 ```buri role=test
-# from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc, appendFile, fs, readFile };
 from "core/effect" import { Alloc, Fs, IoError };
+# from "core/fs" import * as fs;
+from "core/host/testing" import { alloc, appendFile, fs, readFile };
+# from "core/testing/assert" import * as assert;
 # fn commit<C: Alloc + Fs>(ctx: C, entries: [[U8]], i: Int): Result<(), IoError> {
 #   match (entries.get(i)) {
 #     .None => .Ok(()),
-#     .Some(entry) => match (ctx.appendFile("wal", entry)) {
+#     .Some(entry) => match (fs.append(ctx, "wal", entry)) {
 #       .Err(e) => .Err(e),
 #       .Ok(_written) => commit(ctx, entries, i + 1),
 #     },
@@ -673,7 +681,7 @@ test "a file that cannot be read is reported rather than skipped" {
     .files([("config.toml", "name = \"demo\"")])
     .faults([readFile("config.toml").fails(.PermissionDenied)]);
   let ctx = context { Alloc: alloc(), Fs: files };
-  assert.eq(assert.err(ctx.readFile("config.toml")), .PermissionDenied);
+  assert.eq(assert.err(fs.readText(ctx, "config.toml")), .PermissionDenied);
 }
 ```
 
@@ -750,9 +758,10 @@ reports them in the order they finished:
 ```buri repo=cli/tests/example role=test
 # from "core/effect" import { Tasks };
 # from "core/host/testing" import { task, tasks };
+# from "core/tasks" import * as tasks;
 # from "core/testing/assert" import * as assert;
 # fn doubled<C: Tasks>(ctx: C, items: [Int]): [Int] {
-#   ctx.parallel(ctx, items, fn(_c, _i, item) => item * 2)
+#   tasks.parallel(ctx, items, fn(_c, _i, item) => item * 2)
 # }
 test "the answer does not depend on the order the work finished in" {
   // `seed(5)` is the last of the six orders of three tasks — the reverse of

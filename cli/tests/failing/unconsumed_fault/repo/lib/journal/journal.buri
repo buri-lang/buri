@@ -1,6 +1,7 @@
 from "core/effect" import { Alloc, Fs, IoError };
+from "core/fs" import * as fs;
 
 /// Writes one entry, and reports whether the filesystem took it.
 export fn record<C: Alloc + Fs>(ctx: C, path: Str, entry: Str): Result<(), IoError> {
-    ctx.writeFile(path, entry)
+    fs.writeText(ctx, path, entry)
 }

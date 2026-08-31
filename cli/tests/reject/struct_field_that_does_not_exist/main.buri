@@ -1,6 +1,7 @@
 // EXPECT: has no field `f1`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/str" import * as str;
 
 struct Rec { export f0: Int }
@@ -13,6 +14,6 @@ impl Rec {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println(Rec { f0: 1 }.render(ctx));
+  let _ = io.println(ctx, Rec { f0: 1 }.render(ctx)).ignore();
   .Ok(())
 }

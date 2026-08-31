@@ -3,12 +3,13 @@
 
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 from "//cmd/tool" import { render };
 from "//cmd/tool/flags.buri" import { label };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${label()}: ${render(1)}");
+  let _ = io.println(ctx, "${label()}: ${render(1)}").ignore();
   .Ok(())
 }

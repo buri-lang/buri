@@ -77,7 +77,7 @@ export fn main(): Result<(), Str> {
 
   let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
   let total = shapes.map(ctx, fn(s) => s.area()).sumFloat();
-  let _ = io.println(ctx, "total area: ${total}");
+  let _ = io.println(ctx, "total area: ${total}").ignore();
   .Ok(())
 }
 ```
@@ -498,7 +498,8 @@ only for their effect return `()`.
 
 ```buri
 # from "core/effect" import { Stdout };
-fn log<C: Stdout>(ctx: C, msg: Str): () { ctx.println(msg) }
+# from "core/io" import * as io;
+fn log<C: Stdout>(ctx: C, msg: Str): () { io.println(ctx, msg).ignore() }
 ```
 
 ### 5.3 Tuples
@@ -1576,8 +1577,8 @@ eliminate work only where the result is indistinguishable, and calls that consum
 an effect are never indistinguishable.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let _ = io.println(ctx, "first");
-let _ = io.println(ctx, "second");    // guaranteed to print second
+let _ = io.println(ctx, "first").ignore();
+let _ = io.println(ctx, "second").ignore();    // guaranteed to print second
 ```
 
 ### 8.3 Recursion and tail calls
@@ -2092,7 +2093,7 @@ same value and cannot use, or pass on, anything its bounds do not name:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Fs, Stdout };
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
-  let _ = io.println(ctx, msg);
+  let _ = io.println(ctx, msg).ignore();
   // fs.readText(ctx, "/etc/passwd")     // ERROR: C is not bounded by Fs
   // dangerous(ctx)                      // ERROR: dangerous needs C: Fs
 }

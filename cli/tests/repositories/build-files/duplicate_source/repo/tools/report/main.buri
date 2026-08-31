@@ -1,5 +1,6 @@
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 // Through the library's entry point, which is the only way the binary may
 // reach it (BUILD-FILES.md:301-305). What this case is about is one file
@@ -8,6 +9,6 @@ from "//tools/report" import { render };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println(render(0));
+  let _ = io.println(ctx, render(0)).ignore();
   .Ok(())
 }

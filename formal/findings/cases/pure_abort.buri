@@ -4,6 +4,7 @@
 // aborting program into a printing one. Those are not the same program.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn boom(x: Int): Int {
   100 / x
@@ -12,6 +13,6 @@ fn boom(x: Int): Int {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let _ = boom(0);
-  let _ = ctx.println("if you can read this, the call was eliminated");
+  let _ = io.println(ctx, "if you can read this, the call was eliminated").ignore();
   .Ok(())
 }

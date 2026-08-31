@@ -61,6 +61,21 @@ static ERR: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 static ARGS: Mutex<Option<Vec<String>>> = Mutex::new(None);
 static STDIN_LINES: Mutex<Option<(Vec<String>, usize)>> = Mutex::new(None);
 
+/// The first stream failure nobody has been told about yet.
+///
+/// Output is buffered, so the write a program *calls* and the write the
+/// platform *performs* are two different moments: `println` fills a buffer, and
+/// only a full buffer — or the exit path — reaches the descriptor. A failure
+/// discovered then belongs to some earlier print, and the honest thing a
+/// buffered stream can promise is that it reaches the next caller rather than
+/// being dropped. So the failure is held here and answered by the next write,
+/// which is what makes `Result<(), IoError>` a claim the runtime can keep.
+///
+/// First rather than last: a closed pipe fails every write after the first, and
+/// the one worth reporting is the one that says what went wrong before the
+/// program was writing into nothing.
+static PENDING: Mutex<Option<std::io::Error>> = Mutex::new(None);
+
 /// Lock, recovering from poisoning.
 ///
 /// The language has no threads (MEMORY.md §1), so a poisoned lock means a panic
@@ -140,8 +155,7 @@ pub extern "C" fn buri_rt_flush() {
     if !out.is_empty() {
         let stream = std::io::stdout();
         let mut stream = stream.lock();
-        let _ = stream.write_all(&out);
-        let _ = stream.flush();
+        note(stream.write_all(&out).and_then(|()| stream.flush()));
         out.clear();
     }
     drop(out);
@@ -150,9 +164,32 @@ pub extern "C" fn buri_rt_flush() {
     if !err.is_empty() {
         let stream = std::io::stderr();
         let mut stream = stream.lock();
-        let _ = stream.write_all(&err);
-        let _ = stream.flush();
+        note(stream.write_all(&err).and_then(|()| stream.flush()));
         err.clear();
+    }
+}
+
+/// Remember a stream failure for the next writer to answer with. The first one
+/// wins; see [`PENDING`].
+fn note(r: std::io::Result<()>) {
+    let Err(e) = r else { return };
+    let mut slot = lock(&PENDING);
+    if slot.is_none() {
+        *slot = Some(e);
+    }
+}
+
+/// The `Result` arm this write answers, and the point at which a held failure
+/// stops being held.
+///
+/// # Safety
+/// `out_err` must be writable and aligned for a [`BuriStr`].
+unsafe fn reported(out_err: *mut BuriStr) -> i32 {
+    let taken = lock(&PENDING).take();
+    match taken {
+        None => BURI_OK,
+        // SAFETY: forwarded to the caller.
+        Some(e) => unsafe { fail(&e, out_err) },
     }
 }
 
@@ -192,14 +229,31 @@ unsafe fn text(ptr: *const u8, len: u64) -> String {
     String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned()
 }
 
+/// The four buffered text writers, which differ only in stream and newline.
+///
+/// Each answers `Result<(), IoError>` — [`Ret::Res`] with the out-pointer
+/// omitted, because `()` occupies no bytes — so the C signature is the `Str`
+/// view, a trailing `out_err`, and an `i32` discriminant. The value it answers
+/// is whatever [`PENDING`] holds: a write that only filled a buffer has nothing
+/// to report, and one that triggered a flush reports what the flush found.
+///
+/// [`Ret::Res`]: buri's `backend/runtime_table.rs`
 macro_rules! writer {
     ($name:ident, $buffer:ident, $newline:expr) => {
         /// # Safety
-        /// The three parameters must describe a live `Str` view.
+        /// The three view parameters must describe a live `Str`; `out_err` must
+        /// be writable and aligned for a `BuriStr`.
         #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(_base: *mut u8, ptr: *const u8, len: u64) {
+        pub unsafe extern "C" fn $name(
+            _base: *mut u8,
+            ptr: *const u8,
+            len: u64,
+            out_err: *mut BuriStr,
+        ) -> i32 {
             // SAFETY: forwarded to the caller.
-            push(&$buffer, unsafe { view(ptr, len) }, $newline)
+            push(&$buffer, unsafe { view(ptr, len) }, $newline);
+            // SAFETY: forwarded to the caller.
+            unsafe { reported(out_err) }
         }
     };
 }
@@ -214,20 +268,29 @@ writer!(buri_rt_host_stderr_eprintln, ERR, true);
 /// The buffered text stream is flushed first, so the two orderings a program
 /// can see are the one it wrote.
 ///
+/// Unbuffered, so unlike the four above this one answers its *own* failure
+/// rather than a held one — and reports a held one first, because that failure
+/// is older.
+///
 /// # Safety
-/// `ptr` must be readable for `len` bytes, or null with `len == 0`.
+/// `ptr` must be readable for `len` bytes, or null with `len == 0`; `out_err`
+/// must be writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_stdout_write_bytes(ptr: *const u8, len: u64) {
+pub unsafe extern "C" fn buri_rt_host_stdout_write_bytes(
+    ptr: *const u8,
+    len: u64,
+    out_err: *mut BuriStr,
+) -> i32 {
     buri_rt_flush();
-    if ptr.is_null() || len == 0 {
-        return;
+    if !ptr.is_null() && len != 0 {
+        // SAFETY: the caller promises `len` readable bytes.
+        let bytes = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
+        let stream = std::io::stdout();
+        let mut stream = stream.lock();
+        note(stream.write_all(bytes).and_then(|()| stream.flush()));
     }
-    // SAFETY: the caller promises `len` readable bytes.
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
-    let stream = std::io::stdout();
-    let mut stream = stream.lock();
-    let _ = stream.write_all(bytes);
-    let _ = stream.flush();
+    // SAFETY: forwarded to the caller.
+    unsafe { reported(out_err) }
 }
 
 // ---------------------------------------------------------------------------

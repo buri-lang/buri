@@ -3,12 +3,13 @@
 // in the form that is actually writable, with the parameters declared.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Pair<A, B> { export left: A, export right: B }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let p = Pair { left: 1, right: 2 };
-  let _ = ctx.println("${p.second()}");
+  let _ = io.println(ctx, "${p.second()}").ignore();
   .Ok(())
 }

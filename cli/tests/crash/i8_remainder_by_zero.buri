@@ -1,14 +1,15 @@
 // CRASH: division by zero
 // `%` at a narrow width, which is a different code path from `Int`.
 from "core/effect" import { Alloc, Stdout, Env };
-from "core/host" import * as host;
 from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn leftover(a: I8, b: I8): I8 { a % b }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
   let zero: I8 = env.args(ctx).len().toI8() ?? 0;
-  let _ = ctx.println("${leftover(7, zero)}");
+  let _ = io.println(ctx, "${leftover(7, zero)}").ignore();
   .Ok(())
 }

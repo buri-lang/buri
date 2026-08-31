@@ -1,7 +1,8 @@
 // EXPECT: expected a declaration, found `derive`
 from "core/effect" import { Alloc, Stdout };
-from "core/order" import { Eq };
 from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/order" import { Eq };
 
 export struct Version { export major: Int }
 
@@ -9,6 +10,6 @@ export derive Eq for Version;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("hi");
+  let _ = io.println(ctx, "hi").ignore();
   .Ok(())
 }

@@ -140,7 +140,7 @@ export fn main(): Result<(), Str> {
   // Dark mode is a `Prop<Bool>`. Writing it rewrites one `:root` block and
   // touches no element and no class.
   let dark = signal(ctx, false);
-  let _ = io.println(ctx, "mounted");
+  let _ = io.println(ctx, "mounted").ignore();
   ui.mount(ctx, counter(ctx, "clicks"), [
     cardThemed(cardTheme),
     theme.switching(.Cell(dark), appThemed(night), appThemed(day)),

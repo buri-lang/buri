@@ -13,21 +13,21 @@ from "core/str" import * as str;
 /// `Alloc` here is a demand on every caller for a capability the body never
 /// uses.
 fn announce<C: Stdout>(ctx: C, label: Str): () {
-  io.println(ctx, "-- ${label}")
+  io.println(ctx, "-- ${label}").ignore()
 }
 
 /// Two of them on one parameter, and one rewrite rather than two: the byte
 /// ranges that delete `Alloc` and `Clock` both claim the `+` between them, so
 /// the removal is computed once and both findings carry it.
 fn shout<C: Stdout>(ctx: C, label: Str): () {
-  ctx.println("!! ${label}")
+  io.println(ctx, "!! ${label}").ignore()
 }
 
 /// A method the bound itself declares. `println` comes from `Stdout` and from
 /// nowhere else — a method on a type parameter can only come from its bounds —
 /// so calling it is the use.
 fn whisper<C: Stdout>(ctx: C, label: Str): () {
-  ctx.println(".. ${label}")
+  io.println(ctx, ".. ${label}").ignore()
 }
 
 /// A callee that asks for one of its own. `str.format<C: Alloc>` puts `Alloc`

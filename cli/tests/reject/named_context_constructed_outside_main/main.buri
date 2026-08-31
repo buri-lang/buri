@@ -10,12 +10,12 @@ context Program {
 
 fn helper(): Int {
   let inner = Program();
-  let _ = io.println(inner, "from a helper");
+  let _ = io.println(inner, "from a helper").ignore();
   1
 }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${helper()}");
+  let _ = io.println(ctx, "${helper()}").ignore();
   .Ok(())
 }

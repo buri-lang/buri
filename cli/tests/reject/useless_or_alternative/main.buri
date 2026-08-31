@@ -5,6 +5,7 @@
 // one in with it — so it is asked of each alternative.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Hello { World, Now(Bool) }
 
@@ -17,6 +18,6 @@ fn greeting(hi: Hello): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println(greeting(Hello.World));
+  let _ = io.println(ctx, greeting(Hello.World)).ignore();
   .Ok(())
 }

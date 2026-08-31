@@ -395,11 +395,18 @@ pub const ENTRIES: &[Entry] = &[
     e("math.isInfinite", "buri_rt_math_is_infinite", Ret::Scalar),
     e("math.isFinite", "buri_rt_math_is_finite", Ret::Scalar),
     // -- the text streams ---------------------------------------------------
-    e("host.HostStdout.print", "buri_rt_host_stdout_print", Ret::Void),
-    e("host.HostStdout.println", "buri_rt_host_stdout_println", Ret::Void),
-    e("host.HostStdout.writeBytes", "buri_rt_host_stdout_write_bytes", Ret::Void),
-    e("host.HostStderr.eprint", "buri_rt_host_stderr_eprint", Ret::Void),
-    e("host.HostStderr.eprintln", "buri_rt_host_stderr_eprintln", Ret::Void),
+    //
+    // `Result<(), IoError>` on all five, which is [`Ret::Res`] with the
+    // out-pointer omitted — `()` occupies no bytes — so the C signature is the
+    // arguments, a trailing `out_err`, and an `i32` discriminant. The same
+    // shape `Fs`'s writers have, and for the same reason: a stream a program
+    // cannot write to is a failure the program can act on, and a signature
+    // saying `()` was claiming otherwise.
+    e("host.HostStdout.print", "buri_rt_host_stdout_print", Ret::Res),
+    e("host.HostStdout.println", "buri_rt_host_stdout_println", Ret::Res),
+    e("host.HostStdout.writeBytes", "buri_rt_host_stdout_write_bytes", Ret::Res),
+    e("host.HostStderr.eprint", "buri_rt_host_stderr_eprint", Ret::Res),
+    e("host.HostStderr.eprintln", "buri_rt_host_stderr_eprintln", Ret::Res),
     // -- the scalar capabilities --------------------------------------------
     e("host.HostFs.fileExists", "buri_rt_host_fs_file_exists", Ret::Scalar),
     e("host.HostClock.nowMillis", "buri_rt_host_clock_now_millis", Ret::Scalar),
@@ -503,16 +510,19 @@ pub const ENTRIES: &[Entry] = &[
     // records nothing because nothing can read it back.
     e("host_testing.stdout", "buri_rt_host_testing_stdout", Ret::Out),
     e("host_testing.stderr", "buri_rt_host_testing_stderr", Ret::Out),
-    e("host_testing.TestStdout.print", "buri_rt_host_testing_test_stdout_print", Ret::Void),
-    e("host_testing.TestStdout.println", "buri_rt_host_testing_test_stdout_println", Ret::Void),
+    // The five writers answer `Result<(), IoError>` here too, and always
+    // `.Ok(())`: a captured stream is a buffer the runner owns, so there is
+    // nothing to fail. The shape is the effect's, not the implementation's.
+    e("host_testing.TestStdout.print", "buri_rt_host_testing_test_stdout_print", Ret::Res),
+    e("host_testing.TestStdout.println", "buri_rt_host_testing_test_stdout_println", Ret::Res),
     e(
         "host_testing.TestStdout.writeBytes",
         "buri_rt_host_testing_test_stdout_write_bytes",
-        Ret::Void,
+        Ret::Res,
     ),
     e("host_testing.TestStdout.captured", "buri_rt_host_testing_test_stdout_captured", Ret::Out),
-    e("host_testing.TestStderr.eprint", "buri_rt_host_testing_test_stderr_eprint", Ret::Void),
-    e("host_testing.TestStderr.eprintln", "buri_rt_host_testing_test_stderr_eprintln", Ret::Void),
+    e("host_testing.TestStderr.eprint", "buri_rt_host_testing_test_stderr_eprint", Ret::Res),
+    e("host_testing.TestStderr.eprintln", "buri_rt_host_testing_test_stderr_eprintln", Ret::Res),
     e("host_testing.TestStderr.captured", "buri_rt_host_testing_test_stderr_captured", Ret::Out),
     e("host_testing.stdin", "buri_rt_host_testing_stdin", Ret::Out),
     e("host_testing.TestStdin.lines", "buri_rt_host_testing_test_stdin_lines", Ret::Out),

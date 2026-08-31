@@ -5,12 +5,13 @@
 // `Holder<Option<Int>>` included — while `slot`, declared `Option<T>`, is not.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Holder<T> { export only: T, export slot: Option<T> }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let h: Holder<Option<Int>> = Holder { };
-  let _ = ctx.println("${h.only ?? 0}");
+  let _ = io.println(ctx, "${h.only ?? 0}").ignore();
   .Ok(())
 }

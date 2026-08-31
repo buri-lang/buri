@@ -111,7 +111,8 @@ only for their effect return `()`.
 
 ```buri
 # from "core/effect" import { Stdout };
-fn log<C: Stdout>(ctx: C, msg: Str): () { ctx.println(msg) }
+# from "core/io" import * as io;
+fn log<C: Stdout>(ctx: C, msg: Str): () { io.println(ctx, msg).ignore() }
 ```
 
 ### 5.3 Tuples

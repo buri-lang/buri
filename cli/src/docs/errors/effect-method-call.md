@@ -1,0 +1,70 @@
+---
+title: An effect is performed through a function, not a method
+message: '`{effect}` is an effect, so `{method}` is not called on a context'
+label: called as a method
+fix: 'call it through the module that wraps the effect: `io.println(ctx, text)`'
+---
+# An effect is performed through a function, not a method
+
+```text
+error: `Stdout` is an effect, so `println` is not called on a context [effect-method-call]
+```
+
+## What to do
+
+Hand the context to the function that performs the operation. Every effect
+method has one, and the diagnostic names it and the module it comes from:
+`ctx.println("hi")` is `io.println(ctx, "hi")`, `ctx.readFile(p)` is
+`fs.readText(ctx, p)`, `ctx.allocate(n)` is `alloc.allocate(ctx, n)`.
+
+## Why
+
+A context is the set of things a program may do, and the point of writing it
+down is that a reader can see what a function reaches for. `x.f(y)` hides that:
+the receiver is the smallest, quietest part of a call, and an effect performed
+through one reads like a method on an ordinary value. Passing the context as an
+argument puts the authority where the reader is already looking, and it makes
+the two halves — *which* effect, and *what* it does — two names instead of one.
+
+It also settles a question the method form left open. Method lookup through a
+bound searches every effect the bound declares, so two effects declaring one
+verb make that verb ambiguous for everybody who binds both — `Ui.read` and
+`Watch.read` are the shipped case. A module-qualified call cannot be ambiguous,
+so the vocabulary stops being one flat namespace shared by every effect that
+will ever exist.
+
+Two layers are below this line and keep the method form. The standard library
+is where the wrapper functions are, so its bodies are the only thing that
+reaches an effect at all. And the body of an `impl` that *supplies* an effect is
+where the operation is implemented, which is what keeps an attenuating wrapper
+writable:
+
+```buri role=source
+# from "core/effect" import { Fs, IoError };
+struct ReadOnly<C>(C);
+
+impl<C: Fs> Fs for ReadOnly<C> {
+  fn readFile(self, path: Str): Result<Str, IoError> { self.0.readFile(path) }
+  fn writeFile(self, path: Str, body: Str): Result<(), IoError> { .Err(.ReadOnly) }
+  fn fileExists(self, path: Str): Bool { self.0.fileExists(path) }
+  fn readDir(self, path: Str): Result<[Str], IoError> { self.0.readDir(path) }
+  fn readFileBytes(self, path: Str): Result<[U8], IoError> { self.0.readFileBytes(path) }
+  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> { .Err(.ReadOnly) }
+  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> { .Err(.ReadOnly) }
+  fn renameFile(self, source: Str, destination: Str): Result<(), IoError> { .Err(.ReadOnly) }
+  fn removeFile(self, path: Str): Result<(), IoError> { .Err(.ReadOnly) }
+  fn makeDir(self, path: Str): Result<(), IoError> { .Err(.ReadOnly) }
+  fn syncFile(self, path: Str): Result<(), IoError> { .Err(.ReadOnly) }
+}
+```
+
+That delegation cannot become `fs.readText(self.0, path)`, because the wrapper is
+bounded `Alloc + Fs` and this `impl` carries only `C: Fs`. The carve-out grants
+nothing new: an implementor can reach only an inner context somebody already
+handed it.
+
+## A program that provokes it
+
+```buri fail code=effect-method-call wrap=body effects=Stdout
+let _ = ctx.println("ready");
+```

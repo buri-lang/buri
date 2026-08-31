@@ -3,6 +3,7 @@
 // one: a type the toolchain ships is pointed at its own documentation instead.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn addContext(value: Result<Int, Str>): Result<Int, Str> {
   value.mapErrContext(fn(e) => e)
@@ -11,6 +12,6 @@ fn addContext(value: Result<Int, Str>): Result<Int, Str> {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let r = addContext(.Ok(1));
-  let _ = ctx.println("${r.isOk()}");
+  let _ = io.println(ctx, "${r.isOk()}").ignore();
   .Ok(())
 }

@@ -2,6 +2,7 @@
 // switch and a forwarding stub for each member.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn isEven(n: Int): Bool {
   if (n == 0) { true } else { isOdd(n - 1) }
@@ -13,6 +14,6 @@ fn isOdd(n: Int): Bool {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${isEven(1000)} ${isOdd(1001)} ${isEven(7)}");
+  let _ = io.println(ctx, "${isEven(1000)} ${isOdd(1001)} ${isEven(7)}").ignore();
   .Ok(())
 }

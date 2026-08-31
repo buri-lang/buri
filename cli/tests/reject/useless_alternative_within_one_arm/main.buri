@@ -4,6 +4,7 @@
 // so each is asked about the ones to its left as well as about the arms above.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Shape { Empty, Circle(Bool) }
 
@@ -16,6 +17,6 @@ fn area(s: Shape): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${area(Shape.Empty)}");
+  let _ = io.println(ctx, "${area(Shape.Empty)}").ignore();
   .Ok(())
 }

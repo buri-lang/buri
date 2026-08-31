@@ -12,6 +12,7 @@
 // the way round it either.
 from "core/effect" import { Alloc, Listen, Sockets, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "ui/effect" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
@@ -23,6 +24,6 @@ export fn main(): Result<(), Str> {
     Ui: host.ui,
     Watch: host.watch,
   };
-  let _ = ctx.println("no page accepts one either");
+  let _ = io.println(ctx, "no page accepts one either").ignore();
   .Ok(())
 }

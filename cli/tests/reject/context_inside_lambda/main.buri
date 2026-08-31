@@ -1,6 +1,7 @@
 // EXPECT: a context may not be constructed here
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -8,6 +9,6 @@ export fn main(): Result<(), Str> {
     let inner = context { Alloc: host.alloc, Stdout: host.stdout };
     n
   };
-  let _ = ctx.println("${make(1)}");
+  let _ = io.println(ctx, "${make(1)}").ignore();
   .Ok(())
 }

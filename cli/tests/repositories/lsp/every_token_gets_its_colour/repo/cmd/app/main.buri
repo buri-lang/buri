@@ -2,6 +2,7 @@
 // appears at least once.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "//lib/shop" import { Item, listing, Stock };
 
 /* A block comment sits in the gap between two tokens, so it is read from the
@@ -30,6 +31,6 @@ export fn main(): Result<(), Str> {
     };
     let pair = (restock(listing("apple", 300), 12), "shelf");
     let apple = first(pair);
-    let _ = ctx.println(edge(apple));
+    let _ = io.println(ctx, edge(apple)).ignore();
     .Ok(())
 }

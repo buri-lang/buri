@@ -26,5 +26,5 @@ rather than a search.
 ## A program that provokes it
 
 ```buri fail code=no-such-method use=errors wrap=body
-let _ = ctx.println("${Square { side: 3 }.perimeter()}");
+let _ = io.println(ctx, "${Square { side: 3 }.perimeter()}").ignore();
 ```

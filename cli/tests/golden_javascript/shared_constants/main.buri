@@ -3,6 +3,7 @@
 // and no identity anyone can observe.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Token { Blank, Word(Str), Number(Int) }
 
@@ -32,7 +33,7 @@ fn tally(n: Int, acc: Int): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${tally(10, 0)}");
-  let _ = ctx.println("${weight(Token.Blank)} ${weight(Token.Word("a"))}");
+  let _ = io.println(ctx, "${tally(10, 0)}").ignore();
+  let _ = io.println(ctx, "${weight(Token.Blank)} ${weight(Token.Word("a"))}").ignore();
   .Ok(())
 }

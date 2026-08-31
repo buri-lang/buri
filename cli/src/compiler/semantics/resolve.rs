@@ -3296,6 +3296,7 @@ fn main(): () {}
     /// if checking has not reached it yet.
     const SPREAD_BEFORE_ITS_BASE: &str = r#"
 from "core/effect" import { Clock };
+from "core/time" import * as time;
 
 struct Frozen { at: I64 }
 
@@ -3312,7 +3313,7 @@ context Base {
   Clock: Frozen { at: 7 },
 }
 
-fn reading<C: Clock>(ctx: C): I64 { ctx.nowMillis() }
+fn reading<C: Clock>(ctx: C): I64 { time.now(ctx).0 }
 
 test "the spread carries the base's binding" {
   let ctx = Deep();

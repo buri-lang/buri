@@ -1,6 +1,7 @@
 // EXPECT: expected `F64`, found `I64`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn scale(count: Int, factor: Float): Float {
   count + factor
@@ -8,6 +9,6 @@ fn scale(count: Int, factor: Float): Float {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${scale(2, 1.5)}");
+  let _ = io.println(ctx, "${scale(2, 1.5)}").ignore();
   .Ok(())
 }

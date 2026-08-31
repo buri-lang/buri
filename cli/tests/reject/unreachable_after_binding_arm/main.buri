@@ -1,6 +1,7 @@
 // EXPECT: this arm is unreachable
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn describe(o: Option<Int>): Int {
   match (o) {
@@ -11,6 +12,6 @@ fn describe(o: Option<Int>): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${describe(.None)}");
+  let _ = io.println(ctx, "${describe(.None)}").ignore();
   .Ok(())
 }

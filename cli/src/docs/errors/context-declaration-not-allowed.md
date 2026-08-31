@@ -16,7 +16,7 @@ context Console {
 }
 
 export fn print(output: Str): () {
-  io.println(Console(), output)
+  io.println(Console(), output).ignore()
 }
 ```
 
@@ -27,6 +27,6 @@ from "core/effect" import { Stdout };
 from "core/io" import * as io;
 
 export fn print<C: Stdout>(ctx: C, output: Str): () {
-  io.println(ctx, output)
+  io.println(ctx, output).ignore()
 }
 ```

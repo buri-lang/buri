@@ -6,10 +6,12 @@ bounds omit:
 
 ```buri
 # from "core/effect" import { Alloc, Fs, Stdout };
+# from "core/fs" import * as fs;
 # from "core/host" import * as host;
+# from "core/io" import * as io;
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
-  let _ = ctx.println(msg);
-  let _f = ctx.readFile("/etc/passwd");  // ERROR: `C` has no method `readFile`
+  let _ = io.println(ctx, msg).ignore();
+  let _f = fs.readText(ctx, "/etc/passwd");  // ERROR: `C` has no method `readFile`
 }
 
 export fn main(): Result<(), Str> {

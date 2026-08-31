@@ -1,0 +1,12 @@
+// EXPECT: `Stdout` is an effect, so `println` is not called on a context
+//
+// The receiver is the implementation itself rather than a context, which is
+// the third of the three shapes and the one a rule about contexts would miss.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = host.stdout.println("ready");
+  .Ok(())
+}

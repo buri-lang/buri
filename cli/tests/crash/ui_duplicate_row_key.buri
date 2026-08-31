@@ -9,6 +9,7 @@
 from "core/effect" import { Alloc, Stdout };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "ui/effect" import { Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
@@ -32,7 +33,7 @@ export fn main(): Result<(), Str> {
     Ui: host.ui,
     Watch: host.watch,
   };
-  let _ = ctx.println("mounting");
+  let _ = io.println(ctx, "mounting").ignore();
   let shopping: Prop<[Str]> = .Const(["milk", "eggs", "milk"]);
   ui.mount(ctx, rows(shopping), [])
 }

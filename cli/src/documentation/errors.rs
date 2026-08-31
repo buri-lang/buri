@@ -111,6 +111,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("duplicate-test-name", "A test name is used once per file"),
     e!("effect-and-trait", "No type implements both an effect and a trait"),
     e!("effect-carrying-bound", "A type that carries an effect satisfies no trait bound"),
+    e!("effect-method-call", "An effect is performed through a function, not a method", &["lang/effects"]),
     e!("effect-outside-platform", "Only a platform module declares an effect"),
     e!("effect-param-not-ctx", "An effect-carrying parameter is `self` or `ctx`"),
     e!("entry-point-listed", "An entry point is named by its rule, never listed", &["build/build-files"]),

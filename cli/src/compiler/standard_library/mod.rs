@@ -141,6 +141,12 @@ pub const MODULES: &[StdModule] = &[
     m("core/date", include_str!("sources/date.buri")),
     m("core/random", include_str!("sources/random.buri")),
     m("core/net/http", include_str!("sources/http.buri")),
+    // The other half of being a server, and a door rather than a design: no
+    // platform grants `Listen` or `Sockets` yet, so nothing here has a caller.
+    // It exists because an effect method no standard-library function calls is
+    // an operation nothing outside `core/*` can perform — see [`WRAPPERS`].
+    m("core/net/server", include_str!("sources/server.buri")),
+    m("core/proc", include_str!("sources/proc.buri")),
     // Not a platform module: it *names* `Tasks` in its bounds rather than
     // declaring or implementing it, exactly as `core/fs` names `Fs`. The
     // authority is still `core/host`'s to hand out.
@@ -483,9 +489,234 @@ impl HostGrant {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The door onto every effect
+// ---------------------------------------------------------------------------
+
+/// The standard-library function that performs one effect method.
+///
+/// **An effect's methods are called through the module that wraps the effect,
+/// never on the value that carries it** (SPEC 10.2): `ctx.println(t)` is
+/// `io.println(ctx, t)`. Two layers are below that line and keep the method
+/// form — the standard library, which is where these wrappers are, and the
+/// body of an `impl` that *supplies* the effect, which is where the operation
+/// is implemented. Everywhere else the call goes through a row of this table,
+/// and `semantics/expressions.rs` reports `effect-method-call` when it does
+/// not.
+///
+/// One table, three readers: the diagnostic's fix, the language server's
+/// completion list, and [`tests::every_effect_method_has_a_door`], which is
+/// what keeps a method from being declared with no way to call it. Six of the
+/// effect methods had no wrapper at all before this table existed, and nothing
+/// said so.
+pub struct Wrapper {
+    /// The effect, as `core/effect` or `ui/effect` spells it.
+    pub effect: &'static str,
+    /// The method it declares.
+    pub method: &'static str,
+    /// The module holding the door, as an import path.
+    pub module: &'static str,
+    /// How the call reads, with the context in the place it goes. A free
+    /// function leads with its module alias; a handle's method leads with the
+    /// handle, because that is the shape `ui/signal` already ships.
+    pub call: &'static str,
+}
+
+const fn w(
+    effect: &'static str,
+    method: &'static str,
+    module: &'static str,
+    call: &'static str,
+) -> Wrapper {
+    Wrapper { effect, method, module, call }
+}
+
+/// Every method of every declared effect, and the function that calls it.
+///
+/// The order is `core/effect`'s declaration order followed by `ui/effect`'s, so
+/// the table reads beside the sources it is about.
+pub const WRAPPERS: &[Wrapper] = &[
+    w("Alloc", "allocate", "core/alloc", "alloc.allocate(ctx, bytes)"),
+    w("Stdout", "print", "core/io", "io.print(ctx, text)"),
+    w("Stdout", "println", "core/io", "io.println(ctx, text)"),
+    w("Stdout", "writeBytes", "core/io", "io.writeBytes(ctx, bytes)"),
+    w("Stderr", "eprint", "core/io", "io.eprint(ctx, text)"),
+    w("Stderr", "eprintln", "core/io", "io.eprintln(ctx, text)"),
+    w("Stdin", "readLine", "core/io", "io.readLine(ctx)"),
+    w("Stdin", "readBytes", "core/io", "io.readBytes(ctx, n)"),
+    w("Fs", "readFile", "core/fs", "fs.readText(ctx, path)"),
+    w("Fs", "writeFile", "core/fs", "fs.writeText(ctx, path, body)"),
+    w("Fs", "fileExists", "core/fs", "fs.exists(ctx, path)"),
+    w("Fs", "readDir", "core/fs", "fs.listDir(ctx, path)"),
+    w("Fs", "readFileBytes", "core/fs", "fs.readBytes(ctx, path)"),
+    w("Fs", "writeFileBytes", "core/fs", "fs.writeBytes(ctx, path, body)"),
+    w("Fs", "appendFile", "core/fs", "fs.append(ctx, path, body)"),
+    w("Fs", "renameFile", "core/fs", "fs.rename(ctx, source, destination)"),
+    w("Fs", "removeFile", "core/fs", "fs.remove(ctx, path)"),
+    w("Fs", "makeDir", "core/fs", "fs.makeDir(ctx, path)"),
+    w("Fs", "syncFile", "core/fs", "fs.sync(ctx, path)"),
+    w("Net", "fetch", "core/net/http", "http.send(ctx, request)"),
+    w("Clock", "nowMillis", "core/time", "time.now(ctx)"),
+    w("Clock", "sleepMillis", "core/time", "time.sleepMs(ctx, millis)"),
+    w("Rand", "nextInt", "core/random", "random.int(ctx, lo, hi)"),
+    w("Rand", "nextFloat", "core/random", "random.float(ctx)"),
+    w("Env", "variable", "core/env", "env.get(ctx, name)"),
+    w("Env", "args", "core/env", "env.args(ctx)"),
+    w("Proc", "exitWith", "core/proc", "proc.exit(ctx, code)"),
+    w("Tasks", "parallel", "core/tasks", "tasks.parallel(ctx, items, f)"),
+    w("Listen", "listen", "core/net/server", "server.listen(ctx, address, port, onRequest)"),
+    w("Sockets", "socketSendText", "core/net/server", "server.sendText(ctx, socket, text)"),
+    w("Sockets", "socketSendBytes", "core/net/server", "server.sendBytes(ctx, socket, bytes)"),
+    w("Sockets", "socketClose", "core/net/server", "server.close(ctx, socket, code, reason)"),
+    // `ui/*`. A signal handle is inert data and the authority travels through
+    // the context, so the door for reading and writing one is a method on the
+    // handle that *takes* the context — which is already the shape this rule
+    // asks for, and is why these rows do not lead with a module alias.
+    w("Watch", "read", "ui/signal", "aSignal.get(ctx)"),
+    w("Ui", "signal", "ui/signal", "signal.signal(ctx, initial)"),
+    w("Ui", "read", "ui/signal", "aSignal.get(ctx)"),
+    w("Ui", "write", "ui/signal", "aSignal.set(ctx, value)"),
+    w("Ui", "memo", "ui/prop", "prop.memo(ctx, compute)"),
+    w("Ui", "watch", "ui/signal", "signal.watch(ctx, run)"),
+];
+
+/// The door onto one effect method, or `None` for a name this table has never
+/// heard of — which, given [`tests::every_effect_method_has_a_door`], means the
+/// trait was not an effect.
+pub fn wrapper(effect: &str, method: &str) -> Option<&'static Wrapper> {
+    WRAPPERS.iter().find(|r| r.effect == effect && r.method == method)
+}
+
+impl Wrapper {
+    /// The fix a diagnostic prints: the call, and the module it comes from.
+    pub fn fix(&self) -> String {
+        format!("call it through `{}`: `{}`", self.module, self.call)
+    }
+
+    /// The import line the fix needs, for a door that leads with a module
+    /// alias — and nothing for one that leads with a handle, where the name is
+    /// the reader's own local and no import would introduce it.
+    ///
+    /// The alias is the module path's last segment, which is the convention
+    /// every `core/*` wrapper module already follows, and
+    /// [`tests::every_wrapper_call_leads_with_its_module_or_a_handle`] is what
+    /// keeps a row from quietly inventing a second one.
+    pub fn import(&self) -> Option<String> {
+        let alias = self.module.rsplit('/').next()?;
+        self.call
+            .starts_with(&format!("{alias}."))
+            .then(|| format!("the import is `from \"{}\" import * as {alias};`", self.module))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    /// The declared effect methods, read off the two platform sources that may
+    /// declare an effect: `(effect, method)`, in declaration order.
+    ///
+    /// Off the source text rather than off a second list, for
+    /// `every_host_export_is_in_the_grant_table`'s reason — a method added to
+    /// `core/effect` and forgotten here would be a method with no way to call
+    /// it, which is precisely the hole [`WRAPPERS`] exists to close.
+    fn declared_effect_methods() -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for path in ["core/effect", "ui/effect"] {
+            let src = source(path).expect("a platform module");
+            let mut effect: Option<String> = None;
+            for line in src.lines() {
+                let t = line.trim();
+                if let Some(rest) = t.strip_prefix("export effect ") {
+                    effect = Some(rest.split([' ', '{', '<']).next().unwrap_or("").to_string());
+                    continue;
+                }
+                // A declaration is one line and ends the block it is in only at
+                // a closing brace in column one, which is the shape every
+                // effect in both files is written in.
+                if t == "}" {
+                    effect = None;
+                    continue;
+                }
+                let Some(e) = &effect else { continue };
+                let Some(rest) = t.strip_prefix("fn ") else { continue };
+                let name = rest.split(['(', '<']).next().unwrap_or("");
+                out.push((e.clone(), name.to_string()));
+            }
+        }
+        out
+    }
+
+    /// Every method of every declared effect has a standard-library function
+    /// that calls it.
+    ///
+    /// This is the invariant the rule rests on: an effect method is no longer
+    /// callable outside the standard library and the `impl` that supplies it,
+    /// so a method with no wrapper is a method nothing can reach. `Alloc`,
+    /// `Proc`, `Listen` and `Sockets` failed this the day the table was
+    /// written — six methods of thirty-eight with no door — and it is the
+    /// reason `core/proc` and `core/net/server` exist.
+    #[test]
+    fn every_effect_method_has_a_door() {
+        let declared = declared_effect_methods();
+        assert!(declared.len() > 30, "the scan found only {} methods", declared.len());
+        for (effect, method) in &declared {
+            let row = wrapper(effect, method);
+            assert!(
+                row.is_some(),
+                "`{effect}.{method}` is declared and no standard-library function calls it, so \
+                 nothing outside `core/*` can perform it"
+            );
+            let row = row.expect("checked");
+            assert!(
+                find(row.module).is_some(),
+                "`{effect}.{method}`'s door is in `{}`, which is not a module",
+                row.module
+            );
+        }
+    }
+
+    /// A door's call either leads with its module's alias — the path's last
+    /// segment, which is what every wrapper module is imported as — or with a
+    /// handle the reader already has. Nothing in between: a call leading with
+    /// a third name would print an import nobody could write.
+    #[test]
+    fn every_wrapper_call_leads_with_its_module_or_a_handle() {
+        for row in WRAPPERS {
+            let alias = row.module.rsplit('/').next().expect("a path has a segment");
+            let leads = row.call.starts_with(&format!("{alias}."));
+            assert_eq!(
+                leads,
+                row.import().is_some(),
+                "`{}.{}` disagrees with itself about leading with `{alias}`",
+                row.effect,
+                row.method
+            );
+            assert!(
+                leads || row.call.starts_with("aSignal."),
+                "`{}.{}`'s call `{}` leads with neither `{alias}` nor a handle",
+                row.effect,
+                row.method,
+                row.call
+            );
+        }
+    }
+
+    /// And the other direction: a row for a method nobody declares would offer
+    /// a fix that does not compile.
+    #[test]
+    fn every_wrapper_names_a_declared_method() {
+        let declared = declared_effect_methods();
+        for row in WRAPPERS {
+            assert!(
+                declared.iter().any(|(e, m)| e == row.effect && m == row.method),
+                "`{}.{}` has a wrapper row and no declaration",
+                row.effect,
+                row.method
+            );
+        }
+    }
 
     /// A prelude name is in scope in every module, so its module has to be in
     /// every compilation.

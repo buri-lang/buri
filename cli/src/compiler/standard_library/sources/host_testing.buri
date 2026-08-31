@@ -135,11 +135,15 @@ export fn alloc(): TestAlloc;
 /// assertion.
 export struct TestStdout(I64);
 impl Stdout for TestStdout {
-  fn print(self, text: Template): ();
-  fn println(self, text: Template): ();
+  /// Always `.Ok(())`. A captured stream is a buffer the runner owns, so there
+  /// is nothing here to fail — and the `Result` is still in the signature,
+  /// because the effect declares it and a test writes the same line a program
+  /// does.
+  fn print(self, text: Template): Result<(), IoError>;
+  fn println(self, text: Template): Result<(), IoError>;
   /// Captured as the UTF-8 text the octets spell, so `captured` answers one
   /// question rather than two.
-  fn writeBytes(self, b: [U8]): ();
+  fn writeBytes(self, b: [U8]): Result<(), IoError>;
 }
 export fn stdout(): TestStdout;
 
@@ -151,8 +155,8 @@ impl TestStdout {
 /// The same, for standard error.
 export struct TestStderr(I64);
 impl Stderr for TestStderr {
-  fn eprint(self, text: Template): ();
-  fn eprintln(self, text: Template): ();
+  fn eprint(self, text: Template): Result<(), IoError>;
+  fn eprintln(self, text: Template): Result<(), IoError>;
 }
 export fn stderr(): TestStderr;
 

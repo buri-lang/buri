@@ -4,5 +4,5 @@ from "core/io" import * as io;
 /// `io.println` asks for `Stdout` and for nothing else, so two of the three
 /// bounds are a demand on every caller for a capability nothing here uses.
 export fn announce<C: Stdout>(ctx: C, label: Str): () {
-  io.println(ctx, "-- ${label}")
+  io.println(ctx, "-- ${label}").ignore()
 }

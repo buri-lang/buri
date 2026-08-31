@@ -1,6 +1,7 @@
 // EXPECT: `if` requires an `else` branch
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn sign(n: Int): Int {
   let label = if (n > 0) { 1 };
@@ -9,6 +10,6 @@ fn sign(n: Int): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${sign(1)}");
+  let _ = io.println(ctx, "${sign(1)}").ignore();
   .Ok(())
 }

@@ -136,8 +136,15 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     let Some(decl) = body_ast(c, info.ast) else { return };
     let Some(body) = decl.body else { return };
 
+    // A method supplied to an `effect` impl is where that effect's operation is
+    // implemented, so it is the one body outside the standard library that may
+    // still call an effect method on a value (`report_effect_method`).
+    let in_effect_impl =
+        info.impl_of.is_some_and(|(tid, _)| c.tables.trait_(tid).is_effect);
+
     let mut inf = Infer::new(c, info.module, info.generics.clone(), info.ret.clone());
     inf.self_con = info.self_ty;
+    inf.in_effect_impl = in_effect_impl;
     inf.in_main = info.name == "main" && info.exported && inf.role == Role::Entry;
     inf.push_scope();
     for p in &info.params {
@@ -356,6 +363,16 @@ pub struct Infer<'a, 'b> {
     /// Template holes, checked after defaulting so `"${1 + 1}"` is fine.
     pub(crate) hole_checks: Vec<(Ty, Span)>,
     pub(crate) role: Role,
+    /// Whether the body being checked supplies a method of an *effect*.
+    ///
+    /// That body is where the operation is implemented, so it is one of the
+    /// two layers that may still call an effect method on a value — the other
+    /// is the standard library, which [`Infer::role`] names. It is what keeps
+    /// SPEC 10.8's attenuation wrapper writable: `ReadOnly<C>`'s `readFile`
+    /// delegates with `self.0.readFile(path)`, and cannot delegate to
+    /// `core/fs`'s wrapper, which is bounded `Alloc + Fs` where the `impl`
+    /// carries only `C: Fs`. See `expressions.rs`'s `report_effect_method`.
+    pub(crate) in_effect_impl: bool,
     /// Whether the body being checked is `main`'s. A context may be built in
     /// `main`'s body, not merely anywhere in the module that exports it.
     pub(crate) in_main: bool,
@@ -388,6 +405,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             lit_checks: Vec::new(),
             hole_checks: Vec::new(),
             role,
+            in_effect_impl: false,
             in_main: false,
             or_scope: None,
             pattern_names: Vec::new(),

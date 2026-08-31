@@ -19,13 +19,13 @@ export trait Report {
 
 impl Report for Ledger {
   fn write<C: Stdout>(self, sink: C): () {
-    io.println(sink, "${self.lines}")
+    io.println(sink, "${self.lines}").ignore()
   }
 }
 
 impl Ledger {
   fn dump<C: Stdout>(self, sink: C): () {
-    io.println(sink, "dump")
+    io.println(sink, "dump").ignore()
   }
 }
 

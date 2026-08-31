@@ -52,6 +52,7 @@
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
 //! from "core/host" import * as host;
+//! from "core/io" import * as io;
 //! from "core/ordmap" import * as ordmap;
 //!
 //! export fn main(): Result<(), Str> {
@@ -61,7 +62,7 @@
 //!   let names = scores.keys(ctx).join(ctx, " ");
 //!   // Half-open: "alice" and "bob" are in the scan, "carol" is not.
 //!   let scanned = scores.range(ctx, "alice", "carol").len();
-//!   let _ = ctx.println("${names}: ${scanned} in [alice, carol)");
+//!   let _ = io.println(ctx, "${names}: ${scanned} in [alice, carol)").ignore();
 //!   .Ok(())
 //! }
 //! ```

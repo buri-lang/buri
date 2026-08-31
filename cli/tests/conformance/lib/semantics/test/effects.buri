@@ -11,23 +11,24 @@
 // assertions instead: a build error there is a failure, so those blocks are a
 // compile-time claim as much as a runtime one.
 
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import {
-  alloc, clock, env, fs, net, rand, stderr, stdin, stdout,
-};
+
+from "core/bytes" import * as bytes;
 from "core/effect" import {
   Alloc, Clock, Env, Fs, IoError, Listen, Net, Rand, Request, Response, Sockets, Stderr, Stdin,
   Stdout, Tasks,
 };
-
-from "core/bytes" import * as bytes;
 from "core/env" import * as env;
 from "core/fs" import * as fs;
+from "core/host/testing" import {
+  alloc, clock, env, fs, net, rand, stderr, stdin, stdout,
+};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
+from "core/net/server" import * as server;
 from "core/random" import * as random;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
+from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 
 from "//lib/semantics" import {
@@ -128,7 +129,7 @@ test "a context binds one implementation per effect it names" {
   assert.eq(assert.some(io.readLine(ctx)), "a line");
   assert.eq(env.args(ctx), ["arg"]);
   greet(ctx, "world");
-  io.eprintln(ctx, "err");
+  io.eprintln(ctx, "err").ignore();
   assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
   assert.isTrue(random.int(ctx, 0, 10) >= 0);
 }
@@ -219,7 +220,7 @@ test "every effect a spread supplies can be called, not only the one replaced" {
   assert.none(io.readLine(ctx));
   assert.eq(env.args(ctx), []);
   greet(ctx, "inherited");
-  io.eprintln(ctx, "inherited");
+  io.eprintln(ctx, "inherited").ignore();
   assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
   assert.isTrue(random.int(ctx, 0, 10) >= 0);
   // ...and the one it did replace, which is the only half that used to work.
@@ -623,9 +624,9 @@ test "captured accumulates in the order things were printed" {
 test "print does not add a newline and println does" {
   let sink = stdout();
   let ctx = context { Stdout: sink };
-  io.print(ctx, "one");
-  io.println(ctx, "two");
-  io.print(ctx, "three");
+  io.print(ctx, "one").ignore();
+  io.println(ctx, "two").ignore();
+  io.print(ctx, "three").ignore();
   assert.eq(sink.captured(), "onetwo\nthree");
 }
 
@@ -645,7 +646,7 @@ test "two captures in one test are independent" {
 test "captured reads back what went to stderr" {
   let sink = stderr();
   let ctx = context { Stderr: sink };
-  io.eprintln(ctx, "to stderr");
+  io.eprintln(ctx, "to stderr").ignore();
   assert.eq(sink.captured(), "to stderr\n");
 }
 
@@ -653,8 +654,8 @@ test "stdout and stderr are separate streams" {
   let out = stdout();
   let err = stderr();
   let ctx = context { Stdout: out, Stderr: err };
-  io.print(ctx, "O");
-  io.eprint(ctx, "E");
+  io.print(ctx, "O").ignore();
+  io.eprint(ctx, "E").ignore();
   assert.eq(out.captured(), "O");
   assert.eq(err.captured(), "E");
 }
@@ -662,7 +663,7 @@ test "stdout and stderr are separate streams" {
 test "a captured stream keeps a passing test quiet" {
   let ctx = Defaults();
   greet(ctx, "quiet");
-  io.eprintln(ctx, "quiet");
+  io.eprintln(ctx, "quiet").ignore();
 }
 
 // -----------------------------------------------------------------------------
@@ -721,7 +722,7 @@ test "a test clock moves only when the test advances it" {
   let ctx = context { Clock: dial };
   let start = stamp(ctx);
   assert.eq(stamp(ctx).0, 500);
-  dial.sleepMillis(250);
+  time.sleepMs(dial, 250);
   assert.eq(stamp(ctx).0, 750);
   assert.eq(elapsed(ctx, start), 250);
 }
@@ -729,9 +730,9 @@ test "a test clock moves only when the test advances it" {
 test "advancing repeatedly accumulates" {
   let dial = clock().at(0);
   let ctx = context { Clock: dial };
-  dial.sleepMillis(1);
-  dial.sleepMillis(2);
-  dial.sleepMillis(3);
+  time.sleepMs(dial, 1);
+  time.sleepMs(dial, 2);
+  time.sleepMs(dial, 3);
   assert.eq(stamp(ctx).0, 6);
 }
 
@@ -740,7 +741,7 @@ test "advancing one clock does not move another" {
   let b = clock().at(0);
   let actx = context { Clock: a };
   let bctx = context { Clock: b };
-  a.sleepMillis(100);
+  time.sleepMs(a, 100);
   assert.eq(stamp(actx).0, 100);
   assert.eq(stamp(bctx).0, 0);
 }
@@ -885,7 +886,7 @@ test "an empty byte stdin is immediately at end-of-input" {
 test "writeBytes writes the octets through, and they are the text they spell" {
   let out = stdout();
   let ctx = context { Stdout: out };
-  let _ = io.writeBytes(ctx, [104.wrapToU8(), 105.wrapToU8()]);
+  let _ = io.writeBytes(ctx, [104.wrapToU8(), 105.wrapToU8()]).ignore();
   assert.eq(out.captured(), "hi");
 }
 
@@ -1078,18 +1079,18 @@ test "the same five methods resolve on the context value itself" {
     Net: TeapotNet { body: [] },
     Sockets: QuietSockets {},
   };
-  let _ = ctx.socketSendText(1, "hello");
-  let _ = ctx.socketSendBytes(1, []);
-  let _ = ctx.socketClose(1, 1000, "bye");
+  let _ = server.sendText(ctx, 1, "hello");
+  let _ = server.sendBytes(ctx, 1, []);
+  let _ = server.close(ctx, 1, 1000, "bye");
   // `c` is the `OneShotListen` the context binds — not the context — so its
   // field is readable, and reading it is the assertion. `.Ok(())` back means
   // the handler answered 200, which it can only do off the right bytes.
-  assert.ok(ctx.listen("127.0.0.1", 0, fn(c, request) => Response {
+  assert.ok(server.listen(ctx, "127.0.0.1", 0, fn(c, request) => Response {
     status: if (c.bindsTo == "127.0.0.1") { 200 } else { 500 },
     headers: [],
     body: [],
   }));
-  let reply = assert.ok(ctx.fetch(Request {
+  let reply = assert.ok(http.send(ctx, Request {
     method: .Get,
     url: "http://example.com/ping",
     headers: [],
@@ -1146,7 +1147,7 @@ test "a handler through a context is handed the implementation, not the context"
   // all, so this line does not compile if `Self` is the receiver — and before
   // it was made to, the same line with the field left out compiled and then
   // crashed the process.
-  assert.ok(ctx.listen("10.0.0.1", 0, fn(server, request) => Response {
+  assert.ok(server.listen(ctx, "10.0.0.1", 0, fn(server, request) => Response {
     status: if (server.bindsTo == request.url) { 200 } else { 500 },
     headers: [],
     body: [],
@@ -1154,7 +1155,7 @@ test "a handler through a context is handed the implementation, not the context"
   // The negation: the handler answers 500 when the two disagree, and
   // `OneShotListen` turns anything but 200 into `.Refused`. So the assertion
   // above is not passing by answering 200 whatever it was handed.
-  let _ = assert.err(ctx.listen("127.0.0.1", 0, fn(server, request) => Response {
+  let _ = assert.err(server.listen(ctx, "127.0.0.1", 0, fn(server, request) => Response {
     status: if (server.bindsTo == request.url) { 200 } else { 500 },
     headers: [],
     body: [],
@@ -1204,7 +1205,7 @@ test "a step reads an effect out of the context it is handed" {
   // arrived and not only how wide it was: a step handed the scheduler read `0`.
   let runner = SerialTasks { label: "s", bias: 0 };
   let ctx = context { Alloc: alloc(), Clock: clock().at(5), Tasks: runner };
-  let out = tasks.parallel(ctx, [7, 9], fn(c, i, x) => c.nowMillis() + x);
+  let out = tasks.parallel(ctx, [7, 9], fn(c, i, x) => time.now(c).0 + x);
   assert.eq(out, [12, 14]);
 }
 
@@ -1214,7 +1215,7 @@ test "a step uses two effects from its context in one expression" {
   // satisfy neither, and a step handed a context missing one would not compile.
   let runner = SerialTasks { label: "s", bias: 0 };
   let ctx = context { Alloc: alloc(), Clock: clock().at(5), Tasks: runner };
-  let out = tasks.parallel(ctx, [7, 9], fn(c, i, x) => str.format(c, "${c.nowMillis()}:${i}:${x}"));
+  let out = tasks.parallel(ctx, [7, 9], fn(c, i, x) => str.format(c, "${time.now(c).0}:${i}:${x}"));
   assert.eq(out, ["5:0:7", "5:1:9"]);
 }
 
@@ -1226,7 +1227,7 @@ test "a nested parallel is made with the context the outer step was handed" {
   let runner = SerialTasks { label: "s", bias: 0 };
   let ctx = context { Alloc: alloc(), Clock: clock().at(5), Tasks: runner };
   let out = tasks.parallel(ctx, [7], fn(c, i, x) =>
-    tasks.parallel(c, [x, x], fn(d, j, y) => d.nowMillis() + y + j)
+    tasks.parallel(c, [x, x], fn(d, j, y) => time.now(d).0 + y + j)
       .fold(fn(a, m) => a + m, 0));
   assert.eq(out, [25]);
 }
@@ -1247,7 +1248,7 @@ test "an ordinary Buri implementation hands its steps the context" {
   // by the compiler's trampoline.
   let runner = SerialTasks { label: "s", bias: 0 };
   let ctx = context { Clock: clock().at(11), Tasks: runner };
-  let out = ctx.parallel(ctx, [1, 2], fn(c, i, item) => c.nowMillis() + i * 10 + item);
+  let out = tasks.parallel(ctx, [1, 2], fn(c, i, item) => c.nowMillis() + i * 10 + item)time.now(c).0 + i * 10 + item);
   assert.eq(out[0] ?? 0, 12);
   assert.eq(out[1] ?? 0, 23);
 }

@@ -33,10 +33,10 @@ export fn main(): Result<(), Str> {
   let doubled = memo(ctx, fn(s) => count.get(s) * 2);
   let _ = watch(ctx, fn(s) => ignore(doubled.read(s)));
 
-  let _ = io.println(ctx, "count ${count.get(ctx)}");
+  let _ = io.println(ctx, "count ${count.get(ctx)}").ignore();
   let _ = count.update(ctx, fn(n) => n + 1);
-  let _ = io.println(ctx, "count ${count.get(ctx)}");
+  let _ = io.println(ctx, "count ${count.get(ctx)}").ignore();
   let _ = count.set(ctx, 20);
-  let _ = io.println(ctx, "count ${count.get(ctx)}");
+  let _ = io.println(ctx, "count ${count.get(ctx)}").ignore();
   .Ok(())
 }

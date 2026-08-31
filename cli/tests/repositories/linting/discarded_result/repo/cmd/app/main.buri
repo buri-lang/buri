@@ -12,6 +12,6 @@ fn record(): Result<(), Str> { .Ok(()) }
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let _ = record().ignore();
-  let _ = io.println(ctx, "done");
+  let _ = io.println(ctx, "done").ignore();
   .Ok(())
 }

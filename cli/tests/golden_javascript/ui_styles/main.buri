@@ -70,7 +70,7 @@ export fn main(): Result<(), Str> {
     Ui: host.ui,
     Watch: host.watch,
   };
-  let _ = io.println(ctx, "styled");
+  let _ = io.println(ctx, "styled").ignore();
   let page = ui.column(
     [
       .Padding(.Rem(1.0)),

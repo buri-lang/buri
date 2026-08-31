@@ -90,9 +90,19 @@ impl<'a, 'b> Infer<'a, 'b> {
                             d.fix(fix);
                         }
                     }
-                    if let (Some(fix), Some(at)) = (dropped_result, slot) {
+                    // Outside a test source a `Result` statement is *both*
+                    // errors at once, and `.ignore()` alone answers only the
+                    // second: it settles the type and leaves the statement
+                    // standing. So the edit this one offers is the whole edit —
+                    // the drop and the binding together — which is what a
+                    // program prints a line with now that `println` answers a
+                    // `Result`.
+                    if let (true, Some(at)) = (dropped_result.is_some(), slot) {
                         if let Some(d) = self.c.diags.items.get_mut(at) {
-                            d.fix(fix);
+                            d.fix(
+                                "consume it and bind what is left: `let _ = ....ignore();` — or \
+                                 `?` to propagate, `match` to handle both cases",
+                            );
                         }
                     }
                     stmts.push(typed::Stmt::Expr(e));
@@ -1089,12 +1099,70 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .bind("first_trait", a.clone())
                         .bind("second_trait", c)
                         .fix(format!("call it as a function to say which: `{a}.{name}(x, y)`"));
+                    self.report_effect_method(prev, name, span);
                     return Some(MethodTarget::Bound(prev, prev_index));
                 }
                 found = Some((*b, i));
             }
         }
-        found.map(|(t, i)| MethodTarget::Bound(t, i))
+        let (tid, index) = found?;
+        self.report_effect_method(tid, name, span);
+        Some(MethodTarget::Bound(tid, index))
+    }
+
+    /// An effect's methods are called through the module that wraps the
+    /// effect, never on the value that carries it (SPEC 10.2).
+    ///
+    /// `ctx.println(t)` is `io.println(ctx, t)`, and this is the one place
+    /// that says so, because [`Self::find_in_bounds`] is the one place a
+    /// method reaches a *bound* — which is what an effect's methods are only
+    /// ever reachable through. A context value, a `ctx: C` bounded by an
+    /// effect, and a `host.stdout` written out in `main` all arrive here, so
+    /// one check covers the three shapes rather than three checks covering one
+    /// each.
+    ///
+    /// **Two layers are below the line and keep the method form.** The
+    /// standard library is where the wrappers are, so its bodies are the only
+    /// thing that reaches an effect at all; and the body of an `impl` that
+    /// *supplies* an effect is where the operation is implemented, which is
+    /// what keeps SPEC 10.8's attenuation wrapper writable —
+    /// `impl<C: Fs> Fs for ReadOnly<C> { fn readFile(self, p) { self.0.readFile(p) } }`
+    /// cannot be `fs.readText(self.0, p)`, because that wrapper is bounded
+    /// `Alloc + Fs` and the impl carries only `C: Fs`. The carve-out grants no
+    /// new authority: an implementor can only reach an inner context somebody
+    /// already handed it.
+    ///
+    /// The target is still returned by the caller, so the rest of the body
+    /// checks against the type the method really has and one wrong call does
+    /// not cascade — the shape `ambiguous-trait-method` above already uses.
+    fn report_effect_method(&mut self, tid: TraitId, name: &str, span: Span) {
+        if !self.c.tables.trait_(tid).is_effect || self.may_call_effect_method() {
+            return;
+        }
+        let effect = self.c.tables.trait_(tid).name.clone();
+        let door = standard_library::wrapper(&effect, name);
+        let d = self
+            .templated("effect-method-call", span)
+            .bind("effect", effect.clone())
+            .bind("method", name.to_string());
+        match door {
+            Some(row) => {
+                d.fix(row.fix());
+                if let Some(import) = row.import() {
+                    d.notes.push(import);
+                }
+            }
+            None => d.notes.push(format!(
+                "`{effect}` is an effect, and an effect is performed by handing the context to a \
+                 function rather than by calling a method on it"
+            )),
+        }
+    }
+
+    /// Whether the body being checked is one of the two layers that may call an
+    /// effect method directly.
+    fn may_call_effect_method(&self) -> bool {
+        matches!(self.role, Role::Std | Role::Platform) || self.in_effect_impl
     }
 
     /// The type arguments `x.f<A, B>(…)` supplies, as a whole trait-method
@@ -2945,13 +3013,26 @@ mod tests {
     /// platform module, so a snippet cannot mint one, and these two are
     /// granted by no platform — which does not stop an ordinary type from
     /// satisfying them (SPEC 10.9) or a `context` from binding one.
+    ///
+    /// **`Role::Platform` rather than `Role::Entry`**, and that is the whole of
+    /// what the "no methods on a context" rule costs these tests. What they are
+    /// about is `implementing_ty` — which type `Self` stands for when an effect
+    /// method is reached *through a context value* — and the only way to write
+    /// that call down is the method form, which is now legal in the standard
+    /// library and in an `impl` that supplies an effect, and nowhere else
+    /// (`report_effect_method`). A platform module is one of those two, and it
+    /// may build a context (SPEC 11.3), so the claim is written where it is
+    /// still writable. Going through `core/net/server`'s wrapper instead would
+    /// test the wrapper: inside a generic body `Self` is the receiver, which is
+    /// the *other* half of the question and the one `shapes.buri`'s `serveOnce`
+    /// already pins.
     fn errors_of(src: &str) -> Vec<String> {
         let mut map = SourceMap::new();
         let analysis = crate::compiler::driver::analyze_snippet(
             &mut map,
             "self_through_a_context.buri",
             src,
-            crate::compiler::modules::Role::Entry,
+            crate::compiler::modules::Role::Platform,
         );
         analysis
             .diagnostics
@@ -2997,7 +3078,7 @@ impl Net for Caller {{
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{ Listen: Server {{ mark: 7 }}, Net: Caller {{}} }};
-  match (ctx.listen("a", 0, fn(server, request) => Response {{
+  match (ctx.listen("a", 0, fn(acceptor, request) => Response {{
     status: {handler},
     headers: [],
     body: [],
@@ -3014,11 +3095,11 @@ export fn main(): Result<(), Str> {{
     /// it is readable.
     ///
     /// A context has no fields at all, so this is the whole claim in one line:
-    /// before `implementing_ty`, `Self` was the receiver and `server.mark`
+    /// before `implementing_ty`, `Self` was the receiver and `acceptor.mark`
     /// reported `no-field` on a type with no name to print.
     #[test]
     fn a_self_parameter_through_a_context_is_the_implementing_type() {
-        let errors = errors_of(&snippet("server.mark"));
+        let errors = errors_of(&snippet("acceptor.mark"));
         assert!(errors.is_empty(), "the snippet did not compile: {errors:?}");
     }
 
@@ -3032,7 +3113,7 @@ export fn main(): Result<(), Str> {{
     #[test]
     fn a_self_parameter_through_a_context_is_not_the_context() {
         let errors = errors_of(&snippet(
-            "match (server.fetch(request)) { .Ok(r) => r.status, .Err(_) => 0 }",
+            "match (acceptor.fetch(request)) { .Ok(r) => r.status, .Err(_) => 0 }",
         ));
         assert!(
             errors.iter().any(|m| m.contains("fetch")),
@@ -3049,7 +3130,7 @@ export fn main(): Result<(), Str> {{
     /// that agreement; this is the other spelling, which must compile too.
     #[test]
     fn the_impl_may_spell_the_handler_with_the_concrete_type_instead() {
-        let src = snippet("server.mark")
+        let src = snippet("acceptor.mark")
             .replace("onRequest: fn(Self, Request) => Response", "onRequest: fn(Server, Request) => Response");
         let errors = errors_of(&src);
         assert!(errors.is_empty(), "the snippet did not compile: {errors:?}");

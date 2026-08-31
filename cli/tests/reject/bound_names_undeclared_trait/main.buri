@@ -1,11 +1,12 @@
 // EXPECT: `Bogus` is not a trait or effect
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn measure<T: Bogus>(x: T): Int { 1 }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${measure(1)}");
+  let _ = io.println(ctx, "${measure(1)}").ignore();
   .Ok(())
 }

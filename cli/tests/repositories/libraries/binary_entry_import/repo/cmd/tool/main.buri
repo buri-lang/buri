@@ -3,6 +3,7 @@
 
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 // Re-exported so the suite can reach it. Everything else in routes.buri stays
 // inside the binary.
@@ -14,6 +15,6 @@ export fn banner(): Str { "tool" }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${banner()}: ${route("/health")}");
+  let _ = io.println(ctx, "${banner()}: ${route("/health")}").ignore();
   .Ok(())
 }

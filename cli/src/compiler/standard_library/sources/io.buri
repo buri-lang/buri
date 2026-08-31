@@ -1,29 +1,42 @@
 //! core/io — printing and reading a line.
 //!
-//! These are free functions over a context, so they keep the context first.
-//! The same operations are reachable as `ctx.println(...)`, because an effect
-//! is an interface and its methods resolve through the bound like any other.
+//! These are free functions over a context, so they keep the context first, and
+//! they are the *only* way to reach `Stdout`, `Stderr` and `Stdin`: an effect is
+//! performed by handing the context to a function, never by calling a method on
+//! it (SPEC 10.2).
 //!
-//! `print` and `println` return `()`, not `Result`. Stream errors are reported
-//! by the platform at flush time and surface as `main`'s exit status; threading
-//! an `IoError` through every print statement buys nothing a program can act on
-//! (SPEC 5.7.1).
+//! **A print answers `Result<(), IoError>`.** A closed pipe, a full disk and a
+//! revoked permission are things that happen to a print, and the signature says
+//! so. Discarding a `Result` is an error in both of the two places a value can
+//! be dropped, so a program that does not care about the failure writes the one
+//! greppable spelling of a deliberate drop:
+//!
+//! ```buri role=std
+//! # from "core/effect" import { Stdout };
+//! # from "core/io" import * as io;
+//! export fn greet<C: Stdout>(ctx: C): () {
+//!   io.println(ctx, "hello").ignore()
+//! }
+//! ```
+//!
+//! `core/effect`'s `Stdout` is where that decision is argued in full.
 
-from "core/effect" import { Stderr, Stdin, Stdout };
+from "core/effect" import { IoError, Stderr, Stdin, Stdout };
+from "core/effect" export { IoError };
 
-export fn print<C: Stdout>(ctx: C, text: Template): () {
+export fn print<C: Stdout>(ctx: C, text: Template): Result<(), IoError> {
   ctx.print(text)
 }
 
-export fn println<C: Stdout>(ctx: C, text: Template): () {
+export fn println<C: Stdout>(ctx: C, text: Template): Result<(), IoError> {
   ctx.println(text)
 }
 
-export fn eprint<C: Stderr>(ctx: C, text: Template): () {
+export fn eprint<C: Stderr>(ctx: C, text: Template): Result<(), IoError> {
   ctx.eprint(text)
 }
 
-export fn eprintln<C: Stderr>(ctx: C, text: Template): () {
+export fn eprintln<C: Stderr>(ctx: C, text: Template): Result<(), IoError> {
   ctx.eprintln(text)
 }
 
@@ -41,6 +54,6 @@ export fn readBytes<C: Stdin>(ctx: C, n: Int): Option<[U8]> {
 }
 
 /// Octets to standard output, encoded as nothing.
-export fn writeBytes<C: Stdout>(ctx: C, b: [U8]): () {
+export fn writeBytes<C: Stdout>(ctx: C, b: [U8]): Result<(), IoError> {
   ctx.writeBytes(b)
 }

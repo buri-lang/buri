@@ -2,6 +2,7 @@
 // so what reaches the backend is a direct call — and a wrapper around it.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 trait Area {
   fn area(self): Int;
@@ -28,7 +29,7 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let s = Sq { side: 3 };
   let r = Rect { w: 2, h: 5 };
-  let _ = ctx.println("${s.area()} ${r.area()} ${s.describe()}");
-  let _ = ctx.println("${total(s, Sq { side: 4 })} ${total(r, Rect { w: 1, h: 1 })}");
+  let _ = io.println(ctx, "${s.area()} ${r.area()} ${s.describe()}").ignore();
+  let _ = io.println(ctx, "${total(s, Sq { side: 4 })} ${total(r, Rect { w: 1, h: 1 })}").ignore();
   .Ok(())
 }

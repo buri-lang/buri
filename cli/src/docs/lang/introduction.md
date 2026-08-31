@@ -68,7 +68,7 @@ export fn main(): Result<(), Str> {
 
   let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
   let total = shapes.map(ctx, fn(s) => s.area()).sumFloat();
-  let _ = io.println(ctx, "total area: ${total}");
+  let _ = io.println(ctx, "total area: ${total}").ignore();
   .Ok(())
 }
 ```

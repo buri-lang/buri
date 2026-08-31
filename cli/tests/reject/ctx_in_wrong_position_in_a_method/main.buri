@@ -15,13 +15,13 @@ export trait Ring {
 
 impl Ring for Bell {
   fn ring<C: Stdout>(self, times: Int, ctx: C): () {
-    io.println(ctx, "${self.tone} ${times}")
+    io.println(ctx, "${self.tone} ${times}").ignore()
   }
 }
 
 impl Bell {
   fn peal<C: Stdout>(self, times: Int, ctx: C): () {
-    io.println(ctx, "${self.tone} ${times}")
+    io.println(ctx, "${self.tone} ${times}").ignore()
   }
 }
 

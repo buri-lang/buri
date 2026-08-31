@@ -1,6 +1,7 @@
+from "core/bytes" import * as bytes;
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
-from "core/bytes" import * as bytes;
+from "core/io" import * as io;
 from "core/json" import * as json;
 from "//lib/rpc" import {
   Any, ErrorInfo, Status,
@@ -17,11 +18,11 @@ export fn main(): Result<(), Str> {
     value: encodeErrorInfo(ctx, info),
   };
   let status = Status { code: 3, message: "bad argument", details: [detail] };
-  let _ = ctx.println("${decodeStatus(ctx, encodeStatus(ctx, status)) == .Ok(status)}");
-  let _ = ctx.println(detail.typeUrl);
-  let _ = ctx.println(bytes.toHex(ctx, detail.value));
+  let _ = io.println(ctx, "${decodeStatus(ctx, encodeStatus(ctx, status)) == .Ok(status)}").ignore();
+  let _ = io.println(ctx, detail.typeUrl).ignore();
+  let _ = io.println(ctx, bytes.toHex(ctx, detail.value)).ignore();
   // And so is unpacking, with the codec for the type the program expects.
-  let _ = ctx.println("${decodeErrorInfo(ctx, detail.value) == .Ok(info)}");
-  let _ = ctx.println(json.stringify(ctx, encodeStatusJson(ctx, status)));
+  let _ = io.println(ctx, "${decodeErrorInfo(ctx, detail.value) == .Ok(info)}").ignore();
+  let _ = io.println(ctx, json.stringify(ctx, encodeStatusJson(ctx, status))).ignore();
   .Ok(())
 }

@@ -2,8 +2,9 @@
 // `nextInt` has no value to return when the range holds none, and there is no
 // `Option` in its signature to say so.
 from "core/effect" import { Alloc, Stdout, Env, Rand };
-from "core/host" import * as host;
 from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/random" import * as random;
 
 export fn main(): Result<(), Str> {
@@ -15,6 +16,6 @@ export fn main(): Result<(), Str> {
   };
   // Opaque to the compiler, so the call is really made.
   let hi = env.args(ctx).len();
-  let _ = ctx.println("${random.int(ctx, hi, hi)}");
+  let _ = io.println(ctx, "${random.int(ctx, hi, hi)}").ignore();
   .Ok(())
 }

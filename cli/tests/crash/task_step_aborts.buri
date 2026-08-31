@@ -13,10 +13,11 @@
 // backends and compares the message and the status; this file is what runs
 // wherever the JavaScript corpus runs.
 from "core/effect" import { Alloc, Env, Stdout, Tasks };
-from "core/host" import * as host;
 from "core/env" import * as env;
-from "core/tasks" import * as tasks;
+from "core/host" import * as host;
+from "core/io" import * as io;
 from "core/list" import * as list;
+from "core/tasks" import * as tasks;
 
 fn ratio(a: Int, b: Int): Int { a / b }
 
@@ -29,8 +30,8 @@ export fn main(): Result<(), Str> {
   };
   // A zero the compiler cannot fold: the process was given no arguments.
   let zero = env.args(ctx).len();
-  let _ = ctx.println("the first task finished");
+  let _ = io.println(ctx, "the first task finished").ignore();
   let answers = tasks.parallel(ctx, [2, 1, zero], fn(c, i, n) => ratio(12, n));
-  let _ = ctx.println("${answers.len()}");
+  let _ = io.println(ctx, "${answers.len()}").ignore();
   .Ok(())
 }

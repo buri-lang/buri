@@ -19,6 +19,6 @@ fn peek<C: Alloc + Stdout>(ctx: C, held: Boxed<C>): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${peek(ctx, .Nothing)}");
+  let _ = io.println(ctx, "${peek(ctx, .Nothing)}").ignore();
   .Ok(())
 }

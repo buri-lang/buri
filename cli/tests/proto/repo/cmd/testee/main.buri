@@ -49,8 +49,8 @@ fn serve<C: Alloc + Stdin + Stdout>(ctx: C): Result<(), Str> {
     .None => .Ok(()),
     .Some(request) => {
       let reply = encodeConformanceResponse(ctx, answer(ctx, request));
-      let _ = io.writeBytes(ctx, littleEndian32(reply.len()));
-      let _ = io.writeBytes(ctx, reply);
+      let _ = io.writeBytes(ctx, littleEndian32(reply.len())).ignore();
+      let _ = io.writeBytes(ctx, reply).ignore();
       serve(ctx)
     },
   }

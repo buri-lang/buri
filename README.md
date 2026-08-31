@@ -19,6 +19,7 @@ Buri is a strict, purely functional, statically typed language that compiles to 
 ```buri run
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Grade {
   Pass(Int),
@@ -48,7 +49,7 @@ export fn main(): Result<(), Str> {
 
   let grades = [Grade.Pass(91), Grade.Fail { score: 48, needed: 60 }];
   let missed = grades.map(ctx, fn(g) => g.shortfall()).sum();
-  let _ = ctx.println("points short: ${missed}");
+  let _ = io.println(ctx, "points short: ${missed}").ignore();
   .Ok(())
 }
 ```

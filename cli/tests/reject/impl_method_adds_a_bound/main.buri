@@ -21,7 +21,7 @@ export trait Report {
 
 impl Report for Ledger {
   fn write<C: Stdout + Alloc>(self, ctx: C): () {
-    io.println(ctx, "${self.lines}")
+    io.println(ctx, "${self.lines}").ignore()
   }
 }
 

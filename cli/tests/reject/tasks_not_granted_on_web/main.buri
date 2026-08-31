@@ -15,6 +15,7 @@
 // PLATFORM: WEB
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/host" import * as host;
+from "core/io" import * as io;
 from "ui/effect" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
@@ -25,6 +26,6 @@ export fn main(): Result<(), Str> {
     Ui: host.ui,
     Watch: host.watch,
   };
-  let _ = ctx.println("a page's concurrency is its event loop");
+  let _ = io.println(ctx, "a page's concurrency is its event loop").ignore();
   .Ok(())
 }

@@ -6,10 +6,11 @@
 // `conformance/lib/semantics/test/effects.buri`, and against the native
 // runtime in `cli/tests/native/runtime.rs`'s `wal` mode.
 
-from "core/effect" import { Alloc, Fs, IoError, Stdout };
 from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc, Fs, IoError, Stdout };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 /// What a step answered, as one word, so that the whole sequence is three
 /// lines of output rather than a cascade of `?`.
@@ -60,13 +61,11 @@ export fn main(): Result<(), Str> {
   let removed = word(fs.remove(ctx, "wal/log"));
   let removedAgain = word(fs.remove(ctx, "wal/log"));
 
-  let _ = ctx.println("mkdir ${made} ${madeAgain}");
-  let _ = ctx.println("append ${one} ${two} sync ${syncedOne} ${syncedTwo}");
-  let _ = ctx.println("log ${bytes.toHex(ctx, replayed)}");
-  let _ = ctx.println(
-    "checkpoint ${wrote} ${syncedTemporary} ${renamed} ${syncedDirectory}"
-  );
-  let _ = ctx.println("temporary-gone ${temporaryGone} kept ${bytes.toHex(ctx, kept)}");
-  let _ = ctx.println("remove ${removed} again ${removedAgain}");
+  let _ = io.println(ctx, "mkdir ${made} ${madeAgain}").ignore();
+  let _ = io.println(ctx, "append ${one} ${two} sync ${syncedOne} ${syncedTwo}").ignore();
+  let _ = io.println(ctx, "log ${bytes.toHex(ctx, replayed)}").ignore();
+  let _ = io.println(ctx, "checkpoint ${wrote} ${syncedTemporary} ${renamed} ${syncedDirectory}").ignore();
+  let _ = io.println(ctx, "temporary-gone ${temporaryGone} kept ${bytes.toHex(ctx, kept)}").ignore();
+  let _ = io.println(ctx, "remove ${removed} again ${removedAgain}").ignore();
   .Ok(())
 }

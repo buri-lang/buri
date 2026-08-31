@@ -2,6 +2,7 @@
 // inner arm re-establishes it.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Inner { A, B, C, D }
 
@@ -21,7 +22,7 @@ fn render(o: Outer): Str {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${render(Outer.One(Inner.C))} ${render(Outer.Two(Inner.A, 1))}");
-  let _ = ctx.println("${render(Outer.Two(Inner.D, 0))} ${render(Outer.Three)}");
+  let _ = io.println(ctx, "${render(Outer.One(Inner.C))} ${render(Outer.Two(Inner.A, 1))}").ignore();
+  let _ = io.println(ctx, "${render(Outer.Two(Inner.D, 0))} ${render(Outer.Three)}").ignore();
   .Ok(())
 }

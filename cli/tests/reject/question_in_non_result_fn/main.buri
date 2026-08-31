@@ -1,6 +1,7 @@
 // EXPECT: needs a `Result` return type
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn unwrap(r: Result<Int, Str>): Int {
   let n = r?;
@@ -9,6 +10,6 @@ fn unwrap(r: Result<Int, Str>): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${unwrap(.Ok(1))}");
+  let _ = io.println(ctx, "${unwrap(.Ok(1))}").ignore();
   .Ok(())
 }

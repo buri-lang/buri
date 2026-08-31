@@ -4,11 +4,12 @@
 // sitting in the argument list to run afterwards.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Pick { A, B }
 
 fn noisy<C: Stdout>(ctx: C, tag: Str, v: Int): Int {
-  let _ = ctx.println("${tag}");
+  let _ = io.println(ctx, "${tag}").ignore();
   v
 }
 
@@ -20,13 +21,13 @@ export fn main(): Result<(), Str> {
 
   // The first argument has an effect; the second needs statements.
   let r = both(noisy(ctx, "first", 1), match (p) { .A => 0, .B => noisy(ctx, "second", 2) });
-  let _ = ctx.println("${r}");
+  let _ = io.println(ctx, "${r}").ignore();
 
   // Three deep, so a single pin is not enough.
   let s = both(
     noisy(ctx, "one", 1),
     both(noisy(ctx, "two", 2), match (p) { .A => 0, .B => noisy(ctx, "three", 3) }),
   );
-  let _ = ctx.println("${s}");
+  let _ = io.println(ctx, "${s}").ignore();
   .Ok(())
 }

@@ -1,6 +1,7 @@
 // EXPECT: a rest pattern must come last
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn middle(xs: [Int]): Int {
   match (xs) {
@@ -11,6 +12,6 @@ fn middle(xs: [Int]): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${middle([1, 2, 3])}");
+  let _ = io.println(ctx, "${middle([1, 2, 3])}").ignore();
   .Ok(())
 }

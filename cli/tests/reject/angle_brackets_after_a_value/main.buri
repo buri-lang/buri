@@ -1,6 +1,7 @@
 // EXPECT: explicit type arguments qualify a function or a call
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 // `x < T > (y)` is the one shape both readings of `<` parse, and it is read as
 // type arguments applied to `x`. That is not a coin toss: comparison does not
@@ -14,6 +15,6 @@ fn f(a: Int, c: Int): Bool {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${f(1, 3)}");
+  let _ = io.println(ctx, "${f(1, 3)}").ignore();
   .Ok(())
 }

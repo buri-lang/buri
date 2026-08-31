@@ -14,6 +14,6 @@ from "core/io" import { print };
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let _ = print(ctx, "half a line");
-  let _ = io.println(ctx, " and the rest");
+  let _ = io.println(ctx, " and the rest").ignore();
   .Ok(())
 }

@@ -9,7 +9,7 @@ from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, describe());
+  let _ = io.println(ctx, describe()).ignore();
   .Ok(())
 }
 

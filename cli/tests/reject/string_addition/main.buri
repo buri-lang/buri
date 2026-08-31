@@ -1,6 +1,7 @@
 // EXPECT: `Str` does not implement `Add`
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn joined(a: Str, b: Str): Str {
   a + b
@@ -9,6 +10,6 @@ fn joined(a: Str, b: Str): Str {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let s = joined("a", "b");
-  let _ = ctx.println("${s}");
+  let _ = io.println(ctx, "${s}").ignore();
   .Ok(())
 }

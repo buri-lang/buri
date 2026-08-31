@@ -3,6 +3,7 @@
 // must not make the rest of the scrutinee's type look covered too.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Shape { Circle(Bool), Square(Int), Empty }
 
@@ -15,6 +16,6 @@ fn describe(s: Shape): Int {
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = ctx.println("${describe(Shape.Empty)}");
+  let _ = io.println(ctx, "${describe(Shape.Empty)}").ignore();
   .Ok(())
 }

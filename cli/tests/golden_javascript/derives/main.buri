@@ -2,6 +2,7 @@
 // descriptor rather than code specialised to the type it compares.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
+from "core/io" import * as io;
 
 struct Pair { a: Int, b: Str }
 
@@ -16,8 +17,8 @@ export fn main(): Result<(), Str> {
   let p = Pair { a: 1, b: "x" };
   let q = Pair { a: 1, b: "y" };
 
-  let _ = ctx.println("${p == q} ${p == p}");
-  let _ = ctx.println("${p.show(ctx)} ${q.show(ctx)}");
-  let _ = ctx.println("${Tag.Low == Tag.High(2)} ${Tag.High(2).show(ctx)}");
+  let _ = io.println(ctx, "${p == q} ${p == p}").ignore();
+  let _ = io.println(ctx, "${p.show(ctx)} ${q.show(ctx)}").ignore();
+  let _ = io.println(ctx, "${Tag.Low == Tag.High(2)} ${Tag.High(2).show(ctx)}").ignore();
   .Ok(())
 }

@@ -25,5 +25,5 @@ the receiver becomes an argument, which is what a function value needs.
 ```buri fail code=method-not-a-value use=errors wrap=body
 let sq = Square { side: 3 };
 let f = sq.area;
-let _ = ctx.println("${f()}");
+let _ = io.println(ctx, "${f()}").ignore();
 ```

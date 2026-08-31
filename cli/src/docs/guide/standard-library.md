@@ -278,9 +278,10 @@ builds its own allocator has been granted nothing.
 ```buri
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc, Fs };
+from "core/fs" import * as fs;
 
 fn inAScope<C: Alloc + Fs>(ctx: C, path: Str): Bool {
-  alloc.scoped(ctx, fn(c) => c.fileExists(path))
+  alloc.scoped(ctx, fn(c) => fs.exists(c, path))
 }
 ```
 
