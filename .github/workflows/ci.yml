@@ -96,8 +96,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, arch: arm64 }
-          - { os: ubuntu-24.04, arch: x86_64 }
+          - { os: blacksmith-12vcpu-macos-latest, arch: arm64 }
+          - { os: blacksmith-4vcpu-ubuntu-2404, arch: x86_64 }
           - { os: blacksmith-4vcpu-ubuntu-2404-arm, arch: arm64 }
     runs-on: ${{ matrix.os }}
     env:
@@ -210,7 +210,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: blacksmith-4vcpu-ubuntu-2404-arm-arm64
+          shared-key: ubuntu-24.04-arm-arm64
       - uses: oven-sh/setup-bun@v2
       - run: |
           set -euo pipefail
@@ -666,7 +666,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: blacksmith-4vcpu-ubuntu-2404-arm-release
+          shared-key: ubuntu-24.04-arm-release
       # One thread: two language servers on one runner would be timing each
       # other's contention. `--nocapture` because both tests print their
       # slowest requests on a pass, and this log is where the next
