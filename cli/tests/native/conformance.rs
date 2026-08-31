@@ -1129,7 +1129,7 @@ test "and a task is handed the context" {
     Clock: clock().at(5),
     Tasks: SerialTasks { label: "serial", bias: 4 },
   };
-  let out = tasks.parallel(ctx, [1], fn(c, i, item) => c.nowMillis() + item)time.now(c).0 + item);
+  let out = tasks.parallel(ctx, [1], fn(c, i, item) => time.now(c).0 + item);
   assert.eq(out[0] ?? 0, 6);
 }
 

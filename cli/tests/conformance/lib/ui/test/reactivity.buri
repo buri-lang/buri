@@ -283,22 +283,30 @@ fn plusOne(n: Signal<Int>): Prop<Int> {
 
 // --- explicit type arguments ---------------------------------------------------------
 
-// A method an effect declares takes explicit type arguments like any other
-// generic call. `Ui.memo<T>` and `Watch.read<T>` are the two the standard
-// library ships with a type parameter of their own, and neither effect declares
-// one itself, so what a call writes is the method's list alone.
+// A generic effect method reached through its wrapper. `Ui.memo<T>` and
+// `Watch.read<T>` are the two the standard library ships with a type parameter
+// of their own; `prop.memo` and `Signal.get` are their doors, and what these
+// assert is that the type argument still travels — the wrapper is instantiated
+// at `Int` in one test and at `Str` in the next.
+//
+// The *explicit* form is `Forwarding` above, which is the one layer outside
+// `core/*` where an effect method may still be called on a value.
 
-/// `Watch.read<T>` reached through a bound rather than through `Scope`'s own
-/// method: the receiver is a type parameter, so this is a trait-method call,
-/// which is the path the type arguments travel.
-fn readInt<C: Watch>(ctx: C, id: Int): Int {
-    ctx.read<Int>(id)
-}
+/// A `Watch` that forwards, and the corpus's one call to a *generic* effect
+/// method with its type argument written out.
+///
+/// An effect method is called on a value in exactly two layers — the standard
+/// library, which is where the wrappers are, and the body of an `impl` that
+/// supplies the effect, which is where the operation is implemented (SPEC
+/// 10.2). This is the second, so it is where `read<T>` can still be written at
+/// all. The explicit `<T>` is what `trait_method_targs` reads: the trait's own
+/// generics are settled by the receiver and a call writes the method's tail.
+struct Forwarding<C>(C);
 
-/// The same at `Str`, so the argument is doing work rather than agreeing with
-/// what inference would have picked anyway.
-fn readStr<C: Watch>(ctx: C, id: Int): Str {
-    ctx.read<Str>(id)
+impl<C: Watch> Watch for Forwarding<C> {
+    fn read<T>(self, id: Int): T {
+        self.0.read<T>(id)
+    }
 }
 
 fn yesNo(flag: Bool): Str {
@@ -309,23 +317,23 @@ fn noteStr(log: Recorder, text: Str): () {
     let _ = log.record(text);
 }
 
-test "an effect method takes its type arguments explicitly" {
-    let ctx = context { Ui: headless() };
+test "a generic effect method instantiates through its wrapper" {
+    let ctx = context { Ui: headless(), Watch: Forwarding(observer()) };
     let log = recorder();
     let n = signal(ctx, 4);
-    let doubled = ctx.memo<Int>(fn(s) => n.get(s) * 2);
-    let _ = watch(ctx, fn(s) => ignore(log.note(readInt(s, doubled))));
+    let doubled = memo(ctx, fn(s) => n.get(s) * 2);
+    let _ = watch(ctx, fn(s) => ignore(log.note(doubled.read(s))));
     assert.eq(log.noted(), [8]);
     let _ = n.set(ctx, 5);
     assert.eq(log.noted(), [8, 10]);
 }
 
-test "an explicit type argument on an effect method pins the type" {
-    let ctx = context { Ui: headless() };
+test "the same wrapper at a second type, through a forwarding implementation" {
+    let ctx = context { Ui: headless(), Watch: Forwarding(observer()) };
     let log = recorder();
     let flag = signal(ctx, true);
-    let label = ctx.memo<Str>(fn(s) => yesNo(flag.get(s)));
-    let _ = watch(ctx, fn(s) => noteStr(log, readStr(s, label)));
+    let label = memo(ctx, fn(s) => yesNo(flag.get(s)));
+    let _ = watch(ctx, fn(s) => noteStr(log, label.read(s)));
     assert.eq(log.recorded(), ["yes"]);
     let _ = flag.set(ctx, false);
     assert.eq(log.recorded(), ["yes", "no"]);
@@ -349,8 +357,8 @@ test "a generic effect method is callable through a binding a spread supplied" {
     let ctx = context { ..Reactive() };
     let log = recorder();
     let n = signal(ctx, 4);
-    let doubled = ctx.memo<Int>(fn(s) => n.get(s) * 2);
-    let _ = watch(ctx, fn(s) => ignore(log.note(readInt(s, doubled))));
+    let doubled = memo(ctx, fn(s) => n.get(s) * 2);
+    let _ = watch(ctx, fn(s) => ignore(log.note(doubled.read(s))));
     assert.eq(log.noted(), [8]);
     let _ = n.set(ctx, 5);
     assert.eq(log.noted(), [8, 10]);
@@ -361,8 +369,8 @@ test "a spread may replace one reactive effect and inherit the other" {
     let ctx = context { ..Reactive(), Watch: observer() };
     let log = recorder();
     let flag = signal(ctx, true);
-    let label = ctx.memo<Str>(fn(s) => yesNo(flag.get(s)));
-    let _ = watch(ctx, fn(s) => noteStr(log, readStr(s, label)));
+    let label = memo(ctx, fn(s) => yesNo(flag.get(s)));
+    let _ = watch(ctx, fn(s) => noteStr(log, label.read(s)));
     assert.eq(log.recorded(), ["yes"]);
     let _ = flag.set(ctx, false);
     assert.eq(log.recorded(), ["yes", "no"]);

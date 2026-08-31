@@ -1,7 +1,7 @@
 error: expected `;`, found `as` [unexpected-token]
- --> cmd/cast_operator_outside_import/main.buri:7:13
+ --> cmd/cast_operator_outside_import/main.buri:8:13
   |
-7 |   let d = 5 as U8;
+8 |   let d = 5 as U8;
   |             ^^
   |
   = expected: `;`
@@ -20,10 +20,10 @@ error: expected `;`, found `as` [unexpected-token]
     admits in a position where several things would have been admissible.
 
 error: there is nothing named `d` in scope [unresolved-name]
- --> cmd/cast_operator_outside_import/main.buri:8:26
+ --> cmd/cast_operator_outside_import/main.buri:9:30
   |
-8 |   let _ = ctx.println("${d}");
-  |                          ^
+9 |   let _ = io.println(ctx, "${d}").ignore();
+  |                              ^
   |
   = did you mean `Add`?
   = fix: correct the spelling, or declare it

@@ -1,7 +1,7 @@
 error: expected a declaration, found `impl` [unexpected-token]
- --> cmd/exported_impl/main.buri:8:8
+ --> cmd/exported_impl/main.buri:9:8
   |
-8 | export impl Eq for Version {
+9 | export impl Eq for Version {
   |        ^^^^
   |
   = expected: a declaration

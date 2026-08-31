@@ -60,7 +60,7 @@ fn stop<C: Proc>(ctx: C, code: Int): () {
   proc.exit(ctx, code)
 }
 
-fn loadText<C: Fs>(ctx: C, path: Str): Result<Str, IoError> {
+fn loadText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError> {
   fs.readText(ctx, path)
 }
 
@@ -79,13 +79,13 @@ fn ping<C: Alloc + Net>(ctx: C, url: Str): Result<Response, NetError> {
   http.get(ctx, url)
 }
 
-fn saveText<C: Fs>(ctx: C, path: Str, body: Str): Result<(), IoError> {
+fn saveText<C: Alloc + Fs>(ctx: C, path: Str, body: Str): Result<(), IoError> {
   fs.writeText(ctx, path, body)
 }
 
 /// Appends what is at `source` to what is at `into`, creating `into` when it is
 /// absent — one function under test that reads, writes and reports.
-fn copyInto<C: Fs>(ctx: C, source: Str, into: Str): Result<(), IoError> {
+fn copyInto<C: Alloc + Fs>(ctx: C, source: Str, into: Str): Result<(), IoError> {
   match (fs.readBytes(ctx, source)) {
     .Err(e) => .Err(e),
     .Ok(body) => fs.append(ctx, into, body),
@@ -230,14 +230,14 @@ test "a builder answers a new stdin and leaves its receiver at end of input" {
 
 test "a fresh filesystem holds nothing" {
   let empty = fs();
-  let ctx = context { Fs: empty };
+  let ctx = context { Alloc: alloc(), Fs: empty };
   assert.isTrue(fs.readText(ctx, "a").isErr());
   assert.isFalse(fs.exists(ctx, "a"));
   assert.eq(empty.snapshot().len(), 0);
 }
 
 test "files contains exactly the entries it was given" {
-  let ctx = context { Fs: fs().files([("a", "A"), ("b", "B")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A"), ("b", "B")]) };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.eq(assert.ok(loadText(ctx, "b")), "B");
   assert.isTrue(loadText(ctx, "c").isErr());
@@ -246,18 +246,18 @@ test "files contains exactly the entries it was given" {
 test "reading a path the filesystem does not have gives IoError.NotFound" {
   // The match in `which` is exhaustive, so a fourth answer cannot hide behind
   // `isErr`.
-  let ctx = context { Fs: fs().files([("a", "A")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]) };
   assert.eq(which(loadText(ctx, "missing")), "NotFound");
 }
 
 test "an empty file is a file, not an absent one" {
-  let ctx = context { Fs: fs().files([("e", "")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("e", "")]) };
   assert.isTrue(fs.exists(ctx, "e"));
   assert.eq(assert.ok(loadText(ctx, "e")), "");
 }
 
 test "a write is readable back, and a second one replaces the body" {
-  let ctx = context { Fs: fs().files([("a", "one")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "one")]) };
   assert.ok(saveText(ctx, "a", "two"));
   assert.eq(assert.ok(loadText(ctx, "a")), "two");
   assert.ok(saveText(ctx, "b", "new"));
@@ -267,7 +267,7 @@ test "a write is readable back, and a second one replaces the body" {
 test "each call to fs is a filesystem of its own" {
   let mine = fs().files([("a", "A")]);
   let yours = fs();
-  let ctx = context { Fs: mine };
+  let ctx = context { Alloc: alloc(), Fs: mine };
   assert.ok(saveText(ctx, "b", "B"));
   assert.eq(yours.snapshot().len(), 0);
   assert.eq(mine.snapshot().len(), 2);
@@ -282,8 +282,8 @@ test "filesBytes is the byte twin, and composes with files in either order" {
   let raw: [U8] = [104, 105];
   let one = fs().files([("t", "text")]).filesBytes([("b", raw)]);
   let two = fs().filesBytes([("b", raw)]).files([("t", "text")]);
-  let a = context { Fs: one };
-  let b = context { Fs: two };
+  let a = context { Alloc: alloc(), Fs: one };
+  let b = context { Alloc: alloc(), Fs: two };
   assert.eq(assert.ok(fs.readBytes(a, "b")), raw);
   assert.eq(assert.ok(fs.readText(a, "t")), "text");
   assert.eq(assert.ok(fs.readText(b, "b")), "hi");
@@ -298,14 +298,14 @@ test "a builder answers a new filesystem and leaves its receiver alone" {
 }
 
 test "octets a text encoding cannot carry survive a round trip" {
-  let ctx = context { Fs: fs() };
+  let ctx = context { Alloc: alloc(), Fs: fs() };
   let raw: [U8] = [0, 1, 254, 255, 128];
   assert.ok(fs.writeBytes(ctx, "blob", raw));
   assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
 }
 
 test "append creates the file when it is absent, then adds to the end" {
-  let ctx = context { Fs: fs() };
+  let ctx = context { Alloc: alloc(), Fs: fs() };
   let whole: [U8] = [1, 10, 2, 20];
   assert.ok(fs.append(ctx, "log", [1, 10]));
   assert.ok(fs.append(ctx, "log", [2, 20]));
@@ -335,7 +335,7 @@ test "makeDir creates the parents, and a path already naming a file does not" {
 }
 
 test "readDir lists the immediate children, files and directories alike" {
-  let ctx = context { Fs: fs().files([("d/one", "1"), ("d/deep/two", "2")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("d/one", "1"), ("d/deep/two", "2")]) };
   assert.ok(fs.makeDir(ctx, "d/empty"));
   assert.eq(assert.ok(fs.listDir(ctx, "d")), ["deep", "empty", "one"]);
 }
@@ -352,7 +352,7 @@ test "sync answers whether there was anything to have flushed" {
 
 test "readOnly forwards every read" {
   let raw: [U8] = [7, 8];
-  let ctx = context { Fs: fs().files([("a", "A")]).filesBytes([("blob", raw)]).readOnly() };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]).filesBytes([("blob", raw)]).readOnly() };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
   assert.isTrue(fs.exists(ctx, "a"));
@@ -360,18 +360,18 @@ test "readOnly forwards every read" {
 }
 
 test "a write through readOnly FAILS" {
-  let ctx = context { Fs: fs().files([("a", "A")]).readOnly() };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]).readOnly() };
   assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
 }
 
 test "readOnly refuses a write to a path that does not exist either" {
-  let ctx = context { Fs: fs().readOnly() };
+  let ctx = context { Alloc: alloc(), Fs: fs().readOnly() };
   assert.eq(assert.err(saveText(ctx, "new", "B")), .ReadOnly);
 }
 
 test "every writing half of the surface FAILS through readOnly" {
-  let ctx = context { Fs: fs().files([("a", "A")]).readOnly() };
+  let ctx = context { Alloc: alloc(), Fs: fs().files([("a", "A")]).readOnly() };
   assert.eq(assert.err(fs.writeBytes(ctx, "a", [1])), .ReadOnly);
   assert.eq(assert.err(fs.append(ctx, "a", [1])), .ReadOnly);
   assert.eq(assert.err(fs.rename(ctx, "a", "b")), .ReadOnly);
@@ -390,7 +390,7 @@ test "readOnly ATTENUATES the same filesystem rather than copying it" {
   // through the attenuated handle answers whatever the filesystem holds *now*.
   let store = fs().files([("a", "A")]);
   let guarded = store.readOnly();
-  let open = context { Fs: store };
+  let open = context { Alloc: alloc(), Fs: store };
   assert.ok(saveText(open, "b", "B"));
   assert.eq(assert.ok(guarded.read("b")), "B");
   assert.eq(guarded.snapshot(), store.snapshot());
@@ -398,8 +398,8 @@ test "readOnly ATTENUATES the same filesystem rather than copying it" {
 
 test "attenuating a filesystem leaves the one it was called on writable" {
   let store = fs().files([("a", "A")]);
-  let guarded = context { Fs: store.readOnly() };
-  let open = context { Fs: store };
+  let guarded = context { Alloc: alloc(), Fs: store.readOnly() };
+  let open = context { Alloc: alloc(), Fs: store };
   assert.eq(assert.err(saveText(guarded, "a", "B")), .ReadOnly);
   assert.ok(saveText(open, "a", "C"));
   assert.eq(store.snapshot(), [("a", "C")]);
@@ -408,7 +408,7 @@ test "attenuating a filesystem leaves the one it was called on writable" {
 test "the attenuation travels with a builder applied after it" {
   // A builder is configuration and not a write, so it neither fails on a
   // read-only handle nor quietly hands back a writable one.
-  let ctx = context { Fs: fs().readOnly().files([("a", "A")]) };
+  let ctx = context { Alloc: alloc(), Fs: fs().readOnly().files([("a", "A")]) };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
 }
@@ -425,21 +425,21 @@ test "read answers what the filesystem holds, without binding the effect" {
 
 test "read sees what a function under test wrote" {
   let store = fs();
-  let ctx = context { Fs: store };
+  let ctx = context { Alloc: alloc(), Fs: store };
   assert.ok(saveText(ctx, "out/report.txt", "done"));
   assert.eq(assert.ok(store.read("out/report.txt")), "done");
 }
 
 test "snapshot is sorted by path, whatever order the entries arrived in" {
   let store = fs().files([("c", "C"), ("a", "A")]);
-  let ctx = context { Fs: store };
+  let ctx = context { Alloc: alloc(), Fs: store };
   assert.ok(saveText(ctx, "b", "B"));
   assert.eq(store.snapshot(), [("a", "A"), ("b", "B"), ("c", "C")]);
 }
 
 test "snapshot sorts by path and not by insertion, even after a rewrite" {
   let store = fs().files([("z", "Z"), ("m", "M"), ("a", "A")]);
-  let ctx = context { Fs: store };
+  let ctx = context { Alloc: alloc(), Fs: store };
   assert.ok(saveText(ctx, "m", "M2"));
   assert.ok(fs.remove(ctx, "z"));
   assert.eq(store.snapshot(), [("a", "A"), ("m", "M2")]);
@@ -467,7 +467,7 @@ test "an empty filesystem's snapshot is empty" {
 /// and the outcome read back as the return value plus the environment.
 test "a function that merges two files is asserted through the environment" {
   let store = fs().files([("app/a.txt", "one"), ("app/b.txt", "two")]);
-  let ctx = context { Fs: store };
+  let ctx = context { Alloc: alloc(), Fs: store };
   assert.ok(copyInto(ctx, "app/a.txt", "app/merged.txt"));
   assert.ok(copyInto(ctx, "app/b.txt", "app/merged.txt"));
   assert.eq(
@@ -816,7 +816,7 @@ test "a double that was never asked anything has an empty log" {
 
 test "the log is the calls that were made, in the order they were made" {
   let store = fs().files([("a", "A")]);
-  let ctx = context { Fs: store };
+  let ctx = context { Alloc: alloc(), Fs: store };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.ok(saveText(ctx, "b", "B"));
   assert.eq(assert.ok(loadText(ctx, "b")), "B");
@@ -828,21 +828,21 @@ test "the log is the calls that were made, in the order they were made" {
 
 test "a call that failed is a call: the log is not the successes" {
   let store = fs();
-  let ctx = context { Fs: store };
+  let ctx = context { Alloc: alloc(), Fs: store };
   assert.isTrue(loadText(ctx, "missing").isErr());
   assert.eq(store.calls(), [readFile("missing")]);
 }
 
 test "a write refused through readOnly is still something that was asked" {
   let attenuated = fs().files([("a", "A")]).readOnly();
-  let ctx = context { Fs: attenuated };
+  let ctx = context { Alloc: alloc(), Fs: attenuated };
   assert.eq(which(saveText(ctx, "a", "B")), "ReadOnly");
   assert.eq(attenuated.calls(), [writeFile("a", "B")]);
 }
 
 test "every method of Fs is logged under its own name" {
   let store = fs().files([("a", "A"), ("b", "B")]);
-  let ctx = context { Fs: store };
+  let ctx = context { Alloc: alloc(), Fs: store };
   let raw: [U8] = [104, 105];
   let _ = assert.ok(fs.readText(ctx, "a"));
   assert.ok(fs.writeText(ctx, "a", "A2"));
@@ -875,7 +875,7 @@ test "every method of Fs is logged under its own name" {
 
 test "octets are logged as the text they spell, as snapshot reads them back" {
   let store = fs();
-  let ctx = context { Fs: store };
+  let ctx = context { Alloc: alloc(), Fs: store };
   let hi: [U8] = [104, 105];
   let raw: [U8] = [104, 255];
   assert.ok(fs.writeBytes(ctx, "b", hi));
@@ -900,7 +900,7 @@ test "reading the environment back is not a call" {
 
 test "a builder answers a new filesystem with a log of its own" {
   let empty = fs();
-  let ctx = context { Fs: empty };
+  let ctx = context { Alloc: alloc(), Fs: empty };
   assert.isTrue(loadText(ctx, "a").isErr());
   let filled = empty.files([("a", "A")]);
   assert.eq(empty.calls(), [readFile("a")]);
@@ -912,8 +912,8 @@ test "readOnly answers a new view with a log of its own" {
   // they do not share what was asked of them, because `calls()` is per handle.
   let writable = fs().files([("a", "A")]);
   let attenuated = writable.readOnly();
-  let one = context { Fs: writable };
-  let two = context { Fs: attenuated };
+  let one = context { Alloc: alloc(), Fs: writable };
+  let two = context { Alloc: alloc(), Fs: attenuated };
   let _ = assert.ok(loadText(one, "a"));
   assert.isTrue(loadText(two, "missing").isErr());
   assert.eq(writable.calls(), [readFile("a")]);
@@ -923,7 +923,7 @@ test "readOnly answers a new view with a log of its own" {
 test "each filesystem logs only what was asked of it" {
   let mine = fs();
   let yours = fs();
-  let ctx = context { Fs: mine };
+  let ctx = context { Alloc: alloc(), Fs: mine };
   assert.ok(saveText(ctx, "a", "A"));
   assert.eq(mine.calls(), [writeFile("a", "A")]);
   assert.eq(yours.calls(), []);
@@ -931,7 +931,7 @@ test "each filesystem logs only what was asked of it" {
 
 test "a function under test is asserted through what it asked for" {
   let store = fs().files([("app/a.txt", "one")]);
-  let ctx = context { Fs: store };
+  let ctx = context { Alloc: alloc(), Fs: store };
   assert.ok(copyInto(ctx, "app/a.txt", "app/merged.txt"));
   let one: [U8] = [111, 110, 101];
   assert.eq(
@@ -1096,7 +1096,7 @@ test "a call is compared by its arguments and not by where it came from" {
   // The log's `readFile("a")` and the one this block writes down are the same
   // value, which is the whole of what `calls()` is for.
   let store = fs().files([("a", "A")]);
-  let ctx = context { Fs: store };
+  let ctx = context { Alloc: alloc(), Fs: store };
   let _ = assert.ok(loadText(ctx, "a"));
   assert.eq(store.calls(), [readFile("a")]);
   assert.notEq(store.calls(), [readFile("b")]);
@@ -1284,14 +1284,14 @@ test "a fault fires only on the call it names" {
   let files = fs()
     .files([("a", "A"), ("b", "B")])
     .faults([readFile("b").fails(.PermissionDenied)]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.eq(which(loadText(ctx, "b")), "PermissionDenied");
 }
 
 test "fails fires on every matching call" {
   let files = fs().files([("a", "A")]).faults([readFile("a").fails(.PermissionDenied)]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(which(loadText(ctx, "a")), "PermissionDenied");
   assert.eq(which(loadText(ctx, "a")), "PermissionDenied");
   assert.eq(which(loadText(ctx, "a")), "PermissionDenied");
@@ -1299,7 +1299,7 @@ test "fails fires on every matching call" {
 
 test "failsOnCall fires on the nth matching call and no other" {
   let files = fs().files([("a", "A")]).faults([readFile("a").failsOnCall(2, .NotFound)]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.eq(which(loadText(ctx, "a")), "NotFound");
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
@@ -1311,7 +1311,7 @@ test "the call number counts matching calls and not calls" {
   let files = fs()
     .files([("a", "A"), ("b", "B")])
     .faults([readFile("a").failsOnCall(2, .NotFound)]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.eq(assert.ok(loadText(ctx, "b")), "B");
   assert.eq(which(loadText(ctx, "a")), "NotFound");
@@ -1321,7 +1321,7 @@ test "the call number counts matching calls and not calls" {
 /// exactly as `calls()` reports it — same constructor, same arguments.
 test "a fault matches by every argument of the call it names" {
   let files = fs().faults([writeFile("a", "B").fails(.PermissionDenied)]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.ok(saveText(ctx, "a", "A"));
   assert.eq(which(saveText(ctx, "a", "B")), "PermissionDenied");
   assert.eq(assert.ok(files.read("a")), "A");
@@ -1331,7 +1331,7 @@ test "a fault matches by every argument of the call it names" {
 /// double and a name inside it is for.
 test "a fault on one method leaves the other alone" {
   let files = fs().files([("a", "A")]).faults([readFileBytes("a").fails(.NotFound)]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.isTrue(fs.readBytes(ctx, "a").isErr());
 }
@@ -1363,7 +1363,7 @@ test "every IoError variant a plan can name crosses unchanged" {
     readFile("crossDevice").fails(.CrossDevice),
     readFile("other").fails(.Other("spelled out")),
   ]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(fs.readText(ctx, "notFound"), .Err(.NotFound));
   assert.eq(fs.readText(ctx, "denied"), .Err(.PermissionDenied));
   assert.eq(fs.readText(ctx, "readOnly"), .Err(.ReadOnly));
@@ -1432,7 +1432,7 @@ test "a net fault matches the whole request" {
 
 test "a builder after faults keeps the plan" {
   let files = fs().faults([readFile("a").fails(.NotFound)]).files([("a", "A")]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(which(loadText(ctx, "a")), "NotFound");
 }
 
@@ -1440,34 +1440,34 @@ test "faults after a builder keeps the files" {
   let files = fs()
     .files([("a", "A"), ("b", "B")])
     .faults([readFile("b").fails(.CrossDevice)]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   assert.eq(which(loadText(ctx, "b")), "CrossDevice");
 }
 
 test "readOnly keeps the plan and the plan is consulted first" {
   let files = fs().files([("a", "A")]).faults([readFile("a").fails(.NotFound)]).readOnly();
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(which(loadText(ctx, "a")), "NotFound");
 }
 
 test "faults answers a new filesystem and leaves its receiver whole" {
   let sound = fs().files([("a", "A")]);
   let broken = sound.faults([readFile("a").fails(.NotFound)]);
-  assert.eq(assert.ok(loadText(context { Fs: sound }, "a")), "A");
-  assert.eq(which(loadText(context { Fs: broken }, "a")), "NotFound");
+  assert.eq(assert.ok(loadText(context { Alloc: alloc(), Fs: sound }, "a")), "A");
+  assert.eq(which(loadText(context { Alloc: alloc(), Fs: broken }, "a")), "NotFound");
 }
 
 test "faults answers a new log" {
   let files = fs().files([("a", "A")]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(assert.ok(loadText(ctx, "a")), "A");
   let broken = files.faults([readFile("a").fails(.NotFound)]);
   assert.eq(broken.calls(), []);
   assert.eq(files.calls(), [readFile("a")]);
   // And the plan is kept, because a plan is a promise: a block that declared
   // this fault and never made the call would fail on the way out.
-  assert.eq(which(loadText(context { Fs: broken }, "a")), "NotFound");
+  assert.eq(which(loadText(context { Alloc: alloc(), Fs: broken }, "a")), "NotFound");
   assert.eq(broken.calls(), [readFile("a")]);
 }
 
@@ -1479,7 +1479,7 @@ test "the last faults in the chain is the plan" {
     .files([("a", "A")])
     .faults([readFile("a").fails(.PermissionDenied)])
     .faults([readFile("a").fails(.NotFound)]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(which(loadText(ctx, "a")), "NotFound");
 }
 
@@ -1508,7 +1508,7 @@ test "a plan whose entries all fire leaves the block passing" {
   let files = fs()
     .files([("a", "A"), ("b", "B")])
     .faults([readFile("a").fails(.NotFound), writeFile("b", "C").fails(.ReadOnly)]);
-  let ctx = context { Fs: files };
+  let ctx = context { Alloc: alloc(), Fs: files };
   assert.eq(which(loadText(ctx, "a")), "NotFound");
   assert.eq(which(saveText(ctx, "b", "C")), "ReadOnly");
 }
@@ -1545,7 +1545,7 @@ test "a plan whose entries all fire leaves the block passing" {
 
 /// Every item labelled with its own index, one task each — a fan-out whose
 /// answer says which index each task was handed.
-fn labelled<C: Tasks>(ctx: C, items: [Int]): [Int] {
+fn labelled<C: Alloc + Tasks>(ctx: C, items: [Int]): [Int] {
   tasks.parallel(ctx, items, fn(_c, i, item) => i * 100 + item)
 }
 
@@ -1553,7 +1553,7 @@ fn labelled<C: Tasks>(ctx: C, items: [Int]): [Int] {
 /// was handed** — so the answer says which value arrived and not only that one
 /// did.
 fn stamped<C: Alloc + Clock + Tasks>(ctx: C, items: [Int]): [Str] {
-  tasks.parallel(ctx, items, fn(c, i, item) => str.format(c, "${c.nowMillis()}:${i}:${item}"))time.now(c).0}:${i}:${item}"))
+  tasks.parallel(ctx, items, fn(c, i, item) => str.format(c, "${time.now(c).0}:${i}:${item}"))
 }
 
 test "a task run by the double is handed the caller's context" {
@@ -1574,9 +1574,9 @@ test "the context survives a nested parallel through the double" {
   // scheduler's log counts both fan-outs and the clock is still readable at the
   // second boundary.
   let scheduler = tasks();
-  let ctx = context { Clock: clock().at(2), Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Clock: clock().at(2), Tasks: scheduler };
   let out = tasks.parallel(ctx, [10], fn(c, i, x) =>
-    c.parallel(c, [x, x], fn(d, j, y) => d.nowMillis() + y + j).fold(fn(a, m) => a + m, 0))tasks.parallel(c, [x, x], fn(d, j, y) => d.nowMillis() + y + j)time.now(d).0 + y + j).fold(fn(a, m) => a + m, 0));
+    tasks.parallel(c, [x, x], fn(d, j, y) => time.now(d).0 + y + j).fold(fn(a, m) => a + m, 0));
   assert.eq(out, [25]);
   // The inner fan-out's two tasks both finish before the outer one does, and a
   // call is logged when its step *returns* — so the outer task's own entry is
@@ -1586,7 +1586,7 @@ test "the context survives a nested parallel through the double" {
 
 test "tasks() runs its tasks in program order" {
   let scheduler = tasks();
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   assert.eq(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
   assert.eq(scheduler.calls(), [task(0), task(1), task(2)]);
 }
@@ -1597,7 +1597,7 @@ test "the results are in the items' order whatever order the work ran in" {
   // `anyOrder()`'s own order is now the program's content and no corpus can
   // pin one of those.
   let scheduler = tasks().seed(5);
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   // The same answer as the block above, from the opposite order.
   assert.eq(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
   assert.eq(scheduler.calls(), [task(2), task(1), task(0)]);
@@ -1605,7 +1605,7 @@ test "the results are in the items' order whatever order the work ran in" {
 
 test "anyOrder with no seed is an order the program's own bytes name" {
   let scheduler = tasks().anyOrder();
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   assert.eq(labelled(ctx, [1, 2]), [1, 102]);
   // *Which* of the two orders is the runner's answer: the seed is derived from
   // the suite's action key, so it moves when the suite moves and a corpus that
@@ -1618,17 +1618,17 @@ test "anyOrder with no seed is an order the program's own bytes name" {
 
 test "a seed is the order's own number, counted from zero" {
   let first = tasks().seed(0);
-  let one = context { Tasks: first };
+  let one = context { Alloc: alloc(), Tasks: first };
   let _ = labelled(one, [1, 2, 3]);
   assert.eq(first.calls(), [task(0), task(1), task(2)]);
 
   let fourth = tasks().seed(3);
-  let two = context { Tasks: fourth };
+  let two = context { Alloc: alloc(), Tasks: fourth };
   let _ = labelled(two, [1, 2, 3]);
   assert.eq(fourth.calls(), [task(1), task(2), task(0)]);
 
   let last = tasks().seed(5);
-  let three = context { Tasks: last };
+  let three = context { Alloc: alloc(), Tasks: last };
   let _ = labelled(three, [1, 2, 3]);
   assert.eq(last.calls(), [task(2), task(1), task(0)]);
 }
@@ -1637,14 +1637,14 @@ test "a seed past the last one wraps" {
   // Six orders of three tasks, so `seed(6)` is `seed(0)` — which is what makes a
   // seed derived from a program's content legal at every length.
   let scheduler = tasks().seed(6);
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   let _ = labelled(ctx, [1, 2, 3]);
   assert.eq(scheduler.calls(), [task(0), task(1), task(2)]);
 }
 
 test "everyOrder runs the body once per completion order" {
   let scheduler = tasks().everyOrder();
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   assert.eq(labelled(ctx, [7, 8, 9]), [7, 108, 209]);
   // Three tasks, six orders, and this run is one of them: the order the work
   // happened in is the `runs()`th of the six, counted from one.
@@ -1658,7 +1658,7 @@ test "everyOrder runs the body once per completion order" {
 
 test "everyOrder over two tasks is two runs" {
   let scheduler = tasks().everyOrder();
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   let _ = labelled(ctx, [1, 2]);
   assert.eq(scheduler.orders(), 2);
   assert.eq(scheduler.calls(), nthOrderOfTwo(scheduler.runs() - 1));
@@ -1666,7 +1666,7 @@ test "everyOrder over two tasks is two runs" {
 
 test "a block that schedules nothing runs once" {
   let scheduler = tasks().everyOrder();
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   assert.eq(labelled(ctx, []), []);
   // No fan-out means nothing to order, and an empty fan-out is a fan-out of
   // nothing rather than an order of one.
@@ -1677,7 +1677,7 @@ test "a block that schedules nothing runs once" {
 
 test "one task has one order" {
   let scheduler = tasks().everyOrder();
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   assert.eq(labelled(ctx, [4]), [4]);
   assert.eq(scheduler.orders(), 1);
   assert.eq(scheduler.calls(), [task(0)]);
@@ -1688,7 +1688,7 @@ test "two fan-outs in one run are scheduled the same way" {
   // is that the *second* fan-out is scheduled by the same rank rather than by
   // the next one.
   let scheduler = tasks().seed(5);
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   let _ = labelled(ctx, [1, 2, 3]);
   let _ = labelled(ctx, [4, 5, 6]);
   // One decision per run, not one per call — so a test asserting on both is
@@ -1701,7 +1701,7 @@ test "two fan-outs in one run are scheduled the same way" {
 
 test "a builder answers a new scheduler and a new log" {
   let first = tasks();
-  let ctx = context { Tasks: first };
+  let ctx = context { Alloc: alloc(), Tasks: first };
   let _ = labelled(ctx, [1, 2]);
   // The receiver is untouched by the builder, and the builder's answer has run
   // nothing at all.
@@ -1711,7 +1711,7 @@ test "a builder answers a new scheduler and a new log" {
 
 test "a task is handed its own index" {
   let scheduler = tasks().anyOrder();
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   // In whatever order the program's own bytes named, and every task still gets
   // the index of the item it was given — which is what `effect Tasks` promises
   // and what makes the order safe to change.
@@ -1758,7 +1758,7 @@ test "faults replaces, and a plan it replaced claims nothing" {
   // promise goes with it, which is what lets this block hold a fault that never
   // fires and still pass.
   let scheduler = tasks().faults([task(1).fails("gone")]).faults([]);
-  let ctx = context { Tasks: scheduler };
+  let ctx = context { Alloc: alloc(), Tasks: scheduler };
   assert.eq(labelled(ctx, [1, 2]), [1, 102]);
   assert.eq(scheduler.calls(), [task(0), task(1)]);
 }

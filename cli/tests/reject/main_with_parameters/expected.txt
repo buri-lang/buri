@@ -1,7 +1,7 @@
 error: `main` takes no parameters [main-signature]
- --> cmd/main_with_parameters/main.buri:5:1
+ --> cmd/main_with_parameters/main.buri:6:1
   |
-5 | export fn main(argc: Int): Result<(), Str> {
+6 | export fn main(argc: Int): Result<(), Str> {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = it builds the one context the program has, which is why there is no fake to pass it and why logic worth testing goes in a function it calls

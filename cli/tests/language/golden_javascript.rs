@@ -283,8 +283,9 @@ fn generated_javascript_matches_its_record() {
 fn only_the_functions_that_can_park_are_async() {
     let program = "\
 from \"core/effect\" import { Alloc, Fs, Stdout };
-from \"core/host\" import * as host;
 from \"core/fs\" import * as fs;
+from \"core/host\" import * as host;
+from \"core/io\" import * as io;
 
 // Reaches a host call that blocks, so this one waits.
 fn load<C: Alloc + Fs>(ctx: C, path: Str, n: Int): Int {
@@ -304,7 +305,7 @@ fn count(n: Int, acc: Int): Int {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
   let total = load(ctx, \"a.txt\", 3);
-  let _ = ctx.println(\"${total} ${count(4, 0)}\");
+  let _ = io.println(ctx, \"${total} ${count(4, 0)}\").ignore();
   .Ok(())
 }
 ";
@@ -386,12 +387,14 @@ fn a_sleeping_program_leaves_the_event_loop_free() {
     let program = "\
 from \"core/effect\" import { Alloc, Clock, Stdout };
 from \"core/host\" import * as host;
+from \"core/io\" import * as io;
+from \"core/time\" import * as time;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
-  let _ = ctx.sleepMillis(150);
-  let _ = ctx.sleepMillis(150);
-  let _ = ctx.println(\"slept\");
+  let _ = time.sleepMs(ctx, 150);
+  let _ = time.sleepMs(ctx, 150);
+  let _ = io.println(ctx, \"slept\").ignore();
   .Ok(())
 }
 ";
@@ -468,7 +471,7 @@ from \"core/io\" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.writeBytes(ctx, [104, 105, 10]);
+  let _ = io.writeBytes(ctx, [104, 105, 10]).ignore();
   .Ok(())
 }
 ";
@@ -515,14 +518,15 @@ export fn main(): Result<(), Str> {
 #[test]
 fn generics_over_different_contexts_do_not_share_a_symbol() {
     let program = "\
-from \"core/effect\" import { Alloc, Stdout };
+from \"core/effect\" import { Alloc, IoError, Stdout };
 from \"core/host\" import * as host;
+from \"core/io\" import * as io;
 
 struct Loud(Str);
 impl Stdout for Loud {
-  fn print(self, text: Template): () { }
-  fn println(self, text: Template): () { }
-  fn writeBytes(self, b: [U8]): () { }
+  fn print(self, text: Template): Result<(), IoError> { .Ok(()) }
+  fn println(self, text: Template): Result<(), IoError> { .Ok(()) }
+  fn writeBytes(self, b: [U8]): Result<(), IoError> { .Ok(()) }
 }
 
 // Recursive, so the optimiser cannot inline it away — an inlined function
@@ -531,7 +535,7 @@ fn shout<C: Stdout>(ctx: C, what: Str, n: Int): Int {
   if (n <= 0) {
     0
   } else {
-    let _ = ctx.println(\"${what}\");
+    let _ = io.println(ctx, \"${what}\").ignore();
     shout(ctx, what, n - 1)
   }
 }
@@ -590,6 +594,8 @@ fn a_parking_callback_called_through_a_function_value_is_awaited() {
     let program = "\
 from \"core/effect\" import { Alloc, Clock, Stdout };
 from \"core/host\" import * as host;
+from \"core/io\" import * as io;
+from \"core/time\" import * as time;
 
 fn wrapped<C, T>(ctx: C, body: fn(C) => T): T {
   body(ctx)
@@ -598,11 +604,11 @@ fn wrapped<C, T>(ctx: C, body: fn(C) => T): T {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let n = wrapped(ctx, fn(c) => {
-    let _ = c.sleepMillis(20);
-    let _ = c.println(\"inside\");
+    let _ = time.sleepMs(c, 20);
+    let _ = io.println(c, \"inside\").ignore();
     7
   });
-  let _ = ctx.println(\"after ${n}\");
+  let _ = io.println(ctx, \"after ${n}\").ignore();
   .Ok(())
 }
 ";
@@ -631,8 +637,9 @@ fn the_wrapper_reproduction_from_g5_answers_a_list_rather_than_a_promise() {
     let program = "\
 from \"core/effect\" import { Alloc, Clock, Stdout, Tasks };
 from \"core/host\" import * as host;
-from \"core/tasks\" import * as tasks;
+from \"core/io\" import * as io;
 from \"core/str\" import * as str;
+from \"core/tasks\" import * as tasks;
 
 fn wrapped<C, T>(ctx: C, body: fn(C) => T): T {
   body(ctx)
@@ -643,7 +650,7 @@ export fn main(): Result<(), Str> {
     Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks, Clock: host.clock,
   };
   let out = wrapped(ctx, fn(c) => tasks.parallel(c, [1, 2, 3], fn(d, i, n) => str.format(d, \"${n}\")));
-  let _ = ctx.println(out.join(ctx, \",\"));
+  let _ = io.println(ctx, out.join(ctx, \",\")).ignore();
   .Ok(())
 }
 ";
@@ -696,6 +703,8 @@ fn a_callback_that_does_not_park_leaves_its_wrapper_synchronous() {
     let program = "\
 from \"core/effect\" import { Alloc, Clock, Stdout };
 from \"core/host\" import * as host;
+from \"core/io\" import * as io;
+from \"core/time\" import * as time;
 
 fn sleepy<C: Clock>(ctx: C, n: Int, body: fn(C) => Int): Int {
   if (n <= 0) { 0 } else { body(ctx) + sleepy(ctx, n - 1, body) }
@@ -708,11 +717,11 @@ fn applyN(n: Int, x: Int, f: fn(Int) => Int): Int {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let slow = sleepy(ctx, 2, fn(c) => {
-    let _ = c.sleepMillis(1);
+    let _ = time.sleepMs(c, 1);
     5
   });
   let fast = applyN(3, 1, fn(x) => x + 1);
-  let _ = ctx.println(\"${slow} ${fast}\");
+  let _ = io.println(ctx, \"${slow} ${fast}\").ignore();
   .Ok(())
 }
 ";
@@ -761,6 +770,8 @@ fn an_unfollowed_callback_is_answered_by_its_type() {
     let program = "\
 from \"core/effect\" import { Alloc, Clock, Stdout };
 from \"core/host\" import * as host;
+from \"core/io\" import * as io;
+from \"core/time\" import * as time;
 
 enum Thunk {
   Const(Int),
@@ -785,12 +796,12 @@ fn wrapped<C: Clock>(ctx: C, n: Int, body: fn(C) => Int): Int {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
   let slow = wrapped(ctx, 2, fn(c) => {
-    let _ = c.sleepMillis(1);
+    let _ = time.sleepMs(c, 1);
     3
   });
   let a = force(.Const(1), 10, 3);
   let b = force(.Computed(fn(x) => x + 5), 10, 3);
-  let _ = ctx.println(\"${slow} ${a} ${b}\");
+  let _ = io.println(ctx, \"${slow} ${a} ${b}\").ignore();
   .Ok(())
 }
 ";

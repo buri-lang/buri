@@ -1,7 +1,7 @@
 error: `Holder` is missing `only` [missing-field-value]
-  --> cmd/struct_literal_generic_field_is_required/main.buri:13:32
+  --> cmd/struct_literal_generic_field_is_required/main.buri:14:32
    |
-13 |   let h: Holder<Option<Int>> = Holder { };
+14 |   let h: Holder<Option<Int>> = Holder { };
    |                                ^^^^^^^^^^
    |
    = fix: give `only` a value — only an `Option` field may be left out — or start from an existing one with `Holder { ..base, field: value }`

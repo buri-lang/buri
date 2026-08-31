@@ -1,7 +1,7 @@
 error: `Endless` can never be constructed [uninhabited]
- --> cmd/non_productive_recursive_enum/main.buri:5:1
+ --> cmd/non_productive_recursive_enum/main.buri:6:1
   |
-5 | enum Endless { Node(Endless) }
+6 | enum Endless { Node(Endless) }
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = every variant recurses, so building one would need one already

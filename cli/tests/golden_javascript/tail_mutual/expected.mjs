@@ -1,6 +1,15 @@
 const $k0=[0,0];
 function __cmd_x_main_buri$main(){
-  $host_HostStdout_println([],$str(__cmd_x_main_buri$isEven(1000n))+' '+$str(__cmd_x_main_buri$isOdd(1001n))+' '+$str(__cmd_x_main_buri$isEven(7n)));
+  const text_2=$str(__cmd_x_main_buri$isEven(1000n))+' '+$str(__cmd_x_main_buri$isOdd(1001n))+' '+$str(__cmd_x_main_buri$isEven(7n));
+  const self_3=$host_HostStdout_println([[],[]][1],text_2);
+  let $t1;
+  if(self_3[0]===0){
+    $t1=0;
+  }else if(self_3[0]===1){
+    $t1=0;
+  }else{
+    $abort('no arm matched');
+  }
   return $k0;
 }
 function __cmd_x_main_buri$isEven(n_0){

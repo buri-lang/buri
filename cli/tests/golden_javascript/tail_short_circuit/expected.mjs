@@ -2,10 +2,46 @@ const $k0=[3n,1n,4n,1n,5n];
 const $k1=[0,0];
 function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
-  $host_HostStdout_println(ctx_0[1],$str(__cmd_x_main_buri$allBelow($k0,10n,0n))+' '+$str(__cmd_x_main_buri$allBelow($k0,4n,0n)));
-  $host_HostStdout_println(ctx_0[1],$str(__cmd_x_main_buri$anyAtLeast($k0,5n,0n))+' '+$str(__cmd_x_main_buri$anyAtLeast($k0,9n,0n)));
-  $host_HostStdout_println(ctx_0[1],String(__cmd_x_main_buri$firstOr($k0,2n))+' '+String(__cmd_x_main_buri$firstOr($k0,9n)));
-  $host_HostStdout_println(ctx_0[1],$str(__cmd_x_main_buri$bothSmall(1n,2n))+' '+$str(__cmd_x_main_buri$bothSmall(1n,20n)));
+  const text_3=$str(__cmd_x_main_buri$allBelow($k0,10n,0n))+' '+$str(__cmd_x_main_buri$allBelow($k0,4n,0n));
+  const self_4=$host_HostStdout_println(ctx_0[1],text_3);
+  let $t1;
+  if(self_4[0]===0){
+    $t1=0;
+  }else if(self_4[0]===1){
+    $t1=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const text_8=$str(__cmd_x_main_buri$anyAtLeast($k0,5n,0n))+' '+$str(__cmd_x_main_buri$anyAtLeast($k0,9n,0n));
+  const self_9=$host_HostStdout_println(ctx_0[1],text_8);
+  let $t3;
+  if(self_9[0]===0){
+    $t3=0;
+  }else if(self_9[0]===1){
+    $t3=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const text_13=String(__cmd_x_main_buri$firstOr($k0,2n))+' '+String(__cmd_x_main_buri$firstOr($k0,9n));
+  const self_14=$host_HostStdout_println(ctx_0[1],text_13);
+  let $t5;
+  if(self_14[0]===0){
+    $t5=0;
+  }else if(self_14[0]===1){
+    $t5=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const text_18=$str(__cmd_x_main_buri$bothSmall(1n,2n))+' '+$str(__cmd_x_main_buri$bothSmall(1n,20n));
+  const self_19=$host_HostStdout_println(ctx_0[1],text_18);
+  let $t7;
+  if(self_19[0]===0){
+    $t7=0;
+  }else if(self_19[0]===1){
+    $t7=0;
+  }else{
+    $abort('no arm matched');
+  }
   return $k1;
 }
 function __cmd_x_main_buri$allBelow(xs_0,limit_1,i_2){

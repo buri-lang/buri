@@ -1,7 +1,7 @@
 error: `Self` is legal only inside a `trait` or `impl` [self-type-outside-impl]
- --> cmd/self_type_outside_trait/main.buri:5:22
+ --> cmd/self_type_outside_trait/main.buri:6:22
   |
-5 | fn identity(x: Int): Self { x }
+6 | fn identity(x: Int): Self { x }
   |                      ^^^^
   |
   = `Self` stands for the implementing type, and there is none here

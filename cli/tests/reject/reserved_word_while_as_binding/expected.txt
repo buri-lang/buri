@@ -1,7 +1,7 @@
 error: `while` is a reserved word and may not be used as an identifier [reserved-word]
- --> cmd/reserved_word_while_as_binding/main.buri:7:7
+ --> cmd/reserved_word_while_as_binding/main.buri:8:7
   |
-7 |   let while = 3;
+8 |   let while = 3;
   |       ^^^^^
   |
   = reserved for a future version of Buri; see grammar.ebnf, ReservedWord
@@ -20,10 +20,10 @@ error: `while` is a reserved word and may not be used as an identifier [reserved
     change later. buri docs grammar lists the whole set under ReservedWord.
 
 error: `while` is a reserved word and may not be used as an identifier [reserved-word]
- --> cmd/reserved_word_while_as_binding/main.buri:8:26
+ --> cmd/reserved_word_while_as_binding/main.buri:9:30
   |
-8 |   let _ = ctx.println("${while}");
-  |                          ^^^^^
+9 |   let _ = io.println(ctx, "${while}").ignore();
+  |                              ^^^^^
   |
   = reserved for a future version of Buri; see grammar.ebnf, ReservedWord
   = fix: pick another name; `while` is not available

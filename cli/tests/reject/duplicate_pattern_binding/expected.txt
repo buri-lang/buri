@@ -1,7 +1,7 @@
 error: `a` is bound twice in this pattern [duplicate-pattern-binding]
- --> cmd/duplicate_pattern_binding/main.buri:7:9
+ --> cmd/duplicate_pattern_binding/main.buri:8:9
   |
-7 |     (a, a) => a,
+8 |     (a, a) => a,
   |         ^
   |
   = a name a pattern binds is bound once; to require two positions to be equal, match one and test the other in a guard

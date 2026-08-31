@@ -2799,7 +2799,8 @@ fn cross_emission_throughput() {
     }
     // A program with enough functions to measure: one emission of a
     // three-function snippet is dominated by process noise.
-    let mut src = String::from("from \"core/host\" import { stdout };\n");
+    let mut src =
+        String::from("from \"core/host\" import { stdout };\nfrom \"core/io\" import * as io;\n");
     for i in 0..300 {
         src.push_str(&format!(
             "fn f{i}(n: Int, m: Int): Int {{ let a = n * {i} + m; \
@@ -2810,7 +2811,7 @@ fn cross_emission_throughput() {
     for i in 0..300 {
         src.push_str(&format!("  let t{} = t{i} + f{i}(t{i}, {i});\n", i + 1));
     }
-    src.push_str("  let _ = stdout.println(\"${t300}\");\n  .Ok(())\n}\n");
+    src.push_str("  let _ = io.println(stdout, \"${t300}\").ignore();\n  .Ok(())\n}\n");
     let lines = src.lines().count() as f64;
 
     let (program, tables) = lowered(&src);

@@ -1,7 +1,7 @@
 error: `Result<I64, Str>` has no method `mapErrContext` [no-such-method]
- --> cmd/method_on_a_standard_library_type/main.buri:8:9
+ --> cmd/method_on_a_standard_library_type/main.buri:9:9
   |
-8 |   value.mapErrContext(fn(e) => e)
+9 |   value.mapErrContext(fn(e) => e)
   |         ^^^^^^^^^^^^^
   |
   = did you mean `mapErrCtx`?

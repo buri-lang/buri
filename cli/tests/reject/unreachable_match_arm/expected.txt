@@ -1,21 +1,21 @@
 error: this arm is unreachable [unreachable-arm]
- --> cmd/unreachable_match_arm/main.buri:9:5
-  |
-9 |     _ => 1,
-  |     ^^^^^^
-  |
-  = the arms before it already cover everything it matches
-  = fix: delete it, or move it above the arm that subsumes it
+  --> cmd/unreachable_match_arm/main.buri:10:5
+   |
+10 |     _ => 1,
+   |     ^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it
 
-    What to do
-    ──────────
+     What to do
+     ──────────
 
-    Delete it, or move it above the arm that subsumes it.
+     Delete it, or move it above the arm that subsumes it.
 
-    Why
-    ───
+     Why
+     ───
 
-    Arms are tried in order, so an arm the ones above it already cover can never
-    run. Reported rather than ignored because the usual cause is an arm in the
-    wrong place, and a silently dead arm reads as handled.
+     Arms are tried in order, so an arm the ones above it already cover can
+     never run. Reported rather than ignored because the usual cause is an arm
+     in the wrong place, and a silently dead arm reads as handled.
 

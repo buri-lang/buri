@@ -1,7 +1,7 @@
 error: `Point` is missing `y` [missing-field-value]
-  --> cmd/struct_literal_missing_a_required_field/main.buri:13:11
+  --> cmd/struct_literal_missing_a_required_field/main.buri:14:11
    |
-13 |   let p = Point { x: 1 };
+14 |   let p = Point { x: 1 };
    |           ^^^^^^^^^^^^^^
    |
    = fix: give `y` a value — only an `Option` field may be left out — or start from an existing one with `Point { ..base, field: value }`

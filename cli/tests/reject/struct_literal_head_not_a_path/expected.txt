@@ -1,7 +1,7 @@
 error: the head of a struct literal must be a type [struct-literal-head]
-  --> cmd/struct_literal_head_not_a_path/main.buri:10:11
+  --> cmd/struct_literal_head_not_a_path/main.buri:11:11
    |
-10 |   let h = identity(1) { a: 1 };
+11 |   let h = identity(1) { a: 1 };
    |           ^^^^^^^^^^^
    |
    = the grammar permits `f(x) { a: 1 }`; the checker does not

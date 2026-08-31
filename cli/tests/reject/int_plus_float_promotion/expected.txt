@@ -1,7 +1,7 @@
 error: expected `F64`, found `I64` [type-mismatch]
- --> cmd/int_plus_float_promotion/main.buri:5:44
+ --> cmd/int_plus_float_promotion/main.buri:6:44
   |
-5 | fn scale(count: Int, factor: Float): Float {
+6 | fn scale(count: Int, factor: Float): Float {
   |                                            ^ the declared return type is `F64`
   |
   = expected: `F64`
@@ -29,9 +29,9 @@ error: expected `F64`, found `I64` [type-mismatch]
     matters is the one place nobody looks.
 
 error: expected `I64`, found `F64` [type-mismatch]
- --> cmd/int_plus_float_promotion/main.buri:6:11
+ --> cmd/int_plus_float_promotion/main.buri:7:11
   |
-6 |   count + factor
+7 |   count + factor
   |           ^^^^^^ the left operand's type is `I64`
   |
   = expected: `I64`

@@ -1,7 +1,7 @@
 error: expected `Str`, found `Int` [type-mismatch]
- --> cmd/int_literal_where_a_string_is_expected/main.buri:7:20
+ --> cmd/int_literal_where_a_string_is_expected/main.buri:8:20
   |
-7 |   let myStr: Str = 1;
+8 |   let myStr: Str = 1;
   |                    ^ the annotation is `Str`
   |
   = expected: `Str`

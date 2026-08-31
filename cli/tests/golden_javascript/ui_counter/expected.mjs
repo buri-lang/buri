@@ -20,11 +20,19 @@ const $k18=[5,$k17];
 $ui_sheet='.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;flex-direction:row}\n.px-r0_5{padding-inline:0.5rem}\n.bg-f0f0f5{background-color:rgb(240,240,245)}\n.hover_bg-18181b:hover{background-color:rgb(24,24,27)}\n.fg-18181b{color:rgb(24,24,27)}\n.hover_fg-f0f0f5:hover{color:rgb(240,240,245)}\n.r-6{border-radius:6px}\n';
 function __cmd_x_main_buri$main(){
   const ctx_0=[[],[],[],[]];
-  $host_HostStdout_println(ctx_0[1],'mounted');
-  const label_4='clicks';
-  const count_5=[$host_HostUi_signal(ctx_0[2],0n)];
-  const children_20=[[[5,[0,label_4],(c_6,e_7)=>$host_HostUi_write(c_6[2],count_5[0],(n_8=>n_8+1n)($host_HostUi_read(c_6[2],count_5[0])))]],__cmd_x_main_buri$badge$u3rqgv([0,label_4],[1,count_5]),__cmd_x_main_buri$badge$u3rqgv($k0,[2,c_9=>$ui_effect_Scope_read(c_9,count_5[0])*2n])];
-  return $ui_node_mount(ctx_0,[[3,[$k4,[0,[]]],children_20]],[]);
+  const self_3=$host_HostStdout_println(ctx_0[1],'mounted');
+  let $t1;
+  if(self_3[0]===0){
+    $t1=0;
+  }else if(self_3[0]===1){
+    $t1=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const label_7='clicks';
+  const count_8=[$host_HostUi_signal(ctx_0[2],0n)];
+  const children_23=[[[5,[0,label_7],(c_9,e_10)=>$host_HostUi_write(c_9[2],count_8[0],(n_11=>n_11+1n)($host_HostUi_read(c_9[2],count_8[0])))]],__cmd_x_main_buri$badge$u3rqgv([0,label_7],[1,count_8]),__cmd_x_main_buri$badge$u3rqgv($k0,[2,c_12=>$ui_effect_Scope_read(c_12,count_8[0])*2n])];
+  return $ui_node_mount(ctx_0,[[3,[$k4,[0,[]]],children_23]],[]);
 }
 function __cmd_x_main_buri$badge$u3rqgv(title_0,count_1){
   const content_9=[2,c_2=>{

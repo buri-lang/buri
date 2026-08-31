@@ -1,7 +1,7 @@
 error: `.Some` needs a known expected type [unannotated-variant]
- --> cmd/dot_form_without_expected_type/main.buri:6:11
+ --> cmd/dot_form_without_expected_type/main.buri:7:11
   |
-6 |   let v = .Some(3);
+7 |   let v = .Some(3);
   |           ^^^^^
   |
   = fix: write the qualified form, as in `Option.Some(...)`, or annotate what this value is being used as
@@ -21,9 +21,9 @@ error: `.Some` needs a known expected type [unannotated-variant]
     name.
 
 error: there is nothing named `n` in scope [unresolved-name]
- --> cmd/dot_form_without_expected_type/main.buri:8:17
+ --> cmd/dot_form_without_expected_type/main.buri:9:17
   |
-8 |     .Some(n) => n,
+9 |     .Some(n) => n,
   |                 ^
   |
   = did you mean `v`?

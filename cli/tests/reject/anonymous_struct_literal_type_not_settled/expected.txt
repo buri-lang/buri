@@ -1,7 +1,7 @@
 error: nothing here says what this literal builds [struct-literal-type]
-  --> cmd/anonymous_struct_literal_type_not_settled/main.buri:24:24
+  --> cmd/anonymous_struct_literal_type_not_settled/main.buri:25:24
    |
-24 |   let yes: Bool = same({ hi: "hi" }, World { hi: "hi" });
+25 |   let yes: Bool = same({ hi: "hi" }, World { hi: "hi" });
    |                        ^^^^^^^^^^^^
    |
    = a `{ ... }` with no type in front of it is given one by what it is checked against, and that is the only place it looks

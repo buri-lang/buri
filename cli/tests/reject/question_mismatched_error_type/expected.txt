@@ -1,7 +1,7 @@
 error: `?` would propagate `IoError`, but this function returns `Str` [error-type-mismatch]
- --> cmd/question_mismatched_error_type/main.buri:7:14
+ --> cmd/question_mismatched_error_type/main.buri:8:14
   |
-7 |   let text = fs.readText(ctx, path)?;
+8 |   let text = fs.readText(ctx, path)?;
   |              ^^^^^^^^^^^^^^^^^^^^^^^
   |
   = fix: map the error first: `.mapErr(fn(e) => ...)?`, producing a `Str` — there is no automatic error conversion

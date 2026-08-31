@@ -1306,6 +1306,7 @@ fn row_09_bool_char_and_str_show() {
         "row 9 text",
         r#"
 from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
 
 export struct T { s: Str, c: Char, b: Bool }
 derive Show for T;
@@ -1314,10 +1315,10 @@ export fn main(): Result<(), Str> {
   let a = T { s: "quote\" back\\ tab\t nl\n cr\r nul\u{0}", c: '"', b: true };
   let b = T { s: "\u{1F600} caf\u{e9}", c: '\u{1F600}', b: false };
   let d = T { s: "", c: '\\', b: true };
-  let _ = stdout.println(a.show(alloc));
-  let _ = stdout.println(b.show(alloc));
-  let _ = stdout.println(d.show(alloc));
-  let _ = stdout.println("${a.s.len()} ${b.s.len()} ${a.b} ${b.b}");
+  let _ = io.println(stdout, a.show(alloc)).ignore();
+  let _ = io.println(stdout, b.show(alloc)).ignore();
+  let _ = io.println(stdout, d.show(alloc)).ignore();
+  let _ = io.println(stdout, "${a.s.len()} ${b.s.len()} ${a.b} ${b.b}").ignore();
   .Ok(())
 }
 "#,
@@ -1773,12 +1774,13 @@ export fn main(): Result<(), Str> {
         "row 11 remainder",
         r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 
 fn rest(a: Int, b: Int): Int { a % b }
 
 export fn main(): Result<(), Str> {
   let zero = "".len();
-  let _ = stdout.println("${rest(10, zero)}");
+  let _ = io.println(stdout, "${rest(10, zero)}").ignore();
   .Ok(())
 }
 "#,
@@ -1823,9 +1825,10 @@ fn row_14_an_error_return() {
         "row 14 err",
         r#"
 from "core/host" import { stdout };
+from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
-  let _ = stdout.println("before");
+  let _ = io.println(stdout, "before").ignore();
   .Err("it did not work")
 }
 "#,
@@ -2510,7 +2513,7 @@ export fn main(): Result<(), Str> {
   let _ = io.println(ctx, show(ctx, nested.mapCtx(ctx, fn(c, n) => str.fromInt(c, n)))).ignore();
 
   // And the caller's own copy still answers.
-  let _ = io.println(ctx, "${ctx.nowMillis()}").ignore()time.now(ctx).0}");
+  let _ = io.println(ctx, "${time.now(ctx).0}").ignore();
   .Ok(())
 }
 "#,
@@ -2542,7 +2545,7 @@ fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
         "rebuilt handler",
         r#"
 from "core/effect" import {
-  Alloc, Listen, NetError, Region, Request, Response, Stdout,
+  Alloc, IoError, Listen, NetError, Region, Request, Response, Stdout,
 };
 from "core/host" import * as host;
 from "core/net/server" import * as server;
@@ -2591,9 +2594,9 @@ impl<C> Alloc for Wrap<C> {
 }
 
 impl<C: Stdout> Stdout for Wrap<C> {
-  fn print(self, text: Template): () { self.0.print(text) }
-  fn println(self, text: Template): () { self.0.println(text) }
-  fn writeBytes(self, b: [U8]): () { self.0.writeBytes(b) }
+  fn print(self, text: Template): Result<(), IoError> { self.0.print(text) }
+  fn println(self, text: Template): Result<(), IoError> { self.0.println(text) }
+  fn writeBytes(self, b: [U8]): Result<(), IoError> { self.0.writeBytes(b) }
 }
 
 impl<C: Listen> Listen for Wrap<C> {
@@ -2610,7 +2613,7 @@ impl<C: Listen> Listen for Wrap<C> {
 
 /// A handler written against a bound, which is what a request handler is.
 fn served<C: Listen + Stdout>(ctx: C): Int {
-  let answered = ctx.listen("10.0.0.1", 0, fn(server, request) => {
+  let answered = server.listen(ctx, "10.0.0.1", 0, fn(server, request) => {
     // The handler *uses* what it is handed, on a bound its own `C` declares
     // and the acceptor does not. A handler that ignored its first parameter
     // would pass whatever arrived.

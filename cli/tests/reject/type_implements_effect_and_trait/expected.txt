@@ -1,26 +1,26 @@
 error: `SilentOut` cannot implement both the effect `Stdout` and the trait `Show` [effect-and-trait]
-  --> cmd/type_implements_effect_and_trait/main.buri:15:1
+  --> cmd/type_implements_effect_and_trait/main.buri:16:1
    |
-15 | impl Show for SilentOut {
+16 | impl Show for SilentOut {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^
    |
- --> cmd/type_implements_effect_and_trait/main.buri:9:1
-  |
-9 | impl Stdout for SilentOut {
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ the other one
-  |
-  = fix: split it in two: a type is either part of the world or part of your data
+  --> cmd/type_implements_effect_and_trait/main.buri:10:1
+   |
+10 | impl Stdout for SilentOut {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ the other one
+   |
+   = fix: split it in two: a type is either part of the world or part of your data
 
-    What to do
-    ──────────
+     What to do
+     ──────────
 
-    Split it in two: a type is either part of the world or part of your data.
+     Split it in two: a type is either part of the world or part of your data.
 
-    Why
-    ───
+     Why
+     ───
 
-    The two kinds of interface are kept apart so that a type parameter bounded
-    by an ordinary trait can never be instantiated at a context type. That is
-    what makes xs.any(fn(x) => x == needle) legal while a lambda capturing a
-    context is not.
+     The two kinds of interface are kept apart so that a type parameter bounded
+     by an ordinary trait can never be instantiated at a context type. That is
+     what makes xs.any(fn(x) => x == needle) legal while a lambda capturing a
+     context is not.
 

@@ -19,12 +19,36 @@ function __cmd_x_main_buri$main(){
   };
   $host_HostUi_watch(ctx_0[2],run_21);
   const text_25='count '+String($host_HostWatch_read(ctx_0[3],count_1[0]));
-  $host_HostStdout_println(ctx_0[1],text_25);
+  const self_26=$host_HostStdout_println(ctx_0[1],text_25);
+  let $t3;
+  if(self_26[0]===0){
+    $t3=0;
+  }else if(self_26[0]===1){
+    $t3=0;
+  }else{
+    $abort('no arm matched');
+  }
   $host_HostUi_write(ctx_0[2],count_1[0],(n_5=>n_5+1n)($host_HostUi_read(ctx_0[2],count_1[0])));
-  const text_32='count '+String($host_HostWatch_read(ctx_0[3],count_1[0]));
-  $host_HostStdout_println(ctx_0[1],text_32);
+  const text_35='count '+String($host_HostWatch_read(ctx_0[3],count_1[0]));
+  const self_36=$host_HostStdout_println(ctx_0[1],text_35);
+  let $t5;
+  if(self_36[0]===0){
+    $t5=0;
+  }else if(self_36[0]===1){
+    $t5=0;
+  }else{
+    $abort('no arm matched');
+  }
   $host_HostUi_write(ctx_0[2],count_1[0],20n);
-  const text_39='count '+String($host_HostWatch_read(ctx_0[3],count_1[0]));
-  $host_HostStdout_println(ctx_0[1],text_39);
+  const text_45='count '+String($host_HostWatch_read(ctx_0[3],count_1[0]));
+  const self_46=$host_HostStdout_println(ctx_0[1],text_45);
+  let $t7;
+  if(self_46[0]===0){
+    $t7=0;
+  }else if(self_46[0]===1){
+    $t7=0;
+  }else{
+    $abort('no arm matched');
+  }
   return $k0;
 }

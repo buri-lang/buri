@@ -1,7 +1,7 @@
 error: expected `{`, found `*` [unexpected-token]
- --> cmd/export_star/main.buri:4:25
+ --> cmd/export_star/main.buri:5:25
   |
-4 | from "core/list" export *;
+5 | from "core/list" export *;
   |                         ^
   |
   = expected: `{`

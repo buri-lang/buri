@@ -1,7 +1,7 @@
 error: `area` is a method, and a method is not a value [method-not-a-value]
-  --> cmd/method_is_not_a_value/main.buri:14:11
+  --> cmd/method_is_not_a_value/main.buri:15:11
    |
-14 |   let f = sq.area;
+15 |   let f = sq.area;
    |           ^^^^^^^
    |
    = fix: call it on a receiver: `x.area()`; to pass it on, wrap it in a lambda: `fn(x) => x.area()`

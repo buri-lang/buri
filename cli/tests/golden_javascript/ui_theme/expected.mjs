@@ -30,28 +30,36 @@ $ui_theme_hook=$ui_theme_install;
 function __cmd_x_main_buri$main(){
   const ctx_0=[[],[],[],[]];
   const dark_1=[$host_HostUi_signal(ctx_0[2],false)];
-  $host_HostStdout_println(ctx_0[1],'mounted');
-  const label_7='clicks';
-  const count_8=[$host_HostUi_signal(ctx_0[2],0n)];
-  const count_24=[1,count_8];
-  const content_32=[2,c_25=>{
-    let $t1;
-    if(count_24[0]===0){
-      $t1=count_24[1];
-    }else if(count_24[0]===1){
-      $t1=ui_signal$Signal_get$ffq1hq(count_24[1],c_25);
-    }else if(count_24[0]===2){
-      $t1=count_24[1](c_25);
+  const self_6=$host_HostStdout_println(ctx_0[1],'mounted');
+  let $t1;
+  if(self_6[0]===0){
+    $t1=0;
+  }else if(self_6[0]===1){
+    $t1=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const label_10='clicks';
+  const count_11=[$host_HostUi_signal(ctx_0[2],0n)];
+  const count_27=[1,count_11];
+  const content_35=[2,c_28=>{
+    let $t3;
+    if(count_27[0]===0){
+      $t3=count_27[1];
+    }else if(count_27[0]===1){
+      $t3=ui_signal$Signal_get$ffq1hq(count_27[1],c_28);
+    }else if(count_27[0]===2){
+      $t3=count_27[1](c_28);
     }else{
       $abort('no arm matched');
     }
-    return String($t1);
+    return String($t3);
   }];
-  const $t6=ui_node$column$u3rqgv($k5,[[[5,[0,label_7],(c_9,e_10)=>$host_HostUi_write(c_9[2],count_8[0],(n_11=>n_11+1n)($host_HostUi_read(c_9[2],count_8[0])))]],[[3,[$k18,[0,$k14]],[[[1,[0,label_7]]],[[1,content_32]]]]]]);
-  const $t5=ui_theme$themed([[__cmd_x_main_buri$Card_color(0),__cmd_x_main_buri$cardTheme(0)],[__cmd_x_main_buri$Card_color(1),__cmd_x_main_buri$cardTheme(1)],[__cmd_x_main_buri$Card_color(2),__cmd_x_main_buri$cardTheme(2)]]);
-  const whenTrue_14=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$night);
-  const whenFalse_15=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$day);
-  return $ui_node_mount(ctx_0,$t6,[$t5,[[1,[1,dark_1],[whenTrue_14],[whenFalse_15]]]]);
+  const $t8=ui_node$column$u3rqgv($k5,[[[5,[0,label_10],(c_12,e_13)=>$host_HostUi_write(c_12[2],count_11[0],(n_14=>n_14+1n)($host_HostUi_read(c_12[2],count_11[0])))]],[[3,[$k18,[0,$k14]],[[[1,[0,label_10]]],[[1,content_35]]]]]]);
+  const $t7=ui_theme$themed([[__cmd_x_main_buri$Card_color(0),__cmd_x_main_buri$cardTheme(0)],[__cmd_x_main_buri$Card_color(1),__cmd_x_main_buri$cardTheme(1)],[__cmd_x_main_buri$Card_color(2),__cmd_x_main_buri$cardTheme(2)]]);
+  const whenTrue_17=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$night);
+  const whenFalse_18=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$day);
+  return $ui_node_mount(ctx_0,$t8,[$t7,[[1,[1,dark_1],[whenTrue_17],[whenFalse_18]]]]);
 }
 function __cmd_x_main_buri$cardTheme(t_0){
   switch(t_0){

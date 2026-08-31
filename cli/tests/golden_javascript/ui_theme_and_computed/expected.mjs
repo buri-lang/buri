@@ -18,9 +18,17 @@ $ui_theme_hook=$ui_theme_install;
 function __cmd_x_main_buri$main(){
   const ctx_0=[[],[],[],[]];
   const width_1=[$host_HostUi_signal(ctx_0[2],40n)];
-  $host_HostStdout_println(ctx_0[1],'both');
-  const bindings_18=[[[2,['both','bg']],__cmd_x_main_buri$light(0)]];
-  return $ui_node_mount(ctx_0,[[3,[$k12,[0,$k4]],[[[3,[$k8,[0,[[4,scope_2=>[[24,[0,$ui_effect_Scope_read(scope_2,width_1[0])]]]]]]],[]]]]]],[[[0,bindings_18]]]);
+  const self_8=$host_HostStdout_println(ctx_0[1],'both');
+  let $t1;
+  if(self_8[0]===0){
+    $t1=0;
+  }else if(self_8[0]===1){
+    $t1=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const bindings_21=[[[2,['both','bg']],__cmd_x_main_buri$light(0)]];
+  return $ui_node_mount(ctx_0,[[3,[$k12,[0,$k4]],[[[3,[$k8,[0,[[4,scope_2=>[[24,[0,$ui_effect_Scope_read(scope_2,width_1[0])]]]]]]],[]]]]]],[[[0,bindings_21]]]);
 }
 function __cmd_x_main_buri$light(t_0){
   return $k13;

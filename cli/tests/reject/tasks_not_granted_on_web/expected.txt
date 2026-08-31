@@ -1,7 +1,7 @@
 error: `WEB` does not grant `HostTasks` [host-not-granted]
-  --> cmd/tasks_not_granted_on_web/main.buri:24:12
+  --> cmd/tasks_not_granted_on_web/main.buri:25:12
    |
-24 |     Tasks: host.HostTasks {},
+25 |     Tasks: host.HostTasks {},
    |            ^^^^^^^^^^^^^^
    |
    = a platform is the set of effects its host exports; `parallel` returns only when the last task has finished, which freezes a page; a page's concurrency is its event loop, and the effect that reaches it lands with the servers

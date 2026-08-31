@@ -1,7 +1,7 @@
 error: expected `Str`, found `I64` [type-mismatch]
-  --> cmd/or_pattern_shorthand_types/main.buri:12:35
+  --> cmd/or_pattern_shorthand_types/main.buri:13:35
    |
-12 |     .Opened { value } | .Closed { value } => value,
+13 |     .Opened { value } | .Closed { value } => value,
    |                                   ^^^^^ the other alternative is `Str`
    |
    = expected: `Str`

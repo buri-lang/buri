@@ -7,7 +7,16 @@ function __cmd_x_main_buri$main(){
   const doubled_6=$list_map($k0,ctx_0,x_5=>x_5*2n);
   const summed_9=$list_fold($k0,(acc_7,x_8)=>acc_7+x_8,0n);
   const big_11=$list_filter($k0,ctx_0,x_10=>x_10>2n);
-  $host_HostStdout_println(ctx_0[1],String(core_list$sum(biased_4))+' '+String(core_list$sum(doubled_6))+' '+String(summed_9)+' '+String($list_len(big_11)));
+  const text_15=String(core_list$sum(biased_4))+' '+String(core_list$sum(doubled_6))+' '+String(summed_9)+' '+String($list_len(big_11));
+  const self_16=$host_HostStdout_println(ctx_0[1],text_15);
+  let $t1;
+  if(self_16[0]===0){
+    $t1=0;
+  }else if(self_16[0]===1){
+    $t1=0;
+  }else{
+    $abort('no arm matched');
+  }
   return $k1;
 }
 function core_list$sum(self_0){

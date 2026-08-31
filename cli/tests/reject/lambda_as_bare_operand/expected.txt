@@ -1,7 +1,7 @@
 error: expected an expression, found `fn` [unexpected-token]
- --> cmd/lambda_as_bare_operand/main.buri:6:15
+ --> cmd/lambda_as_bare_operand/main.buri:7:15
   |
-6 |   let f = 2 * fn(x: Int) => x;
+7 |   let f = 2 * fn(x: Int) => x;
   |               ^^
   |
   = expected: an expression

@@ -1,7 +1,7 @@
 error: this `match` does not cover `.Some(false)` [match-not-exhaustive]
- --> cmd/nested_or_partial_alternation/main.buri:8:3
+ --> cmd/nested_or_partial_alternation/main.buri:9:3
   |
-8 |   match (x) {
+9 |   match (x) {
   |   ^^^^^^^^^^^ not covered
   |
   = every `match` must cover its scrutinee's type

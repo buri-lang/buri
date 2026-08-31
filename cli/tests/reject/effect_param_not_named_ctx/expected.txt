@@ -1,7 +1,7 @@
 error: `handle` carries an effect, so it must be named `ctx` [effect-param-not-ctx]
- --> cmd/effect_param_not_named_ctx/main.buri:6:26
+ --> cmd/effect_param_not_named_ctx/main.buri:7:26
   |
-6 | fn sneaky<C: Fs>(a: Int, handle: C): Bool {
+7 | fn sneaky<C: Fs>(a: Int, handle: C): Bool {
   |                          ^^^^^^^^^
   |
   = a function is effectful if and only if it has a `ctx` parameter or an effect-carrying `self`, which is what lets a reader stop after the first two parameters

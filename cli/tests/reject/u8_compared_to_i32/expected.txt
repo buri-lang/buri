@@ -1,7 +1,7 @@
 error: expected `U8`, found `I32` [type-mismatch]
- --> cmd/u8_compared_to_i32/main.buri:6:8
+ --> cmd/u8_compared_to_i32/main.buri:7:8
   |
-6 |   a == b
+7 |   a == b
   |        ^ the left operand's type is `U8`
   |
   = expected: `U8`

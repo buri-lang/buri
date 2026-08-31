@@ -1,7 +1,7 @@
 error: `if` requires an `else` branch [if-without-else]
- --> cmd/if_without_else/main.buri:6:26
+ --> cmd/if_without_else/main.buri:7:26
   |
-6 |   let label = if (n > 0) { 1 };
+7 |   let label = if (n > 0) { 1 };
   |                          ^^^^^
   |
   = `if` is an expression, so both branches must produce a value of the same type
@@ -20,9 +20,9 @@ error: `if` requires an `else` branch [if-without-else]
     to invent.
 
 error: there is nothing named `label` in scope [unresolved-name]
- --> cmd/if_without_else/main.buri:7:3
+ --> cmd/if_without_else/main.buri:8:3
   |
-7 |   label
+8 |   label
   |   ^^^^^
   |
   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports

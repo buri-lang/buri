@@ -1,17 +1,17 @@
-error: `fetch` takes 1 arguments, but 3 were given [wrong-argument-count]
-  --> cmd/net_fetch_old_arity/main.buri:15:10
+error: `send` takes 2 arguments, but 4 were given [wrong-argument-count]
+  --> cmd/net_fetch_old_arity/main.buri:19:10
    |
-15 |   match (ctx.fetch("GET", url, "")) {
-   |          ^^^^^^^^^^^^^^^^^^^^^^^^^
+19 |   match (http.send(ctx, "GET", url, "")) {
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = expected: 1
-   = actual: 3
-   = fix: pass exactly 1
+   = expected: 2
+   = actual: 4
+   = fix: pass exactly 2
 error: expected `Request`, found `Str` [type-mismatch]
-  --> cmd/net_fetch_old_arity/main.buri:15:20
+  --> cmd/net_fetch_old_arity/main.buri:19:25
    |
-15 |   match (ctx.fetch("GET", url, "")) {
-   |                    ^^^^^ the parameter type is `Request`
+19 |   match (http.send(ctx, "GET", url, "")) {
+   |                         ^^^^^ the parameter type is `Request`
    |
    = expected: `Request`
    = actual: `Str`

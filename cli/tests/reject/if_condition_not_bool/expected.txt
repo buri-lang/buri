@@ -1,7 +1,7 @@
 error: expected `Bool`, found `I64` [type-mismatch]
- --> cmd/if_condition_not_bool/main.buri:6:7
+ --> cmd/if_condition_not_bool/main.buri:7:7
   |
-6 |   if (n) { 1 } else { 0 }
+7 |   if (n) { 1 } else { 0 }
   |       ^ an `if` condition is `Bool`
   |
   = expected: `Bool`

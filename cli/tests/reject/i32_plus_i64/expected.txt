@@ -1,7 +1,7 @@
 error: expected `I64`, found `I32` [type-mismatch]
- --> cmd/i32_plus_i64/main.buri:5:41
+ --> cmd/i32_plus_i64/main.buri:6:41
   |
-5 | fn widenByAccident(a: I32, b: I64): I64 {
+6 | fn widenByAccident(a: I32, b: I64): I64 {
   |                                         ^ the declared return type is `I64`
   |
   = expected: `I64`
@@ -29,9 +29,9 @@ error: expected `I64`, found `I32` [type-mismatch]
     matters is the one place nobody looks.
 
 error: expected `I32`, found `I64` [type-mismatch]
- --> cmd/i32_plus_i64/main.buri:6:7
+ --> cmd/i32_plus_i64/main.buri:7:7
   |
-6 |   a + b
+7 |   a + b
   |       ^ the left operand's type is `I32`
   |
   = expected: `I32`

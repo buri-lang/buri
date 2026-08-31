@@ -2156,7 +2156,8 @@ fn bounded_expr(rng: &mut Rng, depth: u32, x: i64) -> (String, i64) {
 fn printer(rng: &mut Rng) -> Printer {
     let funcs = 1 + rng.below(5);
     let mut text = String::from(
-        "from \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\n",
+        "from \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\n\
+         from \"core/io\" import * as io;\n\n",
     );
     let mut lines: Vec<String> = Vec::new();
     let mut expected: Vec<String> = Vec::new();
@@ -2214,15 +2215,15 @@ fn printer(rng: &mut Rng) -> Printer {
         }
         body.push_str("  x\n");
         text.push_str(&format!("fn f{i}(x: Int): Int {{\n{body}}}\n\n"));
-        lines.push(format!("    let _ = ctx.println(\"${{f{i}({arg})}}\");\n"));
+        lines.push(format!("    let _ = io.println(ctx, \"${{f{i}({arg})}}\").ignore();\n"));
         expected.push(last.to_string());
     }
 
     let tag = rng.below(variants);
     let payload = rng.below(100) as i64;
-    lines.push(format!("    let _ = ctx.println(\"${{weigh(Tag.V{tag}({payload}))}}\");\n"));
+    lines.push(format!("    let _ = io.println(ctx, \"${{weigh(Tag.V{tag}({payload}))}}\").ignore();\n"));
     expected.push(((payload + weights[tag]) % MODULUS).to_string());
-    lines.push(String::from("    let _ = ctx.println(\"${build()}\");\n"));
+    lines.push(String::from("    let _ = io.println(ctx, \"${build()}\").ignore();\n"));
     expected.push(sum.to_string());
 
     text.push_str(

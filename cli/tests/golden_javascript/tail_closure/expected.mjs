@@ -3,13 +3,40 @@ function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
   const fs_1=__cmd_x_main_buri$adders$u3rqgv(ctx_0,0n,[]);
   const gs_2=__cmd_x_main_buri$scalers$u3rqgv(ctx_0,7n,0n,[]);
-  $host_HostStdout_println(ctx_0[1],String($list_len($list_map(fs_1,ctx_0,f_3=>f_3(100n))))+' '+String(__cmd_x_main_buri$sumTo(100n,0n)));
-  const $t1=core_option$Option_map$g9y0aa($list_get(fs_1,0n),f_4=>f_4(100n));
-  const $t2=core_option$Option_map$g9y0aa($list_get(fs_1,3n),f_5=>f_5(100n));
-  $host_HostStdout_println(ctx_0[1],String($t1!==void 0?$t1:-1n)+' '+String($t2!==void 0?$t2:-1n));
-  const $t4=core_option$Option_map$g9y0aa($list_get(gs_2,0n),g_6=>g_6(2n));
-  const $t5=core_option$Option_map$g9y0aa($list_get(gs_2,2n),g_7=>g_7(2n));
-  $host_HostStdout_println(ctx_0[1],String($t4!==void 0?$t4:-1n)+' '+String($t5!==void 0?$t5:-1n));
+  const text_9=String($list_len($list_map(fs_1,ctx_0,f_3=>f_3(100n))))+' '+String(__cmd_x_main_buri$sumTo(100n,0n));
+  const self_10=$host_HostStdout_println(ctx_0[1],text_9);
+  let $t1;
+  if(self_10[0]===0){
+    $t1=0;
+  }else if(self_10[0]===1){
+    $t1=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const $t3=core_option$Option_map$g9y0aa($list_get(fs_1,0n),f_4=>f_4(100n));
+  const $t4=core_option$Option_map$g9y0aa($list_get(fs_1,3n),f_5=>f_5(100n));
+  const text_14=String($t3!==void 0?$t3:-1n)+' '+String($t4!==void 0?$t4:-1n);
+  const self_15=$host_HostStdout_println(ctx_0[1],text_14);
+  let $t5;
+  if(self_15[0]===0){
+    $t5=0;
+  }else if(self_15[0]===1){
+    $t5=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const $t7=core_option$Option_map$g9y0aa($list_get(gs_2,0n),g_6=>g_6(2n));
+  const $t8=core_option$Option_map$g9y0aa($list_get(gs_2,2n),g_7=>g_7(2n));
+  const text_19=String($t7!==void 0?$t7:-1n)+' '+String($t8!==void 0?$t8:-1n);
+  const self_20=$host_HostStdout_println(ctx_0[1],text_19);
+  let $t9;
+  if(self_20[0]===0){
+    $t9=0;
+  }else if(self_20[0]===1){
+    $t9=0;
+  }else{
+    $abort('no arm matched');
+  }
   return $k0;
 }
 function __cmd_x_main_buri$adders$u3rqgv(ctx_0,i_loop_4,acc_2){

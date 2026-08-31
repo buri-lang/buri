@@ -23,14 +23,14 @@ is not.
 ## A program that provokes it
 
 ```buri fail code=effect-and-trait
-# from "core/effect" import { Alloc, Stdout };
+# from "core/effect" import { Alloc, IoError, Stdout };
 # from "core/order" import { Show };
 struct SilentOut {}
 
 impl Stdout for SilentOut {
-  fn print(self, text: Template): () { () }
-  fn println(self, text: Template): () { () }
-  fn writeBytes(self, b: [U8]): () { () }
+  fn print(self, text: Template): Result<(), IoError> { .Ok(()) }
+  fn println(self, text: Template): Result<(), IoError> { .Ok(()) }
+  fn writeBytes(self, b: [U8]): Result<(), IoError> { .Ok(()) }
 }
 
 impl Show for SilentOut {

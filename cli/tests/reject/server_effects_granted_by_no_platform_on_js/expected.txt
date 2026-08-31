@@ -1,7 +1,7 @@
 error: `JS` does not grant `listen` [host-not-granted]
-  --> cmd/server_effects_granted_by_no_platform_on_js/main.buri:23:18
+  --> cmd/server_effects_granted_by_no_platform_on_js/main.buri:24:18
    |
-23 |     Listen: host.listen,
+24 |     Listen: host.listen,
    |                  ^^^^^^
    |
    = a platform is the set of effects its host exports; no platform accepts connections yet; `Listen` is declared so that the authority is split from `Net` before there is a server, and the acceptor that answers it lands with `core/net/server`
@@ -51,9 +51,9 @@ error: `JS` does not grant `listen` [host-not-granted]
      builds no output.
 
 error: `JS` does not grant `sockets` [host-not-granted]
-  --> cmd/server_effects_granted_by_no_platform_on_js/main.buri:24:19
+  --> cmd/server_effects_granted_by_no_platform_on_js/main.buri:25:19
    |
-24 |     Sockets: host.sockets,
+25 |     Sockets: host.sockets,
    |                   ^^^^^^^
    |
    = a platform is the set of effects its host exports; writing to an open socket is granted with `Listen`, which no platform grants yet; a page neither accepts connections nor holds one to push on

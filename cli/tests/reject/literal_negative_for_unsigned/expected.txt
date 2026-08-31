@@ -1,7 +1,7 @@
 error: -1 is not representable in `U32` [literal-out-of-range]
- --> cmd/literal_negative_for_unsigned/main.buri:7:16
+ --> cmd/literal_negative_for_unsigned/main.buri:8:16
   |
-7 |   let z: U32 = -1;
+8 |   let z: U32 = -1;
   |                ^^
   |
   = expected: a value `U32` can hold

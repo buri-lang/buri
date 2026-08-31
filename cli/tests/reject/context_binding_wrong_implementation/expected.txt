@@ -1,7 +1,7 @@
 error: `HostStdout` does not implement `Alloc` [missing-conformance]
- --> cmd/context_binding_wrong_implementation/main.buri:6:30
+ --> cmd/context_binding_wrong_implementation/main.buri:7:30
   |
-6 |   let ctx = context { Alloc: host.stdout, Stdout: host.stdout };
+7 |   let ctx = context { Alloc: host.stdout, Stdout: host.stdout };
   |                              ^^^^^^^^^^^
   |
   = fix: bind a value whose type has `impl Alloc for ...`; an effect is an ordinary interface, so a test double is a struct with those methods

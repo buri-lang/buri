@@ -426,13 +426,14 @@ fn an_unchanged_program_schedules_the_same_way_twice_and_is_cached() {
     scratch.write("lib/fan/lib.buri", "from \"//lib/fan/fan.buri\" export { labelled };\n");
     scratch.write(
         "lib/fan/fan.buri",
-        "from \"core/effect\" import { Tasks };\n\n\
-         export fn labelled<C: Tasks>(ctx: C, items: [Int]): [Int] {\n  \
-         ctx.parallel(ctx, items, fn(_c, i, item) => i * 100 + item)\n}\n",
+        "from \"core/effect\" import { Alloc, Tasks };\n\
+         from \"core/tasks\" import * as tasks;\n\n\
+         export fn labelled<C: Alloc + Tasks>(ctx: C, items: [Int]): [Int] {\n  \
+         tasks.parallel(ctx, items, fn(_c, i, item) => i * 100 + item)\n}\n",
     );
-    let preamble = "from \"core/effect\" import { Tasks };\n\
+    let preamble = "from \"core/effect\" import { Alloc, Tasks };\n\
          from \"core/testing/assert\" import * as assert;\n\
-         from \"core/host/testing\" import { tasks };\n\
+         from \"core/host/testing\" import { alloc, tasks };\n\
          from \"//lib/fan\" import { labelled };\n\n";
     // Passes whichever order the runner names: the results are the items'.
     scratch.write(
@@ -440,7 +441,7 @@ fn an_unchanged_program_schedules_the_same_way_twice_and_is_cached() {
         &format!(
             "{preamble}test \"the results do not depend on the order\" {{\n  \
              let scheduler = tasks().anyOrder();\n  \
-             let ctx = context {{ Tasks: scheduler }};\n  \
+             let ctx = context {{ Alloc: alloc(), Tasks: scheduler }};\n  \
              assert.eq(labelled(ctx, [1, 2, 3]), [1, 102, 203]);\n}}\n"
         ),
     );
@@ -457,7 +458,7 @@ fn an_unchanged_program_schedules_the_same_way_twice_and_is_cached() {
         &format!(
             "{preamble}test \"a failing block names the order it ran in\" {{\n  \
              let scheduler = tasks().anyOrder();\n  \
-             let ctx = context {{ Tasks: scheduler }};\n  \
+             let ctx = context {{ Alloc: alloc(), Tasks: scheduler }};\n  \
              assert.eq(labelled(ctx, [1, 2, 3]), [0, 0, 0]);\n}}\n"
         ),
     );

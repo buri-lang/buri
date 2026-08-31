@@ -20,6 +20,10 @@ export fn main(): Result<(), Str> {
     entry("books", fromCents(3200)),
   ];
   // `total` is a free function; `format` is a method on the `Cents` it returns.
-  let _ = io.println(ctx, "basket total: ${total(basket).format(ctx)}").ignore();
-  .Ok(())
+  // Printing answers `Result<(), IoError>` — a closed pipe is a thing that
+  // happens — and this program's answer to that is its own exit status.
+  match (io.println(ctx, "basket total: ${total(basket).format(ctx)}")) {
+    .Ok(_) => .Ok(()),
+    .Err(_) => .Err("could not write to standard output"),
+  }
 }

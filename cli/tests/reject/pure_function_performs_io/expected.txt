@@ -1,7 +1,7 @@
 error: a lambda may not capture `x`, whose type `T` could be a context [lambda-captures-generic]
-  --> cmd/pure_function_performs_io/main.buri:10:3
+  --> cmd/pure_function_performs_io/main.buri:11:3
    |
-10 |   fn() => f(x)
+11 |   fn() => f(x)
    |   ^^^^^^^^^^^^
    |
    = a generic body is checked once, for every instantiation at once (SPEC 13.5), so a type parameter here stands for a context type too — and `fn wrap<T>(x: T, f: fn(T) => ()): fn() => ()` would otherwise launder one into a closure whose type mentions no effect at all

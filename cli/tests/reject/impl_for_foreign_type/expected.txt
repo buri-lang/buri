@@ -1,7 +1,7 @@
 error: `Region` is not declared in this module [impl-outside-its-module]
- --> cmd/impl_for_foreign_type/main.buri:6:14
+ --> cmd/impl_for_foreign_type/main.buri:7:14
   |
-6 | impl Ord for Region {
+7 | impl Ord for Region {
   |              ^^^^^^
   |
   = there is no way to implement a trait for someone else's type, which is the same restriction that already applies to methods

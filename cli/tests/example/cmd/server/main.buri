@@ -35,9 +35,9 @@ export fn main(): Result<(), Str> {
 
   match (append(ctx, path, [entry("startup", fromCents(0))])) {
     .Err(_) => .Err(str.format(ctx, "could not open the ledger log at ${path}")),
-    .Ok(_) => {
-      let _ = io.println(ctx, "serving ${hit.name} at ${hit.path} from ${path}").ignore();
-      .Ok(())
+    .Ok(_) => match (io.println(ctx, "serving ${hit.name} at ${hit.path} from ${path}")) {
+      .Ok(_) => .Ok(()),
+      .Err(_) => .Err("could not write to standard output"),
     },
   }
 }
