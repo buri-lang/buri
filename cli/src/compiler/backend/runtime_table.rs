@@ -407,6 +407,21 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostRand.nextInt", "buri_rt_host_rand_next_int", Ret::Scalar),
     e("host.HostRand.nextFloat", "buri_rt_host_rand_next_float", Ret::Scalar),
     e("host.HostProc.exitWith", "buri_rt_host_proc_exit_with", Ret::NoReturn),
+    // `allocate(self, bytes) -> Region`. `self` is `HostAlloc`, an empty
+    // struct, so it flattens to nothing and the C call is the one `i64`; the
+    // result is `struct Region(I64)`, whose single leaf is what makes
+    // [`Ret::Scalar`] right where `testing_context.captureOut`'s
+    // `struct CaptureOut(I64)` needs [`Ret::Out`] — the difference is the *C*
+    // signature, and `buri_rt_host_alloc_allocate` returns an `i64` rather
+    // than a struct.
+    //
+    // MEMORY.md §7 is the body: `HostAlloc` is zero-sized and unbounded, so
+    // the charge is the request and the accounting is the caller's. The row is
+    // here rather than open-coded next to `TestAlloc.allocate` because the
+    // archive already has the body and `llvm/runtime.rs` already calls it — two
+    // backends reaching one definition of a *defined* cost model, which is what
+    // §7.1 means by "the same number on both backends".
+    e("host.HostAlloc.allocate", "buri_rt_host_alloc_allocate", Ret::Scalar),
     // -- Tasks --------------------------------------------------------------
     //
     // `parallel(self, ctx, items, f)`. `self` is `HostTasks`, an empty struct,

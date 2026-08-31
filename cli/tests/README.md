@@ -147,12 +147,16 @@ hours after it.
 A test that does not run proves nothing and costs what a running one costs to
 compile. There are three ways one can fail to run here, and each has an answer.
 
-**`#[ignore]`.** There are two in the whole repository and both are listed in
-`.github/known-skips.txt`, with the compiler slice that removes them.
+**`#[ignore]`.** There are **none** in the whole repository, and
+`.github/known-skips.txt` is the empty list that says so. It shipped with two
+rows — the two agreement rows parked on missing compiler features — and both
+came out by the feature being written rather than by the row being deleted:
+`derivePrimJson` has a native body on both backends and
+`host.HostAlloc.allocate` has a runtime row.
 `cli/tests/ci.rs::the_only_ignored_tests_are_the_ones_named_here` walks the tree
-and fails if the set it finds is not exactly that file's, so a third one cannot
-be added quietly; `.github/scripts/assert-no-skips.sh` holds the `N ignored` in
-a CI summary to the same number. The dispositions, in order of preference: fix
+and fails if the set it finds is not exactly that file's, so the first new one
+cannot be added quietly; `.github/scripts/assert-no-skips.sh` holds the
+`N ignored` in a CI summary to the same number, which is now zero. The dispositions, in order of preference: fix
 it; `#[cfg]` it out on the host that genuinely cannot answer it, so it is absent
 rather than reported as not run; delete it, if the behaviour it asserts is no
 longer wanted. A row in that file is the last resort and is a named defect, not

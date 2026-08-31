@@ -12,8 +12,10 @@
 #
 #   * **ignored** — `#[ignore]`. Held to the number of rows in
 #     `.github/known-skips.txt`, exactly, when nothing was filtered, and to no
-#     more than that when something was. Two today, both named there with the
-#     compiler slice that removes them.
+#     more than that when something was. **Zero today**: the two rows it shipped
+#     with were both compiler slices, both were written, and the file is now
+#     prose and no rows. Zero is a number this script handles like any other —
+#     it is the `-ne` branch below that makes the first new `#[ignore]` fail.
 #   * **filtered out** — a `--skip` or a name filter on the command line. That
 #     is a deliberate split of the suite across steps (the linux jobs run the
 #     corpus census alone and then everything else), so it is a failure only

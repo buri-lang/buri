@@ -675,8 +675,18 @@ export fn main(): Result<(), Str> {
 /// leak, and a leak that compiles is a wrong program that passes its own
 /// tests. `emit::Lower::walk_rc` refuses every shape it cannot release rather
 /// than emitting one, so what this asserts is that the shapes it *does* emit
-/// balance — a `Str` in a struct, a `Str` in an enum payload, and a `Str`
-/// built by concatenation.
+/// balance — a `Str` in a struct, a `Str` in an enum payload, a `Str` built by
+/// concatenation, and a `Str` **an intrinsic put in an enum payload**.
+///
+/// The last one is `derivePrimJson.Str`, and it is here because it is the one
+/// place a backend takes a count on its own initiative. `middle::rc`'s
+/// contract is that a runtime intrinsic borrows its arguments (`rc.rs`'s
+/// header), so the plan this backend is handed releases `d`'s argument at its
+/// last use — and the `Json` that argument went into outlives it. Without the
+/// retain in `emit::json_prim` that is a double free of a block the program
+/// still reads; with a retain and no matching release it is a leak, and this
+/// test is the half that sees the second. Both halves need a **counted** `Str`
+/// rather than a literal, whose `base` is null and whose count is nobody's.
 #[test]
 fn nothing_is_leaked() {
     if !supported() {
@@ -689,11 +699,27 @@ from "core/host/lib.buri" import { stdout };
 from "core/alloc/lib.buri" import * as alloc;
 from "core/effect/lib.buri" import { Alloc };
 from "core/str/lib.buri" import * as str;
+from "core/json/lib.buri" import { Json, ToJson };
 
 export struct Boxed { label: Str, n: Int }
 export enum Held { Empty, Full(Str) }
+export struct Note { text: Str }
+derive ToJson for Note;
 
 fn hold(s: Str): Held { .Full(s) }
+
+fn noteText(j: Json): Str {
+  match (j) {
+    .Object(entries) => match (entries) {
+      [] => "none",
+      [first, ..] => {
+        let (_k, v) = first;
+        match (v) { .Str(s) => s, _ => "not a string" }
+      },
+    },
+    _ => "not an object",
+  }
+}
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
@@ -701,7 +727,8 @@ export fn main(): Result<(), Str> {
   let b = Boxed { label: str.format(ctx, "two ${2}"), n: 2 };
   let c = hold(str.format(ctx, "three ${3}"));
   let shown = match (c) { .Full(s) => s, .Empty => "none" };
-  let _ = stdout.println("${a} ${b.label} ${shown}");
+  let d = Note { text: str.format(ctx, "four ${4}") }.toJson(ctx);
+  let _ = stdout.println("${a} ${b.label} ${shown} ${noteText(d)}");
   .Ok(())
 }
 "#,

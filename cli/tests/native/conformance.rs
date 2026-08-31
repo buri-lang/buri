@@ -55,8 +55,14 @@
 //!     files, and `numbers/conversions.buri` carries a second problem behind
 //!     the first — two of its blocks assert the JavaScript *bound*, which
 //!     VALUE-MODEL.md §12 row 2 has already ruled is not the native one.
-//!  2. **`json.*` and `derivePrimJson`.** A descriptor-driven walker, which is
-//!     what `runtime.js` does. `json/decoding.buri` and `json/encoding.buri`.
+//!  2. **`json.*`, and `ToJson::toJson` at a primitive.** `json.decode` is a
+//!     descriptor-driven walker, which is what `runtime.js` does.
+//!     `json/decoding.buri` and `json/encoding.buri`. `derivePrimJson` was the
+//!     second half of this reason and is not any more — both native backends
+//!     build `Json`'s primitive arm now (VALUE-MODEL.md §12 row 10) — so what
+//!     holds `json/encoding.buri` out is the five keys a *direct* `x.toJson()`
+//!     produces, which is the same answer reached through the trait rather
+//!     than through the derive.
 //!  3. **`core/math`'s thirteen transcendentals**, which are refused rather
 //!     than unwritten — `cli/runtime/math.rs` argues it. `numbers/floats.buri`.
 //!  4. **The reactive graph.** `ui/effect`'s `Ui` entries and `ui/testing`'s
@@ -86,8 +92,9 @@
 //! **Neither batch moved a row of the table below.** The first batch's eight
 //! files were already in the native set. The second reaches three that are
 //! *out* — `json/decoding.buri`, `json/encoding.buri` and `proto/json.buri` —
-//! and not one of them was excluded for a context: the reasons are
-//! `json.decode`, `derivePrimJson` and an inexact `F64 -> I64`, and
+//! and not one of them was excluded for a context: the reasons were
+//! `json.decode`, `derivePrimJson` — now `ToJson::toJson` at a primitive, the
+//! derive's leaf having landed — and an inexact `F64 -> I64`, and
 //! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run on
 //! the migrated corpus and still reports each of them. So the census is the
 //! same thirty files and 1,393 blocks it was before.
@@ -373,7 +380,15 @@ const PACKAGES: &[Case] = &[
              every widening and every `wrapTo*`",
     ),
     excluded("json/decoding.buri", "`json.decode`, and core/char's classifiers"),
-    excluded("json/encoding.buri", "`derivePrimJson` at every primitive"),
+    // `derivePrimJson` was this row's reason and is not any more: both native
+    // backends have a body for it (VALUE-MODEL.md §12 row 10). What is left is
+    // its sibling — `ToJson::toJson` called *directly* on a primitive, which
+    // reaches a backend as `bool.toJson`, `char.toJson`, `str.toJson`,
+    // `num.I64.toJson` and `num.F64.toJson`, five ordinary intrinsic keys with
+    // no body. They are the same three-way answer `json_prim` already gives
+    // and are a slice of their own, because letting this file in moves the
+    // census ratchet.
+    excluded("json/encoding.buri", "`ToJson::toJson` at every primitive"),
     // `core/bytes` and `char.toDigit` are emitted now, and this file needs
     // nothing else.
     included("proto/failures.buri"),
