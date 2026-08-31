@@ -294,8 +294,7 @@ distinction is enforced with the visibility rules in
 
 One path segment is reserved: **`testing`**. A module path containing it is
 test-only, and may be imported only from a test source (Section 11.2). That
-covers `"core/testing/assert/lib.buri"`, `"core/host/testing/lib.buri"`,
-`"core/testing/context/lib.buri"`, a
+covers `"core/testing/assert/lib.buri"`, `"core/host/testing/lib.buri"`, a
 library's own utilities-for-testing-it at `"//lib/money/testing/lib.buri"`, and
 a whole package of shared fixtures at `"//lib/testing/fakes/lib.buri"` — one
 rule, visible in the import line, with nothing to declare. The segment is a
@@ -2228,10 +2227,11 @@ helpers are ordinary library code.
 ```buri repo=cli/tests/example role=test
 from "//lib/money/lib.buri" import { fromCents };
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 test "pads the cents place" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(fromCents(1905).format(ctx), "\$19.05");
 }
 ```
@@ -2249,23 +2249,29 @@ file cannot be told apart. Two *different* files may use the same name — they
 are separate modules, and a report names the file each failure came from.
 
 A test that needs a context builds one, with the same form `main` uses (Section
-11.3). `core/testing/context` is a **platform module** — the test runner's
-platform — and it exports one implementation per effect rather than one
-pre-assembled world:
+11.3). `core/host/testing` is a **platform module** — the test runner's
+platform — and it is `core/host`'s surface written out for a test: the same
+names, **called** rather than referred to, so each call answers a fresh double
+rather than the one value a process has.
 
 | Member | Effect | What it does |
 |---|---|---|
 | `alloc()` | `Alloc` | Real, from a per-test arena the runner reclaims. |
-| `captureOut()`, `captureErr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` is how a test reads it back. |
-| `stdin([Str])` | `Stdin` | Reads the given lines, then end-of-input. |
-| `data()` | `Fs` | In-memory, rooted at the package directory, and empty. |
-| `files([(Str, Str)])` | `Fs` | In-memory, containing exactly these entries. |
-| `readOnly(F)` | `Fs` | Wraps an `Fs` so every write fails. |
-| `noNet()` | `Net` | Refuses every connection. |
-| `clockAt(Int)` | `Clock` | Starts at that instant and advances only when the test advances it. |
-| `randSeed(Int)` | `Rand` | Seeded, so a failure reproduces. |
-| `envOf([(Str, Str)], [Str])` | `Env` | These variables and these arguments. |
-| `Hermetic` | — | A context binding all of the above at hermetic defaults. |
+| `stdout()`, `stderr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` is how a test reads it back. |
+| `stdin()` | `Stdin` | At end of input, so a suite never blocks on a pipe nobody is writing to. |
+| `fs()` | `Fs` | In-memory and empty. Writes are visible to that test and discarded after it. |
+| `net()` | `Net` | Refuses every request until `respond` says what to answer. |
+| `clock()` | `Clock` | At zero, and advances only when the test advances it. |
+| `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
+| `env()` | `Env` | No variables and no arguments. |
+| `proc()` | `Proc` | Absorbs the exit instead of taking it, so the test carries on. |
+| `tasks()` | `Tasks` | Runs the tasks one at a time, in program order. |
+
+Configuration is a **method that answers a new handle** rather than an argument
+to the constructor — `clock().at(1000)`, `rand().seed(7)`,
+`env().variables([...]).arguments([...])`, `stdin().lines([...])`,
+`fs().files([...])`, `fs().readOnly()`, `net().respond(...)` — so a chain reads
+in the order it is applied and the value it was called on is unchanged.
 
 Because a `testing` path may be imported only by a test source, nothing in a
 shipped program can obtain any of them. And because effects are ordinary
@@ -2298,7 +2304,7 @@ The first four return `()`; the last three return a value, and are how a
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 test "reads the config it wrote" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc(), Fs: memory() };
   assert.ok(fs.writeText(ctx, "cfg", "port=8080"));   // returns (), so a statement
   let text = assert.ok(fs.readText(ctx, "cfg"));      // returns Str, so a binding
   assert.eq(text, "port=8080");
@@ -2360,19 +2366,19 @@ or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect/lib.buri" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
-context Hermetic {
+context Sandbox {
   Alloc:  alloc(),
-  Stdout: captureOut(),
-  Stderr: captureErr(),
-  Fs:     data(),
-  Net:    noNet(),
-  Clock:  clockAt(0),
-  Rand:   randSeed(0),
-  Env:    envOf([], []),
+  Stdout: stdout(),
+  Stderr: stderr(),
+  Fs:     fs(),
+  Net:    net(),
+  Clock:  clock(),
+  Rand:   rand(),
+  Env:    env(),
 }
 ```
 
-A named context is **constructed by calling it** — `Hermetic()` — and each call
+A named context is **constructed by calling it** — `Sandbox()` — and each call
 builds a fresh one. The parentheses are not decoration: a test's `Fs` and its
 captured `Stdout` accumulate what the test does to them, so two tests sharing
 one value would share its state. A context declaration takes no parameters; what
@@ -2384,12 +2390,12 @@ context and lets the ones that follow replace them:
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect/lib.buri" import { Fs };
 context Fixture {
-  ..Hermetic(),
-  Fs: files([("config.toml", "port=8080")]),
+  ..Sandbox(),
+  Fs: fs().files([("config.toml", "port=8080")]),
 }
 
 test "rejects a port above 65535" {
-  let ctx = context { ..Fixture(), Fs: files([("config.toml", "port=99999")]) };
+  let ctx = context { ..Fixture(), Fs: fs().files([("config.toml", "port=99999")]) };
   let e = assert.err(loadConfig(ctx, "config.toml"));
   assert.eq(e, ConfigError.PortOutOfRange);
 }

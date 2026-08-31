@@ -16,3 +16,5 @@ result-*
 reference/*.pdf
 blog/
 .notes/
+CLAUDE.md
+AGENTS.md

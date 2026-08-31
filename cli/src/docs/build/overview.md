@@ -136,10 +136,11 @@ impl Cents {
 ```buri repo=cli/tests/example role=test
 from "//lib/money/lib.buri" import { fromCents };
 from "core/testing/assert/lib.buri" import * as assert;
-from "core/testing/context/lib.buri" import { Hermetic };
+from "core/host/testing/lib.buri" import { alloc };
+from "core/effect/lib.buri" import { Alloc };
 
 test "pads the cents place" {
-  let ctx = Hermetic();
+  let ctx = context { Alloc: alloc() };
   assert.eq(fromCents(1905).format(ctx), "\$19.05");
 }
 ```
