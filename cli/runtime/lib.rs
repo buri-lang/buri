@@ -325,12 +325,13 @@
 //!
 //! ## 6. Startup and shutdown, which the generated entry point owns
 //!
-//! Two calls the emitted `main` must make, one it may, and the whole of what it
+//! Two calls the emitted `main` must make, two it may, and the whole of what it
 //! must know:
 //!
 //! ```c
 //! int main(int argc, char** argv) {
 //!     buri_rt_argv_init(argc, argv);        /* first statement */
+//!     buri_rt_values_may_cross_tasks();     /* if they may — before any block */
 //!     buri_rt_frames_are_per_carrier();     /* if, and only if, they are */
 //!     ...                                   /* the program */
 //!     buri_rt_flush();                      /* before every return path */
@@ -352,6 +353,20 @@
 //! old behaviour — `Tasks.parallel` then runs its steps one at a time — so an
 //! entry point that forgets it is slow and not wrong. Its doc comment says
 //! which backend says it and why the other cannot yet.
+//!
+//! [`memory::buri_rt_values_may_cross_tasks`] is the artifact's *other*
+//! statement about itself, and it is a different fact rather than the same one
+//! twice: this one says whether a block this program allocates can come to be
+//! reachable from a second carrier, which `middle::rc::crosses_tasks` answers
+//! for the whole program, and **both** native backends make it for exactly the
+//! programs it is true of. Its effect is that every block carries
+//! `middle::layout::CAP_SHARED_FLAG`, so every reference operation takes the
+//! atomic arm and no in-place write fires on a borrowed value. Saying nothing
+//! is again the safe answer — `Tasks.parallel` refuses to fan out unless it has
+//! been said — so an entry point that forgets *this* one is also slow and not
+//! wrong. The one thing it must get right is the **order**: it comes before
+//! anything that allocates, which is why it sits next to `argv_init`, and
+//! `argv_init` itself builds no Buri block.
 //!
 //! [`buri_rt_flush`] is required. Standard output and standard error are
 //! **buffered**, exactly as `$host` buffers them on JavaScript

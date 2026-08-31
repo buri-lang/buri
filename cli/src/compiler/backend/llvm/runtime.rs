@@ -1598,6 +1598,25 @@ pub const FLUSH: &str = "buri_rt_flush";
 /// Saying nothing is the safe answer, which is why the call is here and not a
 /// parameter of one over there.
 pub const FRAMES_PER_CARRIER: &str = "buri_rt_frames_are_per_carrier";
+/// `buri_rt_values_may_cross_tasks()` — the artifact's other statement about
+/// itself, made once at startup and **before it allocates anything**
+/// (`cli/runtime/lib.rs` §6).
+///
+/// **Both native backends make it**, and only for a program
+/// `middle::rc::crosses_tasks` says can reach a task boundary. It is not the
+/// same fact as [`FRAMES_PER_CARRIER`] and the two are deliberately not one
+/// call: that one is about *where a frame lives*, which is a property of the
+/// backend, and this one is about *whether a block can be reached from two
+/// carriers*, which is a property of the program. A backend that cannot fan
+/// out still makes this call, because the day it learns to is not a day
+/// anybody should have to remember a second edit.
+///
+/// Its effect is that every block the program allocates carries
+/// `middle::layout::CAP_SHARED_FLAG`, so every reference operation takes G2's
+/// atomic arm and no uniquely-owned in-place write fires. Silence is the safe
+/// answer: the runtime's fan-out is gated on the same latch, so an entry point
+/// that lost this call runs its tasks one at a time.
+pub const VALUES_MAY_CROSS_TASKS: &str = "buri_rt_values_may_cross_tasks";
 /// `buri_rt_i128_divmod(a_lo, a_hi, b_lo, b_hi, signed, quot, rem)`.
 pub const I128_DIVMOD: &str = "buri_rt_i128_divmod";
 /// `buri_rt_i128_checked(op, a_lo, a_hi, b_lo, b_hi, signed, out) -> i32` and

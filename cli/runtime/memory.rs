@@ -25,12 +25,15 @@ pub const BURI_RT_HEADER: usize = 16;
 /// The alignment every payload is guaranteed. VALUE-MODEL.md §2.
 pub const BURI_RT_ALIGN: usize = 16;
 
-/// Bit 63 of `cap`: **reserved** for the multi-threaded mark, and never set.
+/// Bit 63 of `cap`: the multi-threaded mark. **Set means "this block may be
+/// reached from more than one thread"** — the question `incref`/`decref`
+/// branch on to choose an atomic count, and the question
+/// [`buri_rt_unique_cap`] answers `None` to.
 ///
-/// Set will mean "this block may be reached from more than one thread" — the
-/// question `incref`/`decref` will branch on to choose an atomic count.
-/// Nothing sets it yet. It is reserved here, and every reader masks, so that
-/// turning it on later moves no code but the code that turns it on.
+/// G1 reserved it and every reader masks; G2 grew the branch; **G3 sets it**,
+/// through [`buri_rt_values_may_cross_tasks`] and [`shared_mask`]. A program
+/// whose artifact never makes that call is bit-for-bit the program it was
+/// before track G, because [`shared_mask`] is zero for the whole of its run.
 ///
 /// **Why `cap` and not `rc`.** A tag bit in the count breaks the two things the
 /// count does. [`BURI_RT_IMMORTAL`] is `u64::MAX` and `incref` is a saturating
@@ -46,6 +49,153 @@ pub const BURI_RT_CAP_SHARED: u64 = 1 << 63;
 
 /// The usable payload bytes of a block, once [`BURI_RT_CAP_SHARED`] is off.
 pub const BURI_RT_CAP_MASK: u64 = !BURI_RT_CAP_SHARED;
+
+// ---------------------------------------------------------------------------
+// === G3 begin: the marking latch ==========================================
+// ---------------------------------------------------------------------------
+//
+// # The marking latch
+//
+// The escape bit asks *which blocks may be reached from more than one thread*.
+// This runtime answers it **per program**, not per block: an artifact whose
+// values can cross a task boundary marks every block it allocates, from its
+// first one, and an artifact whose values cannot marks none.
+//
+// **Why the whole program and not the value.** MEMORY.md §5.5 states the
+// direction to be wrong in — *an over-set bit costs one copy; an under-counted
+// reference is a silent aliasing bug* — and a per-value mark is the direction
+// that can be under-set. Marking has to be **transitive**: a `[Str]` handed to
+// a step is a block whose *elements* the step increfs, and a `Str` inside a
+// closure's environment is a block two carriers count. So a per-value mark is
+// a type-directed recursive walk — the shape of `Helper::Walk`, which is G5's
+// `Helper::Copy` machinery and does not exist yet — and a *shallow* per-value
+// mark is exactly the under-count the design forbids. `middle::rc::sharing`
+// answers where a second *reference* comes into existence, which is a question
+// about sites; this one is about the transitive closure of a heap, and the
+// program-wide answer is the only sound one this tree can spell today.
+//
+// **What it costs.** One relaxed load and one `or` per allocation — see
+// [`finish`] — on every program, and atomic reference counting throughout a
+// program that fans out. That second number is the one MEMORY.md §5.4 prices
+// at 2–3× the reference operation, and it is the price of the feature rather
+// than of this shape: a program that does not use `core/tasks` pays neither.
+//
+// **Where the answer comes from.** `middle::rc::crosses_tasks` computes it
+// over the same exact post-monomorphization call graph `can_park` uses, both
+// native backends emit [`buri_rt_values_may_cross_tasks`] into `main` when it
+// is true, and `cli/runtime/lib.rs` §6 lists the call. **Silence is the safe
+// answer**: an entry point that forgets it gets a single-threaded program,
+// because `rt::fan_out` is gated on the same latch and falls back to running
+// the steps in order. That is the same fail-safe shape D4 gave
+// `buri_rt_frames_are_per_carrier`, and for the same reason.
+
+/// [`BURI_RT_CAP_SHARED`] once the artifact has said its values may cross a
+/// task boundary, and `0` before that — the whole of the marking policy, as
+/// one word.
+///
+/// A mask rather than a `bool` so that [`finish`] is an `or` and not a branch.
+static SHARED_MASK: AtomicU64 = AtomicU64::new(0);
+
+/// The bit [`finish`] stamps into a fresh block's `cap`.
+#[inline]
+fn shared_mask() -> u64 {
+    SHARED_MASK.load(Ordering::Relaxed)
+}
+
+/// **This artifact's values may cross a task boundary**, so every block it
+/// allocates from here on is counted atomically.
+///
+/// Emitted into `main` by both native backends, immediately after
+/// `buri_rt_argv_init` and before any Buri code runs, and only for a program
+/// `middle::rc::crosses_tasks` says can reach one. `cli/runtime/lib.rs` §6 is
+/// the contract; calling it twice is calling it once.
+///
+/// **The ordering requirement is the whole of the safety argument**: a block
+/// allocated before this call carries no mark and would be counted
+/// non-atomically on a carrier. Nothing allocates before it — `argv_init`
+/// stores the arguments as Rust `Vec`s and builds no Buri block — and
+/// `rt::fan_out` refuses to fan out at all unless the latch is set, so a
+/// backend that got the order wrong is a slow program rather than a racing
+/// one. `the_latch_marks_every_block_it_precedes_and_none_before` pins the
+/// first half.
+///
+/// **Relaxed is the right ordering, and it is an argument rather than a
+/// default.** This store publishes nothing but itself — there is no other
+/// write a reader has to see with it — and every carrier that reads it was
+/// started by `thread::Builder::spawn`, which is a synchronisation edge, from
+/// a thread that had already made this call. So a carrier's first load happens
+/// after this store on every path there is, and an `Acquire` on the allocation
+/// path would buy an ordering nothing needs at the price of an `ldapr` per
+/// block.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_values_may_cross_tasks() {
+    SHARED_MASK.store(BURI_RT_CAP_SHARED, Ordering::Relaxed);
+}
+
+/// Whether [`buri_rt_values_may_cross_tasks`] has been called.
+///
+/// `rt::fan_out`'s gate: a carrier may run Buri code beside another one only
+/// where the blocks they both reach are marked.
+#[must_use]
+pub fn values_may_cross_tasks() -> bool {
+    shared_mask() != 0
+}
+
+/// The count and the mark of a live block, for a test that wants to say what
+/// a reference operation did rather than what it returned.
+///
+/// `pub(crate)` and test-only: the count is not part of the C ABI — `rc.rs`
+/// and both backends open-code their access to it — and an accessor that
+/// shipped would be an invitation to read a number whose only correct use is
+/// `buri_rt_unique_cap`'s. `rt.rs`'s carrier cases are the callers.
+///
+/// # Safety
+/// `p` is a live payload pointer from [`buri_rt_alloc`].
+#[cfg(test)]
+pub(crate) unsafe fn count_and_mark(p: *const u8) -> (u64, bool) {
+    // SAFETY: the caller promises a live payload pointer.
+    unsafe {
+        let h = header(p.cast_mut());
+        (rc_atomic(h).load(Ordering::Relaxed), is_shared(h))
+    }
+}
+
+/// Put the latch back, for a test that has just set it.
+#[cfg(test)]
+pub(crate) fn forget_values_may_cross_tasks() {
+    SHARED_MASK.store(0, Ordering::Relaxed);
+}
+
+/// **The lock every case that touches the marking latch takes**, whichever
+/// module it is in.
+///
+/// An artifact makes one statement about itself and never takes it back, so a
+/// shipping program sets [`SHARED_MASK`] at most once and reads it for the
+/// rest of its life. `cargo test` is the one place where both answers exist in
+/// one process, and it runs its cases on many threads at once — so a case that
+/// *sets* the latch and a case whose answer depends on it must not overlap.
+///
+/// Two kinds of case take it, and naming both is the point of putting it here
+/// rather than in one module's test module:
+///
+///  * the ones that set it — `rt`'s carrier cases and this module's;
+///  * the ones that assert an **in-place write happened**, because
+///    [`buri_rt_unique_cap`] refuses a marked block and an in-place write is
+///    exactly what a marked block does not get: `text`'s and `list`'s
+///    `a_unique_concat_appends_in_place` and `a_unique_push_grows_in_place`.
+///
+/// Where a case takes both this and `rt`'s `alone()`, `alone()` comes first.
+/// There is no other order in the crate, so there is no cycle.
+#[cfg(test)]
+pub(crate) fn latch() -> std::sync::MutexGuard<'static, ()> {
+    static LATCH: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    match LATCH.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+// === G3 end ===============================================================
 
 /// `{ rc, cap }`, immediately before the payload. `cap` carries
 /// [`BURI_RT_CAP_SHARED`] in its top bit, so it is read through [`cap_of`].
@@ -71,10 +221,11 @@ unsafe fn cap_of(h: *const Header) -> u64 {
 
 /// Whether `h`'s block carries [`BURI_RT_CAP_SHARED`] — the G2 fork.
 ///
-/// **It never does today.** G1 reserved the bit and nothing sets it; G3 is
-/// what turns it on. Until then every reference operation below takes the
-/// unshared arm, and the atomic arms are reachable only from this file's own
-/// tests, which force the bit.
+/// True for **every** block of a program whose artifact said its values may
+/// cross a task boundary, and false for every block of one that did not: the
+/// mark is applied in [`finish`], out of [`shared_mask`], so it is a property
+/// of the program rather than of the block. §"The marking latch" is the
+/// argument for that shape.
 ///
 /// # Safety
 /// `h` must point at a live block's header.
@@ -248,7 +399,14 @@ fn finish(raw: *mut u8, payload: u64) -> *mut u8 {
     // SAFETY: `raw` is a fresh allocation of at least `BURI_RT_HEADER` bytes,
     // aligned to 16, so the header is in bounds and aligned.
     unsafe {
-        raw.cast::<Header>().write(Header { rc: 1, cap: payload });
+        // G3: the mark, out of the process-wide latch rather than out of
+        // anything about this block. One relaxed load of a word that is written
+        // at most once in a program's life and read on every allocation, so it
+        // is in this core's cache from the first block onwards, and an `or`
+        // into a store that was happening anyway. A recycled block comes
+        // through here too, which is what keeps a cache hit and a fresh
+        // `malloc` indistinguishable.
+        raw.cast::<Header>().write(Header { rc: 1, cap: payload | shared_mask() });
     }
     LIVE_BLOCKS.fetch_add(1, Ordering::Relaxed);
     LIVE_BYTES.fetch_add(payload, Ordering::Relaxed);
@@ -948,6 +1106,29 @@ pub fn buri_rt_grown_capacity(needed: u64, old_cap: u64) -> u64 {
 /// `IMMORTAL` fails the test by construction (`u64::MAX != 1`), which is what
 /// keeps a literal or an interned constant aggregate out of it.
 ///
+/// # A marked block is never unique, and this is the G3 half
+///
+/// G2 left this function unforked and said why: *a thread holding no reference
+/// cannot make a second one, so a count of one cannot move under the caller
+/// who read it.* That argument has a premise — **the caller holds the
+/// reference it is testing** — and it is the premise the baton was keeping
+/// true. A borrowed parameter aliases somebody else's reference rather than
+/// adding one, so a step of a `Tasks.parallel` that reads `rc == 1` off a list
+/// its closure's environment owns is a carrier testing a block it does *not*
+/// hold, and every other carrier is reading the same `1` at the same time.
+/// Under the baton those carriers were serialised; without it they would each
+/// take the licence and write through the same block.
+///
+/// So [`BURI_RT_CAP_SHARED`] is the second half of the test, and it is a
+/// **conservative** half in the direction MEMORY.md §5.5 names: a marked block
+/// answers `None`, the caller allocates and copies, and what an over-set mark
+/// costs is that copy. `IMMORTAL` and the mark are the two ways to fail it and
+/// neither can be un-failed, which is what makes the answer stable in a way a
+/// count read on another carrier is not.
+///
+/// It is one load and one test more than G2's version — of the `cap` word this
+/// function was already going to read for its answer.
+///
 /// # Safety
 /// `p` is null or a live payload pointer from [`buri_rt_alloc`].
 #[must_use]
@@ -958,14 +1139,17 @@ pub unsafe fn buri_rt_unique_cap(p: *const u8) -> Option<u64> {
     // SAFETY: the caller promises a live payload pointer, so the header is in
     // bounds and aligned.
     let h = unsafe { header(p.cast_mut()) };
-    // SAFETY: as above. The load is relaxed rather than plain so that the test
-    // is defined on a block carrying [`BURI_RT_CAP_SHARED`], where another
-    // thread's `atomicrmw` may be running on the same word. **The answer does
-    // not change**: `rc == 1` means the caller holds the only reference, and a
-    // thread that holds no reference cannot make a second one, so the count
-    // cannot move under a caller who reads `1`. That is why G2's fork does not
-    // reach this function — there is one test, and it is right on both sides.
-    unsafe { (rc_atomic(h).load(Ordering::Relaxed) == 1).then(|| cap_of(h)) }
+    // SAFETY: as above. The mark is read first, because it is the half that
+    // does not depend on the count being stable: a block reachable from a
+    // second carrier fails here whatever its count says, and a block that is
+    // not is this thread's alone, where G2's argument for the relaxed load
+    // holds unchanged — `rc == 1` cannot move under the caller who read it.
+    unsafe {
+        if is_shared(h) {
+            return None;
+        }
+        (rc_atomic(h).load(Ordering::Relaxed) == 1).then(|| cap_of(h))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1660,19 +1844,31 @@ mod tests {
     /// free path hands the allocator the layout it was given.
     #[test]
     fn the_readers_mask_a_live_block() {
+        // This case allocates a block and says what its mark is, so it must
+        // not run beside a case that sets the marking latch. `latch` names
+        // both sides of that rule.
+        let _latch = latch();
         for payload in [0u64, 1, BURI_RT_GROWTH_FLOOR] {
             let p = buri_rt_alloc(payload);
             // SAFETY: `p` is a fresh live payload pointer from this crate.
             unsafe {
                 assert_eq!(buri_rt_cap(p), payload);
                 assert_eq!(buri_rt_unique_cap(p), Some(payload));
-                // Force the reserved bit on, as G3 one day will, and read again.
+                // Force the bit on, as G3's latch does for a whole program,
+                // and read again.
                 (*header(p)).cap |= BURI_RT_CAP_SHARED;
                 assert_eq!(buri_rt_cap(p), payload, "buri_rt_cap read the reserved bit");
+                // **G3 changed this one line, and it is the only reader whose
+                // answer the bit is supposed to change.** `buri_rt_cap` still
+                // reports the byte count, `buri_rt_free` still recovers the
+                // layout, `buri_rt_grown_capacity` still doubles the capacity —
+                // masking, all three. The uniqueness test is not a byte count:
+                // it is the in-place-write licence, and a block a second
+                // carrier may reach does not get one. See `buri_rt_unique_cap`.
                 assert_eq!(
                     buri_rt_unique_cap(p),
-                    Some(payload),
-                    "the uniqueness test read the reserved bit",
+                    None,
+                    "a block a second carrier may reach was handed an in-place write",
                 );
                 // `buri_rt_free` recovers `layout_for(cap)`, so a block freed
                 // with the bit on must reach the allocator with the same layout
@@ -1693,6 +1889,10 @@ mod tests {
     /// would free a string literal.
     #[test]
     fn the_atomic_increment_keeps_immortal_a_fixed_point() {
+        // This case allocates a block and says what its mark is, so it must
+        // not run beside a case that sets the marking latch. `latch` names
+        // both sides of that rule.
+        let _latch = latch();
         let p = buri_rt_alloc(32);
         // SAFETY: `p` is this test's only reference to a live block.
         unsafe {
@@ -1713,6 +1913,10 @@ mod tests {
     /// dies on the one that took the count to zero — not before, not twice.
     #[test]
     fn the_atomic_count_frees_on_the_last_decrement() {
+        // This case allocates a block and says what its mark is, so it must
+        // not run beside a case that sets the marking latch. `latch` names
+        // both sides of that rule.
+        let _latch = latch();
         static DROPPED: AtomicU64 = AtomicU64::new(0);
         extern "C" fn glue(_: *mut u8) {
             DROPPED.fetch_add(1, Ordering::Relaxed);
@@ -1734,18 +1938,46 @@ mod tests {
         }
     }
 
-    /// The uniqueness test is not forked, and answers the same on both sides.
+    /// **A marked block is never unique, at any count.** G2's
+    /// `a_shared_block_is_still_unique_at_a_count_of_one`, inverted, which is
+    /// the one behavioural invariant of that slice G3 had to change.
+    ///
+    /// G2 left the test unforked on an argument with a premise — *a thread
+    /// holding no reference cannot make a second one, so a count of one cannot
+    /// move under the caller who read it* — and the run baton was what kept
+    /// that premise true. A borrowed parameter aliases somebody else's
+    /// reference rather than adding one, so with the baton gone a step of a
+    /// `Tasks.parallel` reading `rc == 1` off its closure's list is one of
+    /// several carriers reading the same `1`. G2's own handover note said this
+    /// function would need a second look on the day the bit was live; this is
+    /// that look, taken in the over-set direction MEMORY.md §5.5 names.
+    ///
+    /// The count is still the *other* half of the test, and the case asserts
+    /// both: a marked block fails at one and at two, and an unmarked one still
+    /// distinguishes them.
     #[test]
-    fn a_shared_block_is_still_unique_at_a_count_of_one() {
+    fn a_marked_block_is_never_unique_at_any_count() {
+        // This case allocates a block and says what its mark is, so it must
+        // not run beside a case that sets the marking latch. `latch` names
+        // both sides of that rule.
+        let _latch = latch();
         let p = buri_rt_alloc(64);
         // SAFETY: `p` is this test's only reference to a live block.
         unsafe {
-            (*header(p)).cap |= BURI_RT_CAP_SHARED;
-            assert_eq!(buri_rt_unique_cap(p), Some(64), "a shared unique block failed the test");
+            // Unmarked, the count decides, exactly as it always did.
+            assert_eq!(buri_rt_unique_cap(p), Some(64));
             buri_rt_incref(p);
-            assert_eq!(buri_rt_unique_cap(p), None, "a shared block with two references passed");
+            assert_eq!(buri_rt_unique_cap(p), None);
             buri_rt_decref(p, None);
             assert_eq!(buri_rt_unique_cap(p), Some(64));
+
+            // Marked, the count is not consulted.
+            (*header(p)).cap |= BURI_RT_CAP_SHARED;
+            assert_eq!(buri_rt_unique_cap(p), None, "a marked block at one passed the test");
+            buri_rt_incref(p);
+            assert_eq!(buri_rt_unique_cap(p), None, "a marked block at two passed the test");
+            buri_rt_decref(p, None);
+            assert_eq!(buri_rt_unique_cap(p), None);
             (*header(p)).cap &= BURI_RT_CAP_MASK;
             buri_rt_free(p);
         }
@@ -1822,6 +2054,10 @@ mod tests {
     /// growing a block does not silently un-share it.
     #[test]
     fn realloc_preserves_the_reserved_bit() {
+        // This case allocates a block and says what its mark is, so it must
+        // not run beside a case that sets the marking latch. `latch` names
+        // both sides of that rule.
+        let _latch = latch();
         let p = buri_rt_alloc(16);
         // SAFETY: `p` is this test's only reference to a live block.
         let p = unsafe {
@@ -2286,4 +2522,104 @@ mod tests {
     }
 
     // === G6 end ============================================================
+
+    // === G3 begin: the marking latch =======================================
+
+    /// **The latch is the whole of the marking policy**, and it is tested here
+    /// rather than only in `rt.rs` because it is a property of this file and
+    /// `rt.rs` is not compiled without `net`.
+    ///
+    /// Three claims: nothing is marked before the call, everything is after
+    /// it, and the capacity a marked block reports is still the byte count it
+    /// was asked for — which is what keeps the release glue's `cap / stride`
+    /// walk and `buri_rt_free`'s layout recovery honest on a marked block.
+    #[test]
+    fn the_latch_marks_every_block_it_precedes_and_none_before() {
+        let _latch = latch();
+        assert!(!values_may_cross_tasks(), "the silent answer is the safe one");
+        let before = buri_rt_alloc(96);
+        // SAFETY: live, just allocated.
+        assert_eq!(unsafe { count_and_mark(before) }, (1, false));
+
+        buri_rt_values_may_cross_tasks();
+        assert!(values_may_cross_tasks());
+        // Idempotent: an artifact makes one statement about itself, and a
+        // second call is the same statement.
+        buri_rt_values_may_cross_tasks();
+
+        for payload in [0u64, 1, 8, BURI_RT_GROWTH_FLOOR, 4096] {
+            let p = buri_rt_alloc(payload);
+            // SAFETY: live, just allocated under the latch.
+            unsafe {
+                assert_eq!(count_and_mark(p), (1, true), "a {payload}-byte block was not marked");
+                assert_eq!(buri_rt_cap(p), payload, "the mark cost the block its capacity");
+                assert_eq!(buri_rt_unique_cap(p), None, "a marked block passed the unique test");
+                buri_rt_free(p);
+            }
+            let z = buri_rt_alloc_zeroed(payload);
+            // SAFETY: live, just allocated under the latch.
+            unsafe {
+                assert_eq!(count_and_mark(z), (1, true), "a zeroed block was not marked");
+                buri_rt_free(z);
+            }
+        }
+
+        // The block made before the latch is freed into this thread's cache
+        // and comes back through `finish`, so it comes back marked. A recycled
+        // block is a *new* value and the mark is the program's, not its own.
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(before) };
+        let again = buri_rt_alloc(96);
+        // SAFETY: live, just allocated.
+        assert_eq!(unsafe { count_and_mark(again) }, (1, true), "a recycled block came back cold");
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(again) };
+
+        forget_values_may_cross_tasks();
+        assert!(!values_may_cross_tasks());
+    }
+
+    /// The count of a marked block is exact under many threads, with no
+    /// scheduler in the way.
+    ///
+    /// `rt.rs`'s `the_count_of_a_marked_block_is_exact_under_every_carrier` is
+    /// the same claim through the carrier pool; this one is the same claim
+    /// through `std::thread`, so that it is asserted in the build that has no
+    /// `net` and therefore no pool at all.
+    #[test]
+    fn a_marked_count_is_exact_under_many_threads() {
+        let _latch = latch();
+        const THREADS: usize = 8;
+        const ROUNDS: usize = 2000;
+        buri_rt_values_may_cross_tasks();
+        let p = buri_rt_alloc(32);
+        // SAFETY: live, just allocated under the latch.
+        assert_eq!(unsafe { count_and_mark(p) }, (1, true));
+        let shared = p as usize;
+        std::thread::scope(|scope| {
+            for _ in 0..THREADS {
+                scope.spawn(move || {
+                    for _ in 0..ROUNDS {
+                        // SAFETY: the block outlives this scope, and every
+                        // increment is matched by the decrement below it.
+                        unsafe {
+                            buri_rt_incref(shared as *mut u8);
+                            buri_rt_decref(shared as *mut u8, None);
+                        }
+                    }
+                });
+            }
+        });
+        // SAFETY: still live at whatever the counts left it.
+        assert_eq!(
+            unsafe { count_and_mark(p) },
+            (1, true),
+            "a reference operation was lost: the marked arm is not atomic",
+        );
+        // SAFETY: the only reference.
+        unsafe { buri_rt_free(p) };
+        forget_values_may_cross_tasks();
+    }
+
+    // === G3 end ============================================================
 }
