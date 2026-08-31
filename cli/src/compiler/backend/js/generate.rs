@@ -2840,6 +2840,15 @@ impl<'a> Gen<'a> {
         // table grows for the life of the process. `buri_rt_test_enter` marks
         // the same watermark natively, and this is the line that has to do it
         // here because JavaScript has no `enter`.
+        //
+        // `order` is the sentence naming the order the tasks completed in and
+        // the seed that replays it, and it is a **sibling of `error`** rather
+        // than a field inside it, because it is a fact about the run and not
+        // about the throw: `cli/runtime/testing.rs`'s `note_failure` writes it
+        // in the same position, and `commands/test.rs`'s `parse_results` reads
+        // one record. `undefined` where a block scheduled nothing —
+        // `JSON.stringify` drops the key, so the artifact a suite without
+        // `tasks()` produces is the bytes it always produced.
         Stmt::Raw(format!(
             "{}async function $run(filter){{const out=[];for(const[n,m,f]of $cases){{\
              if(filter&&!n.includes(filter))continue;\
@@ -2847,6 +2856,7 @@ impl<'a> Gen<'a> {
              const started=Date.now();try{{await f();out.push({{name:n,module:m,ok:true,ms:Date.now()-started}});}}\
              catch(e){{out.push({{name:n,module:m,ok:false,ms:Date.now()-started,\
              error:e&&e.$assert?e.$assert:{{message:String(e&&e.message||e)}},\
+             order:$taskOrderNote()||undefined,\
              stack:e&&e.stack||\"\"}});}}}}\
              return out;}}",
             ""
