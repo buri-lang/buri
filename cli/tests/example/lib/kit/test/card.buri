@@ -10,11 +10,11 @@
 
 from "//lib/kit/lib.buri" import { card, meter, pill, themed, Token };
 from "core/testing/assert/lib.buri" import * as assert;
-from "ui/effect/lib.buri" import { Ui, Watch };
+from "ui/effect/lib.buri" import { Ui };
 from "ui/node/lib.buri" import * as ui;
 from "ui/signal/lib.buri" import { signal };
 from "ui/style/lib.buri" import { Color };
-from "ui/testing/lib.buri" import { headless, install, observer, render, stylesheet };
+from "ui/testing/lib.buri" import { headless, install, render, stylesheet };
 
 /// The mapping an app writes. Its `match` is the compatibility check, and the
 /// day //lib/kit adds a token this function stops compiling — which is the
@@ -29,10 +29,7 @@ fn plain(t: Token): Color {
 }
 
 test "a card is a labelled group, not a landmark" {
-  let ctx = context {
-    Ui: headless(),
-    Watch: observer(),
-  };
+  let ctx = context { Ui: headless() };
   let tree = card(.Const("Coffee"), [ui.text(.Const("4.50"))]);
   let seen = render(ctx, tree);
   // `Group` lowers to a `div` carrying the role, because HTML has no element
@@ -42,10 +39,7 @@ test "a card is a labelled group, not a landmark" {
 }
 
 test "the card's surface is a class, and the class is in the stylesheet" {
-  let ctx = context {
-    Ui: headless(),
-    Watch: observer(),
-  };
+  let ctx = context { Ui: headless() };
   let markup = render(ctx, card(.Const("Coffee"), [])).markup();
   // Nothing about the card's appearance is in the element: what is there is a
   // class name, and the rules behind it were written at compile time.
@@ -61,10 +55,7 @@ test "the card's surface is a class, and the class is in the stylesheet" {
 }
 
 test "a class does not depend on what its token is worth" {
-  let ctx = context {
-    Ui: headless(),
-    Watch: observer(),
-  };
+  let ctx = context { Ui: headless() };
   let before = render(ctx, card(.Const("Coffee"), [])).markup();
   // Installing a theme writes one block of custom properties. It is the only
   // thing that changes: the element's classes are what the compiler decided.
@@ -75,10 +66,7 @@ test "a class does not depend on what its token is worth" {
 }
 
 test "a pill says what it says and claims to be nothing" {
-  let ctx = context {
-    Ui: headless(),
-    Watch: observer(),
-  };
+  let ctx = context { Ui: headless() };
   let seen = render(ctx, pill(.Const("3 left")));
   assert.eq(seen.text(), "3 left");
   // No role attribute at all: a pill is appearance.
@@ -86,10 +74,7 @@ test "a pill says what it says and claims to be nothing" {
 }
 
 test "a meter's width is inline, and the sheet knows nothing about it" {
-  let ctx = context {
-    Ui: headless(),
-    Watch: observer(),
-  };
+  let ctx = context { Ui: headless() };
   let filled = signal(ctx, 0.25);
   let seen = render(ctx, meter(.Cell(filled)));
   // The computed tier is applied to the element and re-serialised on change.
@@ -104,10 +89,7 @@ test "a meter's width is inline, and the sheet knows nothing about it" {
 }
 
 test "a fraction outside the range is clamped rather than refused" {
-  let ctx = context {
-    Ui: headless(),
-    Watch: observer(),
-  };
+  let ctx = context { Ui: headless() };
   let over = render(ctx, meter(.Const(1.5)));
   assert.isTrue(over.markup().contains("width: 100%"));
   let under = render(ctx, meter(.Const(-0.5)));

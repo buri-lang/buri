@@ -318,12 +318,22 @@ fn formatting_the_corpus_preserves_what_it_means() {
 /// compiler produces, so a crate admitted there is a crate shipped inside every
 /// program a *user* builds.
 ///
-/// That set was empty until the `net` feature. It is now four crates, and the
+/// That set was empty until the `net` feature. It is now six crates, and the
 /// clause that replaces emptiness is **exactness**: the assertion below is an
 /// equality against a list written out here, not a prefix match and not a
-/// count. A fifth crate fails, a rename fails, and a removal fails — the last
+/// count. A seventh crate fails, a rename fails, and a removal fails — the last
 /// on purpose, because "tokio quietly left the runtime" is as much a change to
 /// what every user ships as "quinn quietly joined it".
+///
+/// **Quinn has now joined it, and not quietly — which is the second half this
+/// test grew.** `net-h3` is a feature the default build does *not* turn on, so
+/// the exactness above is not enough on its own: a crate could be moved from
+/// `net-h3` to `net` and the set would still be the set. So the h3 leg is
+/// checked as well as the list — `net-h3` exists, it implies `net`, `default`
+/// is still `net` alone, and `quinn` is behind `net-h3` and behind nothing
+/// else. A user who never asks for HTTP/3 must not resolve a QUIC stack, and
+/// that is a property of the *feature graph* rather than of the dependency
+/// list.
 ///
 /// The third assertion is the one that keeps the published crate whole. Cargo
 /// skips any subdirectory of a package that holds a `Cargo.toml`, before
@@ -412,7 +422,14 @@ fn dependencies_stay_behind_the_bar() {
     // compiler produces, and a crate that ships must be visible to the test
     // that guards what ships. A provider pulled in only by another crate's
     // feature flag would be 845 KB of object code no assertion here could see.
-    const RUNTIME_ADMITTED: &[&str] = &["hyper", "ring", "rustls", "tokio", "tungstenite"];
+    //
+    // `quinn` is the sixth and the only one behind `net-h3`. It is on the same
+    // list as the other five because the list is of what the runtime *may*
+    // link, not of what a default toolchain does — and the h3 leg below is what
+    // holds the second half, that asking for it is a build-time choice nobody
+    // makes by accident.
+    const RUNTIME_ADMITTED: &[&str] =
+        &["hyper", "quinn", "ring", "rustls", "tokio", "tungstenite"];
     let runtime = std::fs::read_to_string(repo_root().join("cli/runtime/manifest.toml"))
         .expect("cli/runtime/manifest.toml");
     let mut runtime_deps: Vec<String> =
@@ -422,7 +439,7 @@ fn dependencies_stay_behind_the_bar() {
         runtime_deps, RUNTIME_ADMITTED,
         "cli/runtime/manifest.toml's dependency set is not the one this repository decided on. \
          The runtime's archive is linked into every native binary this compiler produces, so its \
-         admitted set is closed by this exact list rather than by a prefix: a sixth crate, a \
+         admitted set is closed by this exact list rather than by a prefix: a seventh crate, a \
          rename and a removal are all changes to what every user ships.\n{BAR}"
     );
     // Every one of them optional, and every one behind the one feature. Two
@@ -445,6 +462,53 @@ fn dependencies_stay_behind_the_bar() {
         "the runtime's default feature set is no longer `net`. A toolchain whose runtime cannot \
          speak the network by default makes `Net` a build-flag question for every user rather \
          than a capability question for every program"
+    );
+
+    // -- the h3 leg: a feature the default build does not turn on -------------
+    //
+    // The concurrency note gated HTTP/3 behind configuration until the crate is
+    // trusted, and a cargo feature outside `default` is what that gate is. Four
+    // facts, because the set-equality above cannot see any of them: that the
+    // feature exists at all, that it implies `net` (QUIC carries TLS inside the
+    // transport and wants the same reactor), that `quinn` is behind it, and
+    // that `quinn` is behind *nothing else* — the last being the one that would
+    // silently break, by a line moving from `net-h3 = [...]` up into
+    // `net = [...]` and every user shipping a QUIC stack they never asked for.
+    let feature_line = |name: &str| -> String {
+        runtime
+            .lines()
+            .find(|line| line.trim_start().starts_with(&format!("{name} = [")))
+            .unwrap_or_else(|| {
+                panic!(
+                    "cli/runtime/manifest.toml declares no `{name}` feature, so the h3 gate is \
+                     not there to check"
+                )
+            })
+            .to_string()
+    };
+    let net_feature = feature_line("net");
+    let h3_feature = feature_line("net-h3");
+    assert!(
+        h3_feature.contains("\"net\""),
+        "`net-h3` does not imply `net`: {h3_feature}. QUIC carries TLS 1.3 inside the transport \
+         and runs on the same reactor, so an h3 build without the networking crates would be a \
+         QUIC stack with no crypto provider and nowhere to run"
+    );
+    assert!(
+        h3_feature.contains("\"dep:quinn\""),
+        "`net-h3` does not enable `quinn`, so the feature turns nothing on: {h3_feature}"
+    );
+    assert!(
+        !net_feature.contains("quinn"),
+        "`quinn` is enabled by `net`, which is on by default, so every `cargo install buri` now \
+         resolves and ships a QUIC stack: {net_feature}. HTTP/3 is gated behind `net-h3` \
+         deliberately — cli/runtime/manifest.toml's feature block argues it"
+    );
+    let default_feature = feature_line("default");
+    assert!(
+        !default_feature.contains("net-h3"),
+        "`net-h3` is in the runtime's default feature set, so the gate is open for everyone: \
+         {default_feature}"
     );
     assert!(
         runtime.contains("[dependencies]"),

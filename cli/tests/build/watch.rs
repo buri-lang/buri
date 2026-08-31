@@ -11,6 +11,12 @@
 //! pass limit, and its "is a terminal" flag as fields rather than reading them
 //! from the environment: the poll-detect-settle-rerun cycle is the same code in
 //! both, and what a test replaces is the terminal and the clock.
+//!
+//! The scripted mutation is the fourth thing injected. `Watch::drive_armed`
+//! hands back the instant a pass's stamps are taken, and the edit is made
+//! there, because the claim in both loop cases is about which side of that
+//! stamp an edit fell on — and a test that guesses at it with a sleep is a test
+//! that gets a different answer on a machine that is busy.
 use crate::harness::*;
 
 use buri::build::session::{Rendering, Session};
@@ -211,9 +217,9 @@ fn a_sweep_sees_an_edit_and_a_deletion() {
 // The loop
 // ---------------------------------------------------------------------------
 
-/// The whole cycle, headless: a pass, a file mutation scripted to land while
-/// the loop is sweeping, and a second pass that re-runs the suite the edit
-/// reached and serves the other one from the cache.
+/// The whole cycle, headless: a pass, a file mutation scripted to land on the
+/// far side of the loop's stamp, and a second pass that re-runs the suite the
+/// edit reached and serves the other one from the cache.
 ///
 /// The incrementality is the cache's rather than the loop's, which is exactly
 /// what is being read here: the loop re-runs the *whole* invocation, and
@@ -235,24 +241,25 @@ fn an_edit_re_runs_its_suite_and_leaves_the_sibling_cached() {
     };
 
     let mut transcripts: Vec<(Vec<String>, String)> = Vec::new();
-    let code = watch.drive(|trigger| {
-        let run = scratch.run(&["test", "//...", "--explain"]);
-        transcripts.push((names(&scratch.root, &trigger.changed), run.all()));
-        if trigger.pass == 1 {
-            // The scripted mutation. On a thread, and after a delay, because
-            // the loop stamps the declared set the moment the opening pass
-            // returns: an edit that lands *before* that stamp is one the loop
-            // has already accounted for, and the case worth testing is the one
-            // that lands while it is sweeping.
-            let path = scratch.path("lib/a/lib.buri");
-            let text = library("20 + 1");
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(120));
-                std::fs::write(&path, text).expect("the scripted edit lands");
-            });
-        }
-        Pass { code: run.code, inputs: set.clone(), output: String::new(), quiet: true }
-    });
+    let code = watch.drive_armed(
+        |trigger| {
+            let run = scratch.run(&["test", "//...", "--explain"]);
+            transcripts.push((names(&scratch.root, &trigger.changed), run.all()));
+            Pass { code: run.code, inputs: set.clone(), output: String::new(), quiet: true }
+        },
+        // The scripted mutation, and it hangs off the loop's own arming rather
+        // than off a delay, because the loop stamps the declared set the moment
+        // the opening pass returns: an edit that lands *before* that stamp is
+        // one the loop has already accounted for, and the case worth testing is
+        // the one on the far side of it. `drive_armed` is that boundary to the
+        // instruction, so what the loop sweeps is a whole file that was written
+        // before it swept — not a write still landing while it stats.
+        |pass| {
+            if pass == 1 {
+                scratch.write("lib/a/lib.buri", &library("20 + 1"));
+            }
+        },
+    );
 
     assert_eq!(code, 0, "a passing repository did not exit 0 from the loop");
     assert_eq!(transcripts.len(), 2, "the loop did not run a second pass");
@@ -351,23 +358,32 @@ fn a_broken_build_file_keeps_the_loop_watching() {
     };
     let mut codes = Vec::new();
     let mut triggers: Vec<Vec<String>> = Vec::new();
-    watch.drive(|trigger| {
-        let run = scratch.run(&["test", "//..."]);
-        codes.push(run.code);
-        triggers.push(names(&scratch.root, &trigger.changed));
-        if trigger.pass == 1 {
-            let path = scratch.path("lib/a/BUILD.buri");
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(120));
-                std::fs::write(&path, "library {\n  test { sources: [\"test/a.buri\"] }\n}\n")
-                    .expect("the repair lands");
-            });
-        }
-        // Recomputed every pass, exactly as `one_pass` does it — including the
-        // pass whose repository would not load.
-        let inputs = declared_set(&scratch.root);
-        Pass { code: run.code, inputs, output: String::new(), quiet: true }
-    });
+    watch.drive_armed(
+        |trigger| {
+            let run = scratch.run(&["test", "//..."]);
+            codes.push(run.code);
+            triggers.push(names(&scratch.root, &trigger.changed));
+            // Recomputed every pass, exactly as `one_pass` does it — including
+            // the pass whose repository would not load.
+            let inputs = declared_set(&scratch.root);
+            Pass { code: run.code, inputs, output: String::new(), quiet: true }
+        },
+        // The repair, written the instant the broken set is stamped and before
+        // the loop has swept it — the far side of the stamp, which is what the
+        // claim is about, reached by construction rather than by a sleep long
+        // enough to *probably* be past it. A repair racing the poller is a
+        // repair the poller can stat between the truncate and the bytes, and a
+        // pass that then builds an empty `BUILD.buri` exits 2 for a reason that
+        // has nothing to do with what is being tested.
+        |pass| {
+            if pass == 1 {
+                scratch.write(
+                    "lib/a/BUILD.buri",
+                    "library {\n  test { sources: [\"test/a.buri\"] }\n}\n",
+                );
+            }
+        },
+    );
 
     assert_eq!(codes[0], 2, "an unparseable build file was not exit 2");
     assert_eq!(
