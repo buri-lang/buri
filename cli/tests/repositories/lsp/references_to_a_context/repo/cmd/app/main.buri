@@ -10,8 +10,7 @@ context Program {
 
 export fn main(): Result<(), Str> {
   let ctx = Program();
-  let _ = io.println(ctx, "one").ignore();
+  let _ = io.println(ctx, "one").mapErr(fn(_e) => "could not write to standard output")?;
   let again = Program();
-  let _ = io.println(again, "two").ignore();
-  .Ok(())
+  io.println(again, "two").mapErr(fn(_e) => "could not write to standard output")
 }

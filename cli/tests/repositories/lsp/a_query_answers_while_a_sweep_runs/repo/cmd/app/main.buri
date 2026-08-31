@@ -5,6 +5,5 @@ from "//lib/alpha" import { markup };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, markup(3).show(ctx)).ignore();
-  .Ok(())
+  io.println(ctx, markup(3).show(ctx)).mapErr(fn(_e) => "could not write to standard output")
 }

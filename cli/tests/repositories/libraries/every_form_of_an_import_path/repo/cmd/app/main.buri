@@ -6,6 +6,5 @@ from "//cmd/app/routes.buri" import { total };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${total()}").ignore();
-  .Ok(())
+  io.println(ctx, "${total()}").mapErr(fn(_e) => "could not write to standard output")
 }

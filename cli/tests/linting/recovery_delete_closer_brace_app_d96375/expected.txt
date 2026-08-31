@@ -1,0 +1,36 @@
+error: expected `Str`, found `IoError` [type-mismatch]
+  --> lib/recovery_delete_closer_brace_app_d96375/main.buri:10:35
+   |
+10 | export fn main(): Result<(), Str> {
+   |                                   ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `IoError`
+   = fix: produce a `Str` here, or change what surrounds it to accept a `IoError`
+error: `Str` has no method `mapErr` [no-such-method]
+  --> lib/recovery_delete_closer_brace_app_d96375/main.buri:12:30
+   |
+12 |   io.println(ctx, describe().mapErr(fn(_e) => "could not write to standard output")
+   |                              ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_d96375/main.buri:13:1
+   |
+13 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_app_d96375/main.buri:12:13
+   |
+12 |   io.println(ctx, describe().mapErr(fn(_e) => "could not write to standard output")
+   |             ^ opened here
+   |
+   = fix: write `)` here
+warning: `ctx` is bound to something other than a context [ctx-rebinding]
+  --> lib/recovery_delete_closer_brace_app_d96375/main.buri:16:3
+   |
+16 |   let ctx = "not a context";
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `ctx` is where a function's effects arrive, and a repository in which it means that everywhere is one where a reader can tell what a function may do by reading its signature
+   = fix: give the binding a name of its own

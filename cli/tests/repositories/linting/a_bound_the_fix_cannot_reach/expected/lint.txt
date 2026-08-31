@@ -1,7 +1,7 @@
 warning: bound `Alloc` on `C` is not used by this function [unused-context-bound]
   --> lib/label/stamp.buri:17:20
    |
-17 | export fn stamp<C: Alloc + Stdout>(ctx: C, label: Str): () {
+17 | export fn stamp<C: Alloc + Stdout>(ctx: C, label: Str): Result<(), IoError> {
    |                    ^^^^^
    |
    = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing

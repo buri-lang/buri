@@ -1,0 +1,38 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_module_app_d0af6d/main.buri:12:3
+   |
+12 |   io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: consume it and bind what is left: `let _ = ....ignore();` — or `?` to propagate, `match` to handle both cases
+error: this statement has type `Result<(), Str>`, not `()` [statement-not-unit]
+  --> lib/recovery_insert_stray_module_app_d0af6d/main.buri:12:3
+   |
+12 |   io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_module_app_d0af6d/main.buri:12:85
+   |
+12 |   io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
+   |                                                                                     ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_module_app_d0af6d/main.buri:13:1
+   |
+13 | extra }
+   | ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+warning: `ctx` is bound to something other than a context [ctx-rebinding]
+  --> lib/recovery_insert_stray_module_app_d0af6d/main.buri:16:3
+   |
+16 |   let ctx = "not a context";
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `ctx` is where a function's effects arrive, and a repository in which it means that everywhere is one where a reader can tell what a function may do by reading its signature
+   = fix: give the binding a name of its own

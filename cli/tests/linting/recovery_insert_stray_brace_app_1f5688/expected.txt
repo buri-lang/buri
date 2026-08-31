@@ -8,16 +8,16 @@ error: expected `=`, found `extra` [unexpected-token]
    = actual: `extra`
    = fix: write `=` here
 error: there is nothing named `ctx` in scope [unresolved-name]
-  --> lib/recovery_insert_stray_brace_app_1f5688/main.buri:12:22
+  --> lib/recovery_insert_stray_brace_app_1f5688/main.buri:12:14
    |
-12 |   let _ = io.println(ctx, describe()).ignore();
-   |                      ^^^
+12 |   io.println(ctx, describe()).mapErr(fn(_e) => "could not write to standard output")
+   |              ^^^
    |
    = fix: declare `ctx` as a parameter of this function
 warning: `ctx` is bound to something other than a context [ctx-rebinding]
-  --> lib/recovery_insert_stray_brace_app_1f5688/main.buri:17:3
+  --> lib/recovery_insert_stray_brace_app_1f5688/main.buri:16:3
    |
-17 |   let ctx = "not a context";
+16 |   let ctx = "not a context";
    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = `ctx` is where a function's effects arrive, and a repository in which it means that everywhere is one where a reader can tell what a function may do by reading its signature

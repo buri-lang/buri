@@ -1,0 +1,7 @@
+error: a function-type parameter ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_paren_expected_ccdba8/main.buri:34:43
+   |
+34 | fn rendered<C: Alloc>(ctx: C, render: fn(C Str) => Str, label: Str): Str {
+   |                                           ^
+   |
+   = fix: write `,` here

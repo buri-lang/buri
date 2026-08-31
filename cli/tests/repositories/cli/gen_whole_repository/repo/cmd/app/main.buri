@@ -9,6 +9,5 @@ export fn main(): Result<(), Str> {
         Alloc: host.alloc,
         Stdout: host.stdout,
     };
-    let _ = io.println(ctx, label(ctx, fromCents(7))).ignore();
-    .Ok(())
+    io.println(ctx, label(ctx, fromCents(7))).mapErr(fn(_e) => "could not write to standard output")
 }

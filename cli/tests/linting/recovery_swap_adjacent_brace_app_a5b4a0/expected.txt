@@ -8,9 +8,9 @@ error: expected `=`, found `context` [unexpected-token]
    = actual: `context`
    = fix: write `=` here
 error: there is nothing named `ctx` in scope [unresolved-name]
-  --> lib/recovery_swap_adjacent_brace_app_a5b4a0/main.buri:13:22
+  --> lib/recovery_swap_adjacent_brace_app_a5b4a0/main.buri:13:14
    |
-13 |   let _ = io.println(ctx, "done").ignore();
-   |                      ^^^
+13 |   io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output")
+   |              ^^^
    |
    = fix: declare `ctx` as a parameter of this function

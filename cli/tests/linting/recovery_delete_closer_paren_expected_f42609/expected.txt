@@ -1,0 +1,28 @@
+error: this function type is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_expected_f42609/main.buri:34:49
+   |
+34 | fn rendered<C: Alloc>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+   |                                                 ^^
+   |
+  --> lib/recovery_delete_closer_paren_expected_f42609/main.buri:34:41
+   |
+34 | fn rendered<C: Alloc>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+   |                                         ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `:` [unexpected-token]
+  --> lib/recovery_delete_closer_paren_expected_f42609/main.buri:34:68
+   |
+34 | fn rendered<C: Alloc>(ctx: C, render: fn(C, Str => Str, label: Str): Str {
+   |                                                                    ^
+   |
+   = expected: `=>`
+   = actual: `:`
+   = fix: write `=>` here
+error: there is nothing named `rendered` in scope [unresolved-name]
+  --> lib/recovery_delete_closer_paren_expected_f42609/main.buri:43:19
+   |
+43 |   io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                   ^^^^^^^^
+   |
+   = fix: declare `rendered`, or import it — a name is in scope only from this module's own declarations and its imports

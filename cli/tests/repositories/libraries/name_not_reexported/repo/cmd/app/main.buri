@@ -10,6 +10,5 @@ from "//lib/money" import { fromCents, rawValue };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${rawValue(fromCents(450))}").ignore();
-  .Ok(())
+  io.println(ctx, "${rawValue(fromCents(450))}").mapErr(fn(_e) => "could not write to standard output")
 }

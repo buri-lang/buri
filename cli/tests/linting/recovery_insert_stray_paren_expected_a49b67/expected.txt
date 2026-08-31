@@ -1,0 +1,9 @@
+error: expected the rest of the string, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_expected_a49b67/main.buri:42:48
+   |
+42 |   let _ = io.println(ctx, "${banner(ctx, label), } is ${width(label)} wide").mapErr(fn(_e) => "could not write to standard output")?;
+   |                                                ^
+   |
+   = expected: the rest of the string
+   = actual: `,`
+   = fix: close the template: every `${` needs a `}` and the string needs a closing quote

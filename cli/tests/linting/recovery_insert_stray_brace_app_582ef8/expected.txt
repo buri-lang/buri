@@ -1,0 +1,23 @@
+error: `mapErr` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> lib/recovery_insert_stray_brace_app_582ef8/main.buri:13:3
+   |
+13 |   io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output"extra )
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_brace_app_582ef8/main.buri:13:80
+   |
+13 |   io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output"extra )
+   |                                                                                ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_582ef8/main.buri:13:80
+   |
+13 |   io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output"extra )
+   |                                                                                ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

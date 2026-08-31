@@ -18,11 +18,10 @@ export fn main(): Result<(), Str> {
     value: encodeErrorInfo(ctx, info),
   };
   let status = Status { code: 3, message: "bad argument", details: [detail] };
-  let _ = io.println(ctx, "${decodeStatus(ctx, encodeStatus(ctx, status)) == .Ok(status)}").ignore();
-  let _ = io.println(ctx, detail.typeUrl).ignore();
-  let _ = io.println(ctx, bytes.toHex(ctx, detail.value)).ignore();
+  let _ = io.println(ctx, "${decodeStatus(ctx, encodeStatus(ctx, status)) == .Ok(status)}").mapErr(fn(_e) => "could not write to standard output")?;
+  let _ = io.println(ctx, detail.typeUrl).mapErr(fn(_e) => "could not write to standard output")?;
+  let _ = io.println(ctx, bytes.toHex(ctx, detail.value)).mapErr(fn(_e) => "could not write to standard output")?;
   // And so is unpacking, with the codec for the type the program expects.
-  let _ = io.println(ctx, "${decodeErrorInfo(ctx, detail.value) == .Ok(info)}").ignore();
-  let _ = io.println(ctx, json.stringify(ctx, encodeStatusJson(ctx, status))).ignore();
-  .Ok(())
+  let _ = io.println(ctx, "${decodeErrorInfo(ctx, detail.value) == .Ok(info)}").mapErr(fn(_e) => "could not write to standard output")?;
+  io.println(ctx, json.stringify(ctx, encodeStatusJson(ctx, status))).mapErr(fn(_e) => "could not write to standard output")
 }

@@ -16,9 +16,9 @@ error: expected a function body, found a string literal [unexpected-token]
    = actual: a string literal
    = fix: write `{ ... }` after the return type
 error: there is nothing named `banner` in scope [unresolved-name]
-  --> lib/recovery_swap_adjacent_module_app_87b783/main.buri:14:27
+  --> lib/recovery_swap_adjacent_module_app_87b783/main.buri:14:19
    |
-14 |   let _ = io.println(ctx, banner()).ignore();
-   |                           ^^^^^^
+14 |   io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
+   |                   ^^^^^^
    |
    = fix: declare `banner`, or import it — a name is in scope only from this module's own declarations and its imports

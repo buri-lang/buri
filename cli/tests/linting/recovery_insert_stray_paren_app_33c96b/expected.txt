@@ -1,0 +1,17 @@
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_insert_stray_paren_app_33c96b/main.buri:14:11
+   |
+14 |           if (n > 10000) { "huge" } else { "large" }
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`
+error: expected the rest of the string, found `ladder` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_app_33c96b/main.buri:27:42
+   |
+27 |   io.println(ctx, "${size(5000)} ${extra ladder(1)}").mapErr(fn(_e) => "could not write to standard output")
+   |                                          ^^^^^^
+   |
+   = expected: the rest of the string
+   = actual: `ladder`
+   = fix: close the template: every `${` needs a `}` and the string needs a closing quote

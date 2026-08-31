@@ -13,6 +13,5 @@ export fn main(): Result<(), Str> {
     Alloc:  host.alloc,
     Stdout: host.stdout,
   };
-  let _ = io.println(ctx, "app").ignore();
-  .Ok(())
+  io.println(ctx, "app").mapErr(fn(_e) => "could not write to standard output")
 }

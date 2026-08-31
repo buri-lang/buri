@@ -24,9 +24,9 @@ error: expected an identifier, found `:` [unexpected-token]
    = actual: `:`
    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
 error: there is nothing named `ctx` in scope [unresolved-name]
-  --> lib/recovery_swap_adjacent_brace_app_b3ab64/main.buri:14:22
+  --> lib/recovery_swap_adjacent_brace_app_b3ab64/main.buri:14:14
    |
-14 |   let _ = io.println(ctx, banner()).ignore();
-   |                      ^^^
+14 |   io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
+   |              ^^^
    |
    = fix: declare `ctx` as a parameter of this function

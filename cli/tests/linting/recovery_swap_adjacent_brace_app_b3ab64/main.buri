@@ -11,6 +11,5 @@ fn banner(): Str { "TODO is a marker in a comment and not in a string" }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.allocStdout ,: host.stdout };
-  let _ = io.println(ctx, banner()).ignore();
-  .Ok(())
+  io.println(ctx, banner()).mapErr(fn(_e) => "could not write to standard output")
 }

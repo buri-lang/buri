@@ -1,0 +1,24 @@
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_swap_adjacent_paren_stamp_f26466/lib.buri:18:17
+   |
+18 |   io.println(ctx"-- ${ ,label}")
+   |                 ^
+   |
+   = fix: write `,` here
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_stamp_f26466/lib.buri:18:24
+   |
+18 |   io.println(ctx"-- ${ ,label}")
+   |                        ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+warning: bound `Alloc` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_stamp_f26466/lib.buri:24:19
+   |
+24 | export fn note<C: Alloc // it will allocate once the sink is real
+   |                   ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound

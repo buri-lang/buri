@@ -1,0 +1,17 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_insert_stray_paren_app_7da069/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_app_7da069/main.buri:14:19
+   |
+14 |   io.println(ctx, , banner()).mapErr(fn(_e) => "could not write to standard output")
+   |                   ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

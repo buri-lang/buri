@@ -10,6 +10,5 @@ from "//cmd/tool/flags.buri" import { label };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${label()}: ${render(1)}").ignore();
-  .Ok(())
+  io.println(ctx, "${label()}: ${render(1)}").mapErr(fn(_e) => "could not write to standard output")
 }

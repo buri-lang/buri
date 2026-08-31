@@ -4,6 +4,5 @@ from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "fine").ignore();
-  .Ok(())
+  io.println(ctx, "fine").mapErr(fn(_e) => "could not write to standard output")
 }

@@ -6,6 +6,5 @@ from "//lib/store" import { fromStore };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, fromStore()).ignore();
-  .Ok(())
+  io.println(ctx, fromStore()).mapErr(fn(_e) => "could not write to standard output")
 }

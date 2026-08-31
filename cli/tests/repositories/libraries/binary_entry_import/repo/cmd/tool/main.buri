@@ -15,6 +15,5 @@ export fn banner(): Str { "tool" }
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${banner()}: ${route("/health")}").ignore();
-  .Ok(())
+  io.println(ctx, "${banner()}: ${route("/health")}").mapErr(fn(_e) => "could not write to standard output")
 }

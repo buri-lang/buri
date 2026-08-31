@@ -1,0 +1,16 @@
+error: expected `fn(a context, Str) => Str`, found `fn(_19, _16, _17) => Str` [type-mismatch]
+  --> lib/recovery_insert_stray_paren_expected_844264/main.buri:56:30
+   |
+56 |   whisper(ctx, rendered(ctx, fn(c, extra l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `fn(a context, Str) => Str`
+   |
+   = expected: `fn(a context, Str) => Str`
+   = actual: `fn(_19, _16, _17) => Str`
+   = fix: produce a `fn(a context, Str) => Str` here, or change what surrounds it to accept a `fn(_19, _16, _17) => Str`
+error: a lambda parameter ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_paren_expected_844264/main.buri:56:41
+   |
+56 |   whisper(ctx, rendered(ctx, fn(c, extra l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                                         ^
+   |
+   = fix: write `,` here

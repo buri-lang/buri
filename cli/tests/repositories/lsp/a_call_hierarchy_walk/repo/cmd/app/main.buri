@@ -9,6 +9,5 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
     };
     let plain: Item = listing("plain", defaultPrice);
-    let _ = io.println(ctx, "total: ${subtotal([plain]).show(ctx)}").ignore();
-    .Ok(())
+    io.println(ctx, "total: ${subtotal([plain]).show(ctx)}").mapErr(fn(_e) => "could not write to standard output")
 }

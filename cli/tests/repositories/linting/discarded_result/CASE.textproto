@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a call to core/result.ignore: discarded-result, a warning like every finding, and a report that has one exits nonzero"
+doc: "a call to core/result.ignore: discarded-result, a warning like every finding, and a report that has one exits nonzero — a dropped print included, because the rule is total"
 
 run {
   args: ["lint", "//cmd/app"]
@@ -15,12 +15,20 @@ run {
   golden: "lint.json"
 }
 
-# Handling the failure ends the finding. `?` is the other answer the diagnostic
-# names, and either one removes the `ignore`.
+# Handling the failure ends the finding, and there are two of them to end. `?`
+# propagates the one whose error type already matches; a print's does not — it
+# is an `IoError` where `main` answers a `Str` — so `mapErr` is what carries
+# that one. Either way the `ignore` goes, and with it the finding.
 edit {
   file: "cmd/app/main.buri"
   replace: "  let _ = record().ignore();\n"
   with: "  let _ = record()?;\n"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "  let _ = io.println(ctx, \"done\").ignore();\n  .Ok(())\n"
+  with: "  io.println(ctx, \"done\").mapErr(fn(_e) => \"could not write to standard output\")\n"
 }
 
 run {

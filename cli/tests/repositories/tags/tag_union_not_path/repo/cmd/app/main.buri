@@ -12,6 +12,5 @@ from "//lib/right" import { viaright };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${vialeft()} ${viaright()}").ignore();
-  .Ok(())
+  io.println(ctx, "${vialeft()} ${viaright()}").mapErr(fn(_e) => "could not write to standard output")
 }

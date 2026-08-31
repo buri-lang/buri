@@ -13,7 +13,6 @@ from "core/io" import { print };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = print(ctx, "half a line").ignore();
-  let _ = io.println(ctx, " and the rest").ignore();
-  .Ok(())
+  let _ = print(ctx, "half a line").mapErr(fn(_e) => "could not write to standard output")?;
+  io.println(ctx, " and the rest").mapErr(fn(_e) => "could not write to standard output")
 }

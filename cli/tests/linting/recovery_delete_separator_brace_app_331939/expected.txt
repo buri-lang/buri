@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_separator_brace_app_331939/main.buri:16:28
+   |
+16 |   let ctx = "not a context"
+   |                            ^
+   |
+   = fix: write `;` here

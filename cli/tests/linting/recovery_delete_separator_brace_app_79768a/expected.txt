@@ -1,0 +1,15 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_delete_separator_brace_app_79768a/main.buri:16:20
+   |
+16 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_separator_brace_app_79768a/main.buri:40:23
+   |
+40 |   let label = "ledger"
+   |                       ^
+   |
+   = fix: write `;` here

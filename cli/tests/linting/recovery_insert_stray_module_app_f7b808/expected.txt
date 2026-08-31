@@ -1,9 +1,0 @@
-error: expected a function body, found `@` [unexpected-token]
-  --> lib/recovery_insert_stray_module_app_f7b808/main.buri:18:35
-   |
-18 | export fn main(): Result<(), Str> @ {
-   |                                   ^
-   |
-   = expected: a function body
-   = actual: `@`
-   = fix: write `{ ... }` after the return type

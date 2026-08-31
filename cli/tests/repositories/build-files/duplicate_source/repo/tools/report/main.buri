@@ -9,6 +9,5 @@ from "//tools/report" import { render };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, render(0)).ignore();
-  .Ok(())
+  io.println(ctx, render(0)).mapErr(fn(_e) => "could not write to standard output")
 }

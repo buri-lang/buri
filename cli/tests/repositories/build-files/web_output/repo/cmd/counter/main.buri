@@ -29,6 +29,6 @@ export fn main(): Result<(), Str> {
     Watch: host.watch,
   };
   let count = signal(ctx, 0);
-  let _ = io.println(ctx, "mounted").ignore();
+  let _ = io.println(ctx, "mounted").mapErr(fn(_e) => "could not write to standard output")?;
   ui.mount(ctx, view(ctx, count), [])
 }

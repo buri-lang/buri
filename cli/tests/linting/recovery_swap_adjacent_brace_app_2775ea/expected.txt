@@ -1,0 +1,9 @@
+error: expected an identifier, found `if` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_2775ea/main.buri:12:7
+   |
+12 |       if (n > 100) {
+   |       ^^
+   |
+   = expected: an identifier
+   = actual: `if`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -14,6 +14,5 @@ export fn main(): Result<(), Str> {
   let low: Depth = reading(3.0);
   let high: Height = reading(4.0);
   let deep: Sounding = deepest(low, high);
-  let _ = io.println(ctx, str.format(ctx, "${metres(deep)}")).ignore();
-  .Ok(())
+  io.println(ctx, str.format(ctx, "${metres(deep)}")).mapErr(fn(_e) => "could not write to standard output")
 }

@@ -1,0 +1,78 @@
+warning: bound `Alloc` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_app_9ab2c0/main.buri:15:16
+   |
+15 | fn announce<C: Alloc + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Alloc` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_app_9ab2c0/main.buri:22:13
+   |
+22 | fn shout<C: Alloc + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |             ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Clock` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_app_9ab2c0/main.buri:22:21
+   |
+22 | fn shout<C: Alloc + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                     ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+error: `rendered` takes 3 arguments, but 2 were given [wrong-argument-count]
+  --> lib/recovery_swap_adjacent_paren_app_9ab2c0/main.buri:56:16
+   |
+56 |   whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 2
+   = fix: pass the context: the convention is receiver first, context second, everything else after
+error: there is nothing named `ctxfn` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_app_9ab2c0/main.buri:56:25
+   |
+56 |   whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                         ^^^^^
+   |
+   = did you mean `ctx`?
+   = fix: correct the spelling, or declare it
+error: expected `fn(_14, Str) => Str`, found `(<error>, <error>)` [type-mismatch]
+  --> lib/recovery_swap_adjacent_paren_app_9ab2c0/main.buri:56:32
+   |
+56 |   whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                                ^^^^^^ the parameter type is `fn(_14, Str) => Str`
+   |
+   = expected: `fn(_14, Str) => Str`
+   = actual: `(<error>, <error>)`
+   = fix: produce a `fn(_14, Str) => Str` here, or change what surrounds it to accept a `(<error>, <error>)`
+error: there is nothing named `c` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_app_9ab2c0/main.buri:56:33
+   |
+56 |   whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                                 ^
+   |
+   = did you mean `Eq`?
+   = fix: correct the spelling, or declare it
+error: there is nothing named `l` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_app_9ab2c0/main.buri:56:36
+   |
+56 |   whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                                    ^
+   |
+   = did you mean `Eq`?
+   = fix: correct the spelling, or declare it
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_paren_app_9ab2c0/main.buri:56:39
+   |
+56 |   whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                                       ^^
+   |
+  --> lib/recovery_swap_adjacent_paren_app_9ab2c0/main.buri:56:24
+   |
+56 |   whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                        ^ opened here
+   |
+   = fix: write `)` here

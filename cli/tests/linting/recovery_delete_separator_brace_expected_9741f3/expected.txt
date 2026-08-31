@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_separator_brace_expected_9741f3/main.buri:42:131
+   |
+42 |   let _ = io.println(ctx, "${banner(ctx, label)} is ${width(label)} wide").mapErr(fn(_e) => "could not write to standard output")?
+   |                                                                                                                                   ^
+   |
+   = fix: write `;` here

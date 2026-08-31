@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_65e748/main.buri:13:3
+   |
+13 |   , io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output")
+   |   ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

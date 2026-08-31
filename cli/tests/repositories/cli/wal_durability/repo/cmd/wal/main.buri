@@ -61,11 +61,10 @@ export fn main(): Result<(), Str> {
   let removed = word(fs.remove(ctx, "wal/log"));
   let removedAgain = word(fs.remove(ctx, "wal/log"));
 
-  let _ = io.println(ctx, "mkdir ${made} ${madeAgain}").ignore();
-  let _ = io.println(ctx, "append ${one} ${two} sync ${syncedOne} ${syncedTwo}").ignore();
-  let _ = io.println(ctx, "log ${bytes.toHex(ctx, replayed)}").ignore();
-  let _ = io.println(ctx, "checkpoint ${wrote} ${syncedTemporary} ${renamed} ${syncedDirectory}").ignore();
-  let _ = io.println(ctx, "temporary-gone ${temporaryGone} kept ${bytes.toHex(ctx, kept)}").ignore();
-  let _ = io.println(ctx, "remove ${removed} again ${removedAgain}").ignore();
-  .Ok(())
+  let _ = io.println(ctx, "mkdir ${made} ${madeAgain}").mapErr(fn(_e) => "could not write to standard output")?;
+  let _ = io.println(ctx, "append ${one} ${two} sync ${syncedOne} ${syncedTwo}").mapErr(fn(_e) => "could not write to standard output")?;
+  let _ = io.println(ctx, "log ${bytes.toHex(ctx, replayed)}").mapErr(fn(_e) => "could not write to standard output")?;
+  let _ = io.println(ctx, "checkpoint ${wrote} ${syncedTemporary} ${renamed} ${syncedDirectory}").mapErr(fn(_e) => "could not write to standard output")?;
+  let _ = io.println(ctx, "temporary-gone ${temporaryGone} kept ${bytes.toHex(ctx, kept)}").mapErr(fn(_e) => "could not write to standard output")?;
+  io.println(ctx, "remove ${removed} again ${removedAgain}").mapErr(fn(_e) => "could not write to standard output")
 }

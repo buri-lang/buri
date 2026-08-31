@@ -1,9 +1,0 @@
-error: expected `=>`, found `str` [unexpected-token]
-  --> lib/recovery_swap_adjacent_paren_expected_cc6580/main.buri:41:50
-   |
-41 |   let _ = io.println(ctx, rendered(ctx, fn(c, l) str =>.format(c, "<${l}>"), label)).ignore();
-   |                                                  ^^^
-   |
-   = expected: `=>`
-   = actual: `str`
-   = fix: write `=>` here

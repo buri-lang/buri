@@ -21,13 +21,13 @@ export fn main(): Result<(), Str> {
     Proc:   host.proc,
   };
   let args = env.args(ctx);
-  let _ = io.println(ctx, "argc ${args.len()}").ignore();
-  let _ = io.println(ctx, "argv ${args.join(ctx, " ")}").ignore();
+  let _ = io.println(ctx, "argc ${args.len()}").mapErr(fn(_e) => "could not write to standard output")?;
+  let _ = io.println(ctx, "argv ${args.join(ctx, " ")}").mapErr(fn(_e) => "could not write to standard output")?;
   let note = match (fs.readText(ctx, "note.txt")) {
     .Ok(text) => text.trim(),
     .Err(_) => "no note",
   };
-  let _ = io.println(ctx, "note ${note}").ignore();
+  let _ = io.println(ctx, "note ${note}").mapErr(fn(_e) => "could not write to standard output")?;
 
   // `if` is an expression, so both branches produce the same `()`.
   let _ = if (args.any(fn(a) => a == "--fail")) { proc.exit(ctx, 3) } else { () };

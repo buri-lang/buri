@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_separator_brace_expected_4e80e8/main.buri:41:87
+   |
+41 |   let _ = announce(ctx, label).mapErr(fn(_e) => "could not write to standard output")?
+   |                                                                                       ^
+   |
+   = fix: write `;` here

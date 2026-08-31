@@ -7,6 +7,5 @@ from "//lib/shop" import { Item, listing, subtotal, defaultPrice };
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let plain: Item = listing("plain", defaultPrice);
-  let _ = io.println(ctx, "total: ${subtotal([plain]).show(ctx)}").ignore();
-  .Ok(())
+  io.println(ctx, "total: ${subtotal([plain]).show(ctx)}").mapErr(fn(_e) => "could not write to standard output")
 }

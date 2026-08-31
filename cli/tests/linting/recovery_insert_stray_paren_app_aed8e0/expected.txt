@@ -1,0 +1,16 @@
+error: expected `fn(IoError) => Str`, found `fn(_6, _7) => Str` [type-mismatch]
+  --> lib/recovery_insert_stray_paren_app_aed8e0/main.buri:13:34
+   |
+13 |   io.println(ctx, "done").mapErr(fn(extra _e) => "could not write to standard output")
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `fn(IoError) => Str`
+   |
+   = expected: `fn(IoError) => Str`
+   = actual: `fn(_6, _7) => Str`
+   = fix: produce a `fn(IoError) => Str` here, or change what surrounds it to accept a `fn(_6, _7) => Str`
+error: a lambda parameter ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_paren_app_aed8e0/main.buri:13:42
+   |
+13 |   io.println(ctx, "done").mapErr(fn(extra _e) => "could not write to standard output")
+   |                                          ^
+   |
+   = fix: write `,` here

@@ -1,0 +1,54 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_swap_adjacent_paren_app_edf01b/main.buri:16:20
+   |
+16 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: `renderfn` carries an effect, so it must be named `ctx` [effect-param-not-ctx]
+  --> lib/recovery_swap_adjacent_paren_app_edf01b/main.buri:34:31
+   |
+34 | fn rendered<C: Alloc>(ctx: C, renderfn :(C, Str) => Str, label: Str): Str {
+   |                               ^^^^^^^^^^^^^^^^^^
+   |
+   = a function is effectful if and only if it has a `ctx` parameter or an effect-carrying `self`, which is what lets a reader stop after the first two parameters
+   = fix: rename `renderfn` to `ctx` and make it the first parameter, or drop the effect bound if this parameter is ordinary data
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_paren_app_edf01b/main.buri:34:50
+   |
+34 | fn rendered<C: Alloc>(ctx: C, renderfn :(C, Str) => Str, label: Str): Str {
+   |                                                  ^^
+   |
+  --> lib/recovery_swap_adjacent_paren_app_edf01b/main.buri:34:22
+   |
+34 | fn rendered<C: Alloc>(ctx: C, renderfn :(C, Str) => Str, label: Str): Str {
+   |                      ^ opened here
+   |
+   = fix: write `)` here
+error: there is nothing named `render` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_app_edf01b/main.buri:35:3
+   |
+35 |   render(ctx, label)
+   |   ^^^^^^
+   |
+   = did you mean `rendered`?
+   = fix: correct the spelling, or declare it
+error: `rendered` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> lib/recovery_swap_adjacent_paren_app_edf01b/main.buri:43:19
+   |
+43 |   io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
+error: expected `(a context, Str)`, found `fn(_15, _13) => Str` [type-mismatch]
+  --> lib/recovery_swap_adjacent_paren_app_edf01b/main.buri:43:33
+   |
+43 |   io.println(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `(a context, Str)`
+   |
+   = expected: `(a context, Str)`
+   = actual: `fn(_15, _13) => Str`
+   = fix: produce a `(a context, Str)` here, or change what surrounds it to accept a `fn(_15, _13) => Str`
