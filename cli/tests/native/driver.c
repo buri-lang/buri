@@ -30,11 +30,19 @@ typedef struct {
   uint64_t len;
 } BuriList;
 
+/* Eight words, in `cli/runtime/memory.rs`'s order. The fifth and sixth are
+   G6's and the last two are G4's, and this declaration has to grow with that
+   struct: `buri_rt_heap_stats` writes the whole of it, so a stale mirror here
+   is a write past the end of the caller's stack slot. */
 typedef struct {
   uint64_t live_blocks;
   uint64_t live_bytes;
   uint64_t total_blocks;
   uint64_t total_bytes;
+  uint64_t retained_bytes;
+  uint64_t decommitted_bytes;
+  uint64_t arena_bytes;
+  uint64_t arena_released_bytes;
 } BuriHeapStats;
 
 #define BURI_OK (-1)

@@ -197,17 +197,60 @@ atomic_incref(p):                      atomic_decref(p):
                                            drop_T(p); free(p)
 ```
 
-**Nothing sets the bit.** Every program this toolchain compiles takes the
-unshared arm, and the atomic arms are dead code until the values that cross a
-task boundary are marked. What the fork costs the shipping program is therefore
-its own test, and that is the number worth stating: **two instructions** on each
-of the two operations, on both instruction sets — `ldur x, [p, #-8]` +
-`tbnz x, #63` on aarch64, `cmpq $0, -8(p)` + `js` on x86-64. The load is of the
-word beside the count, in the same sixteen-byte header, so it is on a cache line
-the operation was going to touch anyway; the branch is perfectly predicted,
-because its answer never changes; and the emitters mark the unshared arm as the
-hot one, so it is the fallthrough and the atomic arm is out of line. The
-measured cost is in `design/PERFORMANCE.md`.
+What the fork costs a program that takes the unshared arm is its own test, and
+that is the number worth stating: **two instructions** on each of the two
+operations, on both instruction sets — `ldur x, [p, #-8]` + `tbnz x, #63` on
+aarch64, `cmpq $0, -8(p)` + `js` on x86-64. The load is of the word beside the
+count, in the same sixteen-byte header, so it is on a cache line the operation
+was going to touch anyway; the branch is perfectly predicted; and the emitters
+mark the unshared arm as the hot one, so it is the fallthrough and the atomic
+arm is out of line. The measured cost is in `design/PERFORMANCE.md`.
+
+#### Who sets the bit
+
+**A program that can reach a task boundary marks every block it allocates. A
+program that cannot marks none.** That is the whole policy, and the asymmetry
+in §5.5 is the argument for it: an over-set bit costs a copy, an under-set one
+is a silent aliasing bug, and there is no trade to make between an optimisation
+that occasionally does not fire and one that is occasionally wrong.
+
+Three pieces, and each is in the one place that can hold it:
+
+- **`middle::rc::crosses_tasks`** asks the whole post-monomorphization program
+  whether any intrinsic it can reach hands a value to another carrier — the
+  `host.HostTasks` surface, by prefix, so a row track F adds is covered on the
+  day it lands. The answer rides on `ir::Program::crosses_tasks`.
+- **Both native backends** emit one call in `main` when it is true:
+  `buri_rt_values_may_cross_tasks()`, immediately after `buri_rt_argv_init` and
+  before anything allocates. The frame-threaded backend makes it too, even
+  though it cannot fan out yet, because this is a fact about the *program* and
+  the other statement an artifact makes about itself
+  (`buri_rt_frames_are_per_carrier`) is a fact about the *backend*.
+- **`cli/runtime/memory.rs::finish`** ORs the mark into every `cap` it writes,
+  out of one process-wide word. One relaxed load and one `or` per allocation,
+  on a word written at most once in a program's life.
+
+**Why the whole program and not the value.** `middle::rc::sharing` computes
+where a second *reference* comes into existence, which reads like the same
+question and is not: that is a question about sites, and the mark is a question
+about the transitive closure of a heap. A `[Str]` handed to a step is a block
+whose *elements* the step counts; a `Str` inside a closure's environment is a
+block two carriers count. So a per-value mark has to be a deep, type-directed
+walk of everything reachable from the call's arguments — `Helper::Walk`'s
+shape, which G5 generalises — and a *shallow* one is exactly the under-set the
+asymmetry forbids. The program-wide answer is sound by construction rather than
+by audit: a value that reaches a carrier by a route the compiler cannot see
+— a block the runtime built itself, a `Str` from `host.rs`, whatever an FFI
+hands in one day — is marked anyway, because the *allocator* is what marks.
+What it costs is atomic reference counting throughout a program that uses
+`core/tasks`, which is the price §5.4 puts on threads rather than a price this
+shape adds. Narrowing it later is an optimisation over an answer that is
+already correct.
+
+**Silence is the safe answer, at both ends.** The runtime's fan-out is gated on
+the same latch as well as on the frames one, so an artifact that failed to make
+the call runs its tasks one after another — slow, and never two carriers
+counting an unmarked block.
 
 Two properties of the count survive the fork, and preserving them is why the
 mark is a bit of `cap` and not of `rc`:
@@ -216,9 +259,15 @@ mark is a bit of `cap` and not of `rc`:
   for an `IMMORTAL` block, `1` otherwise — which is the branchless `select` of
   the unshared arm written as the `atomicrmw`'s operand. A plain `fetch_add(1)`
   would wrap `u64::MAX` to zero and free every literal in the program.
-- **The `rc == 1` uniqueness test** (§5.3) is not forked at all. A thread
-  holding no reference cannot make a second one, so a count of one cannot move
-  under the caller who read it, and the test is right on both sides.
+- **The `rc == 1` uniqueness test** (§5.3) is not forked, and has a second
+  half instead: **a marked block is never unique.** The count alone was right
+  while exactly one carrier ran Buri code, on the argument that a thread
+  holding no reference cannot make a second one — which has a premise, that the
+  caller holds the reference it is testing, and a *borrowed* parameter does
+  not. A step of a `Tasks.parallel` reading `rc == 1` off its closure's list is
+  one of several carriers reading the same `1`. So `buri_rt_unique_cap` answers
+  `None` for a marked block whatever the count: the caller allocates and
+  copies, and what an over-set mark costs is that copy.
 
 `decref`'s atomic arm reads the count *before* the subtraction and frees on `1`,
 rather than reading the count and then subtracting: two threads that each read
@@ -796,6 +845,44 @@ accounting policies over the one real allocator. They are not three allocators.
   unreachable at the end of the scope. That is a language proposal, not a backend
   feature, and it is worth naming precisely so nobody attempts the backend half
   first: without it, an arena in this language has no scope to end at (§4).
+
+#### 7.2.1 Amendment: the scope exists, and holds reservations rather than values
+
+The scoped context above is `core/alloc`'s **`scoped(ctx, body)`**, and the
+value it hands the body is **`Scoped<C>`** — an attenuating wrapper on
+`ReadOnly<C>`'s pattern (SPEC 10.8) whose type parameter carries no bound, so
+it is not effect-carrying by mention and is expressible at all. Every effect
+forwards to the wrapped `C`, one hand-written `impl<C: E> E for Scoped<C>` per
+effect, because this language has no blanket implementations and no delegation.
+`Alloc` is the one that does not.
+
+**The arena is a real bump allocator over its own `mmap`s.** `arenaCreate` maps
+nothing; a charge reserves its bytes from a 64 KiB block, mapping another when
+that one is full and a right-sized one of its own when the charge is bigger
+than a block; `arenaRelease` `munmap`s every block when `body` returns.
+`buri_rt_heap_stats` grew `arena_bytes` and `arena_released_bytes` so that "it
+reserved pages **and** gave them back" is one assertion rather than two
+half-ones.
+
+**What is *not* in it, yet, is values.** A `[Str]` built inside a scope is a
+`buri_rt_alloc` block on the reference-counted heap, exactly where it was
+before: §7.3.1's gap is the reason — the native ABI drops the context argument
+from every runtime call, so the operation that builds a list never learns which
+allocator asked for it. So the honest reading of a scope today is *a real,
+bounded, bulk-released reservation with an allocator of its own*, not a
+lifetime for the values built under it.
+
+**The interim soundness rule, stated so it can be checked:** `allocate` answers
+a `Region`, which carries the charge and not an address, so nothing the
+language can name points into an arena, so the bulk release cannot dangle —
+whatever the escape bit (§5.5) says about any block, and whatever G6's
+decommit does with the heap's or the carrier stacks' pages, which are different
+mappings. The alternative reading was considered and rejected: serving Buri
+blocks from the arena now would mean keeping every arena alive forever in case
+a marked block escaped, and an arena that is never released is not an arena.
+The copy-out glue — a `Helper::Copy` beside `Helper::Walk`, deep-copying the
+return value, an actor message, a `Reply.answer` and a socket send — is what
+closes it, and it is the next slice.
 
 ### 7.3 The hook is already there
 

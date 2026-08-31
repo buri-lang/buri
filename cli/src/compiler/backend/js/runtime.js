@@ -1438,6 +1438,80 @@ function $alloc_total(h) {
   return BigInt($alloc.c[Number(h)].bytes);
 }
 
+// --- core/alloc's scope (G4) -------------------------------------------------
+//
+// `Scoped<C>` forwards every effect but `Alloc`, and its `Alloc` charges the
+// arena named by these handles. What the *native* runtime does on top of this
+// — reserve the bytes as anonymous pages and `munmap` them at release — has no
+// counterpart here and needs none: this backend has a garbage collector under
+// it, and `core/alloc`'s whole doctrine is that a charge is a definition rather
+// than a measurement. So the two backends agree on every number a program can
+// observe, which is `stats()`, and disagree only about pages, which no program
+// can ask about.
+//
+// A handle is `(generation << 32) | slot`, `cli/runtime/memory.rs`'s packing,
+// because the generation is *observable*: a `Scoped` that outlives its scope
+// charges nothing, and that has to be true here too.
+const $arena = { a: [], free: [] };
+
+function $arena_slot(h) {
+  const bits = BigInt.asUintN(64, BigInt(h));
+  return [Number(bits & 0xffffffffn), Number(bits >> 32n)];
+}
+
+function $arena_handle(slot, gen) {
+  return BigInt.asIntN(64, (BigInt(gen) << 32n) | BigInt(slot));
+}
+
+function $alloc_arenaCreate() {
+  const reused = $arena.free.pop();
+  if (reused !== undefined) {
+    const a = $arena.a[reused];
+    a.n = 0;
+    a.bytes = 0;
+    a.live = true;
+    return $arena_handle(reused, a.gen);
+  }
+  $arena.a.push({ n: 0, bytes: 0, gen: 0, live: true });
+  return $arena_handle($arena.a.length - 1, 0);
+}
+
+function $alloc_arenaAllocate(h, bytes) {
+  const [slot, gen] = $arena_slot(h);
+  const a = $arena.a[slot];
+  if (a !== undefined && a.live && a.gen === gen) {
+    a.n += 1;
+    a.bytes += Number(bytes);
+  }
+  return BigInt(bytes);
+}
+
+// Answers the bytes given back, which is zero on a backend that maps none.
+// `scoped` discards it on both backends, so nothing a program can see turns on
+// the number.
+function $alloc_arenaRelease(h) {
+  const [slot, gen] = $arena_slot(h);
+  const a = $arena.a[slot];
+  if (a !== undefined && a.live && a.gen === gen) {
+    a.live = false;
+    a.gen += 1;
+    $arena.free.push(slot);
+  }
+  return 0n;
+}
+
+function $alloc_arenaCount(h) {
+  const [slot, gen] = $arena_slot(h);
+  const a = $arena.a[slot];
+  return a !== undefined && a.gen === gen ? BigInt(a.n) : 0n;
+}
+
+function $alloc_arenaTotal(h) {
+  const [slot, gen] = $arena_slot(h);
+  const a = $arena.a[slot];
+  return a !== undefined && a.gen === gen ? BigInt(a.bytes) : 0n;
+}
+
 function $host_HostStdout_print(self, t) {
   $host.out.push(t);
   if ($host.out.length > 64) $host.flush();

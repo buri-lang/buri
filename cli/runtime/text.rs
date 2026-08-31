@@ -1262,6 +1262,11 @@ mod tests {
     /// `cli/tests/native/stencil.rs`.
     #[test]
     fn a_unique_concat_appends_in_place() {
+        // The in-place licence is `buri_rt_unique_cap`'s, and it is refused
+        // for a marked block — so this case and any case that sets the
+        // marking latch must not run at once. `memory::latch` names both
+        // sides of that rule.
+        let _latch = crate::memory::latch();
         let mut acc = BuriStr::empty();
         let (bp, bl) = borrowed("xy");
         let mut allocations = 0u32;

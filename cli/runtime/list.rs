@@ -640,6 +640,11 @@ mod tests {
     /// it back to `1`.
     #[test]
     fn a_unique_push_grows_in_place() {
+        // The in-place licence is `buri_rt_unique_cap`'s, and it is refused
+        // for a marked block — so this case and any case that sets the
+        // marking latch must not run at once. `memory::latch` names both
+        // sides of that rule.
+        let _latch = crate::memory::latch();
         let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
         let mut allocations = 0u32;
         for i in 0i64..1000 {
@@ -753,6 +758,11 @@ mod tests {
     /// elements in order across the seam.
     #[test]
     fn a_unique_concat_appends_in_place() {
+        // The in-place licence is `buri_rt_unique_cap`'s, and it is refused
+        // for a marked block — so this case and any case that sets the
+        // marking latch must not run at once. `memory::latch` names both
+        // sides of that rule.
+        let _latch = crate::memory::latch();
         let src: [i64; 3] = [7, 8, 9];
         let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
         let mut allocations = 0u32;

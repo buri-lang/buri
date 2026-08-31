@@ -440,6 +440,18 @@ pub const ENTRIES: &[Entry] = &[
     e("alloc.charge", "buri_rt_alloc_charge", Ret::Scalar),
     e("alloc.count", "buri_rt_alloc_count", Ret::Scalar),
     e("alloc.total", "buri_rt_alloc_total", Ret::Scalar),
+    // -- `core/alloc`'s scope (G4) ------------------------------------------
+    //
+    // The same shape as the four counters above and for the same reason: the
+    // handle *is* the arena, so no context reaches these and there is nothing
+    // for this ABI to drop. `arenaRelease` answers the bytes it gave back
+    // rather than `()`, because a scalar out is the row this table has and
+    // `scoped` discards it.
+    e("alloc.arenaCreate", "buri_rt_alloc_arena_create", Ret::Scalar),
+    e("alloc.arenaAllocate", "buri_rt_alloc_arena_allocate", Ret::Scalar),
+    e("alloc.arenaRelease", "buri_rt_alloc_arena_release", Ret::Scalar),
+    e("alloc.arenaCount", "buri_rt_alloc_arena_count", Ret::Scalar),
+    e("alloc.arenaTotal", "buri_rt_alloc_arena_total", Ret::Scalar),
     // -- core/testing/context's stateful half ---------------------------------
     //
     // `cli/runtime/testing.rs`'s header is the argument for these being in the

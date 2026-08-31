@@ -16,13 +16,40 @@
 //! `buri_rt_incref`/`buri_rt_decref` take it too, so a block reached from a
 //! generic path is counted the same way as one reached from emitted code.
 //!
-//! **Nothing sets the bit.** G1 reserved it and every reader masks; G2 grew
-//! the branch and left it dark; G3 is the slice that turns it on, and *this
-//! pass* is where it will be turned on, because [`sharing`] already computes
-//! the question the bit asks — where a second reference to a value comes into
-//! existence — for the JavaScript branch's sticky `$u`. So this module's
-//! output does not change today, and what changes when it does is one more
-//! consumer of an analysis that is already here.
+//! **G3 sets the bit, and this pass is what decides.** [`crosses_tasks`] asks
+//! one question of the whole program — *can any value of it come to be
+//! reachable from a second carrier* — and [`Plan::crosses_tasks`] carries the
+//! answer to `ir::Program`, to both native backends, and into `main` as a call
+//! to `buri_rt_values_may_cross_tasks`. A program that says so marks **every
+//! block it allocates**; a program that does not marks none and is bit for bit
+//! the program it was before track G.
+//!
+//! ## Why the whole program, and not [`sharing`]
+//!
+//! [`sharing`] computes *where a second reference to a value comes into
+//! existence*, which reads like the same question and is not. It is a question
+//! about **sites** — where an `incref` goes — and the mark is a question about
+//! **blocks**, and specifically about a transitive closure of them: a `[Str]`
+//! handed to a step is a block whose *elements* the step counts, and a `Str`
+//! inside a closure's environment is a block two carriers count. So a mark
+//! derived from a call site has to be a deep, type-directed walk of everything
+//! reachable from the arguments — `Helper::Walk`'s shape, which G5 is the
+//! slice that generalises — and a *shallow* one is precisely the under-count
+//! MEMORY.md §5.5 forbids:
+//!
+//! > **An over-set bit costs one copy.** … **An under-counted reference is a
+//! > silent aliasing bug** — two names for a list, one of them written
+//! > through, and a wrong answer with no crash to find it by.
+//!
+//! The whole-program answer is the over-set end of that asymmetry, and it is
+//! sound by construction rather than by audit: a value reaches a carrier by a
+//! route this compiler cannot see — the runtime's own blocks, a `Str` built
+//! inside `host.rs`, whatever an FFI hands in one day — and it is marked
+//! anyway, because the *allocator* is what marks. What it costs is atomic
+//! reference counting throughout a program that uses `core/tasks`, which is
+//! the price MEMORY.md §5.4 puts on threads rather than a price this shape
+//! adds. Narrowing it is a later slice with G5's machinery in hand, and the
+//! narrowing is an optimisation over an answer that is already correct.
 //!
 //! Two properties of the count survive the fork, and both were the reason the
 //! bit is in `cap` rather than in the count itself (MEMORY.md §5.1,
@@ -32,11 +59,15 @@
 //!    `0` for an `IMMORTAL` block and `1` otherwise, which is the branchless
 //!    `select` of the unshared arm written as an `atomicrmw` operand. A plain
 //!    `fetch_add(1)` would wrap `u64::MAX` to zero and free every literal.
-//!  * **The `rc == 1` uniqueness test.** Unchanged and unforked
-//!    (`buri_rt_unique_cap`): a thread holding no reference cannot make a
-//!    second one, so a count of one cannot move under the caller who read it.
-//!    The elision and reuse this pass plans are therefore sound on a shared
-//!    block for the same reason they are sound on an unshared one.
+//!  * **The `rc == 1` uniqueness test.** Still unforked, and since G3 it has a
+//!    second half: `buri_rt_unique_cap` answers `None` for a **marked** block,
+//!    whatever its count. G2's argument for the bare count — *a thread holding
+//!    no reference cannot make a second one* — has a premise the run baton was
+//!    keeping true, that the caller holds the reference it is testing, and a
+//!    borrowed parameter does not. Two carriers reading `1` off one borrowed
+//!    list would each take the licence. Failing the test on the mark is the
+//!    over-set direction again: it costs a copy, and it is why the elision and
+//!    reuse this pass plans stay sound with the baton gone.
 //!
 //! Three things, in order of how much they matter:
 //!
@@ -379,6 +410,16 @@ impl FuncPlan {
 pub struct Plan {
     /// One per `Program::funcs` entry, by index.
     pub funcs: Vec<FuncPlan>,
+    /// Whether any value of this program can come to be reachable from a
+    /// second carrier — see [`crosses_tasks`].
+    ///
+    /// A **whole-program** answer, not a per-function or per-value one, and
+    /// [`crosses_tasks`]'s doc is the argument for that. It reaches
+    /// `ir::Program::crosses_tasks`, and from there both native backends,
+    /// which emit `buri_rt_values_may_cross_tasks()` into `main` when it is
+    /// true. Every block the program allocates is then counted atomically and
+    /// no block of any other program is.
+    pub crosses_tasks: bool,
 }
 
 impl Plan {
@@ -893,7 +934,17 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
         }
         funcs.push(plan);
     }
-    Plan { funcs }
+    // The whole-program escape answer. `program.funcs` is the
+    // post-monomorphization set, so an intrinsic present in it is one the
+    // program can *reach* — the same reachability `infer_effects`'s fixpoint
+    // computes, asked of a set of keys rather than propagated to callers,
+    // because the mark it feeds is set once for the whole artifact and there
+    // is no caller to attribute it to.
+    let crosses_tasks = program
+        .funcs
+        .iter()
+        .any(|f| matches!(&f.kind, FuncKind::Intrinsic(key) if crosses_tasks(key)));
+    Plan { funcs, crosses_tasks }
 }
 
 // ---------------------------------------------------------------------------
@@ -1211,6 +1262,30 @@ pub fn suspends(key: &str) -> bool {
                 // the caller's frame outlive a scheduling decision.
                 | "host.HostTasks.parallel"
         )
+}
+
+/// Whether an intrinsic key **hands a value of this program to another
+/// carrier**: after the call, a block the caller made may be counted, read and
+/// released by a thread that is not this one.
+///
+/// This is the seed of `Plan::crosses_tasks`, and it is the escape-analysis
+/// question the multi-threaded mark asks (`middle::layout::CAP_SHARED_FLAG`,
+/// MEMORY.md §5.1). Like [`suspends`] it is a list of **keys** rather than of
+/// effects, and for the sharper form of the same reason: `Tasks` is an effect
+/// and `testing_context.TestTasks` is an implementation of it that runs every
+/// step on the calling thread, so the answer is a property of the
+/// implementation the program actually bound.
+///
+/// **By prefix, not method by method**, which is the direction an omission has
+/// to cost performance rather than correctness. Every `host.HostTasks` row is
+/// one today and every row track F adds — `send`, `ask`, a detached `start` —
+/// is one on the day it lands, without an edit here to remember. A key absent
+/// from this list is a value the program is promised nobody else can see, and
+/// the promise is kept by non-atomic counts on both backends, so an omission
+/// here is a silent aliasing bug. `host.HostTasks` is spelled once and covers
+/// the surface.
+pub fn crosses_tasks(key: &str) -> bool {
+    key.starts_with("host.HostTasks.")
 }
 
 fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
@@ -2567,6 +2642,90 @@ mod tests {
             .position(|f| f.debug_name.ends_with(name))
             .unwrap_or_else(|| panic!("no function named {name}"));
         FuncIdx(i as u32)
+    }
+
+    // -- the escape question ------------------------------------------------
+
+    /// **A program that can reach a task boundary is marked, and one that
+    /// cannot is not.**
+    ///
+    /// [`crosses_tasks`]'s two directions. The positive half is easy and the
+    /// negative half is the one worth having: this answer puts a whole program
+    /// on atomic reference counting, so a `true` reached by accident — an
+    /// import that pulls `core/tasks` in without calling it, a key spelled by
+    /// prefix that matches something else — is a cost every program pays.
+    ///
+    /// The question is asked of the **post-monomorphization** program, so it
+    /// is reachability and not mention: a `Tasks` binding the entry never
+    /// calls through is not a function in `program.funcs`.
+    #[test]
+    fn only_a_program_that_can_reach_a_task_boundary_is_marked() {
+        let plain = run(&compile(
+            r#"
+from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/host/lib.buri" import * as host;
+from "core/str/lib.buri" import * as str;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = ctx.println(str.format(ctx, "${1 + 1}"));
+  .Ok(())
+}
+"#,
+        ));
+        assert!(
+            !plain.crosses_tasks,
+            "a program with no task boundary in it was put on atomic counting"
+        );
+
+        let program = compile(
+            r#"
+from "core/effect/lib.buri" import { Alloc, Stdout, Tasks };
+from "core/host/lib.buri" import * as host;
+from "core/tasks/lib.buri" import * as tasks;
+from "core/str/lib.buri" import * as str;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let doubled = tasks.parallel(ctx, [1, 2, 3], fn(c, i, n) => n * 2);
+  let _ = ctx.println(str.format(ctx, "${doubled.len()}"));
+  .Ok(())
+}
+"#,
+        );
+        assert!(run(&program).crosses_tasks, "a program that fans out was not marked");
+    }
+
+    /// The key list is a **prefix**, and that is the direction an omission has
+    /// to be wrong in.
+    ///
+    /// `crosses_tasks` is what decides whether a whole program's blocks are
+    /// counted atomically, and a key missing from it is a value the program is
+    /// promised nobody else can see — a promise kept by non-atomic counts on
+    /// both backends. So the surface is spelled once, and every row track F
+    /// adds to `host.HostTasks` is covered on the day it lands rather than on
+    /// the day somebody remembers.
+    #[test]
+    fn every_task_host_key_crosses_and_nothing_else_does() {
+        assert!(crosses_tasks("host.HostTasks.parallel"));
+        // The rows that do not exist yet, and are covered anyway.
+        assert!(crosses_tasks("host.HostTasks.start"));
+        assert!(crosses_tasks("host.HostTasks.send"));
+
+        // Everything that waits but hands nothing over: `suspends` and
+        // `crosses_tasks` are different questions about the same list, and
+        // `Tasks.parallel` is the one key on both.
+        for key in [
+            "host.HostFs.readText",
+            "host.HostNet.fetch",
+            "host.HostClock.sleepMillis",
+            "host.HostStdin.readLine",
+            "host.HostStdout.println",
+            "testing_context.TestTasks.parallel",
+        ] {
+            assert!(!crosses_tasks(key), "{key} put its program on atomic counting");
+        }
+        assert!(suspends("host.HostTasks.parallel") && crosses_tasks("host.HostTasks.parallel"));
     }
 
     // -- the balance checker ------------------------------------------------

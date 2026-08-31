@@ -827,6 +827,46 @@ fn install_guard(a: &mut Asm) {
 /// spelled here because a bare `0` in an argument register says nothing.
 const PROT_NONE: u64 = 0;
 
+/// Whether the artifact tells the runtime that **its values may cross a task
+/// boundary**, which is `middle::rc::crosses_tasks`'s whole-program answer
+/// carried to the one place in an artifact that is not a function of any one
+/// `Func`: its entry point.
+///
+/// [`Marking::ValuesMayCrossTasks`] emits a `bl buri_rt_values_may_cross_tasks`
+/// immediately after `buri_rt_argv_init` and before anything that could
+/// allocate. The runtime then stamps `middle::layout::CAP_SHARED_FLAG` into
+/// every block the program makes, so every reference operation takes G2's
+/// atomic arm and no in-place write fires on a borrowed value.
+///
+/// **This backend makes the call even though it cannot fan out.** The two
+/// statements an artifact makes about itself are deliberately separate: one is
+/// about *where a frame lives*, which is this backend's own answer and is why
+/// `buri_rt_frames_are_per_carrier` is missing here, and this one is about
+/// *whether a block can be reached from two carriers*, which is a property of
+/// the program and is true here for exactly the programs it is true of over
+/// there. Marking a program that then runs its steps in order costs an `or`
+/// per allocation and an atomic count; not marking it would make the day this
+/// backend learns to fan out a day somebody has to remember a second edit, and
+/// MEMORY.md §5.5 says which of those two mistakes is the affordable one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Marking {
+    /// No statement: the program allocates unmarked blocks and counts them
+    /// non-atomically, which is every program that does not use `core/tasks`.
+    None,
+    /// `buri_rt_values_may_cross_tasks()`, once, before the first block.
+    ValuesMayCrossTasks,
+}
+
+impl Marking {
+    /// The runtime symbol to call at startup, if any.
+    fn symbol(self) -> Option<&'static str> {
+        match self {
+            Marking::None => Option::None,
+            Marking::ValuesMayCrossTasks => Some("buri_rt_values_may_cross_tasks"),
+        }
+    }
+}
+
 /// `int main(int argc, char **argv)` for a program whose root is `main`.
 ///
 /// `llvm/emit.rs::entry_point` behaviour for behaviour: `buri_rt_argv_init`
@@ -846,17 +886,25 @@ const PROT_NONE: u64 = 0;
 /// The target picks the machine and nothing else: the two bodies below are the
 /// same program in two instruction sets, and a difference between them that is
 /// not forced by the ISA is a bug in one of them.
-pub fn program_entry(target: StencilTarget, callee: &str, result: Option<MainResult>) -> Shim {
+pub fn program_entry(
+    target: StencilTarget,
+    callee: &str,
+    result: Option<MainResult>,
+    marking: Marking,
+) -> Shim {
     if target.is_arm64() {
-        return program_entry_arm64(callee, result).into_shim();
+        return program_entry_arm64(callee, result, marking).into_shim();
     }
-    program_entry_x86_64(callee, result).into_shim()
+    program_entry_x86_64(callee, result, marking).into_shim()
 }
 
-fn program_entry_arm64(callee: &str, result: Option<MainResult>) -> Asm {
+fn program_entry_arm64(callee: &str, result: Option<MainResult>, marking: Marking) -> Asm {
     let mut a = Asm::new();
     a.stp_fp_lr();
     a.bl_symbol("buri_rt_argv_init");
+    if let Some(sym) = marking.symbol() {
+        a.bl_symbol(sym);
+    }
     install_guard(&mut a);
 
     // The root's frame is the bottom of the Buri stack, so its return area —
@@ -935,17 +983,20 @@ fn load_tag(a: &mut Asm, rt: u32, rn: u32, off: u32, width: u32) {
 /// `argc` and `argv` arrive in `w0` and `x1` and have to reach
 /// `buri_rt_argv_init` unchanged, so the prologue is the one instruction pair
 /// that touches neither and the `bl` comes before anything else at all.
-pub fn test_entry(target: StencilTarget, tests: &[String]) -> Shim {
+pub fn test_entry(target: StencilTarget, tests: &[String], marking: Marking) -> Shim {
     if target.is_arm64() {
-        return test_entry_arm64(tests).into_shim();
+        return test_entry_arm64(tests, marking).into_shim();
     }
-    test_entry_x86_64(tests).into_shim()
+    test_entry_x86_64(tests, marking).into_shim()
 }
 
-fn test_entry_arm64(tests: &[String]) -> Asm {
+fn test_entry_arm64(tests: &[String], marking: Marking) -> Asm {
     let mut a = Asm::new();
     a.stp_fp_lr();
     a.bl_symbol("buri_rt_argv_init");
+    if let Some(sym) = marking.symbol() {
+        a.bl_symbol(sym);
+    }
     install_guard(&mut a);
     for (i, sym) in tests.iter().enumerate() {
         a.mov_imm(X0, i as u64);
@@ -990,12 +1041,15 @@ fn install_guard_x86_64(a: &mut X86) {
 /// the frame pointer in `rax` rather than in the register it was handed, so the
 /// return area is read off `rax` and the message's three words go straight into
 /// the argument registers instead of through a temporary.
-fn program_entry_x86_64(callee: &str, result: Option<MainResult>) -> X86 {
+fn program_entry_x86_64(callee: &str, result: Option<MainResult>, marking: Marking) -> X86 {
     let mut a = X86::new();
     a.push_rbp();
     // `argc` and `argv` are already in `edi` and `rsi`, and `push` writes
     // neither, so this call comes before anything else at all.
     a.call_symbol("buri_rt_argv_init");
+    if let Some(sym) = marking.symbol() {
+        a.call_symbol(sym);
+    }
     install_guard_x86_64(&mut a);
 
     a.lea_symbol(RDI, STACK_SYMBOL);
@@ -1054,10 +1108,13 @@ fn load_tag_x86_64(a: &mut X86, rt: u32, rn: u32, off: u32, width: u32) {
 }
 
 /// [`test_entry`] for SysV x86-64.
-fn test_entry_x86_64(tests: &[String]) -> X86 {
+fn test_entry_x86_64(tests: &[String], marking: Marking) -> X86 {
     let mut a = X86::new();
     a.push_rbp();
     a.call_symbol("buri_rt_argv_init");
+    if let Some(sym) = marking.symbol() {
+        a.call_symbol(sym);
+    }
     install_guard_x86_64(&mut a);
     for (i, sym) in tests.iter().enumerate() {
         a.mov_imm(RDI, i as u64);
@@ -1447,7 +1504,7 @@ mod tests {
     /// symbol after the pair that forms its argument.
     #[test]
     fn the_test_shim_relocates_what_it_calls_in_order() {
-        let a = test_entry(ARM64, &[String::from("t0"), String::from("t1")]);
+        let a = test_entry(ARM64, &[String::from("t0"), String::from("t1")], Marking::None);
         assert_eq!(
             names(a),
             vec![
@@ -1473,7 +1530,7 @@ mod tests {
     /// the runtime, flushes it and answers 0.
     #[test]
     fn an_empty_suite_is_still_a_main() {
-        let a = test_entry(ARM64, &[]);
+        let a = test_entry(ARM64, &[], Marking::None);
         assert_eq!(
             names(a),
             vec![
@@ -1505,10 +1562,10 @@ mod tests {
     #[test]
     fn no_entry_point_here_declares_per_carrier_frames() {
         let shims = [
-            program_entry(ARM64, "buri$main", None),
-            program_entry(X86_64, "buri$main", None),
-            test_entry(ARM64, &[String::from("t0")]),
-            test_entry(X86_64, &[String::from("t0")]),
+            program_entry(ARM64, "buri$main", None, Marking::None),
+            program_entry(X86_64, "buri$main", None, Marking::None),
+            test_entry(ARM64, &[String::from("t0")], Marking::None),
+            test_entry(X86_64, &[String::from("t0")], Marking::None),
         ];
         for shim in shims {
             let called = names(shim);
@@ -1519,11 +1576,69 @@ mod tests {
         }
     }
 
+    /// **Every entry point here states whether its values may cross a task
+    /// boundary**, and the state it is asked for is the state it emits.
+    ///
+    /// The sibling of `no_entry_point_here_declares_per_carrier_frames`, and
+    /// the two are deliberately opposite in shape: that one asserts a call is
+    /// *never* made, because a Buri frame here is the call site's and that is a
+    /// property of the backend; this one asserts the call is made exactly when
+    /// asked, because whether a block can be reached from two carriers is a
+    /// property of the *program* and is the same fact on both backends.
+    ///
+    /// Both directions, on all four shims, because either half alone would
+    /// pass on a shim that ignored its argument. And the **position** is
+    /// asserted too: `cli/runtime/lib.rs` §6 makes the order part of the
+    /// contract — the latch decides the header of every block allocated after
+    /// it — so the call goes after `buri_rt_argv_init` and before the stack
+    /// guard and the root.
+    #[test]
+    fn an_entry_point_says_whether_its_values_may_cross_a_task_boundary() {
+        for target in [ARM64, X86_64] {
+            let shims = [
+                (
+                    program_entry(target, "buri$main", None, Marking::None),
+                    program_entry(target, "buri$main", None, Marking::ValuesMayCrossTasks),
+                ),
+                (
+                    test_entry(target, &[String::from("t0")], Marking::None),
+                    test_entry(target, &[String::from("t0")], Marking::ValuesMayCrossTasks),
+                ),
+            ];
+            for (silent, marking) in shims {
+                let quiet: Vec<String> = names(silent).into_iter().map(|(_, n)| n).collect();
+                let loud: Vec<String> = names(marking).into_iter().map(|(_, n)| n).collect();
+                assert!(
+                    !quiet.iter().any(|n| n == "buri_rt_values_may_cross_tasks"),
+                    "a shim marked a program that did not ask to be marked: {quiet:?}"
+                );
+                let at = loud
+                    .iter()
+                    .position(|n| n == "buri_rt_values_may_cross_tasks")
+                    .unwrap_or_else(|| panic!("a shim did not mark: {loud:?}"));
+                let init = loud
+                    .iter()
+                    .position(|n| n == "buri_rt_argv_init")
+                    .expect("a shim did not initialise the runtime");
+                assert!(init < at, "the mark came before the runtime was initialised: {loud:?}");
+                assert_eq!(at, init + 1, "something ran between the two: {loud:?}");
+                // The one call is the whole of the difference.
+                let without: Vec<&String> =
+                    loud.iter().filter(|n| *n != "buri_rt_values_may_cross_tasks").collect();
+                assert_eq!(
+                    without,
+                    quiet.iter().collect::<Vec<&String>>(),
+                    "marking changed something other than the one call"
+                );
+            }
+        }
+    }
+
     /// A `main` answering `()` never inspects the return area, so it calls the
     /// writer for no message and exits 0 on every path.
     #[test]
     fn a_main_without_a_result_never_reads_the_return_area() {
-        let a = program_entry(ARM64, "buri$main", None);
+        let a = program_entry(ARM64, "buri$main", None, Marking::None);
         assert_eq!(
             names(a),
             vec![
@@ -1548,6 +1663,7 @@ mod tests {
             ARM64,
             "buri$main",
             Some(MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) }),
+            Marking::None,
         );
         assert_eq!(
             names(a),
@@ -1575,10 +1691,12 @@ mod tests {
         let niche = program_entry_arm64(
             "m",
             Some(MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) }),
+            Marking::None,
         );
         let tagged = program_entry_arm64(
             "m",
             Some(MainResult { tag: (0, 8), niche: None, message: (8, 16, 24) }),
+            Marking::None,
         );
         // The only compare-and-branch in either shim is the one being asked
         // about, so the first word with a `cbz`/`cbnz` opcode is it.
@@ -1735,7 +1853,7 @@ mod tests {
     /// each test's own symbol behind the address of the stack.
     #[test]
     fn the_x86_64_test_shim_relocates_what_it_calls_in_order() {
-        let a = test_entry(X86_64, &[String::from("t0"), String::from("t1")]);
+        let a = test_entry(X86_64, &[String::from("t0"), String::from("t1")], Marking::None);
         assert_eq!(
             names(a),
             vec![
@@ -1765,8 +1883,8 @@ mod tests {
             Some(MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) }),
             Some(MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) }),
         ] {
-            let arm = names(program_entry(ARM64, "m", r.clone()));
-            let x86 = names(program_entry(X86_64, "m", r));
+            let arm = names(program_entry(ARM64, "m", r.clone(), Marking::None));
+            let x86 = names(program_entry(X86_64, "m", r, Marking::None));
             // A64 spells an address as an adjacent `Page21`/`PageOff12` pair
             // and x86-64 as one `Pc32`, so the pairs collapse before the two
             // lists can be compared at all.
@@ -1785,7 +1903,7 @@ mod tests {
     /// addend would be aimed past its target by the difference.
     #[test]
     fn every_x86_64_relocation_is_a_field_at_the_end_of_its_instruction() {
-        let s = test_entry(X86_64, &[String::from("t0")]);
+        let s = test_entry(X86_64, &[String::from("t0")], Marking::None);
         assert!(!s.relocs.is_empty());
         for (at, _, _, addend) in &s.relocs {
             assert_eq!(*addend, -4);
@@ -1805,14 +1923,15 @@ mod tests {
     #[test]
     fn the_x86_64_shim_keeps_the_machine_stack_aligned() {
         for bytes in [
-            program_entry(X86_64, "m", None).bytes,
+            program_entry(X86_64, "m", None, Marking::None).bytes,
             program_entry(
                 X86_64,
                 "m",
                 Some(MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) }),
+                Marking::None,
             )
             .bytes,
-            test_entry(X86_64, &[String::from("t0")]).bytes,
+            test_entry(X86_64, &[String::from("t0")], Marking::None).bytes,
         ] {
             assert_eq!(bytes.first(), Some(&0x55), "the shim does not open with `push %rbp`");
             // `48 81 ec` and `48 81 c4` are `sub`/`add` on `rsp`; neither may
@@ -1851,11 +1970,13 @@ mod tests {
             X86_64,
             "m",
             Some(MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) }),
+            Marking::None,
         );
         let tagged = program_entry(
             X86_64,
             "m",
             Some(MainResult { tag: (0, 8), niche: None, message: (8, 16, 24) }),
+            Marking::None,
         );
         assert_eq!(branch(niche), Some(vec![0x0f, 0x85]));
         assert_eq!(branch(tagged), Some(vec![0x0f, 0x84]));
