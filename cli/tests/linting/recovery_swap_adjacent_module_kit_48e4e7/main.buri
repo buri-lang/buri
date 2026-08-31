@@ -3,4 +3,6 @@
 
 from import "core/list" * as list;
 
-export fn one(): I64 { 1 }
+export fn one(): I64 {
+    1
+}

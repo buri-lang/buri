@@ -1,2 +1,4 @@
 /// One step, in whole units.
-export fn fourA(n: I64): I64 { n + 1 }
+export fn fourA(n: I64): I64 {
+    n + 1
+}

@@ -19,14 +19,14 @@ run {
 # each of the two is shallow enough to take in at a glance.
 edit {
   file: "cmd/app/main.buri"
-  replace: "        if (n > 1000) {\n          if (n > 10000) { \"huge\" } else { \"large\" }\n        } else { \"big\" }\n"
-  with: "        beyondAThousand(n)\n"
+  replace: "                if (n > 1000) {\n                    if (n > 10000) { \"huge\" } else { \"large\" }\n                } else {\n                    \"big\"\n                }\n"
+  with: "beyondAThousand(n)\n"
 }
 
 edit {
   file: "cmd/app/main.buri"
   replace: "fn size(n: I64): Str {\n"
-  with: "fn beyondAThousand(n: I64): Str {\n  if (n > 1000) {\n    if (n > 10000) { \"huge\" } else { \"large\" }\n  } else { \"big\" }\n}\n\nfn size(n: I64): Str {\n"
+  with: "fn beyondAThousand(n: I64): Str {\n    if (n > 1000) {\n        if (n > 10000) { \"huge\" } else { \"large\" }\n    } else {\n        \"big\"\n    }\n}\n\nfn size(n: I64): Str {\n"
 }
 
 run {

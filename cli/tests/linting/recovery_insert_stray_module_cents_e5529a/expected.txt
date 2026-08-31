@@ -1,0 +1,16 @@
+error: expected an identifier, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_module_cents_e5529a/lib.buri:12:6
+   |
+12 | enum ? Tally {
+   |      ^
+   |
+   = expected: an identifier
+   = actual: `?`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is no type `Tally` [unresolved-type]
+  --> lib/recovery_insert_stray_module_cents_e5529a/lib.buri:17:14
+   |
+17 | type Money = Tally;
+   |              ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling

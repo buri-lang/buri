@@ -1,0 +1,9 @@
+error: expected an expression, found `>` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_app_d2d1e6/main.buri:11:13
+   |
+11 |         if (> n 10) {
+   |             ^
+   |
+   = expected: an expression
+   = actual: `>`
+   = fix: write a value here

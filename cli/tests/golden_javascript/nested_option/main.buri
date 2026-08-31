@@ -8,63 +8,81 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
 
-struct Holder { inner: Option<Int> }
-
 derive Eq, Ord, Show for Holder;
+struct Holder {
+    inner: Option<Int>,
+}
 
 fn flatten_(o: Option<Option<Int>>): Option<Int> {
-  match (o) {
-    .Some(inner) => inner,
-    .None => .None,
-  }
+    match (o) {
+        .Some(inner) => inner,
+        .None => .None,
+    }
 }
 
 fn label(o: Option<Option<Int>>): Str {
-  match (o) {
-    .Some(.Some(n)) => "some some",
-    .Some(.None) => "some none",
-    .None => "none",
-  }
+    match (o) {
+        .Some(.Some(n)) => "some some",
+        .Some(.None) => "some none",
+        .None => "none",
+    }
 }
 
 fn depthOf(o: Option<Option<Option<Int>>>): Int {
-  match (o) {
-    .None => 0,
-    .Some(.None) => 1,
-    .Some(.Some(.None)) => 2,
-    .Some(.Some(.Some(_))) => 3,
-  }
+    match (o) {
+        .None => 0,
+        .Some(.None) => 1,
+        .Some(.Some(.None)) => 2,
+        .Some(.Some(.Some(_))) => 3,
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
 
-  let ss: Option<Option<Int>> = .Some(.Some(7));
-  let sn: Option<Option<Int>> = .Some(.None);
-  let nn: Option<Option<Int>> = .None;
+    let ss: Option<Option<Int>> = .Some(.Some(7));
+    let sn: Option<Option<Int>> = .Some(.None);
+    let nn: Option<Option<Int>> = .None;
 
-  let _ = io.println(ctx, "${label(ss)} | ${label(sn)} | ${label(nn)}").ignore();
-  let _ = io.println(ctx, "${flatten_(ss) ?? -1} ${flatten_(sn) ?? -1} ${flatten_(nn) ?? -1}").ignore();
-  let _ = io.println(ctx, "${depthOf(.Some(.Some(.Some(1))))} ${depthOf(.Some(.Some(.None)))} ${depthOf(.Some(.None))} ${depthOf(.None)}").ignore();
+    let _ = io.println(ctx, "${label(ss)} | ${label(sn)} | ${label(nn)}").ignore();
+    let _ = io
+        .println(
+            ctx,
+            "${flatten_(ss) ?? -1} ${flatten_(sn) ?? -1} ${flatten_(nn) ?? -1}",
+        )
+        .ignore();
+    let _ = io
+        .println(
+            ctx,
+            "${depthOf(.Some(.Some(.Some(1))))} ${depthOf(
+                .Some(.Some(.None)),
+            )} ${depthOf(.Some(.None))} ${depthOf(.None)}",
+        )
+        .ignore();
 
-  // Through the runtime rather than through generated code: a list of
-  // Options, indexed.
-  let opts: [Option<Int>] = [.Some(1), .None, .Some(3)];
-  let got = opts.get(1);
-  let _ = io.println(ctx, "${label(got)} ${opts.len()}").ignore();
+    // Through the runtime rather than through generated code: a list of
+    // Options, indexed.
+    let opts: [Option<Int>] = [.Some(1), .None, .Some(3)];
+    let got = opts.get(1);
+    let _ = io.println(ctx, "${label(got)} ${opts.len()}").ignore();
 
-  // Derived Eq, Ord and Show over a struct holding an Option.
-  let a = Holder { inner: .Some(2) };
-  let b = Holder { inner: .None };
-  let _ = io.println(ctx, "${a == a} ${a == b} ${b == b}").ignore();
-  let _ = io.println(ctx, "${a.show(ctx)} ${b.show(ctx)}").ignore();
-  let _ = io.println(ctx, "${a.inner.isSome()} ${b.inner.isNone()}").ignore();
+    // Derived Eq, Ord and Show over a struct holding an Option.
+    let a = Holder { inner: .Some(2) };
+    let b = Holder { inner: .None };
+    let _ = io.println(ctx, "${a == a} ${a == b} ${b == b}").ignore();
+    let _ = io.println(ctx, "${a.show(ctx)} ${b.show(ctx)}").ignore();
+    let _ = io.println(ctx, "${a.inner.isSome()} ${b.inner.isNone()}").ignore();
 
-  // `None` sorts before every `Some`, which the comparisons in `$cmp` cannot
-  // answer for absence on their own.
-  let sorted = [a, b, Holder { inner: .Some(1) }].sort(ctx);
-  let lowest = sorted.first() ?? a;
-  let _ = io.println(ctx, "${lowest.show(ctx)}").ignore();
-  let _ = io.println(ctx, "${b < a} ${a < b} ${a < Holder { inner: .Some(9) }}").ignore();
-  .Ok(())
+    // `None` sorts before every `Some`, which the comparisons in `$cmp` cannot
+    // answer for absence on their own.
+    let sorted = [a, b, Holder { inner: .Some(1) }].sort(ctx);
+    let lowest = sorted.first() ?? a;
+    let _ = io.println(ctx, "${lowest.show(ctx)}").ignore();
+    let _ = io
+        .println(ctx, "${b < a} ${a < b} ${a < Holder { inner: .Some(9) }}")
+        .ignore();
+    .Ok(())
 }

@@ -16,8 +16,8 @@ Move the parameters onto the methods that need them:
 
 ```buri
 trait Store {
-  fn get<T>(self, key: Str): T;
-  fn put<T>(self, key: Str, value: T): ();
+    fn get<T>(self, key: Str): T;
+    fn put<T>(self, key: Str, value: T): ();
 }
 ```
 
@@ -42,6 +42,6 @@ declaration, rather than as a wrong program later.
 
 ```buri fail code=generic-effect-unsupported
 trait Store<T> {
-  fn get(self, key: Str): T;
+    fn get(self, key: Str): T;
 }
 ```

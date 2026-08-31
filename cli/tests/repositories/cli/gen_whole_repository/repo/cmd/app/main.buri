@@ -9,5 +9,7 @@ export fn main(): Result<(), Str> {
         Alloc: host.alloc,
         Stdout: host.stdout,
     };
-    io.println(ctx, label(ctx, fromCents(7))).mapErr(fn(_e) => "could not write to standard output")
+    io
+        .println(ctx, label(ctx, fromCents(7)))
+        .mapErr(fn(_e) => "could not write to standard output")
 }

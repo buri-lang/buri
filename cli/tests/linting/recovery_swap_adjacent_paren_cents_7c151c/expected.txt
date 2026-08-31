@@ -1,0 +1,21 @@
+error: expected `Bool`, found `I64` [type-mismatch]
+ --> lib/recovery_swap_adjacent_paren_cents_7c151c/lib.buri:6:9
+  |
+6 |     if (n 0 ==) { "zero" } else { "some" }
+  |         ^ an `if` condition is `Bool`
+  |
+  = expected: `Bool`
+  = actual: `I64`
+  = fix: produce a `Bool` here, or change what surrounds it to accept a `I64`
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_swap_adjacent_paren_cents_7c151c/lib.buri:6:11
+  |
+6 |     if (n 0 ==) { "zero" } else { "some" }
+  |           ^
+  |
+ --> lib/recovery_swap_adjacent_paren_cents_7c151c/lib.buri:6:8
+  |
+6 |     if (n 0 ==) { "zero" } else { "some" }
+  |        ^ opened here
+  |
+  = fix: write `)` here

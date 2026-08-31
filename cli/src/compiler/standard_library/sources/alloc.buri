@@ -75,19 +75,24 @@
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
-//!   let gp = alloc.generalPurpose();
-//!   let ctx = context { Alloc: gp, Stdout: host.stdout };
-//!   let _ = alloc.allocate(ctx, 64);
-//!   let _ = alloc.allocate(ctx, alloc.strBytes(5));
-//!   let s = gp.stats();
-//!   let _ = io.println(ctx, "${s.allocations} allocations, ${s.bytes} bytes").ignore();
+//!     let gp = alloc.generalPurpose();
+//!     let ctx = context {
+//!         Alloc: gp,
+//!         Stdout: host.stdout,
+//!     };
+//!     let _ = alloc.allocate(ctx, 64);
+//!     let _ = alloc.allocate(ctx, alloc.strBytes(5));
+//!     let s = gp.stats();
+//!     let _ = io.println(ctx, "${s.allocations} allocations, ${s.bytes} bytes").ignore();
 //!
-//!   // A budget refuses rather than reports: this one has 32 bytes left.
-//!   let buffer = alloc.fixedBuffer(64);
-//!   let small = context { Alloc: buffer };
-//!   let _ = alloc.allocate(small, 32);
-//!   let _ = io.println(ctx, "${buffer.remaining()} of ${buffer.budget} left").ignore();
-//!   .Ok(())
+//!     // A budget refuses rather than reports: this one has 32 bytes left.
+//!     let buffer = alloc.fixedBuffer(64);
+//!     let small = context {
+//!         Alloc: buffer,
+//!     };
+//!     let _ = alloc.allocate(small, 32);
+//!     let _ = io.println(ctx, "${buffer.remaining()} of ${buffer.budget} left").ignore();
+//!     .Ok(())
 //! }
 //! ```
 //!
@@ -97,8 +102,8 @@
 //! ```
 
 from "core/effect" import {
-  Alloc, Clock, Env, Fs, Listen, Net, Proc, Rand, Sockets, Stderr, Stdin, Stdout, Tasks,
-  IoError, NetError, Region, Request, Response,
+    Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Proc, Rand, Region, Request,
+    Response, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 
 // --- The door onto the effect -------------------------------------------------
@@ -116,7 +121,7 @@ from "core/effect" import {
 /// `strBytes`, `listBytes` and `closureBytes` above — those are pure arithmetic
 /// and take no context, and this is the one that does something.
 export fn allocate<C: Alloc>(ctx: C, bytes: Int): Region {
-  ctx.allocate(bytes)
+    ctx.allocate(bytes)
 }
 
 // --- The cost model, as arithmetic --------------------------------------------
@@ -137,7 +142,7 @@ export let VIEW_BYTES: Int = 0;
 ///
 /// UTF-8 bytes, not scalars — `"é".len()` is 1 and its charge is 18.
 export fn strBytes(n: Int): Int {
-  HEADER_BYTES + n
+    HEADER_BYTES + n
 }
 
 /// The charge for a `[T]` of `n` elements: `16 + n * stride`.
@@ -148,14 +153,15 @@ export fn strBytes(n: Int): Int {
 /// `sizeOf<T>()` would make this `listBytes<T>(n)` and is the obvious next
 /// step; until then this is the model with its one input supplied.
 export fn listBytes(n: Int, stride: Int): Int {
-  HEADER_BYTES + n * stride
+    HEADER_BYTES + n * stride
 }
 
 /// The charge for a closure environment of `size` bytes: `16 + size`.
 export fn closureBytes(size: Int): Int {
-  HEADER_BYTES + size
+    HEADER_BYTES + size
 }
 
+derive Eq, Show for Stats;
 // --- What an allocator has been asked for -------------------------------------
 
 /// What `GeneralPurpose.stats`, `Arena.stats` and `FixedBuffer.stats`
@@ -164,11 +170,9 @@ export fn closureBytes(size: Int): Int {
 /// `allocations` counts *requests*, including a request for zero bytes, so a
 /// program can tell "asked once for nothing" from "never asked".
 export struct Stats {
-  export allocations: Int,
-  export bytes: Int,
+    export allocations: Int,
+    export bytes: Int,
 }
-
-derive Eq, Show for Stats;
 
 // --- The accounting, which all three share ------------------------------------
 //
@@ -202,24 +206,24 @@ let UNBOUNDED: Int = -1;
 /// The one to reach for when the question is "how much does this cost?" rather
 /// than "does this fit?".
 export struct GeneralPurpose {
-  handle: I64,
+    handle: I64,
 }
 
 impl Alloc for GeneralPurpose {
-  fn allocate(self, bytes: Int): Region {
-    Region(charge(self.handle, bytes))
-  }
+    fn allocate(self, bytes: Int): Region {
+        Region(charge(self.handle, bytes))
+    }
 }
 
 /// A fresh general-purpose allocator, with its own counter at zero.
 export fn generalPurpose(): GeneralPurpose {
-  GeneralPurpose { handle: newCounter(UNBOUNDED) }
+    GeneralPurpose { handle: newCounter(UNBOUNDED) }
 }
 
 impl GeneralPurpose {
-  export fn stats(self): Stats {
-    Stats { allocations: count(self.handle), bytes: total(self.handle) }
-  }
+    export fn stats(self): Stats {
+        Stats { allocations: count(self.handle), bytes: total(self.handle) }
+    }
 }
 
 // --- Arena --------------------------------------------------------------------
@@ -247,26 +251,26 @@ impl GeneralPurpose {
 /// lets it free in bulk (MEMORY.md §7.2.1). This type has no boundary to copy
 /// at, so it stays a counter.
 export struct Arena {
-  handle: I64,
+    handle: I64,
 }
 
 impl Alloc for Arena {
-  fn allocate(self, bytes: Int): Region {
-    Region(charge(self.handle, bytes))
-  }
+    fn allocate(self, bytes: Int): Region {
+        Region(charge(self.handle, bytes))
+    }
 }
 
 /// A fresh arena, with its own counter at zero.
 export fn arena(): Arena {
-  Arena { handle: newCounter(UNBOUNDED) }
+    Arena { handle: newCounter(UNBOUNDED) }
 }
 
 impl Arena {
-  /// Everything charged to this arena since it was made. Nothing subtracts
-  /// from it, because nothing is reclaimed early — see the type.
-  export fn stats(self): Stats {
-    Stats { allocations: count(self.handle), bytes: total(self.handle) }
-  }
+    /// Everything charged to this arena since it was made. Nothing subtracts
+    /// from it, because nothing is reclaimed early — see the type.
+    export fn stats(self): Stats {
+        Stats { allocations: count(self.handle), bytes: total(self.handle) }
+    }
 }
 
 // --- FixedBuffer --------------------------------------------------------------
@@ -286,15 +290,15 @@ impl Arena {
 /// program can write: give a function 64 bytes and it either fits or the
 /// process ends.
 export struct FixedBuffer {
-  handle: I64,
-  /// What this buffer was made with, in bytes.
-  export budget: Int,
+    handle: I64,
+    /// What this buffer was made with, in bytes.
+    export budget: Int,
 }
 
 impl Alloc for FixedBuffer {
-  fn allocate(self, bytes: Int): Region {
-    Region(charge(self.handle, bytes))
-  }
+    fn allocate(self, bytes: Int): Region {
+        Region(charge(self.handle, bytes))
+    }
 }
 
 /// A buffer of exactly `budget` bytes.
@@ -305,20 +309,20 @@ impl Alloc for FixedBuffer {
 /// this type exists to prevent. So `fixedBuffer(-1).budget` is `0`, and the
 /// first request for a byte or more ends the process.
 export fn fixedBuffer(budget: Int): FixedBuffer {
-  let limit = if (budget < 0) { 0 } else { budget };
-  FixedBuffer { handle: newCounter(limit), budget: limit }
+    let limit = if (budget < 0) { 0 } else { budget };
+    FixedBuffer { handle: newCounter(limit), budget: limit }
 }
 
 impl FixedBuffer {
-  export fn stats(self): Stats {
-    Stats { allocations: count(self.handle), bytes: total(self.handle) }
-  }
+    export fn stats(self): Stats {
+        Stats { allocations: count(self.handle), bytes: total(self.handle) }
+    }
 
-  /// `budget` less what has been charged. Never negative: a request that would
-  /// make it negative aborts instead.
-  export fn remaining(self): Int {
-    self.budget - total(self.handle)
-  }
+    /// `budget` less what has been charged. Never negative: a request that would
+    /// make it negative aborts instead.
+    export fn remaining(self): Int {
+        self.budget - total(self.handle)
+    }
 }
 
 // --- Scoped, and the scope it belongs to ---------------------------------------
@@ -453,21 +457,21 @@ export struct Scoped<C>(C, I64);
 /// retired handle matches no arena. It is a number that stops moving, never a
 /// use of memory that has been given back.
 export fn scoped<C: Alloc, T>(ctx: C, body: fn(Scoped<C>) => T): T {
-  let handle = arenaCreate();
-  let outer = arenaEnter(handle);
-  let inside = body(Scoped(ctx, handle));
-  let _ = arenaLeave(outer);
-  let out = copyOut(inside);
-  let _ = arenaRelease(handle);
-  out
+    let handle = arenaCreate();
+    let outer = arenaEnter(handle);
+    let inside = body(Scoped(ctx, handle));
+    let _ = arenaLeave(outer);
+    let out = copyOut(inside);
+    let _ = arenaRelease(handle);
+    out
 }
 
 impl<C> Scoped<C> {
-  /// Everything charged to **this scope's** arena. A sibling scope's charges
-  /// are not here, and neither are the wrapped context's.
-  export fn stats(self): Stats {
-    Stats { allocations: arenaCount(self.1), bytes: arenaTotal(self.1) }
-  }
+    /// Everything charged to **this scope's** arena. A sibling scope's charges
+    /// are not here, and neither are the wrapped context's.
+    export fn stats(self): Stats {
+        Stats { allocations: arenaCount(self.1), bytes: arenaTotal(self.1) }
+    }
 }
 
 // The one implementation that does not forward.
@@ -476,125 +480,142 @@ impl<C> Scoped<C> {
 // whether or not the `C` it holds can. `scoped` is where the authority is
 // checked, once, and it requires `C: Alloc` there.
 impl<C> Alloc for Scoped<C> {
-  fn allocate(self, bytes: Int): Region {
-    Region(arenaAllocate(self.1, bytes))
-  }
+    fn allocate(self, bytes: Int): Region {
+        Region(arenaAllocate(self.1, bytes))
+    }
 }
 
 // Everything below here forwards, and says nothing else.
 
 impl<C: Stdout> Stdout for Scoped<C> {
-  fn print(self, text: Template): Result<(), IoError> {
-    self.0.print(text)
-  }
-  fn println(self, text: Template): Result<(), IoError> {
-    self.0.println(text)
-  }
-  fn writeBytes(self, b: [U8]): Result<(), IoError> {
-    self.0.writeBytes(b)
-  }
+    fn print(self, text: Template): Result<(), IoError> {
+        self.0.print(text)
+    }
+
+    fn println(self, text: Template): Result<(), IoError> {
+        self.0.println(text)
+    }
+
+    fn writeBytes(self, b: [U8]): Result<(), IoError> {
+        self.0.writeBytes(b)
+    }
 }
 
 impl<C: Stderr> Stderr for Scoped<C> {
-  fn eprint(self, text: Template): Result<(), IoError> {
-    self.0.eprint(text)
-  }
-  fn eprintln(self, text: Template): Result<(), IoError> {
-    self.0.eprintln(text)
-  }
+    fn eprint(self, text: Template): Result<(), IoError> {
+        self.0.eprint(text)
+    }
+
+    fn eprintln(self, text: Template): Result<(), IoError> {
+        self.0.eprintln(text)
+    }
 }
 
 impl<C: Stdin> Stdin for Scoped<C> {
-  fn readLine(self): Option<Str> {
-    self.0.readLine()
-  }
-  fn readBytes(self, n: Int): Option<[U8]> {
-    self.0.readBytes(n)
-  }
+    fn readLine(self): Option<Str> {
+        self.0.readLine()
+    }
+
+    fn readBytes(self, n: Int): Option<[U8]> {
+        self.0.readBytes(n)
+    }
 }
 
 impl<C: Fs> Fs for Scoped<C> {
-  fn readFile(self, path: Str): Result<Str, IoError> {
-    self.0.readFile(path)
-  }
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
-    self.0.writeFile(path, body)
-  }
-  fn fileExists(self, path: Str): Bool {
-    self.0.fileExists(path)
-  }
-  fn readDir(self, path: Str): Result<[Str], IoError> {
-    self.0.readDir(path)
-  }
-  fn readFileBytes(self, path: Str): Result<[U8], IoError> {
-    self.0.readFileBytes(path)
-  }
-  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
-    self.0.writeFileBytes(path, body)
-  }
-  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
-    self.0.appendFile(path, body)
-  }
-  fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
-    self.0.renameFile(source, destination)
-  }
-  fn removeFile(self, path: Str): Result<(), IoError> {
-    self.0.removeFile(path)
-  }
-  fn makeDir(self, path: Str): Result<(), IoError> {
-    self.0.makeDir(path)
-  }
-  fn syncFile(self, path: Str): Result<(), IoError> {
-    self.0.syncFile(path)
-  }
+    fn readFile(self, path: Str): Result<Str, IoError> {
+        self.0.readFile(path)
+    }
+
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
+        self.0.writeFile(path, body)
+    }
+
+    fn fileExists(self, path: Str): Bool {
+        self.0.fileExists(path)
+    }
+
+    fn readDir(self, path: Str): Result<[Str], IoError> {
+        self.0.readDir(path)
+    }
+
+    fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+        self.0.readFileBytes(path)
+    }
+
+    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+        self.0.writeFileBytes(path, body)
+    }
+
+    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+        self.0.appendFile(path, body)
+    }
+
+    fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+        self.0.renameFile(source, destination)
+    }
+
+    fn removeFile(self, path: Str): Result<(), IoError> {
+        self.0.removeFile(path)
+    }
+
+    fn makeDir(self, path: Str): Result<(), IoError> {
+        self.0.makeDir(path)
+    }
+
+    fn syncFile(self, path: Str): Result<(), IoError> {
+        self.0.syncFile(path)
+    }
 }
 
 impl<C: Net> Net for Scoped<C> {
-  fn fetch(self, request: Request): Result<Response, NetError> {
-    self.0.fetch(request)
-  }
+    fn fetch(self, request: Request): Result<Response, NetError> {
+        self.0.fetch(request)
+    }
 }
 
 impl<C: Clock> Clock for Scoped<C> {
-  fn nowMillis(self): I64 {
-    self.0.nowMillis()
-  }
-  fn sleepMillis(self, millis: Int): () {
-    self.0.sleepMillis(millis)
-  }
+    fn nowMillis(self): I64 {
+        self.0.nowMillis()
+    }
+
+    fn sleepMillis(self, millis: Int): () {
+        self.0.sleepMillis(millis)
+    }
 }
 
 impl<C: Rand> Rand for Scoped<C> {
-  fn nextInt(self, lo: Int, hi: Int): Int {
-    self.0.nextInt(lo, hi)
-  }
-  fn nextFloat(self): Float {
-    self.0.nextFloat()
-  }
+    fn nextInt(self, lo: Int, hi: Int): Int {
+        self.0.nextInt(lo, hi)
+    }
+
+    fn nextFloat(self): Float {
+        self.0.nextFloat()
+    }
 }
 
 impl<C: Env> Env for Scoped<C> {
-  fn variable(self, name: Str): Option<Str> {
-    self.0.variable(name)
-  }
-  fn args(self): [Str] {
-    self.0.args()
-  }
+    fn variable(self, name: Str): Option<Str> {
+        self.0.variable(name)
+    }
+
+    fn args(self): [Str] {
+        self.0.args()
+    }
 }
 
 impl<C: Proc> Proc for Scoped<C> {
-  fn exitWith(self, code: Int): () {
-    self.0.exitWith(code)
-  }
+    fn exitWith(self, code: Int): () {
+        self.0.exitWith(code)
+    }
 }
 
 // The step is handed `ctx` — the caller's whole context — and not `self`, so
 // what a task receives here is whatever the caller passed and **not** this
 // wrapper. A scope inside a task is the task's own `alloc.scoped` call.
 impl<C: Tasks> Tasks for Scoped<C> {
-  fn parallel<X, A, B>(self, ctx: X, items: [A], f: fn(X, Int, A) => B): [B] {
-    self.0.parallel(ctx, items, f)
-  }
+    fn parallel<X, A, B>(self, ctx: X, items: [A], f: fn(X, Int, A) => B): [B] {
+        self.0.parallel(ctx, items, f)
+    }
 }
 
 // `Listen.listen` hands its handler `Self`, which here is `Scoped<C>` and
@@ -620,25 +641,29 @@ impl<C: Tasks> Tasks for Scoped<C> {
 // effect, at which point `onRequest` becomes `fn(C, Request) => Response` and
 // this body becomes an ordinary forward with no lambda in it.
 impl<C: Listen> Listen for Scoped<C> {
-  fn listen(
-    self,
-    address: Str,
-    port: Int,
-    onRequest: fn(Scoped<C>, Request) => Response,
-  ): Result<(), NetError> {
-    let arena = self.1;
-    self.0.listen(address, port, fn(c, request) => onRequest(Scoped(c, arena), request))
-  }
+    fn listen(
+        self,
+        address: Str,
+        port: Int,
+        onRequest: fn(Scoped<C>, Request) => Response,
+    ): Result<(), NetError> {
+        let arena = self.1;
+        self.0.listen(address, port, fn(c, request) => {
+            onRequest(Scoped(c, arena), request)
+        })
+    }
 }
 
 impl<C: Sockets> Sockets for Scoped<C> {
-  fn socketSendText(self, socket: Int, text: Str): () {
-    self.0.socketSendText(socket, text)
-  }
-  fn socketSendBytes(self, socket: Int, body: [U8]): () {
-    self.0.socketSendBytes(socket, body)
-  }
-  fn socketClose(self, socket: Int, code: Int, reason: Str): () {
-    self.0.socketClose(socket, code, reason)
-  }
+    fn socketSendText(self, socket: Int, text: Str): () {
+        self.0.socketSendText(socket, text)
+    }
+
+    fn socketSendBytes(self, socket: Int, body: [U8]): () {
+        self.0.socketSendBytes(socket, body)
+    }
+
+    fn socketClose(self, socket: Int, code: Int, reason: Str): () {
+        self.0.socketClose(socket, code, reason)
+    }
 }

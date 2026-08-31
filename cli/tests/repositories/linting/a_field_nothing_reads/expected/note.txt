@@ -1,8 +1,8 @@
 warning: nothing reads `Entry.note` [unused-field]
-  --> lib/money/cents.buri:17:3
+  --> lib/money/cents.buri:17:5
    |
-17 |   note: Option<Str>,
-   |   ^^^^^^^^^^^^^^^^^
+17 |     note: Option<Str>,
+   |     ^^^^^^^^^^^^^^^^^
    |
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it

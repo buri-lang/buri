@@ -7,5 +7,7 @@ fix: pass exactly {expected}
 ```buri fail code=wrong-value-count
 struct Pair(Int, Int);
 
-fn go(): Pair { Pair(1) }
+fn go(): Pair {
+    Pair(1)
+}
 ```

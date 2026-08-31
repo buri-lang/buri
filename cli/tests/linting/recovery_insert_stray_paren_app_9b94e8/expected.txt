@@ -1,0 +1,27 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_insert_stray_paren_app_9b94e8/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: there is nothing named `fnextra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_app_9b94e8/main.buri:19:38
+   |
+19 |     io.println(ctx, banner()).mapErr(fnextra (_e) => "could not write to standard output")
+   |                                      ^^^^^^^
+   |
+   = fix: declare `fnextra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_app_9b94e8/main.buri:19:51
+   |
+19 |     io.println(ctx, banner()).mapErr(fnextra (_e) => "could not write to standard output")
+   |                                                   ^^
+   |
+  --> lib/recovery_insert_stray_paren_app_9b94e8/main.buri:19:37
+   |
+19 |     io.println(ctx, banner()).mapErr(fnextra (_e) => "could not write to standard output")
+   |                                     ^ opened here
+   |
+   = fix: write `)` here

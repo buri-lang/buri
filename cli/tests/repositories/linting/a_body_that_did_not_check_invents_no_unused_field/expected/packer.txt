@@ -1,8 +1,8 @@
 warning: nothing reads `Entry.packer` [unused-field]
-  --> lib/money/cents.buri:18:3
+  --> lib/money/cents.buri:18:5
    |
-18 |   packer: Str,
-   |   ^^^^^^^^^^^
+18 |     packer: Str,
+   |     ^^^^^^^^^^^
    |
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it

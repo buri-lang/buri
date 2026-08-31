@@ -5,11 +5,11 @@
 // competing to be read as part of the mistake.
 
 export struct Square {
-  export side: Int,
+    export side: Int,
 }
 
 impl Square {
-  export fn area(self): Int {
-    self.side * self.side
-  }
+    export fn area(self): Int {
+        self.side * self.side
+    }
 }

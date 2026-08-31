@@ -22,12 +22,16 @@ sometimes right and is always a decision.
 ## A program that provokes it
 
 ```buri fail code=match-not-exhaustive
-enum Shape { Circle(Int), Square(Int), Empty }
+enum Shape {
+    Circle(Int),
+    Square(Int),
+    Empty,
+}
 
 fn describe(s: Shape): Int {
-  match (s) {
-    .Circle(r) => r,
-    .Square(n) => n,
-  }
+    match (s) {
+        .Circle(r) => r,
+        .Square(n) => n,
+    }
 }
 ```

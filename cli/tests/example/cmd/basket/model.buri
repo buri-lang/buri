@@ -7,7 +7,6 @@
 // in `test/model.buri` builds none of the three.
 
 from "core/effect" import { Alloc };
-
 from "//lib/ledger" import { Entry, entry };
 from "//lib/money" import { fromCents, parse };
 
@@ -25,75 +24,86 @@ export let LEDGER_URL: Str = "/entries";
 /// shows four lines of five is more use than one that shows none, and a line
 /// nobody can read is the server's bug rather than the page's.
 export fn entriesFrom<C: Alloc>(ctx: C, body: Str): [Entry] {
-  let none: [Entry] = [];
-  body.lines(ctx).foldCtx(
-    ctx,
-    fn(c, kept, line) => match (lineEntry(line)) {
-      .Some(e) => kept.push(c, e),
-      .None => kept,
-    },
-    none,
-  )
+    let none: [Entry] = [];
+    body
+        .lines(ctx)
+        .foldCtx(
+            ctx,
+            fn(c, kept, line) => {
+                match (lineEntry(line)) {
+                    .Some(e) => kept.push(c, e),
+                    .None => kept,
+                }
+            },
+            none,
+        )
 }
 
 /// One line, or nothing. Pure: the caller did the reading.
 fn lineEntry(line: Str): Option<Entry> {
-  match (line.trim().splitOnce(" ")) {
-    .None => .None,
-    .Some(parts) => match (parse(parts.1.trim())) {
-      .Ok(amount) => .Some(entry(parts.0, amount)),
-      .Err(_) => .None,
-    },
-  }
+    match (line.trim().splitOnce(" ")) {
+        .None => .None,
+        .Some(parts) => {
+            match (parse(parts.1.trim())) {
+                .Ok(amount) => .Some(entry(parts.0, amount)),
+                .Err(_) => .None,
+            }
+        },
+    }
 }
 
+derive Eq, Show for Draft;
 /// What the composer's two fields currently amount to.
 ///
 /// An enum rather than a `Result<Entry, Str>` because "you have not typed a
 /// memo yet" is not a failure — it is the state a form starts in — and the
 /// page says something different about each of the three.
 export enum Draft {
-  /// A line ready to be added.
-  Line(Entry),
-  /// Nothing has been typed.
-  Blank,
-  /// Something has, and it is not an amount. Carries what was typed, so the
-  /// page can quote it back.
-  BadAmount(Str),
+    /// A line ready to be added.
+    Line(Entry),
+    /// Nothing has been typed.
+    Blank,
+    /// Something has, and it is not an amount. Carries what was typed, so the
+    /// page can quote it back.
+    BadAmount(Str),
 }
-
-derive Eq, Show for Draft;
 
 /// Reads the two fields as a line. Pure, so the rules about what a line may be
 /// are asserted without a form.
 export fn draft(memo: Str, amount: Str): Draft {
-  let name = memo.trim();
-  let text = amount.trim();
-  if (name.isEmpty()) {
-    .Blank
-  } else {
-    match (parse(text)) {
-      .Err(_) => .BadAmount(text),
-      // Refused rather than clamped: a basket line that costs less than nothing
-      // is a mistake at the keyboard, and silently accepting it would put a
-      // wrong total on the screen with nothing to look at.
-      .Ok(cents) => if (cents < fromCents(0)) { .BadAmount(text) } else { .Line(entry(name, cents)) },
+    let name = memo.trim();
+    let text = amount.trim();
+    if (name.isEmpty()) {
+        .Blank
+    } else {
+        match (parse(text)) {
+            .Err(_) => .BadAmount(text),
+            // Refused rather than clamped: a basket line that costs less than nothing
+            // is a mistake at the keyboard, and silently accepting it would put a
+            // wrong total on the screen with nothing to look at.
+            .Ok(cents) => {
+                if (cents < fromCents(0)) {
+                    .BadAmount(text)
+                } else {
+                    .Line(entry(name, cents))
+                }
+            },
+        }
     }
-  }
 }
 
 /// Whether the line called `memo` has been settled.
 export fn isTicked(ticked: [Str], memo: Str): Bool {
-  ticked.contains(memo)
+    ticked.contains(memo)
 }
 
 /// The settled list with `memo` added, or removed if it was already there.
 export fn flip<C: Alloc>(ctx: C, ticked: [Str], memo: Str): [Str] {
-  if (ticked.contains(memo)) {
-    ticked.filter(ctx, fn(m) => m != memo)
-  } else {
-    ticked.push(ctx, memo)
-  }
+    if (ticked.contains(memo)) {
+        ticked.filter(ctx, fn(m) => m != memo)
+    } else {
+        ticked.push(ctx, memo)
+    }
 }
 
 /// How much of the basket is settled, from `0.0` to `1.0`.
@@ -102,11 +112,11 @@ export fn flip<C: Alloc>(ctx: C, ticked: [Str], memo: Str): [Str] {
 /// computation is handed a `Scope`, and a `Scope` grants reading the signal
 /// graph and nothing else.
 export fn settledFraction(items: [Entry], ticked: [Str]): Float {
-  if (items.isEmpty()) {
-    0.0
-  } else {
-    items.count(fn(e) => ticked.contains(e.memo)).toF64() / items.len().toF64()
-  }
+    if (items.isEmpty()) {
+        0.0
+    } else {
+        items.count(fn(e) => ticked.contains(e.memo)).toF64() / items.len().toF64()
+    }
 }
 
 /// The leading zero a two-digit cents place needs, or nothing.
@@ -116,5 +126,5 @@ export fn settledFraction(items: [Entry], ticked: [Str]): Float {
 /// `Template`, and turning one into a `Str` allocates. The interpolation itself
 /// therefore happens at the `Prop` that needs it, inside the reactive closure.
 export fn pad(hundredths: I64): Str {
-  if (hundredths < 10) { "0" } else { "" }
+    if (hundredths < 10) { "0" } else { "" }
 }

@@ -1,0 +1,9 @@
+error: expected a type, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_module_cents_b7ccd8/lib.buri:1:36
+  |
+1 | export fn markupCents(cents: I64): ? I64 {
+  |                                    ^
+  |
+  = expected: a type
+  = actual: `?`
+  = fix: name a type here, as in `Int` or `[Str]`

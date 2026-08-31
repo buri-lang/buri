@@ -21,35 +21,35 @@ from "ui/effect" import { Scope, Ui, Watch };
 export struct Signal<T>(Int);
 
 impl<T> Signal<T> {
-  /// The current value.
-  ///
-  /// Called inside a memo or a watcher, this is what subscribes that
-  /// computation to this cell.
-  export fn get<C: Watch>(self, ctx: C): T {
-    ctx.read(self.0)
-  }
+    /// The current value.
+    ///
+    /// Called inside a memo or a watcher, this is what subscribes that
+    /// computation to this cell.
+    export fn get<C: Watch>(self, ctx: C): T {
+        ctx.read(self.0)
+    }
 
-  /// Replaces the value. Everything that read this cell is marked out of date
-  /// and re-run; writing a value identical to the current one does nothing.
-  export fn set<C: Ui>(self, ctx: C, value: T): () {
-    ctx.write(self.0, value)
-  }
+    /// Replaces the value. Everything that read this cell is marked out of date
+    /// and re-run; writing a value identical to the current one does nothing.
+    export fn set<C: Ui>(self, ctx: C, value: T): () {
+        ctx.write(self.0, value)
+    }
 
-  /// Replaces the value with a function of the old one.
-  ///
-  /// Takes `Ui` rather than `Watch` because it writes, and the read it does on
-  /// the way records no dependency — not by exception, but because there is
-  /// nothing to record it against. The runtime tracks against the computation
-  /// that is running, a computation is handed a `Scope`, and a `Scope` cannot
-  /// write. So the only place `update` can be called from is outside one.
-  export fn update<C: Ui>(self, ctx: C, f: fn(T) => T): () {
-    ctx.write(self.0, f(ctx.read(self.0)))
-  }
+    /// Replaces the value with a function of the old one.
+    ///
+    /// Takes `Ui` rather than `Watch` because it writes, and the read it does on
+    /// the way records no dependency — not by exception, but because there is
+    /// nothing to record it against. The runtime tracks against the computation
+    /// that is running, a computation is handed a `Scope`, and a `Scope` cannot
+    /// write. So the only place `update` can be called from is outside one.
+    export fn update<C: Ui>(self, ctx: C, f: fn(T) => T): () {
+        ctx.write(self.0, f(ctx.read(self.0)))
+    }
 }
 
 /// A fresh cell holding `initial`.
 export fn signal<C: Ui, T>(ctx: C, initial: T): Signal<T> {
-  Signal(ctx.signal(initial))
+    Signal(ctx.signal(initial))
 }
 
 /// Registers a computation run for its effect on the world rather than its
@@ -59,5 +59,5 @@ export fn signal<C: Ui, T>(ctx: C, initial: T): Signal<T> {
 /// closure receives a `Scope` and can therefore only *read* the graph, which
 /// is what makes it safe to re-run at a time the program did not choose.
 export fn watch<C: Ui>(ctx: C, run: fn(Scope) => ()): () {
-  ctx.watch(run)
+    ctx.watch(run)
 }

@@ -49,10 +49,12 @@ fine: `{ hi: hi, hello }`.
 ## A program that provokes it
 
 ```buri fail code=struct-literal-type
-struct World { export hi: Str }
+struct World {
+    export hi: Str,
+}
 
 fn build(): Int {
-  let w = { hi: "hi" };
-  w.hi.length()
+    let w = { hi: "hi" };
+    w.hi.length()
 }
 ```

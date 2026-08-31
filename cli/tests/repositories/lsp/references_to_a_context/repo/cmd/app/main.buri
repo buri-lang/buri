@@ -4,13 +4,15 @@ from "core/io" import * as io;
 
 /// What this program is allowed to do.
 context Program {
-  Alloc: host.alloc,
-  Stdout: host.stdout,
+    Alloc: host.alloc,
+    Stdout: host.stdout,
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = Program();
-  let _ = io.println(ctx, "one").mapErr(fn(_e) => "could not write to standard output")?;
-  let again = Program();
-  io.println(again, "two").mapErr(fn(_e) => "could not write to standard output")
+    let ctx = Program();
+    let _ = io
+        .println(ctx, "one")
+        .mapErr(fn(_e) => "could not write to standard output")?;
+    let again = Program();
+    io.println(again, "two").mapErr(fn(_e) => "could not write to standard output")
 }

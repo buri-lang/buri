@@ -1,9 +1,0 @@
-error: expected an expression, found `*` [unexpected-token]
-  --> lib/recovery_swap_adjacent_brace_app_1a3bfe/main.buri:12:15
-   |
-12 |   let total = * 3 4;
-   |               ^
-   |
-   = expected: an expression
-   = actual: `*`
-   = fix: write a value here

@@ -1,0 +1,16 @@
+error: expected `=`, found `Tally` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_cents_443199/lib.buri:17:12
+   |
+17 | type Money Tally =;
+   |            ^^^^^
+   |
+   = expected: `=`
+   = actual: `Tally`
+   = fix: write `=` here
+error: there is no type `Money` [unresolved-type]
+  --> lib/recovery_swap_adjacent_module_cents_443199/lib.buri:19:34
+   |
+19 | export fn describe(l: Ledger, m: Money): I64 {
+   |                                  ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling

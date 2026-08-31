@@ -5,5 +5,7 @@ fix: drop them
 ---
 
 ```buri fail code=no-type-arguments
-fn width(n: Int<Str>): Int { 0 }
+fn width(n: Int<Str>): Int {
+    0
+}
 ```

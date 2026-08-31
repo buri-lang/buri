@@ -3,6 +3,6 @@
 {"id":3,"jsonrpc":"2.0","result":null}
 {"id":4,"jsonrpc":"2.0","result":{"range":{"end":{"character":17,"line":35},"start":{"character":10,"line":35}},"uri":"file://<scratch>/lib/shop/catalog.buri"}}
 {"id":5,"jsonrpc":"2.0","result":{"range":{"end":{"character":23,"line":32},"start":{"character":11,"line":32}},"uri":"file://<scratch>/lib/shop/catalog.buri"}}
-{"id":6,"jsonrpc":"2.0","result":{"range":{"end":{"character":18,"line":11},"start":{"character":14,"line":11}},"uri":"file://<scratch>/lib/shop/catalog.buri"}}
+{"id":6,"jsonrpc":"2.0","result":null}
 {"id":7,"jsonrpc":"2.0","result":null}
 {"id":8,"jsonrpc":"2.0","result":null}

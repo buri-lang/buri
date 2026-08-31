@@ -1,3 +1,5 @@
 from "//tools/report/detail.buri" import { verbose };
 
-export fn render(n: I64): Str { if (n == 0) { "zero" } else { verbose(n) } }
+export fn render(n: I64): Str {
+    if (n == 0) { "zero" } else { verbose(n) }
+}

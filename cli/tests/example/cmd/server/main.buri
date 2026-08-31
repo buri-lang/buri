@@ -7,7 +7,6 @@ from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/str" import * as str;
-
 from "//lib/ledger" import { entry };
 from "//lib/money" import { fromCents };
 from "//lib/store" import { append };
@@ -23,21 +22,23 @@ from "//cmd/server/routes.buri" import { route };
 /// `fs` to export, so `host.fs` does not resolve — and the error lands on that
 /// line rather than at runtime.
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc:  host.alloc,
-    Stdout: host.stdout,
-    Fs:     host.fs,
-    Env:    host.env,
-  };
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Fs: host.fs,
+        Env: host.env,
+    };
 
-  let path = env.get(ctx, "LEDGER_LOG") ?? "ledger.log";
-  let hit = route("/entries");
+    let path = env.get(ctx, "LEDGER_LOG") ?? "ledger.log";
+    let hit = route("/entries");
 
-  match (append(ctx, path, [entry("startup", fromCents(0))])) {
-    .Err(_) => .Err(str.format(ctx, "could not open the ledger log at ${path}")),
-    .Ok(_) => match (io.println(ctx, "serving ${hit.name} at ${hit.path} from ${path}")) {
-      .Ok(_) => .Ok(()),
-      .Err(_) => .Err("could not write to standard output"),
-    },
-  }
+    match (append(ctx, path, [entry("startup", fromCents(0))])) {
+        .Err(_) => .Err(str.format(ctx, "could not open the ledger log at ${path}")),
+        .Ok(_) => {
+            match (io.println(ctx, "serving ${hit.name} at ${hit.path} from ${path}")) {
+                .Ok(_) => .Ok(()),
+                .Err(_) => .Err("could not write to standard output"),
+            }
+        },
+    }
 }

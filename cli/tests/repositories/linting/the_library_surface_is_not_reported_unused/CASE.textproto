@@ -26,7 +26,7 @@ run {
 
 edit {
   file: "lib/money/cents.buri"
-  replace: "  label: Str,\n"
+  replace: "label: Str,\n"
   with: ""
 }
 

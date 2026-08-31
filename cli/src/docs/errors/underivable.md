@@ -24,9 +24,13 @@ and the diagnostic names the component rather than the type you wrote it on.
 
 ```buri fail code=underivable
 # from "core/order" import { Eq };
-struct Inner { export x: Int }
 
-struct Outer { export inner: Inner }
+struct Inner {
+    export x: Int,
+}
 
 derive Eq for Outer;
+struct Outer {
+    export inner: Inner,
+}
 ```

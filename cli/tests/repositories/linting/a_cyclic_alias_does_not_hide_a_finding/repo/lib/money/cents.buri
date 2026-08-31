@@ -12,8 +12,10 @@ from "core/str" import { fromInt };
 export type Handle = Handle;
 
 export fn describe<C: Alloc>(ctx: C, n: I64): Str {
-  let spare = 7;
-  fromInt(ctx, n)
+    let spare = 7;
+    fromInt(ctx, n)
 }
 
-export fn open(h: Handle): Handle { h }
+export fn open(h: Handle): Handle {
+    h
+}

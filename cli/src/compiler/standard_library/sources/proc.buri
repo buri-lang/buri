@@ -25,5 +25,5 @@ from "core/effect" import { Proc };
 /// whole of the ordinary vocabulary; this is for the program that has to name
 /// a *particular* status — a tool whose exit code is part of its interface.
 export fn exit<C: Proc>(ctx: C, code: Int): () {
-  ctx.exitWith(code)
+    ctx.exitWith(code)
 }

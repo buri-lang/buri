@@ -5,12 +5,15 @@ fix: match exactly {expected}, or end the pattern with `..`
 ---
 
 ```buri fail code=wrong-matched-value-count
-enum Shape { Circle(Int, Int), Square }
+enum Shape {
+    Circle(Int, Int),
+    Square,
+}
 
 fn go(s: Shape): Int {
-  match (s) {
-    .Circle(a) => a,
-    .Square => 0,
-  }
+    match (s) {
+        .Circle(a) => a,
+        .Square => 0,
+    }
 }
 ```

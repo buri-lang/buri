@@ -1,31 +1,33 @@
 // Tests for //lib/money. They import the library by label, exactly as any
 // dependent does, so they can only assert on what dependents can call.
 
-from "//lib/money" import { fromDollars, fromCents };
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
 from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { fromCents, fromDollars };
 
 test "dollars are a hundred cents" {
-  assert.eq(fromDollars(3), fromCents(300));
+    assert.eq(fromDollars(3), fromCents(300));
 }
 
 test "addition composes" {
-  let subtotal = fromDollars(19);
-  let shipping = fromCents(499);
-  assert.eq(subtotal.add(shipping), fromCents(2399));
+    let subtotal = fromDollars(19);
+    let shipping = fromCents(499);
+    assert.eq(subtotal.add(shipping), fromCents(2399));
 }
 
 test "zero is recognized" {
-  assert.isTrue(fromCents(0).isZero());
+    assert.isTrue(fromCents(0).isZero());
 }
 
 test "pads the cents place" {
-  // Only this test needs a context: formatting allocates, and nothing else
-  // here does. You can see which is which without leaving the test.
-  let ctx = context { Alloc: alloc() };
-  assert.eq(fromCents(1905).format(ctx), "\$19.05");
-  assert.eq(fromDollars(19).format(ctx), "\$19.00");
+    // Only this test needs a context: formatting allocates, and nothing else
+    // here does. You can see which is which without leaving the test.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(fromCents(1905).format(ctx), "$19.05");
+    assert.eq(fromDollars(19).format(ctx), "$19.00");
 }
 
 // assert.eq(fromCents(300).toCents(), 300)

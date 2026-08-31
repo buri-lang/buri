@@ -2,7 +2,7 @@
 {"id":2,"jsonrpc":"2.0","result":[]}
 {"id":3,"jsonrpc":"2.0","result":[]}
 {"id":4,"jsonrpc":"2.0","result":null}
-{"id":5,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn println<C: Stdout>(ctx: C, text: Template): Result<(), IoError>\n```"},"range":{"end":{"character":20,"line":12},"start":{"character":13,"line":12}}}}
+{"id":5,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfrom \"core/io\"\n```\n\ncore/io — printing and reading a line.\n\nThese are free functions over a context, so they keep the context first, and\nthey are the *only* way to reach `Stdout`, `Stderr` and `Stdin`: an effect is\nperformed by handing the context to a function, never by calling a method on\nit (SPEC 10.2).\n\n**A print answers `Result<(), IoError>`.** A closed pipe, a full disk and a\nrevoked permission are things that happen to a print, and the signature says\nso. Discarding a `Result` is an error in both of the two places a value can\nbe dropped, so a program that does not care about the failure writes the one\ngreppable spelling of a deliberate drop:\n\n```buri role=std\n# from \"core/effect\" import { Stdout };\n# from \"core/io\" import * as io;\n\nexport fn greet<C: Stdout>(ctx: C): () {\n    io.println(ctx, \"hello\").ignore()\n}\n```\n\n`core/effect`'s `Stdout` is where that decision is argued in full."},"range":{"end":{"character":14,"line":12},"start":{"character":12,"line":12}}}}
 {"id":6,"jsonrpc":"2.0","result":null}
 {"id":7,"jsonrpc":"2.0","result":[]}
 {"id":8,"jsonrpc":"2.0","result":null}

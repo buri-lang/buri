@@ -21,5 +21,9 @@ functions apart by name, and neither has a second thing to fall back on.
 ## A program that provokes it
 
 ```buri fail code=duplicate-declaration
-enum Choice { Yes, No, Yes }
+enum Choice {
+    Yes,
+    No,
+    Yes,
+}
 ```

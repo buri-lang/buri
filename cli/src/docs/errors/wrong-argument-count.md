@@ -5,9 +5,11 @@ fix: pass exactly {expected}
 ---
 
 ```buri fail code=wrong-argument-count
-fn add(a: Int, b: Int): Int { a + b }
+fn add(a: Int, b: Int): Int {
+    a + b
+}
 
 fn go(): Int {
-  add(1)
+    add(1)
 }
 ```

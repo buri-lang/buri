@@ -4,12 +4,12 @@ A `.proto` file in a package is a source, and the module it becomes is
 generated rather than read:
 
 ```buri repo=cli/tests/conformance package=//lib/proto
-from "//lib/proto/address.proto" import { Address, encodeAddress, decodeAddress };
 from "core/effect" import { Alloc };
 from "core/proto" import { ProtoError };
+from "//lib/proto/address.proto" import { Address, decodeAddress, encodeAddress };
 
 export fn roundTrip<C: Alloc>(ctx: C, a: Address): Result<Address, ProtoError> {
-  decodeAddress(ctx, encodeAddress(ctx, a))
+    decodeAddress(ctx, encodeAddress(ctx, a))
 }
 ```
 
@@ -289,12 +289,12 @@ and `decodeEJson(Json, path): Result<E, ProtoError>`.
 `defaultM` is what makes a message with more than a few fields writable at all:
 
 ```buri repo=cli/tests/conformance package=//lib/proto
-from "//lib/proto/demo.proto" import { Everything, Shade, defaultEverything };
+from "//lib/proto/demo.proto" import { defaultEverything, Everything, Shade };
 
 export fn dark(): Everything {
-  // Every singular field is an `Option`, because presence is the edition's
-  // default — so setting one is `.Some(...)` and leaving it out is `.None`.
-  Everything { ..defaultEverything(), name: .Some("Ada"), shade: .Some(Shade.DARK) }
+    // Every singular field is an `Option`, because presence is the edition's
+    // default — so setting one is `.Some(...)` and leaving it out is `.None`.
+    Everything { ..defaultEverything(), name: .Some("Ada"), shade: .Some(Shade.DARK) }
 }
 ```
 

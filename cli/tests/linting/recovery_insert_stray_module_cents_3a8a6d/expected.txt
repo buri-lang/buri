@@ -1,8 +1,8 @@
 error: expected a declaration, found `@` [unexpected-token]
- --> lib/recovery_insert_stray_module_cents_3a8a6d/lib.buri:3:1
+ --> lib/recovery_insert_stray_module_cents_3a8a6d/lib.buri:2:8
   |
-3 | @ derive Eq, Show for Cents;
-  | ^
+2 | export @ struct Cents(export I64);
+  |        ^
   |
   = expected: a declaration
   = actual: `@`

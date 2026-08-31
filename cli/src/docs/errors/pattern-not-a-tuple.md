@@ -5,9 +5,9 @@ message: '`{type}` is not a {arity}-tuple'
 
 ```buri fail code=pattern-not-a-tuple
 fn go(n: Int): Int {
-  match (n) {
-    (a, b) => a,
-    _ => 0,
-  }
+    match (n) {
+        (a, b) => a,
+        _ => 0,
+    }
 }
 ```

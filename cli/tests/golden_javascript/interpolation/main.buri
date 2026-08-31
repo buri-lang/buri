@@ -6,15 +6,18 @@ from "core/io" import * as io;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let name = "world";
-  let n = 42;
-  let x = 1.5;
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let name = "world";
+    let n = 42;
+    let x = 1.5;
 
-  let _ = io.println(ctx, "hello ${name}").ignore();
-  let _ = io.println(ctx, "${n} and ${x} and ${name}").ignore();
-  let _ = io.println(ctx, "no holes at all").ignore();
-  let joined = str.format(ctx, "n=${n}");
-  let _ = io.println(ctx, "${joined}${joined}").ignore();
-  .Ok(())
+    let _ = io.println(ctx, "hello ${name}").ignore();
+    let _ = io.println(ctx, "${n} and ${x} and ${name}").ignore();
+    let _ = io.println(ctx, "no holes at all").ignore();
+    let joined = str.format(ctx, "n=${n}");
+    let _ = io.println(ctx, "${joined}${joined}").ignore();
+    .Ok(())
 }

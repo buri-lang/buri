@@ -1,0 +1,12 @@
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_cents_4a2156/lib.buri:22:21
+   |
+22 |         .Closed => 0@ ,
+   |                     ^
+   |
+  --> lib/recovery_insert_stray_brace_cents_4a2156/lib.buri:20:15
+   |
+20 |     match (m) {
+   |               ^ opened here
+   |
+   = fix: write `}` here

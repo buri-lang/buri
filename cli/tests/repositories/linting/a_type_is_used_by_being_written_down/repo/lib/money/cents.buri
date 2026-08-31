@@ -6,19 +6,19 @@
 // follow.
 
 struct Ledger {
-  entries: I64,
+    entries: I64,
 }
 
 enum Tally {
-  Open,
-  Closed,
+    Open,
+    Closed,
 }
 
 type Money = Tally;
 
 export fn describe(l: Ledger, m: Money): I64 {
-  match (m) {
-    .Open => l.entries,
-    .Closed => 0,
-  }
+    match (m) {
+        .Open => l.entries,
+        .Closed => 0,
+    }
 }

@@ -4,7 +4,7 @@
 // at all.
 
 export struct Route {
-  export name: Str,
+    export name: Str,
 }
 
 export fn route(path: Str): Route {

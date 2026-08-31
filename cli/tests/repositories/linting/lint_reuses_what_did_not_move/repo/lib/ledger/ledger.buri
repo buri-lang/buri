@@ -3,4 +3,6 @@
 
 from "//lib/money" import { Cents, fromCents };
 
-export fn zero(): Cents { fromCents(0) }
+export fn zero(): Cents {
+    fromCents(0)
+}

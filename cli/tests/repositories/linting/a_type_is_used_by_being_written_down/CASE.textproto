@@ -13,8 +13,8 @@ run {
 # once, and reported once: the field it declares is not a second finding.
 edit {
   file: "lib/money/cents.buri"
-  replace: "export fn describe(l: Ledger, m: Money): I64 {\n  match (m) {\n    .Open => l.entries,\n    .Closed => 0,\n  }\n}\n"
-  with: "export fn describe(m: Money): I64 {\n  match (m) {\n    .Open => 1,\n    .Closed => 0,\n  }\n}\n"
+  replace: "export fn describe(l: Ledger, m: Money): I64 {\n    match (m) {\n        .Open => l.entries,\n        .Closed => 0,\n    }\n}\n"
+  with: "export fn describe(m: Money): I64 {\n    match (m) {\n        .Open => 1,\n        .Closed => 0,\n    }\n}\n"
 }
 
 run {
@@ -25,7 +25,7 @@ run {
 
 edit {
   file: "lib/money/cents.buri"
-  replace: "struct Ledger {\n  entries: I64,\n}\n\n"
+  replace: "struct Ledger {\n    entries: I64,\n}\n\n"
   with: ""
 }
 
@@ -39,8 +39,8 @@ edit {
 
 edit {
   file: "lib/money/cents.buri"
-  replace: "export fn describe(m: Money): I64 {\n  match (m) {\n    .Open => 1,\n    .Closed => 0,\n  }\n}\n"
-  with: "export fn describe(n: I64): I64 {\n  n\n}\n"
+  replace: "export fn describe(m: Money): I64 {\n    match (m) {\n        .Open => 1,\n        .Closed => 0,\n    }\n}\n"
+  with: "export fn describe(n: I64): I64 {\n    n\n}\n"
 }
 
 run {
@@ -51,7 +51,7 @@ run {
 
 edit {
   file: "lib/money/cents.buri"
-  replace: "enum Tally {\n  Open,\n  Closed,\n}\n\n"
+  replace: "enum Tally {\n    Open,\n    Closed,\n}\n\n"
   with: ""
 }
 

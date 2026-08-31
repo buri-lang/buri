@@ -1,14 +1,14 @@
 //! What is in the basket.
 
+from "core/order" import { int, Order };
 from "//lib/shop/catalog.buri" import * as catalog;
-from "core/order" import { Order, int };
 
 /// One item, for a basket with nothing in it.
 export fn sample(): catalog.Item {
-  catalog.listing("nothing")
+    catalog.listing("nothing")
 }
 
 /// Which of two prices is the larger.
 export fn larger(a: I64, b: I64): Order {
-  int(a, b)
+    int(a, b)
 }

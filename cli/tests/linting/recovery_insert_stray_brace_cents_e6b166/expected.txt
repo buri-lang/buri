@@ -1,0 +1,9 @@
+error: expected `{`, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_e6b166/lib.buri:20:15
+   |
+20 |     match (m) @ {
+   |               ^
+   |
+   = expected: `{`
+   = actual: `@`
+   = fix: write `{` here

@@ -9,7 +9,7 @@ warning: list is imported but not used [unused-import]
 error: expected an identifier, found `:` [unexpected-token]
  --> lib/recovery_delete_closer_module_kit_c73252/lib.buri:6:15
   |
-6 | export fn one(: I64 { 1 }
+6 | export fn one(: I64 {
   |               ^
   |
   = expected: an identifier

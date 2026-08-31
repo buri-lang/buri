@@ -1,0 +1,9 @@
+error: expected `for`, found `@` [unexpected-token]
+ --> lib/recovery_insert_stray_module_cents_903bc5/lib.buri:1:17
+  |
+1 | derive Eq, Show @ for Cents;
+  |                 ^
+  |
+  = expected: `for`
+  = actual: `@`
+  = fix: write `for` here

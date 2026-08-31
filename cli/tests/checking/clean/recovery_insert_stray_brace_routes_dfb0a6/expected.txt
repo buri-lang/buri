@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:10:23
+   |
+10 |         "/entries" => ? Route { name: "entries", path },
+   |                       ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here

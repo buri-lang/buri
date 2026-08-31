@@ -1,1 +1,3 @@
-export fn b(): I64 { 2 }
+export fn b(): I64 {
+    2
+}

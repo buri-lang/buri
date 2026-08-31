@@ -1,7 +1,7 @@
 error: expected a type, found `{` [unexpected-token]
  --> lib/recovery_swap_adjacent_module_prose_24b7ef/lib.buri:1:26
   |
-1 | export fn shout(s: Str): { Str s }
+1 | export fn shout(s: Str): { Str
   |                          ^
   |
   = expected: a type

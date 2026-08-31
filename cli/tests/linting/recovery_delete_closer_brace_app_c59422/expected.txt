@@ -1,0 +1,28 @@
+error: expected `Str`, found `IoError` [type-mismatch]
+  --> lib/recovery_delete_closer_brace_app_c59422/main.buri:10:35
+   |
+10 | export fn main(): Result<(), Str> {
+   |                                   ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `IoError`
+   = fix: produce a `Str` here, or change what surrounds it to accept a `IoError`
+error: `Str` has no method `mapErr` [no-such-method]
+  --> lib/recovery_delete_closer_brace_app_c59422/main.buri:16:28
+   |
+16 |     io.println(ctx, "done".mapErr(fn(_e) => "could not write to standard output")
+   |                            ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_c59422/main.buri:17:1
+   |
+17 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_app_c59422/main.buri:16:15
+   |
+16 |     io.println(ctx, "done".mapErr(fn(_e) => "could not write to standard output")
+   |               ^ opened here
+   |
+   = fix: write `)` here

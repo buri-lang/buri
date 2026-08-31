@@ -1,9 +1,0 @@
-error: expected an expression, found `,` [unexpected-token]
-  --> main.buri:49:63
-   |
-49 |   export fn parts(self): (I64, I64) { (self.0 / 100, self.0 % , 100) }
-   |                                                               ^
-   |
-   = expected: an expression
-   = actual: `,`
-   = fix: write a value here

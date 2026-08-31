@@ -1,0 +1,17 @@
+error: expected an identifier, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_module_stamps_bc3c1f/lib.buri:16:1
+   |
+16 | , }
+   | ^
+   |
+   = expected: an identifier
+   = actual: `,`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+warning: nothing uses `Ghost` [unused-type]
+  --> lib/recovery_insert_stray_module_stamps_bc3c1f/lib.buri:18:8
+   |
+18 | struct Ghost {
+   |        ^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface

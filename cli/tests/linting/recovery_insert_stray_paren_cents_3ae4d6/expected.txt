@@ -1,9 +1,0 @@
-error: expected an expression, found `,` [unexpected-token]
- --> lib/recovery_insert_stray_paren_cents_3ae4d6/lib.buri:3:37
-  |
-3 | export fn format(n: I64): Str { if (, n == 0) { "zero" } else { "some" } }
-  |                                     ^
-  |
-  = expected: an expression
-  = actual: `,`
-  = fix: write a value here

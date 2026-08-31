@@ -1,7 +1,0 @@
-error: a tuple element ends with `,` [missing-separator]
-  --> main.buri:60:29
-   |
-60 |     (Token.OnSurface.color() f(.OnSurface)),
-   |                             ^
-   |
-   = fix: write `,` here

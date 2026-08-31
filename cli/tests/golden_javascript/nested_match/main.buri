@@ -4,25 +4,41 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-enum Inner { A, B, C, D }
+enum Inner {
+    A,
+    B,
+    C,
+    D,
+}
 
-enum Outer { One(Inner), Two(Inner, Int), Three }
+enum Outer {
+    One(Inner),
+    Two(Inner, Int),
+    Three,
+}
 
 fn render(o: Outer): Str {
-  match (o) {
-    .One(.A) => "1A",
-    .One(.B) => "1B",
-    .One(.C) => "1C",
-    .One(.D) => "1D",
-    .Two(.A, n) => if (n > 0) { "2A+" } else { "2A-" },
-    .Two(_, _) => "2*",
-    .Three => "3",
-  }
+    match (o) {
+        .One(.A) => "1A",
+        .One(.B) => "1B",
+        .One(.C) => "1C",
+        .One(.D) => "1D",
+        .Two(.A, n) => if (n > 0) { "2A+" } else { "2A-" },
+        .Two(_, _) => "2*",
+        .Three => "3",
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${render(Outer.One(Inner.C))} ${render(Outer.Two(Inner.A, 1))}").ignore();
-  let _ = io.println(ctx, "${render(Outer.Two(Inner.D, 0))} ${render(Outer.Three)}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io
+        .println(ctx, "${render(Outer.One(Inner.C))} ${render(Outer.Two(Inner.A, 1))}")
+        .ignore();
+    let _ = io
+        .println(ctx, "${render(Outer.Two(Inner.D, 0))} ${render(Outer.Three)}")
+        .ignore();
+    .Ok(())
 }

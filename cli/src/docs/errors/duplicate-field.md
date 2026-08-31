@@ -24,8 +24,8 @@ should have to remember.
 
 ```buri fail code=duplicate-field use=errors
 impl Square {
-  fn side(self): Int {
-    self.side * 2
-  }
+    fn side(self): Int {
+        self.side * 2
+    }
 }
 ```

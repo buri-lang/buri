@@ -28,10 +28,10 @@ names the file each failure came from, and each is reported at its own line.
 from "core/testing/assert" import * as assert;
 
 test "adds" {
-  assert.eq(1 + 1, 2);
+    assert.eq(1 + 1, 2);
 }
 
 test "adds" {
-  assert.eq(2 + 2, 4);
+    assert.eq(2 + 2, 4);
 }
 ```

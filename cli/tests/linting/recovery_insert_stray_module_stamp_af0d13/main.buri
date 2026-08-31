@@ -5,5 +5,5 @@ from "core/effect" import { Alloc }, ;
 /// parameter out of the signature and left that caller passing a context would
 /// be worse than no fix at all.
 export fn stamp<C: Alloc>(ctx: C, label: Str): Int {
-  label.len()
+    label.len()
 }

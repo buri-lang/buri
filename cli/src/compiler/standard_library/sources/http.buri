@@ -32,56 +32,61 @@
 //! from "core/net/http" import * as http;
 //!
 //! export fn main(): Result<(), Str> {
-//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-//!   let reply = http.text(ctx, "pong").withHeader(ctx, "X-Served-By", "buri");
-//!   let kind = reply.header("content-type").withDefault("none");
-//!   let _ = io.println(ctx, "${reply.status} ${kind}").ignore();
-//!   .Ok(())
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let reply = http.text(ctx, "pong").withHeader(ctx, "X-Served-By", "buri");
+//!     let kind = reply.header("content-type").withDefault("none");
+//!     let _ = io.println(ctx, "${reply.status} ${kind}").ignore();
+//!     .Ok(())
 //! }
 //! ```
 
-from "core/effect" import {
-  Alloc, Header, Method, Net, NetError, Request, Response,
-};
+from "core/effect" import { Alloc, Header, Method, Net, NetError, Request, Response };
+
 from "core/effect" export { Header, Method, NetError, Request, Response };
+
 from "core/bytes" import * as bytes;
+
 from "core/bytes" import { Utf8Error };
+
 from "core/bytes" export { Utf8Error };
 
 // --- Building a request -------------------------------------------------------
 
 /// A request with no headers and an empty body.
 export fn request(method: Method, url: Str): Request {
-  Request { method: method, url: url, headers: [], body: [] }
+    Request { method: method, url: url, headers: [], body: [] }
 }
 
 /// The same, with a text body encoded as UTF-8.
 export fn textRequest<C: Alloc>(ctx: C, method: Method, url: Str, body: Str): Request {
-  Request { method: method, url: url, headers: [], body: bytes.toUtf8(ctx, body) }
+    Request { method: method, url: url, headers: [], body: bytes.toUtf8(ctx, body) }
 }
 
 // --- Building a response ------------------------------------------------------
 
 /// A status and nothing else: no headers, empty body. `http.status(404)`.
 export fn status(code: Int): Response {
-  Response { status: code, headers: [], body: [] }
+    Response { status: code, headers: [], body: [] }
 }
 
 /// `200` with a text body and **no** `content-type`, for a caller that will
 /// set its own.
 export fn ok<C: Alloc>(ctx: C, body: Str): Response {
-  Response { status: 200, headers: [], body: bytes.toUtf8(ctx, body) }
+    Response { status: 200, headers: [], body: bytes.toUtf8(ctx, body) }
 }
 
 /// `200 text/plain; charset=utf-8`.
 export fn text<C: Alloc>(ctx: C, body: Str): Response {
-  ok(ctx, body).withHeader(ctx, "content-type", "text/plain; charset=utf-8")
+    ok(ctx, body).withHeader(ctx, "content-type", "text/plain; charset=utf-8")
 }
 
 /// `200 application/json`. The body is written, not validated — encoding is
 /// `core/json`'s job and a second parse here could only disagree with it.
 export fn json<C: Alloc>(ctx: C, body: Str): Response {
-  ok(ctx, body).withHeader(ctx, "content-type", "application/json")
+    ok(ctx, body).withHeader(ctx, "content-type", "application/json")
 }
 
 // --- Bodies -------------------------------------------------------------------
@@ -93,7 +98,7 @@ export fn json<C: Alloc>(ctx: C, body: Str): Response {
 /// `bytes.fromUtf8` under an HTTP name, so that reading a response needs no
 /// second import.
 export fn bodyText<C: Alloc>(ctx: C, body: [U8]): Result<Str, Utf8Error> {
-  bytes.fromUtf8(ctx, body)
+    bytes.fromUtf8(ctx, body)
 }
 
 // --- Sending ------------------------------------------------------------------
@@ -101,25 +106,29 @@ export fn bodyText<C: Alloc>(ctx: C, body: [U8]): Result<Str, Utf8Error> {
 /// The request, as written. Needs only `Net`: the request already exists and
 /// the response is the platform's, so nothing here allocates.
 export fn send<C: Net>(ctx: C, request: Request): Result<Response, NetError> {
-  ctx.fetch(request)
+    ctx.fetch(request)
 }
 
 export fn get<C: Alloc + Net>(ctx: C, url: Str): Result<Response, NetError> {
-  send(ctx, request(.Get, url))
+    send(ctx, request(.Get, url))
 }
 
-export fn post<C: Alloc + Net>(ctx: C, url: Str, body: Str): Result<Response, NetError> {
-  send(ctx, textRequest(ctx, .Post, url, body))
+export fn post<C: Alloc + Net>(
+    ctx: C,
+    url: Str,
+    body: Str,
+): Result<Response, NetError> {
+    send(ctx, textRequest(ctx, .Post, url, body))
 }
 
 /// A free function rather than a method: `NetError` is declared in
 /// `core/effect`, and a method must live in its type's defining module.
 export fn errorText(e: NetError): Str {
-  match (e) {
-    .Timeout => "the request timed out",
-    .Refused => "the connection was refused",
-    .BadUrl(_u) => "the url could not be parsed",
-    .Transport(_m) => "the transport failed",
-    .Aborted => "the request was called off",
-  }
+    match (e) {
+        .Timeout => "the request timed out",
+        .Refused => "the connection was refused",
+        .BadUrl(_u) => "the url could not be parsed",
+        .Transport(_m) => "the transport failed",
+        .Aborted => "the request was called off",
+    }
 }

@@ -1,1 +1,3 @@
-export fn depth(): I64 { 2 }
+export fn depth(): I64 {
+    2
+}

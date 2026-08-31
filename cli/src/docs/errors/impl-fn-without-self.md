@@ -24,6 +24,8 @@ top-level declaration.
 
 ```buri fail code=impl-fn-without-self use=errors
 impl Square {
-  fn unit(): Square { Square { side: 1 } }
+    fn unit(): Square {
+        Square { side: 1 }
+    }
 }
 ```

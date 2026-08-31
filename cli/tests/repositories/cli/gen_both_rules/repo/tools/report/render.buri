@@ -1,8 +1,7 @@
 from "core/effect" import { Alloc };
 from "core/str" import * as str;
-
 from "//tools/report/shared.buri" import { heading };
 
 export fn render<C: Alloc>(ctx: C, total: Int): Str {
-  str.format(ctx, "${heading()} ${total}")
+    str.format(ctx, "${heading()} ${total}")
 }

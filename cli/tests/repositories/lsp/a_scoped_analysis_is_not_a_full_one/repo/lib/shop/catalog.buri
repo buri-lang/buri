@@ -1,2 +1,4 @@
 /// The one price this catalog knows, in whole cents.
-export fn listed(): I64 { "four hundred" }
+export fn listed(): I64 {
+    "four hundred"
+}

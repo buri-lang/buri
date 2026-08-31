@@ -10,407 +10,407 @@
 // handed back a `Result`, or a narrowing that handed back a bare value, would
 // be as wrong as a wrong number.
 
-from "core/testing/assert" import * as assert;
-from "core/num" import { RangeError };
 from "core/num" import * as num;
+from "core/num" import { RangeError };
+from "core/testing/assert" import * as assert;
 
 fn ratio(hits: Int, total: Int): F64 {
-  hits.toF64() / total.toF64()
+    hits.toF64() / total.toF64()
 }
 
 // --- Family one: exact, so the result is the value itself -------------------------
 
 test "a signed integer widens exactly into every larger signed width" {
-  let a: I8 = 100;
-  assert.eq(a.toI16(), 100);
-  assert.eq(a.toI32(), 100);
-  assert.eq(a.toI64(), 100);
-  assert.eq(a.toI128(), 100);
+    let a: I8 = 100;
+    assert.eq(a.toI16(), 100);
+    assert.eq(a.toI32(), 100);
+    assert.eq(a.toI64(), 100);
+    assert.eq(a.toI128(), 100);
 }
 
 test "an unsigned integer widens exactly into every larger unsigned width" {
-  let a: U8 = 200;
-  assert.eq(a.toU16(), 200);
-  assert.eq(a.toU32(), 200);
-  assert.eq(a.toU64(), 200);
-  assert.eq(a.toU128(), 200);
+    let a: U8 = 200;
+    assert.eq(a.toU16(), 200);
+    assert.eq(a.toU32(), 200);
+    assert.eq(a.toU64(), 200);
+    assert.eq(a.toU128(), 200);
 }
 
 test "an unsigned type widens exactly into a larger signed type" {
-  let a: U8 = 255;
-  assert.eq(a.toI16(), 255);
-  let b: U32 = 4294967295;
-  assert.eq(b.toI64(), 4294967295);
-  let c: U64 = 18446744073709551615;
-  assert.eq(c.toI128(), 18446744073709551615);
+    let a: U8 = 255;
+    assert.eq(a.toI16(), 255);
+    let b: U32 = 4294967295;
+    assert.eq(b.toI64(), 4294967295);
+    let c: U64 = 18446744073709551615;
+    assert.eq(c.toI128(), 18446744073709551615);
 }
 
 test "a negative value widens with its sign intact" {
-  let a: I8 = -127;
-  assert.eq(a.toI32(), -127);
-  assert.eq(a.toI64(), -127);
-  let b: I32 = -2147483647;
-  assert.eq(b.toI64(), -2147483647);
-  assert.eq(b.toI128(), -2147483647);
-  let c: I64 = -9223372036854775807;
-  assert.eq(c.toI128(), -9223372036854775807);
+    let a: I8 = -127;
+    assert.eq(a.toI32(), -127);
+    assert.eq(a.toI64(), -127);
+    let b: I32 = -2147483647;
+    assert.eq(b.toI64(), -2147483647);
+    assert.eq(b.toI128(), -2147483647);
+    let c: I64 = -9223372036854775807;
+    assert.eq(c.toI128(), -9223372036854775807);
 }
 
 test "the minimum of each signed width widens exactly" {
-  assert.eq(num.minValue<I8>().toI64(), -128);
-  assert.eq(num.minValue<I16>().toI64(), -32768);
-  assert.eq(num.minValue<I32>().toI64(), -2147483648);
-  assert.eq(num.minValue<I64>().toI128(), -9223372036854775808);
+    assert.eq(num.minValue<I8>().toI64(), -128);
+    assert.eq(num.minValue<I16>().toI64(), -32768);
+    assert.eq(num.minValue<I32>().toI64(), -2147483648);
+    assert.eq(num.minValue<I64>().toI128(), -9223372036854775808);
 }
 
 test "converting a value to its own type is the identity" {
-  let a: I32 = -5;
-  assert.eq(a.toI32(), a);
-  let b: U64 = 18446744073709551615;
-  assert.eq(b.toU64(), b);
-  let c: F64 = 1.5;
-  assert.eq(c.toF64(), c);
+    let a: I32 = -5;
+    assert.eq(a.toI32(), a);
+    let b: U64 = 18446744073709551615;
+    assert.eq(b.toU64(), b);
+    let c: F64 = 1.5;
+    assert.eq(c.toF64(), c);
 }
 
 test "every integer width converts to F64" {
-  let a: U8 = 255;
-  let b: I16 = num.minValue<I16>();
-  let c: I32 = 1234567;
-  let d: U32 = 4294967295;
-  assert.eq(a.toF64(), 255.0);
-  assert.eq(b.toF64(), -32768.0);
-  assert.eq(c.toF64(), 1234567.0);
-  assert.eq(d.toF64(), 4294967295.0);
+    let a: U8 = 255;
+    let b: I16 = num.minValue<I16>();
+    let c: I32 = 1234567;
+    let d: U32 = 4294967295;
+    assert.eq(a.toF64(), 255.0);
+    assert.eq(b.toF64(), -32768.0);
+    assert.eq(c.toF64(), 1234567.0);
+    assert.eq(d.toF64(), 4294967295.0);
 }
 
 test "the bigint widths convert to F64 too" {
-  let a: I64 = 9007199254740992;
-  let b: U64 = 1000;
-  let c: I128 = -1000;
-  let d: U128 = 340282366920938463463374607431768211455;
-  assert.eq(a.toF64(), 9007199254740992.0);
-  assert.eq(b.toF64(), 1000.0);
-  assert.eq(c.toF64(), -1000.0);
-  assert.eq(d.toF64(), 340282366920938463463374607431768211455.0);
+    let a: I64 = 9007199254740992;
+    let b: U64 = 1000;
+    let c: I128 = -1000;
+    let d: U128 = 340282366920938463463374607431768211455;
+    assert.eq(a.toF64(), 9007199254740992.0);
+    assert.eq(b.toF64(), 1000.0);
+    assert.eq(c.toF64(), -1000.0);
+    assert.eq(d.toF64(), 340282366920938463463374607431768211455.0);
 }
 
 test "toF64 above two to the fifty-third rounds rather than failing" {
-  // SPEC 6.2.1 calls this out: `I64 -> F64` is exact to 53 bits and rounds
-  // beyond, and is deliberately not routed through a `Result`.
-  let a: I64 = 9007199254740993;
-  assert.eq(a.toF64(), 9007199254740992.0);
+    // SPEC 6.2.1 calls this out: `I64 -> F64` is exact to 53 bits and rounds
+    // beyond, and is deliberately not routed through a `Result`.
+    let a: I64 = 9007199254740993;
+    assert.eq(a.toF64(), 9007199254740992.0);
 }
 
 test "a ratio of two counts is an ordinary F64 division" {
-  assert.eq(ratio(1, 4), 0.25);
-  assert.eq(ratio(3, 4), 0.75);
-  assert.eq(ratio(0, 4), 0.0);
+    assert.eq(ratio(1, 4), 0.25);
+    assert.eq(ratio(3, 4), 0.75);
+    assert.eq(ratio(0, 4), 0.0);
 }
 
 test "F32 widens exactly to F64" {
-  let a: F32 = 1.5;
-  let b: F32 = -0.25;
-  assert.eq(a.toF64(), 1.5);
-  assert.eq(b.toF64(), -0.25);
+    let a: F32 = 1.5;
+    let b: F32 = -0.25;
+    assert.eq(a.toF64(), 1.5);
+    assert.eq(b.toF64(), -0.25);
 }
 
 // --- Family two: narrowing, so the result is a Result ------------------------------
 
 test "a narrowing conversion succeeds when the value fits" {
-  let a: I64 = 100;
-  assert.eq(assert.ok(a.toI32()), 100);
-  assert.eq(assert.ok(a.toI8()), 100);
-  assert.eq(assert.ok(a.toU8()), 100);
-  let b: I64 = -100;
-  assert.eq(assert.ok(b.toI8()), -100);
+    let a: I64 = 100;
+    assert.eq(assert.ok(a.toI32()), 100);
+    assert.eq(assert.ok(a.toI8()), 100);
+    assert.eq(assert.ok(a.toU8()), 100);
+    let b: I64 = -100;
+    assert.eq(assert.ok(b.toI8()), -100);
 }
 
 test "a narrowing conversion fails when the value does not fit" {
-  let a: I64 = 3000000000;
-  assert.eq(assert.err(a.toI32()).target, "I32");
-  assert.eq(assert.err(a.toI8()).target, "I8");
-  assert.eq(assert.err(a.toU16()).target, "U16");
+    let a: I64 = 3000000000;
+    assert.eq(assert.err(a.toI32()).target, "I32");
+    assert.eq(assert.err(a.toI8()).target, "I8");
+    assert.eq(assert.err(a.toU16()).target, "U16");
 }
 
 test "the RangeError names the value and the target" {
-  let a: I64 = 3000000000;
-  let e: RangeError = assert.err(a.toI32());
-  assert.eq(e.value, "3000000000");
-  assert.eq(e.target, "I32");
+    let a: I64 = 3000000000;
+    let e: RangeError = assert.err(a.toI32());
+    assert.eq(e.value, "3000000000");
+    assert.eq(e.target, "I32");
 }
 
 test "a narrowing conversion succeeds exactly at the boundary" {
-  let a: I64 = 2147483647;
-  assert.eq(assert.ok(a.toI32()), num.maxValue<I32>());
-  let b: I64 = -2147483648;
-  assert.eq(assert.ok(b.toI32()), num.minValue<I32>());
-  let c: I64 = 255;
-  assert.eq(assert.ok(c.toU8()), num.maxValue<U8>());
-  let d: I64 = 0;
-  assert.eq(assert.ok(d.toU8()), 0);
+    let a: I64 = 2147483647;
+    assert.eq(assert.ok(a.toI32()), num.maxValue<I32>());
+    let b: I64 = -2147483648;
+    assert.eq(assert.ok(b.toI32()), num.minValue<I32>());
+    let c: I64 = 255;
+    assert.eq(assert.ok(c.toU8()), num.maxValue<U8>());
+    let d: I64 = 0;
+    assert.eq(assert.ok(d.toU8()), 0);
 }
 
 test "a narrowing conversion fails one step past the boundary" {
-  let a: I64 = 2147483648;
-  assert.eq(assert.err(a.toI32()).target, "I32");
-  let b: I64 = -2147483649;
-  assert.eq(assert.err(b.toI32()).target, "I32");
-  let c: I64 = 256;
-  assert.eq(assert.err(c.toU8()).target, "U8");
-  let d: I64 = -1;
-  assert.eq(assert.err(d.toU8()).target, "U8");
+    let a: I64 = 2147483648;
+    assert.eq(assert.err(a.toI32()).target, "I32");
+    let b: I64 = -2147483649;
+    assert.eq(assert.err(b.toI32()).target, "I32");
+    let c: I64 = 256;
+    assert.eq(assert.err(c.toU8()).target, "U8");
+    let d: I64 = -1;
+    assert.eq(assert.err(d.toU8()).target, "U8");
 }
 
 test "no unsigned type holds a negative value" {
-  let a: I32 = -1;
-  assert.eq(assert.err(a.toU32()).target, "U32");
-  assert.eq(assert.err(a.toU8()).target, "U8");
-  assert.eq(assert.err(a.toU64()).target, "U64");
-  assert.eq(assert.err(a.toU128()).target, "U128");
+    let a: I32 = -1;
+    assert.eq(assert.err(a.toU32()).target, "U32");
+    assert.eq(assert.err(a.toU8()).target, "U8");
+    assert.eq(assert.err(a.toU64()).target, "U64");
+    assert.eq(assert.err(a.toU128()).target, "U128");
 }
 
 test "U8 into I8 fails above 127 and succeeds below it" {
-  let a: U8 = 127;
-  assert.eq(assert.ok(a.toI8()), 127);
-  let b: U8 = 128;
-  assert.eq(assert.err(b.toI8()).target, "I8");
-  let c: U8 = 255;
-  assert.eq(assert.err(c.toI8()).target, "I8");
+    let a: U8 = 127;
+    assert.eq(assert.ok(a.toI8()), 127);
+    let b: U8 = 128;
+    assert.eq(assert.err(b.toI8()).target, "I8");
+    let c: U8 = 255;
+    assert.eq(assert.err(c.toI8()).target, "I8");
 }
 
 test "narrowing from the bigint side to the number side" {
-  let a: U64 = 65535;
-  assert.eq(assert.ok(a.toU16()), 65535);
-  let b: U64 = 65536;
-  assert.eq(assert.err(b.toU16()).target, "U16");
-  let c: I64 = -32768;
-  assert.eq(assert.ok(c.toI16()), num.minValue<I16>());
+    let a: U64 = 65535;
+    assert.eq(assert.ok(a.toU16()), 65535);
+    let b: U64 = 65536;
+    assert.eq(assert.err(b.toU16()).target, "U16");
+    let c: I64 = -32768;
+    assert.eq(assert.ok(c.toI16()), num.minValue<I16>());
 }
 
 // A checked conversion promises that its `.Ok` is the value it was given, and
 // the range it answers about is the target's own: SPEC 6.2.1 defines `.Err` as
 // "does not fit `T`", which is a fact about the type and not about a backend.
 test "narrowing from I128 to I64" {
-  let a: I128 = 9007199254740992;
-  assert.eq(assert.ok(a.toI64()), 9007199254740992);
-  let b: I128 = 9223372036854775808;
-  assert.eq(assert.err(b.toI64()).target, "I64");
-  let c: I128 = -9007199254740991;
-  assert.eq(assert.ok(c.toI64()), -9007199254740991);
+    let a: I128 = 9007199254740992;
+    assert.eq(assert.ok(a.toI64()), 9007199254740992);
+    let b: I128 = 9223372036854775808;
+    assert.eq(assert.err(b.toI64()).target, "I64");
+    let c: I128 = -9007199254740991;
+    assert.eq(assert.ok(c.toI64()), -9007199254740991);
 }
 
 test "narrowing from U128 to U64" {
-  let a: U128 = 9007199254740992;
-  assert.eq(assert.ok(a.toU64()), 9007199254740992);
-  let b: U128 = 18446744073709551616;
-  assert.eq(assert.err(b.toU64()).target, "U64");
+    let a: U128 = 9007199254740992;
+    assert.eq(assert.ok(a.toU64()), 9007199254740992);
+    let b: U128 = 18446744073709551616;
+    assert.eq(assert.err(b.toU64()).target, "U64");
 }
 
 // The `RangeError` renders the value it was handed, so a 128-bit one that
 // rounded on the way in would say so here.
 test "a RangeError from a 128-bit source names every digit" {
-  let a: I128 = 170141183460469231731687303715884105727;
-  let e = assert.err(a.toI64());
-  assert.eq(e.value, "170141183460469231731687303715884105727");
-  assert.eq(e.target, "I64");
+    let a: I128 = 170141183460469231731687303715884105727;
+    let e = assert.err(a.toI64());
+    assert.eq(e.value, "170141183460469231731687303715884105727");
+    assert.eq(e.target, "I64");
 }
 
 test "U64 into I64 fails above I64's maximum" {
-  let a: U64 = 9007199254740991;
-  assert.eq(assert.ok(a.toI64()), 9007199254740991);
-  let b: U64 = 9223372036854775808;
-  assert.eq(assert.err(b.toI64()).target, "I64");
+    let a: U64 = 9007199254740991;
+    assert.eq(assert.ok(a.toI64()), 9007199254740991);
+    let b: U64 = 9223372036854775808;
+    assert.eq(assert.err(b.toI64()).target, "I64");
 }
 
 test "I64 into U64 fails for a negative and succeeds otherwise" {
-  let a: I64 = 9007199254740991;
-  assert.eq(assert.ok(a.toU64()), 9007199254740991);
-  let b: I64 = -1;
-  assert.eq(assert.err(b.toU64()).target, "U64");
+    let a: I64 = 9007199254740991;
+    assert.eq(assert.ok(a.toU64()), 9007199254740991);
+    let b: I64 = -1;
+    assert.eq(assert.err(b.toU64()).target, "U64");
 }
 
 test "F64 into an integer succeeds on an integral value in range" {
-  let a: F64 = 42.0;
-  assert.eq(assert.ok(a.toI64()), 42);
-  assert.eq(assert.ok(a.toI32()), 42);
-  assert.eq(assert.ok(a.toU8()), 42);
-  let b: F64 = -42.0;
-  assert.eq(assert.ok(b.toI32()), -42);
+    let a: F64 = 42.0;
+    assert.eq(assert.ok(a.toI64()), 42);
+    assert.eq(assert.ok(a.toI32()), 42);
+    assert.eq(assert.ok(a.toU8()), 42);
+    let b: F64 = -42.0;
+    assert.eq(assert.ok(b.toI32()), -42);
 }
 
 test "F64 into an integer fails when the value is out of that integer's range" {
-  let a: F64 = 3000000000.0;
-  assert.eq(assert.err(a.toI32()).target, "I32");
-  let b: F64 = -1.0;
-  assert.eq(assert.err(b.toU8()).target, "U8");
+    let a: F64 = 3000000000.0;
+    assert.eq(assert.err(a.toI32()).target, "I32");
+    let b: F64 = -1.0;
+    assert.eq(assert.err(b.toU8()).target, "U8");
 }
 
 test "F64 into an integer fails on a fractional value" {
-  // A fraction is not representable in an integer type, and the wrapping
-  // family is where a value is allowed to be rounded away.
-  let a: F64 = 2.5;
-  assert.eq(assert.err(a.toI64()).target, "I64");
-  let b: F64 = -0.5;
-  assert.eq(assert.err(b.toI32()).target, "I32");
+    // A fraction is not representable in an integer type, and the wrapping
+    // family is where a value is allowed to be rounded away.
+    let a: F64 = 2.5;
+    assert.eq(assert.err(a.toI64()).target, "I64");
+    let b: F64 = -0.5;
+    assert.eq(assert.err(b.toI32()).target, "I32");
 }
 
 test "F64 into an integer fails on NaN and on the infinities" {
-  let nan: F64 = 0.0 / 0.0;
-  let inf: F64 = 1.0 / 0.0;
-  assert.eq(assert.err(nan.toI64()).target, "I64");
-  assert.eq(assert.err(inf.toI64()).target, "I64");
-  assert.eq(assert.err(inf.toI32()).target, "I32");
+    let nan: F64 = 0.0 / 0.0;
+    let inf: F64 = 1.0 / 0.0;
+    assert.eq(assert.err(nan.toI64()).target, "I64");
+    assert.eq(assert.err(inf.toI64()).target, "I64");
+    assert.eq(assert.err(inf.toI32()).target, "I32");
 }
 
 test "F64 into F32 goes through a Result like any other narrowing" {
-  let a: F64 = 1.5;
-  assert.eq(assert.ok(a.toF32()).toF64(), 1.5);
+    let a: F64 = 1.5;
+    assert.eq(assert.ok(a.toF32()).toF64(), 1.5);
 }
 
 // --- Family three: modular ----------------------------------------------------------
 
 test "wrapToU8 is modular" {
-  let a: I64 = 300;
-  assert.eq(a.wrapToU8(), 44);
-  let b: I64 = 256;
-  assert.eq(b.wrapToU8(), 0);
-  let c: I64 = 255;
-  assert.eq(c.wrapToU8(), 255);
-  let d: I64 = 511;
-  assert.eq(d.wrapToU8(), 255);
+    let a: I64 = 300;
+    assert.eq(a.wrapToU8(), 44);
+    let b: I64 = 256;
+    assert.eq(b.wrapToU8(), 0);
+    let c: I64 = 255;
+    assert.eq(c.wrapToU8(), 255);
+    let d: I64 = 511;
+    assert.eq(d.wrapToU8(), 255);
 }
 
 test "wrapToU8 of a negative value wraps up from the top" {
-  let a: I64 = -1;
-  assert.eq(a.wrapToU8(), 255);
-  let b: I64 = -256;
-  assert.eq(b.wrapToU8(), 0);
-  let c: I64 = -257;
-  assert.eq(c.wrapToU8(), 255);
+    let a: I64 = -1;
+    assert.eq(a.wrapToU8(), 255);
+    let b: I64 = -256;
+    assert.eq(b.wrapToU8(), 0);
+    let c: I64 = -257;
+    assert.eq(c.wrapToU8(), 255);
 }
 
 test "wrapToI8 wraps into the signed range" {
-  let a: I64 = 128;
-  assert.eq(a.wrapToI8(), num.minValue<I8>());
-  let b: I64 = 255;
-  assert.eq(b.wrapToI8(), -1);
-  let c: I64 = 129;
-  assert.eq(c.wrapToI8(), -127);
-  let d: I64 = -129;
-  assert.eq(d.wrapToI8(), 127);
+    let a: I64 = 128;
+    assert.eq(a.wrapToI8(), num.minValue<I8>());
+    let b: I64 = 255;
+    assert.eq(b.wrapToI8(), -1);
+    let c: I64 = 129;
+    assert.eq(c.wrapToI8(), -127);
+    let d: I64 = -129;
+    assert.eq(d.wrapToI8(), 127);
 }
 
 test "wrapToU16 and wrapToU32 wrap at their own boundaries" {
-  let a: I64 = 65536;
-  assert.eq(a.wrapToU16(), 0);
-  let b: I64 = 65537;
-  assert.eq(b.wrapToU16(), 1);
-  let c: I64 = -1;
-  assert.eq(c.wrapToU16(), 65535);
-  let d: I64 = 4294967296;
-  assert.eq(d.wrapToU32(), 0);
-  assert.eq(c.wrapToU32(), 4294967295);
+    let a: I64 = 65536;
+    assert.eq(a.wrapToU16(), 0);
+    let b: I64 = 65537;
+    assert.eq(b.wrapToU16(), 1);
+    let c: I64 = -1;
+    assert.eq(c.wrapToU16(), 65535);
+    let d: I64 = 4294967296;
+    assert.eq(d.wrapToU32(), 0);
+    assert.eq(c.wrapToU32(), 4294967295);
 }
 
 test "wrapToI32 wraps at the top of I32" {
-  let a: I64 = 2147483648;
-  assert.eq(a.wrapToI32(), num.minValue<I32>());
-  let b: I64 = 2147483647;
-  assert.eq(b.wrapToI32(), num.maxValue<I32>());
-  let c: I64 = 4294967296;
-  assert.eq(c.wrapToI32(), 0);
+    let a: I64 = 2147483648;
+    assert.eq(a.wrapToI32(), num.minValue<I32>());
+    let b: I64 = 2147483647;
+    assert.eq(b.wrapToI32(), num.maxValue<I32>());
+    let c: I64 = 4294967296;
+    assert.eq(c.wrapToI32(), 0);
 }
 
 // `wrapTo` works on the bit pattern, and computes it exactly. What it hands
 // back is still a `number`, so a result above 2^53 is subject to the same rule
 // as any other integer overflow: the values here stay inside that.
 test "wrapping between the two widest signed and unsigned types" {
-  // A non-negative value has the same bit pattern either way, so the round
-  // trip is the identity and stays inside what a `number` holds.
-  let a: I64 = 9007199254740991;
-  assert.eq(a.wrapToU64().wrapToI64(), 9007199254740991);
-  let b: I128 = 9007199254740991;
-  assert.eq(b.wrapToU128().wrapToI128(), 9007199254740991);
-  // A negative one wraps to a value above 2^53, which is where a `number`
-  // stops being exact. U32 is the widest signed-to-unsigned wrap that survives
-  // the round trip intact.
-  let c: I32 = -1;
-  assert.eq(c.wrapToU32(), 4294967295);
-  assert.eq(c.wrapToU32().wrapToI32(), -1);
+    // A non-negative value has the same bit pattern either way, so the round
+    // trip is the identity and stays inside what a `number` holds.
+    let a: I64 = 9007199254740991;
+    assert.eq(a.wrapToU64().wrapToI64(), 9007199254740991);
+    let b: I128 = 9007199254740991;
+    assert.eq(b.wrapToU128().wrapToI128(), 9007199254740991);
+    // A negative one wraps to a value above 2^53, which is where a `number`
+    // stops being exact. U32 is the widest signed-to-unsigned wrap that survives
+    // the round trip intact.
+    let c: I32 = -1;
+    assert.eq(c.wrapToU32(), 4294967295);
+    assert.eq(c.wrapToU32().wrapToI32(), -1);
 }
 
 test "wrapping from a wide value down to a narrow one keeps the low bits" {
-  // 2^53 - 1 is every low bit set, and the last value a `number` holds exactly.
-  let a: U64 = 9007199254740991;
-  assert.eq(a.wrapToU8(), 255);
-  assert.eq(a.wrapToU16(), 65535);
-  assert.eq(a.wrapToU32(), 4294967295);
-  let b: U128 = 4294967296;
-  assert.eq(b.wrapToU32(), 0);
+    // 2^53 - 1 is every low bit set, and the last value a `number` holds exactly.
+    let a: U64 = 9007199254740991;
+    assert.eq(a.wrapToU8(), 255);
+    assert.eq(a.wrapToU16(), 65535);
+    assert.eq(a.wrapToU32(), 4294967295);
+    let b: U128 = 4294967296;
+    assert.eq(b.wrapToU32(), 0);
 }
 
 test "wrapping is the identity when the value already fits" {
-  let a: I64 = 42;
-  assert.eq(a.wrapToU8(), 42);
-  assert.eq(a.wrapToI8(), 42);
-  assert.eq(a.wrapToU32(), 42);
-  let b: I128 = -42;
-  assert.eq(b.wrapToI8(), -42);
-  assert.eq(b.wrapToI64(), -42);
+    let a: I64 = 42;
+    assert.eq(a.wrapToU8(), 42);
+    assert.eq(a.wrapToI8(), 42);
+    assert.eq(a.wrapToU32(), 42);
+    let b: I128 = -42;
+    assert.eq(b.wrapToI8(), -42);
+    assert.eq(b.wrapToI64(), -42);
 }
 
 test "wrapToU8 agrees across the two representations" {
-  let a32: I32 = 300;
-  let a64: I64 = 300;
-  let a128: I128 = 300;
-  assert.eq(a32.wrapToU8(), 44);
-  assert.eq(a64.wrapToU8(), 44);
-  assert.eq(a128.wrapToU8(), 44);
-  let b32: I32 = -300;
-  let b64: I64 = -300;
-  assert.eq(b32.wrapToU8(), 212);
-  assert.eq(b64.wrapToU8(), 212);
+    let a32: I32 = 300;
+    let a64: I64 = 300;
+    let a128: I128 = 300;
+    assert.eq(a32.wrapToU8(), 44);
+    assert.eq(a64.wrapToU8(), 44);
+    assert.eq(a128.wrapToU8(), 44);
+    let b32: I32 = -300;
+    let b64: I64 = -300;
+    assert.eq(b32.wrapToU8(), 212);
+    assert.eq(b64.wrapToU8(), 212);
 }
 
 test "wrapping from a float truncates toward zero and then wraps" {
-  let a: F64 = 300.7;
-  assert.eq(a.wrapToU8(), 44);
-  let b: F64 = -1.5;
-  assert.eq(b.wrapToU8(), 255);
-  let c: F64 = 2.9;
-  assert.eq(c.wrapToI8(), 2);
-  let d: F64 = -2.9;
-  assert.eq(d.wrapToI8(), -2);
+    let a: F64 = 300.7;
+    assert.eq(a.wrapToU8(), 44);
+    let b: F64 = -1.5;
+    assert.eq(b.wrapToU8(), 255);
+    let c: F64 = 2.9;
+    assert.eq(c.wrapToI8(), 2);
+    let d: F64 = -2.9;
+    assert.eq(d.wrapToI8(), -2);
 }
 
 test "wrapToF32 rounds to binary32" {
-  // SPEC 6.2.1: the wrapping family wraps for integers and *rounds* for
-  // floats, so 0.1 comes back as the binary32 value nearest to it.
-  let a: F64 = 0.1;
-  assert.eq(a.wrapToF32().toF64(), 0.10000000149011612);
+    // SPEC 6.2.1: the wrapping family wraps for integers and *rounds* for
+    // floats, so 0.1 comes back as the binary32 value nearest to it.
+    let a: F64 = 0.1;
+    assert.eq(a.wrapToF32().toF64(), 0.10000000149011612);
 }
 
 // --- Round trips -------------------------------------------------------------------
 
 test "a value survives a widening and a wrap back" {
-  let a: U8 = 200;
-  assert.eq(a.toI64().wrapToU8(), 200);
-  let b: I8 = -100;
-  assert.eq(b.toI128().wrapToI8(), -100);
-  let c: U32 = 4294967295;
-  assert.eq(c.toU128().wrapToU32(), 4294967295);
+    let a: U8 = 200;
+    assert.eq(a.toI64().wrapToU8(), 200);
+    let b: I8 = -100;
+    assert.eq(b.toI128().wrapToI8(), -100);
+    let c: U32 = 4294967295;
+    assert.eq(c.toU128().wrapToU32(), 4294967295);
 }
 
 test "a value survives a widening and a checked narrowing back" {
-  let a: I16 = -32767;
-  assert.eq(assert.ok(a.toI64().toI16()), -32767);
-  let b: U32 = 4294967295;
-  assert.eq(assert.ok(b.toU128().toU32()), 4294967295);
+    let a: I16 = -32767;
+    assert.eq(assert.ok(a.toI64().toI16()), -32767);
+    let b: U32 = 4294967295;
+    assert.eq(assert.ok(b.toU128().toU32()), 4294967295);
 }
 
 test "wrapping twice through a narrower type loses exactly the high bits" {
-  let a: I64 = 65535;
-  assert.eq(a.wrapToU8().toI64(), 255);
-  let b: I64 = 65280;
-  assert.eq(b.wrapToU8().toI64(), 0);
+    let a: I64 = 65535;
+    assert.eq(a.wrapToU8().toI64(), 255);
+    let b: I64 = 65280;
+    assert.eq(b.wrapToU8().toI64(), 0);
 }

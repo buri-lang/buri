@@ -21,7 +21,7 @@ from "core/list" import * as list;
 // `adders(ctx, 0, [])` must hold `+0`, `+1`, `+2` and `+3`, in that order.
 
 export fn adders<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
-  if (i >= 4) { acc } else { adders(ctx, i + 1, acc.push(ctx, fn(x) => x + i)) }
+    if (i >= 4) { acc } else { adders(ctx, i + 1, acc.push(ctx, fn(x) => x + i)) }
 }
 
 /// The same, in a mutually recursive pair, which the backend merges into one
@@ -29,28 +29,37 @@ export fn adders<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => I
 ///
 /// The two members build different closures, so the answers say which member
 /// ran as well as which value it captured.
-export fn addersEven<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
-  if (i >= 4) { acc } else { addersOdd(ctx, i + 1, acc.push(ctx, fn(x) => x + i)) }
+export fn addersEven<C: Alloc>(
+    ctx: C,
+    i: Int,
+    acc: [fn(Int) => Int],
+): [fn(Int) => Int] {
+    if (i >= 4) { acc } else { addersOdd(ctx, i + 1, acc.push(ctx, fn(x) => x + i)) }
 }
 
 export fn addersOdd<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
-  if (i >= 4) { acc } else { addersEven(ctx, i + 1, acc.push(ctx, fn(x) => x * i)) }
+    if (i >= 4) { acc } else { addersEven(ctx, i + 1, acc.push(ctx, fn(x) => x * i)) }
 }
 
 /// A closure over a parameter the loop *never* rebinds. Nothing can go stale
 /// here, so this is the case a fix must leave alone.
-export fn scalers<C: Alloc>(ctx: C, k: Int, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
-  if (i >= 3) { acc } else { scalers(ctx, k, i + 1, acc.push(ctx, fn(x) => x * k)) }
+export fn scalers<C: Alloc>(
+    ctx: C,
+    k: Int,
+    i: Int,
+    acc: [fn(Int) => Int],
+): [fn(Int) => Int] {
+    if (i >= 3) { acc } else { scalers(ctx, k, i + 1, acc.push(ctx, fn(x) => x * k)) }
 }
 
 /// Two closures per iteration over the same parameter, so a fix that gave the
 /// iteration one binding too few would show up as the two disagreeing.
 export fn pairs<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => Int] {
-  if (i >= 3) {
-    acc
-  } else {
-    pairs(ctx, i + 1, acc.push(ctx, fn(x) => x + i).push(ctx, fn(x) => x - i))
-  }
+    if (i >= 3) {
+        acc
+    } else {
+        pairs(ctx, i + 1, acc.push(ctx, fn(x) => x + i).push(ctx, fn(x) => x - i))
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -68,50 +77,51 @@ export fn pairs<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => In
 
 /// `&&`: recurses while the guard holds, and the answer says how it left.
 export fn allBelow(xs: [Int], limit: Int, i: Int): Bool {
-  if (i >= xs.len()) {
-    true
-  } else {
-    (xs.get(i) ?? 0) < limit && allBelow(xs, limit, i + 1)
-  }
+    if (i >= xs.len()) {
+        true
+    } else {
+        (xs.get(i) ?? 0) < limit && allBelow(xs, limit, i + 1)
+    }
 }
 
 /// `&&` with nothing but the counter, so the depth is the parameter.
 export fn countDownAnd(i: Int): Bool {
-  if (i <= 0) { true } else { i > -1 && countDownAnd(i - 1) }
+    if (i <= 0) { true } else { i > -1 && countDownAnd(i - 1) }
 }
 
 /// `||`: the mirror image — recursion is what happens when the test fails.
 export fn countDownOr(i: Int): Bool {
-  if (i <= 0) { true } else { i < 0 || countDownOr(i - 1) }
+    if (i <= 0) { true } else { i < 0 || countDownOr(i - 1) }
 }
 
 /// `??`: the shape of a linear search, where the recursion is the fallback.
 export fn firstOr(xs: [Int], i: Int): Int {
-  if (i >= xs.len()) { -1 } else { xs.get(i) ?? firstOr(xs, i + 1) }
+    if (i >= xs.len()) { -1 } else { xs.get(i) ?? firstOr(xs, i + 1) }
 }
 
 /// `??` that actually recurses: `none` never holds a value, so every step
 /// falls through to the tail call.
 export fn countDownCoalesce(i: Int): Int {
-  if (i <= 0) { 0 } else { noneAt(i) ?? countDownCoalesce(i - 1) }
+    if (i <= 0) { 0 } else { noneAt(i) ?? countDownCoalesce(i - 1) }
 }
 
 /// Always empty, but not visibly so — a literal `.None` would let the compiler
 /// fold the `??` away and there would be nothing left to test.
 export fn noneAt(i: Int): Option<Int> {
-  if (i < 0) { .Some(i) } else { .None }
+    if (i < 0) { .Some(i) } else { .None }
 }
 
 /// `&&` under a mutually recursive pair, so the merged dispatch loop is
 /// covered too.
 export fn evenAnd(i: Int): Bool {
-  if (i <= 0) { true } else { i > -1 && oddAnd(i - 1) }
+    if (i <= 0) { true } else { i > -1 && oddAnd(i - 1) }
 }
 
 export fn oddAnd(i: Int): Bool {
-  if (i <= 0) { true } else { i > -1 && evenAnd(i - 1) }
+    if (i <= 0) { true } else { i > -1 && evenAnd(i - 1) }
 }
 
+derive Eq, Show for Pair;
 // -----------------------------------------------------------------------------
 // Derived structural equality
 // -----------------------------------------------------------------------------
@@ -127,44 +137,90 @@ export fn oddAnd(i: Int): Bool {
 // written as literals the compiler is free to share one, and then every
 // comparison would be answered by identity and prove nothing.
 
-export struct Pair { a: Int, b: Str }
-derive Eq, Show for Pair;
+export struct Pair {
+    a: Int,
+    b: Str,
+}
 
-export struct Floaty { x: Float }
 derive Eq for Floaty;
+export struct Floaty {
+    x: Float,
+}
 
-export struct Nest { p: Pair, q: Floaty }
 derive Eq for Nest;
+export struct Nest {
+    p: Pair,
+    q: Floaty,
+}
 
-export struct Holder { o: Option<Int> }
 derive Eq for Holder;
+export struct Holder {
+    o: Option<Int>,
+}
 
-export struct Deep { o: Option<Option<Int>> }
 derive Eq for Deep;
+export struct Deep {
+    o: Option<Option<Int>>,
+}
 
-export struct Listy { xs: [Int] }
 derive Eq for Listy;
+export struct Listy {
+    xs: [Int],
+}
 
-export struct Hollow {}
 derive Eq for Hollow;
+export struct Hollow {}
 
-export enum Flat { A, B, C }
 derive Eq for Flat;
+export enum Flat {
+    A,
+    B,
+    C,
+}
 
+derive Eq for Wide;
 /// Three variants with three different arities, so a comparison that assumed
 /// one shape per enum would be caught.
-export enum Wide { None0, One(Int), Two(Int, Str) }
-derive Eq for Wide;
+export enum Wide {
+    None0,
+    One(Int),
+    Two(Int, Str),
+}
 
-export fn mkPair(a: Int, b: Str): Pair { Pair { a: a, b: b } }
-export fn mkFloaty(x: Float): Floaty { Floaty { x: x } }
-export fn mkNest(p: Pair, q: Floaty): Nest { Nest { p: p, q: q } }
-export fn mkHolder(o: Option<Int>): Holder { Holder { o: o } }
-export fn mkDeep(o: Option<Option<Int>>): Deep { Deep { o: o } }
-export fn mkListy(xs: [Int]): Listy { Listy { xs: xs } }
-export fn mkHollow(): Hollow { Hollow {} }
+export fn mkPair(a: Int, b: Str): Pair {
+    Pair { a: a, b: b }
+}
+
+export fn mkFloaty(x: Float): Floaty {
+    Floaty { x: x }
+}
+
+export fn mkNest(p: Pair, q: Floaty): Nest {
+    Nest { p: p, q: q }
+}
+
+export fn mkHolder(o: Option<Int>): Holder {
+    Holder { o: o }
+}
+
+export fn mkDeep(o: Option<Option<Int>>): Deep {
+    Deep { o: o }
+}
+
+export fn mkListy(xs: [Int]): Listy {
+    Listy { xs: xs }
+}
+
+export fn mkHollow(): Hollow {
+    Hollow { }
+}
 
 /// `0.0 / 0.0`, because there is no NaN literal and a folded constant would
 /// not be one either.
-export fn notANumber(): Float { zeroF() / zeroF() }
-fn zeroF(): Float { 0.0 }
+export fn notANumber(): Float {
+    zeroF() / zeroF()
+}
+
+fn zeroF(): Float {
+    0.0
+}

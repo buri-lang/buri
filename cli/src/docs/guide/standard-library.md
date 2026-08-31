@@ -198,7 +198,7 @@ from "core/effect" import { Alloc, Tasks };
 from "core/tasks" import * as tasks;
 
 fn squares<C: Alloc + Tasks>(ctx: C, ns: [Int]): [Int] {
-  tasks.parallel(ctx, ns, fn(c, i, n) => n * n)
+    tasks.parallel(ctx, ns, fn(c, i, n) => n * n)
 }
 ```
 
@@ -226,10 +226,10 @@ from "core/effect" import { Alloc, Net };
 from "core/net/http" import * as http;
 
 fn ping<C: Alloc + Net>(ctx: C): Str {
-  match (http.send(ctx, http.request(.Get, "http://example.com/ping"))) {
-    .Ok(reply) => http.bodyText(ctx, reply.body).withDefault("not text"),
-    .Err(e) => http.errorText(e),
-  }
+    match (http.send(ctx, http.request(.Get, "http://example.com/ping"))) {
+        .Ok(reply) => http.bodyText(ctx, reply.body).withDefault("not text"),
+        .Err(e) => http.errorText(e),
+    }
 }
 ```
 
@@ -290,7 +290,7 @@ from "core/effect" import { Alloc, Fs };
 from "core/fs" import * as fs;
 
 fn inAScope<C: Alloc + Fs>(ctx: C, path: Str): Bool {
-  alloc.scoped(ctx, fn(c) => fs.exists(c, path))
+    alloc.scoped(ctx, fn(c) => fs.exists(c, path))
 }
 ```
 

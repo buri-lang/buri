@@ -1,2 +1,4 @@
 /// How many times the thing has happened.
-export fn counter(): I64 { 1 }
+export fn counter(): I64 {
+    1
+}

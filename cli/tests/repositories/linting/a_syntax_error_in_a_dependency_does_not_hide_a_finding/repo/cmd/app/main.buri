@@ -4,12 +4,16 @@
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-
 from "//lib/money" import { describe };
 from "//lib/routes" import { Route };
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let leftover = 1;
-  io.println(ctx, describe(Route { name: "health" })).mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let leftover = 1;
+    io
+        .println(ctx, describe(Route { name: "health" }))
+        .mapErr(fn(_e) => "could not write to standard output")
 }

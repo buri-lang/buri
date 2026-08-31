@@ -3,4 +3,6 @@ from "core/str" import * as str;
 let myStr: Str = 1;
 
 /// How many times the thing has happened.
-export fn counter(): I64 { 1 }
+export fn counter(): I64 {
+    1
+}

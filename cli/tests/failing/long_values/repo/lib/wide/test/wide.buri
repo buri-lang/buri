@@ -4,10 +4,10 @@
 // All three are worth recording because the alternative — an eliding
 // renderer — is the kind of thing that gets added without a test noticing.
 
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
-from "core/effect" import { Alloc };
 
 test "a string far past a terminal's width" {
     assert.eq(
@@ -17,7 +17,9 @@ test "a string far past a terminal's width" {
 }
 
 test "a list of forty elements" {
-    let ctx = context { Alloc: alloc() };
+    let ctx = context {
+        Alloc: alloc(),
+    };
     assert.eq(list.range(ctx, 1, 41), []);
 }
 

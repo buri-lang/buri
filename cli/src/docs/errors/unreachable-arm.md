@@ -24,9 +24,9 @@ wrong place, and a silently dead arm reads as handled.
 
 ```buri fail code=unreachable-arm
 fn describe(o: Option<Int>): Int {
-  match (o) {
-    anything => 1,
-    .None => 0,
-  }
+    match (o) {
+        anything => 1,
+        .None => 0,
+    }
 }
 ```

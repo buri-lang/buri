@@ -11,7 +11,6 @@ from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
 from "ui/style" import { Style };
-
 from "//lib/kit/tokens.buri" import { Token };
 
 // --- the static tier ---------------------------------------------------------
@@ -25,50 +24,50 @@ from "//lib/kit/tokens.buri" import { Token };
 // needs no listener, and survives to a platform that has no pointer; a signal
 // written on every mouse move would cost a render each time.
 let cardStyle: Style = .Group([
-  .Layout(.Column),
-  .Gap(.Px(6)),
-  .Padding(.Rem(0.75)),
-  .Radius(.Px(8)),
-  .BorderWidth(.Px(1)),
-  .BorderColor(Token.Edge.color()),
-  .Background(Token.Surface.color()),
-  .Foreground(Token.OnSurface.color()),
-  .On(.Hover, [.BorderColor(Token.Accent.color())]),
+    .Layout(.Column),
+    .Gap(.Px(6)),
+    .Padding(.Rem(0.75)),
+    .Radius(.Px(8)),
+    .BorderWidth(.Px(1)),
+    .BorderColor(Token.Edge.color()),
+    .Background(Token.Surface.color()),
+    .Foreground(Token.OnSurface.color()),
+    .On(.Hover, [.BorderColor(Token.Accent.color())]),
 ]);
 
 // `Truncate` is at most two lines, ellipsised. A card is a fixed shape, and a
 // long title is the reader's problem to hover over rather than the layout's to
 // be broken by.
 let titleStyle: Style = .Group([
-  .FontWeight(.Semibold),
-  .TextWrap(.Balance),
-  .Truncate(2),
+    .FontWeight(.Semibold),
+    .TextWrap(.Balance),
+    .Truncate(2),
 ]);
 
 let pillStyle: Style = .Group([
-  .PaddingX(.Rem(0.5)),
-  .PaddingY(.Rem(0.125)),
-  .Radius(.Px(999)),
-  .FontSize(.Rem(0.75)),
-  .Background(Token.Accent.color()),
-  .Foreground(Token.Surface.color()),
+    .PaddingX(.Rem(0.5)),
+    .PaddingY(.Rem(0.125)),
+    .Radius(.Px(999)),
+    .FontSize(.Rem(0.75)),
+    .Background(Token.Accent.color()),
+    .Foreground(Token.Surface.color()),
 ]);
 
 // The filled part is an ordinary child that is simply as wide as it is told, so
 // the track has to clip what does not fit — which is what `Scroll` says, and
 // what makes the rounded ends hold.
 let trackStyle: Style = .Group([
-  .Height(.Px(6)),
-  .Width(.Full),
-  .Radius(.Px(999)),
-  .Background(Token.Edge.color()),
-  .Scroll(.X),
+    .Height(.Px(6)),
+    .Width(.Full),
+    .Radius(.Px(999)),
+    .Background(Token.Edge.color()),
+    .Scroll(.X),
 ]);
 
 let fillStyle: Style = .Group([
-  .Height(.Full),
-  .Radius(.Px(999)),
-  .Background(Token.Accent.color()),
+    .Height(.Full),
+    .Radius(.Px(999)),
+    .Background(Token.Accent.color()),
 ]);
 
 // --- the components ----------------------------------------------------------
@@ -80,10 +79,10 @@ let fillStyle: Style = .Group([
 /// claimed to be `Main` would tell a screen reader that the page's content
 /// starts here, and a page has one of those.
 export fn card<C>(title: Prop<Str>, children: [Node<C>]): Node<C> {
-  ui.region(.Group, [cardStyle], [
-    ui.row([titleStyle], [ui.text(title)]),
-    ui.column([.Gap(.Px(4))], children),
-  ])
+    ui.region(.Group, [cardStyle], [
+        ui.row([titleStyle], [ui.text(title)]),
+        ui.column([.Gap(.Px(4))], children),
+    ])
 }
 
 /// A small standing label — a count, a state, a category.
@@ -92,7 +91,7 @@ export fn card<C>(title: Prop<Str>, children: [Node<C>]): Node<C> {
 /// already in its text, and a role would be inventing a landmark out of a
 /// rounded rectangle.
 export fn pill<C>(label: Prop<Str>): Node<C> {
-  ui.row([pillStyle], [ui.text(label)])
+    ui.row([pillStyle], [ui.text(label)])
 }
 
 /// How full something is, from `0.0` to `1.0`.
@@ -107,9 +106,17 @@ export fn pill<C>(label: Prop<Str>): Node<C> {
 /// The track and the fill are two elements because a meter is a bar inside a
 /// bar. Only the fill's width varies, so only the fill pays for varying.
 export fn meter<C>(fraction: Prop<Float>): Node<C> {
-  ui.row([trackStyle], [
-    ui.stack([fillStyle, .Computed(fn(scope) => [.Width(.Percent(percent(fraction.read(scope))))])], []),
-  ])
+    ui.row([trackStyle], [
+        ui.stack(
+            [
+                fillStyle,
+                .Computed(fn(scope) => {
+                    [.Width(.Percent(percent(fraction.read(scope))))]
+                }),
+            ],
+            [],
+        ),
+    ])
 }
 
 /// A fraction as a percentage, clamped.
@@ -118,9 +125,9 @@ export fn meter<C>(fraction: Prop<Float>): Node<C> {
 /// number, and a picture that renders nothing because the number was 1.02 is
 /// worse than one that renders full.
 fn percent(fraction: Float): Float {
-  if (fraction <= 0.0) {
-    0.0
-  } else {
-    if (fraction >= 1.0) { 100.0 } else { fraction * 100.0 }
-  }
+    if (fraction <= 0.0) {
+        0.0
+    } else {
+        if (fraction >= 1.0) { 100.0 } else { fraction * 100.0 }
+    }
 }

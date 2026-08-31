@@ -4,852 +4,981 @@
 // values, not UTF-8 bytes and not UTF-16 code units, so every length, index,
 // and slice test below uses a non-BMP character somewhere.
 
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
-from "core/effect" import { Alloc };
-from "core/str" import * as str;
 from "core/char" import * as char;
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/order" import * as order;
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
 
 // --- len ----------------------------------------------------------------------
 
 test "len counts characters in ASCII" {
-  assert.eq("hello".len(), 5);
+    assert.eq("hello".len(), 5);
 }
 
 test "len of the empty string is zero" {
-  assert.eq("".len(), 0);
+    assert.eq("".len(), 0);
 }
 
 test "len counts scalar values, not UTF-8 bytes" {
-  // "é" is two UTF-8 bytes and one scalar value.
-  assert.eq("é".len(), 1);
+    // "é" is two UTF-8 bytes and one scalar value.
+    assert.eq("é".len(), 1);
 }
 
 test "len counts a non-BMP character as one, not two" {
-  // U+1F600 is four UTF-8 bytes and two UTF-16 code units. It is one scalar.
-  assert.eq("\u{1F600}".len(), 1);
+    // U+1F600 is four UTF-8 bytes and two UTF-16 code units. It is one scalar.
+    assert.eq("😀".len(), 1);
 }
 
 test "len of a mixed string counts scalar values" {
-  assert.eq("a\u{1F600}b".len(), 3);
+    assert.eq("a😀b".len(), 3);
 }
 
 test "len of a string of only non-BMP characters" {
-  assert.eq("\u{1F600}\u{1F601}\u{1F602}".len(), 3);
+    assert.eq("😀😁😂".len(), 3);
 }
 
 test "isEmpty is true only for the empty string" {
-  assert.isTrue("".isEmpty());
-  assert.isFalse(" ".isEmpty());
+    assert.isTrue("".isEmpty());
+    assert.isFalse(" ".isEmpty());
 }
 
 // --- charAt -------------------------------------------------------------------
 
 test "charAt yields the character at an index" {
-  assert.eq(assert.some("abc".charAt(1)), 'b');
+    assert.eq(assert.some("abc".charAt(1)), 'b');
 }
 
 test "charAt at zero yields the first character" {
-  assert.eq(assert.some("abc".charAt(0)), 'a');
+    assert.eq(assert.some("abc".charAt(0)), 'a');
 }
 
 test "charAt past the end yields None" {
-  assert.none("abc".charAt(3));
+    assert.none("abc".charAt(3));
 }
 
 test "charAt at a negative index yields None" {
-  assert.none("abc".charAt(-1));
+    assert.none("abc".charAt(-1));
 }
 
 test "charAt on the empty string yields None" {
-  assert.none("".charAt(0));
+    assert.none("".charAt(0));
 }
 
 test "charAt indexes by scalar value" {
-  assert.eq(assert.some("a\u{1F600}b".charAt(1)), '\u{1F600}');
-  assert.eq(assert.some("a\u{1F600}b".charAt(2)), 'b');
+    assert.eq(assert.some("a😀b".charAt(1)), '😀');
+    assert.eq(assert.some("a😀b".charAt(2)), 'b');
 }
 
 test "charAt past a non-BMP string is None" {
-  assert.none("\u{1F600}".charAt(1));
+    assert.none("😀".charAt(1));
 }
 
 // --- slice --------------------------------------------------------------------
 
 test "slice takes a half-open range" {
-  assert.eq("hello".slice(1, 3), "el");
+    assert.eq("hello".slice(1, 3), "el");
 }
 
 test "slice with equal bounds is empty" {
-  assert.eq("hello".slice(2, 2), "");
+    assert.eq("hello".slice(2, 2), "");
 }
 
 test "slice covering everything is the whole string" {
-  assert.eq("hello".slice(0, 5), "hello");
+    assert.eq("hello".slice(0, 5), "hello");
 }
 
 test "slice clamps past the end" {
-  assert.eq("hello".slice(3, 99), "lo");
+    assert.eq("hello".slice(3, 99), "lo");
 }
 
 test "slice with an inverted range is empty" {
-  assert.eq("hello".slice(3, 1), "");
+    assert.eq("hello".slice(3, 1), "");
 }
 
 test "slice on the empty string is empty" {
-  assert.eq("".slice(0, 3), "");
+    assert.eq("".slice(0, 3), "");
 }
 
 test "slice cuts on scalar boundaries" {
-  assert.eq("a\u{1F600}b".slice(1, 2), "\u{1F600}");
-  assert.eq("a\u{1F600}b".slice(2, 3), "b");
+    assert.eq("a😀b".slice(1, 2), "😀");
+    assert.eq("a😀b".slice(2, 3), "b");
 }
 
 // --- trim ---------------------------------------------------------------------
 
 test "trim removes leading and trailing whitespace" {
-  assert.eq("  hi  ".trim(), "hi");
+    assert.eq("  hi  ".trim(), "hi");
 }
 
 test "trim leaves interior whitespace alone" {
-  assert.eq("  a b  ".trim(), "a b");
+    assert.eq("  a b  ".trim(), "a b");
 }
 
 test "trim of an all-whitespace string is empty" {
-  assert.eq("   ".trim(), "");
+    assert.eq("   ".trim(), "");
 }
 
 test "trim of the empty string is empty" {
-  assert.eq("".trim(), "");
+    assert.eq("".trim(), "");
 }
 
 test "trim handles tabs and newlines" {
-  assert.eq("\t\nhi\n\t".trim(), "hi");
+    assert.eq("\t\nhi\n\t".trim(), "hi");
 }
 
 test "trimStart removes only leading whitespace" {
-  assert.eq("  hi  ".trimStart(), "hi  ");
+    assert.eq("  hi  ".trimStart(), "hi  ");
 }
 
 test "trimStart on a string with no leading space is the identity" {
-  assert.eq("hi  ".trimStart(), "hi  ");
+    assert.eq("hi  ".trimStart(), "hi  ");
 }
 
 test "trimEnd removes only trailing whitespace" {
-  assert.eq("  hi  ".trimEnd(), "  hi");
+    assert.eq("  hi  ".trimEnd(), "  hi");
 }
 
 test "trimEnd on a string with no trailing space is the identity" {
-  assert.eq("  hi".trimEnd(), "  hi");
+    assert.eq("  hi".trimEnd(), "  hi");
 }
 
 // --- startsWith / endsWith / contains -----------------------------------------
 
 test "startsWith accepts a prefix" {
-  assert.isTrue("hello".startsWith("he"));
+    assert.isTrue("hello".startsWith("he"));
 }
 
 test "startsWith rejects a non-prefix" {
-  assert.isFalse("hello".startsWith("lo"));
+    assert.isFalse("hello".startsWith("lo"));
 }
 
 test "startsWith accepts the whole string" {
-  assert.isTrue("hello".startsWith("hello"));
+    assert.isTrue("hello".startsWith("hello"));
 }
 
 test "startsWith the empty prefix is true" {
-  assert.isTrue("hello".startsWith(""));
-  assert.isTrue("".startsWith(""));
+    assert.isTrue("hello".startsWith(""));
+    assert.isTrue("".startsWith(""));
 }
 
 test "startsWith a longer needle is false" {
-  assert.isFalse("hi".startsWith("hiya"));
+    assert.isFalse("hi".startsWith("hiya"));
 }
 
 test "endsWith accepts a suffix" {
-  assert.isTrue("hello".endsWith("lo"));
+    assert.isTrue("hello".endsWith("lo"));
 }
 
 test "endsWith rejects a non-suffix" {
-  assert.isFalse("hello".endsWith("he"));
+    assert.isFalse("hello".endsWith("he"));
 }
 
 test "endsWith the empty suffix is true" {
-  assert.isTrue("hello".endsWith(""));
+    assert.isTrue("hello".endsWith(""));
 }
 
 test "endsWith a longer needle is false" {
-  assert.isFalse("hi".endsWith("ohi"));
+    assert.isFalse("hi".endsWith("ohi"));
 }
 
 test "contains finds an interior needle" {
-  assert.isTrue("hello".contains("ell"));
+    assert.isTrue("hello".contains("ell"));
 }
 
 test "contains rejects an absent needle" {
-  assert.isFalse("hello".contains("xyz"));
+    assert.isFalse("hello".contains("xyz"));
 }
 
 test "contains the empty needle is true" {
-  assert.isTrue("hello".contains(""));
-  assert.isTrue("".contains(""));
+    assert.isTrue("hello".contains(""));
+    assert.isTrue("".contains(""));
 }
 
 test "contains on the empty string rejects a nonempty needle" {
-  assert.isFalse("".contains("a"));
+    assert.isFalse("".contains("a"));
 }
 
 // --- indexOf ------------------------------------------------------------------
 
 test "indexOf yields the first occurrence" {
-  assert.eq(assert.some("banana".indexOf("na")), 2);
+    assert.eq(assert.some("banana".indexOf("na")), 2);
 }
 
 test "indexOf at the start is zero" {
-  assert.eq(assert.some("banana".indexOf("ba")), 0);
+    assert.eq(assert.some("banana".indexOf("ba")), 0);
 }
 
 test "indexOf an absent needle is None" {
-  assert.none("banana".indexOf("xyz"));
+    assert.none("banana".indexOf("xyz"));
 }
 
 test "indexOf on the empty string is None for a nonempty needle" {
-  assert.none("".indexOf("a"));
+    assert.none("".indexOf("a"));
 }
 
 test "indexOf counts in scalar values" {
-  assert.eq(assert.some("\u{1F600}ab".indexOf("b")), 2);
+    assert.eq(assert.some("😀ab".indexOf("b")), 2);
 }
 
 // --- splitOnce ----------------------------------------------------------------
 
 test "splitOnce yields both halves when the separator is present" {
-  let parts = assert.some("key=value".splitOnce("="));
-  assert.eq(parts.0, "key");
-  assert.eq(parts.1, "value");
+    let parts = assert.some("key=value".splitOnce("="));
+    assert.eq(parts.0, "key");
+    assert.eq(parts.1, "value");
 }
 
 test "splitOnce splits at the first occurrence only" {
-  let parts = assert.some("a=b=c".splitOnce("="));
-  assert.eq(parts.0, "a");
-  assert.eq(parts.1, "b=c");
+    let parts = assert.some("a=b=c".splitOnce("="));
+    assert.eq(parts.0, "a");
+    assert.eq(parts.1, "b=c");
 }
 
 test "splitOnce with a leading separator yields an empty left half" {
-  let parts = assert.some("=v".splitOnce("="));
-  assert.eq(parts.0, "");
-  assert.eq(parts.1, "v");
+    let parts = assert.some("=v".splitOnce("="));
+    assert.eq(parts.0, "");
+    assert.eq(parts.1, "v");
 }
 
 test "splitOnce with a trailing separator yields an empty right half" {
-  let parts = assert.some("k=".splitOnce("="));
-  assert.eq(parts.0, "k");
-  assert.eq(parts.1, "");
+    let parts = assert.some("k=".splitOnce("="));
+    assert.eq(parts.0, "k");
+    assert.eq(parts.1, "");
 }
 
 test "splitOnce yields None when the separator is absent" {
-  assert.none("keyvalue".splitOnce("="));
+    assert.none("keyvalue".splitOnce("="));
 }
 
 test "splitOnce on the empty string yields None" {
-  assert.none("".splitOnce("="));
+    assert.none("".splitOnce("="));
 }
 
 test "splitOnce with a multi-character separator" {
-  let parts = assert.some("a::b".splitOnce("::"));
-  assert.eq(parts.0, "a");
-  assert.eq(parts.1, "b");
+    let parts = assert.some("a::b".splitOnce("::"));
+    assert.eq(parts.0, "a");
+    assert.eq(parts.1, "b");
 }
 
 // --- compare ------------------------------------------------------------------
 
 test "compare reports Less" {
-  assert.isTrue("apple".compare("banana").isLess());
+    assert.isTrue("apple".compare("banana").isLess());
 }
 
 test "compare reports Equal" {
-  assert.isTrue("apple".compare("apple").isEqual());
+    assert.isTrue("apple".compare("apple").isEqual());
 }
 
 test "compare reports Greater" {
-  assert.eq("banana".compare("apple"), Order.Greater);
+    assert.eq("banana".compare("apple"), Order.Greater);
 }
 
 test "compare orders a prefix before its extension" {
-  assert.isTrue("app".compare("apple").isLess());
+    assert.isTrue("app".compare("apple").isLess());
 }
 
 test "compare orders the empty string first" {
-  assert.isTrue("".compare("a").isLess());
-  assert.isTrue("".compare("").isEqual());
+    assert.isTrue("".compare("a").isLess());
+    assert.isTrue("".compare("").isEqual());
 }
 
 // --- toInt / toFloat ----------------------------------------------------------
 
 test "toInt parses a decimal integer" {
-  assert.eq(assert.some("42".toInt()), 42);
+    assert.eq(assert.some("42".toInt()), 42);
 }
 
 test "toInt parses a negative integer" {
-  assert.eq(assert.some("-42".toInt()), -42);
+    assert.eq(assert.some("-42".toInt()), -42);
 }
 
 test "toInt parses zero" {
-  assert.eq(assert.some("0".toInt()), 0);
+    assert.eq(assert.some("0".toInt()), 0);
 }
 
 test "toInt rejects a non-numeric string" {
-  assert.none("abc".toInt());
+    assert.none("abc".toInt());
 }
 
 test "toInt rejects the empty string" {
-  assert.none("".toInt());
+    assert.none("".toInt());
 }
 
 test "toInt rejects trailing junk" {
-  assert.none("42x".toInt());
+    assert.none("42x".toInt());
 }
 
 test "toInt rejects a float" {
-  assert.none("4.2".toInt());
+    assert.none("4.2".toInt());
 }
 
 test "toInt rejects a lone minus" {
-  assert.none("-".toInt());
+    assert.none("-".toInt());
 }
 
 test "toInt parses a value on either side of zero" {
-  assert.eq(assert.some("9007199254740991".toInt()), 9007199254740991);
-  assert.eq(assert.some("-9007199254740991".toInt()), -9007199254740991);
+    assert.eq(assert.some("9007199254740991".toInt()), 9007199254740991);
+    assert.eq(assert.some("-9007199254740991".toInt()), -9007199254740991);
 }
 
 test "toInt parses every I64, and refuses what is not one" {
-  // `Int` is `I64` on every backend and holds its whole range, so the only
-  // string refused here is one naming a number that is not an `I64` at all.
-  assert.eq(assert.some("9007199254740992".toInt()), 9007199254740992);
-  assert.eq(assert.some("9223372036854775807".toInt()), 9223372036854775807);
-  assert.eq(assert.some("-9223372036854775808".toInt()), -9223372036854775808);
-  assert.none("9223372036854775808".toInt());
+    // `Int` is `I64` on every backend and holds its whole range, so the only
+    // string refused here is one naming a number that is not an `I64` at all.
+    assert.eq(assert.some("9007199254740992".toInt()), 9007199254740992);
+    assert.eq(assert.some("9223372036854775807".toInt()), 9223372036854775807);
+    assert.eq(assert.some("-9223372036854775808".toInt()), -9223372036854775808);
+    assert.none("9223372036854775808".toInt());
 }
 
 test "toInt rejects a value far outside I64" {
-  assert.none("99999999999999999999".toInt());
+    assert.none("99999999999999999999".toInt());
 }
 
 test "toFloat parses a decimal" {
-  assert.eq(assert.some("3.5".toFloat()), 3.5);
+    assert.eq(assert.some("3.5".toFloat()), 3.5);
 }
 
 test "toFloat parses a negative decimal" {
-  assert.eq(assert.some("-3.5".toFloat()), -3.5);
+    assert.eq(assert.some("-3.5".toFloat()), -3.5);
 }
 
 test "toFloat parses an integer-shaped string" {
-  assert.eq(assert.some("4".toFloat()), 4.0);
+    assert.eq(assert.some("4".toFloat()), 4.0);
 }
 
 test "toFloat rejects a non-numeric string" {
-  assert.none("abc".toFloat());
+    assert.none("abc".toFloat());
 }
 
 test "toFloat rejects the empty string" {
-  assert.none("".toFloat());
+    assert.none("".toFloat());
 }
 
 // --- concat -------------------------------------------------------------------
 
 test "concat joins two strings" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("foo".concat(ctx, "bar"), "foobar");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("foo".concat(ctx, "bar"), "foobar");
 }
 
 test "concat with the empty string is the identity" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("foo".concat(ctx, ""), "foo");
-  assert.eq("".concat(ctx, "bar"), "bar");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("foo".concat(ctx, ""), "foo");
+    assert.eq("".concat(ctx, "bar"), "bar");
 }
 
 test "concat of two empty strings is empty" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("".concat(ctx, ""), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("".concat(ctx, ""), "");
 }
 
 // --- split / splitAny / lines -------------------------------------------------
 
 test "split cuts on every occurrence" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a,b,c".split(ctx, ","), ["a", "b", "c"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a,b,c".split(ctx, ","), ["a", "b", "c"]);
 }
 
 test "split keeps empty pieces" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a,,b".split(ctx, ","), ["a", "", "b"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a,,b".split(ctx, ","), ["a", "", "b"]);
 }
 
 test "split keeps a leading and trailing empty piece" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(",a,".split(ctx, ","), ["", "a", ""]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(",a,".split(ctx, ","), ["", "a", ""]);
 }
 
 test "split with an absent separator yields the whole string" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("abc".split(ctx, ","), ["abc"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("abc".split(ctx, ","), ["abc"]);
 }
 
 test "split of the empty string yields one empty piece" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("".split(ctx, ","), [""]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("".split(ctx, ","), [""]);
 }
 
 test "split on a multi-character separator" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a::b::c".split(ctx, "::"), ["a", "b", "c"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a::b::c".split(ctx, "::"), ["a", "b", "c"]);
 }
 
 test "splitAny cuts on any of the separator characters" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a,b;c".splitAny(ctx, ",;"), ["a", "b", "c"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a,b;c".splitAny(ctx, ",;"), ["a", "b", "c"]);
 }
 
 test "splitAny drops empty pieces" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a,,b".splitAny(ctx, ","), ["a", "b"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a,,b".splitAny(ctx, ","), ["a", "b"]);
 }
 
 test "splitAny drops leading and trailing empties" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(",a,".splitAny(ctx, ","), ["a"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(",a,".splitAny(ctx, ","), ["a"]);
 }
 
 test "splitAny of the empty string is the empty list" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("".splitAny(ctx, ","), list.empty<Str>());
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("".splitAny(ctx, ","), list.empty<Str>());
 }
 
 test "splitAny splits on whitespace" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("  a  b  ".splitAny(ctx, " "), ["a", "b"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("  a  b  ".splitAny(ctx, " "), ["a", "b"]);
 }
 
 test "lines splits on newlines" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a\nb\nc".lines(ctx), ["a", "b", "c"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a\nb\nc".lines(ctx), ["a", "b", "c"]);
 }
 
 test "lines of a single line is a singleton" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("only".lines(ctx), ["only"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("only".lines(ctx), ["only"]);
 }
 
 test "lines keeps blank lines" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a\n\nb".lines(ctx), ["a", "", "b"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a\n\nb".lines(ctx), ["a", "", "b"]);
 }
 
 test "lines of a string ending in a newline yields a trailing empty piece" {
-  // SPEC does not fix `lines`; this pins what the implementation does, which
-  // is the `split`-like reading rather than the "drop the final empty" one.
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a\n".lines(ctx), ["a", ""]);
+    // SPEC does not fix `lines`; this pins what the implementation does, which
+    // is the `split`-like reading rather than the "drop the final empty" one.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a\n".lines(ctx), ["a", ""]);
 }
 
 // --- replace ------------------------------------------------------------------
 
 test "replace substitutes every occurrence" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("banana".replace(ctx, "a", "o"), "bonono");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("banana".replace(ctx, "a", "o"), "bonono");
 }
 
 test "replace with an absent needle is the identity" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("banana".replace(ctx, "z", "o"), "banana");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("banana".replace(ctx, "z", "o"), "banana");
 }
 
 test "replace can delete" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("banana".replace(ctx, "na", ""), "ba");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("banana".replace(ctx, "na", ""), "ba");
 }
 
 test "replace can lengthen" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("ab".replace(ctx, "b", "bbb"), "abbb");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("ab".replace(ctx, "b", "bbb"), "abbb");
 }
 
 test "replace on the empty string is empty" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("".replace(ctx, "a", "b"), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("".replace(ctx, "a", "b"), "");
 }
 
 // --- repeat -------------------------------------------------------------------
 
 test "repeat concatenates n copies" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("ab".repeat(ctx, 3), "ababab");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("ab".repeat(ctx, 3), "ababab");
 }
 
 test "repeat once is the identity" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("ab".repeat(ctx, 1), "ab");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("ab".repeat(ctx, 1), "ab");
 }
 
 test "repeat zero times is empty" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("ab".repeat(ctx, 0), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("ab".repeat(ctx, 0), "");
 }
 
 test "repeat a negative number of times is empty" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("ab".repeat(ctx, -2), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("ab".repeat(ctx, -2), "");
 }
 
 test "repeating the empty string is empty" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("".repeat(ctx, 5), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("".repeat(ctx, 5), "");
 }
 
 // --- toUpper / toLower --------------------------------------------------------
 
 test "toUpper uppercases ASCII" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("hello".toUpper(ctx), "HELLO");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("hello".toUpper(ctx), "HELLO");
 }
 
 test "toUpper leaves non-letters alone" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a1-b".toUpper(ctx), "A1-B");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a1-b".toUpper(ctx), "A1-B");
 }
 
 test "toUpper of the empty string is empty" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("".toUpper(ctx), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("".toUpper(ctx), "");
 }
 
 test "toLower lowercases ASCII" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("HELLO".toLower(ctx), "hello");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("HELLO".toLower(ctx), "hello");
 }
 
 test "toLower of the empty string is empty" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("".toLower(ctx), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("".toLower(ctx), "");
 }
 
 test "toLower then toUpper round-trips ASCII" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("MiXeD".toLower(ctx).toUpper(ctx), "MIXED");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("MiXeD".toLower(ctx).toUpper(ctx), "MIXED");
 }
 
 // --- chars / fromChars --------------------------------------------------------
 
 test "chars explodes a string into scalar values" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("abc".chars(ctx), ['a', 'b', 'c']);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("abc".chars(ctx), ['a', 'b', 'c']);
 }
 
 test "chars of the empty string is the empty list" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("".chars(ctx), list.empty<Char>());
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("".chars(ctx), list.empty<Char>());
 }
 
 test "chars yields one element per non-BMP character" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a\u{1F600}".chars(ctx), ['a', '\u{1F600}']);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a😀".chars(ctx), ['a', '😀']);
 }
 
 test "chars length agrees with len" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a\u{1F600}b".chars(ctx).len(), "a\u{1F600}b".len());
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a😀b".chars(ctx).len(), "a😀b".len());
 }
 
 test "fromChars rebuilds a string" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(str.fromChars(ctx, ['a', 'b', 'c']), "abc");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.fromChars(ctx, ['a', 'b', 'c']), "abc");
 }
 
 test "fromChars of the empty list is the empty string" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(str.fromChars(ctx, list.empty<Char>()), "");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.fromChars(ctx, list.empty<Char>()), "");
 }
 
 test "fromChars round-trips chars" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(str.fromChars(ctx, "a\u{1F600}b".chars(ctx)), "a\u{1F600}b");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.fromChars(ctx, "a😀b".chars(ctx)), "a😀b");
 }
 
 // --- fromInt / fromFloat ------------------------------------------------------
 
 test "fromInt renders a positive integer" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(str.fromInt(ctx, 42), "42");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.fromInt(ctx, 42), "42");
 }
 
 test "fromInt renders zero" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(str.fromInt(ctx, 0), "0");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.fromInt(ctx, 0), "0");
 }
 
 test "fromInt renders a negative integer" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(str.fromInt(ctx, -7), "-7");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.fromInt(ctx, -7), "-7");
 }
 
 test "fromInt round-trips through toInt" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(assert.some(str.fromInt(ctx, -1234).toInt()), -1234);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.some(str.fromInt(ctx, -1234).toInt()), -1234);
 }
 
 test "fromFloat round-trips through toFloat" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(assert.some(str.fromFloat(ctx, 3.5).toFloat()), 3.5);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.some(str.fromFloat(ctx, 3.5).toFloat()), 3.5);
 }
 
 test "fromFloat renders a negative float" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(assert.some(str.fromFloat(ctx, -0.25).toFloat()), -0.25);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.some(str.fromFloat(ctx, -0.25).toFloat()), -0.25);
 }
 
 // --- padStart / padEnd --------------------------------------------------------
 
 test "padStart pads on the left" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("7".padStart(ctx, 3, '0'), "007");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("7".padStart(ctx, 3, '0'), "007");
 }
 
 test "padStart leaves a long-enough string alone" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("12345".padStart(ctx, 3, '0'), "12345");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("12345".padStart(ctx, 3, '0'), "12345");
 }
 
 test "padStart to the exact width is the identity" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("abc".padStart(ctx, 3, ' '), "abc");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("abc".padStart(ctx, 3, ' '), "abc");
 }
 
 test "padStart of the empty string fills entirely" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("".padStart(ctx, 2, 'x'), "xx");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("".padStart(ctx, 2, 'x'), "xx");
 }
 
 test "padEnd pads on the right" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("7".padEnd(ctx, 3, '0'), "700");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("7".padEnd(ctx, 3, '0'), "700");
 }
 
 test "padEnd leaves a long-enough string alone" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("12345".padEnd(ctx, 3, '0'), "12345");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("12345".padEnd(ctx, 3, '0'), "12345");
 }
 
 test "padEnd measures the width in scalar values" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("\u{1F600}".padEnd(ctx, 3, '.'), "\u{1F600}..");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("😀".padEnd(ctx, 3, '.'), "😀..");
 }
 
 // --- format -------------------------------------------------------------------
 
 test "format renders a template with no holes" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(str.format(ctx, "plain"), "plain");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.format(ctx, "plain"), "plain");
 }
 
 test "format interpolates an Int" {
-  let ctx = context { Alloc: alloc() };
-  let n = 7;
-  assert.eq(str.format(ctx, "n = ${n}"), "n = 7");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let n = 7;
+    assert.eq(str.format(ctx, "n = ${n}"), "n = 7");
 }
 
 test "format interpolates a Str" {
-  let ctx = context { Alloc: alloc() };
-  let who = "world";
-  assert.eq(str.format(ctx, "hello ${who}"), "hello world");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let who = "world";
+    assert.eq(str.format(ctx, "hello ${who}"), "hello world");
 }
 
 test "format interpolates a Bool" {
-  let ctx = context { Alloc: alloc() };
-  let b = true;
-  assert.eq(str.format(ctx, "${b}"), "true");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let b = true;
+    assert.eq(str.format(ctx, "${b}"), "true");
 }
 
 test "format interpolates a Char" {
-  let ctx = context { Alloc: alloc() };
-  let c = 'x';
-  assert.eq(str.format(ctx, "[${c}]"), "[x]");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let c = 'x';
+    assert.eq(str.format(ctx, "[${c}]"), "[x]");
 }
 
 test "format interpolates several holes" {
-  let ctx = context { Alloc: alloc() };
-  let a = 1;
-  let b = 2;
-  assert.eq(str.format(ctx, "${a}+${b}=${a + b}"), "1+2=3");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = 1;
+    let b = 2;
+    assert.eq(str.format(ctx, "${a}+${b}=${a + b}"), "1+2=3");
 }
 
 test "format evaluates an expression hole" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(str.format(ctx, "${2 * 21}"), "42");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.format(ctx, "${2 * 21}"), "42");
 }
 
 test "format escapes a literal dollar sign" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(str.format(ctx, "\$100"), "\$100");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.format(ctx, "$100"), "$100");
 }
 
 test "a ZWJ emoji sequence counts as its scalar values" {
-  assert.eq("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466}".len(), 5);
+    assert.eq("👨‍👩‍👦".len(), 5);
 }
 
 test "a combining mark is its own scalar value" {
-  assert.eq("e\u{0301}".len(), 2);
+    assert.eq("é".len(), 2);
 }
 
 test "chars reversed and rebuilt reverses by scalar value" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(
-    str.fromChars(ctx, "a\u{1F600}".chars(ctx).reverse(ctx)),
-    "\u{1F600}a",
-  );
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.fromChars(ctx, "a😀".chars(ctx).reverse(ctx)), "😀a");
 }
 
 test "split on a non-BMP separator" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("a\u{1F600}b".split(ctx, "\u{1F600}"), ["a", "b"]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a😀b".split(ctx, "😀"), ["a", "b"]);
 }
 
 test "padStart counts the width in scalar values" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("\u{1F600}".padStart(ctx, 3, '.'), "..\u{1F600}");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("😀".padStart(ctx, 3, '.'), "..😀");
 }
 
 // --- core/char ----------------------------------------------------------------
 
 test "isDigit accepts ASCII digits" {
-  assert.isTrue('0'.isDigit());
-  assert.isTrue('9'.isDigit());
+    assert.isTrue('0'.isDigit());
+    assert.isTrue('9'.isDigit());
 }
 
 test "isDigit rejects letters and punctuation" {
-  assert.isFalse('a'.isDigit());
-  assert.isFalse('-'.isDigit());
-  assert.isFalse(' '.isDigit());
+    assert.isFalse('a'.isDigit());
+    assert.isFalse('-'.isDigit());
+    assert.isFalse(' '.isDigit());
 }
 
 test "isAlpha accepts letters" {
-  assert.isTrue('a'.isAlpha());
-  assert.isTrue('Z'.isAlpha());
+    assert.isTrue('a'.isAlpha());
+    assert.isTrue('Z'.isAlpha());
 }
 
 test "isAlpha rejects digits and punctuation" {
-  assert.isFalse('0'.isAlpha());
-  assert.isFalse('_'.isAlpha());
+    assert.isFalse('0'.isAlpha());
+    assert.isFalse('_'.isAlpha());
 }
 
 test "isAlphanumeric accepts both letters and digits" {
-  assert.isTrue('a'.isAlphanumeric());
-  assert.isTrue('7'.isAlphanumeric());
-  assert.isFalse('!'.isAlphanumeric());
+    assert.isTrue('a'.isAlphanumeric());
+    assert.isTrue('7'.isAlphanumeric());
+    assert.isFalse('!'.isAlphanumeric());
 }
 
 test "isSpace accepts the whitespace characters" {
-  assert.isTrue(' '.isSpace());
-  assert.isTrue('\t'.isSpace());
-  assert.isTrue('\n'.isSpace());
+    assert.isTrue(' '.isSpace());
+    assert.isTrue('\t'.isSpace());
+    assert.isTrue('\n'.isSpace());
 }
 
 test "isSpace rejects a printing character" {
-  assert.isFalse('a'.isSpace());
-  assert.isFalse('_'.isSpace());
+    assert.isFalse('a'.isSpace());
+    assert.isFalse('_'.isSpace());
 }
 
 test "isUpper accepts uppercase letters only" {
-  assert.isTrue('A'.isUpper());
-  assert.isFalse('a'.isUpper());
-  assert.isFalse('1'.isUpper());
+    assert.isTrue('A'.isUpper());
+    assert.isFalse('a'.isUpper());
+    assert.isFalse('1'.isUpper());
 }
 
 test "isLower accepts lowercase letters only" {
-  assert.isTrue('a'.isLower());
-  assert.isFalse('A'.isLower());
-  assert.isFalse('1'.isLower());
+    assert.isTrue('a'.isLower());
+    assert.isFalse('A'.isLower());
+    assert.isFalse('1'.isLower());
 }
 
 test "char toLower lowercases a letter" {
-  assert.eq('A'.toLower(), 'a');
+    assert.eq('A'.toLower(), 'a');
 }
 
 test "char toLower leaves a non-letter alone" {
-  assert.eq('1'.toLower(), '1');
-  assert.eq('a'.toLower(), 'a');
+    assert.eq('1'.toLower(), '1');
+    assert.eq('a'.toLower(), 'a');
 }
 
 test "char toUpper uppercases a letter" {
-  assert.eq('a'.toUpper(), 'A');
+    assert.eq('a'.toUpper(), 'A');
 }
 
 test "char toUpper leaves a non-letter alone" {
-  assert.eq('1'.toUpper(), '1');
-  assert.eq('A'.toUpper(), 'A');
+    assert.eq('1'.toUpper(), '1');
+    assert.eq('A'.toUpper(), 'A');
 }
 
 test "toU32 yields the code point" {
-  assert.eq('A'.toU32(), 65);
-  assert.eq('a'.toU32(), 97);
+    assert.eq('A'.toU32(), 65);
+    assert.eq('a'.toU32(), 97);
 }
 
 test "toU32 of a non-BMP character is its scalar value" {
-  assert.eq('\u{1F600}'.toU32(), 128512);
+    assert.eq('😀'.toU32(), 128512);
 }
 
 test "toDigit reads a decimal digit" {
-  assert.eq(assert.some('7'.toDigit(10)), 7);
+    assert.eq(assert.some('7'.toDigit(10)), 7);
 }
 
 test "toDigit reads a hex digit" {
-  assert.eq(assert.some('f'.toDigit(16)), 15);
-  assert.eq(assert.some('F'.toDigit(16)), 15);
+    assert.eq(assert.some('f'.toDigit(16)), 15);
+    assert.eq(assert.some('F'.toDigit(16)), 15);
 }
 
 test "toDigit rejects a digit outside the radix" {
-  assert.none('9'.toDigit(8));
+    assert.none('9'.toDigit(8));
 }
 
 test "toDigit rejects a non-digit" {
-  assert.none('z'.toDigit(10));
+    assert.none('z'.toDigit(10));
 }
 
 test "toDigit reads a binary digit" {
-  assert.eq(assert.some('1'.toDigit(2)), 1);
-  assert.none('2'.toDigit(2));
+    assert.eq(assert.some('1'.toDigit(2)), 1);
+    assert.none('2'.toDigit(2));
 }
 
 // --- Char ordering and equality -----------------------------------------------
 
 test "chars compare by code point" {
-  assert.isTrue('a' < 'b');
-  assert.isTrue('A' < 'a');
-  assert.eq('a', 'a');
-  assert.notEq('a', 'b');
+    assert.isTrue('a' < 'b');
+    assert.isTrue('A' < 'a');
+    assert.eq('a', 'a');
+    assert.notEq('a', 'b');
 }
 
 test "order.char compares characters" {
-  assert.isTrue(order.char('a', 'b').isLess());
-  assert.isTrue(order.char('b', 'b').isEqual());
+    assert.isTrue(order.char('a', 'b').isLess());
+    assert.isTrue(order.char('b', 'b').isEqual());
 }
 
 // --- structural equality on strings -------------------------------------------
 
 test "two separately built strings with equal contents are equal" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq("abc", "ab".concat(ctx, "c"));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("abc", "ab".concat(ctx, "c"));
 }
 
 test "string equality is case sensitive" {
-  assert.notEq("abc", "ABC");
+    assert.notEq("abc", "ABC");
 }
 
 test "strings compare with the relational operators" {
-  assert.isTrue("apple" < "banana");
-  assert.isTrue("banana" > "apple");
-  assert.isTrue("a" <= "a");
-  assert.isTrue("a" >= "a");
+    assert.isTrue("apple" < "banana");
+    assert.isTrue("banana" > "apple");
+    assert.isTrue("a" <= "a");
+    assert.isTrue("a" >= "a");
 }

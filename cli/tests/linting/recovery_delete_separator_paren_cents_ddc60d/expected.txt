@@ -1,0 +1,7 @@
+error: a function parameter ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_paren_cents_ddc60d/lib.buri:19:29
+   |
+19 | export fn describe(l: Ledger m: Money): I64 {
+   |                             ^
+   |
+   = fix: write `,` here

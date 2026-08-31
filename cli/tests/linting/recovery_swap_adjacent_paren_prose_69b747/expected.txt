@@ -1,7 +1,7 @@
 error: expected a type, found `)` [unexpected-token]
  --> lib/recovery_swap_adjacent_paren_prose_69b747/lib.buri:1:23
   |
-1 | export fn shout(sStr :): Str { s }
+1 | export fn shout(sStr :): Str {
   |                       ^
   |
   = expected: a type

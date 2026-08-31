@@ -1,7 +1,0 @@
-error: a tuple element ends with `,` [missing-separator]
-  --> main.buri:49:52
-   |
-49 |   export fn parts(self): (I64, I64) { (self.0 / 100 self.0 % 100) }
-   |                                                    ^
-   |
-   = fix: write `,` here

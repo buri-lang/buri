@@ -1,7 +1,7 @@
 error: expected a type, found `)` [unexpected-token]
  --> lib/recovery_swap_adjacent_paren_cents_0da33a/lib.buri:1:33
   |
-1 | export fn markupCents(centsI64 :): I64 { cents + 5 }
+1 | export fn markupCents(centsI64 :): I64 {
   |                                 ^
   |
   = expected: a type

@@ -1,0 +1,21 @@
+error: expected `Bool`, found `I64` [type-mismatch]
+  --> main.buri:41:23
+   |
+41 |         let pad = if (rest 10 <) { "0" } else { "" };
+   |                       ^^^^ an `if` condition is `Bool`
+   |
+   = expected: `Bool`
+   = actual: `I64`
+   = fix: produce a `Bool` here, or change what surrounds it to accept a `I64`
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:41:28
+   |
+41 |         let pad = if (rest 10 <) { "0" } else { "" };
+   |                            ^^
+   |
+  --> main.buri:41:22
+   |
+41 |         let pad = if (rest 10 <) { "0" } else { "" };
+   |                      ^ opened here
+   |
+   = fix: write `)` here

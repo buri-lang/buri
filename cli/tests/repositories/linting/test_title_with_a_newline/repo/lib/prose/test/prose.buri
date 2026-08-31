@@ -4,13 +4,12 @@
 // newline in it still compiles and still runs.
 
 from "core/testing/assert" import * as assert;
-
 from "//lib/prose" import { shout };
 
 test "a title\nthat wraps" {
-  assert.eq(shout("hi"), "hi")
+    assert.eq(shout("hi"), "hi")
 }
 
 test "a title on one line" {
-  assert.eq(shout("ho"), "ho")
+    assert.eq(shout("ho"), "ho")
 }

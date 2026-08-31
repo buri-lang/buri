@@ -1,3 +1,5 @@
 from "//lib/widget" import { fromWidget };
 
-export fn viaright(): Str { fromWidget() }
+export fn viaright(): Str {
+    fromWidget()
+}

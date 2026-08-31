@@ -50,14 +50,14 @@ from "core/io" import * as io;
 from "ui/effect" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc: host.alloc,
-    Stdout: host.stdout,
-    Ui: host.ui,
-    Watch: host.watch,
-  };
-  let _ = io.println(ctx, "this program has no page to mount into").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    let _ = io.println(ctx, "this program has no page to mount into").ignore();
+    .Ok(())
 }
 ```
 

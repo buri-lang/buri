@@ -19,8 +19,8 @@ run {
 # above nineteen is another, so each half is a function that can be named.
 edit {
   file: "cmd/app/main.buri"
-  replace: "    20 => \"twenty\",\n    21 => \"twenty-one\",\n    22 => \"twenty-two\",\n    23 => \"twenty-three\",\n    24 => \"twenty-four\",\n    25 => \"twenty-five\",\n    26 => \"twenty-six\",\n    27 => \"twenty-seven\",\n    28 => \"twenty-eight\",\n    29 => \"twenty-nine\",\n    30 => \"thirty\",\n    31 => \"thirty-one\",\n    32 => \"thirty-two\",\n    33 => \"thirty-three\",\n    34 => \"thirty-four\",\n    35 => \"thirty-five\",\n    _ => \"many\",\n"
-  with: "    _ => beyondNineteen(n),\n"
+  replace: "        20 => \"twenty\",\n        21 => \"twenty-one\",\n        22 => \"twenty-two\",\n        23 => \"twenty-three\",\n        24 => \"twenty-four\",\n        25 => \"twenty-five\",\n        26 => \"twenty-six\",\n        27 => \"twenty-seven\",\n        28 => \"twenty-eight\",\n        29 => \"twenty-nine\",\n        30 => \"thirty\",\n        31 => \"thirty-one\",\n        32 => \"thirty-two\",\n        33 => \"thirty-three\",\n        34 => \"thirty-four\",\n        35 => \"thirty-five\",\n        _ => \"many\",\n"
+  with: "_ => beyondNineteen(n),\n"
 }
 
 edit {

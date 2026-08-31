@@ -1,0 +1,20 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_module_app_3ad5dc/main.buri:16:1
+   |
+16 | @ }
+   | ^
+   |
+  --> lib/recovery_insert_stray_module_app_3ad5dc/main.buri:10:35
+   |
+10 | export fn main(): Result<(), Str> {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here
+warning: `ctx` is bound to something other than a context [ctx-rebinding]
+  --> lib/recovery_insert_stray_module_app_3ad5dc/main.buri:19:5
+   |
+19 |     let ctx = "not a context";
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `ctx` is where a function's effects arrive, and a repository in which it means that everywhere is one where a reader can tell what a function may do by reading its signature
+   = fix: give the binding a name of its own

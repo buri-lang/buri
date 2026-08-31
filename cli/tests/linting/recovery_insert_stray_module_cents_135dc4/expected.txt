@@ -1,0 +1,23 @@
+error: there is no type `extra` [unresolved-type]
+  --> lib/recovery_insert_stray_module_cents_135dc4/lib.buri:17:14
+   |
+17 | type Money = extra Tally;
+   |              ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling
+error: a type alias ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_module_cents_135dc4/lib.buri:17:19
+   |
+17 | type Money = extra Tally;
+   |                   ^
+   |
+   = fix: write `;` here
+error: expected a declaration, found `Tally` [unexpected-token]
+  --> lib/recovery_insert_stray_module_cents_135dc4/lib.buri:17:20
+   |
+17 | type Money = extra Tally;
+   |                    ^^^^^
+   |
+   = expected: a declaration
+   = actual: `Tally`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

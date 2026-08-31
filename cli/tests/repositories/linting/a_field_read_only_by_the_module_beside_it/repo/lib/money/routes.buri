@@ -1,8 +1,8 @@
 from "//lib/money/cents.buri" import { Slip };
 
 export fn total(s: Slip): I64 {
-  match (s.issued) {
-    true => s.amount,
-    false => 0,
-  }
+    match (s.issued) {
+        true => s.amount,
+        false => 0,
+    }
 }

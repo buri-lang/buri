@@ -1,0 +1,9 @@
+error: expected `(`, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_brace_cents_a0f1b1/lib.buri:6:8
+  |
+6 |     if ? (n == 0) { "zero" } else { "some" }
+  |        ^
+  |
+  = expected: `(`
+  = actual: `?`
+  = fix: write `(` here

@@ -13,6 +13,7 @@
 // arrive through the two assignments the backend writes above the program,
 // which are the only references to either.
 from "core/effect" import { Alloc, Stdout };
+
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -25,41 +26,41 @@ from "ui/theme" import * as theme;
 from "ui/theme" import { Theme };
 
 enum Token {
-  Bg,
+    Bg,
 }
 
 impl Token {
-  fn color(self): Color {
-    match (self) {
-      .Bg => style.token("both", "bg"),
+    fn color(self): Color {
+        match (self) {
+            .Bg => style.token("both", "bg"),
+        }
     }
-  }
 }
 
 fn tokenThemed(f: fn(Token) => Color): Theme {
-  theme.themed([(Token.Bg.color(), f(.Bg))])
+    theme.themed([(Token.Bg.color(), f(.Bg))])
 }
 
 // Exhaustive over the vocabulary, which is the whole of the contract.
 fn light(t: Token): Color {
-  match (t) {
-    .Bg => .Rgb(255, 255, 255),
-  }
+    match (t) {
+        .Bg => .Rgb(255, 255, 255),
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc: host.alloc,
-    Stdout: host.stdout,
-    Ui: host.ui,
-    Watch: host.watch,
-  };
-  let width = signal(ctx, 40);
-  let _ = io.println(ctx, "both").ignore();
-  // The background folds to a class naming `var(--both-bg)`; the width cannot
-  // fold at all and is written on the element, every time the signal changes.
-  let page = ui.column([.Background(Token.Bg.color())], [
-    ui.row([.Computed(fn(scope) => [.Width(.Px(width.get(scope)))])], []),
-  ]);
-  ui.mount(ctx, page, [tokenThemed(light)])
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    let width = signal(ctx, 40);
+    let _ = io.println(ctx, "both").ignore();
+    // The background folds to a class naming `var(--both-bg)`; the width cannot
+    // fold at all and is written on the element, every time the signal changes.
+    let page = ui.column([.Background(Token.Bg.color())], [
+        ui.row([.Computed(fn(scope) => [.Width(.Px(width.get(scope)))])], []),
+    ]);
+    ui.mount(ctx, page, [tokenThemed(light)])
 }

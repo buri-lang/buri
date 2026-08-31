@@ -1,0 +1,17 @@
+error: expected `:`, found `entries` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_ca26b7/lib.buri:11:11
+   |
+11 |     extra entries: I64,
+   |           ^^^^^^^
+   |
+   = expected: `:`
+   = actual: `entries`
+   = fix: write `:` here
+warning: nothing uses `Tally` [unused-type]
+  --> lib/recovery_insert_stray_brace_cents_ca26b7/lib.buri:14:6
+   |
+14 | enum Tally {
+   |      ^^^^^
+   |
+   = a type nothing names, builds or matches is a shape the program does not have
+   = fix: delete it, or use it — a type meant to be published belongs on the library's surface

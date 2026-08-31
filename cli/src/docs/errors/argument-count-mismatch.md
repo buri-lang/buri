@@ -6,7 +6,7 @@ fix: pass exactly {expected}
 
 ```buri fail code=argument-count-mismatch
 fn go(): Int {
-  let f = fn(a: Int): Int => a;
-  f(1, 2)
+    let f = fn(a: Int): Int => a;
+    f(1, 2)
 }
 ```

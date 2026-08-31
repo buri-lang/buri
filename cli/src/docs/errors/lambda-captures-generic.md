@@ -39,6 +39,6 @@ fn(A) => B, g: fn(B) => C): fn(A) => C { fn(x) => g(f(x)) }` is fine.
 
 ```buri fail code=lambda-captures-generic
 fn hide<T>(x: T): fn() => T {
-  fn() => x
+    fn() => x
 }
 ```

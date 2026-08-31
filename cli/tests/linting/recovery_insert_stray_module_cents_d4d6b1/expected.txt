@@ -1,9 +1,0 @@
-error: expected an identifier, found `?` [unexpected-token]
- --> lib/recovery_insert_stray_module_cents_d4d6b1/lib.buri:3:8
-  |
-3 | derive ? Eq, Show for Cents;
-  |        ^
-  |
-  = expected: an identifier
-  = actual: `?`
-  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

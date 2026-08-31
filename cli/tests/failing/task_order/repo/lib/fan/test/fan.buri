@@ -8,13 +8,15 @@
 // fixed a typo in this comment.
 
 from "core/effect" import { Tasks };
-from "core/testing/assert" import * as assert;
 from "core/host/testing" import { task, tasks };
+from "core/testing/assert" import * as assert;
 from "//lib/fan" import { labelled };
 
 test "a seeded order names the seed that replays it" {
     let scheduler = tasks().seed(5);
-    let ctx = context { Tasks: scheduler };
+    let ctx = context {
+        Tasks: scheduler,
+    };
     // The results are in the items' order whatever order the work ran in, so
     // this is false — and the report under it says which order that was.
     assert.eq(labelled(ctx, [1, 2, 3]), [3, 2, 1]);
@@ -22,7 +24,9 @@ test "a seeded order names the seed that replays it" {
 
 test "an everyOrder run names which of the orders it is" {
     let scheduler = tasks().everyOrder();
-    let ctx = context { Tasks: scheduler };
+    let ctx = context {
+        Tasks: scheduler,
+    };
     let _ = labelled(ctx, [1, 2, 3]);
     // True on the first run, which is program order, and false on the second.
     // So the report is written by the second of the six runs and says so: the
@@ -33,7 +37,9 @@ test "an everyOrder run names which of the orders it is" {
 
 test "a faulted task carries the order too" {
     let scheduler = tasks().seed(5).faults([task(1).fails("upstream went away")]);
-    let ctx = context { Tasks: scheduler };
+    let ctx = context {
+        Tasks: scheduler,
+    };
     // The plan ends this block at task 1, which under `seed(5)` is the second
     // task to run rather than the second item. The failure has a message and no
     // rendered pair, and the order line is under it all the same: it is a fact

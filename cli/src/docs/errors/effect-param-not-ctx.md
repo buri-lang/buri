@@ -24,7 +24,8 @@ first two parameters, and a third spelling would cost it.
 ```buri fail code=effect-param-not-ctx
 # from "core/effect" import { Fs };
 # from "core/fs" import * as fs;
+
 fn sneaky<C: Fs>(a: Int, handle: C): Bool {
-  fs.exists(handle, "x")
+    fs.exists(handle, "x")
 }
 ```

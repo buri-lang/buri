@@ -1,0 +1,9 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> main.buri:12:31
+   |
+12 | derive Eq, Ord, Show for Cents, ;
+   |                               ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here

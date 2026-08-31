@@ -1,16 +1,18 @@
-from "//lib/money" import { fromCents, parse, ParseError };
 from "core/testing/assert" import * as assert;
+from "//lib/money" import { fromCents, parse, ParseError };
 
 test "parses dollars and cents" {
-  assert.eq(assert.ok(parse("19.05")), fromCents(1905));
+    assert.eq(assert.ok(parse("19.05")), fromCents(1905));
 }
 
 test "rejects text that is not a number" {
-  assert.eq(assert.err(parse("nineteen")), ParseError.NotANumber { text: "nineteen" });
+    assert.eq(assert.err(parse("nineteen")), ParseError.NotANumber {
+        text: "nineteen",
+    });
 }
 
 test "rejects amounts over the ceiling" {
-  assert.eq(assert.err(parse("9000000.00")), ParseError.TooLarge);
+    assert.eq(assert.err(parse("9000000.00")), ParseError.TooLarge);
 }
 
 // No context in this file at all: `parse` is pure, so there is nothing

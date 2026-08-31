@@ -41,20 +41,53 @@ writable:
 
 ```buri role=source
 # from "core/effect" import { Fs, IoError };
+
 struct ReadOnly<C>(C);
 
 impl<C: Fs> Fs for ReadOnly<C> {
-  fn readFile(self, path: Str): Result<Str, IoError> { self.0.readFile(path) }
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError> { .Err(.ReadOnly) }
-  fn fileExists(self, path: Str): Bool { self.0.fileExists(path) }
-  fn readDir(self, path: Str): Result<[Str], IoError> { self.0.readDir(path) }
-  fn readFileBytes(self, path: Str): Result<[U8], IoError> { self.0.readFileBytes(path) }
-  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> { .Err(.ReadOnly) }
-  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> { .Err(.ReadOnly) }
-  fn renameFile(self, source: Str, destination: Str): Result<(), IoError> { .Err(.ReadOnly) }
-  fn removeFile(self, path: Str): Result<(), IoError> { .Err(.ReadOnly) }
-  fn makeDir(self, path: Str): Result<(), IoError> { .Err(.ReadOnly) }
-  fn syncFile(self, path: Str): Result<(), IoError> { .Err(.ReadOnly) }
+    fn readFile(self, path: Str): Result<Str, IoError> {
+        self.0.readFile(path)
+    }
+
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
+        .Err(.ReadOnly)
+    }
+
+    fn fileExists(self, path: Str): Bool {
+        self.0.fileExists(path)
+    }
+
+    fn readDir(self, path: Str): Result<[Str], IoError> {
+        self.0.readDir(path)
+    }
+
+    fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+        self.0.readFileBytes(path)
+    }
+
+    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+        .Err(.ReadOnly)
+    }
+
+    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+        .Err(.ReadOnly)
+    }
+
+    fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+        .Err(.ReadOnly)
+    }
+
+    fn removeFile(self, path: Str): Result<(), IoError> {
+        .Err(.ReadOnly)
+    }
+
+    fn makeDir(self, path: Str): Result<(), IoError> {
+        .Err(.ReadOnly)
+    }
+
+    fn syncFile(self, path: Str): Result<(), IoError> {
+        .Err(.ReadOnly)
+    }
 }
 ```
 

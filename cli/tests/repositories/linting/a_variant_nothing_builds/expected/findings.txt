@@ -1,8 +1,8 @@
 warning: nothing constructs or matches `Step.Decrement` [unused-variant]
-  --> lib/money/steps.buri:13:3
+  --> lib/money/steps.buri:13:5
    |
-13 |   Decrement,
-   |   ^^^^^^^^^
+13 |     Decrement,
+   |     ^^^^^^^^^
    |
    = a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
    = fix: delete the variant, or construct it
@@ -27,10 +27,10 @@ warning: nothing constructs or matches `Step.Decrement` [unused-variant]
      value, and it puts a value into no case at all.
 
 warning: nothing constructs or matches `Step.Reset` [unused-variant]
-  --> lib/money/steps.buri:14:3
+  --> lib/money/steps.buri:14:5
    |
-14 |   Reset,
-   |   ^^^^^
+14 |     Reset,
+   |     ^^^^^
    |
    = a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
    = fix: delete the variant, or construct it

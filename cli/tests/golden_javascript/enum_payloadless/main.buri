@@ -4,22 +4,32 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-enum Colour { Red, Green, Blue, Cyan, Magenta, Yellow }
+enum Colour {
+    Red,
+    Green,
+    Blue,
+    Cyan,
+    Magenta,
+    Yellow,
+}
 
 fn name(c: Colour): Str {
-  match (c) {
-    .Red => "red",
-    .Green => "green",
-    .Blue => "blue",
-    .Cyan => "cyan",
-    .Magenta => "magenta",
-    .Yellow => "yellow",
-  }
+    match (c) {
+        .Red => "red",
+        .Green => "green",
+        .Blue => "blue",
+        .Cyan => "cyan",
+        .Magenta => "magenta",
+        .Yellow => "yellow",
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${name(Colour.Red)} ${name(Colour.Yellow)}").ignore();
-  let _ = io.println(ctx, "${name(Colour.Blue)} ${name(Colour.Magenta)}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "${name(Colour.Red)} ${name(Colour.Yellow)}").ignore();
+    let _ = io.println(ctx, "${name(Colour.Blue)} ${name(Colour.Magenta)}").ignore();
+    .Ok(())
 }

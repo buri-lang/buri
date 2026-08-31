@@ -1,0 +1,20 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_delete_closer_module_app_c36980/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_c36980/main.buri:14:1
+   |
+14 | export fn main(): Result<(), Str> {
+   | ^^^^^^
+   |
+  --> lib/recovery_delete_closer_module_app_c36980/main.buri:10:18
+   |
+10 | fn banner(): Str {
+   |                  ^ opened here
+   |
+   = fix: write `}` here

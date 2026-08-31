@@ -6,9 +6,9 @@ fix: write `.Variant` for a variant, or a lowerCamelCase name to bind the value
 ---
 ```buri fail code=unresolved-type-in-pattern
 fn describe(n: Int): Int {
-  match (n) {
-    Shape.Circle => 1,
-    _ => 0,
-  }
+    match (n) {
+        Shape.Circle => 1,
+        _ => 0,
+    }
 }
 ```

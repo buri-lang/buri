@@ -1,9 +1,12 @@
+derive Eq, Show for Cents;
 export struct Cents(I64);
 
-derive Eq, Show for Cents;
-
-export fn fromCents(c: I64): Cents { Cents(c) }
+export fn fromCents(c: I64): Cents {
+    Cents(c)
+}
 
 // The finding no editor is holding a buffer for. `workspace/diagnostic` is the
 // only request whose shape can report it.
-export fn double(c: Cents): Cents { "not a Cents" }
+export fn double(c: Cents): Cents {
+    "not a Cents"
+}

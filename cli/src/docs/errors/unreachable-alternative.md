@@ -33,12 +33,15 @@ reported branch by branch.
 ## A program that provokes it
 
 ```buri fail code=unreachable-alternative
-enum Hello { World, Now(Bool) }
+enum Hello {
+    World,
+    Now(Bool),
+}
 
 fn greeting(h: Hello): Str {
-  match (h) {
-    .Now(_) => "hello world",
-    .Now(_) | .World => "now",
-  }
+    match (h) {
+        .Now(_) => "hello world",
+        .Now(_) | .World => "now",
+    }
 }
 ```

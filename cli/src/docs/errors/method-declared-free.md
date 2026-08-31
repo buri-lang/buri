@@ -25,6 +25,6 @@ type to attach it to.
 
 ```buri fail code=method-declared-free use=errors
 fn perimeter(self): Int {
-  self.side * 4
+    self.side * 4
 }
 ```

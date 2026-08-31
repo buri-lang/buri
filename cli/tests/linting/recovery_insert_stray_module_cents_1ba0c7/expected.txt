@@ -1,0 +1,31 @@
+error: there is no type `Cents` [unresolved-type]
+ --> lib/recovery_insert_stray_module_cents_1ba0c7/lib.buri:1:21
+  |
+1 | derive Eq, Show for Cents;
+  |                     ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+error: expected `;`, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_module_cents_1ba0c7/lib.buri:2:32
+  |
+2 | export struct Cents(export I64), ;
+  |                                ^
+  |
+  = expected: `;`
+  = actual: `,`
+  = fix: write `;` here
+error: there is no type `Cents` [unresolved-type]
+ --> lib/recovery_insert_stray_module_cents_1ba0c7/lib.buri:4:30
+  |
+4 | export fn fromCents(c: I64): Cents {
+  |                              ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+error: there is nothing named `Cents` in scope [unresolved-name]
+ --> lib/recovery_insert_stray_module_cents_1ba0c7/lib.buri:5:5
+  |
+5 |     Cents(c)
+  |     ^^^^^
+  |
+  = did you mean `fromCents`?
+  = fix: correct the spelling, or declare it

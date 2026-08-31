@@ -5,10 +5,17 @@ fix: rename one of them
 ---
 
 ```buri fail code=duplicate-method
-struct Point { export x: Int }
+struct Point {
+    export x: Int,
+}
 
 impl Point {
-  fn size(self): Int { self.x }
-  fn size(self): Int { self.x }
+    fn size(self): Int {
+        self.x
+    }
+
+    fn size(self): Int {
+        self.x
+    }
 }
 ```

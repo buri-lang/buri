@@ -12,23 +12,25 @@ from "ui/signal" import { Signal, signal };
 from "ui/style" import { Color, Style };
 
 fn view<C: Ui>(ctx: C, count: Signal<Int>): Node<C> {
-  ui.column(
-    [.Gap(.Rem(0.5)), .Padding(.Rem(1.0)), .Background(.Rgb(240, 240, 245))],
-    [
-      ui.text(.Computed(fn(c) => "${count.get(c)}")),
-      ui.button(.Const("add one"), fn(c, e) => count.update(c, fn(n) => n + 1)),
-    ],
-  )
+    ui.column(
+        [.Gap(.Rem(0.5)), .Padding(.Rem(1.0)), .Background(.Rgb(240, 240, 245))],
+        [
+            ui.text(.Computed(fn(c) => "${count.get(c)}")),
+            ui.button(.Const("add one"), fn(c, e) => count.update(c, fn(n) => n + 1)),
+        ],
+    )
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc: host.alloc,
-    Stdout: host.stdout,
-    Ui: host.ui,
-    Watch: host.watch,
-  };
-  let count = signal(ctx, 0);
-  let _ = io.println(ctx, "mounted").mapErr(fn(_e) => "could not write to standard output")?;
-  ui.mount(ctx, view(ctx, count), [])
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    let count = signal(ctx, 0);
+    let _ = io
+        .println(ctx, "mounted")
+        .mapErr(fn(_e) => "could not write to standard output")?;
+    ui.mount(ctx, view(ctx, count), [])
 }

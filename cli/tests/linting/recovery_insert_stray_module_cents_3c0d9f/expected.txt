@@ -1,7 +1,0 @@
-error: an `if` is an operand, not the head of a `?` [postfix-on-a-block]
- --> lib/recovery_insert_stray_module_cents_3c0d9f/lib.buri:3:72
-  |
-3 | export fn format(n: I64): Str { if (n == 0) { "zero" } else { "some" } ? }
-  |                                                                        ^
-  |
-  = fix: parenthesise it, or bind it with `let` and go on from the name

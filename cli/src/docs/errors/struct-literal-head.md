@@ -25,12 +25,16 @@ arrives one phase later than it looks like it should.
 ## A program that provokes it
 
 ```buri fail code=struct-literal-head
-struct Holder { export a: Int }
+struct Holder {
+    export a: Int,
+}
 
-fn identity(n: Int): Int { n }
+fn identity(n: Int): Int {
+    n
+}
 
 fn build(): Int {
-  let h = identity(1) { a: 1 };
-  h.a
+    let h = identity(1) { a: 1 };
+    h.a
 }
 ```

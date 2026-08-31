@@ -1,2 +1,4 @@
 /// The first number there is.
-export fn one(): I64 { 1 }
+export fn one(): I64 {
+    1
+}

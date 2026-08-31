@@ -7,9 +7,9 @@ warning: str is imported but not used [unused-import]
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
   = fix: remove the import
 error: expected `Str`, found `Cents` [type-mismatch]
-  --> lib/money/cents.buri:12:35
+  --> lib/money/cents.buri:14:35
    |
-12 | export fn describe(c: Cents): Str {
+14 | export fn describe(c: Cents): Str {
    |                                   ^ the declared return type is `Str`
    |
    = expected: `Str`

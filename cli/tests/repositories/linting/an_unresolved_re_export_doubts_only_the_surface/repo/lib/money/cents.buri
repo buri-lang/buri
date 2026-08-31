@@ -9,12 +9,14 @@
 // of the text.
 
 export struct Ledger {
-  export entries: I64,
-  seal: Str,
+    export entries: I64,
+    seal: Str,
 }
 
 export fn ledger(entries: I64): Ledger {
-  Ledger { entries, seal: "" }
+    Ledger { entries, seal: "" }
 }
 
-export fn markupCents(cents: I64): I64 { cents + 5 }
+export fn markupCents(cents: I64): I64 {
+    cents + 5
+}

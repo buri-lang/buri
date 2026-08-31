@@ -6,9 +6,16 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-export fn total(): I64 { "not a number" }
+export fn total(): I64 {
+    "not a number"
+}
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  io.println(ctx, "total: ${total().show(ctx)}").mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io
+        .println(ctx, "total: ${total().show(ctx)}")
+        .mapErr(fn(_e) => "could not write to standard output")
 }

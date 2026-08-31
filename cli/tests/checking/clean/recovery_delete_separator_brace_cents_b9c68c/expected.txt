@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:41:53
+   |
+41 |         let pad = if (rest < 10) { "0" } else { "" }
+   |                                                     ^
+   |
+   = fix: write `;` here

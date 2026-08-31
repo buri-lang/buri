@@ -24,5 +24,7 @@ the declaration rather than at the first attempt to construct one.
 ## A program that provokes it
 
 ```buri fail code=uninhabited
-enum Endless { Node(Endless) }
+enum Endless {
+    Node(Endless),
+}
 ```

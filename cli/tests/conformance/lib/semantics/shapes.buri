@@ -6,23 +6,23 @@
 // prove its own implementation is the one that ran.
 
 from "core/effect" import {
-  Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Region, Request, Response, Sockets,
-  Stdout, Tasks,
+    Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Region, Request, Response,
+    Sockets, Stdout, Tasks,
 };
-
 from "core/fs" import * as fs;
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/num" import { Add, Div, Mul, Neg, Rem, Sub };
-from "core/order" import { Eq, Hash, Ord, Order, Show };
 from "core/order" import * as order;
+from "core/order" import { Eq, Hash, Ord, Order, Show };
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
-from "core/time" import { Instant };
 from "core/time" import * as time;
+from "core/time" import { Instant };
 
+derive Eq, Ord, Show, Hash for Version;
 // =============================================================================
 // 1. Derived traits — the structural fold over one type definition
 // =============================================================================
@@ -30,61 +30,54 @@ from "core/time" import * as time;
 /// Fields are in declaration order, which is the order a derived `Ord`
 /// compares them in. `major` decides before `minor`.
 export struct Version {
-  export major: Int,
-  export minor: Int,
-  export patch: Int,
+    export major: Int,
+    export minor: Int,
+    export patch: Int,
 }
-
-derive Eq, Ord, Show, Hash for Version;
 
 export fn version(major: Int, minor: Int, patch: Int): Version {
-  Version { major, minor, patch }
-}
-
-/// Variants are in declaration order, which is the order a derived `Ord`
-/// ranks them in: `Low < Medium < High`.
-export enum Level {
-  Low,
-  Medium,
-  High,
+    Version { major, minor, patch }
 }
 
 derive Eq, Ord, Show, Hash for Level;
-
-/// A three-shape enum with all three payload forms: tuple, record, and none.
-export enum Shape {
-  Circle(Float),
-  Rect { width: Float, height: Float },
-  Empty,
+/// Variants are in declaration order, which is the order a derived `Ord`
+/// ranks them in: `Low < Medium < High`.
+export enum Level {
+    Low,
+    Medium,
+    High,
 }
 
 derive Eq, Ord, Show for Shape;
-
-impl Shape {
-  export fn area(self): Float {
-    match (self) {
-      .Circle(r) => 3.141592653589793 * r * r,
-      .Rect { width, height } => width * height,
-      .Empty => 0.0,
-    }
-  }
+/// A three-shape enum with all three payload forms: tuple, record, and none.
+export enum Shape {
+    Circle(Float),
+    Rect { width: Float, height: Float },
+    Empty,
 }
 
+impl Shape {
+    export fn area(self): Float {
+        match (self) {
+            .Circle(r) => 3.141592653589793 * r * r,
+            .Rect { width, height } => width * height,
+            .Empty => 0.0,
+        }
+    }
+}
+
+derive Add, Sub, Ord, Eq, Show for Meters;
 // =============================================================================
 // 2. Newtypes with derived operator traits
 // =============================================================================
 
 export struct Meters(export F64);
 
-derive Add, Sub, Ord, Eq, Show for Meters;
-
+derive Add, Sub, Mul, Div, Rem, Ord, Eq, Show, Hash for Count;
 export struct Count(export Int);
 
-derive Add, Sub, Mul, Div, Rem, Ord, Eq, Show, Hash for Count;
-
-export struct Delta(export Int);
-
 derive Neg, Add, Eq, Show for Delta;
+export struct Delta(export Int);
 
 // =============================================================================
 // 3. Hand-written impls, deliberately not what `derive` would have produced
@@ -95,100 +88,100 @@ derive Neg, Add, Eq, Show for Delta;
 export struct Backwards(export Int);
 
 impl Eq for Backwards {
-  fn eq(self, other: Backwards): Bool {
-    self.0 == other.0
-  }
+    fn eq(self, other: Backwards): Bool {
+        self.0 == other.0
+    }
 }
 
 impl Ord for Backwards {
-  fn compare(self, other: Backwards): Order {
-    if (self.0 < other.0) {
-      Order.Greater
-    } else if (self.0 > other.0) {
-      Order.Less
-    } else {
-      Order.Equal
+    fn compare(self, other: Backwards): Order {
+        if (self.0 < other.0) {
+            Order.Greater
+        } else if (self.0 > other.0) {
+            Order.Less
+        } else {
+            Order.Equal
+        }
     }
-  }
 }
 
 impl Show for Backwards {
-  fn show<C: Alloc>(self, ctx: C): Str {
-    str.format(ctx, "Backwards(${self.0})")
-  }
+    fn show<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "Backwards(${self.0})")
+    }
 }
 
 /// Bridge order is Clubs < Diamonds < Hearts < Spades, but the variants are
 /// declared alphabetically-ish and deliberately not in that order — so a
 /// *derived* `Ord` would disagree with the hand-written one on every pair.
 export enum Suit {
-  Diamonds,
-  Clubs,
-  Spades,
-  Hearts,
+    Diamonds,
+    Clubs,
+    Spades,
+    Hearts,
 }
 
 impl Suit {
-  export fn rank(self): Int {
-    match (self) {
-      .Clubs => 0,
-      .Diamonds => 1,
-      .Hearts => 2,
-      .Spades => 3,
+    export fn rank(self): Int {
+        match (self) {
+            .Clubs => 0,
+            .Diamonds => 1,
+            .Hearts => 2,
+            .Spades => 3,
+        }
     }
-  }
 
-  /// Declaration index, so a test can say what a *derived* `Ord` would have done.
-  export fn declIndex(self): Int {
-    match (self) {
-      .Diamonds => 0,
-      .Clubs => 1,
-      .Spades => 2,
-      .Hearts => 3,
+    /// Declaration index, so a test can say what a *derived* `Ord` would have done.
+    export fn declIndex(self): Int {
+        match (self) {
+            .Diamonds => 0,
+            .Clubs => 1,
+            .Spades => 2,
+            .Hearts => 3,
+        }
     }
-  }
 }
 
 impl Eq for Suit {
-  fn eq(self, other: Suit): Bool {
-    self.rank() == other.rank()
-  }
+    fn eq(self, other: Suit): Bool {
+        self.rank() == other.rank()
+    }
 }
 
 impl Ord for Suit {
-  fn compare(self, other: Suit): Order {
-    order.int(self.rank(), other.rank())
-  }
+    fn compare(self, other: Suit): Order {
+        order.int(self.rank(), other.rank())
+    }
 }
 
 impl Show for Suit {
-  fn show<C: Alloc>(self, ctx: C): Str {
-    match (self) {
-      .Clubs => "C",
-      .Diamonds => "D",
-      .Hearts => "H",
-      .Spades => "S",
+    fn show<C: Alloc>(self, ctx: C): Str {
+        match (self) {
+            .Clubs => "C",
+            .Diamonds => "D",
+            .Hearts => "H",
+            .Spades => "S",
+        }
     }
-  }
 }
 
 /// A hand-written `Eq` need not be structural: this one is case-insensitive on
 /// its first field and ignores the second entirely.
 export struct Loose {
-  export word: Str,
-  export ignored: Int,
+    export word: Str,
+    export ignored: Int,
 }
 
 impl Eq for Loose {
-  fn eq(self, other: Loose): Bool {
-    self.word.len() == other.word.len()
-  }
+    fn eq(self, other: Loose): Bool {
+        self.word.len() == other.word.len()
+    }
 }
 
 impl Show for Loose {
-  fn show<C: Alloc>(self, ctx: C): Str {
-    str.format(ctx, "Loose(${self.word})")
-  }
+    fn show<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "Loose(${self.word})")
+    }
 }
 
 /// A hand-written `Add` on a newtype: saturating at 100 rather than wrapping,
@@ -196,22 +189,22 @@ impl Show for Loose {
 export struct Percent(export Int);
 
 impl Add for Percent {
-  fn add(self, other: Percent): Percent {
-    let raw = self.0 + other.0;
-    if (raw > 100) { Percent(100) } else { Percent(raw) }
-  }
+    fn add(self, other: Percent): Percent {
+        let raw = self.0 + other.0;
+        if (raw > 100) { Percent(100) } else { Percent(raw) }
+    }
 }
 
 impl Eq for Percent {
-  fn eq(self, other: Percent): Bool {
-    self.0 == other.0
-  }
+    fn eq(self, other: Percent): Bool {
+        self.0 == other.0
+    }
 }
 
 impl Show for Percent {
-  fn show<C: Alloc>(self, ctx: C): Str {
-    str.format(ctx, "${self.0}%")
-  }
+    fn show<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "${self.0}%")
+    }
 }
 
 // =============================================================================
@@ -219,47 +212,45 @@ impl Show for Percent {
 // =============================================================================
 
 export trait Weigh {
-  fn grams(self): Int;
+    fn grams(self): Int;
 }
 
 export trait Label {
-  fn label(self): Str;
-}
-
-export struct Brick {
-  export kilos: Int,
+    fn label(self): Str;
 }
 
 derive Eq, Show for Brick;
+export struct Brick {
+    export kilos: Int,
+}
 
 impl Weigh for Brick {
-  fn grams(self): Int {
-    self.kilos * 1000
-  }
+    fn grams(self): Int {
+        self.kilos * 1000
+    }
 }
 
 impl Label for Brick {
-  fn label(self): Str {
-    "brick"
-  }
-}
-
-export struct Feather {
-  export count: Int,
+    fn label(self): Str {
+        "brick"
+    }
 }
 
 derive Eq, Show for Feather;
+export struct Feather {
+    export count: Int,
+}
 
 impl Weigh for Feather {
-  fn grams(self): Int {
-    self.count
-  }
+    fn grams(self): Int {
+        self.count
+    }
 }
 
 impl Label for Feather {
-  fn label(self): Str {
-    "feather"
-  }
+    fn label(self): Str {
+        "feather"
+    }
 }
 
 /// A trait whose method hands the receiver back to a callback, written with
@@ -272,83 +263,85 @@ impl Label for Feather {
 /// no fields to read and no size to pass, which on a native backend is a
 /// zero-sized argument and a wrong answer rather than a refusal.
 export trait Relay {
-  fn relay(self, amount: Int, done: fn(Self, Int) => Int): Int;
-  fn base(self): Int;
-}
-
-export struct Scale {
-  export factor: Int,
+    fn relay(self, amount: Int, done: fn(Self, Int) => Int): Int;
+    fn base(self): Int;
 }
 
 derive Eq, Show for Scale;
-
-impl Relay for Scale {
-  fn relay(self, amount: Int, done: fn(Self, Int) => Int): Int {
-    done(self, amount * self.factor)
-  }
-
-  fn base(self): Int {
-    self.factor
-  }
+export struct Scale {
+    export factor: Int,
 }
 
-export struct Offset {
-  export by: Int,
+impl Relay for Scale {
+    fn relay(self, amount: Int, done: fn(Self, Int) => Int): Int {
+        done(self, amount * self.factor)
+    }
+
+    fn base(self): Int {
+        self.factor
+    }
 }
 
 derive Eq, Show for Offset;
+export struct Offset {
+    export by: Int,
+}
 
 impl Relay for Offset {
-  fn relay(self, amount: Int, done: fn(Self, Int) => Int): Int {
-    done(self, amount + self.by)
-  }
+    fn relay(self, amount: Int, done: fn(Self, Int) => Int): Int {
+        done(self, amount + self.by)
+    }
 
-  fn base(self): Int {
-    self.by
-  }
+    fn base(self): Int {
+        self.by
+    }
 }
 
 /// The callback reads a field of the receiver it was handed, which is what a
 /// zero-sized `Self` would get wrong rather than refuse.
 export fn relayScaled(s: Scale, amount: Int): Int {
-  s.relay(amount, fn(back, value) => value + back.factor)
+    s.relay(amount, fn(back, value) => value + back.factor)
 }
 
 /// The same call through a bound, where `Self` is the bound's type parameter
 /// and the callback reaches the trait again through the receiver it is given.
 export fn relayTwice<T: Relay>(x: T, amount: Int): Int {
-  x.relay(amount, fn(back, value) => back.relay(value, fn(last, v) => v + last.base()))
+    x.relay(amount, fn(back, value) => {
+        back.relay(value, fn(last, v) => v + last.base())
+    })
 }
 
 /// The callback applied once per element, so the closure crosses a list before
 /// it is called.
 export fn relayAll<C: Alloc>(ctx: C, xs: [Scale], amount: Int): [Int] {
-  xs.map(ctx, fn(s) => relayScaled(s, amount))
+    xs.map(ctx, fn(s) => relayScaled(s, amount))
 }
 
 /// A trait method called through a bound, from inside a lambda.
 export fn totalGrams<T: Weigh>(xs: [T]): Int {
-  xs.fold(fn(acc, x) => acc + x.grams(), 0)
+    xs.fold(fn(acc, x) => acc + x.grams(), 0)
 }
 
 export fn heaviest<T: Weigh>(xs: [T]): Option<T> {
-  xs.fold(
-    fn(best, x) => match (best) {
-      .None => .Some(x),
-      .Some(b) => if (x.grams() > b.grams()) { .Some(x) } else { .Some(b) },
-    },
-    .None,
-  )
+    xs.fold(
+        fn(best, x) => {
+            match (best) {
+                .None => .Some(x),
+                .Some(b) => if (x.grams() > b.grams()) { .Some(x) } else { .Some(b) },
+            }
+        },
+        .None,
+    )
 }
 
 /// Two bounds joined with `+`, both used.
 export fn heavyLabel<T: Weigh + Label>(x: T): Str {
-  if (x.grams() >= 1000) { x.label() } else { "light" }
+    if (x.grams() >= 1000) { x.label() } else { "light" }
 }
 
 /// A bound from `core/order` plus one of mine.
 export fn weighAndShow<T: Weigh + Show, C: Alloc>(ctx: C, x: T): Str {
-  str.format(ctx, "${x.show(ctx)}=${x.grams()}")
+    str.format(ctx, "${x.show(ctx)}=${x.grams()}")
 }
 
 // =============================================================================
@@ -356,124 +349,124 @@ export fn weighAndShow<T: Weigh + Show, C: Alloc>(ctx: C, x: T): Str {
 // =============================================================================
 
 export fn identity<T>(x: T): T {
-  x
+    x
 }
 
 export fn constant<A, B>(a: A, b: B): A {
-  a
+    a
 }
 
 export fn swap<A, B>(p: (A, B)): (B, A) {
-  (p.1, p.0)
+    (p.1, p.0)
 }
 
 export fn triple<A, B, D>(a: A, b: B, d: D): (A, B, D) {
-  (a, b, d)
+    (a, b, d)
 }
 
 /// The monomorphization test's subject: one body, two instantiations.
 export fn twice<T: Add>(x: T): T {
-  x + x
+    x + x
 }
 
 export fn largest<T: Ord>(xs: [T]): Option<T> {
-  xs.fold(
-    fn(best, x) => match (best) {
-      .None => .Some(x),
-      .Some(b) => if (x > b) { .Some(x) } else { .Some(b) },
-    },
-    .None,
-  )
+    xs.fold(
+        fn(best, x) => {
+            match (best) {
+                .None => .Some(x),
+                .Some(b) => if (x > b) { .Some(x) } else { .Some(b) },
+            }
+        },
+        .None,
+    )
 }
 
 export fn smallest<T: Ord>(xs: [T]): Option<T> {
-  xs.fold(
-    fn(best, x) => match (best) {
-      .None => .Some(x),
-      .Some(b) => if (x < b) { .Some(x) } else { .Some(b) },
-    },
-    .None,
-  )
+    xs.fold(
+        fn(best, x) => {
+            match (best) {
+                .None => .Some(x),
+                .Some(b) => if (x < b) { .Some(x) } else { .Some(b) },
+            }
+        },
+        .None,
+    )
 }
 
 export fn between<T: Ord>(lo: T, hi: T, x: T): Bool {
-  x >= lo && x <= hi
+    x >= lo && x <= hi
 }
 
 export fn showAll<T: Show, C: Alloc>(ctx: C, xs: [T]): Str {
-  xs.mapCtx(ctx, fn(c, x) => x.show(c)).join(ctx, ",")
+    xs.mapCtx(ctx, fn(c, x) => x.show(c)).join(ctx, ",")
 }
 
 export fn sortedShow<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str {
-  showAll(ctx, xs.sortBy(ctx, fn(a, b) => a.compare(b)))
+    showAll(ctx, xs.sortBy(ctx, fn(a, b) => a.compare(b)))
 }
 
+derive Eq, Show for Pair;
 // =============================================================================
 // 6. Generic structs and enums
 // =============================================================================
 
 export struct Pair<A, B> {
-  export first: A,
-  export second: B,
+    export first: A,
+    export second: B,
 }
 
-derive Eq, Show for Pair;
-
 export fn pair<A, B>(first: A, second: B): Pair<A, B> {
-  Pair { first, second }
+    Pair { first, second }
 }
 
 impl<A, B> Pair<A, B> {
-  export fn flip(self): Pair<B, A> {
-    Pair { first: self.second, second: self.first }
-  }
+    export fn flip(self): Pair<B, A> {
+        Pair { first: self.second, second: self.first }
+    }
 }
-
-export struct Boxed<T>(export T);
 
 derive Eq, Ord, Show for Boxed;
-
-export enum Slot<T> {
-  Filled(T),
-  Vacant,
-}
+export struct Boxed<T>(export T);
 
 derive Eq, Show for Slot;
-
-impl<T> Slot<T> {
-  export fn slotOr(self, fallback: T): T {
-    match (self) {
-      .Filled(v) => v,
-      .Vacant => fallback,
-    }
-  }
+export enum Slot<T> {
+    Filled(T),
+    Vacant,
 }
 
-export enum Either<L, R> {
-  Left(L),
-  Right(R),
+impl<T> Slot<T> {
+    export fn slotOr(self, fallback: T): T {
+        match (self) {
+            .Filled(v) => v,
+            .Vacant => fallback,
+        }
+    }
 }
 
 derive Eq, Show for Either;
-
-impl<L> Either<L, Int> {
-  export fn eitherInt(self): Int {
-    match (self) {
-      .Left(_l) => 0,
-      .Right(r) => r,
-    }
-  }
+export enum Either<L, R> {
+    Left(L),
+    Right(R),
 }
 
-// --- A recursive generic enum, with real recursion over it -------------------
-
-export enum Tree<T> {
-  Leaf,
-  Node(Tree<T>, T, Tree<T>),
+impl<L> Either<L, Int> {
+    export fn eitherInt(self): Int {
+        match (self) {
+            .Left(_l) => 0,
+            .Right(r) => r,
+        }
+    }
 }
 
 derive Eq, Show for Tree;
+// --- A recursive generic enum, with real recursion over it -------------------
 
+export enum Tree<T> {
+    Leaf,
+    Node(Tree<T>, T, Tree<T>),
+}
+
+derive Eq, Show for Rose;
 // A type that reaches itself *through a container* rather than directly.
 //
 // `Node(Tree<T>, T, Tree<T>)` above recurses immediately; this recurses through
@@ -484,90 +477,92 @@ derive Eq, Show for Tree;
 // a type parameter is undecidable at the declaration and takes a different
 // path through the checker.
 export enum Rose {
-  Leaf(Int),
-  Branch([Rose]),
+    Leaf(Int),
+    Branch([Rose]),
 }
 
-derive Eq, Show for Rose;
-
 export fn roseSum(r: Rose): Int {
-  match (r) {
-    .Leaf(n) => n,
-    .Branch(kids) => kids.fold(fn(acc, k) => acc + roseSum(k), 0),
-  }
+    match (r) {
+        .Leaf(n) => n,
+        .Branch(kids) => kids.fold(fn(acc, k) => acc + roseSum(k), 0),
+    }
 }
 
 impl<T: Ord> Tree<T> {
-  export fn insert(self, value: T): Tree<T> {
-    match (self) {
-      .Leaf => Tree.Node(Tree.Leaf, value, Tree.Leaf),
-      .Node(l, v, r) => if (value < v) {
-        Tree.Node(l.insert(value), v, r)
-      } else if (value > v) {
-        Tree.Node(l, v, r.insert(value))
-      } else {
-        Tree.Node(l, v, r)
-      },
+    export fn insert(self, value: T): Tree<T> {
+        match (self) {
+            .Leaf => Tree.Node(Tree.Leaf, value, Tree.Leaf),
+            .Node(l, v, r) => {
+                if (value < v) {
+                    Tree.Node(l.insert(value), v, r)
+                } else if (value > v) {
+                    Tree.Node(l, v, r.insert(value))
+                } else {
+                    Tree.Node(l, v, r)
+                }
+            },
+        }
     }
-  }
 }
 
 export fn treeOf<T: Ord>(xs: [T]): Tree<T> {
-  xs.fold(fn(acc, x) => acc.insert(x), Tree.Leaf)
+    xs.fold(fn(acc, x) => acc.insert(x), Tree.Leaf)
 }
 
 impl<T> Tree<T> {
-  export fn size(self): Int {
-    match (self) {
-      .Leaf => 0,
-      .Node(l, _v, r) => l.size() + 1 + r.size(),
+    export fn size(self): Int {
+        match (self) {
+            .Leaf => 0,
+            .Node(l, _v, r) => l.size() + 1 + r.size(),
+        }
     }
-  }
 
-  export fn depth(self): Int {
-    match (self) {
-      .Leaf => 0,
-      .Node(l, _v, r) => {
-        let dl = l.depth();
-        let dr = r.depth();
-        1 + if (dl > dr) { dl } else { dr }
-      },
+    export fn depth(self): Int {
+        match (self) {
+            .Leaf => 0,
+            .Node(l, _v, r) => {
+                let dl = l.depth();
+                let dr = r.depth();
+                1 + if (dl > dr) { dl } else { dr }
+            },
+        }
     }
-  }
 }
 
 impl<T: Ord> Tree<T> {
-  export fn has(self, needle: T): Bool {
-    match (self) {
-      .Leaf => false,
-      .Node(l, v, r) => if (needle < v) {
-        l.has(needle)
-      } else if (needle > v) {
-        r.has(needle)
-      } else {
-        true
-      },
+    export fn has(self, needle: T): Bool {
+        match (self) {
+            .Leaf => false,
+            .Node(l, v, r) => {
+                if (needle < v) {
+                    l.has(needle)
+                } else if (needle > v) {
+                    r.has(needle)
+                } else {
+                    true
+                }
+            },
+        }
     }
-  }
 }
 
 impl<T> Tree<T> {
-  /// In-order traversal, which is what makes the tree's ordering observable.
-  export fn inOrder<C: Alloc>(self, ctx: C): [T] {
-    match (self) {
-      .Leaf => list.empty<T>(),
-      .Node(l, v, r) => l.inOrder(ctx).push(ctx, v).concat(ctx, r.inOrder(ctx)),
+    /// In-order traversal, which is what makes the tree's ordering observable.
+    export fn inOrder<C: Alloc>(self, ctx: C): [T] {
+        match (self) {
+            .Leaf => list.empty<T>(),
+            .Node(l, v, r) => l.inOrder(ctx).push(ctx, v).concat(ctx, r.inOrder(ctx)),
+        }
     }
-  }
 }
 
 impl<A> Tree<A> {
-  export fn mapTree<B, C: Alloc>(self, ctx: C, f: fn(A) => B): Tree<B> {
-    match (self) {
-      .Leaf => Tree.Leaf,
-      .Node(l, v, r) => Tree.Node(l.mapTree(ctx, f), f(v), r.mapTree(ctx, f)),
+    export fn mapTree<B, C: Alloc>(self, ctx: C, f: fn(A) => B): Tree<B> {
+        match (self) {
+            .Leaf => Tree.Leaf,
+            .Node(l, v, r) => Tree.Node(l.mapTree(ctx, f), f(v), r.mapTree(ctx, f)),
+        }
     }
-  }
 }
 
 // =============================================================================
@@ -575,27 +570,27 @@ impl<A> Tree<A> {
 // =============================================================================
 
 export fn applyTwice<T>(f: fn(T) => T, x: T): T {
-  f(f(x))
+    f(f(x))
 }
 
 export fn makeAdder(n: Int): fn(Int) => Int {
-  fn(x) => x + n
+    fn(x) => x + n
 }
 
 export fn makeScaler(factor: Int): fn(Int) => Int {
-  fn(x) => x * factor
+    fn(x) => x * factor
 }
 
 export fn compose<A, B, D>(f: fn(A) => B, g: fn(B) => D): fn(A) => D {
-  fn(x) => g(f(x))
+    fn(x) => g(f(x))
 }
 
 export fn pipeline<T>(fs: [fn(T) => T], x: T): T {
-  fs.fold(fn(acc, f) => f(acc), x)
+    fs.fold(fn(acc, f) => f(acc), x)
 }
 
 export fn callWith<A, B>(f: fn(A) => B, x: A): B {
-  f(x)
+    f(x)
 }
 
 /// What a lambda may close over, at the edges of the capture rule (SPEC 10.6).
@@ -604,32 +599,34 @@ export fn callWith<A, B>(f: fn(A) => B, x: A): B {
 /// effect, so a lambda may capture the receiver — but `self` used to be marked
 /// effect-carrying whatever its type was, which made these two methods
 /// impossible to write.
-export struct Report { export n: Int }
+export struct Report {
+    export n: Int,
+}
 
 impl Report {
-  /// `self` inside a lambda that is consumed on the spot.
-  export fn above<C: Alloc>(self, ctx: C, xs: [Int]): [Int] {
-    xs.filter(ctx, fn(x) => x > self.n)
-  }
+    /// `self` inside a lambda that is consumed on the spot.
+    export fn above<C: Alloc>(self, ctx: C, xs: [Int]): [Int] {
+        xs.filter(ctx, fn(x) => x > self.n)
+    }
 
-  /// `self` inside a lambda that escapes. Still fine: what escapes is an
-  /// `Int`, and an `Int` is not authority.
-  export fn threshold(self): fn(Int) => Bool {
-    fn(x) => x > self.n
-  }
+    /// `self` inside a lambda that escapes. Still fine: what escapes is an
+    /// `Int`, and an `Int` is not authority.
+    export fn threshold(self): fn(Int) => Bool {
+        fn(x) => x > self.n
+    }
 }
 
 /// A lambda may capture a value whose type is a *bounded* type parameter. A
 /// type is either part of the world or part of your data (SPEC 10.1), so a
 /// `T: Eq` is never a context, and the capture rule has nothing to say.
 export fn occursIn<T: Eq>(xs: [T], needle: T): Bool {
-  xs.any(fn(x) => x == needle)
+    xs.any(fn(x) => x == needle)
 }
 
 /// And a closure may be captured whatever its type parameters are: a closure
 /// holds exactly what it captured, and that is what the capture rule checks.
 export fn composeThrice<T>(f: fn(T) => T): fn(T) => T {
-  fn(x) => f(f(f(x)))
+    fn(x) => f(f(f(x)))
 }
 
 // =============================================================================
@@ -637,15 +634,15 @@ export fn composeThrice<T>(f: fn(T) => T): fn(T) => T {
 // =============================================================================
 
 export fn sumFirstTwo(xs: [Int]): Option<Int> {
-  let a = xs.get(0)?;
-  let b = xs.get(1)?;
-  .Some(a + b)
+    let a = xs.get(0)?;
+    let b = xs.get(1)?;
+    .Some(a + b)
 }
 
 export fn parseSum(a: Str, b: Str): Result<Int, Str> {
-  let x = a.toInt().okOr("bad left")?;
-  let y = b.toInt().okOr("bad right")?;
-  .Ok(x + y)
+    let x = a.toInt().okOr("bad left")?;
+    let y = b.toInt().okOr("bad right")?;
+    .Ok(x + y)
 }
 
 /// `?` inside a lambda returns from the *lambda*, not from `lambdaTry`.
@@ -657,39 +654,39 @@ export fn parseSum(a: Str, b: Str): Result<Int, Str> {
 /// be an `Option` too or this does not typecheck, even though the `?` is
 /// governed by the lambda's annotated `Option<Int>`.
 export fn lambdaTry(xs: [Int]): Option<Int> {
-  let f = fn(ys: [Int]): Option<Int> => {
-    let h = ys.get(0)?;
-    let t = ys.get(1)?;
-    .Some(h * t)
-  };
-  .Some(f(xs) ?? -1)
+    let f = fn(ys: [Int]): Option<Int> => {
+        let h = ys.get(0)?;
+        let t = ys.get(1)?;
+        .Some(h * t)
+    };
+    .Some(f(xs) ?? -1)
 }
 
 /// `(x?) ?? y` — `??` is a single token, so the parentheses are what make this
 /// try-then-coalesce rather than a parse of `x ?? ?y`.
 export fn tryThenCoalesce(xs: [Int]): Option<Int> {
-  let f = fn(ys: [Int]): Option<Int> => {
-    let head = ys.get(0)?;
-    .Some((ys.get(1) ?? 0) + head)
-  };
-  f(xs)
+    let f = fn(ys: [Int]): Option<Int> => {
+        let head = ys.get(0)?;
+        .Some((ys.get(1) ?? 0) + head)
+    };
+    f(xs)
 }
 
 /// The same shape on `Result`.
 export fn lambdaTryResult(a: Str, b: Str): Result<Int, Str> {
-  let f = fn(s: Str): Result<Int, Str> => {
-    let n = s.toInt().okOr("nan")?;
-    .Ok(n * 2)
-  };
-  .Ok(f(a).withDefault(0) + f(b).withDefault(0))
+    let f = fn(s: Str): Result<Int, Str> => {
+        let n = s.toInt().okOr("nan")?;
+        .Ok(n * 2)
+    };
+    .Ok(f(a).withDefault(0) + f(b).withDefault(0))
 }
 
 export fn defaulted(o: Option<Int>): Int {
-  o ?? 99
+    o ?? 99
 }
 
 export fn defaultedResult(r: Result<Int, Str>): Int {
-  r ?? 77
+    r ?? 77
 }
 
 // =============================================================================
@@ -697,25 +694,25 @@ export fn defaultedResult(r: Result<Int, Str>): Int {
 // =============================================================================
 
 export fn hypotenuse(a: Float, b: Float): Float {
-  let a2 = a * a;
-  let b2 = b * b;
-  let sum = a2 + b2;
-  sum
+    let a2 = a * a;
+    let b2 = b * b;
+    let sum = a2 + b2;
+    sum
 }
 
 export fn shadowed(x: Int): Int {
-  let x = x + 1;
-  let x = x * 10;
-  let x = x - 3;
-  x
+    let x = x + 1;
+    let x = x * 10;
+    let x = x - 3;
+    x
 }
 
 export fn nestedShadow(x: Int): Int {
-  let inner = {
-    let x = 100;
-    x + 1
-  };
-  inner + x
+    let inner = {
+        let x = 100;
+        x + 1
+    };
+    inner + x
 }
 
 // =============================================================================
@@ -723,39 +720,46 @@ export fn nestedShadow(x: Int): Int {
 // =============================================================================
 
 export fn loadText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError> {
-  fs.readText(ctx, path)
+    fs.readText(ctx, path)
 }
 
 export fn saveText<C: Alloc + Fs>(ctx: C, path: Str, body: Str): Result<(), IoError> {
-  fs.writeText(ctx, path, body)
+    fs.writeText(ctx, path, body)
 }
 
 export fn roundTrip<C: Alloc + Fs>(ctx: C, path: Str, body: Str): Result<Str, IoError> {
-  let _ = fs.writeText(ctx, path, body)?;
-  fs.readText(ctx, path)
+    let _ = fs.writeText(ctx, path, body)?;
+    fs.readText(ctx, path)
 }
 
 export fn greet<C: Stdout>(ctx: C, name: Str): () {
-  io.println(ctx, "hello ${name}").ignore()
+    io.println(ctx, "hello ${name}").ignore()
 }
 
 export fn shout<C: Stdout>(ctx: C, parts: [Str]): () {
-  parts.foldCtx(ctx, fn(c, acc, p) => { let _ = io.print(c, "${p}").ignore(); acc }, ())
+    parts.foldCtx(
+        ctx,
+        fn(c, acc, p) => {
+            let _ = io.print(c, "${p}").ignore();
+            acc
+        },
+        (),
+    )
 }
 
 export fn stamp<C: Clock>(ctx: C): Instant {
-  time.now(ctx)
+    time.now(ctx)
 }
 
 export fn elapsed<C: Clock>(ctx: C, earlier: Instant): Int {
-  time.since(ctx, earlier)
+    time.since(ctx, earlier)
 }
 
 export fn fetchBody<C: Alloc + Net>(ctx: C, url: Str): Result<Str, NetError> {
-  match (http.get(ctx, url)) {
-    .Ok(r) => .Ok(http.bodyText(ctx, r.body).withDefault("")),
-    .Err(e) => .Err(e),
-  }
+    match (http.get(ctx, url)) {
+        .Ok(r) => .Ok(http.bodyText(ctx, r.body).withDefault("")),
+        .Err(e) => .Err(e),
+    }
 }
 
 // =============================================================================
@@ -771,45 +775,55 @@ export fn fetchBody<C: Alloc + Net>(ctx: C, url: Str): Result<Str, NetError> {
 /// fake refusing what it does not implement is the ordinary case, and the
 /// refusal is a value the caller can match on.
 export struct StaticFs {
-  export only: Str,
-  export body: Str,
+    export only: Str,
+    export body: Str,
 }
 
 impl Fs for StaticFs {
-  fn readFile(self, path: Str): Result<Str, IoError> {
-    if (path == self.only) { .Ok(self.body) } else { .Err(.NotFound) }
-  }
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
-    .Err(.PermissionDenied)
-  }
-  fn fileExists(self, path: Str): Bool {
-    path == self.only
-  }
-  fn readDir(self, path: Str): Result<[Str], IoError> {
-    .Ok([self.only])
-  }
-  fn readFileBytes(self, path: Str): Result<[U8], IoError> {
-    .Err(.PermissionDenied)
-  }
-  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
-    .Err(.PermissionDenied)
-  }
-  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
-    .Err(.PermissionDenied)
-  }
-  fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
-    .Err(.PermissionDenied)
-  }
-  fn removeFile(self, path: Str): Result<(), IoError> {
-    .Err(.PermissionDenied)
-  }
-  fn makeDir(self, path: Str): Result<(), IoError> {
-    .Err(.PermissionDenied)
-  }
-  /// Nothing is ever written, so the one path this holds is durable already.
-  fn syncFile(self, path: Str): Result<(), IoError> {
-    if (path == self.only) { .Ok(()) } else { .Err(.NotFound) }
-  }
+    fn readFile(self, path: Str): Result<Str, IoError> {
+        if (path == self.only) { .Ok(self.body) } else { .Err(.NotFound) }
+    }
+
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn fileExists(self, path: Str): Bool {
+        path == self.only
+    }
+
+    fn readDir(self, path: Str): Result<[Str], IoError> {
+        .Ok([self.only])
+    }
+
+    fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn removeFile(self, path: Str): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn makeDir(self, path: Str): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    /// Nothing is ever written, so the one path this holds is durable already.
+    fn syncFile(self, path: Str): Result<(), IoError> {
+        if (path == self.only) { .Ok(()) } else { .Err(.NotFound) }
+    }
 }
 
 /// Attenuation (SPEC 10.8): a wrapper that satisfies `Fs` only when what it
@@ -820,71 +834,83 @@ impl Fs for StaticFs {
 export struct Guarded<C>(export C);
 
 export fn guarded<C>(ctx: C): Guarded<C> {
-  Guarded(ctx)
+    Guarded(ctx)
 }
 
 impl<C: Fs> Fs for Guarded<C> {
-  fn readFile(self, path: Str): Result<Str, IoError> {
-    self.0.readFile(path)
-  }
-  fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
-    .Err(.Other("guarded"))
-  }
-  fn fileExists(self, path: Str): Bool {
-    self.0.fileExists(path)
-  }
-  fn readDir(self, path: Str): Result<[Str], IoError> {
-    self.0.readDir(path)
-  }
-  fn readFileBytes(self, path: Str): Result<[U8], IoError> {
-    self.0.readFileBytes(path)
-  }
-  fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
-    .Err(.Other("guarded"))
-  }
-  fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
-    .Err(.Other("guarded"))
-  }
-  fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
-    .Err(.Other("guarded"))
-  }
-  fn removeFile(self, path: Str): Result<(), IoError> {
-    .Err(.Other("guarded"))
-  }
-  fn makeDir(self, path: Str): Result<(), IoError> {
-    .Err(.Other("guarded"))
-  }
-  fn syncFile(self, path: Str): Result<(), IoError> {
-    self.0.syncFile(path)
-  }
+    fn readFile(self, path: Str): Result<Str, IoError> {
+        self.0.readFile(path)
+    }
+
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
+        .Err(.Other("guarded"))
+    }
+
+    fn fileExists(self, path: Str): Bool {
+        self.0.fileExists(path)
+    }
+
+    fn readDir(self, path: Str): Result<[Str], IoError> {
+        self.0.readDir(path)
+    }
+
+    fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+        self.0.readFileBytes(path)
+    }
+
+    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+        .Err(.Other("guarded"))
+    }
+
+    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+        .Err(.Other("guarded"))
+    }
+
+    fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+        .Err(.Other("guarded"))
+    }
+
+    fn removeFile(self, path: Str): Result<(), IoError> {
+        .Err(.Other("guarded"))
+    }
+
+    fn makeDir(self, path: Str): Result<(), IoError> {
+        .Err(.Other("guarded"))
+    }
+
+    fn syncFile(self, path: Str): Result<(), IoError> {
+        self.0.syncFile(path)
+    }
 }
 
 /// A clock frozen at whatever the test says.
 export struct FrozenClock {
-  export at: I64,
+    export at: I64,
 }
 
 impl Clock for FrozenClock {
-  fn nowMillis(self): I64 {
-    self.at
-  }
-  fn sleepMillis(self, millis: Int): () {
-    ()
-  }
+    fn nowMillis(self): I64 {
+        self.at
+    }
+
+    fn sleepMillis(self, millis: Int): () {
+        ()
+    }
 }
 
 /// An environment that answers every lookup with the same value.
 export struct EchoEnv {
-  export always: Str,
+    export always: Str,
 }
 
 impl Env for EchoEnv {
-  fn variable(self, name: Str): Option<Str> {
-    .Some(self.always)
-  }
-  fn args(self): [Str] {
-    [self.always]
-  }
+    fn variable(self, name: Str): Option<Str> {
+        .Some(self.always)
+    }
+
+    fn args(self): [Str] {
+        [self.always]
+    }
 }
 
 /// A network that answers everything with 418.
@@ -894,13 +920,13 @@ impl Env for EchoEnv {
 /// needs `Alloc`, and an effect method takes only `self`. A fake that wants to
 /// answer text is handed the bytes.
 export struct TeapotNet {
-  export body: [U8],
+    export body: [U8],
 }
 
 impl Net for TeapotNet {
-  fn fetch(self, request: Request): Result<Response, NetError> {
-    .Ok(Response { status: 418, headers: [], body: self.body })
-  }
+    fn fetch(self, request: Request): Result<Response, NetError> {
+        .Ok(Response { status: 418, headers: [], body: self.body })
+    }
 }
 
 /// A `Listen` that binds, serves nothing, and stops.
@@ -935,30 +961,32 @@ impl Net for TeapotNet {
 /// field of the implementation is a claim about *which type* arrived, not only
 /// about how many bytes it was.
 export struct OneShotListen {
-  export bindsTo: Str,
+    export bindsTo: Str,
 }
 
 impl Listen for OneShotListen {
-  fn listen(
-    self,
-    address: Str,
-    port: Int,
-    onRequest: fn(OneShotListen, Request) => Response,
-  ): Result<(), NetError> {
-    match (self.bindsTo) {
-      "" => .Err(.Refused),
-      _ => {
-        let reply = onRequest(
-          self,
-          Request { method: .Get, url: address, headers: [], body: [] },
-        );
-        match (reply.status) {
-          200 => .Ok(()),
-          _ => .Err(.Refused),
+    fn listen(
+        self,
+        address: Str,
+        port: Int,
+        onRequest: fn(OneShotListen, Request) => Response,
+    ): Result<(), NetError> {
+        match (self.bindsTo) {
+            "" => .Err(.Refused),
+            _ => {
+                let reply = onRequest(self, Request {
+                    method: .Get,
+                    url: address,
+                    headers: [],
+                    body: [],
+                });
+                match (reply.status) {
+                    200 => .Ok(()),
+                    _ => .Err(.Refused),
+                }
+            },
         }
-      },
     }
-  }
 }
 
 /// A `Sockets` that swallows everything.
@@ -972,15 +1000,17 @@ impl Listen for OneShotListen {
 export struct QuietSockets {}
 
 impl Sockets for QuietSockets {
-  fn socketSendText(self, socket: Int, text: Str): () {
-    ()
-  }
-  fn socketSendBytes(self, socket: Int, body: [U8]): () {
-    ()
-  }
-  fn socketClose(self, socket: Int, code: Int, reason: Str): () {
-    ()
-  }
+    fn socketSendText(self, socket: Int, text: Str): () {
+        ()
+    }
+
+    fn socketSendBytes(self, socket: Int, body: [U8]): () {
+        ()
+    }
+
+    fn socketClose(self, socket: Int, code: Int, reason: Str): () {
+        ()
+    }
 }
 
 /// Every method of the three effects a server binds together, reached through
@@ -1012,22 +1042,26 @@ impl Sockets for QuietSockets {
 /// that reads a field off the handler's first parameter calls `listen` on the
 /// context value itself, where the implementing type is in view.
 export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
-  let _ = server.sendText(ctx, 7, "opened");
-  let _ = server.sendBytes(ctx, 7, []);
-  let _ = server.close(ctx, 7, 1000, "done");
-  let fetched = match (http.send(ctx, Request { method: .Get, url: url, headers: [], body: [] })) {
-    .Ok(reply) => reply.status,
-    .Err(_) => 0,
-  };
-  let served = server.listen(ctx, "127.0.0.1", 0, fn(c, request) => Response {
-    status: if (request.url == "127.0.0.1") { 200 } else { 404 },
-    headers: [],
-    body: [],
-  });
-  match (served) {
-    .Ok(_) => fetched,
-    .Err(_) => 0 - fetched,
-  }
+    let _ = server.sendText(ctx, 7, "opened");
+    let _ = server.sendBytes(ctx, 7, []);
+    let _ = server.close(ctx, 7, 1000, "done");
+    let fetched = match (
+        http.send(ctx, Request { method: .Get, url: url, headers: [], body: [] })
+    ) {
+        .Ok(reply) => reply.status,
+        .Err(_) => 0,
+    };
+    let served = server.listen(ctx, "127.0.0.1", 0, fn(c, request) => {
+        Response {
+            status: if (request.url == "127.0.0.1") { 200 } else { 404 },
+            headers: [],
+            body: [],
+        }
+    });
+    match (served) {
+        .Ok(_) => fetched,
+        .Err(_) => 0 - fetched,
+    }
 }
 
 /// A `Tasks` that runs everything on the calling thread, in order.
@@ -1059,22 +1093,22 @@ export fn serveOnce<C: Listen + Net + Sockets>(ctx: C, url: Str): Int {
 /// so a reader of both would not survive being handed a differently shaped
 /// value by luck.
 export struct SerialTasks {
-  export label: Str,
-  export bias: Int,
+    export label: Str,
+    export bias: Int,
 }
 
 impl Tasks for SerialTasks {
-  // `ctx` is passed to every step, and `self` to none of them: the two are
-  // different values and this body is where the difference is visible, because
-  // it holds both at once.
-  fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B] {
-    match (items) {
-      [] => [],
-      [a] => [f(ctx, 0, a)],
-      [a, b] => [f(ctx, 0, a), f(ctx, 1, b)],
-      [a, b, c, ..] => [f(ctx, 0, a), f(ctx, 1, b), f(ctx, 2, c)],
+    // `ctx` is passed to every step, and `self` to none of them: the two are
+    // different values and this body is where the difference is visible, because
+    // it holds both at once.
+    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B] {
+        match (items) {
+            [] => [],
+            [a] => [f(ctx, 0, a)],
+            [a, b] => [f(ctx, 0, a), f(ctx, 1, b)],
+            [a, b, c, ..] => [f(ctx, 0, a), f(ctx, 1, b), f(ctx, 2, c)],
+        }
     }
-  }
 }
 
 /// `parallel` reached through a **bounded type parameter**, which is
@@ -1086,8 +1120,8 @@ impl Tasks for SerialTasks {
 /// used to lose: `Self` there was `C` until `C` was known, and the correction
 /// made at instantiation handed the step the implementation instead.
 export fn runInOrder<C: Alloc + Tasks>(ctx: C, items: [Int]): Int {
-  let out = tasks.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
-  (out[0] ?? 0) + (out[1] ?? 0)
+    let out = tasks.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
+    (out[0] ?? 0) + (out[1] ?? 0)
 }
 
 /// The same call, with the step **using** the context it is handed.
@@ -1099,7 +1133,7 @@ export fn runInOrder<C: Alloc + Tasks>(ctx: C, items: [Int]): Int {
 /// — a step's first parameter has the caller's bounds — and `test/effects.buri`
 /// runs it for the answer.
 export fn runInOrderNamed<C: Alloc + Tasks>(ctx: C, items: [Int]): [Str] {
-  tasks.parallel(ctx, items, fn(c, i, item) => str.format(c, "${i}:${item}"))
+    tasks.parallel(ctx, items, fn(c, i, item) => str.format(c, "${i}:${item}"))
 }
 
 // =============================================================================
@@ -1123,19 +1157,19 @@ export fn runInOrderNamed<C: Alloc + Tasks>(ctx: C, items: [Int]): [Str] {
 
 /// `list.push` — a table row whose context is its second argument.
 export fn pushedWith<C: Alloc>(ctx: C, item: Int, into: [Int]): [Int] {
-  into.push(ctx, item)
+    into.push(ctx, item)
 }
 
 /// `list.repeat` — a table row whose context is its **first**, so the two
 /// indices the column can take are both exercised.
 export fn repeatedWith<C: Alloc>(ctx: C, item: Int): [Int] {
-  list.repeat(ctx, item, 2)
+    list.repeat(ctx, item, 2)
 }
 
 /// `str.concat` — the one allocating operation with no table row, whose
 /// argument list is narrowed at the call site instead.
 export fn joinedWith<C: Alloc>(ctx: C, a: Str, b: Str): Str {
-  a.concat(ctx, b)
+    a.concat(ctx, b)
 }
 
 /// SPEC 10.8's attenuating wrapper: a plain struct that satisfies `Alloc` by
@@ -1145,69 +1179,70 @@ export fn joinedWith<C: Alloc>(ctx: C, a: Str, b: Str): Str {
 /// one holds a value that lacks every effect this type does not forward,
 /// whatever the caller's own context could do.
 export struct ReadOnly<C> {
-  export inner: C,
+    export inner: C,
 }
 
 impl<C: Alloc> Alloc for ReadOnly<C> {
-  fn allocate(self, bytes: Int): Region {
-    self.inner.allocate(bytes)
-  }
+    fn allocate(self, bytes: Int): Region {
+        self.inner.allocate(bytes)
+    }
 }
 
 /// An implementor carrying a **counted pointer**, so that the argument the C
 /// signature drops is one reference counting still has to balance — and two
 /// leaves rather than one, which is the width `ReadOnly` above does not reach.
 export struct Logged<C> {
-  export inner: C,
-  export prefix: Str,
+    export inner: C,
+    export prefix: Str,
 }
 
 impl<C: Alloc> Alloc for Logged<C> {
-  fn allocate(self, bytes: Int): Region {
-    self.inner.allocate(bytes)
-  }
+    fn allocate(self, bytes: Int): Region {
+        self.inner.allocate(bytes)
+    }
 }
 
 /// Builds one and uses it, so the wrapper is allocated *through* the very
 /// context it wraps and then stands in for it.
 export fn loggedWith<C: Alloc>(ctx: C, into: [Int]): [Int] {
-  let wrapped = Logged { inner: ctx, prefix: "ab".concat(ctx, "cd") };
-  into.push(wrapped, wrapped.prefix.len())
+    let wrapped = Logged { inner: ctx, prefix: "ab".concat(ctx, "cd") };
+    into.push(wrapped, wrapped.prefix.len())
 }
 
 /// One value satisfying **two** effects, which is what makes `C: Alloc + Clock`
 /// a different question from `C: Alloc`: the bound is a list, and a single
 /// implementing value discharges all of it.
 export struct Ticking<C> {
-  export inner: C,
+    export inner: C,
 }
 
 impl<C: Alloc> Alloc for Ticking<C> {
-  fn allocate(self, bytes: Int): Region {
-    self.inner.allocate(bytes)
-  }
+    fn allocate(self, bytes: Int): Region {
+        self.inner.allocate(bytes)
+    }
 }
 
 impl<C: Clock> Clock for Ticking<C> {
-  fn nowMillis(self): Int {
-    self.inner.nowMillis()
-  }
-  fn sleepMillis(self, millis: Int): () {
-    self.inner.sleepMillis(millis)
-  }
+    fn nowMillis(self): Int {
+        self.inner.nowMillis()
+    }
+
+    fn sleepMillis(self, millis: Int): () {
+        self.inner.sleepMillis(millis)
+    }
 }
 
 /// A `Ticking`. The two bounds live on the `impl`s above, not here: wrapping a
 /// context demands nothing of it, so this signature demands nothing either.
 /// `stampedWith` below is where `C: Alloc + Clock` is exercised.
 export fn ticking<C>(ctx: C): Ticking<C> {
-  Ticking { inner: ctx }
+    Ticking { inner: ctx }
 }
 
 /// Both bounds used through one parameter: the clock's answer, appended with
 /// the allocator's.
 export fn stampedWith<C: Alloc + Clock>(ctx: C, into: [Int]): [Int] {
-  into.push(ctx, time.now(ctx).0)
+    into.push(ctx, time.now(ctx).0)
 }
 
 // =============================================================================
@@ -1218,76 +1253,76 @@ export fn stampedWith<C: Alloc + Clock>(ctx: C, into: [Int]): [Int] {
 /// transcript back with `captured`, so the order in which the parts of an
 /// expression ran is an exact string.
 export fn note<C: Stdout>(ctx: C, mark: Str): () {
-  io.print(ctx, "${mark}").ignore()
+    io.print(ctx, "${mark}").ignore()
 }
 
 /// Appends `mark` and returns `value`, so an expression built out of these
 /// leaves an exact transcript of the order its parts ran in.
 export fn noteInt<C: Stdout>(ctx: C, mark: Str, value: Int): Int {
-  let _ = note(ctx, mark);
-  value
+    let _ = note(ctx, mark);
+    value
 }
 
 export fn noteBool<C: Stdout>(ctx: C, mark: Str, value: Bool): Bool {
-  let _ = note(ctx, mark);
-  value
+    let _ = note(ctx, mark);
+    value
 }
 
 export fn noteStr<C: Stdout>(ctx: C, mark: Str, value: Str): Str {
-  let _ = note(ctx, mark);
-  value
+    let _ = note(ctx, mark);
+    value
 }
 
 export fn noteOpt<T, C: Stdout>(ctx: C, mark: Str, value: Option<T>): Option<T> {
-  let _ = note(ctx, mark);
-  value
+    let _ = note(ctx, mark);
+    value
 }
 
 export fn noteRes<T, E, C: Stdout>(
-  ctx: C,
-  mark: Str,
-  value: Result<T, E>,
+    ctx: C,
+    mark: Str,
+    value: Result<T, E>,
 ): Result<T, E> {
-  let _ = note(ctx, mark);
-  value
+    let _ = note(ctx, mark);
+    value
 }
 
 /// An `if` whose condition and both branches are all instrumented.
 export fn noteIf<C: Stdout>(ctx: C, cond: Bool): Int {
-  if (noteBool(ctx, "c", cond)) { noteInt(ctx, "t", 1) } else { noteInt(ctx, "f", 2) }
+    if (noteBool(ctx, "c", cond)) { noteInt(ctx, "t", 1) } else { noteInt(ctx, "f", 2) }
 }
 
 /// A `match` whose scrutinee, guards and arms are all instrumented. Guards run
 /// only when their pattern matched, and arms are tried in order.
 export fn noteMatch<C: Stdout>(ctx: C, level: Level): Int {
-  match (noteLevel(ctx, "s", level)) {
-    .Low if noteBool(ctx, "g1", true) => noteInt(ctx, "a1", 1),
-    .Low => noteInt(ctx, "a0", 0),
-    .Medium if noteBool(ctx, "g2", false) => noteInt(ctx, "a2", 2),
-    .Medium => noteInt(ctx, "a3", 3),
-    .High => noteInt(ctx, "a4", 4),
-  }
+    match (noteLevel(ctx, "s", level)) {
+        .Low if noteBool(ctx, "g1", true) => noteInt(ctx, "a1", 1),
+        .Low => noteInt(ctx, "a0", 0),
+        .Medium if noteBool(ctx, "g2", false) => noteInt(ctx, "a2", 2),
+        .Medium => noteInt(ctx, "a3", 3),
+        .High => noteInt(ctx, "a4", 4),
+    }
 }
 
 export fn noteLevel<C: Stdout>(ctx: C, mark: Str, value: Level): Level {
-  let _ = note(ctx, mark);
-  value
+    let _ = note(ctx, mark);
+    value
 }
 
 /// `let` bindings run top to bottom, before the result expression.
 export fn noteLets<C: Stdout>(ctx: C): Int {
-  let a = noteInt(ctx, "1", 10);
-  let b = noteInt(ctx, "2", 20);
-  let c = noteInt(ctx, "3", 30);
-  noteInt(ctx, "4", a + b + c)
+    let a = noteInt(ctx, "1", 10);
+    let b = noteInt(ctx, "2", 20);
+    let c = noteInt(ctx, "3", 30);
+    noteInt(ctx, "4", a + b + c)
 }
 
 export fn threeInts(a: Int, b: Int, c: Int): Int {
-  a * 100 + b * 10 + c
+    a * 100 + b * 10 + c
 }
 
 export fn fourStrs<C: Alloc>(ctx: C, a: Str, b: Str, c: Str, d: Str): Str {
-  str.format(ctx, "${a}${b}${c}${d}")
+    str.format(ctx, "${a}${b}${c}${d}")
 }
 
 // =============================================================================
@@ -1300,9 +1335,9 @@ export fn fourStrs<C: Alloc>(ctx: C, a: Str, b: Str, c: Str, d: Str): Str {
 /// ordinary data even when `C` is bounded by an effect, for exactly the reason
 /// `fn(C, A) => B` is.
 export enum Widget<C> {
-  Label(Str),
-  Press(Str, fn(C, Int) => Str),
-  Group([Widget<C>]),
+    Label(Str),
+    Press(Str, fn(C, Int) => Str),
+    Group([Widget<C>]),
 }
 
 /// The shape a `mount` has: a bounded context *and* a tree over that same
@@ -1310,28 +1345,34 @@ export enum Widget<C> {
 /// fixpoint rather than a single pass — `Group([Widget<C>])` can only provide
 /// a `C` if `Widget` already does.
 export fn render<C: Alloc>(ctx: C, root: Widget<C>): Str {
-  match (root) {
-    .Label(text) => text,
-    .Press(label, press) => press(ctx, label.len()),
-    .Group(children) => children.mapCtx(ctx, fn(c, child) => render(c, child)).join(ctx, "+"),
-  }
+    match (root) {
+        .Label(text) => text,
+        .Press(label, press) => press(ctx, label.len()),
+        .Group(children) => {
+            children.mapCtx(ctx, fn(c, child) => render(c, child)).join(ctx, "+")
+        },
+    }
 }
 
 /// The shape a row closure has: a function whose *result* is a tree over the
 /// bounded context. A function type is judged by its result, so this was
 /// rejected for the same reason `render` was.
-export fn eachRow<C: Alloc, T>(ctx: C, items: [T], row: fn(C, T, Int) => Widget<C>): Str {
-  // `count` first: `[T]` is a type the lambda may not close over, because an
-  // unbounded `T` stands for a context type too (SPEC 10.6). An `Int` is not.
-  let count = items.len();
-  items.mapCtx(ctx, fn(c, item) => render(c, row(c, item, count))).join(ctx, ",")
+export fn eachRow<C: Alloc, T>(
+    ctx: C,
+    items: [T],
+    row: fn(C, T, Int) => Widget<C>,
+): Str {
+    // `count` first: `[T]` is a type the lambda may not close over, because an
+    // unbounded `T` stands for a context type too (SPEC 10.6). An `Int` is not.
+    let count = items.len();
+    items.mapCtx(ctx, fn(c, item) => render(c, row(c, item, count))).join(ctx, ",")
 }
 
 /// A pure component: no `ctx`, `C` unbounded, and it closes over a subtree.
 /// The capture rule rejected this too, and dropping the bound did not help —
 /// which is what made hoisting a subtree impossible in any component at all.
 export fn deferred<C>(header: Widget<C>): fn() => Widget<C> {
-  fn() => .Group([header])
+    fn() => .Group([header])
 }
 
 /// Phantom in `T`: it stores an index and never a `T`. So a lambda may capture
@@ -1339,22 +1380,21 @@ export fn deferred<C>(header: Widget<C>): fn() => Widget<C> {
 export struct Cell<T>(export Int);
 
 export fn cellIndex<T>(cell: Cell<T>): fn() => Int {
-  fn() => cell.0
+    fn() => cell.0
 }
 
+derive Eq, Show for Held;
 /// The other direction, so the rule is not mistaken for a weakening: `Held<T>`
 /// stores its `T`, so it does hand one back, and a lambda may capture it only
 /// under an ordinary bound. `cli/tests/reject/covariant_param_not_capturable`
 /// pins the unbounded form still failing; this pins the bounded form working.
 export enum Held<T> {
-  Value(T),
-  Empty,
+    Value(T),
+    Empty,
 }
 
-derive Eq, Show for Held;
-
 export fn heldTwice<T: Eq>(held: Held<T>): fn() => (Held<T>, Held<T>) {
-  fn() => (held, held)
+    fn() => (held, held)
 }
 
 // =============================================================================
@@ -1365,50 +1405,48 @@ export fn heldTwice<T: Eq>(held: Held<T>): fn() => (Held<T>, Held<T>) {
 /// declared `Option<Str>`, so it is elidable for the same reason.
 type Maybe = Option<Str>;
 
+derive Eq, Show, Hash for World;
 /// The four shapes elision has to answer for in one type: a required field, a
 /// plain `Option`, one reached through an alias, and a nested one.
 export struct World {
-  export hi: Str,
-  export hello: Option<Str>,
-  export aliased: Maybe,
-  export nested: Option<Option<Int>>,
+    export hi: Str,
+    export hello: Option<Str>,
+    export aliased: Maybe,
+    export nested: Option<Option<Int>>,
 }
 
-derive Eq, Show, Hash for World;
-
+derive Eq, Show for Holder;
 /// Elidability is a property of the declaration: `slot` is written `Option<T>`
 /// and may be left out at every instantiation, `only` is written `T` and may
 /// be left out at none — `Holder<Option<Int>>` included.
 export struct Holder<T> {
-  export only: T,
-  export slot: Option<T>,
+    export only: T,
+    export slot: Option<T>,
 }
-
-derive Eq, Show for Holder;
 
 /// Built inside the declaring module, so elision is exercised on both sides of
 /// the module boundary.
 export fn worldHere(): World {
-  World { hi: "hi" }
-}
-
-/// A private field that is also elidable. Visibility still decides where the
-/// type can be built: only this module writes the literal, elision or not.
-export struct Hidden {
-  export shown: Int,
-  private: Option<Int>,
+    World { hi: "hi" }
 }
 
 derive Eq, Show for Hidden;
+/// A private field that is also elidable. Visibility still decides where the
+/// type can be built: only this module writes the literal, elision or not.
+export struct Hidden {
+    export shown: Int,
+    private: Option<Int>,
+}
 
 export fn hidden(shown: Int): Hidden {
-  Hidden { shown }
+    Hidden { shown }
 }
 
 export fn hiddenPrivate(h: Hidden): Option<Int> {
-  h.private
+    h.private
 }
 
+derive Eq, Show for Wrap;
 // =============================================================================
 // 15. Literals that leave the type name out too (SPEC 5.6, 12.3)
 // =============================================================================
@@ -1416,30 +1454,28 @@ export fn hiddenPrivate(h: Hidden): Option<Int> {
 /// A struct whose field is a struct, so a literal can be anonymous inside
 /// another literal — the field's declared type is what names it.
 export struct Wrap {
-  export inner: World,
+    export inner: World,
 }
-
-derive Eq, Show for Wrap;
 
 /// A parameter is one of the places an expected type comes from, and this is
 /// the one that reaches a literal through a call rather than an annotation.
 export fn takesWorld(w: World): Str {
-  w.hi
+    w.hi
 }
 
 /// Written inside the declaring module, so the anonymous form is exercised on
 /// both sides of the module boundary like the headed one.
 export fn anonHere(): World {
-  { hi: "hi" }
+    { hi: "hi" }
 }
 
 /// A match arm's value is checked against the arm type, so the anonymous form
 /// reaches it the same way a `let` annotation does.
 export fn anonMatch(b: Bool): World {
-  match (b) {
-    true => { hi: "yes" },
-    false => { hi: "no" },
-  }
+    match (b) {
+        true => { hi: "yes" },
+        false => { hi: "no" },
+    }
 }
 
 /// A type with a private field can still be built anonymously — by the module
@@ -1450,5 +1486,5 @@ export fn anonMatch(b: Bool): World {
 /// the grammar these braces are a literal and not a block whose result is the
 /// parameter (SPEC 12.3).
 export fn anonHidden(shown: Int): Hidden {
-  { shown: shown }
+    { shown: shown }
 }

@@ -1,9 +1,0 @@
-error: expected `(`, found `?` [unexpected-token]
- --> lib/recovery_insert_stray_brace_cents_a40816/lib.buri:3:36
-  |
-3 | export fn format(n: I64): Str { if ? (n == 0) { "zero" } else { "some" } }
-  |                                    ^
-  |
-  = expected: `(`
-  = actual: `?`
-  = fix: write `(` here

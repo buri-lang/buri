@@ -3,4 +3,5 @@
 // else's business.
 
 from "//lib/ledger/entry.buri" export { Entry, entry, total }
-from "//lib/ledger/posting/rules.buri" export { Rule, apply };
+
+from "//lib/ledger/posting/rules.buri" export { apply, Rule };

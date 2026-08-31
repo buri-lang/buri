@@ -371,9 +371,12 @@ who wrote the edge that pulled the code in.
   ```buri repo=cli/tests/example
   # from "core/effect" import { Alloc };
   from "//lib/ledger" import { Entry };
+
   // `amount` is a Cents from //lib/money, and `format` is one of its methods —
   // no import names //lib/money, and this target still depends on it.
-  fn line<C: Alloc>(ctx: C, e: Entry): Str { e.amount.format(ctx) }
+  fn line<C: Alloc>(ctx: C, e: Entry): Str {
+      e.amount.format(ctx)
+  }
   ```
 
   requires `//lib/money` in `dependencies` as much as an import would.

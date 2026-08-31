@@ -1,0 +1,17 @@
+error: expected an identifier, found a string literal [unexpected-token]
+  --> main.buri:41:36
+   |
+41 |         let pad = ( ifrest < 10) { "0" } else { "" };
+   |                                    ^^^
+   |
+   = expected: an identifier
+   = actual: a string literal
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is nothing named `pad` in scope [unresolved-name]
+  --> main.buri:42:39
+   |
+42 |         str.format(ctx, "\$${whole}.${pad}${rest}")
+   |                                       ^^^
+   |
+   = did you mean `Add`?
+   = fix: correct the spelling, or declare it

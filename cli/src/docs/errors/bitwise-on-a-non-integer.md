@@ -4,5 +4,7 @@ message: '`{operator}` is defined on integers, not `{type}`'
 ---
 
 ```buri fail code=bitwise-on-a-non-integer
-fn go(b: Bool): Bool { ~b }
+fn go(b: Bool): Bool {
+    ~b
+}
 ```

@@ -1,0 +1,31 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_insert_stray_paren_app_de94bb/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: `println` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> lib/recovery_insert_stray_paren_app_de94bb/main.buri:19:5
+   |
+19 |     io.println(ctx, extra banner()).mapErr(fn(_e) => "could not write to standard output")
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_app_de94bb/main.buri:19:21
+   |
+19 |     io.println(ctx, extra banner()).mapErr(fn(_e) => "could not write to standard output")
+   |                     ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_paren_app_de94bb/main.buri:19:26
+   |
+19 |     io.println(ctx, extra banner()).mapErr(fn(_e) => "could not write to standard output")
+   |                          ^
+   |
+   = fix: write `,` here

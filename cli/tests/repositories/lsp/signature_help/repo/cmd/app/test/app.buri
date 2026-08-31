@@ -1,7 +1,7 @@
-from "//lib/shop/testing" import { sampleItem };
-from "//lib/shop" import { subtotal };
 from "core/testing/assert" import * as assert;
+from "//lib/shop" import { subtotal };
+from "//lib/shop/testing" import { sampleItem };
 
 test "one sample item is worth nothing until it is stocked" {
-  assert.eq(subtotal([sampleItem()]), 0);
+    assert.eq(subtotal([sampleItem()]), 0);
 }

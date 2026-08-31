@@ -1,7 +1,7 @@
 error: expected a declaration, found `shout` [unexpected-token]
  --> lib/recovery_swap_adjacent_module_prose_064d50/lib.buri:1:8
   |
-1 | export shout fn(s: Str): Str { s }
+1 | export shout fn(s: Str): Str {
   |        ^^^^^
   |
   = expected: a declaration
@@ -10,7 +10,7 @@ error: expected a declaration, found `shout` [unexpected-token]
 error: expected an identifier, found `(` [unexpected-token]
  --> lib/recovery_swap_adjacent_module_prose_064d50/lib.buri:1:16
   |
-1 | export shout fn(s: Str): Str { s }
+1 | export shout fn(s: Str): Str {
   |                ^
   |
   = expected: an identifier

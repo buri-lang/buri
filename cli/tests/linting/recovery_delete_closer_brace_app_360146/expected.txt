@@ -1,0 +1,34 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_delete_closer_brace_app_360146/main.buri:16:20
+   |
+16 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: a `Result` may not be discarded [result-discarded]
+  --> lib/recovery_delete_closer_brace_app_360146/main.buri:44:5
+   |
+44 |     let _ = announce(ctx, label.mapErr(fn(_e) => {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
+error: `Str` has no method `mapErr` [no-such-method]
+  --> lib/recovery_delete_closer_brace_app_360146/main.buri:44:33
+   |
+44 |     let _ = announce(ctx, label.mapErr(fn(_e) => {
+   |                                 ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_360146/main.buri:46:8
+   |
+46 |     })?;
+   |        ^
+   |
+  --> lib/recovery_delete_closer_brace_app_360146/main.buri:44:21
+   |
+44 |     let _ = announce(ctx, label.mapErr(fn(_e) => {
+   |                     ^ opened here
+   |
+   = fix: write `)` here

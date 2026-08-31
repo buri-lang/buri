@@ -1,9 +1,9 @@
-error: expected a declaration, found `?` [unexpected-token]
+error: expected an identifier, found `?` [unexpected-token]
  --> lib/recovery_insert_stray_module_cents_6db73c/lib.buri:1:8
   |
-1 | export ? struct Cents(export I64);
+1 | derive ? Eq, Show for Cents;
   |        ^
   |
-  = expected: a declaration
+  = expected: an identifier
   = actual: `?`
-  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

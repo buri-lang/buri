@@ -22,5 +22,7 @@ there is none for it to stand for.
 ## A program that provokes it
 
 ```buri fail code=self-type-outside-impl
-fn identity(x: Int): Self { x }
+fn identity(x: Int): Self {
+    x
+}
 ```

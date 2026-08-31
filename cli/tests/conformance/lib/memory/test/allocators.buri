@@ -12,159 +12,183 @@
 // both backends. See `core/alloc`'s module comment for why, and for what would
 // have to change on both backends at once to widen it.
 
-from "core/alloc" import { Stats };
 from "core/alloc" import * as alloc;
+from "core/alloc" import { Stats };
 from "core/effect" import { Alloc };
 from "core/testing/assert" import * as assert;
 
 // --- The model, as arithmetic ------------------------------------------------------
 
 test "the header is sixteen bytes and a view is free" {
-  assert.eq(alloc.HEADER_BYTES, 16);
-  assert.eq(alloc.VIEW_BYTES, 0);
+    assert.eq(alloc.HEADER_BYTES, 16);
+    assert.eq(alloc.VIEW_BYTES, 0);
 }
 
 test "a string charges its UTF-8 bytes plus the header" {
-  assert.eq(alloc.strBytes(0), 16);
-  assert.eq(alloc.strBytes(7), 23);
-  assert.eq(alloc.strBytes(5), 21);
+    assert.eq(alloc.strBytes(0), 16);
+    assert.eq(alloc.strBytes(7), 23);
+    assert.eq(alloc.strBytes(5), 21);
 }
 
 test "a list charges its stride times its length plus the header" {
-  // `[I64]` of ten, `[Str]` of three, `[(I32, I32)]` of four, `[()]` of a
-  // thousand — `middle::layout`'s strides, and its numbers.
-  assert.eq(alloc.listBytes(10, 8), 96);
-  assert.eq(alloc.listBytes(3, 24), 88);
-  assert.eq(alloc.listBytes(4, 16), 80);
-  assert.eq(alloc.listBytes(1000, 0), 16);
+    // `[I64]` of ten, `[Str]` of three, `[(I32, I32)]` of four, `[()]` of a
+    // thousand — `middle::layout`'s strides, and its numbers.
+    assert.eq(alloc.listBytes(10, 8), 96);
+    assert.eq(alloc.listBytes(3, 24), 88);
+    assert.eq(alloc.listBytes(4, 16), 80);
+    assert.eq(alloc.listBytes(1000, 0), 16);
 }
 
 test "a closure environment charges its record" {
-  assert.eq(alloc.closureBytes(0), 16);
-  assert.eq(alloc.closureBytes(16), 32);
-  assert.eq(alloc.closureBytes(24), 40);
+    assert.eq(alloc.closureBytes(0), 16);
+    assert.eq(alloc.closureBytes(16), 32);
+    assert.eq(alloc.closureBytes(24), 40);
 }
 
 // --- GeneralPurpose ----------------------------------------------------------------
 
 test "a general-purpose allocator counts every request" {
-  let gp = alloc.generalPurpose();
-  let ctx = context { Alloc: gp };
-  let _ = alloc.allocate(ctx, 64);
-  let _ = alloc.allocate(ctx, alloc.strBytes(5));
-  assert.eq(gp.stats().allocations, 2);
-  assert.eq(gp.stats().bytes, 85);
+    let gp = alloc.generalPurpose();
+    let ctx = context {
+        Alloc: gp,
+    };
+    let _ = alloc.allocate(ctx, 64);
+    let _ = alloc.allocate(ctx, alloc.strBytes(5));
+    assert.eq(gp.stats().allocations, 2);
+    assert.eq(gp.stats().bytes, 85);
 }
 
 test "a request for nothing is still a request" {
-  let gp = alloc.generalPurpose();
-  let ctx = context { Alloc: gp };
-  let _ = alloc.allocate(ctx, 0);
-  assert.eq(gp.stats().allocations, 1);
-  assert.eq(gp.stats().bytes, 0);
+    let gp = alloc.generalPurpose();
+    let ctx = context {
+        Alloc: gp,
+    };
+    let _ = alloc.allocate(ctx, 0);
+    assert.eq(gp.stats().allocations, 1);
+    assert.eq(gp.stats().bytes, 0);
 }
 
 test "a fresh allocator starts at zero" {
-  let gp = alloc.generalPurpose();
-  assert.eq(gp.stats().allocations, 0);
-  assert.eq(gp.stats().bytes, 0);
+    let gp = alloc.generalPurpose();
+    assert.eq(gp.stats().allocations, 0);
+    assert.eq(gp.stats().bytes, 0);
 }
 
 test "two general-purpose allocators count separately" {
-  let a = alloc.generalPurpose();
-  let b = alloc.generalPurpose();
-  let first = context { Alloc: a };
-  let second = context { Alloc: b };
-  let _ = alloc.allocate(first, 10);
-  let _ = alloc.allocate(second, 20);
-  let _ = alloc.allocate(second, 2);
-  assert.eq(a.stats().allocations, 1);
-  assert.eq(a.stats().bytes, 10);
-  assert.eq(b.stats().allocations, 2);
-  assert.eq(b.stats().bytes, 22);
+    let a = alloc.generalPurpose();
+    let b = alloc.generalPurpose();
+    let first = context {
+        Alloc: a,
+    };
+    let second = context {
+        Alloc: b,
+    };
+    let _ = alloc.allocate(first, 10);
+    let _ = alloc.allocate(second, 20);
+    let _ = alloc.allocate(second, 2);
+    assert.eq(a.stats().allocations, 1);
+    assert.eq(a.stats().bytes, 10);
+    assert.eq(b.stats().allocations, 2);
+    assert.eq(b.stats().bytes, 22);
 }
 
 test "stats are a value, and compare as one" {
-  let gp = alloc.generalPurpose();
-  let ctx = context { Alloc: gp };
-  let _ = alloc.allocate(ctx, 16);
-  assert.eq(gp.stats(), Stats { allocations: 1, bytes: 16 });
-  assert.notEq(gp.stats(), Stats { allocations: 1, bytes: 17 });
+    let gp = alloc.generalPurpose();
+    let ctx = context {
+        Alloc: gp,
+    };
+    let _ = alloc.allocate(ctx, 16);
+    assert.eq(gp.stats(), Stats { allocations: 1, bytes: 16 });
+    assert.notEq(gp.stats(), Stats { allocations: 1, bytes: 17 });
 }
 
 test "stats render" {
-  // `Show` is on `Stats` rather than on the allocators, because SPEC 10.1 says
-  // no type may implement both an effect and a trait — an allocator satisfies
-  // `Alloc`, so it can satisfy nothing else.
-  let gp = alloc.generalPurpose();
-  let ctx = context { Alloc: gp };
-  let _ = alloc.allocate(ctx, 16);
-  assert.eq(gp.stats().show(ctx), "Stats { allocations: 1, bytes: 16 }");
+    // `Show` is on `Stats` rather than on the allocators, because SPEC 10.1 says
+    // no type may implement both an effect and a trait — an allocator satisfies
+    // `Alloc`, so it can satisfy nothing else.
+    let gp = alloc.generalPurpose();
+    let ctx = context {
+        Alloc: gp,
+    };
+    let _ = alloc.allocate(ctx, 16);
+    assert.eq(gp.stats().show(ctx), "Stats { allocations: 1, bytes: 16 }");
 }
 
 // --- Arena -------------------------------------------------------------------------
 
 test "an arena counts what was charged since it was made" {
-  let a = alloc.arena();
-  let ctx = context { Alloc: a };
-  let _ = alloc.allocate(ctx, alloc.listBytes(4, 8));
-  let _ = alloc.allocate(ctx, alloc.strBytes(3));
-  assert.eq(a.stats().allocations, 2);
-  assert.eq(a.stats().bytes, 67);
+    let a = alloc.arena();
+    let ctx = context {
+        Alloc: a,
+    };
+    let _ = alloc.allocate(ctx, alloc.listBytes(4, 8));
+    let _ = alloc.allocate(ctx, alloc.strBytes(3));
+    assert.eq(a.stats().allocations, 2);
+    assert.eq(a.stats().bytes, 67);
 }
 
 test "an arena per phase attributes without subtracting" {
-  let parse = alloc.arena();
-  let check = alloc.arena();
-  let parsing = context { Alloc: parse };
-  let checking = context { Alloc: check };
-  let _ = alloc.allocate(parsing, 100);
-  let _ = alloc.allocate(checking, 7);
-  let _ = alloc.allocate(parsing, 1);
-  assert.eq(parse.stats().bytes, 101);
-  assert.eq(check.stats().bytes, 7);
+    let parse = alloc.arena();
+    let check = alloc.arena();
+    let parsing = context {
+        Alloc: parse,
+    };
+    let checking = context {
+        Alloc: check,
+    };
+    let _ = alloc.allocate(parsing, 100);
+    let _ = alloc.allocate(checking, 7);
+    let _ = alloc.allocate(parsing, 1);
+    assert.eq(parse.stats().bytes, 101);
+    assert.eq(check.stats().bytes, 7);
 }
 
 // --- FixedBuffer -------------------------------------------------------------------
 
 test "a fixed buffer reports its budget and what is left of it" {
-  let buffer = alloc.fixedBuffer(64);
-  let ctx = context { Alloc: buffer };
-  assert.eq(buffer.budget, 64);
-  assert.eq(buffer.remaining(), 64);
-  let _ = alloc.allocate(ctx, 24);
-  assert.eq(buffer.remaining(), 40);
-  assert.eq(buffer.stats().allocations, 1);
-  assert.eq(buffer.stats().bytes, 24);
+    let buffer = alloc.fixedBuffer(64);
+    let ctx = context {
+        Alloc: buffer,
+    };
+    assert.eq(buffer.budget, 64);
+    assert.eq(buffer.remaining(), 64);
+    let _ = alloc.allocate(ctx, 24);
+    assert.eq(buffer.remaining(), 40);
+    assert.eq(buffer.stats().allocations, 1);
+    assert.eq(buffer.stats().bytes, 24);
 }
 
 test "a request that exactly fills the budget is not an overrun" {
-  let buffer = alloc.fixedBuffer(48);
-  let ctx = context { Alloc: buffer };
-  let _ = alloc.allocate(ctx, 16);
-  let _ = alloc.allocate(ctx, 32);
-  assert.eq(buffer.remaining(), 0);
-  assert.eq(buffer.stats().bytes, 48);
+    let buffer = alloc.fixedBuffer(48);
+    let ctx = context {
+        Alloc: buffer,
+    };
+    let _ = alloc.allocate(ctx, 16);
+    let _ = alloc.allocate(ctx, 32);
+    assert.eq(buffer.remaining(), 0);
+    assert.eq(buffer.stats().bytes, 48);
 }
 
 test "a negative budget is a budget of nothing, not an unbounded one" {
-  // The one mistake the type exists to prevent is a `FixedBuffer` that
-  // silently has no limit, so a negative budget clamps to zero rather than
-  // meaning unbounded. The request that proves it is a crash, not an
-  // assertion; what is assertable is the budget it reports.
-  let buffer = alloc.fixedBuffer(0 - 1);
-  assert.eq(buffer.budget, 0);
-  assert.eq(buffer.remaining(), 0);
+    // The one mistake the type exists to prevent is a `FixedBuffer` that
+    // silently has no limit, so a negative budget clamps to zero rather than
+    // meaning unbounded. The request that proves it is a crash, not an
+    // assertion; what is assertable is the budget it reports.
+    let buffer = alloc.fixedBuffer(0 - 1);
+    assert.eq(buffer.budget, 0);
+    assert.eq(buffer.remaining(), 0);
 }
 
 // The overrun itself is `cli/tests/crash/alloc_budget_exhausted.buri`: it ends
 // the process, so it cannot be observed from inside a test.
 
 test "a copy of an allocator shares its counter" {
-  // The context holds a copy of `buffer`, and charging through the copy is
-  // visible on the original. There is one budget, not two.
-  let buffer = alloc.fixedBuffer(100);
-  let ctx = context { Alloc: buffer };
-  let _ = alloc.allocate(ctx, 30);
-  assert.eq(buffer.remaining(), 70);
+    // The context holds a copy of `buffer`, and charging through the copy is
+    // visible on the original. There is one budget, not two.
+    let buffer = alloc.fixedBuffer(100);
+    let ctx = context {
+        Alloc: buffer,
+    };
+    let _ = alloc.allocate(ctx, 30);
+    assert.eq(buffer.remaining(), 70);
 }

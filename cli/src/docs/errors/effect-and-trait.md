@@ -25,15 +25,26 @@ is not.
 ```buri fail code=effect-and-trait
 # from "core/effect" import { Alloc, IoError, Stdout };
 # from "core/order" import { Show };
+
 struct SilentOut {}
 
 impl Stdout for SilentOut {
-  fn print(self, text: Template): Result<(), IoError> { .Ok(()) }
-  fn println(self, text: Template): Result<(), IoError> { .Ok(()) }
-  fn writeBytes(self, b: [U8]): Result<(), IoError> { .Ok(()) }
+    fn print(self, text: Template): Result<(), IoError> {
+        .Ok(())
+    }
+
+    fn println(self, text: Template): Result<(), IoError> {
+        .Ok(())
+    }
+
+    fn writeBytes(self, b: [U8]): Result<(), IoError> {
+        .Ok(())
+    }
 }
 
 impl Show for SilentOut {
-  fn show<C: Alloc>(self, ctx: C): Str { "silent" }
+    fn show<C: Alloc>(self, ctx: C): Str {
+        "silent"
+    }
 }
 ```

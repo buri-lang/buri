@@ -1,0 +1,9 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_26fa25/main.buri:15:22
+   |
+15 |     let total = 3 * 4, ;
+   |                      ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here

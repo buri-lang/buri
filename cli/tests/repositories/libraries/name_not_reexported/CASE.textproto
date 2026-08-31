@@ -22,8 +22,8 @@ run {
 
 edit {
   file: "lib/money/lib.buri"
-  replace: "export { Cents, fromCents, format };"
-  with: "export { Cents, fromCents, format, rawValue };"
+  replace: "export { Cents, format, fromCents };"
+  with: "export { Cents, format, fromCents, rawValue };"
 }
 
 run {

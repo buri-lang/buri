@@ -1,2 +1,4 @@
 /// What a shop adds on top, in whole cents.
-export fn markup(cents: I64): I64 { cents + 5 }
+export fn markup(cents: I64): I64 {
+    cents + 5
+}

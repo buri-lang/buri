@@ -1,7 +1,9 @@
 /// A running count of things that happened.
 export struct Tally {
-  export total: I64,
+    export total: I64,
 }
 
 /// How many times the thing has happened.
-export fn counter(tally: Tally): I64 { tally.total }
+export fn counter(tally: Tally): I64 {
+    tally.total
+}

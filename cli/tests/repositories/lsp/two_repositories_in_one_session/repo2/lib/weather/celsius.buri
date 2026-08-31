@@ -1,10 +1,13 @@
+derive Eq, Show for Celsius;
 /// A whole number of degrees. Nothing in the other repository of this case
 /// declares a name anything like it, so an answer about this file could not
 /// have come from there.
 export struct Celsius(I64);
 
-derive Eq, Show for Celsius;
+export fn fromCelsius(d: I64): Celsius {
+    Celsius(d)
+}
 
-export fn fromCelsius(d: I64): Celsius { Celsius(d) }
-
-export fn warmer(c: Celsius): Celsius { fromCelsius(c.0 + 1) }
+export fn warmer(c: Celsius): Celsius {
+    fromCelsius(c.0 + 1)
+}

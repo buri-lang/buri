@@ -319,14 +319,21 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         ("the fix names the missing token", "delete-separator ()") => 5,
         ("the fix names the missing token", "delete-separator {}") => 7,
 
-        // 12.2%, 1.9%, 5.2%, 17.7% and 22.4% over the population, now that the
+        // 12.6%, 2.1%, 3.8%, 19.3% and 23.4% over the population, now that the
         // row is the population: the rate rounded up, with no draw to cover.
+        //
+        // Re-read the day the repository was formatted. The corpus is this
+        // tree's own sources with one token moved, so laying every source out
+        // the one way redrew every case in it — a `let` that was on one line is
+        // now on three, and a mutation of it is a different program. The
+        // toolchain did not move; the population did, and `insert-stray` went
+        // from 17.7% to 19.3% of it.
         ("a syntax error stays a syntax error", "delete-closer") => 13,
         ("a syntax error stays a syntax error", "delete-separator ()") => 3,
         // The arm before the comma swallows the next arm's pattern, so `2` gets
         // a field: the same residue this invariant's sibling caps at 7.
         ("a syntax error stays a syntax error", "delete-separator {}") => 7,
-        ("a syntax error stays a syntax error", "insert-stray") => 19,
+        ("a syntax error stays a syntax error", "insert-stray") => 20,
         ("a syntax error stays a syntax error", "swap-adjacent") => 24,
 
         // Every row not named above, and every row of an invariant R2 owns.

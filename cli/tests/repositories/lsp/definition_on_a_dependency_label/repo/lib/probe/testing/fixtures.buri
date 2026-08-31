@@ -1,4 +1,6 @@
 from "//lib/probe/inner" import { depth };
 
 /// A number every suite that uses this library agrees about.
-export fn sample(): I64 { depth() + 5 }
+export fn sample(): I64 {
+    depth() + 5
+}

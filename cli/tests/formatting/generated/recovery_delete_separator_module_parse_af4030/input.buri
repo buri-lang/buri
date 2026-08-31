@@ -11,29 +11,30 @@ from "//lib/money/cents.buri" import { Cents, fromCents, toCents };
 /// A million dollars, in cents.
 let MAX_CENTS: I64 = 100_000_000
 
-export enum ParseError {
-  NotANumber { text: Str },
-  TooLarge,
-}
-
 // `assert.eq` needs `Eq` to compare and `Show` to render a failure, so an error
 // type a test asserts on derives both.
 derive Eq, Show for ParseError;
+export enum ParseError {
+    NotANumber { text: Str },
+    TooLarge,
+}
 
 /// Pure: no `ctx` parameter, so it cannot allocate, and the compiler holds that.
 /// Parsing stays pure; only the caller that read the string did any I/O.
 export fn parse(text: Str): Result<Cents, ParseError> {
-  match (text.splitOnce(".")) {
-    .None => .Err(.NotANumber { text: text }),
-    .Some(parts) => match ((parts.0.toInt(), parts.1.toInt())) {
-      (.Some(whole), .Some(frac)) => bounded(fromCents(whole * 100 + frac)),
-      _ => .Err(.NotANumber { text: text }),
-    },
-  }
+    match (text.splitOnce(".")) {
+        .None => .Err(.NotANumber { text: text }),
+        .Some(parts) => {
+            match ((parts.0.toInt(), parts.1.toInt())) {
+                (.Some(whole), .Some(frac)) => bounded(fromCents(whole * 100 + frac)),
+                _ => .Err(.NotANumber { text: text }),
+            }
+        },
+    }
 }
 
 // Not exported at all: neither the rest of the library nor anything outside it
 // can reach this.
 fn bounded(c: Cents): Result<Cents, ParseError> {
-  if (c.toCents() > MAX_CENTS) { .Err(.TooLarge) } else { .Ok(c) }
+    if (c.toCents() > MAX_CENTS) { .Err(.TooLarge) } else { .Ok(c) }
 }

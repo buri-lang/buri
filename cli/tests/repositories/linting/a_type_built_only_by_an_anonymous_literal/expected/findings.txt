@@ -1,8 +1,8 @@
 warning: nothing reads `Stamp.note` [unused-field]
-  --> lib/money/stamps.buri:15:3
+  --> lib/money/stamps.buri:15:5
    |
-15 |   export note: Str,
-   |   ^^^^^^^^^^^^^^^^
+15 |     export note: Str,
+   |     ^^^^^^^^^^^^^^^^
    |
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it

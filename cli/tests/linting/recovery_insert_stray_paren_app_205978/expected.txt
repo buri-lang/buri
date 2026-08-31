@@ -1,0 +1,43 @@
+warning: `core/effect` is imported twice [duplicate-import]
+ --> lib/recovery_insert_stray_paren_app_205978/main.buri:9:6
+  |
+9 | from "core/effect" import { Stdout };
+  |      ^^^^^^^^^^^^^
+  |
+ --> lib/recovery_insert_stray_paren_app_205978/main.buri:8:6
+  |
+8 | from "core/effect" import { Alloc };
+  |      ^^^^^^^^^^^^^ first imported here
+  |
+  = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
+  = fix: merge the two into one import
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_insert_stray_paren_app_205978/main.buri:20:9
+   |
+20 |         "could not write to standard output"
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `Str`, not `()` [statement-not-unit]
+  --> lib/recovery_insert_stray_paren_app_205978/main.buri:20:9
+   |
+20 |         "could not write to standard output"
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_insert_stray_paren_app_205978/main.buri:20:45
+   |
+20 |         "could not write to standard output"
+   |                                             ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_app_205978/main.buri:21:5
+   |
+21 |     extra })?;
+   |     ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

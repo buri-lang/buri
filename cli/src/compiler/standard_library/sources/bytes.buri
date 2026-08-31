@@ -25,11 +25,19 @@
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
-//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-//!   let raw = bytes.toUtf8(ctx, "hi €");
-//!   // Four characters, six bytes: the euro sign is three of them.
-//!   let _ = io.println(ctx, "${raw.len()} bytes, ${bytes.toHex(ctx, raw)}, ${bytes.toBase64(ctx, raw)}").ignore();
-//!   .Ok(())
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let raw = bytes.toUtf8(ctx, "hi €");
+//!     // Four characters, six bytes: the euro sign is three of them.
+//!     let _ = io
+//!         .println(
+//!             ctx,
+//!             "${raw.len()} bytes, ${bytes.toHex(ctx, raw)}, ${bytes.toBase64(ctx, raw)}",
+//!         )
+//!         .ignore();
+//!     .Ok(())
 //! }
 //! ```
 //!
@@ -42,16 +50,14 @@ from "core/effect" import { Alloc };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
+derive Eq, Show for Utf8Error;
 /// Where a byte sequence stopped being UTF-8: the index of the first byte that
 /// could not be part of a valid encoding.
 export struct Utf8Error(export Int);
 
-derive Eq, Show for Utf8Error;
-
+derive Eq, Show for DecodeError;
 /// Where a decoding stopped making sense.
 export struct DecodeError(export Int);
-
-derive Eq, Show for DecodeError;
 
 /// The UTF-8 encoding of a string.
 ///
@@ -69,38 +75,44 @@ let HEX: Str = "0123456789abcdef";
 
 /// Lowercase, two characters per byte, no separator.
 export fn toHex<C: Alloc>(ctx: C, b: [U8]): Str {
-  b.mapCtx(ctx, fn(c, x) => {
-    let n = x.toI64();
-    str.fromChars(c, [
-      HEX.charAt(n / 16).withDefault('0'),
-      HEX.charAt(n % 16).withDefault('0'),
-    ])
-  }).join(ctx, "")
+    b
+        .mapCtx(ctx, fn(c, x) => {
+            let n = x.toI64();
+            str.fromChars(c, [
+                HEX.charAt(n / 16).withDefault('0'),
+                HEX.charAt(n % 16).withDefault('0'),
+            ])
+        })
+        .join(ctx, "")
 }
 
 /// Reads either case. An odd number of digits, or a character that is not one,
 /// is an error at the offending index.
 export fn fromHex<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
-  let cs = text.chars(ctx);
-  if (cs.len() % 2 != 0) {
-    .Err(DecodeError(cs.len()))
-  } else {
-    list.range(ctx, 0, cs.len() / 2).foldResultCtx(
-      ctx,
-      fn(c, acc: [U8], i) => {
-        let hi = cs.get(i * 2).andThen(fn(ch) => ch.toDigit(16));
-        let lo = cs.get(i * 2 + 1).andThen(fn(ch) => ch.toDigit(16));
-        match ((hi, lo)) {
-          (.Some(h), .Some(l)) => .Ok(acc.push(c, (h * 16 + l).wrapToU8())),
-          // The index of the pair that failed, not of the whole string: a
-          // decoder that only says "somewhere" is one you debug by bisection.
-          (.None, _) => .Err(DecodeError(i * 2)),
-          _ => .Err(DecodeError(i * 2 + 1)),
-        }
-      },
-      list.empty<U8>(),
-    )
-  }
+    let cs = text.chars(ctx);
+    if (cs.len() % 2 != 0) {
+        .Err(DecodeError(cs.len()))
+    } else {
+        list
+            .range(ctx, 0, cs.len() / 2)
+            .foldResultCtx(
+                ctx,
+                fn(c, acc: [U8], i) => {
+                    let hi = cs.get(i * 2).andThen(fn(ch) => ch.toDigit(16));
+                    let lo = cs.get(i * 2 + 1).andThen(fn(ch) => ch.toDigit(16));
+                    match ((hi, lo)) {
+                        (.Some(h), .Some(l)) => {
+                            .Ok(acc.push(c, (h * 16 + l).wrapToU8()))
+                        },
+                        // The index of the pair that failed, not of the whole string: a
+                        // decoder that only says "somewhere" is one you debug by bisection.
+                        (.None, _) => .Err(DecodeError(i * 2)),
+                        _ => .Err(DecodeError(i * 2 + 1)),
+                    }
+                },
+                list.empty<U8>(),
+            )
+    }
 }
 
 // --- Base64 ---------------------------------------------------------------------
@@ -112,104 +124,110 @@ export fn fromHex<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
 let B64: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 export fn toBase64<C: Alloc>(ctx: C, b: [U8]): Str {
-  let n = b.len();
-  list.range(ctx, 0, (n + 2) / 3).mapCtx(ctx, fn(c, g) => {
-    let i = g * 3;
-    let b0 = b.get(i).withDefault(0).toI64();
-    let b1 = b.get(i + 1).withDefault(0).toI64();
-    let b2 = b.get(i + 2).withDefault(0).toI64();
-    let left = n - i;
-    str.fromChars(c, [
-      B64.charAt(b0 / 4).withDefault('A'),
-      B64.charAt(b0 % 4 * 16 + b1 / 16).withDefault('A'),
-      if (left > 1) { B64.charAt(b1 % 16 * 4 + b2 / 64).withDefault('A') } else { '=' },
-      if (left > 2) { B64.charAt(b2 % 64).withDefault('A') } else { '=' },
-    ])
-  }).join(ctx, "")
+    let n = b.len();
+    list
+        .range(ctx, 0, (n + 2) / 3)
+        .mapCtx(ctx, fn(c, g) => {
+            let i = g * 3;
+            let b0 = b.get(i).withDefault(0).toI64();
+            let b1 = b.get(i + 1).withDefault(0).toI64();
+            let b2 = b.get(i + 2).withDefault(0).toI64();
+            let left = n - i;
+            str.fromChars(c, [
+                B64.charAt(b0 / 4).withDefault('A'),
+                B64.charAt(b0 % 4 * 16 + b1 / 16).withDefault('A'),
+                if (left > 1) {
+                    B64.charAt(b1 % 16 * 4 + b2 / 64).withDefault('A')
+                } else {
+                    '='
+                },
+                if (left > 2) { B64.charAt(b2 % 64).withDefault('A') } else { '=' },
+            ])
+        })
+        .join(ctx, "")
 }
 
 export fn fromBase64<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
-  let cs = text.chars(ctx);
-  if (cs.len() % 4 != 0 || cs.len() == 0) {
-    if (cs.len() == 0) {
-      .Ok(list.empty<U8>())
+    let cs = text.chars(ctx);
+    if (cs.len() % 4 != 0 || cs.len() == 0) {
+        if (cs.len() == 0) {
+            .Ok(list.empty<U8>())
+        } else {
+            .Err(DecodeError(cs.len()))
+        }
     } else {
-      .Err(DecodeError(cs.len()))
+        match (firstNonBase64(cs, 0, cs.len())) {
+            .Some(i) => .Err(DecodeError(i)),
+            .None => {
+                let groups = cs.len() / 4;
+                let pad = padding(cs);
+                let bytes = list
+                    .range(ctx, 0, groups)
+                    .map(ctx, fn(g) => {
+                        let i = g * 4;
+                        let a = sextet(cs.get(i));
+                        let b = sextet(cs.get(i + 1));
+                        let c = sextet(cs.get(i + 2));
+                        let d = sextet(cs.get(i + 3));
+                        [
+                            (a * 4 + b / 16).wrapToU8(),
+                            (b % 16 * 16 + c / 4).wrapToU8(),
+                            (c % 4 * 64 + d).wrapToU8(),
+                        ]
+                    })
+                    .flatten(ctx);
+                .Ok(bytes.take(ctx, bytes.len() - pad))
+            },
+        }
     }
-  } else {
-    match (firstNonBase64(cs, 0, cs.len())) {
-      .Some(i) => .Err(DecodeError(i)),
-      .None => {
-        let groups = cs.len() / 4;
-        let pad = padding(cs);
-        let bytes = list.range(ctx, 0, groups).map(ctx, fn(g) => {
-          let i = g * 4;
-          let a = sextet(cs.get(i));
-          let b = sextet(cs.get(i + 1));
-          let c = sextet(cs.get(i + 2));
-          let d = sextet(cs.get(i + 3));
-          [
-            (a * 4 + b / 16).wrapToU8(),
-            (b % 16 * 16 + c / 4).wrapToU8(),
-            (c % 4 * 64 + d).wrapToU8(),
-          ]
-        }).flatten(ctx);
-        .Ok(bytes.take(ctx, bytes.len() - pad))
-      },
-    }
-  }
 }
 
 /// How many of the trailing bytes the padding says are not there.
 fn padding(cs: [Char]): Int {
-  let n = cs.len();
-  let last = cs.get(n - 1).withDefault('A');
-  let before = cs.get(n - 2).withDefault('A');
-  if (last == '=' && before == '=') {
-    2
-  } else if (last == '=') {
-    1
-  } else {
-    0
-  }
+    let n = cs.len();
+    let last = cs.get(n - 1).withDefault('A');
+    let before = cs.get(n - 2).withDefault('A');
+    if (last == '=' && before == '=') { 2 } else if (last == '=') { 1 } else { 0 }
 }
 
 /// The alphabet position of a character, or 0 — the caller has already checked
 /// that every character is in the alphabet.
 fn sextet(c: Option<Char>): Int {
-  match (c) {
-    .None => 0,
-    .Some(ch) => if (ch == '=') { 0 } else { alphabetIndex(ch, 0) },
-  }
+    match (c) {
+        .None => 0,
+        .Some(ch) => if (ch == '=') { 0 } else { alphabetIndex(ch, 0) },
+    }
 }
 
 fn alphabetIndex(ch: Char, i: Int): Int {
-  match (B64.charAt(i)) {
-    .None => 0,
-    .Some(b) => if (b == ch) { i } else { alphabetIndex(ch, i + 1) },
-  }
+    match (B64.charAt(i)) {
+        .None => 0,
+        .Some(b) => if (b == ch) { i } else { alphabetIndex(ch, i + 1) },
+    }
 }
 
 /// Pure validation: every character is in the alphabet, and `=` appears only in
 /// the last one or two positions.
 fn firstNonBase64(cs: [Char], i: Int, n: Int): Option<Int> {
-  match (cs.get(i)) {
-    .None => .None,
-    .Some(c) => if (c == '=') {
-      if (i >= n - 2) { firstNonBase64(cs, i + 1, n) } else { .Some(i) }
-    } else if (inAlphabet(c, 0)) {
-      firstNonBase64(cs, i + 1, n)
-    } else {
-      .Some(i)
-    },
-  }
+    match (cs.get(i)) {
+        .None => .None,
+        .Some(c) => {
+            if (c == '=') {
+                if (i >= n - 2) { firstNonBase64(cs, i + 1, n) } else { .Some(i) }
+            } else if (inAlphabet(c, 0)) {
+                firstNonBase64(cs, i + 1, n)
+            } else {
+                .Some(i)
+            }
+        },
+    }
 }
 
 fn inAlphabet(ch: Char, i: Int): Bool {
-  match (B64.charAt(i)) {
-    .None => false,
-    .Some(b) => b == ch || inAlphabet(ch, i + 1),
-  }
+    match (B64.charAt(i)) {
+        .None => false,
+        .Some(b) => b == ch || inAlphabet(ch, i + 1),
+    }
 }
 
 // --- Varints -----------------------------------------------------------------------
@@ -235,16 +253,16 @@ let TWO32: Int = 4294967296;
 /// zigzag instead — `toVarint(ctx, zigzag(x))` — is two bytes for -1 rather
 /// than ten, which is the whole reason `sint64` exists.
 export fn toVarint<C: Alloc>(ctx: C, value: Int): [U8] {
-  if (value < 0) {
-    let a = 0 - value;
-    let alo = a % TWO32;
-    let ahi = (a - alo) / TWO32;
-    let borrow = if (alo > 0) { 1 } else { 0 };
-    varintBytes(ctx, (TWO32 - ahi - borrow) % TWO32, (TWO32 - alo) % TWO32)
-  } else {
-    let lo = value % TWO32;
-    varintBytes(ctx, (value - lo) / TWO32, lo)
-  }
+    if (value < 0) {
+        let a = 0 - value;
+        let alo = a % TWO32;
+        let ahi = (a - alo) / TWO32;
+        let borrow = if (alo > 0) { 1 } else { 0 };
+        varintBytes(ctx, (TWO32 - ahi - borrow) % TWO32, (TWO32 - alo) % TWO32)
+    } else {
+        let lo = value % TWO32;
+        varintBytes(ctx, (value - lo) / TWO32, lo)
+    }
 }
 
 /// Seven bits at a time off the low end of a 64-bit value held as two halves.
@@ -252,14 +270,14 @@ export fn toVarint<C: Alloc>(ctx: C, value: Int): [U8] {
 /// which is what makes this exact where `value / 128` on the whole number would
 /// not be.
 fn varintBytes<C: Alloc>(ctx: C, hi: Int, lo: Int): [U8] {
-  let byte = lo % 128;
-  let nextLo = (lo - byte) / 128 + (hi % 128) * 33554432;
-  let nextHi = (hi - hi % 128) / 128;
-  if (nextHi == 0 && nextLo == 0) {
-    [byte.wrapToU8()]
-  } else {
-    [(byte + 128).wrapToU8()].concat(ctx, varintBytes(ctx, nextHi, nextLo))
-  }
+    let byte = lo % 128;
+    let nextLo = (lo - byte) / 128 + hi % 128 * 33554432;
+    let nextHi = (hi - hi % 128) / 128;
+    if (nextHi == 0 && nextLo == 0) {
+        [byte.wrapToU8()]
+    } else {
+        [(byte + 128).wrapToU8()].concat(ctx, varintBytes(ctx, nextHi, nextLo))
+    }
 }
 
 /// The varint beginning at `at`: its value, and the index just past it.
@@ -268,10 +286,10 @@ fn varintBytes<C: Alloc>(ctx: C, hi: Int, lo: Int): [U8] {
 /// error at the index it started from — a truncated varint has no partial
 /// reading, so there is nothing to return but where it began.
 export fn readVarint(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
-  match (varintEnd(b, at, 0)) {
-    .None => .Err(DecodeError(at)),
-    .Some(end) => .Ok((varintValue(b, at, end - 1, 0, 0), end)),
-  }
+    match (varintEnd(b, at, 0)) {
+        .None => .Err(DecodeError(at)),
+        .Some(end) => .Ok((varintValue(b, at, end - 1, 0, 0), end)),
+    }
 }
 
 /// The same varint, read as its low 32 bits.
@@ -281,77 +299,67 @@ export fn readVarint(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
 /// could be truncated. This keeps the low half from the start, which is exact
 /// for every input — and the low half is what a 32-bit field is.
 export fn readVarint32(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
-  match (varintEnd(b, at, 0)) {
-    .None => .Err(DecodeError(at)),
-    .Some(end) => .Ok((varintLow(b, at, end - 1, 0), end)),
-  }
+    match (varintEnd(b, at, 0)) {
+        .None => .Err(DecodeError(at)),
+        .Some(end) => .Ok((varintLow(b, at, end - 1, 0), end)),
+    }
 }
 
 fn varintLow(b: [U8], at: Int, i: Int, lo: Int): Int {
-  if (i < at) {
-    lo
-  } else {
-    let g = b.get(i).withDefault(0).toI64() % 128;
-    varintLow(b, at, i - 1, (lo * 128 + g) % TWO32)
-  }
+    if (i < at) {
+        lo
+    } else {
+        let g = b.get(i).withDefault(0).toI64() % 128;
+        varintLow(b, at, i - 1, (lo * 128 + g) % TWO32)
+    }
 }
 
 fn varintEnd(b: [U8], i: Int, taken: Int): Option<Int> {
-  if (taken >= 10) {
-    .None
-  } else {
-    match (b.get(i)) {
-      .None => .None,
-      .Some(x) => if (x.toI64() < 128) {
-        .Some(i + 1)
-      } else {
-        varintEnd(b, i + 1, taken + 1)
-      },
+    if (taken >= 10) {
+        .None
+    } else {
+        match (b.get(i)) {
+            .None => .None,
+            .Some(x) => {
+                if (x.toI64() < 128) {
+                    .Some(i + 1)
+                } else {
+                    varintEnd(b, i + 1, taken + 1)
+                }
+            },
+        }
     }
-  }
 }
 
 /// Folds the groups from the most significant end down, so no power of two is
 /// ever needed: each step is a multiply by 128 with a carry between the halves.
 fn varintValue(b: [U8], at: Int, i: Int, hi: Int, lo: Int): Int {
-  if (i < at) {
-    joinHalves(hi, lo)
-  } else {
-    let g = b.get(i).withDefault(0).toI64() % 128;
-    let wide = lo * 128 + g;
-    let nextLo = wide % TWO32;
-    varintValue(b, at, i - 1, (hi * 128 + (wide - nextLo) / TWO32) % TWO32, nextLo)
-  }
+    if (i < at) {
+        joinHalves(hi, lo)
+    } else {
+        let g = b.get(i).withDefault(0).toI64() % 128;
+        let wide = lo * 128 + g;
+        let nextLo = wide % TWO32;
+        varintValue(b, at, i - 1, (hi * 128 + (wide - nextLo) / TWO32) % TWO32, nextLo)
+    }
 }
 
 /// Two 32-bit halves read as one signed 64-bit number. A value with the top bit
 /// set comes back negative, which is what a signed reading of those bits is —
 /// and is why a `uint64` above 2^63 reads as a negative `Int`.
 fn joinHalves(hi: Int, lo: Int): Int {
-  if (hi >= 2147483648) {
-    (hi - TWO32) * TWO32 + lo
-  } else {
-    hi * TWO32 + lo
-  }
+    if (hi >= 2147483648) { (hi - TWO32) * TWO32 + lo } else { hi * TWO32 + lo }
 }
 
 /// The zigzag transform: a small negative number becomes a small positive one,
 /// so that a varint of it is short. -1 is 1, 1 is 2, -2 is 3.
 export fn zigzag(x: Int): Int {
-  if (x < 0) {
-    (0 - x) * 2 - 1
-  } else {
-    x * 2
-  }
+    if (x < 0) { (0 - x) * 2 - 1 } else { x * 2 }
 }
 
 /// Its inverse.
 export fn unzigzag(n: Int): Int {
-  if (n % 2 == 0) {
-    n / 2
-  } else {
-    0 - (n + 1) / 2
-  }
+    if (n % 2 == 0) { n / 2 } else { 0 - (n + 1) / 2 }
 }
 
 // --- Fixed-width numbers ------------------------------------------------------------

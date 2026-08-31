@@ -11,9 +11,16 @@ from "//cmd/tool/routes.buri" export { route };
 
 from "//cmd/tool/routes.buri" import { route };
 
-export fn banner(): Str { "tool" }
+export fn banner(): Str {
+    "tool"
+}
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  io.println(ctx, "${banner()}: ${route("/health")}").mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io
+        .println(ctx, "${banner()}: ${route("/health")}")
+        .mapErr(fn(_e) => "could not write to standard output")
 }

@@ -5,30 +5,36 @@
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-from "core/json" import { DecodeError, ToJson, FromJson };
 from "core/json" import * as json;
-
-struct Point { x: Int, y: Int }
+from "core/json" import { DecodeError, FromJson, ToJson };
 
 derive Eq, ToJson, FromJson for Point;
-
-enum Shape {
-  Empty,
-  Rect { width: Int, height: Int },
+struct Point {
+    x: Int,
+    y: Int,
 }
 
 derive Eq, ToJson, FromJson for Shape;
+enum Shape {
+    Empty,
+    Rect { width: Int, height: Int },
+}
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let p = Point { x: 1, y: 2 };
-  let s = Shape.Rect { width: 3, height: 4 };
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let p = Point { x: 1, y: 2 };
+    let s = Shape.Rect { width: 3, height: 4 };
 
-  let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, p))).ignore();
-  let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, s))).ignore();
-  let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, Shape.Empty))).ignore();
+    let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, p))).ignore();
+    let _ = io.println(ctx, json.stringify(ctx, json.encode(ctx, s))).ignore();
+    let _ = io
+        .println(ctx, json.stringify(ctx, json.encode(ctx, Shape.Empty)))
+        .ignore();
 
-  let back: Result<Point, DecodeError> = json.decode(ctx, json.encode(ctx, p));
-  let _ = io.println(ctx, "${back == .Ok(p)}").ignore();
-  .Ok(())
+    let back: Result<Point, DecodeError> = json.decode(ctx, json.encode(ctx, p));
+    let _ = io.println(ctx, "${back == .Ok(p)}").ignore();
+    .Ok(())
 }

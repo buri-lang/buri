@@ -1,0 +1,12 @@
+error: this tuple-struct field list is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_module_cents_0e4c5b/lib.buri:2:31
+  |
+2 | export struct Cents(export I64? );
+  |                               ^
+  |
+ --> lib/recovery_insert_stray_module_cents_0e4c5b/lib.buri:2:20
+  |
+2 | export struct Cents(export I64? );
+  |                    ^ opened here
+  |
+  = fix: write `)` here

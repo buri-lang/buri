@@ -1,3 +1,5 @@
 from "//lib/b" import { fromB };
 
-export fn callB(): Str { fromB() }
+export fn callB(): Str {
+    fromB()
+}

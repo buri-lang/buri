@@ -40,9 +40,10 @@ places name it.
 
 ```buri fail code=circular-type-alias
 type Celsius = Fahrenheit;
+
 type Fahrenheit = Celsius;
 
 export fn freezing(t: Celsius): Bool {
-  t == t
+    t == t
 }
 ```

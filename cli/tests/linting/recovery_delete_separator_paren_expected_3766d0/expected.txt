@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-separator]
-  --> lib/recovery_delete_separator_paren_expected_3766d0/main.buri:43:57
-   |
-43 |   io.println(ctx, rendered(ctx, fn(c, l) => str.format(c "<${l}>"), label)).mapErr(fn(_e) => "could not write to standard output")
-   |                                                         ^
-   |
-   = fix: write `,` here

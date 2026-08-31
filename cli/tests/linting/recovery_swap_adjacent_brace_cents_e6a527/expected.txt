@@ -1,0 +1,9 @@
+error: expected an identifier, found `/` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_cents_e6a527/lib.buri:12:7
+   |
+12 |     c./ 0 100
+   |       ^
+   |
+   = expected: an identifier
+   = actual: `/`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

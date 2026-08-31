@@ -1,1 +1,3 @@
-export fn nothing(): I64 { 0 }
+export fn nothing(): I64 {
+    0
+}

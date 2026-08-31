@@ -1,8 +1,8 @@
 warning: `spare` is bound and never used [unused-variable]
-  --> lib/money/cents.buri:15:7
+  --> lib/money/cents.buri:15:9
    |
-15 |   let spare = 7;
-   |       ^^^^^
+15 |     let spare = 7;
+   |         ^^^^^
    |
    = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
    = fix: use it, delete the `let`, or write `_` in its place

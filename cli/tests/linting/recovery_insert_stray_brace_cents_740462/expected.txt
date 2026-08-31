@@ -1,0 +1,8 @@
+error: `if` requires an `else` branch [if-without-else]
+ --> lib/recovery_insert_stray_brace_cents_740462/lib.buri:6:17
+  |
+6 |     if (n == 0) { "zero" } ? else { "some" }
+  |                 ^^^^^^^^^^
+  |
+  = `if` is an expression, so both branches must produce a value of the same type
+  = fix: add `else { ... }`; an `if` is an expression, so it has a value either way

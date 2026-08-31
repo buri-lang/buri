@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_brace_cents_289a54/lib.buri:6:1
+  |
+6 | }
+  | ^
+  |
+ --> lib/recovery_delete_closer_brace_cents_289a54/lib.buri:5:10
+  |
+5 |     Cents(c
+  |          ^ opened here
+  |
+  = fix: write `)` here

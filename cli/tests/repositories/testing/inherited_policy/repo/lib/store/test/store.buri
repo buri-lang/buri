@@ -1,6 +1,6 @@
-from "//lib/store" import { encode };
 from "core/testing/assert" import * as assert;
+from "//lib/store" import { encode };
 
 test "encodes zero" {
-  assert.eq(encode(0), "zero");
+    assert.eq(encode(0), "zero");
 }

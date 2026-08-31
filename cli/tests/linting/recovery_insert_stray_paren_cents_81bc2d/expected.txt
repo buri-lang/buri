@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_cents_81bc2d/lib.buri:20:12
+   |
+20 |     match (, m) {
+   |            ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

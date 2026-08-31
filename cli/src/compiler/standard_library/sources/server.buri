@@ -24,6 +24,7 @@
 //! platform grants the effects.
 
 from "core/effect" import { Listen, NetError, Request, Response, Sockets };
+
 from "core/effect" export { NetError, Request, Response };
 
 /// Accepts connections on `address:port`, answers each request with
@@ -35,24 +36,24 @@ from "core/effect" export { NetError, Request, Response };
 /// which is what makes a handler able to allocate, print, or read a clock while
 /// it answers.
 export fn listen<C: Listen>(
-  ctx: C,
-  address: Str,
-  port: Int,
-  onRequest: fn(C, Request) => Response,
+    ctx: C,
+    address: Str,
+    port: Int,
+    onRequest: fn(C, Request) => Response,
 ): Result<(), NetError> {
-  ctx.listen(address, port, onRequest)
+    ctx.listen(address, port, onRequest)
 }
 
 /// Enqueues a text frame on an open socket. Never waits: the frame goes to the
 /// socket's outbound buffer, and a socket whose buffer is full is closed rather
 /// than its writer blocked.
 export fn sendText<C: Sockets>(ctx: C, socket: Int, text: Str): () {
-  ctx.socketSendText(socket, text)
+    ctx.socketSendText(socket, text)
 }
 
 /// Enqueues a binary frame, on `sendText`'s terms.
 export fn sendBytes<C: Sockets>(ctx: C, socket: Int, body: [U8]): () {
-  ctx.socketSendBytes(socket, body)
+    ctx.socketSendBytes(socket, body)
 }
 
 /// Closes the socket, with the wire code and reason the far side is told.
@@ -60,5 +61,5 @@ export fn sendBytes<C: Sockets>(ctx: C, socket: Int, body: [U8]): () {
 /// A message sent afterwards is dropped rather than refused: the other end may
 /// already be gone, so "did this arrive" was never answerable here.
 export fn close<C: Sockets>(ctx: C, socket: Int, code: Int, reason: Str): () {
-  ctx.socketClose(socket, code, reason)
+    ctx.socketClose(socket, code, reason)
 }

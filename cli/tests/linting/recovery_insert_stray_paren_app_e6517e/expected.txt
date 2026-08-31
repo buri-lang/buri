@@ -1,0 +1,31 @@
+warning: `total` takes 6 parameters [too-many-parameters]
+ --> lib/recovery_insert_stray_paren_app_e6517e/main.buri:9:4
+  |
+9 | fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {
+  |    ^^^^^
+  |
+  = `self` and `ctx` are not counted, so 5 is the limit on the data a caller has to assemble
+  = fix: group the parameters that always travel together into a struct, and take that instead
+error: `total` takes 6 arguments, but 7 were given [wrong-argument-count]
+  --> lib/recovery_insert_stray_paren_app_e6517e/main.buri:19:26
+   |
+19 |         .println(ctx, "${total(1, 2, 3, 4, extra 5, 6)}")
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 6
+   = actual: 7
+   = fix: pass exactly 6
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_app_e6517e/main.buri:19:44
+   |
+19 |         .println(ctx, "${total(1, 2, 3, 4, extra 5, 6)}")
+   |                                            ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_paren_app_e6517e/main.buri:19:49
+   |
+19 |         .println(ctx, "${total(1, 2, 3, 4, extra 5, 6)}")
+   |                                                 ^
+   |
+   = fix: write `,` here

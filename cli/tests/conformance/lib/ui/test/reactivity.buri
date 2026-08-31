@@ -109,7 +109,9 @@ test "a handler captures the signal and receives the context as a parameter" {
 // --- watchers ------------------------------------------------------------------------
 
 test "a watcher runs when it is registered" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 3);
     let _ = watch(ctx, fn(s) => ignore(log.note(n.get(s))));
@@ -117,7 +119,9 @@ test "a watcher runs when it is registered" {
 }
 
 test "a watcher runs again when something it read changes" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 3);
     let _ = watch(ctx, fn(s) => ignore(log.note(n.get(s))));
@@ -127,7 +131,9 @@ test "a watcher runs again when something it read changes" {
 }
 
 test "writing the value already there is not a change" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 3);
     let _ = watch(ctx, fn(s) => ignore(log.note(n.get(s))));
@@ -136,7 +142,9 @@ test "writing the value already there is not a change" {
 }
 
 test "a watcher that read nothing never runs again" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 3);
     let _ = watch(ctx, fn(s) => log.record("once"));
@@ -145,7 +153,9 @@ test "a watcher that read nothing never runs again" {
 }
 
 test "watchers run in the order they were registered" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 0);
     let _ = watch(ctx, fn(s) => firstOf(log, n.get(s)));
@@ -166,7 +176,9 @@ fn secondOf(log: Recorder, value: Int): () {
 // --- memos ---------------------------------------------------------------------------
 
 test "a memo nothing reads never runs" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 2);
     let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
@@ -175,7 +187,9 @@ test "a memo nothing reads never runs" {
 }
 
 test "reading a memo twice in one computation runs it once" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 2);
     let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
@@ -184,7 +198,9 @@ test "reading a memo twice in one computation runs it once" {
 }
 
 test "a memo recomputes once per change to what it read" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 2);
     let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
@@ -197,7 +213,9 @@ test "a memo recomputes once per change to what it read" {
 }
 
 test "a memo answers the value it computed" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 6);
     let doubled = memo(ctx, fn(s) => n.get(s) * 2);
@@ -207,7 +225,9 @@ test "a memo answers the value it computed" {
 }
 
 test "a memo of a memo settles in one pass" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 1);
     let doubled = memo(ctx, fn(s) => n.get(s) * 2);
@@ -220,7 +240,9 @@ test "a memo of a memo settles in one pass" {
 // --- exact tracking ------------------------------------------------------------------
 
 test "a read behind a condition is tracked exactly" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let useLeft = signal(ctx, true);
     let left = signal(ctx, 1);
@@ -245,7 +267,9 @@ test "a read behind a condition is tracked exactly" {
 // --- props ---------------------------------------------------------------------------
 
 test "a constant prop registers nothing" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let unrelated = signal(ctx, 0);
     let p: Prop<Int> = .Const(7);
@@ -255,7 +279,9 @@ test "a constant prop registers nothing" {
 }
 
 test "a cell prop reads through to its signal" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 3);
     let p: Prop<Int> = .Cell(n);
@@ -265,7 +291,9 @@ test "a cell prop reads through to its signal" {
 }
 
 test "a computed prop is a derivation, and needs no enclosing context to build" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 3);
     let p = plusOne(n);
@@ -318,7 +346,10 @@ fn noteStr(log: Recorder, text: Str): () {
 }
 
 test "a generic effect method instantiates through its wrapper" {
-    let ctx = context { Ui: headless(), Watch: Forwarding(observer()) };
+    let ctx = context {
+        Ui: headless(),
+        Watch: Forwarding(observer()),
+    };
     let log = recorder();
     let n = signal(ctx, 4);
     let doubled = memo(ctx, fn(s) => n.get(s) * 2);
@@ -329,7 +360,10 @@ test "a generic effect method instantiates through its wrapper" {
 }
 
 test "the same wrapper at a second type, through a forwarding implementation" {
-    let ctx = context { Ui: headless(), Watch: Forwarding(observer()) };
+    let ctx = context {
+        Ui: headless(),
+        Watch: Forwarding(observer()),
+    };
     let log = recorder();
     let flag = signal(ctx, true);
     let label = memo(ctx, fn(s) => yesNo(flag.get(s)));
@@ -354,7 +388,9 @@ context Reactive {
 }
 
 test "a generic effect method is callable through a binding a spread supplied" {
-    let ctx = context { ..Reactive() };
+    let ctx = context {
+        ..Reactive(),
+    };
     let log = recorder();
     let n = signal(ctx, 4);
     let doubled = memo(ctx, fn(s) => n.get(s) * 2);
@@ -366,7 +402,10 @@ test "a generic effect method is callable through a binding a spread supplied" {
 
 test "a spread may replace one reactive effect and inherit the other" {
     // `Watch` is written here; `Ui` — and so `memo<Str>` — is inherited.
-    let ctx = context { ..Reactive(), Watch: observer() };
+    let ctx = context {
+        ..Reactive(),
+        Watch: observer(),
+    };
     let log = recorder();
     let flag = signal(ctx, true);
     let label = memo(ctx, fn(s) => yesNo(flag.get(s)));

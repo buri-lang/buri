@@ -1,0 +1,38 @@
+error: there is no type `Cents` [unresolved-type]
+ --> lib/recovery_swap_adjacent_paren_cents_5789bf/lib.buri:1:21
+  |
+1 | derive Eq, Show for Cents;
+  |                     ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+error: a tuple-struct field ends with `,` [missing-separator]
+ --> lib/recovery_swap_adjacent_paren_cents_5789bf/lib.buri:2:24
+  |
+2 | export struct Cents(I64 export);
+  |                        ^
+  |
+  = fix: write `,` here
+error: expected a type, found `)` [unexpected-token]
+ --> lib/recovery_swap_adjacent_paren_cents_5789bf/lib.buri:2:31
+  |
+2 | export struct Cents(I64 export);
+  |                               ^
+  |
+  = expected: a type
+  = actual: `)`
+  = fix: name a type here, as in `Int` or `[Str]`
+error: there is no type `Cents` [unresolved-type]
+ --> lib/recovery_swap_adjacent_paren_cents_5789bf/lib.buri:4:30
+  |
+4 | export fn fromCents(c: I64): Cents {
+  |                              ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+error: there is nothing named `Cents` in scope [unresolved-name]
+ --> lib/recovery_swap_adjacent_paren_cents_5789bf/lib.buri:5:5
+  |
+5 |     Cents(c)
+  |     ^^^^^
+  |
+  = did you mean `fromCents`?
+  = fix: correct the spelling, or declare it

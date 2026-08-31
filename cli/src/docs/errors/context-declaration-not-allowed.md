@@ -12,11 +12,11 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 context Console {
-  Stdout: host.stdout,
+    Stdout: host.stdout,
 }
 
 export fn print(output: Str): () {
-  io.println(Console(), output).ignore()
+    io.println(Console(), output).ignore()
 }
 ```
 
@@ -27,6 +27,6 @@ from "core/effect" import { Stdout };
 from "core/io" import * as io;
 
 export fn print<C: Stdout>(ctx: C, output: Str): () {
-  io.println(ctx, output).ignore()
+    io.println(ctx, output).ignore()
 }
 ```

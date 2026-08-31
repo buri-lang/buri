@@ -1,45 +1,37 @@
 // The public surface of //lib/semantics.
 
 from "//lib/semantics/shapes.buri" export {
-  // derived traits
-  Version, version, Level, Shape, area,
-  // newtypes with derived operator traits
-  Meters, Count, Delta,
-  // hand-written impls
-  Backwards, Suit, rank, declIndex, Loose, Percent,
-  // traits of my own
-  Weigh, Label, Brick, Feather, totalGrams, heaviest, heavyLabel, weighAndShow,
-  // a trait method whose written parameter type is `Self`
-  Relay, Scale, Offset, relayScaled, relayTwice, relayAll,
-  // generic functions
-  identity, constant, swap, triple, twice, largest, smallest, between,
-  showAll, sortedShow,
-  // generic structs and enums
-  Pair, pair, flip, Boxed, Slot, slotOr, Either, eitherInt,
-  Rose, roseSum,
-  Tree, insert, treeOf, size, depth, has, inOrder, mapTree,
-  // closures
-  applyTwice, makeAdder, makeScaler, compose, pipeline, callWith,
-  Report, occursIn, composeThrice,
-  // `?` and `??`
-  sumFirstTwo, parseSum, lambdaTry, lambdaTryResult, tryThenCoalesce, defaulted, defaultedResult,
-  // blocks and scope
-  hypotenuse, shadowed, nestedShadow,
-  // effect users
-  loadText, saveText, roundTrip, greet, shout, stamp, elapsed, fetchBody,
-  // fakes
-  StaticFs, FrozenClock, EchoEnv, TeapotNet, OneShotListen, QuietSockets, serveOnce,
-  SerialTasks, runInOrder, runInOrderNamed,
-  pushedWith, repeatedWith, joinedWith, stampedWith, ReadOnly, Logged, loggedWith, Ticking,
-  ticking,
-  Guarded, guarded,
-  // which positions of a type constructor hand a value back
-  Widget, render, eachRow, deferred, Cell, cellIndex, Held, heldTwice,
-  // fields a literal may leave out
-  World, Holder, worldHere, Hidden, hidden, hiddenPrivate,
-  // literals that leave the type name out too
-  Wrap, takesWorld, anonHere, anonMatch, anonHidden,
-  // evaluation-order instrumentation
-  note, noteInt, noteBool, noteStr, noteOpt, noteRes,
-  noteIf, noteMatch, noteLevel, noteLets, threeInts, fourStrs,
+    anonHere, anonHidden, anonMatch, applyTwice, area, Backwards, between, Boxed, Brick,
+    callWith, Cell, cellIndex, compose, composeThrice, constant, Count, declIndex,
+    defaulted, defaultedResult, deferred, Delta, depth, eachRow, EchoEnv, Either,
+    eitherInt, elapsed, Feather, fetchBody, flip, fourStrs, FrozenClock, greet, Guarded,
+    guarded, has, heaviest, heavyLabel, Held, heldTwice, Hidden, hidden, hiddenPrivate,
+    Holder, hypotenuse, identity, inOrder, insert, joinedWith, Label, lambdaTry,
+    lambdaTryResult, largest, Level, loadText, Logged, loggedWith, Loose, makeAdder,
+    makeScaler, mapTree, Meters, nestedShadow, note, noteBool, noteIf, noteInt,
+    noteLets, noteLevel, noteMatch, noteOpt, noteRes, noteStr, occursIn, Offset,
+    OneShotListen, Pair, pair, parseSum, Percent, pipeline, pushedWith, QuietSockets,
+    rank, ReadOnly, Relay, relayAll, relayScaled, relayTwice, render, repeatedWith,
+    Report, Rose, roseSum, roundTrip, runInOrder, runInOrderNamed, saveText, Scale,
+    SerialTasks, serveOnce, shadowed, Shape, shout, showAll, size, Slot, slotOr,
+    smallest, sortedShow, stamp, stampedWith, StaticFs, Suit, sumFirstTwo, swap,
+    takesWorld, TeapotNet, threeInts, Ticking, ticking, totalGrams, Tree, treeOf,
+    triple, tryThenCoalesce, twice, Version, version, Weigh, weighAndShow, Widget,
+    World, worldHere, Wrap,
 };
+// derived traits
+// newtypes with derived operator traits
+// hand-written impls
+// traits of my own
+// a trait method whose written parameter type is `Self`
+// generic functions
+// generic structs and enums
+// closures
+// `?` and `??`
+// blocks and scope
+// effect users
+// fakes
+// which positions of a type constructor hand a value back
+// fields a literal may leave out
+// literals that leave the type name out too
+// evaluation-order instrumentation

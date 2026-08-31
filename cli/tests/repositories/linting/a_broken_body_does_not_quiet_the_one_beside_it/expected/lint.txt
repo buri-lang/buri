@@ -27,10 +27,10 @@ error: a match arm ends with `,` [missing-separator]
      the cursor, so the mistake is one comma and the diagnostic is one sentence.
 
 warning: `showing` is bound and never used [unused-variable]
-  --> lib/money/cents.buri:19:7
+  --> lib/money/cents.buri:19:9
    |
-19 |   let showing = 7;
-   |       ^^^^^^^
+19 |     let showing = 7;
+   |         ^^^^^^^
    |
    = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
    = fix: use it, delete the `let`, or write `_` in its place

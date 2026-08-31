@@ -4,6 +4,11 @@ from "core/io" import * as io;
 from "//lib/alpha" import { markup };
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  io.println(ctx, markup(3).show(ctx)).mapErr(fn(_e) => "could not write to standard output")
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io
+        .println(ctx, markup(3).show(ctx))
+        .mapErr(fn(_e) => "could not write to standard output")
 }

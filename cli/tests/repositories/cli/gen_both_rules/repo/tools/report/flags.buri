@@ -1,8 +1,11 @@
 from "//tools/report/argv.buri" import { has };
 from "//tools/report/shared.buri" import { heading };
 
-export struct Flags { export verbose: Bool, export title: Str }
+export struct Flags {
+    export verbose: Bool,
+    export title: Str,
+}
 
 export fn parseFlags(args: [Str]): Flags {
-  Flags { verbose: has(args, "--verbose"), title: heading() }
+    Flags { verbose: has(args, "--verbose"), title: heading() }
 }

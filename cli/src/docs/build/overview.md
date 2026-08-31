@@ -103,8 +103,11 @@ it. Everything else in the package is listed one path at a time.
 // The public surface of //lib/money. A dependent can import these names and no
 // others; `toCents` below is exported by cents.buri but not from here, so it is
 // visible inside this library and nowhere else.
-from "//lib/money/cents.buri" export { Cents, fromDollars, fromCents, add, isZero, format };
-from "//lib/money/parse.buri" export { ParseError, parse };
+from "//lib/money/cents.buri" export {
+    add, Cents, format, fromCents, fromDollars, isZero,
+};
+
+from "//lib/money/parse.buri" export { parse, ParseError };
 ```
 
 Module paths are absolute — there are no relative imports. A surface is named
@@ -119,30 +122,41 @@ resolves only from within the library.
 /// add a Cents to an I64 by accident.
 export struct Cents(I64);
 
-export fn fromDollars(d: I64): Cents { Cents(d * 100) }
-export fn fromCents(c: I64): Cents { Cents(c) }
+export fn fromDollars(d: I64): Cents {
+    Cents(d * 100)
+}
+
+export fn fromCents(c: I64): Cents {
+    Cents(c)
+}
 
 impl Cents {
-  export fn add(self, other: Cents): Cents { Cents(self.0 + other.0) }
+    export fn add(self, other: Cents): Cents {
+        Cents(self.0 + other.0)
+    }
 
-  // Exported from this module, so `parse.buri` can reach it. Not re-exported
-  // from lib.buri, so it is invisible outside //lib/money — as a free function
-  // and as a method.
-  export fn toCents(self): I64 { self.0 }
+    // Exported from this module, so `parse.buri` can reach it. Not re-exported
+    // from lib.buri, so it is invisible outside //lib/money — as a free function
+    // and as a method.
+    export fn toCents(self): I64 {
+        self.0
+    }
 }
 ```
 
 `lib/money/test/cents.buri`:
 
 ```buri repo=cli/tests/example role=test
-from "//lib/money" import { fromCents };
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
 from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { fromCents };
 
 test "pads the cents place" {
-  let ctx = context { Alloc: alloc() };
-  assert.eq(fromCents(1905).format(ctx), "\$19.05");
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(fromCents(1905).format(ctx), "$19.05");
 }
 ```
 
@@ -153,10 +167,11 @@ withholds is not callable from another package, as a free function or as a
 method. `tools/report/test/render.buri`:
 
 ```buri repo=cli/tests/example role=test package=//tools/report
-# from "//lib/money" import { fromCents };
 # from "core/testing/assert" import * as assert;
+# from "//lib/money" import { fromCents };
+
 test "the surface is the whole of what a dependent can call" {
-  assert.eq(fromCents(1905).toCents(), 1905);   // ERROR: `toCents` is not on //lib/money's surface
+    assert.eq(fromCents(1905).toCents(), 1905); // ERROR: `toCents` is not on //lib/money's surface
 }
 ```
 

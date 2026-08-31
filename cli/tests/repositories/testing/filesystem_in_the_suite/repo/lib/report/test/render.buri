@@ -6,32 +6,37 @@
 // same in-memory filesystem with its contents written here instead, so both
 // backends read the same bytes and neither needs a runner to be handed them.
 
-from "//lib/report" import { footer, render, trailer };
-from "core/fs" import * as fs;
 from "core/effect" import { Alloc, Fs };
+from "core/fs" import * as fs;
 from "core/host/testing" import { alloc, fs as memory };
 from "core/testing/assert" import * as assert;
+from "//lib/report" import { footer, render, trailer };
 
 test "renders the statement" {
-  let ctx = context {
-    Alloc: alloc(),
-    Fs: memory().files([("test/golden/statement.txt", "coffee 4.50\nbooks 32.00\nrefund 1.00\n")]),
-  };
-  let want = assert.ok(fs.readText(ctx, "test/golden/statement.txt"));
-  assert.eq(render(), want);
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: memory().files([
+            ("test/golden/statement.txt", "coffee 4.50\nbooks 32.00\nrefund 1.00\n"),
+        ]),
+    };
+    let want = assert.ok(fs.readText(ctx, "test/golden/statement.txt"));
+    assert.eq(render(), want);
 }
 
 // A filesystem holds what it was given and nothing else — not the file next to
 // it in the source tree, and not the one this test asks for.
 test "a file the suite did not name is not there" {
-  let ctx = context { Alloc: alloc(), Fs: memory().files([("test/golden/statement.txt", "")]) };
-  let _ = assert.err(fs.readText(ctx, "test/golden/absent.txt"));
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: memory().files([("test/golden/statement.txt", "")]),
+    };
+    let _ = assert.err(fs.readText(ctx, "test/golden/absent.txt"));
 }
 
 // Two expected values that were never files, kept because a golden read back
 // out of a filesystem and a literal written in the assertion are now the same
 // kind of thing, and this file should show both.
 test "the trailer and the footer are written where they are asserted" {
-  assert.eq(trailer(), "3 entries");
-  assert.eq(footer(), "settled");
+    assert.eq(trailer(), "3 entries");
+    assert.eq(footer(), "settled");
 }

@@ -7,15 +7,18 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 fn describe(x: Option<Bool>): Int {
-  match (x) {
-    .Some(true | false) => 1,
-    .None => 0,
-  }
+    match (x) {
+        .Some(true | false) => 1,
+        .None => 0,
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let n = describe(.Some(true));
-  let _ = io.println(ctx, "${n}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let n = describe(.Some(true));
+    let _ = io.println(ctx, "${n}").ignore();
+    .Ok(())
 }

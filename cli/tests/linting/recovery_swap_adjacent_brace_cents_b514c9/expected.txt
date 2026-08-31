@@ -1,0 +1,9 @@
+error: expected an expression, found `+` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_cents_b514c9/lib.buri:2:5
+  |
+2 |     + cents 5
+  |     ^
+  |
+  = expected: an expression
+  = actual: `+`
+  = fix: write a value here

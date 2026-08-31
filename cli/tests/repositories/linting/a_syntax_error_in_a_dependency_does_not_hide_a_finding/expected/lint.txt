@@ -1,8 +1,8 @@
 warning: `leftover` is bound and never used [unused-variable]
-  --> cmd/app/main.buri:13:7
+  --> cmd/app/main.buri:15:9
    |
-13 |   let leftover = 1;
-   |       ^^^^^^^^
+15 |     let leftover = 1;
+   |         ^^^^^^^^
    |
    = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
    = fix: use it, delete the `let`, or write `_` in its place
@@ -21,18 +21,18 @@ warning: `leftover` is bound and never used [unused-variable]
      answering it.
 
 warning: str is imported but not used [unused-import]
- --> lib/money/cents.buri:7:29
+ --> lib/money/cents.buri:6:29
   |
-7 | from "core/str" import * as str;
+6 | from "core/str" import * as str;
   |                             ^^^
   |
   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
   = fix: remove the import
 warning: `spare` is bound and never used [unused-variable]
-  --> lib/money/cents.buri:10:7
+  --> lib/money/cents.buri:10:9
    |
-10 |   let spare = 3;
-   |       ^^^^^
+10 |     let spare = 3;
+   |         ^^^^^
    |
    = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
    = fix: use it, delete the `let`, or write `_` in its place

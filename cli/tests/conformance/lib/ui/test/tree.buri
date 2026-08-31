@@ -57,36 +57,48 @@ fn headingFor<C>(value: Int): Node<C> {
 // --- structure -----------------------------------------------------------------------
 
 test "a stack is arrangement with no meaning, and text is a bare run" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let tree = ui.stack([], [ui.text(.Const("hello"))]);
     assert.eq(render(ctx, tree).markup(), "<div>hello</div>");
 }
 
 test "nothing renders nothing at all" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let tree = ui.stack([], [ui.nothing(), ui.text(.Const("only")), ui.nothing()]);
     assert.eq(render(ctx, tree).markup(), "<div>only</div>");
 }
 
 test "a row runs along the axis and a column runs down the page" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     assert.eq(render(ctx, ui.row([], [])).markup(), "<div class=\"lay-row\" />");
     assert.eq(render(ctx, ui.column([], [])).markup(), "<div class=\"lay-col\" />");
 }
 
 test "a caller's own layout wins over the sugar's" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let tree = ui.row([.Layout(.Column)], []);
     assert.eq(render(ctx, tree).markup(), "<div class=\"lay-col\" />");
 }
 
 test "a spacer takes what is left over" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     assert.eq(render(ctx, ui.spacer()).markup(), "<div class=\"grow-1\" />");
 }
 
 test "every role lowers to the element that carries it" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let landmarks = ui.stack([], [
         ui.region(.Navigation, [], []),
         ui.region(.Main, [], []),
@@ -119,7 +131,9 @@ test "every role lowers to the element that carries it" {
 }
 
 test "a data table is roles, and its headers say which way they head" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let tree = ui.region(.Table, [], [
         ui.region(.TableRow, [], [
             ui.region(.ColumnHeader, [], [ui.text(.Const("name"))]),
@@ -137,7 +151,9 @@ test "a data table is roles, and its headers say which way they head" {
 }
 
 test "a heading is an outline level, and there is no seventh" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let tree = ui.stack([], [
         ui.heading(1, .Const("top")),
         ui.heading(3, .Const("inner")),
@@ -165,14 +181,15 @@ test "a heading is an outline level, and there is no seventh" {
 /// pairs the compiler assigned: it can only ever choose between classes that
 /// are already in the sheet.
 fn boxed<C>(extra: [Style], label: Str): Node<C> {
-    ui.stack(
-        [.Group([.Padding(.Px(8)), .Background(.Rgb(0, 0, 0))]), .Group(extra)],
-        [ui.text(.Const(label))],
-    )
+    ui.stack([.Group([.Padding(.Px(8)), .Background(.Rgb(0, 0, 0))]), .Group(extra)], [
+        ui.text(.Const(label)),
+    ])
 }
 
 test "every property lowers to the one declaration it names" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let everything: [Style] = [
         .Group([.Layout(.Row), .Gap(.Px(8))]),
         .Padding(.Rem(1.5)),
@@ -205,7 +222,9 @@ test "every property lowers to the one declaration it names" {
 }
 
 test "the rest of the vocabulary lowers to the declarations it names" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let rest: [Style] = [
         .AlignSelf(.End),
         .Wrap(true),
@@ -238,7 +257,9 @@ test "the rest of the vocabulary lowers to the declarations it names" {
         "<div class=\"as-end wrap-wrap scroll-y shrink-0 span-2 pin-top-0 pos-sticky gapx-4 gapy-6 pe-start-r1 minw-100 maxw-r40 minh-20 maxh-pc50 ar-1_5 bs-dashed op-0_5 it-italic lh-1_5 ls-1 ta-center tc-upper tl-underline tw-balance trunc-2\" />",
     );
     let sheet = stylesheet();
-    assert.isTrue(sheet.contains(".pin-top-0{position:absolute;inset-block-start:0px}"));
+    assert.isTrue(
+        sheet.contains(".pin-top-0{position:absolute;inset-block-start:0px}"),
+    );
     assert.isTrue(sheet.contains(".pe-start-r1{padding-inline-start:1rem}"));
     assert.isTrue(sheet.contains(".ar-1_5{aspect-ratio:1.5}"));
     assert.isTrue(
@@ -249,7 +270,9 @@ test "the rest of the vocabulary lowers to the declarations it names" {
 }
 
 test "a value with no bounded spelling is named by what it is" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let tree = ui.stack([], [
         ui.stack([.Layout(.Grid([.Fraction(1), .Fixed(.Px(200)), .Auto]))], []),
         ui.stack([.Layout(.Layers)], []),
@@ -270,17 +293,23 @@ test "a value with no bounded spelling is named by what it is" {
     ]);
     let _ = render(ctx, tree).markup();
     let sheet = stylesheet();
-    assert.isTrue(sheet.contains("{display:grid;grid-template-columns:1fr 200px auto}"));
+    assert.isTrue(
+        sheet.contains("{display:grid;grid-template-columns:1fr 200px auto}"),
+    );
     // The children's half of `Layers` is a rule about descendants, which is the
     // one place a class needs two blocks.
     assert.isTrue(sheet.contains("{grid-area:1/1}"));
-    assert.isTrue(sheet.contains("{font-family:ui-monospace,SFMono-Regular,monospace}"));
+    assert.isTrue(
+        sheet.contains("{font-family:ui-monospace,SFMono-Regular,monospace}"),
+    );
     assert.isTrue(sheet.contains("{font-family:\"Iosevka\",ui-sans-serif,sans-serif}"));
     assert.isTrue(sheet.contains("{box-shadow:0px 2px 6px 0px rgba(0,0,0,0.25)}"));
 }
 
 test "the last value of a property is the one that survives" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     // Both sides are literals, so this resolved at compile time: the element
     // carries one class rather than two that fight in the cascade.
     let tree = ui.stack([.Background(.Rgb(0, 0, 0)), .Background(.Inherit)], []);
@@ -288,10 +317,15 @@ test "the last value of a property is the one that survives" {
 }
 
 test "the remaining alignments and weights and cursors each have a name" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let tree = ui.stack([], [
         ui.stack([.AlignMain(.Start), .AlignCross(.End), .FontWeight(.Regular)], []),
-        ui.stack([.AlignMain(.Stretch), .AlignCross(.SpaceAround), .FontWeight(.Medium)], []),
+        ui.stack(
+            [.AlignMain(.Stretch), .AlignCross(.SpaceAround), .FontWeight(.Medium)],
+            [],
+        ),
         ui.stack([.AlignMain(.SpaceEvenly), .FontWeight(.Bold), .Cursor(.Default)], []),
         ui.stack([.Cursor(.Text)], []),
         ui.stack([.Cursor(.NotAllowed)], []),
@@ -303,7 +337,9 @@ test "the remaining alignments and weights and cursors each have a name" {
 }
 
 test "two elements asking for one padding are given one class" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let tree = ui.stack([], [
         ui.stack([.Padding(.Px(11))], []),
         ui.row([.Padding(.Px(11))], []),
@@ -316,19 +352,34 @@ test "two elements asking for one padding are given one class" {
 }
 
 test "a state is a pseudo-class in the stylesheet and costs nothing on the element" {
-    let ctx = context { Ui: headless() };
-    let tree = ui.stack([.Background(.Rgb(1, 1, 1)), .On(.Hover, [.Background(.Rgb(2, 2, 2))])], []);
-    assert.eq(render(ctx, tree).markup(), "<div class=\"bg-010101 hover_bg-020202\" />");
+    let ctx = context {
+        Ui: headless(),
+    };
+    let tree = ui.stack(
+        [.Background(.Rgb(1, 1, 1)), .On(.Hover, [.Background(.Rgb(2, 2, 2))])],
+        [],
+    );
+    assert.eq(
+        render(ctx, tree).markup(),
+        "<div class=\"bg-010101 hover_bg-020202\" />",
+    );
     let sheet = stylesheet();
-    assert.isTrue(sheet.contains(".hover_bg-020202:hover{background-color:rgb(2,2,2)}"));
+    assert.isTrue(
+        sheet.contains(".hover_bg-020202:hover{background-color:rgb(2,2,2)}"),
+    );
     // A pseudo-class and the base value are different conflict slots: they
     // apply at different times, so they never resolve against each other.
     assert.isTrue(sheet.contains(".bg-010101{background-color:rgb(1,1,1)}"));
 }
 
 test "a breakpoint is a media query, mobile first" {
-    let ctx = context { Ui: headless() };
-    let tree = ui.stack([.At(.Medium, [.Padding(.Px(24))]), .At(.Large, [.Padding(.Px(32))])], []);
+    let ctx = context {
+        Ui: headless(),
+    };
+    let tree = ui.stack(
+        [.At(.Medium, [.Padding(.Px(24))]), .At(.Large, [.Padding(.Px(32))])],
+        [],
+    );
     assert.eq(render(ctx, tree).markup(), "<div class=\"md_p-24 lg_p-32\" />");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".md_p-24{padding:24px}"));
@@ -341,17 +392,27 @@ test "a breakpoint is a media query, mobile first" {
 }
 
 test "a state inside a breakpoint is both at once" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let tree = ui.stack([.At(.Small, [.On(.Focus, [.Radius(.Px(3))])])], []);
     assert.eq(render(ctx, tree).markup(), "<div class=\"sm_focus_r-3\" />");
-    assert.isTrue(stylesheet().contains(".sm_focus_r-3:focus-visible{border-radius:3px}"));
+    assert.isTrue(
+        stylesheet().contains(".sm_focus_r-3:focus-visible{border-radius:3px}"),
+    );
 }
 
 test "a `When` puts both branches in the stylesheet and swaps between them" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let lit = signal(ctx, false);
     let tree = ui.stack(
-        [.When(.Cell(lit), [.Background(.Rgb(255, 0, 0))], [.Background(.Rgb(0, 0, 255))])],
+        [
+            .When(.Cell(lit), [.Background(.Rgb(255, 0, 0))], [
+                .Background(.Rgb(0, 0, 255)),
+            ]),
+        ],
         [],
     );
     let view = render(ctx, tree);
@@ -364,7 +425,9 @@ test "a `When` puts both branches in the stylesheet and swaps between them" {
 }
 
 test "a `Computed` style is inline, re-serialises, and is never in the stylesheet" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let width = signal(ctx, 137);
     let tree = ui.stack([.Computed(fn(scope) => [.Width(.Px(width.get(scope)))])], []);
     let view = render(ctx, tree);
@@ -390,8 +453,13 @@ test "a style the compiler cannot evaluate becomes an inline style" {
 }
 
 test "a style that arrives as a parameter resolves last-wins over emitted classes" {
-    let ctx = context { Ui: headless() };
-    let tree = ui.stack([], [boxed([], "plain"), boxed([.Background(.Rgb(9, 9, 9))], "loud")]);
+    let ctx = context {
+        Ui: headless(),
+    };
+    let tree = ui.stack([], [
+        boxed([], "plain"),
+        boxed([.Background(.Rgb(9, 9, 9))], "loud"),
+    ]);
     assert.eq(
         render(ctx, tree).markup(),
         "<div><div class=\"p-8 bg-000000\">plain</div><div class=\"p-8 bg-090909\">loud</div></div>",
@@ -399,19 +467,33 @@ test "a style that arrives as a parameter resolves last-wins over emitted classe
 }
 
 test "a static style registers nothing and a computed one re-runs once per change" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let width = signal(ctx, 21);
-    let view = render(ctx, ui.stack([], [
-        ui.stack([.Padding(.Px(13))], []),
-        ui.stack([.Computed(fn(scope) => [.Width(.Px(log.note(width.get(scope))))])], []),
-    ]));
-    assert.eq(view.markup(), "<div><div class=\"p-13\" /><div style=\"width: 21px\" /></div>");
+    let view = render(
+        ctx,
+        ui.stack([], [
+            ui.stack([.Padding(.Px(13))], []),
+            ui.stack(
+                [.Computed(fn(scope) => [.Width(.Px(log.note(width.get(scope))))])],
+                [],
+            ),
+        ]),
+    );
+    assert.eq(
+        view.markup(),
+        "<div><div class=\"p-13\" /><div style=\"width: 21px\" /></div>",
+    );
     // The static one never ran a computation, so nothing it could have noted
     // is here; the computed one ran once.
     assert.eq(log.noted(), [21]);
     width.set(ctx, 22);
-    assert.eq(view.markup(), "<div><div class=\"p-13\" /><div style=\"width: 22px\" /></div>");
+    assert.eq(
+        view.markup(),
+        "<div><div class=\"p-13\" /><div style=\"width: 22px\" /></div>",
+    );
     assert.eq(log.noted(), [21, 22]);
 }
 
@@ -446,13 +528,17 @@ test "a handler is handed the context the tree was rendered with" {
 }
 
 test "a link says where it goes" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let tree = ui.link(.Const("/prices"), [ui.text(.Const("prices"))]);
     assert.eq(render(ctx, tree).markup(), "<a href=\"/prices\">prices</a>");
 }
 
 test "an attribute follows a prop that varies" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let dest = signal(ctx, "/one");
     let page = render(ctx, ui.link(.Cell(dest), [ui.text(.Const("there"))]));
     assert.eq(page.markup(), "<a href=\"/one\">there</a>");
@@ -461,13 +547,15 @@ test "an attribute follows a prop that varies" {
 }
 
 test "an image says what it shows" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let tree = ui.stack([], [
         ui.image(.Const("/cat.png"), .Const("a cat, asleep")),
-        // The empty string is how a decorative image says it is decorative,
-        // which a reader has to be told and cannot guess.
         ui.image(.Const("/rule.png"), .Const("")),
     ]);
+    // The empty string is how a decorative image says it is decorative,
+    // which a reader has to be told and cannot guess.
     assert.eq(
         render(ctx, tree).markup(),
         "<div><img src=\"/cat.png\" alt=\"a cat, asleep\" /><img src=\"/rule.png\" alt=\"\" /></div>",
@@ -490,7 +578,9 @@ test "a field is labelled, and what is typed into it is in its signal" {
 }
 
 test "a field follows its signal when something else writes it" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let name = signal(ctx, "ada");
     let page = render(ctx, ui.field(.Const("name"), .Text, name));
     let _ = name.set(ctx, "grace");
@@ -501,7 +591,9 @@ test "a field follows its signal when something else writes it" {
 }
 
 test "a field kind is what the field accepts" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let value = signal(ctx, "");
     let tree = ui.stack([], [
         ui.field(.Const("story"), .Multiline, value),
@@ -546,11 +638,9 @@ test "a form is submitted, which is behaviour and so not a role" {
     let added = signal(ctx, "");
     let page = render(
         ctx,
-        ui.form(
-            fn(c, e) => added.set(c, draft.get(c)),
-            [],
-            [ui.field(.Const("what"), .Text, draft)],
-        ),
+        ui.form(fn(c, e) => added.set(c, draft.get(c)), [], [
+            ui.field(.Const("what"), .Text, draft),
+        ]),
     );
     let _ = page.fill("what", "milk");
     let _ = page.submit(0);
@@ -560,7 +650,9 @@ test "a form is submitted, which is behaviour and so not a role" {
 // --- reactivity in the tree ----------------------------------------------------------
 
 test "text follows the cell it was given" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let label = signal(ctx, "before");
     let page = render(ctx, ui.text(.Cell(label)));
     assert.eq(page.text(), "before");
@@ -569,7 +661,9 @@ test "text follows the cell it was given" {
 }
 
 test "a constant leaf registers nothing and never changes" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let unrelated = signal(ctx, 0);
     let page = render(ctx, ui.text(.Const("fixed")));
     let _ = unrelated.set(ctx, 1);
@@ -577,11 +671,17 @@ test "a constant leaf registers nothing and never changes" {
 }
 
 test "choose shows one subtree or the other" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let signedIn = signal(ctx, false);
     let page = render(
         ctx,
-        ui.choose(.Cell(signedIn), ui.text(.Const("welcome")), ui.text(.Const("sign in"))),
+        ui.choose(
+            .Cell(signedIn),
+            ui.text(.Const("welcome")),
+            ui.text(.Const("sign in")),
+        ),
     );
     assert.eq(page.text(), "sign in");
     let _ = signedIn.set(ctx, true);
@@ -591,7 +691,9 @@ test "choose shows one subtree or the other" {
 }
 
 test "the subtree choose removed is disposed with it" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let showing = signal(ctx, true);
     let n = signal(ctx, 1);
@@ -616,11 +718,15 @@ test "the subtree choose removed is disposed with it" {
 }
 
 test "computed rebuilds its subtree from whatever it read" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let count = signal(ctx, 0);
     let page = render(
         ctx,
-        ui.computed(fn(c) => ui.heading(if (count.get(c) > 1) { 2 } else { 1 }, .Const("head"))),
+        ui.computed(fn(c) => {
+            ui.heading(if (count.get(c) > 1) { 2 } else { 1 }, .Const("head"))
+        }),
     );
     assert.eq(page.count("h1"), 1);
     assert.eq(page.count("h2"), 0);
@@ -630,7 +736,9 @@ test "computed rebuilds its subtree from whatever it read" {
 }
 
 test "a computed subtree is rebuilt, and a leaf prop is not" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let n = signal(ctx, 0);
 
     // The coarse instrument: the whole subtree is built again, so the element
@@ -651,26 +759,41 @@ test "a computed subtree is rebuilt, and a leaf prop is not" {
 // --- keyed lists ---------------------------------------------------------------------
 
 test "each renders one row per item" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let items = signal(ctx, ["a", "b", "c"]);
-    let page = render(ctx, ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]));
+    let page = render(
+        ctx,
+        ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]),
+    );
     assert.eq(page.markup(), "<ul><li>a</li><li>b</li><li>c</li></ul>");
     assert.eq(page.count("li"), 3);
 }
 
 test "an empty list renders no rows" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let items: Signal<[Str]> = signal(ctx, []);
-    let page = render(ctx, ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]));
+    let page = render(
+        ctx,
+        ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]),
+    );
     assert.eq(page.count("li"), 0);
     let _ = items.set(ctx, ["only"]);
     assert.eq(page.markup(), "<ul><li>only</li></ul>");
 }
 
 test "inserting a row keeps the rows that were already there" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let items = signal(ctx, ["a", "c"]);
-    let page = render(ctx, ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]));
+    let page = render(
+        ctx,
+        ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]),
+    );
     let a = page.identity("li", 0);
     let c = page.identity("li", 1);
 
@@ -682,9 +805,14 @@ test "inserting a row keeps the rows that were already there" {
 }
 
 test "removing a row keeps the others" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let items = signal(ctx, ["a", "b", "c"]);
-    let page = render(ctx, ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]));
+    let page = render(
+        ctx,
+        ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]),
+    );
     let a = page.identity("li", 0);
     let c = page.identity("li", 2);
 
@@ -695,9 +823,14 @@ test "removing a row keeps the others" {
 }
 
 test "reordering moves the rows rather than rebuilding them" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let items = signal(ctx, ["a", "b", "c"]);
-    let page = render(ctx, ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]));
+    let page = render(
+        ctx,
+        ui.region(.List, [], [ui.each(.Cell(items), itself, labelRow)]),
+    );
     let a = page.identity("li", 0);
     let b = page.identity("li", 1);
     let c = page.identity("li", 2);
@@ -713,21 +846,20 @@ test "reordering moves the rows rather than rebuilding them" {
 }
 
 test "a row that leaves takes what it created with it" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let n = signal(ctx, 1);
     let items = signal(ctx, ["kept", "leaving"]);
     let page = render(
         ctx,
         ui.region(.List, [], [
-            ui.each(
-                .Cell(items),
-                itself,
-                fn(c, item, index) =>
-                    ui.region(.ListItem, [], [
-                        ui.text(.Computed(fn(s) => "${item} ${log.note(n.get(s))}")),
-                    ]),
-            ),
+            ui.each(.Cell(items), itself, fn(c, item, index) => {
+                ui.region(.ListItem, [], [
+                    ui.text(.Computed(fn(s) => "${item} ${log.note(n.get(s))}")),
+                ])
+            }),
         ]),
     );
     assert.eq(log.noted(), [1, 1]);
@@ -745,20 +877,19 @@ test "a row that leaves takes what it created with it" {
 }
 
 test "a row keeps its own reactive leaf across a reorder" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let suffix = signal(ctx, "!");
     let items = signal(ctx, ["a", "b"]);
     let page = render(
         ctx,
         ui.region(.List, [], [
-            ui.each(
-                .Cell(items),
-                itself,
-                fn(c, item, index) =>
-                    ui.region(.ListItem, [], [
-                        ui.text(.Computed(fn(s) => "${item}${suffix.get(s)}")),
-                    ]),
-            ),
+            ui.each(.Cell(items), itself, fn(c, item, index) => {
+                ui.region(.ListItem, [], [
+                    ui.text(.Computed(fn(s) => "${item}${suffix.get(s)}")),
+                ])
+            }),
         ]),
     );
     assert.eq(page.markup(), "<ul><li>a!</li><li>b!</li></ul>");
@@ -768,21 +899,20 @@ test "a row keeps its own reactive leaf across a reorder" {
 }
 
 test "a list nested in a list reconciles on its own" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let inner = signal(ctx, ["x"]);
     let outer = signal(ctx, ["a", "b"]);
     let page = render(
         ctx,
         ui.region(.List, [], [
-            ui.each(
-                .Cell(outer),
-                itself,
-                fn(c, item, index) =>
-                    ui.region(.ListItem, [], [
-                        ui.text(.Const(item)),
-                        ui.region(.List, [], [ui.each(.Cell(inner), itself, labelRow)]),
-                    ]),
-            ),
+            ui.each(.Cell(outer), itself, fn(c, item, index) => {
+                ui.region(.ListItem, [], [
+                    ui.text(.Const(item)),
+                    ui.region(.List, [], [ui.each(.Cell(inner), itself, labelRow)]),
+                ])
+            }),
         ]),
     );
     assert.eq(page.count("li"), 4);
@@ -794,7 +924,9 @@ test "a list nested in a list reconciles on its own" {
 // --- batching ------------------------------------------------------------------------
 
 test "one press is one update, however many signals it writes" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let log = recorder();
     let first = signal(ctx, 0);
     let second = signal(ctx, 0);
@@ -833,7 +965,10 @@ let badgeStyle: Style = .Group([
 ]);
 
 fn badge<C>(title: Prop<Str>, count: Prop<Int>): Node<C> {
-    ui.row([badgeStyle], [ui.text(title), ui.text(.Computed(fn(c) => "${count.read(c)}"))])
+    ui.row([badgeStyle], [
+        ui.text(title),
+        ui.text(.Computed(fn(c) => "${count.read(c)}")),
+    ])
 }
 
 fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
@@ -847,7 +982,9 @@ fn counter<C: Ui>(ctx: C, label: Str): Node<C> {
 }
 
 test "the counter counts, and both badges follow" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     let page = render(ctx, counter(ctx, "clicks"));
     assert.eq(page.text(), "clicks clicks 0 doubled 0");
     let _ = page.press("clicks");
@@ -858,7 +995,9 @@ test "the counter counts, and both badges follow" {
 }
 
 test "the counter mounts" {
-    let ctx = context { Ui: headless() };
+    let ctx = context {
+        Ui: headless(),
+    };
     // Nothing can build a `Theme` yet, so the empty list is the only list there
     // is — which is what an app with no design tokens passes in any case.
     let themes: [Theme] = [];

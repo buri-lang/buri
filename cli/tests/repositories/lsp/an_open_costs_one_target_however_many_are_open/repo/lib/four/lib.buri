@@ -1,2 +1,3 @@
 from "//lib/four/a.buri" export { fourA };
+
 from "//lib/four/b.buri" export { fourB };

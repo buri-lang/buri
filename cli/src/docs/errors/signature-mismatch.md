@@ -42,12 +42,16 @@ supplies `show<C>` with one type parameter, not two.
 
 ```buri fail code=signature-mismatch
 trait Measurable {
-  fn size(self): Int;
+    fn size(self): Int;
 }
 
-struct Bag { export count: Int }
+struct Bag {
+    export count: Int,
+}
 
 impl Measurable for Bag {
-  fn size(self, scale: Int): Int { self.count * scale }
+    fn size(self, scale: Int): Int {
+        self.count * scale
+    }
 }
 ```

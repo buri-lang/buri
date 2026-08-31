@@ -25,9 +25,13 @@ those methods and an `impl` block.
 # from "core/effect" import { Alloc, Stdout };
 # from "core/host" import * as host;
 # from "core/io" import * as io;
+
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.stdout, Stdout: host.stdout };
-  let _ = io.println(ctx, "ready").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.stdout,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "ready").ignore();
+    .Ok(())
 }
 ```

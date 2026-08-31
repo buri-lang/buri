@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_separator_brace_app_7cd7a8/main.buri:14:6
+   |
+14 |     }
+   |      ^
+   |
+   = fix: write `;` here

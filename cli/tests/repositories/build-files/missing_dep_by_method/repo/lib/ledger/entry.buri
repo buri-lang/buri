@@ -1,3 +1,5 @@
 from "//lib/money" import { Cents, fromCents };
 
-export fn priceOf(n: I64): Cents { fromCents(n * 100) }
+export fn priceOf(n: I64): Cents {
+    fromCents(n * 100)
+}

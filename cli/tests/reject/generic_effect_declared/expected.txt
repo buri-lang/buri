@@ -13,8 +13,8 @@ error: `Store` declares type parameters of its own [generic-effect-unsupported]
     Move the parameters onto the methods that need them:
 
       trait Store {
-        fn get<T>(self, key: Str): T;
-        fn put<T>(self, key: Str, value: T): ();
+          fn get<T>(self, key: Str): T;
+          fn put<T>(self, key: Str, value: T): ();
       }
 
     A method's own type parameters are supported everywhere a trait or an effect

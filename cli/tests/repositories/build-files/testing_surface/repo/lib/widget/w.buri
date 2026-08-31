@@ -1,3 +1,5 @@
 from "//lib/core" import { base };
 
-export fn widget(): I64 { base() + 1 }
+export fn widget(): I64 {
+    base() + 1
+}

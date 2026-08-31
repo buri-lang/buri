@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-separator]
-  --> main.buri:40:38
-   |
-40 |       .OnSurface => style.token("kit" "onSurface"),
-   |                                      ^
-   |
-   = fix: write `,` here

@@ -1,0 +1,16 @@
+error: expected a pattern, found `=` [unexpected-token]
+  --> main.buri:39:13
+   |
+39 |         let = whole self.0 / 100;
+   |             ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `whole` in scope [unresolved-name]
+  --> main.buri:42:30
+   |
+42 |         str.format(ctx, "\$${whole}.${pad}${rest}")
+   |                              ^^^^^
+   |
+   = fix: declare `whole`, or import it — a name is in scope only from this module's own declarations and its imports

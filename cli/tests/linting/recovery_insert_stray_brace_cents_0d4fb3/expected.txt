@@ -1,9 +1,0 @@
-error: expected an identifier, found `?` [unexpected-token]
- --> lib/recovery_insert_stray_brace_cents_0d4fb3/lib.buri:8:39
-  |
-8 | export fn describe(c: Cents): I64 { c.? 0 }
-  |                                       ^
-  |
-  = expected: an identifier
-  = actual: `?`
-  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

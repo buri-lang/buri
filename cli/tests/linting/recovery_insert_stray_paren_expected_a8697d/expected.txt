@@ -1,0 +1,12 @@
+error: this function type is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_expected_a8697d/main.buri:42:56
+   |
+42 | fn rendered<C: Alloc + Clock>(ctx: C, render: fn(C, Str? ) => Str, label: Str): Str {
+   |                                                        ^
+   |
+  --> lib/recovery_insert_stray_paren_expected_a8697d/main.buri:42:49
+   |
+42 | fn rendered<C: Alloc + Clock>(ctx: C, render: fn(C, Str? ) => Str, label: Str): Str {
+   |                                                 ^ opened here
+   |
+   = fix: write `)` here

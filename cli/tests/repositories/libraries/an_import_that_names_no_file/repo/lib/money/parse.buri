@@ -4,4 +4,6 @@
 
 from "//lib/money/cents" import { Cents };
 
-export fn isSmall(c: Cents): Bool { c.toCents() < 100 }
+export fn isSmall(c: Cents): Bool {
+    c.toCents() < 100
+}

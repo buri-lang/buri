@@ -1,1 +1,1 @@
-from "//lib/units/soundings.buri" export { Depth, deeper };
+from "//lib/units/soundings.buri" export { deeper, Depth };

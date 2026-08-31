@@ -1,0 +1,17 @@
+error: this `match` does not cover `.Open` [match-not-exhaustive]
+  --> lib/recovery_insert_stray_brace_cents_5ec3b5/lib.buri:20:5
+   |
+20 |     match (m) {
+   |     ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Open`, or a `_` arm for everything left
+error: expected an expression, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_5ec3b5/lib.buri:21:18
+   |
+21 |         .Open => @ l.entries,
+   |                  ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

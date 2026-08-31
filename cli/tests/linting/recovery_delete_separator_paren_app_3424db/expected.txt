@@ -1,0 +1,15 @@
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_delete_separator_paren_app_3424db/main.buri:14:21
+   |
+14 |                     if (n > 10000) { "huge" } else { "large" }
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_paren_app_3424db/main.buri:47:21
+   |
+47 |         .println(ctx "${size(5000)} ${ladder(1)}")
+   |                     ^
+   |
+   = fix: write `,` here

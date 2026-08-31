@@ -1,0 +1,17 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_swap_adjacent_paren_app_ec6957/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected `=>`, found a string literal [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_app_ec6957/main.buri:19:45
+   |
+19 |     io.println(ctx, banner()).mapErr(fn(_e) "could not write to standard output" =>)
+   |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: `=>`
+   = actual: a string literal
+   = fix: write `=>` here

@@ -5,12 +5,16 @@ fix: call it on a receiver, which is what picks the one you mean
 ---
 
 ```buri fail code=ambiguous-free-function
-fn size(a: Int): Int { a }
+fn size(a: Int): Int {
+    a
+}
 
-fn size(a: Str): Int { 0 }
+fn size(a: Str): Int {
+    0
+}
 
 fn go(): Int {
-  let f = size;
-  1
+    let f = size;
+    1
 }
 ```

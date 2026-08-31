@@ -22,36 +22,48 @@ not reachable from outside the library.**
 ```buri repo=cli/tests/example package=//lib/money
 // lib/money/lib.buri — the surface of //lib/money, complete.
 
-from "//lib/money/cents.buri" export { Cents, fromDollars, fromCents, add, isZero, format };
-from "//lib/money/parse.buri" export { ParseError, parse };
+from "//lib/money/cents.buri" export {
+    add, Cents, format, fromCents, fromDollars, isZero,
+};
+
+from "//lib/money/parse.buri" export { parse, ParseError };
 ```
 
 ```buri
 // lib/money/cents.buri
 
-export struct Cents(I64);          // name exported, contents not
+export struct Cents(I64); // name exported, contents not
 
-export fn fromDollars(d: I64): Cents { Cents(d * 100) }
-export fn fromCents(c: I64): Cents { Cents(c) }
+export fn fromDollars(d: I64): Cents {
+    Cents(d * 100)
+}
+
+export fn fromCents(c: I64): Cents {
+    Cents(c)
+}
 
 // A method is declared inside an `impl` for its type, and that `impl` lives in
 // the module that declares the type — which is what decides how a library's
 // files are laid out.
 impl Cents {
-  export fn add(self, other: Cents): Cents { Cents(self.0 + other.0) }
+    export fn add(self, other: Cents): Cents {
+        Cents(self.0 + other.0)
+    }
 
-  // Exported so `parse.buri` can reach it, since the field is module-private.
-  // Absent from lib.buri, so it stops at the library boundary.
-  export fn toCents(self): I64 { self.0 }
+    // Exported so `parse.buri` can reach it, since the field is module-private.
+    // Absent from lib.buri, so it stops at the library boundary.
+    export fn toCents(self): I64 {
+        self.0
+    }
 }
 ```
 
 From `//cmd/server`:
 
 ```buri repo=cli/tests/example package=//cmd/server
-from "//lib/money" import { Cents, format };        // fine
-from "//lib/money" import { toCents };              // ERROR: "//lib/money" does not export `toCents`
-from "//lib/money/cents.buri" import { toCents };   // ERROR: internal to //lib/money
+from "//lib/money" import { Cents, format }; // fine
+from "//lib/money" import { toCents }; // ERROR: "//lib/money" does not export `toCents`
+from "//lib/money/cents.buri" import { toCents }; // ERROR: internal to //lib/money
 ```
 
 The property this buys is that reviewing a library's API is reading one file.
@@ -193,7 +205,7 @@ unreachable.
 
 ```buri repo=cli/tests/example package=//lib/ledger role=test
 // lib/ledger/testing/lib.buri — the surface of //lib/ledger/testing.
-from "//lib/ledger/testing/fixtures.buri" export { sample, oneOff };
+from "//lib/ledger/testing/fixtures.buri" export { oneOff, sample };
 ```
 
 Four properties come from it being *in the package* rather than beside it:
@@ -252,12 +264,15 @@ happens to be the entry point, so this is fine:
 
 ```buri repo=cli/tests/example package=//lib/money
 from "//lib/money/cents.buri" export { Cents, fromCents };
+
 from "//lib/money/cents.buri" import { Cents, toCents };
 
 /// Declared here rather than re-exported; both are public surface. A free
 /// function, not a method: `Cents` is declared in cents.buri, and a method must
 /// live in its type's defining module ([`SPEC.md` §6.7.3](../SPEC.md)).
-export fn isRound(c: Cents): Bool { c.toCents() % 100 == 0 }
+export fn isRound(c: Cents): Bool {
+    c.toCents() % 100 == 0
+}
 ```
 
 Three consequences worth stating outright:
@@ -346,7 +361,8 @@ no build graph. `lib.buri` re-exports from wherever the names live:
 ```buri repo=cli/tests/example package=//lib/ledger
 // lib/ledger/lib.buri
 from "//lib/ledger/entry.buri" export { Entry, entry, total };
-from "//lib/ledger/posting/rules.buri" export { Rule, apply };
+
+from "//lib/ledger/posting/rules.buri" export { apply, Rule };
 ```
 
 Subdirectory nesting has no cost in the build graph: one library is one compile

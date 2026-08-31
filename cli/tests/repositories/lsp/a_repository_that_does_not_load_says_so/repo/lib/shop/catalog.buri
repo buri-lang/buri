@@ -2,13 +2,13 @@
 
 /// One thing for sale.
 export struct Item {
-  /// What the label on the shelf says.
-  export name: Str,
-  /// What it costs, in whole cents.
-  export price: I64,
+    /// What the label on the shelf says.
+    export name: Str,
+    /// What it costs, in whole cents.
+    export price: I64,
 }
 
 /// What one of them costs.
 export fn ticket(item: Item): I64 {
-  item.price
+    item.price
 }

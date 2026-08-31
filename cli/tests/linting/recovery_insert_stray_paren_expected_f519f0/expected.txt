@@ -1,0 +1,9 @@
+error: expected `=>`, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_expected_f519f0/main.buri:60:41
+   |
+60 |     whisper(ctx, rendered(ctx, fn(c, l) ? => str.format(c, "<${l}>"), label)).mapErr(
+   |                                         ^
+   |
+   = expected: `=>`
+   = actual: `?`
+   = fix: write `=>` here

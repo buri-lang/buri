@@ -1,0 +1,7 @@
+error: a type alias ends with `;` [missing-terminator]
+  --> lib/recovery_delete_separator_module_cents_4ac8e3/lib.buri:17:19
+   |
+17 | type Money = Tally
+   |                   ^
+   |
+   = fix: write `;` here

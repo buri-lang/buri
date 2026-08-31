@@ -6,6 +6,6 @@ fix: call a function, a lambda, or a field holding one — `(x.f)(...)` for a fi
 
 ```buri fail code=not-callable
 fn go(n: Int): Int {
-  n(1)
+    n(1)
 }
 ```

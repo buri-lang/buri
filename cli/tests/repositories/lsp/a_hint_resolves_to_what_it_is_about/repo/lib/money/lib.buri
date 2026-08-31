@@ -1,2 +1,3 @@
-from "//lib/money/cents.buri" export { Money, line };
-from "//lib/money/basket.buri" export { total, subtotal };
+from "//lib/money/cents.buri" export { line, Money };
+
+from "//lib/money/basket.buri" export { subtotal, total };

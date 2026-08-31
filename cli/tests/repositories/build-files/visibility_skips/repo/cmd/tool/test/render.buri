@@ -1,10 +1,10 @@
 // The target under test, reached from its own test sources. A private library
 // that its own suite could not import would be a library that cannot be tested.
 
-from "//cmd/tool" import { render };
 from "core/testing/assert" import * as assert;
+from "//cmd/tool" import { render };
 
 test "render distinguishes zero" {
-  assert.eq(render(0), "zero");
-  assert.eq(render(1), "some");
+    assert.eq(render(0), "zero");
+    assert.eq(render(1), "some");
 }

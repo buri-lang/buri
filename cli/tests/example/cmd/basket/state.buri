@@ -11,31 +11,30 @@ from "core/net/http" import * as http;
 from "core/str" import * as str;
 from "ui/effect" import { Ui, Watch };
 from "ui/signal" import { Signal, signal };
-
-from "//lib/ledger" import { Entry };
 from "//cmd/basket/model.buri" import { draft, entriesFrom, flip, LEDGER_URL };
+from "//lib/ledger" import { Entry };
 
 /// The whole of this page's state.
 export struct State {
-  /// The lines, in the order they were added. Keyed by memo when they are
-  /// rendered, so this list may be reordered without rebuilding a row.
-  export items: Signal<[Entry]>,
-  /// The memos of the lines that have been settled.
-  ///
-  /// Beside the list rather than inside it, because a row is built from its
-  /// item once: if a row's *item* carried its settled flag, ticking a line
-  /// would change the item, and the item is what the list is made of. Keeping
-  /// the flag in a second signal is what lets the row read it as a `Prop` —
-  /// the changing part of a row that is otherwise unchanged.
-  export ticked: Signal<[Str]>,
-  /// What has been typed into the composer's first field.
-  export draftMemo: Signal<Str>,
-  /// And its second.
-  export draftAmount: Signal<Str>,
-  /// What the page has to say, or the empty string. Rendered into an `Alert`.
-  export notice: Signal<Str>,
-  /// Whether the dark theme is the one installed.
-  export dark: Signal<Bool>,
+    /// The lines, in the order they were added. Keyed by memo when they are
+    /// rendered, so this list may be reordered without rebuilding a row.
+    export items: Signal<[Entry]>,
+    /// The memos of the lines that have been settled.
+    ///
+    /// Beside the list rather than inside it, because a row is built from its
+    /// item once: if a row's *item* carried its settled flag, ticking a line
+    /// would change the item, and the item is what the list is made of. Keeping
+    /// the flag in a second signal is what lets the row read it as a `Prop` —
+    /// the changing part of a row that is otherwise unchanged.
+    export ticked: Signal<[Str]>,
+    /// What has been typed into the composer's first field.
+    export draftMemo: Signal<Str>,
+    /// And its second.
+    export draftAmount: Signal<Str>,
+    /// What the page has to say, or the empty string. Rendered into an `Alert`.
+    export notice: Signal<Str>,
+    /// Whether the dark theme is the one installed.
+    export dark: Signal<Bool>,
 }
 
 /// A fresh, empty basket.
@@ -43,16 +42,16 @@ export struct State {
 /// Empty on purpose: the first thing the page shows is the branch of `choose`
 /// that says so, and pressing "Load the ledger" is what replaces it.
 export fn newState<C: Ui>(ctx: C): State {
-  let noItems: [Entry] = [];
-  let noMemos: [Str] = [];
-  State {
-    items: signal(ctx, noItems),
-    ticked: signal(ctx, noMemos),
-    draftMemo: signal(ctx, ""),
-    draftAmount: signal(ctx, ""),
-    notice: signal(ctx, ""),
-    dark: signal(ctx, false),
-  }
+    let noItems: [Entry] = [];
+    let noMemos: [Str] = [];
+    State {
+        items: signal(ctx, noItems),
+        ticked: signal(ctx, noMemos),
+        draftMemo: signal(ctx, ""),
+        draftAmount: signal(ctx, ""),
+        notice: signal(ctx, ""),
+        dark: signal(ctx, false),
+    }
 }
 
 /// Adds whatever the composer's two fields currently say, and says why not.
@@ -63,21 +62,23 @@ export fn newState<C: Ui>(ctx: C): State {
 /// context this call was handed, and writing back is the shape that works, and
 /// it is the shape every handler in this package uses.
 export fn add<C: Alloc + Ui + Watch>(ctx: C, state: State): () {
-  match (draft(state.draftMemo.get(ctx), state.draftAmount.get(ctx))) {
-    .Blank => state.notice.set(ctx, "a line needs a memo"),
-    .BadAmount(text) => state.notice.set(ctx, str.format(ctx, "\"${text}\" is not an amount")),
-    .Line(line) => {
-      let _ = state.items.set(ctx, state.items.get(ctx).push(ctx, line));
-      let _ = state.draftMemo.set(ctx, "");
-      let _ = state.draftAmount.set(ctx, "");
-      state.notice.set(ctx, "")
-    },
-  }
+    match (draft(state.draftMemo.get(ctx), state.draftAmount.get(ctx))) {
+        .Blank => state.notice.set(ctx, "a line needs a memo"),
+        .BadAmount(text) => {
+            state.notice.set(ctx, str.format(ctx, "\"${text}\" is not an amount"))
+        },
+        .Line(line) => {
+            let _ = state.items.set(ctx, state.items.get(ctx).push(ctx, line));
+            let _ = state.draftMemo.set(ctx, "");
+            let _ = state.draftAmount.set(ctx, "");
+            state.notice.set(ctx, "")
+        },
+    }
 }
 
 /// Settles the line called `memo`, or unsettles it.
 export fn tick<C: Alloc + Ui + Watch>(ctx: C, state: State, memo: Str): () {
-  state.ticked.set(ctx, flip(ctx, state.ticked.get(ctx), memo))
+    state.ticked.set(ctx, flip(ctx, state.ticked.get(ctx), memo))
 }
 
 /// Asks the server for its ledger and shows whatever comes back.
@@ -93,42 +94,46 @@ export fn tick<C: Alloc + Ui + Watch>(ctx: C, state: State, memo: Str): () {
 /// suspending call no longer blocks the page, so a browser grants `Net` like
 /// every other platform and this line reads the way it always should have.
 export fn load<C: Alloc + Net + Ui>(ctx: C, state: State): () {
-  let _ = state.notice.set(ctx, "asking the server for its ledger");
-  received(ctx, state, http.get(ctx, LEDGER_URL))
+    let _ = state.notice.set(ctx, "asking the server for its ledger");
+    received(ctx, state, http.get(ctx, LEDGER_URL))
 }
 
 /// What to do with a response, or with the reason there was not one.
 fn received<C: Alloc + Ui>(
-  ctx: C,
-  state: State,
-  result: Result<Response, NetError>,
+    ctx: C,
+    state: State,
+    result: Result<Response, NetError>,
 ): () {
-  match (result) {
-    .Err(why) => state.notice.set(ctx, refusal(why)),
-    .Ok(response) => if (response.status == 200) {
-      // A body is octets, because a response is not necessarily text; decoding
-      // it is a step the reader takes rather than one the platform guessed at.
-      // A ledger that is not UTF-8 is a broken ledger, and says so here.
-      match (http.bodyText(ctx, response.body)) {
-        .Err(_) => state.notice.set(ctx, "the server's ledger is not text"),
-        .Ok(body) => showing(ctx, state, entriesFrom(ctx, body)),
-      }
-    } else {
-      state.notice.set(ctx, str.format(ctx, "the server answered ${response.status}"))
-    },
-  }
+    match (result) {
+        .Err(why) => state.notice.set(ctx, refusal(why)),
+        .Ok(response) => {
+            if (response.status == 200) {
+                // A body is octets, because a response is not necessarily text; decoding
+                // it is a step the reader takes rather than one the platform guessed at.
+                // A ledger that is not UTF-8 is a broken ledger, and says so here.
+                match (http.bodyText(ctx, response.body)) {
+                    .Err(_) => state.notice.set(ctx, "the server's ledger is not text"),
+                    .Ok(body) => showing(ctx, state, entriesFrom(ctx, body)),
+                }
+            } else {
+                state
+                    .notice
+                    .set(ctx, str.format(ctx, "the server answered ${response.status}"))
+            }
+        },
+    }
 }
 
 /// Replaces the basket with `lines`, and says so when there are none.
 fn showing<C: Ui>(ctx: C, state: State, lines: [Entry]): () {
-  let _ = state.items.set(ctx, lines);
-  let noMemos: [Str] = [];
-  let _ = state.ticked.set(ctx, noMemos);
-  if (lines.isEmpty()) {
-    state.notice.set(ctx, "the server's ledger is empty")
-  } else {
-    state.notice.set(ctx, "")
-  }
+    let _ = state.items.set(ctx, lines);
+    let noMemos: [Str] = [];
+    let _ = state.ticked.set(ctx, noMemos);
+    if (lines.isEmpty()) {
+        state.notice.set(ctx, "the server's ledger is empty")
+    } else {
+        state.notice.set(ctx, "")
+    }
 }
 
 /// Why there was no response, in words a reader can act on.
@@ -140,11 +145,11 @@ fn showing<C: Ui>(ctx: C, state: State, lines: [Entry]): () {
 /// enum did not, on the grounds that only a callback-shaped request could be
 /// called off, and it moved when the callback did.
 fn refusal(why: NetError): Str {
-  match (why) {
-    .Timeout => "the server took too long",
-    .Refused => "the server refused the connection",
-    .BadUrl(_) => "that is not a URL",
-    .Transport(_) => "the connection broke",
-    .Aborted => "the request was cancelled",
-  }
+    match (why) {
+        .Timeout => "the server took too long",
+        .Refused => "the server refused the connection",
+        .BadUrl(_) => "that is not a URL",
+        .Transport(_) => "the connection broke",
+        .Aborted => "the request was cancelled",
+    }
 }

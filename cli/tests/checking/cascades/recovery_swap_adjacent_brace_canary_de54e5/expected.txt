@@ -1,0 +1,17 @@
+error: expected a pattern, found `=` [unexpected-token]
+  --> main.buri:16:9
+   |
+16 |     let = doubled [1, 2, 3].fold(fn(acc, x) => acc + x, 0);
+   |         ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `doubled` in scope [unresolved-name]
+  --> main.buri:17:15
+   |
+17 |     assert.eq(doubled, 6);
+   |               ^^^^^^^
+   |
+   = did you mean `Bounded`?
+   = fix: correct the spelling, or declare it

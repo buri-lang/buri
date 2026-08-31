@@ -1,5 +1,7 @@
-from "//lib/probe/inner" import { depth };
 from "//lib/instrumentation" import { instrumentation };
 from "//lib/measurement" import { measurement };
+from "//lib/probe/inner" import { depth };
 
-export fn probe(): I64 { depth() + instrumentation() + measurement() }
+export fn probe(): I64 {
+    depth() + instrumentation() + measurement()
+}

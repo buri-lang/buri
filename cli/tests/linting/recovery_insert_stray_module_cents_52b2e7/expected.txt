@@ -1,0 +1,7 @@
+error: an `if` is an operand, not the head of a `?` [postfix-on-a-block]
+ --> lib/recovery_insert_stray_module_cents_52b2e7/lib.buri:7:1
+  |
+7 | ? }
+  | ^
+  |
+  = fix: parenthesise it, or bind it with `let` and go on from the name

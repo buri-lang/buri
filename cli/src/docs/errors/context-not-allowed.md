@@ -28,13 +28,20 @@ what the capture rule exists to prevent.
 # from "core/effect" import { Alloc, Stdout };
 # from "core/host" import * as host;
 # from "core/io" import * as io;
+
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let make = fn(n: Int) => {
-    let inner = context { Alloc: host.alloc, Stdout: host.stdout };
-    n
-  };
-  let _ = io.println(ctx, "${make(1)}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let make = fn(n: Int) => {
+        let inner = context {
+            Alloc: host.alloc,
+            Stdout: host.stdout,
+        };
+        n
+    };
+    let _ = io.println(ctx, "${make(1)}").ignore();
+    .Ok(())
 }
 ```

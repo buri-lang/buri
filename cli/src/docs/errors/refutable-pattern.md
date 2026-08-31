@@ -23,7 +23,7 @@ not fit, so its pattern has to be one that cannot fail.
 
 ```buri fail code=refutable-pattern
 fn unwrap(o: Option<Int>): Int {
-  let .Some(n) = o;
-  n
+    let .Some(n) = o;
+    n
 }
 ```

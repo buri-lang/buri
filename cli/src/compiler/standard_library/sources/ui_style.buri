@@ -73,153 +73,153 @@ export struct Classes([(Int, Str)]);
 /// One appearance property, or a group, a condition, or a computation over
 /// them.
 export enum Style {
-  /// Several properties as one value. Composition, with no allocator: an array
-  /// literal is fixed-size construction.
-  Group([Style]),
-  /// Styles that apply only while the element is in a given state — hovered,
-  /// focused, pressed. A pseudo-class in the stylesheet, so it costs nothing at
-  /// run time and there is no signal write on a mouse move.
-  ///
-  /// Statically known or rejected: there is no inline form of `:hover`.
-  ///
-  /// One state at a time. An `On` inside an `On` keeps the innermost, because
-  /// two pseudo-classes at once is a rule this vocabulary has no way to name;
-  /// an `On` inside an `At` is both, and is the useful nesting.
-  On(State, [Style]),
-  /// Styles that apply only from a given screen width upwards. Mobile-first: a
-  /// larger breakpoint overrides a smaller one, and the styles outside any `At`
-  /// are the smallest screen's.
-  ///
-  /// Statically known or rejected: there is no inline form of a media query.
-  /// `When` inside `At` is fine; `Computed` inside it is not.
-  At(Screen, [Style]),
-  /// One of two style lists, chosen by something that can change. Both lists
-  /// are extracted into the stylesheet, and the runtime swaps between two
-  /// precomputed class strings.
-  When(Prop<Bool>, [Style], [Style]),
-  /// Styles derived from whatever the closure reads. Applied inline and
-  /// re-serialised on every change, and never in the stylesheet — which is why
-  /// it is the last resort rather than the first.
-  Computed(fn(Scope) => [Style]),
-  /// **Compiler-produced, and the one variant a program cannot write.** Holds
-  /// the pairs a static style was extracted into: a conflict slot, and the name
-  /// of a class that is already in the stylesheet. Last slot wins.
-  ///
-  /// Its payload is a `Classes`, whose field is private, so the only way a
-  /// class name reaches an element is by having been emitted — which is the
-  /// whole of "nothing is generated at run time".
-  Extracted(Classes),
+    /// Several properties as one value. Composition, with no allocator: an array
+    /// literal is fixed-size construction.
+    Group([Style]),
+    /// Styles that apply only while the element is in a given state — hovered,
+    /// focused, pressed. A pseudo-class in the stylesheet, so it costs nothing at
+    /// run time and there is no signal write on a mouse move.
+    ///
+    /// Statically known or rejected: there is no inline form of `:hover`.
+    ///
+    /// One state at a time. An `On` inside an `On` keeps the innermost, because
+    /// two pseudo-classes at once is a rule this vocabulary has no way to name;
+    /// an `On` inside an `At` is both, and is the useful nesting.
+    On(State, [Style]),
+    /// Styles that apply only from a given screen width upwards. Mobile-first: a
+    /// larger breakpoint overrides a smaller one, and the styles outside any `At`
+    /// are the smallest screen's.
+    ///
+    /// Statically known or rejected: there is no inline form of a media query.
+    /// `When` inside `At` is fine; `Computed` inside it is not.
+    At(Screen, [Style]),
+    /// One of two style lists, chosen by something that can change. Both lists
+    /// are extracted into the stylesheet, and the runtime swaps between two
+    /// precomputed class strings.
+    When(Prop<Bool>, [Style], [Style]),
+    /// Styles derived from whatever the closure reads. Applied inline and
+    /// re-serialised on every change, and never in the stylesheet — which is why
+    /// it is the last resort rather than the first.
+    Computed(fn(Scope) => [Style]),
+    /// **Compiler-produced, and the one variant a program cannot write.** Holds
+    /// the pairs a static style was extracted into: a conflict slot, and the name
+    /// of a class that is already in the stylesheet. Last slot wins.
+    ///
+    /// Its payload is a `Classes`, whose field is private, so the only way a
+    /// class name reaches an element is by having been emitted — which is the
+    /// whole of "nothing is generated at run time".
+    Extracted(Classes),
 
-  /// How this container arranges its children.
-  Layout(Layout),
-  /// Where the children sit along the axis the layout runs along.
-  AlignMain(Align),
-  /// Where the children sit across that axis.
-  AlignCross(Align),
-  /// Where this child sits across its parent's main axis, overriding the
-  /// parent's `AlignCross` for it alone.
-  AlignSelf(Align),
-  /// Whether children that do not fit start a new line.
-  Wrap(Bool),
-  /// Which way this container scrolls when its content is larger than it is.
-  Scroll(Axis),
-  /// How much of the leftover space along the main axis this child takes,
-  /// relative to its siblings. `0` is "none of it".
-  Grow(Int),
-  /// How much this child gives up when there is not enough room, relative to
-  /// its siblings. `0` is "none of it", which is how a sidebar keeps its width.
-  Shrink(Int),
-  /// How many grid tracks this child covers.
-  Span(Int),
-  /// Fixes one edge of a child at a distance, taking it out of the flow. Two
-  /// `Pin`s naming different edges compose. The distance is measured from the
-  /// nearest ancestor that has a `Position`, or from the page.
-  Pin(Edge, Length),
-  /// How this element relates to the flow — and, declared after `Pin` so that
-  /// it wins, what a pinned child is measured against.
-  Position(Position),
+    /// How this container arranges its children.
+    Layout(Layout),
+    /// Where the children sit along the axis the layout runs along.
+    AlignMain(Align),
+    /// Where the children sit across that axis.
+    AlignCross(Align),
+    /// Where this child sits across its parent's main axis, overriding the
+    /// parent's `AlignCross` for it alone.
+    AlignSelf(Align),
+    /// Whether children that do not fit start a new line.
+    Wrap(Bool),
+    /// Which way this container scrolls when its content is larger than it is.
+    Scroll(Axis),
+    /// How much of the leftover space along the main axis this child takes,
+    /// relative to its siblings. `0` is "none of it".
+    Grow(Int),
+    /// How much this child gives up when there is not enough room, relative to
+    /// its siblings. `0` is "none of it", which is how a sidebar keeps its width.
+    Shrink(Int),
+    /// How many grid tracks this child covers.
+    Span(Int),
+    /// Fixes one edge of a child at a distance, taking it out of the flow. Two
+    /// `Pin`s naming different edges compose. The distance is measured from the
+    /// nearest ancestor that has a `Position`, or from the page.
+    Pin(Edge, Length),
+    /// How this element relates to the flow — and, declared after `Pin` so that
+    /// it wins, what a pinned child is measured against.
+    Position(Position),
 
-  /// The space between children, both ways.
-  Gap(Length),
-  /// The space between children along the text direction.
-  GapX(Length),
-  /// The space between children down the page.
-  GapY(Length),
-  /// Space inside every edge.
-  Padding(Length),
-  /// Space inside the two edges the text direction runs along.
-  PaddingX(Length),
-  /// Space inside the top and bottom edges.
-  PaddingY(Length),
-  /// Space inside one edge.
-  PaddingEdge(Edge, Length),
+    /// The space between children, both ways.
+    Gap(Length),
+    /// The space between children along the text direction.
+    GapX(Length),
+    /// The space between children down the page.
+    GapY(Length),
+    /// Space inside every edge.
+    Padding(Length),
+    /// Space inside the two edges the text direction runs along.
+    PaddingX(Length),
+    /// Space inside the top and bottom edges.
+    PaddingY(Length),
+    /// Space inside one edge.
+    PaddingEdge(Edge, Length),
 
-  /// How wide.
-  Width(Length),
-  /// How tall.
-  Height(Length),
-  /// No narrower than this.
-  MinWidth(Length),
-  /// No wider than this.
-  MaxWidth(Length),
-  /// No shorter than this.
-  MinHeight(Length),
-  /// No taller than this.
-  MaxHeight(Length),
-  /// Width divided by height, for an element that should keep its proportions
-  /// as it resizes. `1.0` is a square.
-  AspectRatio(Float),
+    /// How wide.
+    Width(Length),
+    /// How tall.
+    Height(Length),
+    /// No narrower than this.
+    MinWidth(Length),
+    /// No wider than this.
+    MaxWidth(Length),
+    /// No shorter than this.
+    MinHeight(Length),
+    /// No taller than this.
+    MaxHeight(Length),
+    /// Width divided by height, for an element that should keep its proportions
+    /// as it resizes. `1.0` is a square.
+    AspectRatio(Float),
 
-  /// What is painted behind the content.
-  Background(Color),
-  /// What the text is painted in.
-  Foreground(Color),
-  /// How thick the border is. A width on its own draws a solid border, because
-  /// a border nobody can see is not what asking for one means; `BorderStyle` is
-  /// declared after it and overrides that.
-  BorderWidth(Length),
-  /// What colour the border is. A border with no colour draws in the
-  /// foreground colour, which is what every other toolkit does.
-  BorderColor(Color),
-  /// What the border is drawn like.
-  BorderStyle(BorderStyle),
-  /// How rounded the corners are.
-  Radius(Length),
-  /// How opaque the whole element is, `0.0` to `1.0`, content included.
-  Opacity(Float),
-  /// A shadow cast by this element.
-  Shadow(Shadow),
+    /// What is painted behind the content.
+    Background(Color),
+    /// What the text is painted in.
+    Foreground(Color),
+    /// How thick the border is. A width on its own draws a solid border, because
+    /// a border nobody can see is not what asking for one means; `BorderStyle` is
+    /// declared after it and overrides that.
+    BorderWidth(Length),
+    /// What colour the border is. A border with no colour draws in the
+    /// foreground colour, which is what every other toolkit does.
+    BorderColor(Color),
+    /// What the border is drawn like.
+    BorderStyle(BorderStyle),
+    /// How rounded the corners are.
+    Radius(Length),
+    /// How opaque the whole element is, `0.0` to `1.0`, content included.
+    Opacity(Float),
+    /// A shadow cast by this element.
+    Shadow(Shadow),
 
-  /// Which family the text is set in.
-  FontFamily(FontFamily),
-  /// How large the text is.
-  FontSize(Length),
-  /// How heavy the text is.
-  FontWeight(Weight),
-  /// Whether the text slants.
-  Italic(Bool),
-  /// The distance between baselines, as a multiple of the text size. `1.5` is
-  /// the usual body setting.
-  LineHeight(Float),
-  /// Extra space between letters. Negative tightens.
-  LetterSpacing(Length),
-  /// Where the text sits in its line box. The three `Space*` distributions and
-  /// `Stretch` all mean *justified*, which is the nearest thing text has to
-  /// distributing leftover room.
-  TextAlign(Align),
-  /// Whether the text is re-cased for display. The text itself is unchanged,
-  /// so what is copied out and what is announced are what was written.
-  TextCase(TextCase),
-  /// A line drawn through or under the text.
-  TextLine(TextLine),
-  /// How the text breaks across lines.
-  TextWrap(TextWrap),
-  /// Show at most this many lines and end the last one with an ellipsis. Zero
-  /// means no limit.
-  Truncate(Int),
+    /// Which family the text is set in.
+    FontFamily(FontFamily),
+    /// How large the text is.
+    FontSize(Length),
+    /// How heavy the text is.
+    FontWeight(Weight),
+    /// Whether the text slants.
+    Italic(Bool),
+    /// The distance between baselines, as a multiple of the text size. `1.5` is
+    /// the usual body setting.
+    LineHeight(Float),
+    /// Extra space between letters. Negative tightens.
+    LetterSpacing(Length),
+    /// Where the text sits in its line box. The three `Space*` distributions and
+    /// `Stretch` all mean *justified*, which is the nearest thing text has to
+    /// distributing leftover room.
+    TextAlign(Align),
+    /// Whether the text is re-cased for display. The text itself is unchanged,
+    /// so what is copied out and what is announced are what was written.
+    TextCase(TextCase),
+    /// A line drawn through or under the text.
+    TextLine(TextLine),
+    /// How the text breaks across lines.
+    TextWrap(TextWrap),
+    /// Show at most this many lines and end the last one with an ellipsis. Zero
+    /// means no limit.
+    Truncate(Int),
 
-  /// What the pointer looks like over this element.
-  Cursor(Cursor),
+    /// What the pointer looks like over this element.
+    Cursor(Cursor),
 }
 
 /// How a container arranges its children.
@@ -227,61 +227,61 @@ export enum Style {
 /// `Column` is the default, because a document is a column: a container with
 /// no `Layout` stacks its children downwards.
 export enum Layout {
-  /// Children run down the page.
-  Column,
-  /// Children run along it.
-  Row,
-  /// Children are placed in named columns, left to right, wrapping into rows.
-  Grid([Track]),
-  /// Children share one space, later ones over earlier ones. There is no
-  /// depth number to get wrong: the order they are written in is the order
-  /// they stack in.
-  Layers,
+    /// Children run down the page.
+    Column,
+    /// Children run along it.
+    Row,
+    /// Children are placed in named columns, left to right, wrapping into rows.
+    Grid([Track]),
+    /// Children share one space, later ones over earlier ones. There is no
+    /// depth number to get wrong: the order they are written in is the order
+    /// they stack in.
+    Layers,
 }
 
 /// One column of a `Grid`.
 export enum Track {
-  /// A share of the leftover room. Two `Fraction(1)`s split it evenly; a
-  /// `Fraction(2)` beside a `Fraction(1)` takes twice as much.
-  Fraction(Int),
-  /// Exactly this wide.
-  Fixed(Length),
-  /// As wide as its content needs.
-  Auto,
+    /// A share of the leftover room. Two `Fraction(1)`s split it evenly; a
+    /// `Fraction(2)` beside a `Fraction(1)` takes twice as much.
+    Fraction(Int),
+    /// Exactly this wide.
+    Fixed(Length),
+    /// As wide as its content needs.
+    Auto,
 }
 
 /// A distance.
 export enum Length {
-  /// Device-independent pixels.
-  Px(Int),
-  /// Multiples of the root text size, so it follows a reader who has made
-  /// text larger.
-  Rem(Float),
-  /// A fraction of the containing space, as a percentage.
-  Percent(Float),
-  /// Whatever the content needs.
-  Auto,
-  /// All of the containing space.
-  Full,
+    /// Device-independent pixels.
+    Px(Int),
+    /// Multiples of the root text size, so it follows a reader who has made
+    /// text larger.
+    Rem(Float),
+    /// A fraction of the containing space, as a percentage.
+    Percent(Float),
+    /// Whatever the content needs.
+    Auto,
+    /// All of the containing space.
+    Full,
 }
 
 /// A colour.
 export enum Color {
-  /// Red, green and blue, each 0-255.
-  Rgb(Int, Int, Int),
-  /// Red, green and blue, and how opaque, 0.0 to 1.0.
-  Rgba(Int, Int, Int, Float),
-  /// One package's design token: a name whose value the app decides at mount.
-  ///
-  /// A token in the static tier is a custom property — `var(--cardlib-surface)`
-  /// — so the class an element carries is the same one whatever the token turns
-  /// out to be worth, and switching a theme changes no class at all. What each
-  /// name resolves to is a `Theme` (`ui/theme`).
-  Token(TokenReference),
-  /// Nothing is painted, and whatever is behind shows through.
-  Transparent,
-  /// Whatever the containing element uses.
-  Inherit,
+    /// Red, green and blue, each 0-255.
+    Rgb(Int, Int, Int),
+    /// Red, green and blue, and how opaque, 0.0 to 1.0.
+    Rgba(Int, Int, Int, Float),
+    /// One package's design token: a name whose value the app decides at mount.
+    ///
+    /// A token in the static tier is a custom property — `var(--cardlib-surface)`
+    /// — so the class an element carries is the same one whatever the token turns
+    /// out to be worth, and switching a theme changes no class at all. What each
+    /// name resolves to is a `Theme` (`ui/theme`).
+    Token(TokenReference),
+    /// Nothing is painted, and whatever is behind shows through.
+    Transparent,
+    /// Whatever the containing element uses.
+    Inherit,
 }
 
 /// An opaque name for one package's design token: the package it belongs to,
@@ -307,7 +307,7 @@ export struct TokenReference(Str, Str);
 /// letters and digits — a name with anything else in it still works, but the
 /// class the compiler derives from it falls back to a digest.
 export fn token(namespace: Str, name: Str): Color {
-  .Token(TokenReference(namespace, name))
+    .Token(TokenReference(namespace, name))
 }
 
 /// Where something sits along an axis.
@@ -315,45 +315,45 @@ export fn token(namespace: Str, name: Str): Color {
 /// The three `Space*` values distribute the *leftover* room between children
 /// and mean nothing for a single one.
 export enum Align {
-  /// Where the axis begins.
-  Start,
-  /// The middle.
-  Center,
-  /// Where the axis ends.
-  End,
-  /// Filling the axis.
-  Stretch,
-  /// The leftover room divided between the children, none at either end.
-  SpaceBetween,
-  /// The leftover room divided around the children, half of a share at each
-  /// end.
-  SpaceAround,
-  /// The leftover room divided evenly, including at the ends.
-  SpaceEvenly,
+    /// Where the axis begins.
+    Start,
+    /// The middle.
+    Center,
+    /// Where the axis ends.
+    End,
+    /// Filling the axis.
+    Stretch,
+    /// The leftover room divided between the children, none at either end.
+    SpaceBetween,
+    /// The leftover room divided around the children, half of a share at each
+    /// end.
+    SpaceAround,
+    /// The leftover room divided evenly, including at the ends.
+    SpaceEvenly,
 }
 
 /// One direction, or both.
 export enum Axis {
-  /// The direction the text runs.
-  X,
-  /// Down the page.
-  Y,
-  /// Both of them.
-  Both,
+    /// The direction the text runs.
+    X,
+    /// Down the page.
+    Y,
+    /// Both of them.
+    Both,
 }
 
 /// One edge of a box, named by where it is in the reading order rather than by
 /// where it is on the screen — so a right-to-left page is right by
 /// construction rather than by a second stylesheet.
 export enum Edge {
-  /// The top.
-  Top,
-  /// The bottom.
-  Bottom,
-  /// Where the text begins: the left edge in English, the right in Arabic.
-  Start,
-  /// Where the text ends.
-  End,
+    /// The top.
+    Top,
+    /// The bottom.
+    Bottom,
+    /// Where the text begins: the left edge in English, the right in Arabic.
+    Start,
+    /// Where the text ends.
+    End,
 }
 
 /// A screen size, from this width upwards.
@@ -362,14 +362,14 @@ export enum Edge {
 /// app's are the same four and compose. The widths are 40, 48, 64 and 80 rem,
 /// which follow the reader's text size rather than the device's pixels.
 export enum Screen {
-  /// From 40rem up — a large phone held sideways, and everything above it.
-  Small,
-  /// From 48rem up — a tablet.
-  Medium,
-  /// From 64rem up — a laptop.
-  Large,
-  /// From 80rem up — a desktop display.
-  ExtraLarge,
+    /// From 40rem up — a large phone held sideways, and everything above it.
+    Small,
+    /// From 48rem up — a tablet.
+    Medium,
+    /// From 64rem up — a laptop.
+    Large,
+    /// From 80rem up — a desktop display.
+    ExtraLarge,
 }
 
 /// A state an element can be in, which the platform tracks and a program does
@@ -379,27 +379,27 @@ export enum Screen {
 /// into an email's `<style>` block, and maps to a native pressed or focused
 /// trait — where a signal write per mouse move does none of the three.
 export enum State {
-  /// A pointer is over it.
-  Hover,
-  /// It has the keyboard's attention, and the platform judged that showing so
-  /// is useful — `:focus-visible`, so a mouse press does not draw a focus ring.
-  Focus,
-  /// It is being pressed right now.
-  Active,
-  /// It refuses input.
-  Disabled,
-  /// It is a toggle and it is on.
-  Checked,
+    /// A pointer is over it.
+    Hover,
+    /// It has the keyboard's attention, and the platform judged that showing so
+    /// is useful — `:focus-visible`, so a mouse press does not draw a focus ring.
+    Focus,
+    /// It is being pressed right now.
+    Active,
+    /// It refuses input.
+    Disabled,
+    /// It is a toggle and it is on.
+    Checked,
 }
 
 /// How an element relates to the flow of the page.
 export enum Position {
-  /// In the flow, and the origin anything pinned inside it is measured from.
-  Flow,
-  /// In the flow until it would scroll out of view, and then held at the edge.
-  Sticky,
-  /// Out of the flow and fixed to the viewport, so scrolling does not move it.
-  PinViewport,
+    /// In the flow, and the origin anything pinned inside it is measured from.
+    Flow,
+    /// In the flow until it would scroll out of view, and then held at the edge.
+    Sticky,
+    /// Out of the flow and fixed to the viewport, so scrolling does not move it.
+    PinViewport,
 }
 
 /// How heavy text is.
@@ -408,14 +408,14 @@ export enum Position {
 /// has: a weight of 637 maps to nothing on any platform, and `Semibold` maps
 /// to a face on every one.
 export enum Weight {
-  /// Body text.
-  Regular,
-  /// A little heavier than body text.
-  Medium,
-  /// Heavier again — the usual weight for a heading.
-  Semibold,
-  /// The heaviest of the four.
-  Bold,
+    /// Body text.
+    Regular,
+    /// A little heavier than body text.
+    Medium,
+    /// Heavier again — the usual weight for a heading.
+    Semibold,
+    /// The heaviest of the four.
+    Bold,
 }
 
 /// Which kind of letterform.
@@ -423,80 +423,80 @@ export enum Weight {
 /// The three unnamed families resolve to whatever the platform's own interface
 /// font is, so an app that names none of them looks native everywhere.
 export enum FontFamily {
-  /// The platform's interface face.
-  Sans,
-  /// A face with serifs, for long reading.
-  Serif,
-  /// A fixed-pitch face, for code and figures that must line up.
-  Mono,
-  /// A face by name, with the matching generic family behind it.
-  Named(Str),
+    /// The platform's interface face.
+    Sans,
+    /// A face with serifs, for long reading.
+    Serif,
+    /// A fixed-pitch face, for code and figures that must line up.
+    Mono,
+    /// A face by name, with the matching generic family behind it.
+    Named(Str),
 }
 
 /// What a border is drawn like.
 export enum BorderStyle {
-  /// No border at all, whatever its width.
-  None,
-  /// One unbroken line.
-  Solid,
-  /// A broken line.
-  Dashed,
+    /// No border at all, whatever its width.
+    None,
+    /// One unbroken line.
+    Solid,
+    /// A broken line.
+    Dashed,
 }
 
 /// Whether text is re-cased for display.
 export enum TextCase {
-  /// However it was written.
-  AsWritten,
-  /// ALL CAPITALS.
-  Upper,
-  /// all lower case.
-  Lower,
-  /// The First Letter Of Each Word.
-  Capitalize,
+    /// However it was written.
+    AsWritten,
+    /// ALL CAPITALS.
+    Upper,
+    /// all lower case.
+    Lower,
+    /// The First Letter Of Each Word.
+    Capitalize,
 }
 
 /// A line drawn through or under text.
 export enum TextLine {
-  /// None.
-  None,
-  /// Underlined.
-  Underline,
-  /// Struck through.
-  Strike,
+    /// None.
+    None,
+    /// Underlined.
+    Underline,
+    /// Struck through.
+    Strike,
 }
 
 /// How text breaks across lines.
 export enum TextWrap {
-  /// Wherever it has to.
-  Wrap,
-  /// Never — it overflows instead.
-  NoWrap,
-  /// Wherever it has to, with the line lengths evened out. For headings.
-  Balance,
+    /// Wherever it has to.
+    Wrap,
+    /// Never — it overflows instead.
+    NoWrap,
+    /// Wherever it has to, with the line lengths evened out. For headings.
+    Balance,
 }
 
 /// What the pointer looks like.
 export enum Cursor {
-  /// Whatever the platform would have chosen.
-  Default,
-  /// Something to press.
-  Pointer,
-  /// Something to select.
-  Text,
-  /// Something that would refuse.
-  NotAllowed,
+    /// Whatever the platform would have chosen.
+    Default,
+    /// Something to press.
+    Pointer,
+    /// Something to select.
+    Text,
+    /// Something that would refuse.
+    NotAllowed,
 }
 
 /// A shadow cast by an element.
 export struct Shadow {
-  /// How far along the text direction the shadow is offset.
-  export x: Length,
-  /// How far down the page.
-  export y: Length,
-  /// How far the edge is softened.
-  export blur: Length,
-  /// How much larger than the element the shadow is before it is blurred.
-  export spread: Length,
-  /// What colour it is.
-  export color: Color,
+    /// How far along the text direction the shadow is offset.
+    export x: Length,
+    /// How far down the page.
+    export y: Length,
+    /// How far the edge is softened.
+    export blur: Length,
+    /// How much larger than the element the shadow is before it is blurred.
+    export spread: Length,
+    /// What colour it is.
+    export color: Color,
 }

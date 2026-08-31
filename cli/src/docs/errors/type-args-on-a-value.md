@@ -27,6 +27,6 @@ use, so the thing to their left must be a function.
 
 ```buri fail code=type-args-on-a-value
 fn f(a: Int, c: Int): Bool {
-  a < Int > (c)
+    a<Int>(c)
 }
 ```

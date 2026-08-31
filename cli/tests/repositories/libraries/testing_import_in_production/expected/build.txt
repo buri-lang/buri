@@ -1,7 +1,7 @@
 error: this is a test-only module [test-only-import]
- --> cmd/app/main.buri:9:6
+ --> cmd/app/main.buri:8:6
   |
-9 | from "//lib/money/testing" import { sample };
+8 | from "//lib/money/testing" import { sample };
   |      ^^^^^^^^^^^^^^^^^^^^^ importable only from a test source
   |
   = a path containing a `testing` segment may be imported only from a test source
@@ -24,10 +24,10 @@ error: this is a test-only module [test-only-import]
     test-only is the file's own name.
 
 error: there is nothing named `sample` in scope [unresolved-name]
-  --> cmd/app/main.buri:13:19
+  --> cmd/app/main.buri:16:23
    |
-13 |   io.println(ctx, sample().format(ctx)).mapErr(fn(_e) => "could not write to standard output")
-   |                   ^^^^^^
+16 |         .println(ctx, sample().format(ctx))
+   |                       ^^^^^^
    |
    = fix: declare `sample`, or import it — a name is in scope only from this module's own declarations and its imports
 

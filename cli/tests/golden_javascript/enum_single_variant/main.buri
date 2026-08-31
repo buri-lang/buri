@@ -4,16 +4,21 @@ from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
-enum Wrapped { Only(Int, Str) }
+enum Wrapped {
+    Only(Int, Str),
+}
 
 fn describe(w: Wrapped): Template {
-  match (w) {
-    .Only(n, s) => "${s}:${n}",
-  }
+    match (w) {
+        .Only(n, s) => "${s}:${n}",
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, describe(Wrapped.Only(7, "seven"))).ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, describe(Wrapped.Only(7, "seven"))).ignore();
+    .Ok(())
 }

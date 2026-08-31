@@ -1,9 +1,0 @@
-error: expected `:`, found `export` [unexpected-token]
- --> lib/recovery_swap_adjacent_brace_cents_17dfa1/lib.buri:7:10
-  |
-7 |   amount export: I64,
-  |          ^^^^^^
-  |
-  = expected: `:`
-  = actual: `export`
-  = fix: write `:` here

@@ -15,23 +15,23 @@ error: there is no type `Route` [unresolved-type]
   |
   = fix: declare it, import it, or correct the spelling
 error: this is not a struct or an enum variant [not-a-struct-literal-head]
-  --> main.buri:10:19
+  --> main.buri:10:23
    |
-10 |     "/entries" => Route { name: "entries", path },
-   |                   ^^^^^
-   |
-   = fix: name a struct, or an enum variant that has fields
-error: this is not a struct or an enum variant [not-a-struct-literal-head]
-  --> main.buri:11:18
-   |
-11 |     "/health" => Route { name: "health", path },
-   |                  ^^^^^
+10 |         "/entries" => Route { name: "entries", path },
+   |                       ^^^^^
    |
    = fix: name a struct, or an enum variant that has fields
 error: this is not a struct or an enum variant [not-a-struct-literal-head]
-  --> main.buri:12:10
+  --> main.buri:11:22
    |
-12 |     _ => Route { name: "fallback", path },
-   |          ^^^^^
+11 |         "/health" => Route { name: "health", path },
+   |                      ^^^^^
+   |
+   = fix: name a struct, or an enum variant that has fields
+error: this is not a struct or an enum variant [not-a-struct-literal-head]
+  --> main.buri:12:14
+   |
+12 |         _ => Route { name: "fallback", path },
+   |              ^^^^^
    |
    = fix: name a struct, or an enum variant that has fields

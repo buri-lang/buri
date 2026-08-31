@@ -1,8 +1,8 @@
 warning: nothing reads `Entry.packer` [unused-field]
-  --> lib/money/cents.buri:16:3
+  --> lib/money/cents.buri:16:5
    |
-16 |   packer: Str,
-   |   ^^^^^^^^^^^
+16 |     packer: Str,
+   |     ^^^^^^^^^^^
    |
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it
@@ -28,10 +28,10 @@ warning: nothing reads `Entry.packer` [unused-field]
      compared structurally. What is left is the field nothing at all looks at.
 
 warning: nothing reads `Entry.note` [unused-field]
-  --> lib/money/cents.buri:17:3
+  --> lib/money/cents.buri:17:5
    |
-17 |   note: Option<Str>,
-   |   ^^^^^^^^^^^^^^^^^
+17 |     note: Option<Str>,
+   |     ^^^^^^^^^^^^^^^^^
    |
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it

@@ -1,0 +1,7 @@
+error: a `derive` declaration ends with `;` [missing-terminator]
+ --> lib/recovery_delete_separator_module_cents_44b31a/lib.buri:1:26
+  |
+1 | derive Eq, Show for Cents
+  |                          ^
+  |
+  = fix: write `;` here

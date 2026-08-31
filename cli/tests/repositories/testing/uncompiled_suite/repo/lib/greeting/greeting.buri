@@ -1,1 +1,3 @@
-export fn greeting(): Str { "hello" }
+export fn greeting(): Str {
+    "hello"
+}

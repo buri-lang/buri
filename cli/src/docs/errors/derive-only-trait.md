@@ -31,11 +31,15 @@ is a type you convert to first, which is a function visible at the call site.
 ```buri fail code=derive-only-trait
 # from "core/effect" import { Alloc };
 # from "core/json" import { Json, ToJson };
-struct Point { export x: Int, export y: Int }
+
+struct Point {
+    export x: Int,
+    export y: Int,
+}
 
 impl ToJson for Point {
-  fn toJson<C: Alloc>(self, ctx: C): Json {
-    Json.Num(0.0)
-  }
+    fn toJson<C: Alloc>(self, ctx: C): Json {
+        Json.Num(0.0)
+    }
 }
 ```

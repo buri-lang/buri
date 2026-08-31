@@ -26,14 +26,19 @@
 //! from "core/simd" import * as simd;
 //!
 //! export fn main(): Result<(), Str> {
-//!   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-//!   let position = simd.f32x4(1.0, 2.0, 3.0, 0.0);
-//!   let velocity = simd.f32x4(0.5, -0.5, 1.0, 0.0);
-//!   // No loop and no ordering: the shape a backend with vector registers can
-//!   // lower directly.
-//!   let stepped = position.add(velocity.scale(2.0));
-//!   let _ = io.println(ctx, "${stepped.lane(0)} ${stepped.lane(1)} ${stepped.dot(stepped)}").ignore();
-//!   .Ok(())
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let position = simd.f32x4(1.0, 2.0, 3.0, 0.0);
+//!     let velocity = simd.f32x4(0.5, -0.5, 1.0, 0.0);
+//!     // No loop and no ordering: the shape a backend with vector registers can
+//!     // lower directly.
+//!     let stepped = position.add(velocity.scale(2.0));
+//!     let _ = io
+//!         .println(ctx, "${stepped.lane(0)} ${stepped.lane(1)} ${stepped.dot(stepped)}")
+//!         .ignore();
+//!     .Ok(())
 //! }
 //! ```
 //!
@@ -43,266 +48,265 @@
 
 from "core/math" import * as math;
 
+derive Eq, Show for F32x4;
 /// Four floats.
 export struct F32x4 {
-  export x: Float,
-  export y: Float,
-  export z: Float,
-  export w: Float,
-}
-
-derive Eq, Show for F32x4;
-
-/// Four integers.
-export struct I32x4 {
-  export x: Int,
-  export y: Int,
-  export z: Int,
-  export w: Int,
+    export x: Float,
+    export y: Float,
+    export z: Float,
+    export w: Float,
 }
 
 derive Eq, Show for I32x4;
+/// Four integers.
+export struct I32x4 {
+    export x: Int,
+    export y: Int,
+    export z: Int,
+    export w: Int,
+}
 
 /// The same value in every lane.
 export fn splatF(v: Float): F32x4 {
-  F32x4 { x: v, y: v, z: v, w: v }
+    F32x4 { x: v, y: v, z: v, w: v }
 }
 
 export fn splatI(v: Int): I32x4 {
-  I32x4 { x: v, y: v, z: v, w: v }
+    I32x4 { x: v, y: v, z: v, w: v }
 }
 
 export fn f32x4(x: Float, y: Float, z: Float, w: Float): F32x4 {
-  F32x4 { x: x, y: y, z: z, w: w }
+    F32x4 { x: x, y: y, z: z, w: w }
 }
 
 export fn i32x4(x: Int, y: Int, z: Int, w: Int): I32x4 {
-  I32x4 { x: x, y: y, z: z, w: w }
+    I32x4 { x: x, y: y, z: z, w: w }
 }
 
 export let ZERO_F: F32x4 = F32x4 { x: 0.0, y: 0.0, z: 0.0, w: 0.0 };
+
 export let ZERO_I: I32x4 = I32x4 { x: 0, y: 0, z: 0, w: 0 };
 
 impl F32x4 {
-  /// Lane 0 to 3. Out of range is lane 0 rather than an error: a vector has
-  /// exactly four lanes, and asking for a fifth is a mistake the type system
-  /// would catch if the index were a type.
-  export fn lane(self, i: Int): Float {
-    if (i == 1) {
-      self.y
-    } else if (i == 2) {
-      self.z
-    } else if (i == 3) {
-      self.w
-    } else {
-      self.x
+    /// Lane 0 to 3. Out of range is lane 0 rather than an error: a vector has
+    /// exactly four lanes, and asking for a fifth is a mistake the type system
+    /// would catch if the index were a type.
+    export fn lane(self, i: Int): Float {
+        if (i == 1) {
+            self.y
+        } else if (i == 2) {
+            self.z
+        } else if (i == 3) {
+            self.w
+        } else {
+            self.x
+        }
     }
-  }
 
-  export fn withLane(self, i: Int, v: Float): F32x4 {
-    if (i == 1) {
-      F32x4 { ..self, y: v }
-    } else if (i == 2) {
-      F32x4 { ..self, z: v }
-    } else if (i == 3) {
-      F32x4 { ..self, w: v }
-    } else {
-      F32x4 { ..self, x: v }
+    export fn withLane(self, i: Int, v: Float): F32x4 {
+        if (i == 1) {
+            F32x4 { ..self, y: v }
+        } else if (i == 2) {
+            F32x4 { ..self, z: v }
+        } else if (i == 3) {
+            F32x4 { ..self, w: v }
+        } else {
+            F32x4 { ..self, x: v }
+        }
     }
-  }
 
-  export fn add(self, o: F32x4): F32x4 {
-    F32x4 { x: self.x + o.x, y: self.y + o.y, z: self.z + o.z, w: self.w + o.w }
-  }
-
-  export fn sub(self, o: F32x4): F32x4 {
-    F32x4 { x: self.x - o.x, y: self.y - o.y, z: self.z - o.z, w: self.w - o.w }
-  }
-
-  export fn mul(self, o: F32x4): F32x4 {
-    F32x4 { x: self.x * o.x, y: self.y * o.y, z: self.z * o.z, w: self.w * o.w }
-  }
-
-  export fn div(self, o: F32x4): F32x4 {
-    F32x4 { x: self.x / o.x, y: self.y / o.y, z: self.z / o.z, w: self.w / o.w }
-  }
-
-  export fn scale(self, k: Float): F32x4 {
-    self.mul(splatF(k))
-  }
-
-  export fn min(self, o: F32x4): F32x4 {
-    F32x4 {
-      x: if (self.x < o.x) { self.x } else { o.x },
-      y: if (self.y < o.y) { self.y } else { o.y },
-      z: if (self.z < o.z) { self.z } else { o.z },
-      w: if (self.w < o.w) { self.w } else { o.w },
+    export fn add(self, o: F32x4): F32x4 {
+        F32x4 { x: self.x + o.x, y: self.y + o.y, z: self.z + o.z, w: self.w + o.w }
     }
-  }
 
-  export fn max(self, o: F32x4): F32x4 {
-    F32x4 {
-      x: if (self.x > o.x) { self.x } else { o.x },
-      y: if (self.y > o.y) { self.y } else { o.y },
-      z: if (self.z > o.z) { self.z } else { o.z },
-      w: if (self.w > o.w) { self.w } else { o.w },
+    export fn sub(self, o: F32x4): F32x4 {
+        F32x4 { x: self.x - o.x, y: self.y - o.y, z: self.z - o.z, w: self.w - o.w }
     }
-  }
 
-  export fn abs(self): F32x4 {
-    F32x4 {
-      x: math.absFloat(self.x),
-      y: math.absFloat(self.y),
-      z: math.absFloat(self.z),
-      w: math.absFloat(self.w),
+    export fn mul(self, o: F32x4): F32x4 {
+        F32x4 { x: self.x * o.x, y: self.y * o.y, z: self.z * o.z, w: self.w * o.w }
     }
-  }
 
-  export fn neg(self): F32x4 {
-    F32x4 { x: -self.x, y: -self.y, z: -self.z, w: -self.w }
-  }
-
-  export fn sqrt(self): F32x4 {
-    F32x4 {
-      x: math.sqrt(self.x),
-      y: math.sqrt(self.y),
-      z: math.sqrt(self.z),
-      w: math.sqrt(self.w),
+    export fn div(self, o: F32x4): F32x4 {
+        F32x4 { x: self.x / o.x, y: self.y / o.y, z: self.z / o.z, w: self.w / o.w }
     }
-  }
 
-  /// The lanes added together. A horizontal reduction, which is the one thing
-  /// a vector unit is bad at — worth knowing when you reach for it.
-  export fn sum(self): Float {
-    self.x + self.y + self.z + self.w
-  }
-
-  export fn dot(self, o: F32x4): Float {
-    self.mul(o).sum()
-  }
-
-  /// The lane-wise comparison, as a mask of 1 and 0 rather than booleans —
-  /// which is what a vector unit produces and what `select` consumes.
-  export fn lessThan(self, o: F32x4): I32x4 {
-    I32x4 {
-      x: if (self.x < o.x) { 1 } else { 0 },
-      y: if (self.y < o.y) { 1 } else { 0 },
-      z: if (self.z < o.z) { 1 } else { 0 },
-      w: if (self.w < o.w) { 1 } else { 0 },
+    export fn scale(self, k: Float): F32x4 {
+        self.mul(splatF(k))
     }
-  }
 
-  export fn equalTo(self, o: F32x4): I32x4 {
-    I32x4 {
-      x: if (self.x == o.x) { 1 } else { 0 },
-      y: if (self.y == o.y) { 1 } else { 0 },
-      z: if (self.z == o.z) { 1 } else { 0 },
-      w: if (self.w == o.w) { 1 } else { 0 },
+    export fn min(self, o: F32x4): F32x4 {
+        F32x4 {
+            x: if (self.x < o.x) { self.x } else { o.x },
+            y: if (self.y < o.y) { self.y } else { o.y },
+            z: if (self.z < o.z) { self.z } else { o.z },
+            w: if (self.w < o.w) { self.w } else { o.w },
+        }
     }
-  }
+
+    export fn max(self, o: F32x4): F32x4 {
+        F32x4 {
+            x: if (self.x > o.x) { self.x } else { o.x },
+            y: if (self.y > o.y) { self.y } else { o.y },
+            z: if (self.z > o.z) { self.z } else { o.z },
+            w: if (self.w > o.w) { self.w } else { o.w },
+        }
+    }
+
+    export fn abs(self): F32x4 {
+        F32x4 {
+            x: math.absFloat(self.x),
+            y: math.absFloat(self.y),
+            z: math.absFloat(self.z),
+            w: math.absFloat(self.w),
+        }
+    }
+
+    export fn neg(self): F32x4 {
+        F32x4 { x: -self.x, y: -self.y, z: -self.z, w: -self.w }
+    }
+
+    export fn sqrt(self): F32x4 {
+        F32x4 {
+            x: math.sqrt(self.x),
+            y: math.sqrt(self.y),
+            z: math.sqrt(self.z),
+            w: math.sqrt(self.w),
+        }
+    }
+
+    /// The lanes added together. A horizontal reduction, which is the one thing
+    /// a vector unit is bad at — worth knowing when you reach for it.
+    export fn sum(self): Float {
+        self.x + self.y + self.z + self.w
+    }
+
+    export fn dot(self, o: F32x4): Float {
+        self.mul(o).sum()
+    }
+
+    /// The lane-wise comparison, as a mask of 1 and 0 rather than booleans —
+    /// which is what a vector unit produces and what `select` consumes.
+    export fn lessThan(self, o: F32x4): I32x4 {
+        I32x4 {
+            x: if (self.x < o.x) { 1 } else { 0 },
+            y: if (self.y < o.y) { 1 } else { 0 },
+            z: if (self.z < o.z) { 1 } else { 0 },
+            w: if (self.w < o.w) { 1 } else { 0 },
+        }
+    }
+
+    export fn equalTo(self, o: F32x4): I32x4 {
+        I32x4 {
+            x: if (self.x == o.x) { 1 } else { 0 },
+            y: if (self.y == o.y) { 1 } else { 0 },
+            z: if (self.z == o.z) { 1 } else { 0 },
+            w: if (self.w == o.w) { 1 } else { 0 },
+        }
+    }
 }
 
 /// `mask` lane non-zero takes from `a`, zero takes from `b`. Branch-free, which
 /// is the point of producing a mask rather than a `Bool` in the first place.
 export fn selectF(mask: I32x4, a: F32x4, b: F32x4): F32x4 {
-  F32x4 {
-    x: if (mask.x != 0) { a.x } else { b.x },
-    y: if (mask.y != 0) { a.y } else { b.y },
-    z: if (mask.z != 0) { a.z } else { b.z },
-    w: if (mask.w != 0) { a.w } else { b.w },
-  }
+    F32x4 {
+        x: if (mask.x != 0) { a.x } else { b.x },
+        y: if (mask.y != 0) { a.y } else { b.y },
+        z: if (mask.z != 0) { a.z } else { b.z },
+        w: if (mask.w != 0) { a.w } else { b.w },
+    }
 }
 
 impl I32x4 {
-  export fn lane(self, i: Int): Int {
-    if (i == 1) {
-      self.y
-    } else if (i == 2) {
-      self.z
-    } else if (i == 3) {
-      self.w
-    } else {
-      self.x
+    export fn lane(self, i: Int): Int {
+        if (i == 1) {
+            self.y
+        } else if (i == 2) {
+            self.z
+        } else if (i == 3) {
+            self.w
+        } else {
+            self.x
+        }
     }
-  }
 
-  export fn withLane(self, i: Int, v: Int): I32x4 {
-    if (i == 1) {
-      I32x4 { ..self, y: v }
-    } else if (i == 2) {
-      I32x4 { ..self, z: v }
-    } else if (i == 3) {
-      I32x4 { ..self, w: v }
-    } else {
-      I32x4 { ..self, x: v }
+    export fn withLane(self, i: Int, v: Int): I32x4 {
+        if (i == 1) {
+            I32x4 { ..self, y: v }
+        } else if (i == 2) {
+            I32x4 { ..self, z: v }
+        } else if (i == 3) {
+            I32x4 { ..self, w: v }
+        } else {
+            I32x4 { ..self, x: v }
+        }
     }
-  }
 
-  export fn add(self, o: I32x4): I32x4 {
-    I32x4 { x: self.x + o.x, y: self.y + o.y, z: self.z + o.z, w: self.w + o.w }
-  }
-
-  export fn sub(self, o: I32x4): I32x4 {
-    I32x4 { x: self.x - o.x, y: self.y - o.y, z: self.z - o.z, w: self.w - o.w }
-  }
-
-  export fn mul(self, o: I32x4): I32x4 {
-    I32x4 { x: self.x * o.x, y: self.y * o.y, z: self.z * o.z, w: self.w * o.w }
-  }
-
-  export fn min(self, o: I32x4): I32x4 {
-    I32x4 {
-      x: if (self.x < o.x) { self.x } else { o.x },
-      y: if (self.y < o.y) { self.y } else { o.y },
-      z: if (self.z < o.z) { self.z } else { o.z },
-      w: if (self.w < o.w) { self.w } else { o.w },
+    export fn add(self, o: I32x4): I32x4 {
+        I32x4 { x: self.x + o.x, y: self.y + o.y, z: self.z + o.z, w: self.w + o.w }
     }
-  }
 
-  export fn max(self, o: I32x4): I32x4 {
-    I32x4 {
-      x: if (self.x > o.x) { self.x } else { o.x },
-      y: if (self.y > o.y) { self.y } else { o.y },
-      z: if (self.z > o.z) { self.z } else { o.z },
-      w: if (self.w > o.w) { self.w } else { o.w },
+    export fn sub(self, o: I32x4): I32x4 {
+        I32x4 { x: self.x - o.x, y: self.y - o.y, z: self.z - o.z, w: self.w - o.w }
     }
-  }
 
-  export fn sum(self): Int {
-    self.x + self.y + self.z + self.w
-  }
-
-  export fn dot(self, o: I32x4): Int {
-    self.mul(o).sum()
-  }
-
-  export fn and(self, o: I32x4): I32x4 {
-    I32x4 { x: self.x & o.x, y: self.y & o.y, z: self.z & o.z, w: self.w & o.w }
-  }
-
-  export fn or(self, o: I32x4): I32x4 {
-    I32x4 { x: self.x | o.x, y: self.y | o.y, z: self.z | o.z, w: self.w | o.w }
-  }
-
-  export fn xor(self, o: I32x4): I32x4 {
-    I32x4 { x: self.x ^ o.x, y: self.y ^ o.y, z: self.z ^ o.z, w: self.w ^ o.w }
-  }
-
-  /// True when every lane is non-zero — the usual way to consume a mask.
-  export fn allTrue(self): Bool {
-    self.x != 0 && self.y != 0 && self.z != 0 && self.w != 0
-  }
-
-  export fn anyTrue(self): Bool {
-    self.x != 0 || self.y != 0 || self.z != 0 || self.w != 0
-  }
-
-  export fn toFloat(self): F32x4 {
-    F32x4 {
-      x: self.x.toF64(),
-      y: self.y.toF64(),
-      z: self.z.toF64(),
-      w: self.w.toF64(),
+    export fn mul(self, o: I32x4): I32x4 {
+        I32x4 { x: self.x * o.x, y: self.y * o.y, z: self.z * o.z, w: self.w * o.w }
     }
-  }
+
+    export fn min(self, o: I32x4): I32x4 {
+        I32x4 {
+            x: if (self.x < o.x) { self.x } else { o.x },
+            y: if (self.y < o.y) { self.y } else { o.y },
+            z: if (self.z < o.z) { self.z } else { o.z },
+            w: if (self.w < o.w) { self.w } else { o.w },
+        }
+    }
+
+    export fn max(self, o: I32x4): I32x4 {
+        I32x4 {
+            x: if (self.x > o.x) { self.x } else { o.x },
+            y: if (self.y > o.y) { self.y } else { o.y },
+            z: if (self.z > o.z) { self.z } else { o.z },
+            w: if (self.w > o.w) { self.w } else { o.w },
+        }
+    }
+
+    export fn sum(self): Int {
+        self.x + self.y + self.z + self.w
+    }
+
+    export fn dot(self, o: I32x4): Int {
+        self.mul(o).sum()
+    }
+
+    export fn and(self, o: I32x4): I32x4 {
+        I32x4 { x: self.x & o.x, y: self.y & o.y, z: self.z & o.z, w: self.w & o.w }
+    }
+
+    export fn or(self, o: I32x4): I32x4 {
+        I32x4 { x: self.x | o.x, y: self.y | o.y, z: self.z | o.z, w: self.w | o.w }
+    }
+
+    export fn xor(self, o: I32x4): I32x4 {
+        I32x4 { x: self.x ^ o.x, y: self.y ^ o.y, z: self.z ^ o.z, w: self.w ^ o.w }
+    }
+
+    /// True when every lane is non-zero — the usual way to consume a mask.
+    export fn allTrue(self): Bool {
+        self.x != 0 && self.y != 0 && self.z != 0 && self.w != 0
+    }
+
+    export fn anyTrue(self): Bool {
+        self.x != 0 || self.y != 0 || self.z != 0 || self.w != 0
+    }
+
+    export fn toFloat(self): F32x4 {
+        F32x4 {
+            x: self.x.toF64(),
+            y: self.y.toF64(),
+            z: self.z.toF64(),
+            w: self.w.toF64(),
+        }
+    }
 }

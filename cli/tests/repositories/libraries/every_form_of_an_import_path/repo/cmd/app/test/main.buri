@@ -4,14 +4,14 @@
 //! so it is named as a module — and that string is also the label this
 //! target's `test.dependencies` declares, which is the two namespaces meeting.
 
+from "core/testing/assert" import * as assert;
 from "//cmd/app/main.buri" import { main };
 from "//lib/money/testing" import { sample };
-from "core/testing/assert" import * as assert;
 
 test "main is reachable from its own suite" {
-  assert.isTrue(main() == .Ok(()));
+    assert.isTrue(main() == .Ok(()));
 }
 
 test "and a dependency's testing surface is reachable by its label" {
-  assert.eq(sample().0, 1905);
+    assert.eq(sample().0, 1905);
 }

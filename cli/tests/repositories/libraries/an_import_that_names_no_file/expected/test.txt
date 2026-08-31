@@ -1,8 +1,8 @@
 0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
 error: "//cmd/app/main" names no file [import-path-without-a-file]
- --> cmd/app/test/main.buri:6:6
+ --> cmd/app/test/main.buri:7:6
   |
-6 | from "//cmd/app/main" import { main };
+7 | from "//cmd/app/main" import { main };
   |      ^^^^^^^^^^^^^^^^
   |
   = a surface is named as a module and everything else is a file, so this path is that file's name — the one you would type into an editor, extension and all
@@ -52,10 +52,10 @@ error: "//cmd/app/main" names no file [import-path-without-a-file]
     error: internal-import, because what it reaches for is not on the surface.
 
 error: there is nothing named `main` in scope [unresolved-name]
-  --> cmd/app/test/main.buri:10:17
+  --> cmd/app/test/main.buri:10:19
    |
-10 |   assert.isTrue(main() == .Ok(()));
-   |                 ^^^^
+10 |     assert.isTrue(main() == .Ok(()));
+   |                   ^^^^
    |
    = fix: declare `main`, or import it — a name is in scope only from this module's own declarations and its imports
 
@@ -84,7 +84,7 @@ error: "//lib/money/cents" names no file [import-path-without-a-file]
 error: there is no type `Cents` [unresolved-type]
  --> lib/money/parse.buri:7:22
   |
-7 | export fn isSmall(c: Cents): Bool { c.toCents() < 100 }
+7 | export fn isSmall(c: Cents): Bool {
   |                      ^^^^^
   |
   = fix: declare it, import it, or correct the spelling

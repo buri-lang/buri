@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_separator_brace_expected_67bb73/main.buri:49:65
+   |
+49 |         .mapErr(fn(_e) => "could not write to standard output")?
+   |                                                                 ^
+   |
+   = fix: write `;` here

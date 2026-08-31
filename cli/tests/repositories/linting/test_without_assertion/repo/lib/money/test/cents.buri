@@ -5,18 +5,17 @@
 // fire on it, so it is transitive instead: reachability from the test's body.
 
 from "core/testing/assert" import * as assert;
-
 from "//lib/money" import { Cents, fromCents };
 
 // The helper. Nothing in `roundTrips` mentions `assert`; this does.
 fn isSame(a: Cents, b: Cents): () {
-  assert.eq(a, b)
+    assert.eq(a, b)
 }
 
 test "constructing a Cents does nothing observable" {
-  let _ = fromCents(150);
+    let _ = fromCents(150);
 }
 
 test "roundTrips through the helper" {
-  isSame(fromCents(150), Cents(150))
+    isSame(fromCents(150), Cents(150))
 }

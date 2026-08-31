@@ -1,0 +1,38 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_swap_adjacent_brace_app_0c3bbd/main.buri:11:5
+   |
+11 |     ctx let = context {
+   |     ^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_0c3bbd/main.buri:11:5
+   |
+11 |     ctx let = context {
+   |     ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_swap_adjacent_brace_app_0c3bbd/main.buri:11:8
+   |
+11 |     ctx let = context {
+   |        ^
+   |
+   = fix: write `;` here
+error: expected a pattern, found `=` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_0c3bbd/main.buri:11:13
+   |
+11 |     ctx let = context {
+   |             ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_brace_app_0c3bbd/main.buri:16:16
+   |
+16 |     io.println(ctx, "done").mapErr(fn(_e) => "could not write to standard output")
+   |                ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

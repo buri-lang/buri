@@ -1,3 +1,5 @@
 // The public surface of //lib/units.
 
-from "//lib/units/soundings.buri" export { Depth, Height, Sounding, reading, deepest, metres };
+from "//lib/units/soundings.buri" export {
+    deepest, Depth, Height, metres, reading, Sounding,
+};

@@ -1,8 +1,8 @@
 warning: nothing reads `Entry.label` [unused-field]
-  --> lib/money/cents.buri:12:3
+  --> lib/money/cents.buri:12:5
    |
-12 |   label: Str,
-   |   ^^^^^^^^^^
+12 |     label: Str,
+   |     ^^^^^^^^^^
    |
    = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
    = fix: delete the field, or read it

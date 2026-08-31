@@ -4,7 +4,12 @@ message: '`{type}` is an enum; name a variant'
 ---
 
 ```buri fail code=enum-without-a-variant
-enum Colour { Red, Green }
+enum Colour {
+    Red,
+    Green,
+}
 
-fn go(): Colour { Colour { } }
+fn go(): Colour {
+    Colour { }
+}
 ```

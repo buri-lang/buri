@@ -1,0 +1,7 @@
+error: a context binding ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_brace_app_42b402/main.buri:12:26
+   |
+12 |         Alloc: host.alloc
+   |                          ^
+   |
+   = fix: write `,` here

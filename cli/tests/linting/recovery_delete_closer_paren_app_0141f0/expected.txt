@@ -1,0 +1,36 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_delete_closer_paren_app_0141f0/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected `Str`, found `IoError` [type-mismatch]
+  --> lib/recovery_delete_closer_paren_app_0141f0/main.buri:14:35
+   |
+14 | export fn main(): Result<(), Str> {
+   |                                   ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `IoError`
+   = fix: produce a `Str` here, or change what surrounds it to accept a `IoError`
+error: `Str` has no method `mapErr` [no-such-method]
+  --> lib/recovery_delete_closer_paren_app_0141f0/main.buri:19:30
+   |
+19 |     io.println(ctx, banner().mapErr(fn(_e) => "could not write to standard output")
+   |                              ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has, and one may not be added to it from outside `core/str`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_0141f0/main.buri:20:1
+   |
+20 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_app_0141f0/main.buri:19:15
+   |
+19 |     io.println(ctx, banner().mapErr(fn(_e) => "could not write to standard output")
+   |               ^ opened here
+   |
+   = fix: write `)` here

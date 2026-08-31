@@ -1,1 +1,1 @@
-from "//lib/counter/counter.buri" export { Tally, counter, twice };
+from "//lib/counter/counter.buri" export { counter, Tally, twice };

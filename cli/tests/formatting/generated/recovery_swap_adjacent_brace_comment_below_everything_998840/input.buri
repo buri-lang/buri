@@ -1,2 +1,0 @@
-export fn f(): Int { } 1
-// below the last declaration

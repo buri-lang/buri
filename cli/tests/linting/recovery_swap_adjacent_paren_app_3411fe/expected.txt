@@ -1,0 +1,62 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_swap_adjacent_paren_app_3411fe/main.buri:16:20
+   |
+16 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: `rendered` takes 3 arguments, but 2 were given [wrong-argument-count]
+  --> lib/recovery_swap_adjacent_paren_app_3411fe/main.buri:51:23
+   |
+51 |         .println(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label))
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 2
+   = fix: pass the context: the convention is receiver first, context second, everything else after
+error: there is nothing named `ctxfn` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_app_3411fe/main.buri:51:32
+   |
+51 |         .println(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label))
+   |                                ^^^^^
+   |
+   = did you mean `ctx`?
+   = fix: correct the spelling, or declare it
+error: expected `fn(_11, Str) => Str`, found `(<error>, <error>)` [type-mismatch]
+  --> lib/recovery_swap_adjacent_paren_app_3411fe/main.buri:51:39
+   |
+51 |         .println(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label))
+   |                                       ^^^^^^ the parameter type is `fn(_11, Str) => Str`
+   |
+   = expected: `fn(_11, Str) => Str`
+   = actual: `(<error>, <error>)`
+   = fix: produce a `fn(_11, Str) => Str` here, or change what surrounds it to accept a `(<error>, <error>)`
+error: there is nothing named `c` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_app_3411fe/main.buri:51:40
+   |
+51 |         .println(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label))
+   |                                        ^
+   |
+   = did you mean `Eq`?
+   = fix: correct the spelling, or declare it
+error: there is nothing named `l` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_paren_app_3411fe/main.buri:51:43
+   |
+51 |         .println(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label))
+   |                                           ^
+   |
+   = did you mean `Eq`?
+   = fix: correct the spelling, or declare it
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_paren_app_3411fe/main.buri:51:46
+   |
+51 |         .println(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label))
+   |                                              ^^
+   |
+  --> lib/recovery_swap_adjacent_paren_app_3411fe/main.buri:51:31
+   |
+51 |         .println(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label))
+   |                               ^ opened here
+   |
+   = fix: write `)` here

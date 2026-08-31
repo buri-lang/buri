@@ -14,34 +14,36 @@
 //! ```buri role=std
 //! # from "core/effect" import { Stdout };
 //! # from "core/io" import * as io;
+//!
 //! export fn greet<C: Stdout>(ctx: C): () {
-//!   io.println(ctx, "hello").ignore()
+//!     io.println(ctx, "hello").ignore()
 //! }
 //! ```
 //!
 //! `core/effect`'s `Stdout` is where that decision is argued in full.
 
 from "core/effect" import { IoError, Stderr, Stdin, Stdout };
+
 from "core/effect" export { IoError };
 
 export fn print<C: Stdout>(ctx: C, text: Template): Result<(), IoError> {
-  ctx.print(text)
+    ctx.print(text)
 }
 
 export fn println<C: Stdout>(ctx: C, text: Template): Result<(), IoError> {
-  ctx.println(text)
+    ctx.println(text)
 }
 
 export fn eprint<C: Stderr>(ctx: C, text: Template): Result<(), IoError> {
-  ctx.eprint(text)
+    ctx.eprint(text)
 }
 
 export fn eprintln<C: Stderr>(ctx: C, text: Template): Result<(), IoError> {
-  ctx.eprintln(text)
+    ctx.eprintln(text)
 }
 
 export fn readLine<C: Stdin>(ctx: C): Option<Str> {
-  ctx.readLine()
+    ctx.readLine()
 }
 
 /// Exactly `n` octets from standard input, or fewer at end of input.
@@ -50,10 +52,10 @@ export fn readLine<C: Stdin>(ctx: C): Option<Str> {
 /// are two different operations: `readLine` decodes, this does not. Mixing them
 /// on one stream is undefined, and a program should pick one.
 export fn readBytes<C: Stdin>(ctx: C, n: Int): Option<[U8]> {
-  ctx.readBytes(n)
+    ctx.readBytes(n)
 }
 
 /// Octets to standard output, encoded as nothing.
 export fn writeBytes<C: Stdout>(ctx: C, b: [U8]): Result<(), IoError> {
-  ctx.writeBytes(b)
+    ctx.writeBytes(b)
 }

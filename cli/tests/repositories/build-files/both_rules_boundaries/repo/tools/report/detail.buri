@@ -3,4 +3,6 @@
 // directory is tempted to reach for — and the rule says it may not, because
 // the boundary belongs to the library rule rather than to the directory.
 
-export fn verbose(n: I64): Str { if (n < 0) { "negative" } else { "some" } }
+export fn verbose(n: I64): Str {
+    if (n < 0) { "negative" } else { "some" }
+}

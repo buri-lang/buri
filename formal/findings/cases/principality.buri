@@ -6,13 +6,18 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/num" import { Neg, Wrapping };
 
-fn negate<T: Neg>(x: T): T { -x }
+fn negate<T: Neg>(x: T): T {
+    -x
+}
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  // Only constraint on this literal is `T: Neg`. Defaulting picks I64, which
-  // has Neg -- so this should work.
-  let a = negate(5);
-  let _ = io.println(ctx, "negate(5) = ${a}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    // Only constraint on this literal is `T: Neg`. Defaulting picks I64, which
+    // has Neg -- so this should work.
+    let a = negate(5);
+    let _ = io.println(ctx, "negate(5) = ${a}").ignore();
+    .Ok(())
 }

@@ -1,0 +1,34 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> main.buri:11:24
+   |
+11 |         "/health" => { Route name: "health", path },
+   |                        ^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: `Route` is a type, not a value [type-not-a-value]
+  --> main.buri:11:24
+   |
+11 |         "/health" => { Route name: "health", path },
+   |                        ^^^^^
+   |
+   = fix: construct one, as in `Point { x: 1, y: 2 }`, or name a value
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:11:29
+   |
+11 |         "/health" => { Route name: "health", path },
+   |                             ^
+   |
+   = fix: write `;` here
+error: this block is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:11:34
+   |
+11 |         "/health" => { Route name: "health", path },
+   |                                  ^
+   |
+  --> main.buri:11:22
+   |
+11 |         "/health" => { Route name: "health", path },
+   |                      ^ opened here
+   |
+   = fix: write `}` here

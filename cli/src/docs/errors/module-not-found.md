@@ -27,6 +27,6 @@ the worked monorepo in `cli/tests/example`, which has no `lib/nope` in it.
 from "//lib/nope" import { Nope };
 
 export fn main(): Result<(), Str> {
-  .Ok(())
+    .Ok(())
 }
 ```

@@ -1,0 +1,108 @@
+// SPEC 8.3 — tail calls, and what the elimination must not change.
+//
+// Two kinds of assertion:
+//
+//  * a *value*, where an elimination that captured the wrong binding returns a
+//    plausible but wrong answer;
+//  * a *depth*, where an elimination that did not happen at all overflows the
+//    JavaScript stack. Every depth here is past what an engine gives a
+//    recursive function, so the failure is a crash, not a slow test.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+from "//lib/codegen" import {
+    adders, addersEven, allBelow, countDownAnd, countDownCoalesce, countDownOr, evenAnd,
+    firstOr, pairs, scalers,
+};
+
+// -----------------------------------------------------------------------------
+// A closure built inside a tail loop captures its own iteration
+// -----------------------------------------------------------------------------
+
+test "each iteration's closure captures that iteration's parameter" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let fs = adders(ctx, 0, []);
+    assert.eq(fs.len(), 4);
+    // Not `100 100 100 100`, which is what capturing the loop's slot gives.
+    assert.eq(fs.get(0).map(fn(f) => f(100)) ?? -1, 100);
+    assert.eq(fs.get(1).map(fn(f) => f(100)) ?? -1, 101);
+    assert.eq(fs.get(2).map(fn(f) => f(100)) ?? -1, 102);
+    assert.eq(fs.get(3).map(fn(f) => f(100)) ?? -1, 103);
+}
+
+test "the same holds across a merged mutually recursive loop" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let fs = addersEven(ctx, 0, []);
+    assert.eq(fs.len(), 4);
+    // `+0`, `*1`, `+2`, `*3` — alternating, because the two members alternate.
+    assert.eq(fs.get(0).map(fn(f) => f(100)) ?? -1, 100);
+    assert.eq(fs.get(1).map(fn(f) => f(100)) ?? -1, 100);
+    assert.eq(fs.get(2).map(fn(f) => f(100)) ?? -1, 102);
+    assert.eq(fs.get(3).map(fn(f) => f(100)) ?? -1, 300);
+}
+
+test "a parameter the loop never rebinds is captured unchanged" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let fs = scalers(ctx, 7, 0, []);
+    assert.eq(fs.len(), 3);
+    assert.eq(fs.get(0).map(fn(f) => f(2)) ?? -1, 14);
+    assert.eq(fs.get(1).map(fn(f) => f(2)) ?? -1, 14);
+    assert.eq(fs.get(2).map(fn(f) => f(2)) ?? -1, 14);
+}
+
+test "two closures made in one iteration agree about it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let fs = pairs(ctx, 0, []);
+    assert.eq(fs.len(), 6);
+    // `+0 -0 +1 -1 +2 -2` applied to 10.
+    assert.eq(fs.get(0).map(fn(f) => f(10)) ?? -1, 10);
+    assert.eq(fs.get(1).map(fn(f) => f(10)) ?? -1, 10);
+    assert.eq(fs.get(2).map(fn(f) => f(10)) ?? -1, 11);
+    assert.eq(fs.get(3).map(fn(f) => f(10)) ?? -1, 9);
+    assert.eq(fs.get(4).map(fn(f) => f(10)) ?? -1, 12);
+    assert.eq(fs.get(5).map(fn(f) => f(10)) ?? -1, 8);
+}
+
+// -----------------------------------------------------------------------------
+// Tail position under `&&`, `||` and `??`
+// -----------------------------------------------------------------------------
+
+test "a tail call under && runs in constant stack" {
+    assert.isTrue(countDownAnd(200000));
+}
+
+test "a tail call under || runs in constant stack" {
+    assert.isTrue(countDownOr(200000));
+}
+
+test "a tail call under ?? runs in constant stack" {
+    assert.eq(countDownCoalesce(200000), 0);
+}
+
+test "a tail call under && inside a merged group runs in constant stack" {
+    assert.isTrue(evenAnd(200000));
+}
+
+test "&& in tail position still answers what the operator means" {
+    assert.isTrue(allBelow([1, 2, 3], 10, 0));
+    assert.isFalse(allBelow([1, 2, 30], 10, 0));
+    assert.isFalse(allBelow([30, 1, 2], 10, 0));
+    assert.isTrue(allBelow([], 10, 0));
+}
+
+test "?? in tail position still answers what the operator means" {
+    assert.eq(firstOr([7 8], 0), 7);
+    assert.eq(firstOr([7, 8], 1), 8);
+    assert.eq(firstOr([7, 8], 2), -1);
+    assert.eq(firstOr([], 0), -1);
+}

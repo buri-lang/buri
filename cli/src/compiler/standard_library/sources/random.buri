@@ -9,10 +9,10 @@ from "core/effect" import { Rand };
 /// Uniform in `[lo, hi)`. An empty range aborts: there is no value to return
 /// and no `Option` in the signature to say so.
 export fn int<C: Rand>(ctx: C, lo: Int, hi: Int): Int {
-  ctx.nextInt(lo, hi)
+    ctx.nextInt(lo, hi)
 }
 
 /// Uniform in `[0.0, 1.0)`.
 export fn float<C: Rand>(ctx: C): Float {
-  ctx.nextFloat()
+    ctx.nextFloat()
 }

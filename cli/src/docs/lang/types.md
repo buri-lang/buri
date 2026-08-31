@@ -22,10 +22,13 @@ name an exact width and have the compiler hold it to that. Buri serves both with
 **one set of types and two names for the common ones**:
 
 ```buri
-type Int   = I64;      // the default integer
-type Float = F64;      // the default float
-type Uint  = U64;
-type Byte  = U8;
+type Int = I64; // the default integer
+
+type Float = F64; // the default float
+
+type Uint = U64;
+
+type Byte = U8;
 ```
 
 These are **aliases, not distinct types**. `Int` and `I64` are the same type, so
@@ -69,10 +72,13 @@ Because a literal's type is known before it is checked, **a literal that does no
 fit its type is a compile error**, not a runtime surprise:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let x: U8 = 300;         // ERROR: 300 is not representable in U8
-let y: I8 = -129;        // ERROR
-let z: U32 = -1;         // ERROR: U32 has no negative values
-let w: U64 = 18_446_744_073_709_551_615;    // fine
+let x: U8 = 300; // ERROR: 300 is not representable in U8
+
+let y: I8 = -129; // ERROR
+
+let z: U32 = -1; // ERROR: U32 has no negative values
+
+let w: U64 = 18_446_744_073_709_551_615; // fine
 ```
 
 There are no literal suffixes (`5u8`). An annotation or the call site pins a
@@ -112,7 +118,10 @@ only for their effect return `()`.
 ```buri
 # from "core/effect" import { Stdout };
 # from "core/io" import * as io;
-fn log<C: Stdout>(ctx: C, msg: Str): () { io.println(ctx, msg).ignore() }
+
+fn log<C: Stdout>(ctx: C, msg: Str): () {
+    io.println(ctx, msg).ignore()
+}
 ```
 
 ### 5.3 Tuples
@@ -184,8 +193,9 @@ let raw = d.0;
 Tuple-struct fields carry the same `export` marker, in the same position:
 
 ```buri
-struct Meters(export F64);      // the F64 is readable as `m.0` anywhere
-struct UserId(Str);             // the Str is readable only in this module
+struct Meters(export F64); // the F64 is readable as `m.0` anywhere
+
+struct UserId(Str); // the Str is readable only in this module
 ```
 
 Tuple-struct declarations are terminated with `;`; record-struct declarations are
@@ -196,10 +206,18 @@ A literal gives every **required** field a value. A field whose declared type is
 for it.
 
 ```buri
-struct World { export hi: Str, export hello: Option<Str> }
+struct World {
+    export hi: Str,
+    export hello: Option<Str>,
+}
 
-fn plain(): World { World { hi: "hi" } }              // `hello` is `.None`
-fn given(): World { World { hi: "hi", hello: .Some("hello") } }
+fn plain(): World {
+    World { hi: "hi" }
+} // `hello` is `.None`
+
+fn given(): World {
+    World { hi: "hi", hello: .Some("hello") }
+}
 ```
 
 Which fields may be left out is a property of the declaration rather than of one
@@ -217,13 +235,27 @@ The type name may itself be left out where the surroundings already give it.
 The braces then build whatever the expression is checked against:
 
 ```buri
-struct World { export hi: Str, export hello: Option<Str> }
+struct World {
+    export hi: Str,
+    export hello: Option<Str>,
+}
 
-fn takes(w: World): Str { w.hi }
+fn takes(w: World): Str {
+    w.hi
+}
 
-fn annotated(): World { let w: World = { hi: "hi", hello: .None }; w }
-fn argument(): Str { takes({ hi: "hi" }) }
-fn result(): World { { hi: "hi" } }
+fn annotated(): World {
+    let w: World = { hi: "hi", hello: .None };
+    w
+}
+
+fn argument(): Str {
+    takes({ hi: "hi" })
+}
+
+fn result(): World {
+    { hi: "hi" }
+}
 ```
 
 The type is **read** from above and never solved for. It reaches a literal in a
@@ -263,14 +295,14 @@ record-like, and may mix within one enum.
 
 ```buri
 enum Shape {
-  Empty,
-  Circle(Float),
-  Rect { width: Float, height: Float },
+    Empty,
+    Circle(Float),
+    Rect { width: Float, height: Float },
 }
 
 enum Tree<T> {
-  Leaf,
-  Node(Tree<T>, T, Tree<T>),               // recursive; boxed by the runtime
+    Leaf,
+    Node(Tree<T>, T, Tree<T>), // recursive; boxed by the runtime
 }
 ```
 
@@ -296,9 +328,21 @@ The dot form requires that the expected type is known from context (a
 The prelude defines:
 
 ```buri
-enum Option<T> { Some(T), None }
-enum Result<T, E> { Ok(T), Err(E) }
-enum Order { Less, Equal, Greater }
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+enum Order {
+    Less,
+    Equal,
+    Greater,
+}
 ```
 
 #### 5.7.1 `Result` is must-use
@@ -363,6 +407,7 @@ there are no polymorphic function *values* in v0.3.
 
 ```buri
 type UserId = Str;
+
 type Handler<T> = fn(T) => Result<(), Str>;
 ```
 
@@ -476,12 +521,13 @@ satisfy.
 
 ```buri
 # from "core/effect" import { Alloc };
+
 trait Ord {
-  fn compare(self, other: Self): Order;
+    fn compare(self, other: Self): Order;
 }
 
 trait Show {
-  fn show<C: Alloc>(self, ctx: C): Str;
+    fn show<C: Alloc>(self, ctx: C): Str;
 }
 ```
 

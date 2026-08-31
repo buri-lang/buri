@@ -1,0 +1,14 @@
+error: `Entry` has no field `extra` [no-such-field]
+  --> lib/recovery_insert_stray_brace_cents_d4a9f1/lib.buri:21:20
+   |
+21 |     Entry { cents, extra label: "" }
+   |                    ^^^^^
+   |
+   = fix: check the spelling, or name a field the type declares
+error: a struct-literal field ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_brace_cents_d4a9f1/lib.buri:21:25
+   |
+21 |     Entry { cents, extra label: "" }
+   |                         ^
+   |
+   = fix: write `,` here

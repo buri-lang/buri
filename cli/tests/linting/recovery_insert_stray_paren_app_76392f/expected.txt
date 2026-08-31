@@ -1,0 +1,29 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_insert_stray_paren_app_76392f/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected `Template`, found `fn() => Str` [type-mismatch]
+  --> lib/recovery_insert_stray_paren_app_76392f/main.buri:19:21
+   |
+19 |     io.println(ctx, banner@ ()).mapErr(fn(_e) => "could not write to standard output")
+   |                     ^^^^^^ the parameter type is `Template`
+   |
+   = expected: `Template`
+   = actual: `fn() => Str`
+   = fix: produce a `Template` here, or change what surrounds it to accept a `fn() => Str`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_app_76392f/main.buri:19:27
+   |
+19 |     io.println(ctx, banner@ ()).mapErr(fn(_e) => "could not write to standard output")
+   |                           ^
+   |
+  --> lib/recovery_insert_stray_paren_app_76392f/main.buri:19:15
+   |
+19 |     io.println(ctx, banner@ ()).mapErr(fn(_e) => "could not write to standard output")
+   |               ^ opened here
+   |
+   = fix: write `)` here

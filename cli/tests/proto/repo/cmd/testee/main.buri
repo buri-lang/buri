@@ -14,21 +14,17 @@
 from "core/effect" import { Alloc, Stdin, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-from "core/list" import * as list;
-from "core/str" import * as str;
-from "core/proto" import { ProtoError };
-from "core/proto" import * as proto;
 from "core/json" import * as json;
-
+from "core/list" import * as list;
+from "core/proto" import * as proto;
+from "core/proto" import { ProtoError };
+from "core/str" import * as str;
 from "//lib/conformance" import {
-  ConformanceRequest, ConformanceRequest_Payload,
-  ConformanceResponse, ConformanceResponse_Result,
-  WireFormat, TestCategory,
-  TestAllTypesProto3,
-  defaultConformanceResponse,
-  decodeConformanceRequest, encodeConformanceResponse,
-  encodeTestAllTypesProto3, decodeTestAllTypesProto3,
-  encodeTestAllTypesProto3Json, decodeTestAllTypesProto3Json,
+    ConformanceRequest, ConformanceRequest_Payload, ConformanceResponse,
+    ConformanceResponse_Result, decodeConformanceRequest, decodeTestAllTypesProto3,
+    decodeTestAllTypesProto3Json, defaultConformanceResponse, encodeConformanceResponse,
+    encodeTestAllTypesProto3, encodeTestAllTypesProto3Json, TestAllTypesProto3,
+    TestCategory, WireFormat,
 };
 
 /// The only message type this testee knows. Everything else — proto2, the
@@ -37,23 +33,27 @@ from "//lib/conformance" import {
 let KNOWN: Str = "protobuf_test_messages.proto3.TestAllTypesProto3";
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdin: host.stdin, Stdout: host.stdout };
-  serve(ctx)
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdin: host.stdin,
+        Stdout: host.stdout,
+    };
+    serve(ctx)
 }
 
 /// One request at a time until the runner closes the pipe.
 ///
 /// Tail-recursive, so a suite of several thousand tests costs no stack.
 fn serve<C: Alloc + Stdin + Stdout>(ctx: C): Result<(), Str> {
-  match (readFrame(ctx)) {
-    .None => .Ok(()),
-    .Some(request) => {
-      let reply = encodeConformanceResponse(ctx, answer(ctx, request));
-      let _ = io.writeBytes(ctx, littleEndian32(reply.len())).ignore();
-      let _ = io.writeBytes(ctx, reply).ignore();
-      serve(ctx)
-    },
-  }
+    match (readFrame(ctx)) {
+        .None => .Ok(()),
+        .Some(request) => {
+            let reply = encodeConformanceResponse(ctx, answer(ctx, request));
+            let _ = io.writeBytes(ctx, littleEndian32(reply.len())).ignore();
+            let _ = io.writeBytes(ctx, reply).ignore();
+            serve(ctx)
+        },
+    }
 }
 
 /// A length-prefixed frame, or `.None` at end of input.
@@ -61,144 +61,149 @@ fn serve<C: Alloc + Stdin + Stdout>(ctx: C): Result<(), Str> {
 /// A truncated frame is end of input too: the runner closing the pipe mid-frame
 /// means it has stopped asking, and there is nobody left to tell.
 fn readFrame<C: Alloc + Stdin>(ctx: C): Option<[U8]> {
-  match (io.readBytes(ctx, 4)) {
-    .None => .None,
-    .Some(header) => if (header.len() < 4) {
-      .None
-    } else {
-      let n = readLittleEndian32(header);
-      if (n == 0) {
-        .Some(list.empty<U8>())
-      } else {
-        io.readBytes(ctx, n)
-      }
-    },
-  }
+    match (io.readBytes(ctx, 4)) {
+        .None => .None,
+        .Some(header) => {
+            if (header.len() < 4) {
+                .None
+            } else {
+                let n = readLittleEndian32(header);
+                if (n == 0) { .Some(list.empty<U8>()) } else { io.readBytes(ctx, n) }
+            }
+        },
+    }
 }
 
 fn littleEndian32<C: Alloc>(n: Int): [U8] {
-  proto.le32(n)
+    proto.le32(n)
 }
 
 fn readLittleEndian32(b: [U8]): Int {
-  b.get(0).withDefault(0).toI64()
-    + b.get(1).withDefault(0).toI64() * 256
-    + b.get(2).withDefault(0).toI64() * 65536
-    + b.get(3).withDefault(0).toI64() * 16777216
+    b.get(0).withDefault(0).toI64()
+        + b.get(1).withDefault(0).toI64() * 256
+        + b.get(2).withDefault(0).toI64() * 65536
+        + b.get(3).withDefault(0).toI64() * 16777216
 }
 
 /// One test.
 fn answer<C: Alloc>(ctx: C, frame: [U8]): ConformanceResponse {
-  match (decodeConformanceRequest(ctx, frame)) {
-    // A request we cannot even read is a runtime error rather than a parse
-    // error: `parse_error` is about the *payload*, and saying so here would
-    // report a broken harness as a passing test.
-    .Err(e) => runtimeError(ctx, str.format(ctx, "cannot read the request: ${show(e)}")),
-    // Under editions every singular field tracks presence, so a request's
-    // fields are `Option`s and an unset one falls back to its zero value —
-    // which is what the protocol means by leaving one out.
-    .Ok(request) => if (request.messageType.withDefault("") != KNOWN) {
-      skipped(ctx, str.format(ctx, "this testee implements ${KNOWN} only"))
-    } else if (category(request) == TestCategory.TEXT_FORMAT_TEST) {
-      skipped(ctx, "text format is not implemented")
-    } else if (category(request) == TestCategory.JSPB_TEST) {
-      skipped(ctx, "JSPB is not implemented")
-    } else {
-      match (parse(ctx, request)) {
-        .Err(message) => parseError(ctx, message),
-        .Ok(.None) => skipped(ctx, "no payload this testee can read"),
-        .Ok(.Some(message)) => serialize(ctx, request, message),
-      }
-    },
-  }
+    match (decodeConformanceRequest(ctx, frame)) {
+        // A request we cannot even read is a runtime error rather than a parse
+        // error: `parse_error` is about the *payload*, and saying so here would
+        // report a broken harness as a passing test.
+        .Err(e) => {
+            runtimeError(ctx, str.format(ctx, "cannot read the request: ${show(e)}"))
+        },
+        // Under editions every singular field tracks presence, so a request's
+        // fields are `Option`s and an unset one falls back to its zero value —
+        // which is what the protocol means by leaving one out.
+        .Ok(request) => {
+            if (request.messageType.withDefault("") != KNOWN) {
+                skipped(ctx, str.format(ctx, "this testee implements ${KNOWN} only"))
+            } else if (category(request) == TestCategory.TEXT_FORMAT_TEST) {
+                skipped(ctx, "text format is not implemented")
+            } else if (category(request) == TestCategory.JSPB_TEST) {
+                skipped(ctx, "JSPB is not implemented")
+            } else {
+                match (parse(ctx, request)) {
+                    .Err(message) => parseError(ctx, message),
+                    .Ok(.None) => skipped(ctx, "no payload this testee can read"),
+                    .Ok(.Some(message)) => serialize(ctx, request, message),
+                }
+            }
+        },
+    }
 }
 
 fn category(request: ConformanceRequest): TestCategory {
-  request.testCategory.withDefault(TestCategory.UNSPECIFIED_TEST)
+    request.testCategory.withDefault(TestCategory.UNSPECIFIED_TEST)
 }
 
 fn format(request: ConformanceRequest): WireFormat {
-  request.requestedOutputFormat.withDefault(WireFormat.UNSPECIFIED)
+    request.requestedOutputFormat.withDefault(WireFormat.UNSPECIFIED)
 }
 
 /// The payload, read in whichever format it arrived in. `.Ok(.None)` is a
 /// payload this testee does not implement, which is a skip rather than a
 /// failure.
 fn parse<C: Alloc>(
-  ctx: C,
-  request: ConformanceRequest,
+    ctx: C,
+    request: ConformanceRequest,
 ): Result<Option<TestAllTypesProto3>, Str> {
-  match (request.payload) {
-    .None => .Ok(.None),
-    .Some(.ProtobufPayload(bytes)) => match (decodeTestAllTypesProto3(ctx, bytes)) {
-      .Ok(m) => .Ok(.Some(m)),
-      .Err(e) => .Err(show(e)),
-    },
-    .Some(.JsonPayload(text)) => match (json.parse(ctx, text)) {
-      .Err(_e) => .Err("not JSON"),
-      .Ok(doc) => match (decodeTestAllTypesProto3Json(ctx, doc)) {
-        .Ok(m) => .Ok(.Some(m)),
-        .Err(e) => .Err(show(e)),
-      },
-    },
-    .Some(.JspbPayload(_t)) => .Ok(.None),
-    .Some(.TextPayload(_t)) => .Ok(.None),
-  }
+    match (request.payload) {
+        .None => .Ok(.None),
+        .Some(.ProtobufPayload(bytes)) => {
+            match (decodeTestAllTypesProto3(ctx, bytes)) {
+                .Ok(m) => .Ok(.Some(m)),
+                .Err(e) => .Err(show(e)),
+            }
+        },
+        .Some(.JsonPayload(text)) => {
+            match (json.parse(ctx, text)) {
+                .Err(_e) => .Err("not JSON"),
+                .Ok(doc) => {
+                    match (decodeTestAllTypesProto3Json(ctx, doc)) {
+                        .Ok(m) => .Ok(.Some(m)),
+                        .Err(e) => .Err(show(e)),
+                    }
+                },
+            }
+        },
+        .Some(.JspbPayload(_t)) => .Ok(.None),
+        .Some(.TextPayload(_t)) => .Ok(.None),
+    }
 }
 
 fn serialize<C: Alloc>(
-  ctx: C,
-  request: ConformanceRequest,
-  message: TestAllTypesProto3,
+    ctx: C,
+    request: ConformanceRequest,
+    message: TestAllTypesProto3,
 ): ConformanceResponse {
-  if (format(request) == WireFormat.PROTOBUF) {
-    ConformanceResponse {
-      ..defaultConformanceResponse(),
-      result: .Some(.ProtobufPayload(encodeTestAllTypesProto3(ctx, message))),
+    if (format(request) == WireFormat.PROTOBUF) {
+        ConformanceResponse {
+            ..defaultConformanceResponse(),
+            result: .Some(.ProtobufPayload(encodeTestAllTypesProto3(ctx, message))),
+        }
+    } else if (format(request) == WireFormat.JSON) {
+        let text = json.stringify(ctx, encodeTestAllTypesProto3Json(ctx, message));
+        ConformanceResponse {
+            ..defaultConformanceResponse(),
+            result: .Some(.JsonPayload(text)),
+        }
+    } else {
+        skipped(ctx, "this testee writes protobuf and JSON only")
     }
-  } else if (format(request) == WireFormat.JSON) {
-    let text = json.stringify(ctx, encodeTestAllTypesProto3Json(ctx, message));
-    ConformanceResponse {
-      ..defaultConformanceResponse(),
-      result: .Some(.JsonPayload(text)),
-    }
-  } else {
-    skipped(ctx, "this testee writes protobuf and JSON only")
-  }
 }
 
 fn parseError<C: Alloc>(ctx: C, message: Str): ConformanceResponse {
-  let _ = ctx;
-  ConformanceResponse {
-    ..defaultConformanceResponse(),
-    result: .Some(.ParseError(message)),
-  }
+    let _ = ctx;
+    ConformanceResponse {
+        ..defaultConformanceResponse(),
+        result: .Some(.ParseError(message)),
+    }
 }
 
 fn skipped<C: Alloc>(ctx: C, why: Str): ConformanceResponse {
-  let _ = ctx;
-  ConformanceResponse {
-    ..defaultConformanceResponse(),
-    result: .Some(.Skipped(why)),
-  }
+    let _ = ctx;
+    ConformanceResponse { ..defaultConformanceResponse(), result: .Some(.Skipped(why)) }
 }
 
 fn runtimeError<C: Alloc>(ctx: C, message: Str): ConformanceResponse {
-  let _ = ctx;
-  ConformanceResponse {
-    ..defaultConformanceResponse(),
-    result: .Some(.RuntimeError(message)),
-  }
+    let _ = ctx;
+    ConformanceResponse {
+        ..defaultConformanceResponse(),
+        result: .Some(.RuntimeError(message)),
+    }
 }
 
 /// A `ProtoError` as the one line the protocol carries. Deliberately terse:
 /// the runner prints it beside the test name, and the test name is the detail.
 fn show(e: ProtoError): Str {
-  match (e) {
-    .Truncated(_at) => "truncated",
-    .BadWireType { field: _f, wire: _w } => "bad wire type",
-    .BadFieldNumber(_at) => "field number zero",
-    .BadUtf8(_at) => "a string field is not UTF-8",
-    .BadJson { path: _p, wanted: w } => w,
-  }
+    match (e) {
+        .Truncated(_at) => "truncated",
+        .BadWireType { field: _f, wire: _w } => "bad wire type",
+        .BadFieldNumber(_at) => "field number zero",
+        .BadUtf8(_at) => "a string field is not UTF-8",
+        .BadJson { path: _p, wanted: w } => w,
+    }
 }

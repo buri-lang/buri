@@ -1,7 +1,7 @@
 warning: test "constructing a Cents does nothing observable" asserts nothing [test-without-assertion]
-  --> lib/money/test/cents.buri:16:1
+  --> lib/money/test/cents.buri:15:1
    |
-16 | test "constructing a Cents does nothing observable" {
+15 | test "constructing a Cents does nothing observable" {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = nothing reachable from this test calls `core/testing/assert`, so it passes as long as it does not abort

@@ -1,2 +1,5 @@
-from "//lib/shop/catalog.buri" export { Item, Stock, Priced, listing, defaultPrice, stocked };
-from "//lib/shop/cart.buri" export { subtotal, ticket, sample };
+from "//lib/shop/catalog.buri" export {
+    defaultPrice, Item, listing, Priced, Stock, stocked,
+};
+
+from "//lib/shop/cart.buri" export { sample, subtotal, ticket };

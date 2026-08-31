@@ -5,16 +5,12 @@
 // a hand-written one is. Nothing here is written by hand except the list.
 
 from "//lib/conformance/conformance.proto" export {
-  ConformanceRequest, ConformanceRequest_Payload,
-  ConformanceResponse, ConformanceResponse_Result,
-  WireFormat, TestCategory,
-  defaultConformanceRequest, defaultConformanceResponse,
-  decodeConformanceRequest, encodeConformanceResponse,
+    ConformanceRequest, ConformanceRequest_Payload, ConformanceResponse,
+    ConformanceResponse_Result, decodeConformanceRequest, defaultConformanceRequest,
+    defaultConformanceResponse, encodeConformanceResponse, TestCategory, WireFormat,
 };
 
 from "//lib/conformance/test_messages_proto3.proto" export {
-  TestAllTypesProto3,
-  defaultTestAllTypesProto3,
-  encodeTestAllTypesProto3, decodeTestAllTypesProto3,
-  encodeTestAllTypesProto3Json, decodeTestAllTypesProto3Json,
+    decodeTestAllTypesProto3, decodeTestAllTypesProto3Json, defaultTestAllTypesProto3,
+    encodeTestAllTypesProto3, encodeTestAllTypesProto3Json, TestAllTypesProto3,
 };

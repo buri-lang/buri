@@ -1,6 +1,6 @@
-from "//lib/wire" import { Point, defaultPoint };
+from "//lib/wire" import { defaultPoint, Point };
 
 /// The point every reader starts from.
 export fn origin(): Point {
-  Point { ..defaultPoint(), x: .Some(0), y: .Some(0) }
+    Point { ..defaultPoint(), x: .Some(0), y: .Some(0) }
 }

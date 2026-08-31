@@ -3,9 +3,9 @@
 // there is not one — so it is named as a file, from its own suite and nowhere
 // else.
 
-from "//cmd/app/main" import { main };
 from "core/testing/assert" import * as assert;
+from "//cmd/app/main" import { main };
 
 test "main is reachable from its own suite" {
-  assert.isTrue(main() == .Ok(()));
+    assert.isTrue(main() == .Ok(()));
 }

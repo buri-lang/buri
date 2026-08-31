@@ -1,1 +1,3 @@
-export shout fn(s: Str): Str { s }
+export shout fn(s: Str): Str {
+    s
+}

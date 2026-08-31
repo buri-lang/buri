@@ -1,0 +1,71 @@
+// The entry point of a page. It is also this binary's surface for tests:
+// test/model.buri and test/view.buri see what this file exports and nothing
+// else, the same rule lib.buri follows for a library.
+//
+// Compare it with //cmd/server/main.buri and //cmd/web/main.buri. Same
+// language, same libraries, three different effect budgets — and each budget is
+// a fact about the output's platform rather than about the code. `Ui` and
+// `Watch` are exported by `core/host` under `platform: WEB` and by nothing
+// else, so this file does not compile for a native output, and //cmd/server's
+// `host.fs` does not compile for this one. The error lands on the line that
+// asked, at build time.
+
+from "core/effect" import { Alloc, Net };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/theme" import * as theme;
+from "//cmd/basket/state.buri" import { newState };
+from "//cmd/basket/theme.buri" import { appThemed, day, kitTheme, night };
+from "//cmd/basket/view.buri" import { page };
+from "//lib/kit" import * as kit;
+
+// Re-exported so the suites can reach them. Everything else in this package
+// stays inside the binary — the components in view.buri are private to it,
+// which is why the suite tests them through the page they build.
+from "//cmd/basket/model.buri" export {
+    Draft, draft, entriesFrom, flip, isTicked, pad, settledFraction,
+};
+
+from "//cmd/basket/state.buri" export { newState };
+
+from "//cmd/basket/theme.buri" export { appThemed, day, kitTheme, night };
+
+from "//cmd/basket/view.buri" export { page };
+
+/// The page's complete effect budget.
+///
+/// Four effects, and `Stdout` is deliberately not among them even though WEB
+/// grants it: a budget is what a program asks for, not what a platform would
+/// allow, and a page that never names `host.stdout` cannot print. `host.fs` is
+/// not among them for the other reason — a page has no filesystem, so WEB does
+/// not export it and asking would not compile.
+///
+/// `host.net` is the one that changed sides. It was withheld from WEB while a
+/// request blocked the thread that asked, and a page granted a callback-shaped
+/// `Fetch` in its place; a suspending call blocks nothing now, so this line is
+/// the same one //cmd/web writes.
+export fn main(): Result<@ (), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Net: host.net,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+
+    let state = newState(ctx);
+
+    // One theme per package whose tokens this program uses. //lib/kit's are
+    // resolved through this app's own, and this app's are resolved to colours by
+    // whichever of `day` and `night` the `dark` signal currently picks — so
+    // switching it rewrites one block of custom properties and touches no class
+    // and no element.
+    //
+    // `mount` answers `.Ok(())` and returns. The page stays live because the
+    // entry wrapper exits only on an `.Err`, and the listeners this registered
+    // are what happens next.
+    ui.mount(ctx, page(ctx, state), [
+        kit.themed(kitTheme),
+        theme.switching(.Cell(state.dark), appThemed(night), appThemed(day)),
+    ])
+}

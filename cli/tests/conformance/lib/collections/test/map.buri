@@ -5,184 +5,220 @@
 // buckets), collisions (two keys in one bucket), and replacement (which must
 // not change the size).
 
-from "core/testing/assert" import * as assert;
-from "core/host/testing" import { alloc };
 from "core/effect" import { Alloc };
-
+from "core/host/testing" import { alloc };
 from "core/list" import * as list;
-from "core/map" import { Map };
 from "core/map" import * as map;
+from "core/map" import { Map };
 from "core/set" import * as set;
+from "core/testing/assert" import * as assert;
 
 // --- empty --------------------------------------------------------------------
 
 test "an empty map holds nothing" {
-  let ctx = context { };
-  let m = map.empty<Str, Int>();
-  assert.eq(m.len(), 0);
-  assert.isTrue(m.isEmpty());
-  assert.isTrue(m.get("nothing").isNone());
-  assert.isFalse(m.has("nothing"));
+    let ctx = context {
+    };
+    let m = map.empty<Str, Int>();
+    assert.eq(m.len(), 0);
+    assert.isTrue(m.isEmpty());
+    assert.isTrue(m.get("nothing").isNone());
+    assert.isFalse(m.has("nothing"));
 }
 
 // --- insert / get ---------------------------------------------------------------
 
 test "insert then get" {
-  let ctx = context { Alloc: alloc() };
-  let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
-  assert.eq(assert.some(m.get("a")), 1);
-  assert.eq(assert.some(m.get("b")), 2);
-  assert.eq(m.len(), 2);
-  assert.isTrue(m.get("c").isNone());
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
+    assert.eq(assert.some(m.get("a")), 1);
+    assert.eq(assert.some(m.get("b")), 2);
+    assert.eq(m.len(), 2);
+    assert.isTrue(m.get("c").isNone());
 }
 
 test "inserting the same key replaces the value and does not change the size" {
-  let ctx = context { Alloc: alloc() };
-  let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "a", 99);
-  assert.eq(assert.some(m.get("a")), 99);
-  assert.eq(m.len(), 1);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "a", 99);
+    assert.eq(assert.some(m.get("a")), 99);
+    assert.eq(m.len(), 1);
 }
 
 test "a map is a value: inserting produces a new one" {
-  let ctx = context { Alloc: alloc() };
-  let before = map.empty<Str, Int>().insert(ctx, "a", 1);
-  let after = before.insert(ctx, "b", 2);
-  assert.eq(before.len(), 1);
-  assert.eq(after.len(), 2);
-  assert.isTrue(before.get("b").isNone());
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let before = map.empty<Str, Int>().insert(ctx, "a", 1);
+    let after = before.insert(ctx, "b", 2);
+    assert.eq(before.len(), 1);
+    assert.eq(after.len(), 2);
+    assert.isTrue(before.get("b").isNone());
 }
 
 // --- remove ---------------------------------------------------------------------
 
 test "remove takes a key out" {
-  let ctx = context { Alloc: alloc() };
-  let m = map.of(ctx, [("a", 1), ("b", 2)]).remove(ctx, "a");
-  assert.isTrue(m.get("a").isNone());
-  assert.eq(assert.some(m.get("b")), 2);
-  assert.eq(m.len(), 1);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.of(ctx, [("a", 1), ("b", 2)]).remove(ctx, "a");
+    assert.isTrue(m.get("a").isNone());
+    assert.eq(assert.some(m.get("b")), 2);
+    assert.eq(m.len(), 1);
 }
 
 test "removing a key that is not there changes nothing" {
-  let ctx = context { Alloc: alloc() };
-  let m = map.of(ctx, [("a", 1)]);
-  assert.eq(m.remove(ctx, "zzz").len(), 1);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.of(ctx, [("a", 1)]);
+    assert.eq(m.remove(ctx, "zzz").len(), 1);
 }
 
 // --- of / entries / keys / values -------------------------------------------------
 
 test "of holds every entry, later ones winning" {
-  let ctx = context { Alloc: alloc() };
-  let m = map.of(ctx, [("a", 1), ("b", 2), ("a", 3)]);
-  assert.eq(m.len(), 2);
-  assert.eq(assert.some(m.get("a")), 3);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.of(ctx, [("a", 1), ("b", 2), ("a", 3)]);
+    assert.eq(m.len(), 2);
+    assert.eq(assert.some(m.get("a")), 3);
 }
 
 test "keys and values are as many as there are entries" {
-  let ctx = context { Alloc: alloc() };
-  let m = map.of(ctx, [("a", 1), ("b", 2), ("c", 3)]);
-  assert.eq(m.entries(ctx).len(), 3);
-  assert.eq(m.keys(ctx).sort(ctx), ["a", "b", "c"]);
-  assert.eq(m.values(ctx).sort(ctx), [1, 2, 3]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.of(ctx, [("a", 1), ("b", 2), ("c", 3)]);
+    assert.eq(m.entries(ctx).len(), 3);
+    assert.eq(m.keys(ctx).sort(ctx), ["a", "b", "c"]);
+    assert.eq(m.values(ctx).sort(ctx), [1, 2, 3]);
 }
 
 // The structure's own behaviour: past the load factor the map doubles its
 // buckets and rehashes. Everything must still be findable afterwards, which is
 // the one way a rehash can go wrong.
 test "a map that outgrows its buckets keeps every entry" {
-  let ctx = context { Alloc: alloc() };
-  let n = 200;
-  let m = list.range(ctx, 0, n).foldCtx(
-    ctx,
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let n = 200;
+    let m = list
+        .range(ctx, 0, n)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Map<Int, Int>, i) => acc.insert(c, i, i * 10),
+            map.empty<Int, Int>(),
+        );
     // The accumulator is annotated because inference runs left to right: the
     // lambda is checked before the seed that would otherwise pin its type.
-    fn(c, acc: Map<Int, Int>, i) => acc.insert(c, i, i * 10),
-    map.empty<Int, Int>(),
-  );
-  assert.eq(m.len(), n);
-  assert.isTrue(list.range(ctx, 0, n).all(fn(i) => m.get(i) == .Some(i * 10)));
-  assert.isTrue(m.get(n).isNone());
+    assert.eq(m.len(), n);
+    assert.isTrue(list.range(ctx, 0, n).all(fn(i) => m.get(i) == .Some(i * 10)));
+    assert.isTrue(m.get(n).isNone());
 }
 
 test "growth does not duplicate entries" {
-  let ctx = context { Alloc: alloc() };
-  let m = list.range(ctx, 0, 100).foldCtx(
-    ctx,
-    fn(c, acc: Map<Int, Int>, i) => acc.insert(c, i, i),
-    map.empty<Int, Int>(),
-  );
-  assert.eq(m.entries(ctx).len(), 100);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = list
+        .range(ctx, 0, 100)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Map<Int, Int>, i) => acc.insert(c, i, i),
+            map.empty<Int, Int>(),
+        );
+    assert.eq(m.entries(ctx).len(), 100);
 }
 
 test "equals compares entries rather than layout" {
-  let ctx = context { Alloc: alloc() };
-  // Built in opposite orders, so the buckets were filled differently.
-  let a = map.of(ctx, [("x", 1), ("y", 2), ("z", 3)]);
-  let b = map.of(ctx, [("z", 3), ("y", 2), ("x", 1)]);
-  assert.isTrue(a.equals(ctx, b));
-  assert.isFalse(a.equals(ctx, map.of(ctx, [("x", 1)])));
-  assert.isFalse(a.equals(ctx, map.of(ctx, [("x", 9), ("y", 2), ("z", 3)])));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Built in opposite orders, so the buckets were filled differently.
+    let a = map.of(ctx, [("x", 1), ("y", 2), ("z", 3)]);
+    let b = map.of(ctx, [("z", 3), ("y", 2), ("x", 1)]);
+    assert.isTrue(a.equals(ctx, b));
+    assert.isFalse(a.equals(ctx, map.of(ctx, [("x", 1)])));
+    assert.isFalse(a.equals(ctx, map.of(ctx, [("x", 9), ("y", 2), ("z", 3)])));
 }
 
 test "NaN is an ordinary key" {
-  // SPEC 7.2 makes `==` an equivalence relation, which is what a hash map
-  // needs of its keys: a key that is not equal to itself can be inserted and
-  // never found again. `Hash` agrees by construction — every NaN mixes as
-  // zero — so lookup finds the bucket and `==` finds the entry in it.
-  let ctx = context { Alloc: alloc() };
-  let nan = 0.0 / 0.0;
-  let m = map.empty<F64, Str>().insert(ctx, nan, "n").insert(ctx, 1.5, "a");
-  assert.eq(assert.some(m.get(nan)), "n");
-  assert.eq(m.len(), 2);
-  // Inserting it again replaces rather than duplicating, which only holds
-  // because the two NaNs compare equal.
-  let again = m.insert(ctx, 0.0 / 0.0, "m");
-  assert.eq(assert.some(again.get(0.0 / 0.0)), "m");
-  assert.eq(again.len(), 2);
+    // SPEC 7.2 makes `==` an equivalence relation, which is what a hash map
+    // needs of its keys: a key that is not equal to itself can be inserted and
+    // never found again. `Hash` agrees by construction — every NaN mixes as
+    // zero — so lookup finds the bucket and `==` finds the entry in it.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let nan = 0.0 / 0.0;
+    let m = map.empty<F64, Str>().insert(ctx, nan, "n").insert(ctx, 1.5, "a");
+    assert.eq(assert.some(m.get(nan)), "n");
+    assert.eq(m.len(), 2);
+    // Inserting it again replaces rather than duplicating, which only holds
+    // because the two NaNs compare equal.
+    let again = m.insert(ctx, 0.0 / 0.0, "m");
+    assert.eq(assert.some(again.get(0.0 / 0.0)), "m");
+    assert.eq(again.len(), 2);
 }
 
 // --- sets -------------------------------------------------------------------------
 
 test "a set collapses duplicates" {
-  let ctx = context { Alloc: alloc() };
-  let s = set.of(ctx, [1, 2, 2, 3, 1]);
-  assert.eq(s.len(), 3);
-  assert.eq(s.toList(ctx).sort(ctx), [1, 2, 3]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = set.of(ctx, [1, 2, 2, 3, 1]);
+    assert.eq(s.len(), 3);
+    assert.eq(s.toList(ctx).sort(ctx), [1, 2, 3]);
 }
 
 test "insert, has, and remove" {
-  let ctx = context { Alloc: alloc() };
-  let s = set.empty<Str>().insert(ctx, "a");
-  assert.isTrue(s.has("a"));
-  assert.isFalse(s.has("b"));
-  assert.isFalse(s.remove(ctx, "a").has("a"));
-  assert.isTrue(set.empty<Str>().isEmpty());
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = set.empty<Str>().insert(ctx, "a");
+    assert.isTrue(s.has("a"));
+    assert.isFalse(s.has("b"));
+    assert.isFalse(s.remove(ctx, "a").has("a"));
+    assert.isTrue(set.empty<Str>().isEmpty());
 }
 
 test "union, intersect and difference" {
-  let ctx = context { Alloc: alloc() };
-  let a = set.of(ctx, [1, 2, 3]);
-  let b = set.of(ctx, [3, 4]);
-  assert.eq(a.union(ctx, b).toList(ctx).sort(ctx), [1, 2, 3, 4]);
-  assert.eq(a.intersect(ctx, b).toList(ctx).sort(ctx), [3]);
-  assert.eq(a.difference(ctx, b).toList(ctx).sort(ctx), [1, 2]);
-  assert.eq(b.difference(ctx, a).toList(ctx).sort(ctx), [4]);
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = set.of(ctx, [1, 2, 3]);
+    let b = set.of(ctx, [3, 4]);
+    assert.eq(a.union(ctx, b).toList(ctx).sort(ctx), [1, 2, 3, 4]);
+    assert.eq(a.intersect(ctx, b).toList(ctx).sort(ctx), [3]);
+    assert.eq(a.difference(ctx, b).toList(ctx).sort(ctx), [1, 2]);
+    assert.eq(b.difference(ctx, a).toList(ctx).sort(ctx), [4]);
 }
 
 test "isSubsetOf and equals" {
-  let ctx = context { Alloc: alloc() };
-  let a = set.of(ctx, [1, 2]);
-  let b = set.of(ctx, [1, 2, 3]);
-  assert.isTrue(a.isSubsetOf(ctx, b));
-  assert.isFalse(b.isSubsetOf(ctx, a));
-  assert.isTrue(set.empty<Int>().isSubsetOf(ctx, a));
-  assert.isTrue(a.equals(ctx, set.of(ctx, [2, 1])));
-  assert.isFalse(a.equals(ctx, b));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = set.of(ctx, [1, 2]);
+    let b = set.of(ctx, [1, 2, 3]);
+    assert.isTrue(a.isSubsetOf(ctx, b));
+    assert.isFalse(b.isSubsetOf(ctx, a));
+    assert.isTrue(set.empty<Int>().isSubsetOf(ctx, a));
+    assert.isTrue(a.equals(ctx, set.of(ctx, [2, 1])));
+    assert.isFalse(a.equals(ctx, b));
 }
 
 test "a set of many members survives growth too" {
-  let ctx = context { Alloc: alloc() };
-  let s = set.of(ctx, list.range(ctx, 0, 150));
-  assert.eq(s.len(), 150);
-  assert.isTrue(list.range(ctx, 0, 150).all(fn(i) => s.has(i)));
-  assert.isFalse(s.has(150));
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = set.of(ctx, list.range(ctx, 0, 150));
+    assert.eq(s.len(), 150);
+    assert.isTrue(list.range(ctx, 0, 150).all(fn(i) => s.has(i)));
+    assert.isFalse(s.has(150));
 }

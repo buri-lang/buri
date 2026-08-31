@@ -32,36 +32,36 @@ from "core/host" import * as host;
 from "core/io" import * as io;
 
 enum Shape {
-  Circle(Float),
-  Rect { width: Float, height: Float },
-  Empty,
+    Circle(Float),
+    Rect { width: Float, height: Float },
+    Empty,
 }
 
 impl Shape {
-  // No context parameter, so this cannot allocate, print, read a file, or open
-  // a socket. It is a mathematical function of its argument, and you can see
-  // that from the signature alone.
-  fn area(self): Float {
-    match (self) {
-      .Circle(r) => 3.14159 * r * r,
-      .Rect { width, height } => width * height,
-      .Empty => 0.0,
+    // No context parameter, so this cannot allocate, print, read a file, or open
+    // a socket. It is a mathematical function of its argument, and you can see
+    // that from the signature alone.
+    fn area(self): Float {
+        match (self) {
+            .Circle(r) => 3.14159 * r * r,
+            .Rect { width, height } => width * height,
+            .Empty => 0.0,
+        }
     }
-  }
 }
 
 // `main` takes no arguments. It builds the one context the program has, and
 // those two bindings are the whole effect budget.
 export fn main(): Result<(), Str> {
-  let ctx = context {
-    Alloc:  host.alloc,
-    Stdout: host.stdout,
-  };
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
 
-  let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
-  let total = shapes.map(ctx, fn(s) => s.area()).sumFloat();
-  let _ = io.println(ctx, "total area: ${total}").ignore();
-  .Ok(())
+    let shapes = [Shape.Circle(1.0), Shape.Rect { width: 2.0, height: 3.0 }];
+    let total = shapes.map(ctx, fn(s) => s.area()).sumFloat();
+    let _ = io.println(ctx, "total area: ${total}").ignore();
+    .Ok(())
 }
 ```
 

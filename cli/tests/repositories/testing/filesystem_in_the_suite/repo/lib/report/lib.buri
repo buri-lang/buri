@@ -1,1 +1,1 @@
-from "//lib/report/render.buri" export { render, trailer, footer };
+from "//lib/report/render.buri" export { footer, render, trailer };

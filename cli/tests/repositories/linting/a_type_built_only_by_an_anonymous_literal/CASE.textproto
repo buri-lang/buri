@@ -36,12 +36,12 @@ edit {
 edit {
   file: "lib/money/ledgers.buri"
   replace: "  Stamp { mark: \"wax\", note: \"unread\" }\n"
-  with: "  Stamp { mark: \"wax\" }\n"
+  with: "Stamp { mark: \"wax\" }\n"
 }
 
 edit {
   file: "lib/money/stamps.buri"
-  replace: "\nstruct Ghost {\n  export mark: Str,\n}\n"
+  replace: "\nstruct Ghost {\n    export mark: Str,\n}\n"
   with: ""
 }
 

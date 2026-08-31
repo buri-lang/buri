@@ -1,0 +1,25 @@
+warning: Alloc is imported but not used [unused-import]
+ --> lib/recovery_swap_adjacent_module_cents_284b4e/lib.buri:4:29
+  |
+4 | from "core/effect" import { Alloc };
+  |                             ^^^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+warning: str is imported but not used [unused-import]
+ --> lib/recovery_swap_adjacent_module_cents_284b4e/lib.buri:5:29
+  |
+5 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: expected an identifier, found `>` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_cents_284b4e/lib.buri:7:28
+  |
+7 | export fn describe<CAlloc :>(ctx: C): Str {
+  |                            ^
+  |
+  = expected: an identifier
+  = actual: `>`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

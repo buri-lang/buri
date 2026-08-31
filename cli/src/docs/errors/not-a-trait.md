@@ -21,5 +21,7 @@ bound could name except a trait or an effect.
 ## A program that provokes it
 
 ```buri fail code=not-a-trait
-fn measure<T: Bogus>(x: T): Int { 1 }
+fn measure<T: Bogus>(x: T): Int {
+    1
+}
 ```

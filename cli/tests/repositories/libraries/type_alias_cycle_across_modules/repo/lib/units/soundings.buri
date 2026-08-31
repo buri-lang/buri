@@ -7,21 +7,22 @@ from "//lib/units/fathoms.buri" import { Fathoms };
 export struct Reading(F64);
 
 export type Depth = Reading;
+
 export type Height = Reading;
 
 export type Sounding = Fathoms;
 
 export fn reading(f: F64): Depth {
-  Reading(f)
+    Reading(f)
 }
 
 /// The diamond is what makes this signature legal: `Depth` and `Height` are
 /// two spellings of one type, so the comparison is between two `Reading`s and
 /// either may be returned as a `Sounding`.
 export fn deepest(a: Depth, b: Height): Sounding {
-  if (a.0 > b.0) { a } else { b }
+    if (a.0 > b.0) { a } else { b }
 }
 
 export fn metres(s: Sounding): F64 {
-  s.0
+    s.0
 }

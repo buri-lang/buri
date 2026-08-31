@@ -1,25 +1,25 @@
-from "//lib/shop/catalog.buri" import { Item, Stock, Priced, listing, defaultPrice };
+from "//lib/shop/catalog.buri" import { defaultPrice, Item, listing, Priced, Stock };
 
 /// What the whole shelf is worth, counting only what is in stock.
 export fn subtotal(items: [Item]): I64 {
-  items.fold(fn(running, item) => running + held(item.stock) * item.price, 0)
+    items.fold(fn(running, item) => running + held(item.stock) * item.price, 0)
 }
 
 /// How many of a thing are on the shelf.
 fn held(stock: Stock): I64 {
-  match (stock) {
-    .Out => 0,
-    .OnHand { count } => count,
-  }
+    match (stock) {
+        .Out => 0,
+        .OnHand { count } => count,
+    }
 }
 
 /// What one of anything priced costs.
 export fn ticket<T: Priced>(thing: T): I64 {
-  thing.cents()
+    thing.cents()
 }
 
 /// The cheapest thing a shop can list.
 export fn sample(): Item {
-  let plain: Item = listing("plain", defaultPrice);
-  plain
+    let plain: Item = listing("plain", defaultPrice);
+    plain
 }

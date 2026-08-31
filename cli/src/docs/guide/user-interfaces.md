@@ -147,45 +147,49 @@ from "ui/theme" import { Theme };
 
 // `cardlib`'s vocabulary, and the constructor that names each of its tokens.
 export enum Token {
-  Surface,
-  OnSurface,
-  Danger,
+    Surface,
+    OnSurface,
+    Danger,
 }
 
 impl Token {
-  export fn color(self): Color {
-    match (self) {
-      .Surface => style.token("cardlib", "surface"),
-      .OnSurface => style.token("cardlib", "onSurface"),
-      .Danger => style.token("cardlib", "danger"),
+    export fn color(self): Color {
+        match (self) {
+            .Surface => style.token("cardlib", "surface"),
+            .OnSurface => style.token("cardlib", "onSurface"),
+            .Danger => style.token("cardlib", "danger"),
+        }
     }
-  }
 }
 
 // `cardlib`'s half of the loop: the one function only it can write, because
 // only it knows what its tokens are.
 export fn themed(f: fn(Token) => Color): Theme {
-  theme.themed([
-    (Token.Surface.color(), f(.Surface)),
-    (Token.OnSurface.color(), f(.OnSurface)),
-    (Token.Danger.color(), f(.Danger)),
-  ])
+    theme.themed([
+        (Token.Surface.color(), f(.Surface)),
+        (Token.OnSurface.color(), f(.OnSurface)),
+        (Token.Danger.color(), f(.Danger)),
+    ])
 }
 
 // The consumer's half. This `match` is the compatibility check: a colour
 // written out, or another package's token, which is a chain.
 fn cardTheme(t: Token): Color {
-  match (t) {
-    .Surface => .Rgb(240, 240, 245),
-    .OnSurface => .Rgb(24, 24, 27),
-    .Danger => .Rgb(220, 38, 38),
-  }
+    match (t) {
+        .Surface => .Rgb(240, 240, 245),
+        .OnSurface => .Rgb(24, 24, 27),
+        .Danger => .Rgb(220, 38, 38),
+    }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Ui: host.ui, Watch: host.watch };
-  let card = ui.stack([.Background(Token.Surface.color())], []);
-  ui.mount(ctx, card, [themed(cardTheme)])
+    let ctx = context {
+        Alloc: host.alloc,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    let card = ui.stack([.Background(Token.Surface.color())], []);
+    ui.mount(ctx, card, [themed(cardTheme)])
 }
 ```
 

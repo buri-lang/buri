@@ -28,6 +28,7 @@ silently losing its hover state.
 
 ```buri fail code=style-not-static
 # from "ui/style" import { Style };
+
 // A breakpoint is a media query. A closure cannot be put inside one.
 let wide: Style = .At(.Large, [.Computed(fn(scope) => [.Width(.Full)])]);
 ```

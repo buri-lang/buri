@@ -1,1 +1,3 @@
-export fn fromWidget(): Str { "widget" }
+export fn fromWidget(): Str {
+    "widget"
+}

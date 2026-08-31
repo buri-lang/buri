@@ -1,7 +1,0 @@
-error: a struct-literal field ends with `,` [missing-separator]
-  --> lib/recovery_delete_separator_brace_cents_3fa54e/lib.buri:21:24
-   |
-21 |   Entry { cents, tax: 0 packer: "till" }
-   |                        ^
-   |
-   = fix: write `,` here

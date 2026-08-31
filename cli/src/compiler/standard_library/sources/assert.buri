@@ -24,40 +24,40 @@ from "core/order" import { Eq };
 /// calling `Show` — so there is no `Show` bound to satisfy: a type is
 /// assertable as soon as it is comparable.
 export fn eq<T: Eq>(actual: T, expected: T): () {
-  report(actual == expected, "eq", actual, expected)
+    report(actual == expected, "eq", actual, expected)
 }
 
 export fn notEq<T: Eq>(actual: T, expected: T): () {
-  report(actual != expected, "notEq", actual, expected)
+    report(actual != expected, "notEq", actual, expected)
 }
 
 export fn isTrue(actual: Bool): () {
-  report(actual, "isTrue", actual, true)
+    report(actual, "isTrue", actual, true)
 }
 
 export fn isFalse(actual: Bool): () {
-  report(actual == false, "isFalse", actual, false)
+    report(actual == false, "isFalse", actual, false)
 }
 
 /// Fails unconditionally.
 export fn fail(message: Str): () {
-  failWith(message)
+    failWith(message)
 }
 
 /// Fails unless `r` is `.Ok`, and returns the wrapped value — which is how a
 /// `Result` is consumed in a test, since `Result` is still must-use here.
 export fn ok<T, E>(r: Result<T, E>): T {
-  match (r) {
-    .Ok(v) => v,
-    .Err(e) => failExpected("ok", e),
-  }
+    match (r) {
+        .Ok(v) => v,
+        .Err(e) => failExpected("ok", e),
+    }
 }
 
 export fn err<T, E>(r: Result<T, E>): E {
-  match (r) {
-    .Ok(v) => failExpected("err", v),
-    .Err(e) => e,
-  }
+    match (r) {
+        .Ok(v) => failExpected("err", v),
+        .Err(e) => e,
+    }
 }
 
 /// The value the report shows is the `Option` itself, so a failure reads
@@ -65,18 +65,18 @@ export fn err<T, E>(r: Result<T, E>): E {
 /// written in. Passing the word "none" instead would be indistinguishable from
 /// a test whose value really was `.Some("none")`.
 export fn some<T>(o: Option<T>): T {
-  match (o) {
-    .Some(v) => v,
-    .None => failExpected("some", o),
-  }
+    match (o) {
+        .Some(v) => v,
+        .None => failExpected("some", o),
+    }
 }
 
 /// The mirror of `some`: `actual: .Some("none")` against `expected: .None`.
 export fn none<T>(o: Option<T>): () {
-  match (o) {
-    .Some(_) => failExpected("none", o),
-    .None => (),
-  }
+    match (o) {
+        .Some(_) => failExpected("none", o),
+        .None => (),
+    }
 }
 
 // The runner's side. `report` renders both values only when the assertion

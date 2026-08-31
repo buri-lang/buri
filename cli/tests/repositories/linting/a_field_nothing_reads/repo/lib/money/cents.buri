@@ -11,16 +11,16 @@
 // module that declares it, and this module is the whole of what could read it.
 
 export struct Entry {
-  export cents: I64,
-  export tax: I64,
-  packer: Str,
-  note: Option<Str>,
+    export cents: I64,
+    export tax: I64,
+    packer: Str,
+    note: Option<Str>,
 }
 
 export fn entry(cents: I64): Entry {
-  Entry { cents, tax: 0, packer: "till" }
+    Entry { cents, tax: 0, packer: "till" }
 }
 
 export fn total(e: Entry): I64 {
-  e.cents + e.tax
+    e.cents + e.tax
 }

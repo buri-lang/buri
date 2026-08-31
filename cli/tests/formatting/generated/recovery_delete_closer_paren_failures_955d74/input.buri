@@ -1,0 +1,98 @@
+// Bytes that are not the message they claim to be.
+//
+// A decoder that says only "malformed" of a four-kilobyte message is a decoder
+// you debug by bisection, so every case carries the offset or the field number
+// it stopped at — and every one of those is asserted here rather than left to
+// be trusted.
+
+from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+from "//lib/proto" import { decodeEverything, defaultEverything, Everything };
+
+fn raw<C: Alloc>(ctx: C, text: Str): [U8] {
+    match (bytes.fromHex(ctx, text)) {
+        .Ok(b) => b,
+        .Err(_e) => list.empty<U8>(),
+    }
+}
+
+test "a varint that never ends is truncated, at the byte it began" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 2, wire 0, then 0x80 — a continuation byte with nothing after it.
+    assert.eq(decodeEverything(ctx, raw(ctx, "1080")), .Err(.Truncated(1)));
+    // Ten continuation bytes is past the widest varint there is.
+    assert.eq(
+        decodeEverything(ctx, raw(ctx, "1080808080808080808080")),
+        .Err(.Truncated(1)),
+    );
+}
+
+test "a length that runs past the end is truncated" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 1, wire 2, length 5, one byte of body.
+    assert.eq(decodeEverything(ctx, raw(ctx, "0a0541")), .Err(.Truncated(1)));
+    // And so is a fixed-width field with too few bytes: field 9, wire 1.
+    assert.eq(decodeEverything(ctx, raw(ctx, "4900000000")), .Err(.Truncated(1)));
+}
+
+test "a group is refused rather than skipped" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Wire types 3 and 4 are proto2's group encoding. Treating one as an unknown
+    // field would mean reading the rest of the message at the wrong offset, so it
+    // is an error naming the field it arrived on: (99 << 3) | 3 = 795 -> 9b 06.
+    assert.eq(
+        decodeEverything(ctx, raw(ctx, "9b0601")),
+        .Err(.BadWireType { field: 99, wire: 3 }),
+    );
+}
+
+test "field number zero is not a field" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decodeEverything(ctx, raw(ctx, "0000")), .Err(.BadFieldNumber(0)));
+}
+
+test "a string field whose bytes are not UTF-8 is an error, not a replacement" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 1, wire 2, length 1, 0xff — which begins no UTF-8 sequence.
+    assert.eq(decodeEverything(ctx, raw(ctx, "0a01ff")), .Err(.BadUtf8(1)));
+    // `bytes` takes the same octet happily: that is the difference between the
+    // two types. field 13, wire 2.
+    assert.eq(
+        decodeEverything(ctx, raw(ctx, "6a01ff")),
+        .Ok(Everything { ..defaultEverything(), blob: .Some([255.wrapToU8()]) },
+    );
+}
+
+test "a known field arriving with the wrong wire type is skipped" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // `name` is field 1 and is length-delimited; here it arrives as a varint.
+    // Nothing matches, so it is skipped exactly as an unknown field would be —
+    // which is what keeps a reader that has not been rebuilt from crashing on a
+    // schema change.
+    assert.eq(decodeEverything(ctx, raw(ctx, "0801")), .Ok(defaultEverything()));
+}
+
+test "an error inside a nested message is reported inside that message" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // field 40 (home), wire 2, length 3, and inside it a field-1 string of
+    // length 5 with one byte of body. The offset is the one inside the nested
+    // message, which is the buffer the failing read was looking at.
+    assert.eq(decodeEverything(ctx, raw(ctx, "c202030a0541")), .Err(.Truncated(1)));
+}

@@ -1,6 +1,6 @@
-from "//lib/codec" import { encode };
 from "core/testing/assert" import * as assert;
+from "//lib/codec" import { encode };
 
 test "encodes zero" {
-  assert.eq(encode(0), "zero");
+    assert.eq(encode(0), "zero");
 }

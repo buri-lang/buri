@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_module_cents_3a6baf/lib.buri:4:1
+  |
+4 | 
+  | ^
+  |
+ --> lib/recovery_delete_closer_module_cents_3a6baf/lib.buri:1:40
+  |
+1 | export fn markupCents(cents: I64): I64 {
+  |                                        ^ opened here
+  |
+  = fix: write `}` here

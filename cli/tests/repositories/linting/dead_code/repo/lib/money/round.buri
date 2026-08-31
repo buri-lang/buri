@@ -4,4 +4,6 @@
 
 from "//lib/money/cents.buri" import { Cents };
 
-export fn toNearestDollar(c: Cents): Cents { Cents(c.0 - c.0 % 100) }
+export fn toNearestDollar(c: Cents): Cents {
+    Cents(c.0 - c.0 % 100)
+}
