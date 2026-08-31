@@ -693,6 +693,7 @@ jobs:
   # needs no job of its own: every `test` leg above is one.
   # ---------------------------------------------------------------------------
   minimal:
+    timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
@@ -714,6 +715,7 @@ jobs:
   # by formal/lean-toolchain; elan reads it.
   # ---------------------------------------------------------------------------
   lean:
+    timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
@@ -750,6 +752,7 @@ jobs:
   # named for it.
   # ---------------------------------------------------------------------------
   tree-sitter:
+    timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
@@ -776,6 +779,7 @@ jobs:
   # build but a green one that shipped a toolchain with no native backend.
   # ---------------------------------------------------------------------------
   nix:
+    timeout-minutes: 30
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
