@@ -1828,9 +1828,12 @@ fn check_ctx_rebindings(
 /// the call.
 ///
 /// **The body is the whole of the evidence, and one question answers it.**
-/// There are three ways to use a context — call a method it declares, hand it
-/// to a callee that asks for one, hand it to a function-typed parameter — and
-/// every one of the three reads the parameter's local. So the rule is a walk
+/// There are two ways to use a context — hand it to a callee that asks for one,
+/// or hand it to a function-typed parameter — and both read the parameter's
+/// local. Performing an *effect* is the first of the two rather than a third of
+/// its own: an effect is reached by handing the context to a function
+/// (SPEC 10.2), so `io.println(ctx, x)` is an ordinary callee. So the rule is a
+/// walk
 /// for [`typed::ExprKind::Local`] naming `body.params[ctx_index]`, and it has
 /// no other case to forget.
 ///
@@ -2152,20 +2155,29 @@ fn deletion(at: Span, from: usize, to: usize) -> crate::diagnostics::Edit {
 /// spreads, because a caller's own signature has to carry the bound to satisfy
 /// it.
 ///
-/// **Three uses, and the reason there is no fourth.** The checker consults a
+/// **Two uses, and the reason there is no third.** The checker consults a
 /// type parameter's bound list in exactly two places, and both of them are a
 /// call that is written down in the checked tree:
 ///
-/// * `expressions.rs`'s `resolve_method` at a `Ty::Param` receiver — a method
-///   on a type parameter can only come from its bounds — which becomes a
-///   [`typed::ExprKind::CallTrait`] whose `recv` is that parameter and whose
-///   `trait_id` is the bound. That is `ctx.println(…)`.
 /// * `inference.rs`'s `satisfies` at a `Ty::Param`, reached from the
 ///   obligations `expressions.rs`'s `instantiate` raises. `instantiate` has
 ///   three callers — `fn_ref`, `call_fn` and `call_trait_method` — and each
 ///   writes the type arguments it produced into the node it built, so a
 ///   callee's bound landing on `C` is a `targs` entry that mentions
-///   `Ty::Param(i)`. That is `str.format(ctx, …)`.
+///   `Ty::Param(i)`. That is `str.format(ctx, …)` — **and it is where an
+///   effect is used**, because an effect is performed by handing the context
+///   to a function (SPEC 10.2): `io.println(ctx, x)` instantiates
+///   `println<C2: Stdout>` at `C` and raises the `Stdout` obligation this
+///   reads.
+/// * `expressions.rs`'s `resolve_method` at a `Ty::Param` receiver — a method
+///   on a type parameter can only come from its bounds — which becomes a
+///   [`typed::ExprKind::CallTrait`] whose `recv` is that parameter and whose
+///   `trait_id` is the bound. **This arm is now unreachable for the code this
+///   rule reads**: `mine` excludes `core/*`, an `impl`-supplied body is
+///   skipped below, and `report_effect_method` refuses the shape everywhere
+///   else. It stays because deleting it would make the rule depend on that
+///   gate staying perfect, and because an ordinary `trait` bound on a context
+///   parameter would still land here.
 ///
 /// The third use in the note's list is not a bound demand at all, which is why
 /// it has to be stated rather than derived: handing the context to a
@@ -2192,9 +2204,11 @@ fn deletion(at: Span, from: usize, to: usize) -> crate::diagnostics::Edit {
 ///
 /// The fourth is the one place this rule is *less* able than that one: **a
 /// body that did not check is not asked**. A context has exactly one spelling
-/// and a bound has none — it is used through method names it declares and
-/// through callees whose own bounds name it — so where the typed tree is
-/// truncated there is nothing for the lexer to answer with.
+/// and a bound has none — it is used through callees whose own bounds name it,
+/// and a callee's name is not a token the lexer can recognise as *this* bound
+/// — so where the typed tree is truncated there is nothing to answer with. A
+/// text fallback became imaginable the day an effect started being reached
+/// through a module alias; it is not built, and that is a choice.
 ///
 /// The fifth is a division of labour rather than a doubt: **a context the body
 /// never reads at all is [`check_unused_contexts`]'s, and only its.** Every

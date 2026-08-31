@@ -657,15 +657,29 @@ fn members_of(analyzed: &Analyzed, con: TyConId, from: Option<ModuleId>) -> Vec<
         .filter(|(_, f)| f.exported || from == Some(declaring))
         .map(|(index, f)| (f.name.clone(), Symbol::Field { con, variant: None, index }))
         .collect();
+    // An effect's methods are not offered, because they are not callable here:
+    // an effect is performed by handing the context to a function
+    // (SPEC 10.2), so `host.stdout.` has nothing on it and completing
+    // `println` there would be offering a line that does not compile. The two
+    // layers that may still write the method form are the standard library and
+    // the body of an `impl` supplying the effect, and neither is a file this
+    // server edits.
+    let effectful = |trait_id: types::TraitId| tables.trait_(trait_id).is_effect;
     let names: Vec<String> = tables.method_names(con).map(str::to_string).collect();
     for name in names {
         if let Some(id) = tables.method(con, &name) {
+            if tables.fn_info(id).impl_of.is_some_and(|(t, _)| effectful(t)) {
+                continue;
+            }
             out.push((name, Symbol::Function(id)));
         }
     }
-    // What the traits and the effects add. A trait method is called through the
-    // receiver like an inherent one, and leaving them out hides every operator.
+    // What the traits add. A trait method is called through the receiver like
+    // an inherent one, and leaving them out hides every operator.
     for trait_id in tables.traits_of_con(con) {
+        if effectful(*trait_id) {
+            continue;
+        }
         for (method, m) in tables.trait_(*trait_id).methods.iter().enumerate() {
             out.push((m.name.clone(), Symbol::TraitMethod { trait_id: *trait_id, method }));
         }
