@@ -283,8 +283,8 @@ const NOTIFICATIONS: &[&str] = &[
 
 /// The program the surface is driven against: one file, one import and one
 /// call, so that a position request has something under it.
-const SURFACE_PROGRAM: &str = r#"from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+const SURFACE_PROGRAM: &str = r#"from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 fn answer(): Int { 41 }
 

@@ -5,9 +5,9 @@
 // function-typed parameter — and the fourth declares a context and never names
 // it, so its callers hold one for arithmetic.
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/str" import * as str;
 
 /// The finding. A label's width is its length; nothing here touches the world,
 /// and `--fix` takes the parameter out and the argument at the call site with

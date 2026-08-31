@@ -1,7 +1,0 @@
-error: a re-export declaration ends with `;` [missing-terminator]
- --> main.buri:1:42
-  |
-1 | from "core/list/lib.buri" export { fold }
-  |                                          ^
-  |
-  = fix: write `;` here

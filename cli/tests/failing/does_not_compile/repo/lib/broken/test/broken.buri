@@ -3,7 +3,7 @@
 // stdout — and the exit code is 1, the same as a failing test, because the
 // code is what is wrong.
 
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 
 test "a type error inside a test" {
     assert.eq(1, "one");

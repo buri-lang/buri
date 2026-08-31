@@ -1,4 +1,4 @@
-from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 
 /// Writes, and answers something a test can be wrong about.
 export fn announce<C: Alloc + Stdout>(ctx: C, name: Str): Int {

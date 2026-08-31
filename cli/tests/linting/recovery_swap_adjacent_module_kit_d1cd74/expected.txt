@@ -1,0 +1,17 @@
+warning: list is imported but not used [unused-import]
+ --> lib/recovery_swap_adjacent_module_kit_d1cd74/lib.buri:4:30
+  |
+4 | from "core/list" import * as list;
+  |                              ^^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+error: expected a function body, found `1` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_kit_d1cd74/lib.buri:6:22
+  |
+6 | export fn one(): I64 1 { }
+  |                      ^
+  |
+  = expected: a function body
+  = actual: `1`
+  = fix: write `{ ... }` after the return type

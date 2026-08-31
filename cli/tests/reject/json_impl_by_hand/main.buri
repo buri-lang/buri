@@ -1,8 +1,8 @@
 // EXPECT: `ToJson` is derived, not implemented
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/json/lib.buri" import { Json, ToJson };
-from "core/json/lib.buri" import * as json;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/json" import { Json, ToJson };
+from "core/json" import * as json;
 
 struct Point { export x: Int, export y: Int }
 

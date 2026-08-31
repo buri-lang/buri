@@ -1,9 +1,0 @@
-from "core/effect/lib.buri" import { Alloc };
-
-/// Reported, and not rewritten. `lib.buri` publishes this name, so a caller
-/// may be in a package no analysis here has loaded — and a fix that took the
-/// parameter out of the signature and left that caller passing a context would
-/// be worse than no fix at all.
-export fn stamp<C: Alloc>(ctx: C, label: Str): Int {
-  label.len(
-}

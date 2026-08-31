@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_app_e1e356/main.buri:14:6
+   |
+14 |   .Ok@ (())
+   |      ^
+   |
+  --> lib/recovery_insert_stray_brace_app_e1e356/main.buri:10:35
+   |
+10 | export fn main(): Result<(), Str> {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here

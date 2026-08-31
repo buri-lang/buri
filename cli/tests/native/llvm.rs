@@ -286,8 +286,8 @@ fn build_and_run_at(
 /// prints needs, and nothing else — so the context is a record of two empty
 /// implementations and is therefore zero-sized (VALUE-MODEL.md §8).
 const PRELUDE: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 "#;
 
 fn program(body: &str) -> String {
@@ -389,7 +389,7 @@ fn a_second_carrier_enters_through_the_door() {
     // this slice's report. One side effect at the bottom takes `f` out of
     // `memory(none)` and leaves the depth this test is about intact.
     let source = r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 fn f(i: Int): Int { if (i <= 0) { let _ = stdout.println("bottom"); 0 } else { 1 + f(i - 1) } }
 export fn main(): Result<(), Str> {
   let _ = stdout.println("depth ${f(10000)}");
@@ -1028,9 +1028,9 @@ export fn main(): Result<(), Str> {
     let tasks = optimized_ir(&format!(
         "{}\n{}",
         r#"
-from "core/effect/lib.buri" import { Alloc, Stdout, Tasks };
-from "core/host/lib.buri" import * as host;
-from "core/tasks/lib.buri" import * as tasks;
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/tasks" import * as tasks;
 "#,
         r#"
 export fn main(): Result<(), Str> {
@@ -1569,7 +1569,7 @@ fn a_json_string_leaf_balances_its_own_count() {
         "tojson-count",
         &program(
             r#"
-from "core/json/lib.buri" import { Json, ToJson };
+from "core/json" import { Json, ToJson };
 
 export struct Note { text: Str }
 derive ToJson for Note;
@@ -1798,10 +1798,10 @@ export fn main(): Result<(), Str> {
     // times at things that were merely early.
     let with_closure = program(
         r#"
-from "core/list/lib.buri" import * as list;
-from "core/str/lib.buri" import * as str;
-from "core/bytes/lib.buri" import * as bytes;
-from "core/math/lib.buri" import * as math;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/bytes" import * as bytes;
+from "core/math" import * as math;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2024,7 +2024,7 @@ fn the_numeric_surface_runs() {
         "numeric",
         &program(
             r#"
-from "core/num/lib.buri" import * as num;
+from "core/num" import * as num;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2128,7 +2128,7 @@ fn str_concat_is_open_coded_and_keeps_the_ascii_flag() {
         "concat",
         &program(
             r#"
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2164,7 +2164,7 @@ fn a_unique_concat_loop_allocates_logarithmically() {
         "concat-growth",
         &program(
             r#"
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 export fn build(s: Str, i: Int): Str {
   if (i == 0) { s } else { build(s.concat(host.alloc, "xy"), i - 1) }
@@ -2201,7 +2201,7 @@ fn a_shared_concat_does_not_mutate_what_is_shared() {
         "concat-shared",
         &program(
             r#"
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2238,7 +2238,7 @@ fn a_borrowed_local_survives_a_sibling_that_holds_its_last_mention() {
         "borrow-across-siblings",
         &program(
             r#"
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2266,7 +2266,7 @@ fn appending_to_a_view_does_not_disturb_its_siblings() {
         "concat-view",
         &program(
             r#"
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2297,7 +2297,7 @@ fn a_unique_push_loop_allocates_logarithmically() {
         "push-growth",
         &program(
             r#"
-from "core/list/lib.buri" import * as list;
+from "core/list" import * as list;
 
 export fn build(xs: [Int], i: Int): [Int] {
   if (i == 0) { xs } else { build(xs.push(host.alloc, i), i - 1) }
@@ -2330,7 +2330,7 @@ fn a_shared_push_does_not_mutate_what_is_shared() {
         "push-shared",
         &program(
             r#"
-from "core/list/lib.buri" import * as list;
+from "core/list" import * as list;
 
 export fn total(xs: [Int], i: Int, acc: Int): Int {
   if (i == xs.len()) { acc } else {
@@ -2367,7 +2367,7 @@ fn the_string_surface_runs() {
         "strings",
         &program(
             r#"
-from "core/list/lib.buri" import * as list;
+from "core/list" import * as list;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2454,7 +2454,7 @@ fn the_list_surface_runs_over_plain_elements() {
         "lists",
         &program(
             r#"
-from "core/list/lib.buri" import * as list;
+from "core/list" import * as list;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2506,8 +2506,8 @@ fn a_list_of_strings_is_retained_by_the_generated_glue() {
         "retain",
         &program(
             r#"
-from "core/list/lib.buri" import * as list;
-from "core/str/lib.buri" import * as str;
+from "core/list" import * as list;
+from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2540,7 +2540,7 @@ fn strings_compare_and_order() {
         "strcmp",
         &program(
             r#"
-from "core/order/lib.buri" import { Order };
+from "core/order" import { Order };
 
 struct Named { name: Str, rank: Int }
 derive Eq for Named;
@@ -2642,8 +2642,8 @@ fn the_rest_of_the_string_surface_runs() {
         "strings2",
         &program(
             r#"
-from "core/str/lib.buri" import * as str;
-from "core/list/lib.buri" import * as list;
+from "core/str" import * as str;
+from "core/list" import * as list;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2684,7 +2684,7 @@ fn the_char_and_bool_leaves_run() {
         "leaves",
         &program(
             r#"
-from "core/order/lib.buri" import { Order };
+from "core/order" import { Order };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2728,7 +2728,7 @@ fn an_empty_result_from_a_runtime_entry_survives_its_counts() {
         "empties",
         &program(
             r#"
-from "core/list/lib.buri" import * as list;
+from "core/list" import * as list;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2764,7 +2764,7 @@ fn getting_a_string_out_of_a_list_takes_a_reference() {
         "getstr",
         &program(
             r#"
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -2892,7 +2892,7 @@ fn a_closure_capturing_a_string_runs_and_releases_it() {
         "closure-str",
         &program(
             r#"
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 // SPEC 10.6 forbids a lambda from capturing a context, so the allocation
 // happens outside it and the capture is the `Str` it produced.
@@ -2937,7 +2937,7 @@ fn a_nested_aggregate_drop_balances_its_counts() {
     let source = |built: &str| {
         program(&format!(
             r#"
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 struct Row {{ name: Str, tags: [Str] }}
 enum Cell {{ Empty, Text(Str), Pair(Str, Str) }}
@@ -2991,7 +2991,7 @@ fn the_bounded_methods_are_the_types_own_range() {
         "bounded",
         &program(
             r#"
-from "core/num/lib.buri" import * as num;
+from "core/num" import * as num;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -3036,8 +3036,8 @@ fn a_stateful_context_is_dropped_at_the_runtime_boundary() {
         "stateful-ctx",
         &program(
             r#"
-from "core/effect/lib.buri" import { Region };
-from "core/list/lib.buri" import * as list;
+from "core/effect" import { Region };
+from "core/list" import * as list;
 
 /// The shape `core/host/testing`'s `TestAlloc` has: a handle, because Buri
 /// has no mutation and the state an allocator names lives elsewhere. Written
@@ -3086,7 +3086,7 @@ fn the_exact_half_of_core_math_runs() {
         "math",
         &program(
             r#"
-from "core/math/lib.buri" import * as math;
+from "core/math" import * as math;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -3199,7 +3199,7 @@ fn the_bits_module_runs() {
         "bits",
         &program(
             r#"
-from "core/bits/lib.buri" import * as bits;
+from "core/bits" import * as bits;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -3241,7 +3241,7 @@ fn a_shift_out_of_range_aborts() {
         "shift-range",
         &program(
             r#"
-from "core/bits/lib.buri" import * as bits;
+from "core/bits" import * as bits;
 
 fn go(n: Int): Int { bits.shl(1, n) }
 
@@ -3290,7 +3290,7 @@ fn an_aggregate_of_counted_values_outlives_its_own_projections() {
     skip_unless_executable!();
     let source = program(
         r#"
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 struct Pair { a: Str, b: Str }
 
@@ -3357,8 +3357,8 @@ fn a_borrowing_projection_does_not_end_its_bases_lifetime() {
     skip_unless_executable!();
     let source = program(
         r#"
-from "core/str/lib.buri" import * as str;
-from "core/list/lib.buri" import * as list;
+from "core/str" import * as str;
+from "core/list" import * as list;
 
 struct Held { name: Str, tag: Str }
 
@@ -3426,7 +3426,7 @@ fn interpolating_in_a_loop_leaks_nothing() {
     let source = |n: u32| {
         program(&format!(
             r#"
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 fn go(n: Int, acc: Int): Int {{
   if (n <= 0) {{ acc }} else {{
@@ -3497,9 +3497,9 @@ fn a_value_that_implements_alloc_is_a_context_bounds_argument() {
         "bare-implementor",
         &program(
             r#"
-from "core/effect/lib.buri" import { Region };
-from "core/list/lib.buri" import * as list;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Region };
+from "core/list" import * as list;
+from "core/str" import * as str;
 
 /// Satisfies `Alloc` by forwarding, and is not a context. The `tag` is what
 /// makes it eight bytes wide: a zero-sized implementor would spread to no

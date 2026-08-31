@@ -1,7 +1,0 @@
-from "core/list/lib.buri" export {
-    fold,
-    /// what is left of the clause
-};
-
-// about g
-fn export g(): Int { 1 }

@@ -1,0 +1,23 @@
+error: expected `Result<(), Str>`, found `()` [type-mismatch]
+  --> lib/recovery_delete_separator_brace_app_b33e60/main.buri:10:35
+   |
+10 | export fn main(): Result<(), Str> {
+   |                                   ^ the declared return type is `Result<(), Str>`
+   |
+   = expected: `Result<(), Str>`
+   = actual: `()`
+   = fix: produce a `Result<(), Str>` here, or change what surrounds it to accept a `()`
+error: `()` has no method `Ok` [no-such-method]
+  --> lib/recovery_delete_separator_brace_app_b33e60/main.buri:14:4
+   |
+14 |   .Ok(())
+   |    ^^
+   |
+   = fix: check the spelling, or declare it in `impl () { ... }` in that type's own module — a method may not be added from anywhere else
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_separator_brace_app_b33e60/main.buri:14:10
+   |
+14 |   .Ok(())
+   |          ^
+   |
+   = fix: write `;` here

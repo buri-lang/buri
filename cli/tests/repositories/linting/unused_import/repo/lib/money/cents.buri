@@ -5,8 +5,8 @@
 // `Alloc` is used, in `describe`'s bounds. The rule has to count a bound as a
 // use, or every library that threads a context would report a false finding.
 
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
 
 export struct Cents(export I64);
 

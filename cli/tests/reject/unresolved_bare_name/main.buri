@@ -3,9 +3,9 @@
 // The control for `namespace_member_missing`: the same name, written with no
 // namespace in front of it. Nothing here is a namespace member, so the answer
 // is about the name itself and stays what it always was.
-from "core/effect/lib.buri" import { Alloc, Fs, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/fs/lib.buri" import * as fs;
+from "core/effect" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
+from "core/fs" import * as fs;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };

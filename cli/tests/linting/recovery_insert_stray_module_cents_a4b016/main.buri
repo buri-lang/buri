@@ -1,0 +1,9 @@
+// `str` is imported and never used. That finding is what travels through the
+// cache: the second run does not analyse this target again, and has to report
+// it in the same words all the same.
+
+from "core/str" import * as str;
+
+extra export struct Cents(export I64);
+
+export fn fromCents(c: I64): Cents { Cents(c) }

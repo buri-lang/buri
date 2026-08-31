@@ -1,7 +1,7 @@
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
-from "//lib/tools/lib.buri" import { help };
+from "//lib/tools" import { help };
 
 export fn main(): Result<(), Str> {
   let ctx = context {

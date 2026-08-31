@@ -13,8 +13,8 @@
 // to be told to build for, and a sentence ending "build this for a platform
 // that grants it:" with nothing after the colon would be a compiler bug
 // wearing the clothes of advice.
-from "core/effect/lib.buri" import { Alloc, Listen, Sockets, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Listen, Sockets, Stdout };
+from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context {

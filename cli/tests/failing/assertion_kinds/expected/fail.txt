@@ -1,52 +1,52 @@
-FAIL //lib/asserts  test/asserts.buri.buri  "eq"
+FAIL //lib/asserts  test/asserts.buri  "eq"
   assert.eq failed
     actual:   1
     expected: 2
   --> lib/asserts/test/asserts.buri:9:1
-FAIL //lib/asserts  test/asserts.buri.buri  "notEq"
+FAIL //lib/asserts  test/asserts.buri  "notEq"
   assert.notEq failed
     actual:   5
     expected: 5
   --> lib/asserts/test/asserts.buri:13:1
-FAIL //lib/asserts  test/asserts.buri.buri  "isTrue"
+FAIL //lib/asserts  test/asserts.buri  "isTrue"
   assert.isTrue failed
     actual:   false
     expected: true
   --> lib/asserts/test/asserts.buri:17:1
-FAIL //lib/asserts  test/asserts.buri.buri  "isFalse"
+FAIL //lib/asserts  test/asserts.buri  "isFalse"
   assert.isFalse failed
     actual:   true
     expected: false
   --> lib/asserts/test/asserts.buri:21:1
-FAIL //lib/asserts  test/asserts.buri.buri  "fail"
+FAIL //lib/asserts  test/asserts.buri  "fail"
   a message the test wrote itself
   --> lib/asserts/test/asserts.buri:25:1
-FAIL //lib/asserts  test/asserts.buri.buri  "ok"
+FAIL //lib/asserts  test/asserts.buri  "ok"
   assert.ok failed
     actual:   "boom"
     expected: .Ok
   --> lib/asserts/test/asserts.buri:29:1
-FAIL //lib/asserts  test/asserts.buri.buri  "err"
+FAIL //lib/asserts  test/asserts.buri  "err"
   assert.err failed
     actual:   7
     expected: .Err
   --> lib/asserts/test/asserts.buri:33:1
-FAIL //lib/asserts  test/asserts.buri.buri  "some"
+FAIL //lib/asserts  test/asserts.buri  "some"
   assert.some failed
     actual:   .None
     expected: .Some
   --> lib/asserts/test/asserts.buri:37:1
-FAIL //lib/asserts  test/asserts.buri.buri  "none"
+FAIL //lib/asserts  test/asserts.buri  "none"
   assert.none failed
     actual:   .Some(3)
     expected: .None
   --> lib/asserts/test/asserts.buri:41:1
-FAIL //lib/asserts  test/asserts.buri.buri  "eq on an Option"
+FAIL //lib/asserts  test/asserts.buri  "eq on an Option"
   assert.eq failed
     actual:   .Some(1)
     expected: .None
   --> lib/asserts/test/asserts.buri:45:1
-FAIL //lib/asserts  test/asserts.buri.buri  "eq on a Result"
+FAIL //lib/asserts  test/asserts.buri  "eq on a Result"
   assert.eq failed
     actual:   .Ok(1)
     expected: .Err("no")

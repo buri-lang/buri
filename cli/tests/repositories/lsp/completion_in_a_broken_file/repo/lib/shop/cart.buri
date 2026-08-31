@@ -1,7 +1,7 @@
 //! What is in the basket.
 
 from "//lib/shop/catalog.buri" import * as catalog;
-from "core/order/lib.buri" import { Order, int };
+from "core/order" import { Order, int };
 
 /// One item, for a basket with nothing in it.
 export fn sample(): catalog.Item {

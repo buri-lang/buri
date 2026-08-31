@@ -1,6 +1,6 @@
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "//lib/shop/lib.buri" import { currency, listing, worth };
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "//lib/shop" import { currency, listing, worth };
 
 export fn main(): Result<(), Str> {
     let ctx = context {

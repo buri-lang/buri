@@ -1,1 +1,1 @@
-from "//lib/z/lib.buri" import { Zed, Guitar, apply, Banjo, zebra };
+from "//lib/z" import { Zed, Guitar, apply, Banjo, zebra };

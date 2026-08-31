@@ -1,5 +1,5 @@
 //! Three colours: two the server can compute and one it cannot.
-from "ui/style/lib.buri" import { Color };
+from "ui/style" import { Color };
 
 /// The brand colour, with the enum named the long way round.
 export let brand: Color = Color.Rgb(255, 128, 0);

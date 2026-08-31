@@ -11,22 +11,22 @@
 // either both pass it or disagree about the language. `cli/tests/native/
 // conformance.rs` runs this same file through the copy-and-patch backend.
 
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 // The doubles, and the call log's constructors: one per method, ordinary
 // functions of the same module, so a test writes the call it expects the way
 // the code under test made it.
-from "core/host/testing/lib.buri" import {
+from "core/host/testing" import {
   TaskCall, alloc, appendFile, clock, env, fetch, fileExists, fs, makeDir, net,
   proc, rand, readBytes, readDir, readFile, readFileBytes, readLine,
   removeFile, renameFile, stderr, stdin, stdout, syncFile, task, tasks,
   writeFile, writeFileBytes,
 };
-from "core/effect/lib.buri" import {
+from "core/effect" import {
   Alloc, Clock, Env, Fs, Header, IoError, Net, NetError, Proc, Rand, Region,
   Request, Response, Stderr, Stdin, Stdout, Tasks,
 };
-from "core/net/http/lib.buri" import * as http;
-from "core/str/lib.buri" import * as str;
+from "core/net/http" import * as http;
+from "core/str" import * as str;
 
 // Ordinary functions over the effects, so what the doubles are asked is what a
 // program would ask them rather than what a test can reach directly.

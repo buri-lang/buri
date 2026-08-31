@@ -19,7 +19,7 @@ run {
 # clean — a name used only as a bound is used.
 edit {
   file: "lib/money/cents.buri"
-  replace: "from \"core/str/lib.buri\" import * as str;\n"
+  replace: "from \"core/str\" import * as str;\n"
   with: ""
 }
 

@@ -1,6 +1,6 @@
 // EXPECT: expected `F64`, found `I64`
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 fn scale(count: Int, factor: Float): Float {
   count + factor

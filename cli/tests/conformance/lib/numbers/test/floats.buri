@@ -7,13 +7,13 @@
 // wherever the point is to test arithmetic rather than to test rounding; the
 // tests that do exercise rounding say so.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/math/lib.buri" import * as math;
-from "core/num/lib.buri" import * as num;
-from "core/order/lib.buri" import { Order };
-from "core/str/lib.buri" import * as str;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
+from "core/testing/assert" import * as assert;
+from "core/math" import * as math;
+from "core/num" import * as num;
+from "core/order" import { Order };
+from "core/str" import * as str;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
 
 fn nan(): F64 {
   0.0 / 0.0

@@ -1,0 +1,20 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_delete_closer_brace_app_4c58c5/main.buri:9:4
+  |
+9 | // TODO: decide what this program is for.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: this context is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_4c58c5/main.buri:13:62
+   |
+13 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout ;
+   |                                                              ^
+   |
+  --> lib/recovery_delete_closer_brace_app_4c58c5/main.buri:13:21
+   |
+13 |   let ctx = context { Alloc: host.alloc, Stdout: host.stdout ;
+   |                     ^ opened here
+   |
+   = fix: write `}` here

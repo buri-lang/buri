@@ -1,0 +1,9 @@
+error: expected a type, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_module_stamp_5c7dbb/lib.buri:25:34
+   |
+25 |   + Stdout>(ctx: C, label: Str): @ () {
+   |                                  ^
+   |
+   = expected: a type
+   = actual: `@`
+   = fix: name a type here, as in `Int` or `[Str]`

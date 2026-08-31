@@ -3,8 +3,8 @@
 // `runTwice` has no `ctx` parameter, no effect-carrying `self`, captures
 // nothing and constructs no context — and it used to print twice. The rule
 // that stops it is one function earlier, in `wrap`.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 fn wrap<T>(x: T, f: fn(T) => ()): fn() => () {
   fn() => f(x)

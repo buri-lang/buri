@@ -14,16 +14,16 @@
 // it rebuilds its whole subtree, so it is the coarse instrument. Everything
 // here that varies is a string or a class, so everything here is a `Prop`.
 
-from "core/effect/lib.buri" import { Alloc, Net };
-from "core/str/lib.buri" import * as str;
-from "ui/effect/lib.buri" import { Ui, Watch };
-from "ui/node/lib.buri" import * as ui;
-from "ui/node/lib.buri" import { Node };
-from "ui/prop/lib.buri" import { memo, Prop };
-from "ui/style/lib.buri" import { Style };
+from "core/effect" import { Alloc, Net };
+from "core/str" import * as str;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { memo, Prop };
+from "ui/style" import { Style };
 
-from "//lib/kit/lib.buri" import { card, meter, pill };
-from "//lib/ledger/lib.buri" import { Entry, total };
+from "//lib/kit" import { card, meter, pill };
+from "//lib/ledger" import { Entry, total };
 from "//cmd/basket/model.buri" import { isTicked, pad, settledFraction, LEDGER_URL };
 from "//cmd/basket/state.buri" import { add, load, State, tick };
 from "//cmd/basket/theme.buri" import { Shade };

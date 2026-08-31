@@ -1,9 +1,0 @@
-error: expected an expression, found `,` [unexpected-token]
-  --> lib/recovery_insert_stray_paren_expected_839141/main.buri:39:23
-   |
-39 |   let _ = ctx.println(, "${banner(ctx, label)} is ${width(label)} wide");
-   |                       ^
-   |
-   = expected: an expression
-   = actual: `,`
-   = fix: write a value here

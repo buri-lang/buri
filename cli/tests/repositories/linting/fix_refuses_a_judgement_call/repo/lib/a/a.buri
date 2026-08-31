@@ -1,3 +1,3 @@
-from "//lib/b/lib.buri" import { fromB };
+from "//lib/b" import { fromB };
 
 export fn callB(): Str { fromB() }

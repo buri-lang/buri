@@ -16,6 +16,6 @@ error: "//cmd/app/lib.buri" names no file (cmd/app/lib.buri) [module-not-found]
     ──────────────────────────
 
     A module path resolves against the repository, so this one is compiled
-    against the worked monorepo in cli/tests/example, where lib/nope/lib.buri is
-    not a file.
+    against the worked monorepo in cli/tests/example, which has no lib/nope in
+    it.
 

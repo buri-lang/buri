@@ -56,8 +56,8 @@ file {
 # than a property of this program.
 edit {
   file: "cmd/app/main.buri"
-  replace: "from \"//lib/widget/lib.buri\" import { widget };\n"
-  with: "from \"//lib/widget/lib.buri\" import { widget };\nfrom \"//lib/widget/testing/lib.buri\" import { fakeWidget };\n"
+  replace: "from \"//lib/widget\" import { widget };\n"
+  with: "from \"//lib/widget\" import { widget };\nfrom \"//lib/widget/testing\" import { fakeWidget };\n"
 }
 
 run {

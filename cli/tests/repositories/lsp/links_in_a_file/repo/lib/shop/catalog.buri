@@ -2,7 +2,7 @@
 //!
 //! Prices follow https://example.org/pricing, which is the rule here.
 
-from "//lib/money/lib.buri" import { Cents };
+from "//lib/money" import { Cents };
 
 // The shelf-edge format is at http://example.com/shelves and nowhere else.
 

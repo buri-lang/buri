@@ -282,9 +282,9 @@ fn generated_javascript_matches_its_record() {
 #[test]
 fn only_the_functions_that_can_park_are_async() {
     let program = "\
-from \"core/effect/lib.buri\" import { Alloc, Fs, Stdout };
-from \"core/host/lib.buri\" import * as host;
-from \"core/fs/lib.buri\" import * as fs;
+from \"core/effect\" import { Alloc, Fs, Stdout };
+from \"core/host\" import * as host;
+from \"core/fs\" import * as fs;
 
 // Reaches a host call that blocks, so this one waits.
 fn load<C: Alloc + Fs>(ctx: C, path: Str, n: Int): Int {
@@ -384,8 +384,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn a_sleeping_program_leaves_the_event_loop_free() {
     let program = "\
-from \"core/effect/lib.buri\" import { Alloc, Clock, Stdout };
-from \"core/host/lib.buri\" import * as host;
+from \"core/effect\" import { Alloc, Clock, Stdout };
+from \"core/host\" import * as host;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
@@ -462,9 +462,9 @@ export fn main(): Result<(), Str> {
 #[test]
 fn writing_octets_asks_for_the_prologue_and_a_page_never_resolves_it() {
     let program = "\
-from \"core/effect/lib.buri\" import { Alloc, Stdout };
-from \"core/host/lib.buri\" import * as host;
-from \"core/io/lib.buri\" import * as io;
+from \"core/effect\" import { Alloc, Stdout };
+from \"core/host\" import * as host;
+from \"core/io\" import * as io;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
@@ -515,8 +515,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn generics_over_different_contexts_do_not_share_a_symbol() {
     let program = "\
-from \"core/effect/lib.buri\" import { Alloc, Stdout };
-from \"core/host/lib.buri\" import * as host;
+from \"core/effect\" import { Alloc, Stdout };
+from \"core/host\" import * as host;
 
 struct Loud(Str);
 impl Stdout for Loud {
@@ -588,8 +588,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn a_parking_callback_called_through_a_function_value_is_awaited() {
     let program = "\
-from \"core/effect/lib.buri\" import { Alloc, Clock, Stdout };
-from \"core/host/lib.buri\" import * as host;
+from \"core/effect\" import { Alloc, Clock, Stdout };
+from \"core/host\" import * as host;
 
 fn wrapped<C, T>(ctx: C, body: fn(C) => T): T {
   body(ctx)
@@ -629,10 +629,10 @@ export fn main(): Result<(), Str> {
 #[test]
 fn the_wrapper_reproduction_from_g5_answers_a_list_rather_than_a_promise() {
     let program = "\
-from \"core/effect/lib.buri\" import { Alloc, Clock, Stdout, Tasks };
-from \"core/host/lib.buri\" import * as host;
-from \"core/tasks/lib.buri\" import * as tasks;
-from \"core/str/lib.buri\" import * as str;
+from \"core/effect\" import { Alloc, Clock, Stdout, Tasks };
+from \"core/host\" import * as host;
+from \"core/tasks\" import * as tasks;
+from \"core/str\" import * as str;
 
 fn wrapped<C, T>(ctx: C, body: fn(C) => T): T {
   body(ctx)
@@ -694,8 +694,8 @@ fn declaration(generated: &str, name: &str) -> String {
 #[test]
 fn a_callback_that_does_not_park_leaves_its_wrapper_synchronous() {
     let program = "\
-from \"core/effect/lib.buri\" import { Alloc, Clock, Stdout };
-from \"core/host/lib.buri\" import * as host;
+from \"core/effect\" import { Alloc, Clock, Stdout };
+from \"core/host\" import * as host;
 
 fn sleepy<C: Clock>(ctx: C, n: Int, body: fn(C) => Int): Int {
   if (n <= 0) { 0 } else { body(ctx) + sleepy(ctx, n - 1, body) }
@@ -759,8 +759,8 @@ export fn main(): Result<(), Str> {
 #[test]
 fn an_unfollowed_callback_is_answered_by_its_type() {
     let program = "\
-from \"core/effect/lib.buri\" import { Alloc, Clock, Stdout };
-from \"core/host/lib.buri\" import * as host;
+from \"core/effect\" import { Alloc, Clock, Stdout };
+from \"core/host\" import * as host;
 
 enum Thunk {
   Const(Int),

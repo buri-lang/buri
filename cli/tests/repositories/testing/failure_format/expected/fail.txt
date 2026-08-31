@@ -1,4 +1,4 @@
-FAIL //lib/money  test/cents.buri.buri  "pads the cents place"
+FAIL //lib/money  test/cents.buri  "pads the cents place"
   assert.eq failed
     actual:   "19.5"
     expected: "19.05"

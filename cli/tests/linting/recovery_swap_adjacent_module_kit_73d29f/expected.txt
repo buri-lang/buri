@@ -1,9 +1,0 @@
-error: expected `{`, found `as` [unexpected-token]
- --> lib/recovery_swap_adjacent_module_kit_73d29f/lib.buri:4:34
-  |
-4 | from "core/list/lib.buri" import as * list;
-  |                                  ^^
-  |
-  = expected: `{`
-  = actual: `as`
-  = fix: write `{` here

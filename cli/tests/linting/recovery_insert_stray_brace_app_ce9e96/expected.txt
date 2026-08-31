@@ -1,9 +1,0 @@
-error: expected `{`, found `@` [unexpected-token]
-  --> lib/recovery_insert_stray_brace_app_ce9e96/main.buri:13:23
-   |
-13 |         if (n > 1000) @ {
-   |                       ^
-   |
-   = expected: `{`
-   = actual: `@`
-   = fix: write `{` here

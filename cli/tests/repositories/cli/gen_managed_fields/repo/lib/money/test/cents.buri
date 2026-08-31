@@ -1,7 +1,7 @@
-from "core/testing/assert/lib.buri" import * as assert;
-from "//lib/money/lib.buri" import { fromCents, isBlank };
-from "//lib/money/testing/lib.buri" import { sample };
-from "//lib/util/testing/lib.buri" import { blank };
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { fromCents, isBlank };
+from "//lib/money/testing" import { sample };
+from "//lib/util/testing" import { blank };
 
 test "cents keep the value they were made with" {
     assert.eq(fromCents(5).value, 5);

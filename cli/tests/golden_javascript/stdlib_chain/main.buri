@@ -1,10 +1,10 @@
 // A chain of stdlib calls. Every one of these is declared without a body, so
 // each becomes its own one-line function that forwards to the runtime and is
 // then called — a real call frame per use.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/str/lib.buri" import * as str;
-from "core/list/lib.buri" import * as list;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/str" import * as str;
+from "core/list" import * as list;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

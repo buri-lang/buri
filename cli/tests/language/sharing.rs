@@ -109,9 +109,9 @@ fn a_host_array_is_never_written_through() {
 /// A list grown in a loop, with the size and the number of runs traded against
 /// each other so that both programs push the same number of elements.
 const GROW: &str = r#"
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/list/lib.buri" import * as list;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
 
 struct State { total: Int, items: [Int] }
 

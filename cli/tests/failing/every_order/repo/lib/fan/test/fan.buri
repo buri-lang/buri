@@ -5,10 +5,10 @@
 // block alive to assert on — a fault that fires ends it, and a fault that never
 // fires fails it on the way out.
 
-from "core/effect/lib.buri" import { Tasks };
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { task, tasks };
-from "//lib/fan/lib.buri" import { labelled };
+from "core/effect" import { Tasks };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { task, tasks };
+from "//lib/fan" import { labelled };
 
 test "everyOrder reaches the sixth order of three tasks" {
     let scheduler = tasks().everyOrder();

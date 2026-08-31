@@ -16,9 +16,9 @@
 // Written as literals the compiler is free to share one, and then a comparison
 // would be answered by identity and would prove nothing.
 
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 
-from "//lib/codegen/lib.buri" import {
+from "//lib/codegen" import {
   Pair, Floaty, Nest, Holder, Deep, Listy, Hollow, Flat, Wide,
   mkPair, mkFloaty, mkNest, mkHolder, mkDeep, mkListy, mkHollow, notANumber,
 };

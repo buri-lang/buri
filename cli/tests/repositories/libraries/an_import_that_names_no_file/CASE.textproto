@@ -1,39 +1,53 @@
-# The old spelling, refused, with the new one named — and then applied by the
-# two tools that carry a diagnostic's own bytes.
+# An import that names a file with the file name left off — refused, with the
+# file named — and then the fix applied by the two tools that carry a
+# diagnostic's own bytes.
 #
-# `//lib/money` used to be how you wrote the library's surface. It names no
-# file, so it is no longer a module path at all, and the toolchain says so with
-# `import-path-without-a-file` — and then says which file: the note and the
-# `fix` edit both carry "//lib/money/lib.buri", derived by resolving the old
-# path the old way rather than by appending a suffix to a string.
+# The point of *this* repository is that the refusal cannot be read off the
+# string. `lib/money/test/cents.buri` writes `from "//lib/money/testing"` and
+# is correct; `lib/money/parse.buri` writes `from "//lib/money/cents"` and is
+# refused. Same shape, same package, one segment each — and the difference is
+# that `lib/money/testing/` holds a surface and `lib/money/cents.buri` is a
+# file. Only the layout says which, so only the resolver can say which.
 #
-# That matters here in a way a synthetic example cannot show. This repository
-# also has `lib/money/cents.buri`, so "//lib/money/cents" would have to become
-# "//lib/money/cents.buri" while "//lib/money" becomes "//lib/money/lib.buri".
-# One rule cannot produce both from the text; the resolver produces both from
-# the layout.
+# The suite beside them is the other half of the same fact: a surface is named
+# as a module wherever the import is written, so `//lib/money` is what
+# `cmd/app/main.buri` writes for it and it is what the library's own suite
+# writes for it too.
 #
-# The last three steps are the fix being *acted on*, because a suggestion
-# nobody can act on is not a fix. `textDocument/codeAction` is what an editor
-# offers — the same `edits` the diagnostic carries, replayed verbatim — and
-# `buri lint --fix` is the terminal's half of it. Then the build goes green
-# without a hand edit anywhere in the case.
+# The second refusal ends at a different file. A binary's entry point is not a
+# surface — `//cmd/app` would be that package's `lib.buri` and there is not one
+# — so `//cmd/app/main` is refused with `//cmd/app/main.buri`, and the two
+# fixes in this repository land on two files that no rewriting of the text
+# could have found.
+#
+# The last steps are the fixes being *acted on*, because a suggestion nobody
+# can act on is not a fix. `textDocument/codeAction` is what an editor offers —
+# the same `edits` the diagnostic carries, replayed verbatim — and `buri lint
+# --fix` is the terminal's half of it. Then the build and the suites all go
+# green without a hand edit anywhere in the case.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "an import that names no file is refused, the diagnostic names the file it meant, and both the editor and lint --fix write it"
+doc: "an import that leaves a file name off is refused, the diagnostic names the file it meant, and both the editor and lint --fix write it"
 
 run {
-  args: ["build", "//cmd/app"]
+  args: ["build", "//..."]
   exit: 1
   golden: "build.txt"
 }
 
 run {
-  args: ["build", "//cmd/app", "--error-format=json", "--force"]
+  args: ["build", "//...", "--error-format=json", "--force"]
   exit: 1
   golden: "build.json"
+}
+
+# The binary's suite, whose entry point is a file and not a surface.
+run {
+  args: ["test", "//cmd/app", "--force"]
+  exit: 1
+  golden: "test.txt"
 }
 
 # What an editor offers on the line: one quick fix, carrying the exact bytes.
@@ -45,14 +59,22 @@ run {
   golden: "session.txt"
 }
 
-# And the terminal's half of the same edit, applied.
+# And the terminal's half of the same edits, applied — both of them, in one
+# pass.
 run {
-  args: ["lint", "--fix", "//cmd/app"]
+  args: ["lint", "--fix", "//..."]
   exit: 0
   golden: "fix.txt"
 }
 
 run {
-  args: ["build", "//cmd/app"]
+  args: ["build", "//..."]
   exit: 0
+}
+
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "test-green.txt"
+  stream: OUT
 }

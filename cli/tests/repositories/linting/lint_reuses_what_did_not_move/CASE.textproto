@@ -26,7 +26,7 @@ run {
 # below is therefore one nothing analysed a second time.
 edit {
   file: "lib/money/cents.buri"
-  replace: "from \"core/str/lib.buri\" import * as str;\n\n"
+  replace: "from \"core/str\" import * as str;\n\n"
   with: ""
 }
 

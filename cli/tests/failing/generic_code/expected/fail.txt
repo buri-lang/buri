@@ -1,29 +1,29 @@
-FAIL //lib/generic  test/generic.buri.buri  "instantiated at Int"
+FAIL //lib/generic  test/generic.buri  "instantiated at Int"
   assert.eq failed
     actual:   0
     expected: 1
   --> lib/generic/test/generic.buri:8:1
-FAIL //lib/generic  test/generic.buri.buri  "instantiated at Str"
+FAIL //lib/generic  test/generic.buri  "instantiated at Str"
   assert.eq failed
     actual:   "z"
     expected: "a"
   --> lib/generic/test/generic.buri:12:1
-FAIL //lib/generic  test/generic.buri.buri  "instantiated at Char"
+FAIL //lib/generic  test/generic.buri  "instantiated at Char"
   assert.eq failed
     actual:   'z'
     expected: 'a'
   --> lib/generic/test/generic.buri:16:1
-FAIL //lib/generic  test/generic.buri.buri  "instantiated at a list"
+FAIL //lib/generic  test/generic.buri  "instantiated at a list"
   assert.eq failed
     actual:   []
     expected: [1]
   --> lib/generic/test/generic.buri:20:1
-FAIL //lib/generic  test/generic.buri.buri  "a generic answering a tuple"
+FAIL //lib/generic  test/generic.buri  "a generic answering a tuple"
   assert.eq failed
     actual:   (7, 7)
     expected: (7, 8)
   --> lib/generic/test/generic.buri:24:1
-FAIL //lib/generic  test/generic.buri.buri  "a generic answering a tuple of strings"
+FAIL //lib/generic  test/generic.buri  "a generic answering a tuple of strings"
   assert.eq failed
     actual:   ("s", "s")
     expected: ("s", "t")

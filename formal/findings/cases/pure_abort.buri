@@ -2,8 +2,8 @@
 // effect-carrying `self`, no capture, no context construction. If a pure call
 // "may be freely eliminated", then eliminating `let _ = boom(0)` turns an
 // aborting program into a printing one. Those are not the same program.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 fn boom(x: Int): Int {
   100 / x

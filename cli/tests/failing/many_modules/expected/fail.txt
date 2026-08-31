@@ -1,24 +1,24 @@
-FAIL //lib/pair  test/first.buri.buri  "first: a failure"
+FAIL //lib/pair  test/first.buri  "first: a failure"
   assert.eq failed
     actual:   1
     expected: 2
   --> lib/pair/test/first.buri:6:1
-FAIL //lib/pair  test/first.buri.buri  "a title both modules use"
+FAIL //lib/pair  test/first.buri  "a title both modules use"
   assert.eq failed
     actual:   "first"
     expected: "wrong"
   --> lib/pair/test/first.buri:14:1
-FAIL //lib/pair  test/second.buri.buri  "second: a failure"
+FAIL //lib/pair  test/second.buri  "second: a failure"
   assert.eq failed
     actual:   3
     expected: 4
   --> lib/pair/test/second.buri:5:1
-FAIL //lib/pair  test/second.buri.buri  "second: another failure"
+FAIL //lib/pair  test/second.buri  "second: another failure"
   assert.eq failed
     actual:   5
     expected: 6
   --> lib/pair/test/second.buri:9:1
-FAIL //lib/pair  test/second.buri.buri  "a title both modules use"
+FAIL //lib/pair  test/second.buri  "a title both modules use"
   assert.eq failed
     actual:   "second"
     expected: "wrong"

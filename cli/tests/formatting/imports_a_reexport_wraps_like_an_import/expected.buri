@@ -1,4 +1,4 @@
-from "//lib/semantics/lib.buri" export {
+from "//lib/semantics" export {
     between, constant, flip, identity, largest, Pair, pair, showAll, smallest,
     sortedShow, swap, triple, twice,
 };

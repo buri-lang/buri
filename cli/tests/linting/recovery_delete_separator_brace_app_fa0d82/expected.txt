@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_separator_brace_app_fa0d82/main.buri:12:20
+   |
+12 |   let total = 3 * 4
+   |                    ^
+   |
+   = fix: write `;` here

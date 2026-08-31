@@ -2,8 +2,8 @@
 // `formal/findings/cases/hide_generic.buri`. Nothing in `hide` mentions an
 // effect, so a taint predicate that reads only the signature says the lambda
 // is fine — and then `hide(ctx)` hands back a closure holding a capability.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 fn hide<T>(x: T): fn() => T {
   fn() => x

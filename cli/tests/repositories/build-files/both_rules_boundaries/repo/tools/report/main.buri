@@ -3,10 +3,10 @@
 // may not name a module inside it, even though those files are one directory
 // listing away. The boundary belongs to the rule, not to the directory.
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
-from "//tools/report/lib.buri" import { render };
+from "//tools/report" import { render };
 from "//tools/report/flags.buri" import { label };
 
 export fn main(): Result<(), Str> {

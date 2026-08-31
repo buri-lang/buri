@@ -18,8 +18,8 @@ as an effect value in a parameter the compiler checks, so a signature says what
 a function is allowed to do and not only what it takes.
 
 ```buri run
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Grade {
   Pass(Int),

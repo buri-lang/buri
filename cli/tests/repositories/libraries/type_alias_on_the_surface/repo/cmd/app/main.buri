@@ -2,11 +2,11 @@
 // `Sample` stands for a struct this module cannot name, which is the whole of
 // what "the alias expands in the module that declared it" buys.
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/str" import * as str;
 
-from "//lib/units/lib.buri" import { Meters, Trip, Sample, widen, sample, depth };
+from "//lib/units" import { Meters, Trip, Sample, widen, sample, depth };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

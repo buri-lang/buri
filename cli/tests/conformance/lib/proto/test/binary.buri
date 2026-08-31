@@ -7,13 +7,13 @@
 // the protobuf encoding rules — the tag is `(number << 3) | wire_type` as a
 // varint, and the comment on each assertion says what the bytes are.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
-from "core/bytes/lib.buri" import * as bytes;
-from "core/list/lib.buri" import * as list;
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
+from "core/bytes" import * as bytes;
+from "core/list" import * as list;
 
-from "//lib/proto/lib.buri" import {
+from "//lib/proto" import {
   Everything, Everything_Note, Everything_Contact, Shade,
   Address, Country,
   defaultEverything, encodeEverything, decodeEverything,

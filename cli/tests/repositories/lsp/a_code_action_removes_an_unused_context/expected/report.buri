@@ -1,5 +1,5 @@
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
 from "//lib/one/width.buri" import { width };
 
 /// The caller, and the second half of the edit: the argument goes when the

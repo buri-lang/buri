@@ -78,7 +78,7 @@ run {
 # `lib.buri`.
 edit {
   file: "cmd/app/main.buri"
-  replace: "from \"//lib/wire/lib.buri\" import"
+  replace: "from \"//lib/wire\" import"
   with: "from \"//lib/wire/point.proto\" import"
 }
 

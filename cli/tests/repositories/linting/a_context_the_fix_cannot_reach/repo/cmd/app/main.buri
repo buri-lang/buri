@@ -3,10 +3,10 @@
 // somewhere the analysis in front of the fix cannot reach: past the library's
 // surface for one, and inside a type for the other.
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
-from "//lib/label/lib.buri" import { stamp };
+from "//lib/label" import { stamp };
 
 /// Reported, and not rewritten. `plain` is handed to `apply` as a value, so
 /// its shape is the one `fn(C, Str) => Int` asked for rather than the one its

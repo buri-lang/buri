@@ -3,11 +3,11 @@
 // conflict exists only in the union at this binary, which is what makes tags a
 // property of the closure rather than of a path through it.
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
-from "//lib/left/lib.buri" import { vialeft };
-from "//lib/right/lib.buri" import { viaright };
+from "//lib/left" import { vialeft };
+from "//lib/right" import { viaright };
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };

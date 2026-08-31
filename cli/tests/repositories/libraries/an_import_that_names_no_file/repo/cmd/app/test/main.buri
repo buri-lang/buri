@@ -1,0 +1,11 @@
+// The second refusal, and a different file at the end of it. A binary's entry
+// point is not a surface — `//cmd/app` would be this package's `lib.buri`, and
+// there is not one — so it is named as a file, from its own suite and nowhere
+// else.
+
+from "//cmd/app/main" import { main };
+from "core/testing/assert" import * as assert;
+
+test "main is reachable from its own suite" {
+  assert.isTrue(main() == .Ok(()));
+}

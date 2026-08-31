@@ -7,12 +7,12 @@
 // `Classes`, whose field is private to `ui/style`. The only way a class reaches
 // an element is still by having been emitted, which is the whole of "nothing is
 // generated at run time".
-from "core/effect/lib.buri" import { Alloc };
+from "core/effect" import { Alloc };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host/lib.buri" import * as host;
-from "ui/effect/lib.buri" import { Ui, Watch };
-from "ui/node/lib.buri" import * as ui;
-from "ui/style/lib.buri" import { Classes, Style };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { Classes, Style };
 
 fn classes(s: Style): Style {
   match (s) {

@@ -1,6 +1,6 @@
 // EXPECT: the head of a struct literal must be a type
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 struct Holder { export a: Int }
 

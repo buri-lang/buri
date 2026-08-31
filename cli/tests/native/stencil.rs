@@ -297,7 +297,7 @@ fn hello_world_prints_and_exits_zero() {
     let ran = run(
         "hello",
         r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 export fn main(): Result<(), Str> {
   let _ = stdout.println("hello, world");
   .Ok(())
@@ -344,7 +344,7 @@ fn a_literal_zero_divisor_still_aborts() {
             name,
             &format!(
                 r#"
-from "core/host/lib.buri" import {{ stdout }};
+from "core/host" import {{ stdout }};
 fn one(): Int {{ 1 }}
 export fn main(): Result<(), Str> {{
   let n = one();
@@ -375,7 +375,7 @@ fn a_non_zero_literal_divisor_still_divides() {
     let ran = run(
         "divk",
         r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 fn seven(): Int { 7 }
 export fn main(): Result<(), Str> {
   let n = seven();
@@ -398,7 +398,7 @@ fn calls_and_branches_thread_one_frame() {
     let ran = run(
         "frames",
         r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 fn fib(n: Int): Int { if (n < 2) { n } else { fib(n - 1) + fib(n - 2) } }
 export fn main(): Result<(), Str> {
   let _ = stdout.println("${fib(20)}");
@@ -423,7 +423,7 @@ fn a_narrow_signed_integer_renders_signed() {
     let ran = run(
         "narrow",
         r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 export struct S { a: I8, b: I16, c: I32 }
 export fn main(): Result<(), Str> {
   let s = S { a: -3, b: -300, c: -70000 };
@@ -447,7 +447,7 @@ fn string_literals_come_out_of_the_constant_pool() {
     let ran = run(
         "literals",
         r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 export fn main(): Result<(), Str> {
   let a = "one";
   let b = "two";
@@ -470,10 +470,10 @@ fn concatenation_keeps_the_ascii_flag() {
     let ran = run(
         "concat",
         r#"
-from "core/host/lib.buri" import { stdout };
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
+from "core/host" import { stdout };
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
   let a = "ab";
@@ -502,10 +502,10 @@ fn runtime_entries_answer_through_an_out_pointer() {
     let ran = run(
         "rtshapes",
         r#"
-from "core/host/lib.buri" import { stdout };
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
+from "core/host" import { stdout };
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
   let s = "  Hello  ";
@@ -541,9 +541,9 @@ fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
     let messages = refusal(
         "refusal",
         r#"
-from "core/host/lib.buri" import { stdout };
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc };
+from "core/host" import { stdout };
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
   let x: F64 = 2.5;
@@ -572,7 +572,7 @@ fn emission_is_deterministic() {
         return;
     }
     let source = r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 export fn main(): Result<(), Str> {
   let a = "a";
   let _ = stdout.println("${a}b ${1 + 2}");
@@ -651,8 +651,8 @@ fn string_ordering_is_a_call_and_a_register_barrier() {
     let ran = run(
         "strord",
         r#"
-from "core/host/lib.buri" import { stdout };
-from "core/order/lib.buri" import { Order };
+from "core/host" import { stdout };
+from "core/order" import { Order };
 export struct P { a: Int, b: Str }
 derive Eq, Ord for P;
 fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
@@ -695,11 +695,11 @@ fn nothing_is_leaked() {
     let ran = run_with(
         "leaks",
         r#"
-from "core/host/lib.buri" import { stdout };
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
-from "core/json/lib.buri" import { Json, ToJson };
+from "core/host" import { stdout };
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
+from "core/json" import { Json, ToJson };
 
 export struct Boxed { label: Str, n: Int }
 export enum Held { Empty, Full(Str) }
@@ -763,11 +763,11 @@ fn a_scope_leaks_nothing() {
     let ran = run_with(
         "scopeleaks",
         r#"
-from "core/host/lib.buri" import { stdout };
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
-from "core/list/lib.buri" import * as list;
+from "core/host" import { stdout };
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
+from "core/list" import * as list;
 
 export enum Answer { Nothing, Text(Str), Many([Str]) }
 
@@ -838,10 +838,10 @@ fn the_glue_balances() {
     let ran = run_with(
         "glue",
         r#"
-from "core/host/lib.buri" import { stdout };
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
+from "core/host" import { stdout };
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
 
 export struct Row { names: [Str] }
 derive Show for Row;
@@ -894,8 +894,8 @@ fn the_numeric_surface_answers_at_its_own_width() {
     let ran = run(
         "numeric",
         r#"
-from "core/host/lib.buri" import { stdout };
-from "core/num/lib.buri" import * as num;
+from "core/host" import { stdout };
+from "core/num" import * as num;
 export fn main(): Result<(), Str> {
   let a: U8 = 200;
   let b: I8 = -128;
@@ -943,8 +943,8 @@ fn a_narrowing_conversion_answers_a_result() {
     let ran = run(
         "convert",
         r#"
-from "core/host/lib.buri" import { stdout };
-from "core/num/lib.buri" import * as num;
+from "core/host" import { stdout };
+from "core/num" import * as num;
 export fn main(): Result<(), Str> {
   let a: I128 = 1700000000123456789;
   let b: I128 = num.maxValue<I128>();
@@ -989,10 +989,10 @@ fn the_list_surface_is_the_one_the_language_specifies() {
     let ran = run(
         "lists",
         r#"
-from "core/host/lib.buri" import { stdout };
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
+from "core/host" import { stdout };
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
 
 export struct Row { key: Int, tag: Str }
 
@@ -1036,11 +1036,11 @@ fn a_none_with_a_niche_is_not_walked() {
     let ran = run_with(
         "niche",
         r#"
-from "core/host/lib.buri" import { stdout };
-from "core/alloc/lib.buri" import * as alloc;
-from "core/effect/lib.buri" import { Alloc };
-from "core/list/lib.buri" import * as list;
-from "core/str/lib.buri" import * as str;
+from "core/host" import { stdout };
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/str" import * as str;
 
 fn pick(xs: [Str], i: Int): Option<Str> {
   if (i == 2) { .None } else { xs.get(i) }
@@ -1082,8 +1082,8 @@ fn a_unique_concat_loop_allocates_logarithmically() {
     let r = run_with(
         "concat-loop",
         r#"
-from "core/host/lib.buri" import { stdout, alloc };
-from "core/str/lib.buri" import * as str;
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
 
 export fn build(s: Str, i: Int): Str {
   if (i == 0) { s } else { build(s.concat(alloc, "xy"), i - 1) }
@@ -1118,8 +1118,8 @@ fn a_shared_concat_does_not_mutate_what_is_shared() {
     let r = run(
         "concat-shared",
         r#"
-from "core/host/lib.buri" import { stdout, alloc };
-from "core/str/lib.buri" import * as str;
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let base = "ab".concat(alloc, "cd");
@@ -1148,8 +1148,8 @@ fn appending_to_a_view_does_not_disturb_its_siblings() {
     let r = run(
         "concat-view",
         r#"
-from "core/host/lib.buri" import { stdout, alloc };
-from "core/str/lib.buri" import * as str;
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let whole = "left".concat(alloc, ",right");
@@ -1184,8 +1184,8 @@ fn a_borrowed_local_survives_a_sibling_that_holds_its_last_mention() {
     let r = run(
         "borrow-across-siblings",
         r#"
-from "core/host/lib.buri" import { stdout, alloc };
-from "core/str/lib.buri" import * as str;
+from "core/host" import { stdout, alloc };
+from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
   let base = "ab".concat(alloc, "cd");
@@ -1499,7 +1499,7 @@ fn the_test_binary_resumes_where_the_runner_asks() {
         return;
     }
     let source = r#"
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 test "first" { assert.eq(1, 1); }
 test "second" { assert.eq(1, 2); }
 test "third" { assert.eq(3, 3); }
@@ -1561,7 +1561,7 @@ fn the_products_own_link_produces_a_program_that_runs() {
     };
     let target = Target { platform, arch: link::host_arch() };
     let source = r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 fn sumTo(n: Int, acc: Int): Int { if (n <= 0) { acc } else { sumTo(n - 1, acc + n) } }
 export fn main(): Result<(), Str> {
   let _ = stdout.println("${sumTo(1000, 0)}");
@@ -1730,7 +1730,7 @@ export fn main(): Result<(), Str> { .Ok(()) }
         (
             "hello",
             r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 export fn main(): Result<(), Str> {
   let _ = stdout.println("hello, world");
   .Ok(())
@@ -2097,7 +2097,7 @@ fn a_second_carrier_recurses_ten_thousand_frames_on_its_own_stack() {
         return;
     }
     let source = r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }
 export fn main(): Result<(), Str> {
   let _ = stdout.println("depth ${f(10000)}");
@@ -2140,7 +2140,7 @@ fn a_runaway_recursion_on_a_carrier_faults_at_its_own_guard() {
     }
     use std::os::unix::process::ExitStatusExt;
     let source = r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }
 export fn main(): Result<(), Str> {
   let _ = stdout.println("depth ${f(5000000)}");
@@ -2434,7 +2434,7 @@ fn cross_units(source: &str, arch: Arch) -> Option<Vec<buri::compiler::backend::
 /// stack the shim names (a `Page21`/`PageOff12` against a `__bss` symbol), and
 /// a runtime call.
 const CROSS_PROGRAM: &str = r#"
-from "core/host/lib.buri" import { stdout };
+from "core/host" import { stdout };
 fn sumTo(n: Int, acc: Int): Int { if (n <= 0) { acc } else { sumTo(n - 1, acc + n) } }
 export fn main(): Result<(), Str> {
   let _ = stdout.println("sum=${sumTo(1000, 0)}");
@@ -2772,7 +2772,7 @@ fn cross_emission_throughput() {
     }
     // A program with enough functions to measure: one emission of a
     // three-function snippet is dominated by process noise.
-    let mut src = String::from("from \"core/host/lib.buri\" import { stdout };\n");
+    let mut src = String::from("from \"core/host\" import { stdout };\n");
     for i in 0..300 {
         src.push_str(&format!(
             "fn f{i}(n: Int, m: Int): Int {{ let a = n * {i} + m; \
@@ -2838,8 +2838,8 @@ fn interpolating_in_a_loop_leaks_nothing() {
     let source = |n: u32| {
         format!(
             r#"
-from "core/host/lib.buri" import {{ stdout, alloc }};
-from "core/str/lib.buri" import * as str;
+from "core/host" import {{ stdout, alloc }};
+from "core/str" import * as str;
 
 fn go(n: Int, acc: Int): Int {{
   if (n <= 0) {{ acc }} else {{

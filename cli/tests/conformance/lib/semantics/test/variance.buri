@@ -8,12 +8,12 @@
 // last test pins that a constructor which really does store its parameter
 // still needs an ordinary bound — the reject corpus holds the failing half.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
 
-from "//lib/semantics/lib.buri" import {
+from "//lib/semantics" import {
   Widget, render, eachRow, deferred, Cell, cellIndex, Held, heldTwice,
 };
 

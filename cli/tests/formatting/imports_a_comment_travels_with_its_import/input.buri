@@ -1,4 +1,4 @@
 // the repository
-from "//lib/z/lib.buri" import { Zed };
+from "//lib/z" import { Zed };
 // the standard library
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;

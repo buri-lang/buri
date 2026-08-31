@@ -3,7 +3,7 @@
 // binary").
 
 from "//cmd/tool/main.buri" import { banner, route };
-from "core/testing/assert/lib.buri" import * as assert;
+from "core/testing/assert" import * as assert;
 
 test "the entry point's own exports are what the suite sees" {
   assert.eq(banner(), "tool");

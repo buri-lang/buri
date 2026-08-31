@@ -1,13 +1,13 @@
-from "core/effect/lib.buri" import { Alloc, Env, Stdout };
-from "core/env/lib.buri" import * as env;
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Env, Stdout };
+from "core/env" import * as env;
+from "core/host" import * as host;
 
 // The binary's surface for its own test suite.
 from "//tools/report/flags.buri" export { Flags, parseFlags };
 
 from "//tools/report/flags.buri" import { parseFlags };
 
-from "//tools/report/lib.buri" import { render };
+from "//tools/report" import { render };
 
 export fn main(): Result<(), Str> {
   let ctx = context {

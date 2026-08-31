@@ -1,0 +1,41 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_delete_closer_paren_app_bd1523/main.buri:15:20
+   |
+15 | fn width<C: Alloc>(ctx: C, label: Str): Int {
+   |                    ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_bd1523/main.buri:39:67
+   |
+39 |   let _ = ctx.println("${banner(ctx, label)} is ${width(ctx, label} wide");
+   |                                                                   ^^^^^^^
+   |
+  --> lib/recovery_delete_closer_paren_app_bd1523/main.buri:39:56
+   |
+39 |   let _ = ctx.println("${banner(ctx, label)} is ${width(ctx, label} wide");
+   |                                                        ^ opened here
+   |
+   = fix: write `)` here
+error: expected the rest of the string, found `;` [unexpected-token]
+  --> lib/recovery_delete_closer_paren_app_bd1523/main.buri:39:75
+   |
+39 |   let _ = ctx.println("${banner(ctx, label)} is ${width(ctx, label} wide");
+   |                                                                           ^
+   |
+   = expected: the rest of the string
+   = actual: `;`
+   = fix: close the template: every `${` needs a `}` and the string needs a closing quote
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_bd1523/main.buri:43:1
+   |
+43 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_app_bd1523/main.buri:35:35
+   |
+35 | export fn main(): Result<(), Str> {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here

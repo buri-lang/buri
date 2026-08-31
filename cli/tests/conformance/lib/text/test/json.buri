@@ -5,12 +5,12 @@
 // document is that document. Both directions, because each catches what the
 // other cannot.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
 
-from "core/json/lib.buri" import { Json, JsonError };
-from "core/json/lib.buri" import * as json;
+from "core/json" import { Json, JsonError };
+from "core/json" import * as json;
 
 fn parsed(text: Str): Json {
   let ctx = context { Alloc: alloc() };

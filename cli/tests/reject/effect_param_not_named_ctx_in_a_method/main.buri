@@ -7,9 +7,9 @@
 //
 // Three signatures, one mistake each: the declaration, the implementation that
 // mirrors it, and a method of the type's own.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/io/lib.buri" import * as io;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 export struct Ledger { export lines: Int }
 

@@ -1,10 +1,10 @@
-error: "//lib/money/lib.buri" does not export `rawValue` [no-such-export]
- --> cmd/app/main.buri:8:49
+error: "//lib/money" does not export `rawValue` [no-such-export]
+ --> cmd/app/main.buri:8:40
   |
-8 | from "//lib/money/lib.buri" import { fromCents, rawValue };
-  |                                                 ^^^^^^^^
+8 | from "//lib/money" import { fromCents, rawValue };
+  |                                        ^^^^^^^^
   |
-  = fix: check the spelling, or re-export `rawValue` from "//lib/money/lib.buri"'s `lib.buri`
+  = fix: check the spelling, or re-export `rawValue` from "//lib/money"'s `lib.buri`
 
     What to do
     ──────────

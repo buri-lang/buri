@@ -5,12 +5,12 @@
 // The fixture comes from this library's own testing surface rather than from a
 // private helper, because //tools/report's suite wants the same one.
 
-from "//lib/ledger/lib.buri" import { total, Rule, apply };
-from "//lib/ledger/testing/lib.buri" import { sample };
-from "//lib/money/lib.buri" import { fromCents };
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
+from "//lib/ledger" import { total, Rule, apply };
+from "//lib/ledger/testing" import { sample };
+from "//lib/money" import { fromCents };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
 
 test "total sums every entry" {
   assert.eq(total(sample()), fromCents(3650));

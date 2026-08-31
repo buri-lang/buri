@@ -49,8 +49,8 @@ fn status(run: &Run, action_and_label: &str) -> String {
 fn program(answer: i32) -> String {
     format!(
         r#"
-from "core/effect/lib.buri" import {{ Alloc, Stdout }};
-from "core/host/lib.buri" import * as host;
+from "core/effect" import {{ Alloc, Stdout }};
+from "core/host" import * as host;
 
 fn answer(): Int {{ {answer} }}
 
@@ -361,8 +361,8 @@ fn editing_a_test_only_dependency_re_runs_the_suite() {
     scratch.write("lib/subject/x.buri", "export fn triple(n: I64): I64 { n * 3 }\n");
     scratch.write(
         "lib/subject/test/x.buri",
-        "from \"//lib/subject/lib.buri\" import { triple };\nfrom \"//lib/helper/lib.buri\" import { double };\n\
-         from \"core/testing/assert/lib.buri\" import * as assert;\n\ntest \"triple against double\" {\n  \
+        "from \"//lib/subject\" import { triple };\nfrom \"//lib/helper\" import { double };\n\
+         from \"core/testing/assert\" import * as assert;\n\ntest \"triple against double\" {\n  \
          assert.eq(triple(2), double(3));\n}\n",
     );
 
@@ -425,14 +425,14 @@ fn an_unchanged_program_schedules_the_same_way_twice_and_is_cached() {
     scratch.write("lib/fan/lib.buri", "from \"//lib/fan/fan.buri\" export { labelled };\n");
     scratch.write(
         "lib/fan/fan.buri",
-        "from \"core/effect/lib.buri\" import { Tasks };\n\n\
+        "from \"core/effect\" import { Tasks };\n\n\
          export fn labelled<C: Tasks>(ctx: C, items: [Int]): [Int] {\n  \
          ctx.parallel(ctx, items, fn(_c, i, item) => i * 100 + item)\n}\n",
     );
-    let preamble = "from \"core/effect/lib.buri\" import { Tasks };\n\
-         from \"core/testing/assert/lib.buri\" import * as assert;\n\
-         from \"core/host/testing/lib.buri\" import { tasks };\n\
-         from \"//lib/fan/lib.buri\" import { labelled };\n\n";
+    let preamble = "from \"core/effect\" import { Tasks };\n\
+         from \"core/testing/assert\" import * as assert;\n\
+         from \"core/host/testing\" import { tasks };\n\
+         from \"//lib/fan\" import { labelled };\n\n";
     // Passes whichever order the runner names: the results are the items'.
     scratch.write(
         "lib/fan/test/fan.buri",
@@ -646,8 +646,8 @@ fn a_suite_naming_the_host_platform_runs_natively() {
     scratch.write("lib/n/lib.buri", "export fn answer(): Int { 21 }\n");
     scratch.write(
         "lib/n/test/n.buri",
-        "from \"//lib/n/lib.buri\" import { answer };\n\
-         from \"core/testing/assert/lib.buri\" import * as assert;\n\
+        "from \"//lib/n\" import { answer };\n\
+         from \"core/testing/assert\" import * as assert;\n\
          \ntest \"answers\" {\n  assert.eq(answer(), 21);\n}\n",
     );
 
@@ -723,8 +723,8 @@ fn a_suite_naming_no_platform_runs_natively_or_says_why_not() {
     scratch.write("lib/n/lib.buri", "export fn answer(): Int { 21 }\n");
     scratch.write(
         "lib/n/test/n.buri",
-        "from \"//lib/n/lib.buri\" import { answer };\n\
-         from \"core/testing/assert/lib.buri\" import * as assert;\n\
+        "from \"//lib/n\" import { answer };\n\
+         from \"core/testing/assert\" import * as assert;\n\
          \ntest \"answers\" {\n  assert.eq(answer(), 21);\n}\n",
     );
 
@@ -784,10 +784,10 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     scratch.write("lib/g/lib.buri", "export fn nothing(): Int { 0 }\n");
     scratch.write(
         "lib/g/test/g.buri",
-        "from \"core/testing/assert/lib.buri\" import * as assert;\n\
-         from \"core/host/testing/lib.buri\" import { alloc };\n\
-         from \"core/effect/lib.buri\" import { Alloc };\n\
-         from \"core/json/lib.buri\" import * as json;\n\
+        "from \"core/testing/assert\" import * as assert;\n\
+         from \"core/host/testing\" import { alloc };\n\
+         from \"core/effect\" import { Alloc };\n\
+         from \"core/json\" import * as json;\n\
          \ntest \"decodes\" {\n\
          \x20 let ctx = context { Alloc: alloc() };\n\
          \x20 let parsed = assert.ok(json.parse(ctx, \"1\"));\n\
@@ -941,14 +941,14 @@ fn a_suite_is_keyed_on_the_key_of_what_it_tests() {
     scratch.write("lib/n/inner.buri", "export fn answer(): Int { 21 }\n");
     scratch.write(
         "lib/n/test/n.buri",
-        "from \"//lib/n/lib.buri\" import { twice };\nfrom \"core/testing/assert/lib.buri\" import * as assert;\n\ntest \"twice\" {\n  assert.eq(twice(), 42);\n}\n",
+        "from \"//lib/n\" import { twice };\nfrom \"core/testing/assert\" import * as assert;\n\ntest \"twice\" {\n  assert.eq(twice(), 42);\n}\n",
     );
     // An unrelated package: nothing depends on it and it depends on nothing.
     scratch.write("lib/m/BUILD.buri", "library {\n  test { sources: [\"test/m.buri\"] }\n}\n");
     scratch.write("lib/m/lib.buri", "export fn one(): Int { 1 }\n");
     scratch.write(
         "lib/m/test/m.buri",
-        "from \"//lib/m/lib.buri\" import { one };\nfrom \"core/testing/assert/lib.buri\" import * as assert;\n\ntest \"one\" {\n  assert.eq(one(), 1);\n}\n",
+        "from \"//lib/m\" import { one };\nfrom \"core/testing/assert\" import * as assert;\n\ntest \"one\" {\n  assert.eq(one(), 1);\n}\n",
     );
 
     let n_before = keys(scratch.run(&["test", "//lib/n", "--explain"]).ok());
@@ -994,8 +994,8 @@ fn suite_package(scratch: &Scratch, name: &str, tags: &str) {
     scratch.write(
         &format!("lib/{name}/test/{name}.buri"),
         &format!(
-            "from \"//lib/{name}/lib.buri\" import {{ one }};\n\
-             from \"core/testing/assert/lib.buri\" import * as assert;\n\
+            "from \"//lib/{name}\" import {{ one }};\n\
+             from \"core/testing/assert\" import * as assert;\n\
              \ntest \"one\" {{\n  assert.eq(one(), 1);\n}}\n"
         ),
     );
@@ -1196,7 +1196,7 @@ fn three_libraries(name: &str) -> Scratch {
         "lib/ledger",
         "total",
         "    dependencies: [\"//lib/money\"]\n",
-        "from \"//lib/money/lib.buri\" import { cents };\n\nexport fn total(): I64 { cents() }\n",
+        "from \"//lib/money\" import { cents };\n\nexport fn total(): I64 { cents() }\n",
     );
     library_package(&scratch, "lib/kit", "one", "", "export fn one(): I64 { 1 }\n");
     scratch
@@ -1273,7 +1273,7 @@ fn a_lint_record_this_toolchain_cannot_read_is_a_miss() {
     let scratch = three_libraries("lint-garbled");
     scratch.write(
         "lib/kit/unit.buri",
-        "from \"core/list/lib.buri\" import * as list;\n\nexport fn one(): I64 { 1 }\n",
+        "from \"core/list\" import * as list;\n\nexport fn one(): I64 { 1 }\n",
     );
     let cold = scratch.run(&["lint", "//..."]);
     cold.exits(1).says("unused-import");
@@ -1317,7 +1317,7 @@ fn fail_on_finding_reaches_a_cached_finding() {
     scratch.write("REPO.buri", "lint {\n    fail_on_finding: true\n}\n");
     scratch.write(
         "lib/kit/unit.buri",
-        "from \"core/list/lib.buri\" import * as list;\n\nexport fn one(): I64 { 1 }\n",
+        "from \"core/list\" import * as list;\n\nexport fn one(): I64 { 1 }\n",
     );
 
     let cold = scratch.run(&["lint", "//..."]);

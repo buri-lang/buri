@@ -1,4 +1,4 @@
-from "//lib/util/lib.buri" import { isEmpty };
+from "//lib/util" import { isEmpty };
 
 export struct Cents {
     export value: Int,

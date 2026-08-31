@@ -2,8 +2,8 @@
 // parse. The finding here is the one a reader would lose if a syntax error
 // anywhere in the package were a reason to stop reporting.
 
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
 
 export fn describe<C: Alloc>(ctx: C): Str {
   "some".concat(ctx, " cents")

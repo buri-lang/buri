@@ -3,9 +3,9 @@
 // Inside a method the convention is receiver first, context second. That is
 // the position `Actor.step(self, ctx, msg)` is written in, and until rule 26
 // ran inside `trait` and `impl` bodies nothing here was read at all.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/io/lib.buri" import * as io;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 export struct Bell { export tone: Str }
 

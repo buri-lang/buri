@@ -1,5 +1,5 @@
-from "core/effect/lib.buri" import { Alloc };
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
 
 from "//tools/report/shared.buri" import { heading };
 

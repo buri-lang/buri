@@ -4,9 +4,9 @@
 // one hands the context over and the parameter is a second context under
 // another name. Compare `//lib/semantics`'s `Widget<C>`, whose `C` occurs only
 // as a handler's own first parameter and which is therefore ordinary data.
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/io/lib.buri" import * as io;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 enum Boxed<C> {
   Held(C),

@@ -1,4 +1,4 @@
-from "//lib/shop/lib.buri" import { Priced };
+from "//lib/shop" import { Priced };
 
 /// Money off, in whole cents.
 export struct Coupon {

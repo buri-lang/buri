@@ -7,12 +7,12 @@
 //
 // The fix the diagnostic names is the real one: hover on a value that varies is
 // the reactive tier's job, and the reactive tier is applied inline.
-from "core/effect/lib.buri" import { Alloc };
+from "core/effect" import { Alloc };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host/lib.buri" import * as host;
-from "ui/effect/lib.buri" import { Ui, Watch };
-from "ui/node/lib.buri" import * as ui;
-from "ui/style/lib.buri" import { Color, Style };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { Color, Style };
 
 fn highlighted(accent: Color): Style {
   .On(.Hover, [.Background(accent)])

@@ -7,12 +7,12 @@
 // token to a colour, followed once at mount. And `main.buri` is the only file
 // that knows both vocabularies exist.
 
-from "ui/style/lib.buri" import * as style;
-from "ui/style/lib.buri" import { Color };
-from "ui/theme/lib.buri" import * as theme;
-from "ui/theme/lib.buri" import { Theme };
+from "ui/style" import * as style;
+from "ui/style" import { Color };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
 
-from "//lib/kit/lib.buri" import { Token };
+from "//lib/kit" import { Token };
 
 /// This app's palette, as names rather than colours.
 export enum Shade {

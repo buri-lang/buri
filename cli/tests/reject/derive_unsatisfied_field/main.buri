@@ -1,7 +1,7 @@
 // EXPECT: `Outer` does not implement `Eq`
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/order/lib.buri" import { Eq };
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/order" import { Eq };
 
 struct Inner { export x: Int }
 

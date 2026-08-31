@@ -6,10 +6,10 @@
 // `conformance/lib/semantics/test/effects.buri`, and against the native
 // runtime in `cli/tests/native/runtime.rs`'s `wal` mode.
 
-from "core/effect/lib.buri" import { Alloc, Fs, IoError, Stdout };
-from "core/bytes/lib.buri" import * as bytes;
-from "core/fs/lib.buri" import * as fs;
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Fs, IoError, Stdout };
+from "core/bytes" import * as bytes;
+from "core/fs" import * as fs;
+from "core/host" import * as host;
 
 /// What a step answered, as one word, so that the whole sequence is three
 /// lines of output rather than a cascade of `?`.

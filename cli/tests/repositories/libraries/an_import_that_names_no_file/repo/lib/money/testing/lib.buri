@@ -1,0 +1,8 @@
+// The testing surface. `//lib/money/testing` and `//lib/money/cents` are the
+// same shape, and only the layout says that one is a surface and the other is
+// a file — which is why the fix below is resolved rather than spelled.
+
+from "//lib/money/cents.buri" import { Cents, fromCents };
+
+/// A round figure, for a suite that needs one and does not care which.
+export fn sample(): Cents { fromCents(1905) }

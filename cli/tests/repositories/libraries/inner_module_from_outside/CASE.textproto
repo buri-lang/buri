@@ -22,7 +22,7 @@ run {
 edit {
   file: "cmd/app/main.buri"
   replace: "from \"//lib/money/cents.buri\" import { fromCents };"
-  with: "from \"//lib/money/lib.buri\" import { fromCents };"
+  with: "from \"//lib/money\" import { fromCents };"
 }
 
 run {

@@ -420,7 +420,7 @@ jobs:
           }
           BUILD
           cat > "$work/repo/cmd/app/main.buri" <<'SRC'
-          from "core/host/lib.buri" import { stdout };
+          from "core/host" import { stdout };
           export fn main(): Result<(), Str> {
             let _ = stdout.println("reproducible");
             .Ok(())
@@ -588,7 +588,7 @@ jobs:
           }
           BUILD
           cat > "$work/repo/cmd/app/main.buri" <<'SRC'
-          from "core/host/lib.buri" import { stdout };
+          from "core/host" import { stdout };
           export fn main(): Result<(), Str> {
             let _ = stdout.println("reproducible");
             .Ok(())

@@ -1,1 +1,0 @@
-from export "//lib/z/lib.buri" { apply as play, Banjo, Guitar, Zed };

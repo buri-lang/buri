@@ -1,13 +1,13 @@
 // SPEC 5.10, 5.12.5 — generics, bounds, explicit type arguments, and
 // monomorphization.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
-from "core/list/lib.buri" import * as list;
-from "core/num/lib.buri" import * as num;
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/num" import * as num;
 
-from "//lib/semantics/lib.buri" import { identity, constant, swap, triple, twice, largest, smallest, between, showAll, sortedShow, Pair, pair, flip, Boxed, Slot, slotOr, Either, eitherInt, Tree, insert, treeOf, size, depth, has, inOrder, mapTree, version, Level, Meters, Count, Backwards, Brick, Feather, totalGrams };
+from "//lib/semantics" import { identity, constant, swap, triple, twice, largest, smallest, between, showAll, sortedShow, Pair, pair, flip, Boxed, Slot, slotOr, Either, eitherInt, Tree, insert, treeOf, size, depth, has, inOrder, mapTree, version, Level, Meters, Count, Backwards, Brick, Feather, totalGrams };
 
 // -----------------------------------------------------------------------------
 // One type parameter

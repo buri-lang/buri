@@ -5,11 +5,11 @@
 // library, declared in `test.dependencies`, that no production target can
 // import because its path contains a `testing` segment.
 
-from "//tools/report/lib.buri" import { render };
-from "//lib/ledger/testing/lib.buri" import { oneOff, sample };
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
+from "//tools/report" import { render };
+from "//lib/ledger/testing" import { oneOff, sample };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
 
 test "the terse report is one line" {
   let ctx = context { Alloc: alloc() };

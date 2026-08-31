@@ -38,7 +38,7 @@ run {
 
 edit {
   file: "lib/money/cents.buri"
-  replace: "from \"core/str/lib.buri\" import * as str;\n"
+  replace: "from \"core/str\" import * as str;\n"
   with: ""
 }
 

@@ -3,10 +3,10 @@
 // location, and nothing else — so the only way to see captured output is to
 // assert on it, which the second test does.
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc, stdout };
-from "//lib/noisy/lib.buri" import { announce };
+from "core/effect" import { Alloc, Stdout };
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc, stdout };
+from "//lib/noisy" import { announce };
 
 test "what a failing test printed is not in its report" {
     let sink = stdout();

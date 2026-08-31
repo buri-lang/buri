@@ -1,4 +1,4 @@
-from "core/effect/lib.buri" import { Tasks };
+from "core/effect" import { Tasks };
 
 /// Every item labelled with its own index, one task each.
 export fn labelled<C: Tasks>(ctx: C, items: [Int]): [Int] {

@@ -6,13 +6,13 @@
 // that says only "wrong type" of a hundred-line document is a decode error
 // nobody can act on.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc };
-from "core/effect/lib.buri" import { Alloc };
-from "core/json/lib.buri" import { Json, DecodeError, FromJson, ToJson };
-from "core/json/lib.buri" import * as json;
+from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc };
+from "core/effect" import { Alloc };
+from "core/json" import { Json, DecodeError, FromJson, ToJson };
+from "core/json" import * as json;
 
-from "//lib/json/lib.buri" import {
+from "//lib/json" import {
   Point, Segment, Meters, Pair, Hollow, Everything, Wrapper,
   Colour, Shape, Rose, Chain,
   point, rose, chain, everything,

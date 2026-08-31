@@ -3,7 +3,7 @@
 // first — the rule that finds it reads the file's tokens — so a report that
 // stopped at the type error would be hiding an answer it already had.
 
-from "core/str/lib.buri" import * as str;
+from "core/str" import * as str;
 
 export struct Cents(export I64);
 

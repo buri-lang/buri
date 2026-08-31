@@ -1,6 +1,7 @@
-// Inside the library. `toCents` resolves here, because this module is within
-// the boundary that lib.buri draws.
+// Inside the library, and this is the import being refused: `cents.buri` is a
+// file beside this one, so its path is that file's name. `toCents` resolves
+// here, because this module is within the boundary lib.buri draws.
 
-from "//lib/money/cents.buri" import { Cents, fromCents };
+from "//lib/money/cents" import { Cents };
 
 export fn isSmall(c: Cents): Bool { c.toCents() < 100 }

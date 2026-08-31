@@ -2,14 +2,14 @@
 // test/routes.buri sees what this file exports, and nothing else — the same
 // rule lib.buri follows for a library.
 
-from "core/effect/lib.buri" import { Alloc, Env, Fs, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/env/lib.buri" import * as env;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc, Env, Fs, Stdout };
+from "core/host" import * as host;
+from "core/env" import * as env;
+from "core/str" import * as str;
 
-from "//lib/ledger/lib.buri" import { entry };
-from "//lib/money/lib.buri" import { fromCents };
-from "//lib/store/lib.buri" import { append };
+from "//lib/ledger" import { entry };
+from "//lib/money" import { fromCents };
+from "//lib/store" import { append };
 
 // Re-exported so the suite can reach it. Everything else in routes.buri stays
 // inside the binary.

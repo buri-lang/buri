@@ -2,8 +2,8 @@
 // one — an `Int`, a `Str`, a struct — rather than anything about `T`, because
 // `monomorphize` hands the renderer a descriptor per instantiation.
 
-from "core/testing/assert/lib.buri" import * as assert;
-from "//lib/generic/lib.buri" import { firstOr, twice };
+from "core/testing/assert" import * as assert;
+from "//lib/generic" import { firstOr, twice };
 
 test "instantiated at Int" {
     assert.eq(firstOr([1, 2], 0), 1);

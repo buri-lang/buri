@@ -1,4 +1,4 @@
-FAIL //lib/journal  test/journal.buri.buri  "a fault whose call never happens fails the test"
+FAIL //lib/journal  test/journal.buri  "a fault whose call never happens fails the test"
   a fault was planned and never happened: readFile("log") fails .NotFound
   --> lib/journal/test/journal.buri:16:1
 

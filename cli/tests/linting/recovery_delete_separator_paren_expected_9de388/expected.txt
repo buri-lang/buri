@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_paren_expected_9de388/main.buri:40:35
+   |
+40 |   let _ = ctx.println(rendered(ctx fn(c, l) => str.format(c, "<${l}>"), label));
+   |                                   ^
+   |
+   = fix: write `,` here

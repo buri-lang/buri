@@ -1,4 +1,12 @@
 library {
     sources: ["cents.buri", "parse.buri"]
     visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/cents.buri"]
+    }
+
+    testing {
+        sources: []
+    }
 }

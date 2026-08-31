@@ -41,9 +41,9 @@ $ui_sheet='.lay-col{display:flex;flex-direction:column}\n.lay-row{display:flex;f
 function __cmd_x_main_buri$main(){
   const ctx_0=[[],[],[],[]];
   $host_HostStdout_println(ctx_0[1],'styled');
-  const children_6=[ui_node_lib_buri$row$u3rqgv($k19,[[[1,[0,'one']]]]),ui_node_lib_buri$row$u3rqgv($k24,[]),$k30];
+  const children_6=[ui_node$row$u3rqgv($k19,[[[1,[0,'one']]]]),ui_node$row$u3rqgv($k24,[]),$k30];
   return $ui_node_mount(ctx_0,[[3,[$k34,[0,$k9]],children_6]],[]);
 }
-function ui_node_lib_buri$row$u3rqgv(styles_0,children_1){
+function ui_node$row$u3rqgv(styles_0,children_1){
   return [[3,[$k38,[0,styles_0]],children_1]];
 }

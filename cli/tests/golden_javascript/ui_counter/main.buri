@@ -13,16 +13,16 @@
 // `main` answers `.Ok(())`, the entry wrapper exits only on an `.Err`, and the
 // listeners this registered are what happens next. Under `bun` there is no
 // document, so the runtime supplies one — see `$dom_body`.
-from "core/effect/lib.buri" import { Alloc, Stdout };
+from "core/effect" import { Alloc, Stdout };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host/lib.buri" import * as host;
-from "core/io/lib.buri" import * as io;
-from "ui/effect/lib.buri" import { Event, Scope, Ui, Watch };
-from "ui/node/lib.buri" import * as ui;
-from "ui/node/lib.buri" import { Node };
-from "ui/prop/lib.buri" import { Prop };
-from "ui/signal/lib.buri" import { Signal, signal };
-from "ui/style/lib.buri" import { Color, Style };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "ui/effect" import { Event, Scope, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/signal" import { Signal, signal };
+from "ui/style" import { Color, Style };
 
 // Hover is a style rather than an event: a pseudo-class costs nothing and needs
 // no signal write on a mouse move, and it survives into an email's `<style>`

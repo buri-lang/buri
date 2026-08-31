@@ -10,9 +10,9 @@
 // PLATFORM: WEB — and the forged structs are refused with the values, as
 // everywhere else a grant is withheld: `Sockets: host.HostSockets {}` is not
 // the way round it either.
-from "core/effect/lib.buri" import { Alloc, Listen, Sockets, Stdout };
-from "core/host/lib.buri" import * as host;
-from "ui/effect/lib.buri" import { Ui, Watch };
+from "core/effect" import { Alloc, Listen, Sockets, Stdout };
+from "core/host" import * as host;
+from "ui/effect" import { Ui, Watch };
 
 export fn main(): Result<(), Str> {
   let ctx = context {

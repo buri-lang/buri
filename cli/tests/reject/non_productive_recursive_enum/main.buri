@@ -1,6 +1,6 @@
 // EXPECT: `Endless` can never be constructed
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 enum Endless { Node(Endless) }
 

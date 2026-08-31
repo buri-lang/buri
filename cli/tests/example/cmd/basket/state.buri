@@ -6,13 +6,13 @@
 // one. The authority arrives as a parameter, every time, and that split is what
 // the rest of this package is shaped around.
 
-from "core/effect/lib.buri" import { Alloc, Net, NetError, Response };
-from "core/net/http/lib.buri" import * as http;
-from "core/str/lib.buri" import * as str;
-from "ui/effect/lib.buri" import { Ui, Watch };
-from "ui/signal/lib.buri" import { Signal, signal };
+from "core/effect" import { Alloc, Net, NetError, Response };
+from "core/net/http" import * as http;
+from "core/str" import * as str;
+from "ui/effect" import { Ui, Watch };
+from "ui/signal" import { Signal, signal };
 
-from "//lib/ledger/lib.buri" import { Entry };
+from "//lib/ledger" import { Entry };
 from "//cmd/basket/model.buri" import { draft, entriesFrom, flip, LEDGER_URL };
 
 /// The whole of this page's state.

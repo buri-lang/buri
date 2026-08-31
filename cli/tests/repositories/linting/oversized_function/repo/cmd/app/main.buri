@@ -2,9 +2,9 @@
 // fault: a table this long is a table, and a table belongs in a lookup rather
 // than in a function's control flow.
 
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
-from "core/io/lib.buri" import * as io;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
 
 fn spell(n: I64): Str {
   match (n) {

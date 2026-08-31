@@ -203,12 +203,12 @@ allocator and no authority, because building a tree is fixed-size construction â
 so a component cannot do anything, and there is nothing to mock:
 
 ```buri package=//cmd/basket platform=WEB
-from "ui/node/lib.buri" import * as ui;
-from "ui/node/lib.buri" import { Node };
-from "ui/signal/lib.buri" import { Signal };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
 
-from "//lib/kit/lib.buri" import { card };
-from "//lib/ledger/lib.buri" import { Entry, total };
+from "//lib/kit" import { card };
+from "//lib/ledger" import { Entry, total };
 
 /// The running total, in a card.
 ///
@@ -234,10 +234,10 @@ A library that uses design tokens declares its own closed vocabulary and styles
 itself against that. The app closes the loop with one `match`:
 
 ```buri package=//cmd/basket platform=WEB
-from "ui/style/lib.buri" import { Color };
-from "ui/theme/lib.buri" import { Theme };
+from "ui/style" import { Color };
+from "ui/theme" import { Theme };
 
-from "//lib/kit/lib.buri" import { themed, Token };
+from "//lib/kit" import { themed, Token };
 
 /// What //lib/kit's four tokens are worth here.
 fn inBlue(t: Token): Color {
@@ -261,9 +261,9 @@ contract in this language is â€” by not compiling. Leave a token out and the day
 moment the omission is still cheap to fix:
 
 ```buri fail code=match-not-exhaustive package=//cmd/basket platform=WEB
-from "ui/style/lib.buri" import { Color };
+from "ui/style" import { Color };
 
-from "//lib/kit/lib.buri" import { Token };
+from "//lib/kit" import { Token };
 
 fn incomplete(t: Token): Color {
   match (t) {
@@ -282,10 +282,10 @@ Nothing has to be configured: a `repo=` on the fence is only needed when the
 example lives in a *different* repository's documentation.
 
 ```buri run
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
-from "//lib/money/lib.buri" import { fromCents };
+from "//lib/money" import { fromCents };
 
 export fn main(): Result<(), Str> {
   let ctx = context {

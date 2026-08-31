@@ -2,8 +2,8 @@
 // marker is a real string a real program can print.
 
 from "//cmd/app/main.buri" import { banner };
-from "//lib/widget/testing/lib.buri" import { fakeWidget };
-from "core/testing/assert/lib.buri" import * as assert;
+from "//lib/widget/testing" import { fakeWidget };
+from "core/testing/assert" import * as assert;
 
 test "the fake is reachable from a test source" {
   assert.eq(fakeWidget(), "WIDGET-TESTING-ONLY-MARKER");

@@ -5,13 +5,13 @@
 // receives an event and cannot manufacture one to hand to another handler,
 // which keeps "this ran because somebody pressed it" true. The same shape as
 // `Scope`, and for the same reason.
-from "core/effect/lib.buri" import { Alloc };
+from "core/effect" import { Alloc };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host/lib.buri" import * as host;
-from "ui/effect/lib.buri" import { Event, Ui, Watch };
-from "ui/node/lib.buri" import * as ui;
-from "ui/node/lib.buri" import { Node };
-from "ui/signal/lib.buri" import { Signal, signal };
+from "core/host" import * as host;
+from "ui/effect" import { Event, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal };
 
 fn pressTwice<C>(count: Signal<Int>, onPress: fn(C, Event) => ()): Node<C> {
   ui.button(.Const("twice"), fn(c, e) => onPress(c, Event(0)))

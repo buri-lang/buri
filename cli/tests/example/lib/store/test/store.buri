@@ -13,12 +13,12 @@
 // a native run. The golden is a value here now, which is where the other two
 // expected values already were.
 
-from "//lib/store/lib.buri" import { append, readLog };
-from "//lib/ledger/lib.buri" import { entry };
-from "//lib/money/lib.buri" import { fromCents };
-from "core/host/testing/lib.buri" import { alloc, fs };
-from "core/effect/lib.buri" import { Alloc, Fs };
-from "core/testing/assert/lib.buri" import * as assert;
+from "//lib/store" import { append, readLog };
+from "//lib/ledger" import { entry };
+from "//lib/money" import { fromCents };
+from "core/host/testing" import { alloc, fs };
+from "core/effect" import { Alloc, Fs };
+from "core/testing/assert" import * as assert;
 
 test "append writes the log format" {
   let ctx = context { Alloc: alloc(), Fs: fs() };

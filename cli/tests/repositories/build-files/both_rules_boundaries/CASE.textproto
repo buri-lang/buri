@@ -37,8 +37,8 @@ run {
 # why the package question was never the right one.
 edit {
   file: "tools/report/main.buri"
-  replace: "from \"//tools/report/lib.buri\" import { render };\n"
-  with: "from \"//tools/report/lib.buri\" import { render };\nfrom \"//tools/report/detail.buri\" import { verbose };\n"
+  replace: "from \"//tools/report\" import { render };\n"
+  with: "from \"//tools/report\" import { render };\nfrom \"//tools/report/detail.buri\" import { verbose };\n"
 }
 
 run {

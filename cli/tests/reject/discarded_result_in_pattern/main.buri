@@ -1,6 +1,6 @@
 // EXPECT: a `Result` may not be discarded
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 fn parse(text: Str): Result<Int, Str> {
   if (text == "") { .Err("empty") } else { .Ok(1) }

@@ -1,9 +1,9 @@
-FAIL //lib/twice  test/twice.buri.buri  "the same title"
+FAIL //lib/twice  test/twice.buri  "the same title"
   assert.eq failed
     actual:   1
     expected: 2
   --> lib/twice/test/twice.buri:9:1
-FAIL //lib/twice  test/twice.buri.buri  "a title of its own"
+FAIL //lib/twice  test/twice.buri  "a title of its own"
   assert.eq failed
     actual:   3
     expected: 4

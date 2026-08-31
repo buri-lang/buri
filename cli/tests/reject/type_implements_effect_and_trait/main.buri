@@ -1,8 +1,8 @@
 // EXPECT: cannot implement both the effect `Stdout` and the trait `Show`
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/order/lib.buri" import { Show };
-from "core/str/lib.buri" import * as str;
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/order" import { Show };
+from "core/str" import * as str;
+from "core/host" import * as host;
 
 struct SilentOut {}
 

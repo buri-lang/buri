@@ -1,6 +1,6 @@
 // EXPECT: `if` requires an `else` branch
-from "core/effect/lib.buri" import { Alloc, Stdout };
-from "core/host/lib.buri" import * as host;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
 
 fn sign(n: Int): Int {
   let label = if (n > 0) { 1 };

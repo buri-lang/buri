@@ -918,13 +918,13 @@ fn the_test_platform_agrees_with_the_runner() {
     if !supported() {
         return;
     }
-    const SOURCE: &str = r##"from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import {
+    const SOURCE: &str = r##"from "core/testing/assert" import * as assert;
+from "core/host/testing" import {
   alloc, clock, env, rand, stderr, stdin, stdout,
 };
-from "core/effect/lib.buri" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
-from "core/list/lib.buri" import * as list;
-from "core/str/lib.buri" import * as str;
+from "core/effect" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
+from "core/list" import * as list;
+from "core/str" import * as str;
 
 fn speak<C: Stdout>(ctx: C, what: Str): () {
   let _ = ctx.print("[");
@@ -1089,12 +1089,12 @@ fn self_through_a_context_is_the_implementing_type() {
     if !supported() {
         return;
     }
-    const SOURCE: &str = r#"from "core/testing/assert/lib.buri" import * as assert;
-from "core/host/testing/lib.buri" import { alloc, clock };
-from "core/effect/lib.buri" import {
+    const SOURCE: &str = r#"from "core/testing/assert" import * as assert;
+from "core/host/testing" import { alloc, clock };
+from "core/effect" import {
   Alloc, Clock, Listen, Net, Request, Response, Sockets, Tasks,
 };
-from "//lib/semantics/lib.buri" import {
+from "//lib/semantics" import {
   OneShotListen, QuietSockets, SerialTasks, TeapotNet, runInOrder, runInOrderNamed, serveOnce,
 };
 

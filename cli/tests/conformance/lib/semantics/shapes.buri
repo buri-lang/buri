@@ -5,21 +5,21 @@
 // of structs that implement an effect so a test can bind one in a context and
 // prove its own implementation is the one that ran.
 
-from "core/effect/lib.buri" import {
+from "core/effect" import {
   Alloc, Clock, Env, Fs, IoError, Listen, Net, NetError, Region, Request, Response, Sockets,
   Stdout, Tasks,
 };
-from "core/net/http/lib.buri" import * as http;
-from "core/num/lib.buri" import { Add, Div, Mul, Neg, Rem, Sub };
-from "core/order/lib.buri" import { Eq, Hash, Ord, Order, Show };
-from "core/time/lib.buri" import { Instant };
+from "core/net/http" import * as http;
+from "core/num" import { Add, Div, Mul, Neg, Rem, Sub };
+from "core/order" import { Eq, Hash, Ord, Order, Show };
+from "core/time" import { Instant };
 
-from "core/fs/lib.buri" import * as fs;
-from "core/io/lib.buri" import * as io;
-from "core/list/lib.buri" import * as list;
-from "core/order/lib.buri" import * as order;
-from "core/str/lib.buri" import * as str;
-from "core/time/lib.buri" import * as time;
+from "core/fs" import * as fs;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/order" import * as order;
+from "core/str" import * as str;
+from "core/time" import * as time;
 
 // =============================================================================
 // 1. Derived traits — the structural fold over one type definition

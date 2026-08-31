@@ -12,15 +12,15 @@
 // unpainted element is exactly what this refuses.
 //
 // The fix is the diagnostic's: add the arm.
-from "core/effect/lib.buri" import { Alloc };
+from "core/effect" import { Alloc };
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/host/lib.buri" import * as host;
-from "ui/effect/lib.buri" import { Scope, Ui, Watch };
-from "ui/node/lib.buri" import * as ui;
-from "ui/style/lib.buri" import * as style;
-from "ui/style/lib.buri" import { Color };
-from "ui/theme/lib.buri" import * as theme;
-from "ui/theme/lib.buri" import { Theme };
+from "core/host" import * as host;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import * as style;
+from "ui/style" import { Color };
+from "ui/theme" import * as theme;
+from "ui/theme" import { Theme };
 
 // The library's vocabulary. `Danger` is the token this release added.
 enum Token {

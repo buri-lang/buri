@@ -1,4 +1,4 @@
-from "core/order/lib.buri" import { Ord, Order };
+from "core/order" import { Ord, Order };
 
 /// The second number there is. Neither name in the import above is used.
 export fn two(): I64 { 2 }
