@@ -2042,7 +2042,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // one, allocating through `buri_rt_alloc` and reading no
                 // capability. Every context built from `core/host` happens to be
                 // empty structs, so the two readings agree until a program
-                // builds one from `core/testing/context`, whose `TestAlloc` is
+                // builds one from `core/host/testing`, whose `TestAlloc` is
                 // `struct TestAlloc(I64)` and carries a handle. Then a check on
                 // the leaf count refuses a valid program, and a *spread* on the
                 // leaf count would put one extra word into a C signature that
@@ -2080,7 +2080,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // A context that owns a reference count would need a
                     // retain per element rather than a copy, and none does:
                     // `core/host`'s allocators are empty structs and
-                    // `core/testing/context`'s carry a handle. Refused here,
+                    // `core/host/testing`'s carry a handle. Refused here,
                     // where there is a span to hang it on.
                     if ps
                         .iter()
@@ -4803,17 +4803,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let op = key.split_once('.').map_or("", |(_, o)| o);
                 self.bits(state, dest, op, args)
             }
-            // The two parts of `core/testing/context` that have a native
-            // counterpart at all. Every other part is stateful — a captured
+            // The two parts of `core/host/testing` that are instructions
+            // rather than calls. Every other double is stateful — a captured
             // stdout, an in-memory filesystem — and its state lives on the test
-            // runner's side, which a compiled artifact does not have; those stay
-            // named gaps.
+            // runner's side, which is why those are rows in the runtime table.
             //
             // `alloc()` is a fresh `TestAlloc(handle)`, and the handle names an
             // arena the runner reclaims. Natively there is no runner and one
             // allocator, so the handle names nothing and zero is as good a name
             // as any.
-            "testing_context.alloc" | "host_testing.alloc" => {
+            "host_testing.alloc" => {
                 let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
                 let zero = self.ctx.i64_type().const_zero();
                 let values = [zero.into()];
@@ -4826,7 +4825,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // function of the *types*, computed by `middle::layout`, so
             // `allocate` returns what it was asked for and the accounting is the
             // caller's.
-            "testing_context.TestAlloc.allocate" | "host_testing.TestAlloc.allocate" => {
+            "host_testing.TestAlloc.allocate" => {
                 let Some(bytes) = args.get(1).copied() else { return false };
                 let value = self.get(state, bytes);
                 self.set(state, dest, value);
@@ -7820,8 +7819,6 @@ fn open_coded_key(key: &str) -> bool {
             | "str.len"
             | "list.len"
             | "list.empty"
-            | "testing_context.alloc"
-            | "testing_context.TestAlloc.allocate"
             | "host_testing.alloc"
             | "host_testing.TestAlloc.allocate"
             | "list.zip"

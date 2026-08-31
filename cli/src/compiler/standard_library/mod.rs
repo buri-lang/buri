@@ -146,10 +146,6 @@ pub const MODULES: &[StdModule] = &[
         platform: true,
         ..m("core/testing/assert/lib.buri", include_str!("sources/assert.buri"))
     },
-    StdModule {
-        platform: true,
-        ..m("core/testing/context/lib.buri", include_str!("sources/testing_context.buri"))
-    },
     // `ui/*`. A user interface is not one of the deliberately small
     // essentials, and its vocabulary is large, so it gets its own reserved
     // root rather than growing `core/`. Only `ui/effect` is a platform module —

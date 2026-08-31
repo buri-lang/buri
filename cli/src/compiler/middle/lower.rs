@@ -2303,10 +2303,10 @@ export fn junk<C: Alloc>(ctx: C, n: Int): Int {
         assert_eq!(
             render(&p, ":junk"),
             "; test:junk [unit test]\n\
-             fn test$junk$72mdf3(a context, i64) -> i64 {\n\
+             fn test$junk$u3rqgv(a context, i64) -> i64 {\n\
              \x20 b0(v0: a context, v1: i64):\n\
              \x20   v2 = const \"z\"\n\
-             \x20   v3 = call fn core_str_lib_buri$Str_repeat$72mdf3(v2, v0, v1)\n\
+             \x20   v3 = call fn core_str_lib_buri$Str_repeat$u3rqgv(v2, v0, v1)\n\
              \x20   decref v3\n\
              \x20   decref v2\n\
              \x20   return v1\n\
