@@ -2,7 +2,7 @@ library {
     sources: []
 
     test {
-        sources: ["test/counter.buri"]
+        sources: ["test/counter.buri", "test/scoped.buri"]
 
         # The reference run, on the reference backend: `native::conformance`
         # drives these same files through the stencil backend

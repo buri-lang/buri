@@ -3227,6 +3227,125 @@ fn gone2(r: Result<Int, Stopped>): Str {
     );
 }
 
+/// **An actor driven from inside a scope, on every backend** — the four values
+/// `core/actor` hands the runtime are copies made outside every arena.
+///
+/// `cli/tests/conformance/lib/actor/test/scoped.buri` is this claim as a corpus
+/// and is the fuller statement of it, but the corpus's native run is the stencil
+/// backend alone. The claim is about *pages*: `core/alloc`'s `copyAcross` leaves
+/// the carrier's arena before it copies, and each backend generates the copy walk
+/// for the concrete `T` itself (`stencil/glue.rs`'s `Helper::Copy`,
+/// `llvm/emit.rs`'s `Job::Copy`), so one green pipeline says nothing about the
+/// other. Before the copy existed this program read memory `munmap` had taken
+/// back, and the native halves died on a signal while JavaScript — which has no
+/// arena — printed the right answer.
+///
+/// The string that crosses is 70 000 bytes for a reason the corpus file's header
+/// gives in full: a released arena block of exactly one standard block goes back
+/// to a **pool** rather than to the kernel, so only a bigger one is unmapped
+/// outright. The eight small scopes are the other half — they are what hands the
+/// pooled pages out again.
+#[test]
+fn an_actor_driven_inside_a_scope_keeps_its_values_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "actor in a scope",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Reply, Stopped };
+from "core/alloc" import * as alloc;
+from "core/alloc" import { Scoped };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+enum Keep {
+  Put(Str),
+  Get(Reply<Str>),
+}
+
+fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep> {
+  Actor {
+    state: initial,
+    step: fn(c, held, message) => {
+      match (message) {
+        .Put(next) => next,
+        .Get(reply) => {
+          let _ = reply.answer(c, held).ignore();
+          held
+        },
+      }
+    },
+  }
+}
+
+/// A scope's own context and an address minted inside it, carried out together.
+/// A lambda may not capture a context, so this pair is the only way a program
+/// reaches an actor that was started inside a scope.
+struct Escaped<C> {
+  scope: Scoped<C>,
+  address: Address<Scoped<C>, Str, Keep>,
+}
+
+/// Bigger than one arena block, so its mapping is unmapped rather than pooled.
+fn big<C: Alloc>(ctx: C, unit: Str): Str {
+  unit.repeat(ctx, 70000)
+}
+
+fn same(got: Result<Str, Stopped>, want: Str): Str {
+  match (got) {
+    .Err(_e) => "stopped",
+    .Ok(s) => {
+      match (s == want) {
+        true => "same",
+        false => "different",
+      }
+    },
+  }
+}
+
+fn ended(r: Result<(), Stopped>): Str {
+  match (r) {
+    .Ok(_ok) => "ok",
+    .Err(_e) => "stopped",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+
+  // Three crossings inside one scope: the state `start` moves in, the message
+  // `send` posts, and the state `drive` puts back after the `ask` steps it.
+  let out = alloc.scoped(ctx, fn(c) => {
+    let address = actor.start(c, keeper(big(c, "s")));
+    let _ = address.send(c, .Put(big(c, "m"))).ignore();
+    let _ = address.ask(c, fn(reply) => .Get(reply)).ignore();
+    Escaped { scope: c, address: address }
+  });
+
+  // Scopes that map and release pages of their own. Small ones first: those
+  // are the ones that draw a pooled block.
+  let churned = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
+    alloc.scoped(k, fn(s) => "z".repeat(s, 40 + n).len())
+  });
+  let large = alloc.scoped(ctx, fn(s) => "y".repeat(s, 70000).len());
+  let _ = io.println(ctx, "churned ${churned.len()} ${large}").ignore();
+
+  let answered = out.address.ask(out.scope, fn(reply) => .Get(reply));
+  let want = big(ctx, "m");
+  let _ = io.println(ctx, "state ${same(answered, want)}").ignore();
+  let _ = io.println(ctx, "stop ${ended(out.address.stop(out.scope))}").ignore();
+  .Ok(())
+}
+"#,
+        "churned 8 70000\nstate same\nstop ok\n",
+    );
+}
+
 /// `every_conformance_file_is_accounted_for` has to its own list, and it
 /// needs no backend, so it runs on every host.
 #[test]
