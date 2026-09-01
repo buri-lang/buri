@@ -2540,36 +2540,38 @@ export fn main(): Result<(), Str> {
 /// own unit tests and by `semantics/expressions.rs`'s snippets, which declare
 /// an effect of their own for the purpose.
 ///
-/// What stays testable here, and is what this row now pins, is the *value* the
-/// handler receives with the wrapper on the path: a `Wrap<C>` forwarding an
-/// effect whose results are aggregates, a handler written against a bound its
-/// own `C` declares and the acceptor does not, and a generic `wrapped(ctx,
-/// body)` in front of the whole thing. `Plain` still carries a word for the
-/// first flip's sake: a context whose bindings are all zero-sized is zero words
-/// wide, and `Wrap<ctx>` and `Wrap<OneShot>` are then the same bytes, which is
-/// what hid the original fault.
+/// What this row pins is the *value* the handler receives with the wrapper on
+/// the path: a `Wrap<C>` forwarding an effect whose results are aggregates, a
+/// handler written against a bound its own `C` declares and the acceptor does
+/// not, and a generic `wrapped(ctx, body)` in front of the whole thing. `Plain`
+/// still carries a word for the first flip's sake: a context whose bindings are
+/// all zero-sized is zero words wide, and `Wrap<ctx>` and `Wrap<OneShot>` are
+/// then the same bytes, which is what hid the original fault.
 ///
-/// **The accept loop is no longer on this row, and that is a known gap.** Until
-/// F3 the program below called `server.serve`, which drove the whole
-/// bind-accept-handle-respond cycle through the wrapper. F3 put a worker per
-/// handler inside `run`, and the LLVM backend then emitted a program that
-/// faulted with no output at all — while the frame-threaded backend and
-/// JavaScript both answered correctly, and while a server built on the *real*
-/// acceptor (`llvm::a_server_answers_a_request_on_a_socket` and
-/// `llvm::fifty_requests_are_answered_at_once`) went on passing. It is a
-/// miscompile and it is the backend's; `reports/wave9-f3.md` §5 has the bisect,
-/// which ends at "any program that reaches `Tasks.parallel` *and* drives
-/// `core/net/server` with a hand-written `Listen`", and three unrelated edits to
-/// `run` each turned it on and off again.
+/// **The accept loop is back.** F3 put a worker per handler inside `run`, and
+/// this program then faulted with no output at all under the LLVM backend —
+/// while the frame-threaded backend and JavaScript both answered correctly, and
+/// while a server built on the *real* acceptor
+/// (`llvm::a_server_answers_a_request_on_a_socket` and
+/// `llvm::fifty_requests_are_answered_at_once`) went on passing. For one wave
+/// this row drove `server.bind` instead and entered the handler by hand, which
+/// kept the wrapper claims and lost the loop.
 ///
-/// So this row drives `server.bind` and enters the handler itself. What it still
-/// pins is what it was retargeted to pin after F2: the *value* a handler is
-/// handed with a wrapper on the path — a `Wrap<C>` forwarding an effect whose
-/// results are aggregates, a handler written against a bound its own `C` declares
-/// and the acceptor does not, and a generic `wrapped(ctx, body)` in front of the
-/// whole thing. What it no longer pins is the loop between them. The row to
-/// restore is this one, by putting `server.serve` back, and the day to do it is
-/// the day the backend is fixed.
+/// It was **not** a backend fault, which is why it survived a wave of looking
+/// at one. `middle/rc.rs` planned a `let` binding's drop *before* the `incref`
+/// that paid for it, so a fresh value bound and not read was freed and then
+/// written through — and the frame-threaded backend was emitting the same
+/// use-after-free on the same program and getting away with it, because the
+/// crash lands on an allocation made later.
+/// `reports/llvm-parallel-listen-fix.md` is the bisect and the fix.
+///
+/// So `server.serve` is back, and the program below drives the whole
+/// bind-accept-read-answer-close cycle through the wrapper, on a context that
+/// grants `Tasks`. **`serve` is the only thing this `main` does**, and that is
+/// load-bearing rather than tidy: a version of it that also called
+/// `server.bind` — before the loop or after it — *passed* on the broken
+/// toolchain, because a second call moves the heap under the first. The `bind`
+/// half is the row below, for exactly that reason.
 ///
 /// `OneShot` carries an `I64` and not the `Str` it used to, and that is the
 /// stencil backend's own limit showing rather than a weakening of the case: its
@@ -2586,7 +2588,7 @@ fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
         r#"
 from "core/effect" import {
   Alloc, Header, IoError, Listen, Listener, Protocol, Region, Request, Response,
-  ServeError, Stdout,
+  ServeError, Stdout, Tasks,
 };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -2665,6 +2667,12 @@ impl<C: Stdout> Stdout for Wrap<C> {
   fn writeBytes(self, b: [U8]): Result<(), IoError> { self.0.writeBytes(b) }
 }
 
+impl<C: Tasks> Tasks for Wrap<C> {
+  fn parallel<D, A, B>(self, ctx: D, items: [A], f: fn(D, Int, A) => B): [B] {
+    self.0.parallel(ctx, items, f)
+  }
+}
+
 impl<C: Listen> Listen for Wrap<C> {
   fn listenBind(
     self,
@@ -2700,11 +2708,14 @@ impl<C: Listen> Listen for Wrap<C> {
 
 /// A handler written against a bound, which is what a request handler is.
 ///
-/// `bind` is a real call through the wrapper — `Wrap<C>`'s `Listen` forward, an
-/// aggregate `Result<Listener, ServeError>` out of the fake acceptor and back
-/// through the wrapper — and the handler is then entered with the value the
-/// caller was standing in, which is what `run` does with it.
-fn served<C: Alloc + Listen + Stdout>(ctx: C): Int {
+/// **`serve` and nothing else**, and that is not laziness. The fault this row
+/// exists to catch is a use-after-free whose crash lands on a *later*
+/// allocation, so anything run beside `serve` in this `main` moves the heap
+/// under it and can hide it: a version of this program that also called
+/// `server.bind` — before the loop or after it — passed on the broken
+/// toolchain while this one faulted. The `bind` half is a row of its own
+/// below, for exactly that reason.
+fn served<C: Alloc + Listen + Stdout + Tasks>(ctx: C): Int {
   let plan = server.Server {
     port: 0,
     address: .Some("10.0.0.1"),
@@ -2716,17 +2727,7 @@ fn served<C: Alloc + Listen + Stdout>(ctx: C): Int {
       Response { status: 200, headers: [], body: [] }
     },
   };
-  match (server.bind(ctx, plan)) {
-    .Err(_e) => 0,
-    .Ok(listener) => {
-      let handler = plan.onRequest;
-      let reply = handler(
-        ctx,
-        Request { method: .Get, url: "10.0.0.1", headers: [], body: [] },
-      );
-      match (reply.status) { 200 => listener.handlers, _ => 0 }
-    },
-  }
+  match (server.serve(ctx, plan)) { .Ok(_ok) => 1, .Err(_e) => 0 }
 }
 
 /// The generic callback `scoped` is: it builds the wrapper and hands it over.
@@ -2739,6 +2740,7 @@ export fn main(): Result<(), Str> {
     Alloc: Plain { n: 0 },
     Stdout: host.stdout,
     Listen: OneShot { binds: 1 },
+    Tasks: host.tasks,
   };
   let _ = io.println(host.stdout, "entering").ignore();
   let n = wrapped(ctx, fn(c) => served(c));
@@ -2747,6 +2749,165 @@ export fn main(): Result<(), Str> {
 }
 "#,
         "entering\nhandler on 10.0.0.1\nserved 1\n",
+    );
+}
+
+/// **A `Listener` a wrapper forwarded is read by the caller, on every backend.**
+///
+/// `bind` and `run` are `serve`'s two halves and are exported for one shape:
+/// `port: 0`, where the operating system chooses the number and the program
+/// has to publish it — write it to a file, print it, hand it to the task that
+/// will connect — *between* the bind and the loop. `serve` never shows a caller
+/// the `Listener` it made, so the row above cannot pin that shape, and this one
+/// does: an aggregate `Result<Listener, ServeError>` out of a hand-written
+/// acceptor, back through a generic wrapper's `Listen` forward, matched by the
+/// caller, with two fields of the `.Ok` payload read off it.
+///
+/// It is a program of its own rather than three more lines in the row above,
+/// and that is the lesson of `reports/llvm-parallel-listen-fix.md` written into
+/// the file. The fault that row exists to catch is a use-after-free whose crash
+/// lands on an allocation made *later*, so a second call in the same `main`
+/// moves the heap under the first and hides it — measured, not feared: on the
+/// broken toolchain the row above faulted on its own and *passed* with a
+/// `server.bind` call added to the same `main`, before the loop or after it.
+/// So the two claims are two programs, and this one is deliberately not a
+/// paragraph in the other.
+///
+/// The error arm is asked for too, because an acceptor that always succeeds
+/// makes `.Err`'s `Str`-carrying payload unreachable and leaves the enum's
+/// second variant uncompiled.
+#[test]
+fn a_bound_listener_crosses_a_wrapper_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "bound listener",
+        r#"
+from "core/effect" import {
+  Alloc, Header, IoError, Listen, Listener, Protocol, Region, Request, Response,
+  ServeError, Stdout,
+};
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/server" import * as server;
+from "core/str" import * as str;
+
+/// An acceptor that binds one address and refuses every other, and that
+/// accepts nothing at all: this program never reaches the loop.
+struct Gate {
+  opens: I64,
+}
+
+impl Listen for Gate {
+  fn listenBind(
+    self,
+    address: Str,
+    port: Int,
+    protocols: [Protocol],
+    requestLimit: Int,
+    idleTimeoutMillis: Int,
+  ): Result<Listener, ServeError> {
+    match (self.opens) {
+      0 => .Err(ServeError { cause: .AddressInUse, detail: "taken" }),
+      _ => .Ok(Listener { handle: 3, port: 8080, handlers: 4 }),
+    }
+  }
+
+  fn listenAccept(self, handle: Int): Result<Int, ServeError> {
+    .Err(ServeError { cause: .Closed, detail: "" })
+  }
+
+  fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+    .Err(ServeError { cause: .Closed, detail: "" })
+  }
+
+  fn listenRespond(
+    self,
+    connection: Int,
+    status: Int,
+    headers: [Header],
+    body: [U8],
+  ): Result<(), ServeError> {
+    .Err(ServeError { cause: .Closed, detail: "" })
+  }
+
+  fn listenClose(self, handle: Int): () { () }
+}
+
+/// The wrapper, unbounded in `C`, forwarding the effect whose results are
+/// aggregates.
+struct Wrap<C>(C, I64);
+
+impl<C> Alloc for Wrap<C> {
+  fn allocate(self, bytes: Int): Region { Region(bytes) }
+}
+
+impl<C: Stdout> Stdout for Wrap<C> {
+  fn print(self, text: Template): Result<(), IoError> { self.0.print(text) }
+  fn println(self, text: Template): Result<(), IoError> { self.0.println(text) }
+  fn writeBytes(self, b: [U8]): Result<(), IoError> { self.0.writeBytes(b) }
+}
+
+impl<C: Listen> Listen for Wrap<C> {
+  fn listenBind(
+    self,
+    address: Str,
+    port: Int,
+    protocols: [Protocol],
+    requestLimit: Int,
+    idleTimeoutMillis: Int,
+  ): Result<Listener, ServeError> {
+    self.0.listenBind(address, port, protocols, requestLimit, idleTimeoutMillis)
+  }
+
+  fn listenAccept(self, handle: Int): Result<Int, ServeError> {
+    self.0.listenAccept(handle)
+  }
+
+  fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+    self.0.listenRequest(connection)
+  }
+
+  fn listenRespond(
+    self,
+    connection: Int,
+    status: Int,
+    headers: [Header],
+    body: [U8],
+  ): Result<(), ServeError> {
+    self.0.listenRespond(connection, status, headers, body)
+  }
+
+  fn listenClose(self, handle: Int): () { self.0.listenClose(handle) }
+}
+
+/// Binds, and answers what the acceptor said — the port it chose and the
+/// number of handlers it will host, both read off the `.Ok` payload.
+fn published<C: Alloc + Listen + Stdout>(ctx: C, opens: Bool): Str {
+  let plan = server.Server {
+    port: 0,
+    address: .Some(if (opens) { "10.0.0.1" } else { "0.0.0.0" }),
+    onRequest: fn(c, request) => Response { status: 200, headers: [], body: [] },
+  };
+  match (server.bind(ctx, plan)) {
+    .Ok(listener) =>
+      str.format(ctx, "port ${listener.port} on ${listener.handlers} handlers"),
+    .Err(e) => str.format(ctx, "${server.errorText(e)}: ${e.detail}"),
+  }
+}
+
+fn wrapped<C, T>(ctx: C, body: fn(Wrap<C>) => T): T {
+  body(Wrap(ctx, 7))
+}
+
+export fn main(): Result<(), Str> {
+  let open = context { Alloc: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 1 } };
+  let shut = context { Alloc: host.alloc, Stdout: host.stdout, Listen: Gate { opens: 0 } };
+  let _ = io.println(host.stdout, wrapped(open, fn(c) => published(c, true))).ignore();
+  let _ = io.println(host.stdout, wrapped(shut, fn(c) => published(c, false))).ignore();
+  .Ok(())
+}
+"#,
+        "port 8080 on 4 handlers\nthe address is already in use: taken\n",
     );
 }
 
