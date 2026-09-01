@@ -132,11 +132,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CC: clang
-    # Measured, not guessed: the `native` domain alone is 750 s of the run and
-    # `the_corpus_census_is_a_ratchet` is 700 s of that — thirty-one corpus
-    # files through an unoptimized backend. Add a cold runner's toolchain build
-    # and the benchmark's LTO'd `bench` profile and an hour is a cap rather than
-    # a target.
+    # Measured, not guessed: the `native` domain alone is the longest leg of the
+    # run. The 700 s this comment used to give the corpus census was taken
+    # before `middle/rc.rs`'s exponential scan was fixed and is long dead — the
+    # census is now under a second on a ten-core host, and `native` is minutes
+    # rather than a quarter of an hour. Add a cold runner's toolchain build and
+    # the benchmark's LTO'd `bench` profile and half an hour is still a cap
+    # rather than a target.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

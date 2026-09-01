@@ -29,7 +29,7 @@ use buri::build::link::{self, Row};
 use buri::build::workspace::Workspace;
 use buri::compiler::backend::{LinkOptions, Linker};
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
-use buri::compiler::backend::{Backend, Options, Profile, Target};
+use buri::compiler::backend::{Backend, Emitted, Options, Profile, Target};
 use buri::compiler::backend::stencil::{
     abi as stencil_abi, unavailable_reason as stencil_unavailable_reason, Stencil,
 };
@@ -40,6 +40,7 @@ use buri::diagnostics::{Diagnostics, SourceMap};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 /// Why this host cannot build and run a stencil artifact, or `None`.
@@ -1263,13 +1264,30 @@ fn corpus_files() -> Vec<String> {
     out
 }
 
-/// Why this backend refuses one corpus file, or the empty string when it does
-/// not. `Err` is a front-end failure, which is the corpus mid-change and not
-/// this file's business.
-fn corpus_refusal(path: &str) -> Result<String, String> {
+/// What this backend made of one corpus file.
+///
+/// It answers with the **objects** rather than with a yes or a no, because the
+/// census asks two questions of every file — does it compile, and does the
+/// program it compiles to pass — and answering them apart was this same
+/// pipeline run twice over the same source.
+enum Compiled {
+    /// The **front end** refused it, which is the corpus mid-change and not
+    /// this file's business.
+    Front(String),
+    /// This backend refused it, with the reason.
+    Refused(String),
+    /// The objects it emitted.
+    Units(Vec<Emitted>),
+}
+
+/// One corpus file, compiled as the test source of its own package.
+fn compile_corpus(path: &str) -> Compiled {
     let (package, file) = path.split_once('/').unwrap_or((path, ""));
     let full = corpus().join(package).join("test").join(file);
-    let source = std::fs::read_to_string(&full).map_err(|e| e.to_string())?;
+    let source = match std::fs::read_to_string(&full) {
+        Ok(source) => source,
+        Err(e) => return Compiled::Front(e.to_string()),
+    };
     let mut map = SourceMap::new();
     let repository = repository();
     let package = repository.and_then(|w| w.package_by_path(&format!("lib/{package}")));
@@ -1284,26 +1302,26 @@ fn corpus_refusal(path: &str) -> Result<String, String> {
         Role::TestSource,
     );
     if analysis.diagnostics.has_errors() {
-        return Err(String::from("the front end refused it"));
+        return Compiled::Front(String::from("the front end refused it"));
     }
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut diagnostics = Diagnostics::new();
     let mut program =
         monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
     if diagnostics.has_errors() {
-        return Err(String::from("monomorphization failed"));
+        return Compiled::Front(String::from("monomorphization failed"));
     }
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
     let missing = Stencil.missing_intrinsics(&program, &analysis.checked.tables);
     if !missing.is_empty() {
-        return Ok(format!("missing {}", missing.join(", ")));
+        return Compiled::Refused(format!("missing {}", missing.join(", ")));
     }
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
     match Stencil.emit(&program, &analysis.checked.tables, &opts) {
-        Ok(_) => Ok(String::new()),
-        Err(d) => Ok(messages(&d).join("; ")),
+        Ok(units) => Compiled::Units(units),
+        Err(d) => Compiled::Refused(messages(&d).join("; ")),
     }
 }
 
@@ -1358,116 +1376,473 @@ const CORPUS_COMPILES: &[&str] = &[
     "vectors/simd.buri",
 ];
 
-#[test]
-fn the_corpus_census_is_a_ratchet() {
-    if !supported() {
-        return;
+// -----------------------------------------------------------------------
+// The census, as one child
+// -----------------------------------------------------------------------
+
+/// The environment variable that turns this binary into the census child, and
+/// carries how deep to go and which corpus files to go there for.
+///
+/// # Why a child at all
+///
+/// This is the one test in the file that hands the **whole corpus** to the
+/// backend, and the corpus is where a backend meets a shape nobody wrote a
+/// test for. Run in process, a file that aborts the compiler — a stack
+/// overflow in a pass, a fault in the emitter — takes the whole `native`
+/// binary down with it and leaves no name behind: the other hundred and thirty
+/// tests report nothing and the log's last word is a signal. Behind a child,
+/// the census outlives its own corpus, and a file that killed the child is
+/// asked again **alone**, so that the crash lands on a path.
+///
+/// # Why one child rather than one per file
+///
+/// A child per file would buy the same attribution and cost forty-four process
+/// starts, forty-four loads of the conformance repository and forty-four
+/// copies of a six-megabyte runtime archive. One child is one of each, and the
+/// attribution is recovered by the protocol instead: the child prints a line
+/// per fact **as it learns it**, so the files it finished are known even when
+/// it does not return, and only the ones it did not are asked again on their
+/// own. That is the whole of the batching — one child, per-file lines, and a
+/// re-ask for the remainder.
+///
+/// # Why a depth
+///
+/// The value is `<depth>:<file>,<file>,...`, and the depth is there because
+/// the two tests below want two different amounts of the same work. CI's
+/// liveness step runs the ratchet **alone**, ahead of everything, to find out
+/// whether this host has a backend at all — and a ratchet that linked and ran
+/// thirty-five programs to answer that would put the whole corpus through the
+/// gate twice, once there and once in the step after it. So the ratchet asks
+/// for [`Depth::Compile`] and the run test asks for [`Depth::Run`]; under
+/// `cargo test` the two children overlap and the deeper one sets the wall time.
+const CENSUS: &str = "BURI_STENCIL_CENSUS";
+
+/// How far into a corpus file a census goes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Depth {
+    /// To the objects: what the ratchet counts.
+    Compile,
+    /// Through the link and the program: what the run test asserts.
+    Run,
+}
+
+impl Depth {
+    fn name(self) -> &'static str {
+        match self {
+            Depth::Compile => "compile",
+            Depth::Run => "run",
+        }
     }
-    let mut compiles: Vec<String> = Vec::new();
-    let mut refused = 0usize;
-    let mut front = 0usize;
-    for path in corpus_files() {
-        match corpus_refusal(&path) {
-            Err(_) => front += 1,
-            Ok(why) if why.is_empty() => compiles.push(path),
-            Ok(why) => {
-                refused += 1;
-                println!("stencil refuses {path}: {why}");
+
+    /// Anything that is not [`Depth::Run`] is the shallower one, because a
+    /// child that misread its own depth must do less than it was asked rather
+    /// than more: the missing lines are then re-asked for, and a re-ask is a
+    /// slower answer where a silent extra pass would be an invisible one.
+    fn parse(text: &str) -> Depth {
+        if text == "run" {
+            Depth::Run
+        } else {
+            Depth::Compile
+        }
+    }
+}
+
+/// A fault the census child puts into one named file on purpose, so that the
+/// parent's attribution can be *asserted* rather than waited for.
+///
+/// `<path>=crash` aborts the child the moment it reaches that file, and
+/// `<path>=fail` reports the file's program as having exited [`FAULT_STATUS`]
+/// without compiling it. Nothing sets it but the two tests below, and nothing
+/// else may: a corpus file that really crashed this backend would be a bug to
+/// fix rather than a fixture to keep, and what is under test here is the
+/// *parent's* arithmetic — that a file the child did not finish is named, and
+/// that a file whose program failed is named with what it printed.
+const FAULT: &str = "BURI_STENCIL_CENSUS_FAULT";
+
+/// The exit status a `fail` fault reports.
+const FAULT_STATUS: i32 = 9;
+
+/// What a `fail` fault reports the program said.
+///
+/// The newline is deliberate: it is the character the protocol below has to
+/// escape, so a test that finds this string whole on the far side has also
+/// found that a real failing program's output survives the trip.
+const FAULT_SAID: &str = "a fault the census put here\nand a second line of it";
+
+/// The prefix of every line of the child's report.
+///
+/// Found anywhere in a line rather than anchored to its start, for
+/// `.github/scripts/assert-suite-ran.sh`'s reason: libtest writes
+/// `test <name> ... ` **without** a newline, so the child's first line arrives
+/// with that in front of it.
+const LINE: &str = "CENSUS\t";
+
+/// What the census learned about one corpus file.
+enum Verdict {
+    /// The front end refused it. The corpus is shared with
+    /// `language/conformance.rs` and may be mid-change, which is not this
+    /// file's business to fail over.
+    Front(String),
+    /// This backend refused it, with the reason.
+    Refused(String),
+    /// This backend emitted objects for it.
+    Compiles,
+    /// None of the three: no child came back with an answer about it, not even
+    /// the one that was given it alone.
+    Unfinished(String),
+}
+
+impl Verdict {
+    /// The verdict as the half of a sentence that follows a file's name.
+    fn say(&self) -> String {
+        match self {
+            Verdict::Front(why) => format!("the front end refused it ({why})"),
+            Verdict::Refused(why) => format!("the backend refused it ({why})"),
+            Verdict::Compiles => String::from("it compiles"),
+            Verdict::Unfinished(how) => format!("the census child {how}"),
+        }
+    }
+}
+
+/// One reading of the corpus.
+struct Census {
+    /// Every file it was asked about, in the order it was asked.
+    verdict: Vec<(String, Verdict)>,
+    /// Every file whose objects it linked and ran.
+    ran: Vec<(String, Ran)>,
+    /// Every file no child finished, as a sentence that names it.
+    unfinished: Vec<String>,
+}
+
+/// What one child said, and how it ended.
+struct Report {
+    verdict: Vec<(String, Verdict)>,
+    ran: Vec<(String, Ran)>,
+    /// How the child ended and what it said on the way out — the sentence a
+    /// crash is reported with.
+    ended: String,
+}
+
+/// The corpus, read once per depth for this process.
+///
+/// Once, rather than once per test: what this replaces was two serial walks of
+/// the corpus, each running the whole front end, monomorphizer and backend over
+/// every file, and the second of them linking and running thirty-five programs
+/// one after another. A memo per depth is what makes a second `#[test]` asking
+/// the same question free under `cargo test`; under `cargo nextest`, which puts
+/// every test in a process of its own, each pays for its own child — which is
+/// the arrangement CI already runs on purpose.
+fn census(depth: Depth) -> &'static Census {
+    static COMPILED: OnceLock<Census> = OnceLock::new();
+    static RAN: OnceLock<Census> = OnceLock::new();
+    match depth {
+        // The whole corpus, because the count it prints is a count of the
+        // corpus and the ratchet's second half is about files that are *not*
+        // on the list.
+        Depth::Compile => COMPILED.get_or_init(|| collect(&corpus_files(), depth, "")),
+        // Only the files whose programs are asserted. The nine the backend
+        // refuses have nothing to run, and compiling them again here would be
+        // the ratchet's work done twice.
+        Depth::Run => RAN.get_or_init(|| {
+            let files: Vec<String> = CORPUS_COMPILES.iter().map(|p| (*p).to_string()).collect();
+            collect(&files, depth, "")
+        }),
+    }
+}
+
+/// `files`, through one child, with whatever that child did not finish asked
+/// again one file at a time.
+///
+/// The second round is what makes a crash attributable and is why the batch is
+/// a batch rather than a fan-out: it costs one extra process **per unfinished
+/// file** and there are none on a green run.
+fn collect(files: &[String], depth: Depth, fault: &str) -> Census {
+    let mut batch = ask(files, depth, fault);
+    let mut verdict: Vec<(String, Verdict)> = Vec::new();
+    let mut ran: Vec<(String, Ran)> = Vec::new();
+    let mut unfinished: Vec<String> = Vec::new();
+    for path in files {
+        let mut seen = take(&mut batch, path);
+        if !finished(path, depth, &seen) {
+            // The batch did not get to the end of this file. Give it to a child
+            // with nothing else to lose, so that whatever happens to that child
+            // happened to this file.
+            let mut alone = ask(std::slice::from_ref(path), depth, fault);
+            let second = take(&mut alone, path);
+            if second.0.is_some() {
+                seen.0 = second.0;
+            }
+            if second.1.is_some() {
+                seen.1 = second.1;
+            }
+            if !finished(path, depth, &seen) {
+                unfinished.push(format!(
+                    "`{path}` did not finish the census. Given to a child on its own, that \
+                     child {}",
+                    alone.ended
+                ));
+                seen.0 = Some(Verdict::Unfinished(alone.ended));
             }
         }
-    }
-    println!(
-        "stencil compiles {} of {} conformance files ({refused} refused, {front} not asked)",
-        compiles.len(),
-        corpus_files().len()
-    );
-    for path in CORPUS_COMPILES {
-        assert!(
-            compiles.iter().any(|c| c == path),
-            "`{path}` used to compile under stencil and no longer does"
-        );
-    }
-    let unlisted: Vec<&str> =
-        compiles.iter().map(String::as_str).filter(|p| !CORPUS_COMPILES.contains(p)).collect();
-    assert!(
-        unlisted.is_empty(),
-        "{unlisted:?} compile under stencil now — add them to `CORPUS_COMPILES`, which is \
-         the list the seat this backend is meant to take is gated on"
-    );
-}
-
-/// Every conformance file this backend compiles also **runs**, and every
-/// `test` block in it passes.
-///
-/// Compiling is not the bar: a backend that emitted an object for a file and
-/// got the answers wrong would pass the census next door. A failed assertion
-/// ends the process (SPEC 6.10), so the exit status is the result.
-///
-/// `native/conformance.rs::the_native_set_passes` now runs the same thirty-one
-/// files through the same backend and reports the block count with them, so
-/// this is the narrower of two readings of one corpus. It stays because CI's
-/// Linux/arm64 job selects `stencil::` by name and this is the test in that
-/// selection that runs a program per corpus file.
-#[test]
-fn the_corpus_files_it_compiles_pass() {
-    if !supported() {
-        return;
-    }
-    let mut failures: Vec<String> = Vec::new();
-    for path in CORPUS_COMPILES {
-        let (package, file) = path.split_once('/').unwrap_or((path, ""));
-        let full = corpus().join(package).join("test").join(file);
-        let source = std::fs::read_to_string(&full).unwrap();
-        let blocks = source.matches("\ntest \"").count();
-        assert!(blocks > 0, "`{path}` has no test blocks, so running it proves nothing");
-        let ran = run_corpus(path, &source);
-        if ran.status != 0 {
-            failures.push(format!(
-                "`{path}` exited {}:\nstdout:\n{}\nstderr:\n{}",
-                ran.status, ran.stdout, ran.stderr
-            ));
+        let answer = seen.0.unwrap_or_else(|| Verdict::Unfinished(batch.ended.clone()));
+        verdict.push((path.clone(), answer));
+        if let Some(out) = seen.1 {
+            ran.push((path.clone(), out));
         }
     }
-    // Every failing file, not the first: two platforms failing on two
-    // different files is one report here and two runs otherwise.
-    assert!(failures.is_empty(), "{} corpus files failed:\n{}", failures.len(), failures.join("\n"));
+    Census { verdict, ran, unfinished }
 }
 
-/// One corpus file, compiled as the test source of its own package, linked and
-/// run. The entry point is `asm::test_entry`, which calls every `test` block in
-/// order behind `buri_rt_test_enter`.
-fn run_corpus(path: &str, source: &str) -> Ran {
-    let (package, _) = path.split_once('/').unwrap_or((path, ""));
-    let mut map = SourceMap::new();
-    let repository = repository();
-    let package = repository.and_then(|w| w.package_by_path(&format!("lib/{package}")));
-    let mut cache = buri::parsing::parser::Cache::new();
-    let analysis = driver::analyze_snippet_as(
-        repository,
-        package,
-        &mut map,
-        &mut cache,
-        "main",
-        source,
-        Role::TestSource,
-    );
-    assert!(!analysis.diagnostics.has_errors(), "`{path}`: the front end refused it");
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let mut diagnostics = Diagnostics::new();
-    let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
-    assert!(!diagnostics.has_errors(), "`{path}`: monomorphization failed");
-    middle::run(&mut program, &middle::Options::default());
-    middle::native(&mut program);
+/// What a report holds about one file, removed from it.
+fn take(report: &mut Report, path: &str) -> (Option<Verdict>, Option<Ran>) {
+    let verdict =
+        report.verdict.iter().position(|(p, _)| p == path).map(|i| report.verdict.remove(i).1);
+    let ran = report.ran.iter().position(|(p, _)| p == path).map(|i| report.ran.remove(i).1);
+    (verdict, ran)
+}
 
-    let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    let units = Stencil
-        .emit(&program, &analysis.checked.tables, &opts)
-        .unwrap_or_else(|d| panic!("`{path}`: {:?}", messages(&d)));
+/// Whether a child got to the end of what it owed about one file.
+///
+/// A verdict alone is the whole of it at [`Depth::Compile`], and for a file the
+/// backend refuses at either depth. For one it compiles **and**
+/// [`CORPUS_COMPILES`] names, at [`Depth::Run`], the program has to have run as
+/// well: a child that emitted the objects and then died linking them has not
+/// finished, and a census that took that for an answer would turn a crash into
+/// a pass.
+fn finished(path: &str, depth: Depth, seen: &(Option<Verdict>, Option<Ran>)) -> bool {
+    match &seen.0 {
+        None => false,
+        Some(Verdict::Compiles) if depth == Depth::Run && CORPUS_COMPILES.contains(&path) => {
+            seen.1.is_some()
+        }
+        Some(_) => true,
+    }
+}
+
+/// One child, one list of files.
+fn ask(files: &[String], depth: Depth, fault: &str) -> Report {
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .arg("stencil::the_corpus_census_is_a_ratchet")
+        .args(["--exact", "--nocapture", "--test-threads=1"])
+        .env(CENSUS, format!("{}:{}", depth.name(), files.join(",")));
+    if fault.is_empty() {
+        command.env_remove(FAULT);
+    } else {
+        command.env(FAULT, fault);
+    }
+    let out = command.output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut verdict = Vec::new();
+    let mut ran = Vec::new();
+    for line in text.lines() {
+        let Some(at) = line.find(LINE) else { continue };
+        let mut fields = line[at + LINE.len()..].split('\t');
+        let (Some(path), Some(kind)) = (fields.next(), fields.next()) else { continue };
+        let mut next = || unescape(fields.next().unwrap_or_default());
+        match kind {
+            "front" => verdict.push((path.to_string(), Verdict::Front(next()))),
+            "refused" => verdict.push((path.to_string(), Verdict::Refused(next()))),
+            "compiles" => verdict.push((path.to_string(), Verdict::Compiles)),
+            "ran" => {
+                let status = next().parse().unwrap_or(-1);
+                let stdout = next();
+                let stderr = next();
+                ran.push((path.to_string(), Ran { status, stdout, stderr }));
+            }
+            // A line this parser does not know is a child that has learned to
+            // say something this one has not. Silence rather than a failure:
+            // the file it named still has no verdict, so it is asked again.
+            _ => {}
+        }
+    }
+    let mut ended = format!("ended with {}", out.status);
+    let said = String::from_utf8_lossy(&out.stderr);
+    let said = said.trim();
+    if !said.is_empty() {
+        ended.push_str(" and said:\n");
+        ended.push_str(said);
+    }
+    Report { verdict, ran, ended }
+}
+
+/// This process, as the census child.
+///
+/// One line per fact, printed **as it is learned** rather than collected and
+/// printed at the end: a child that does not return has still told the parent
+/// what it finished, and that is the difference between asking one file again
+/// and asking the corpus again.
+fn report_census(spec: &str) {
+    let (depth, list) = spec.split_once(':').unwrap_or(("compile", spec));
+    let depth = Depth::parse(depth);
+    let files: Vec<&str> = list.split(',').filter(|s| !s.is_empty()).collect();
+    let fault = std::env::var(FAULT).unwrap_or_default();
+    let (faulted, kind) = fault.split_once('=').unwrap_or(("", ""));
+    each(files.len(), |i| {
+        let path = files[i];
+        if path == faulted && kind == "crash" {
+            // Before anything, so that the file this names is the file the
+            // parent cannot get an answer about.
+            std::process::abort();
+        }
+        if path == faulted && kind == "fail" {
+            say(path, "compiles", &[]);
+            say(path, "ran", &[&FAULT_STATUS.to_string(), "", &escape(FAULT_SAID)]);
+            return;
+        }
+        match compile_corpus(path) {
+            Compiled::Front(why) => say(path, "front", &[&escape(&why)]),
+            Compiled::Refused(why) => say(path, "refused", &[&escape(&why)]),
+            Compiled::Units(units) => {
+                say(path, "compiles", &[]);
+                // The files the ratchet lists are the ones whose programs are
+                // also asserted to pass, and they are run here so that the
+                // objects are linked where they were emitted rather than
+                // emitted twice.
+                if depth == Depth::Run && CORPUS_COMPILES.contains(&path) {
+                    let out = link_and_run(path, &units);
+                    say(
+                        path,
+                        "ran",
+                        &[&out.status.to_string(), &escape(&out.stdout), &escape(&out.stderr)],
+                    );
+                }
+            }
+        }
+    });
+}
+
+/// One line of the report, written whole.
+///
+/// `println!` takes the lock for the whole of one call, so two workers cannot
+/// interleave halves of one line — which is the only synchronisation this
+/// protocol needs and the reason it is a line protocol.
+fn say(path: &str, kind: &str, rest: &[&str]) {
+    let mut line = format!("{LINE}{path}\t{kind}");
+    for field in rest {
+        line.push('\t');
+        line.push_str(field);
+    }
+    println!("{line}");
+}
+
+/// A field, with the characters the protocol reserves put beyond use.
+fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// [`escape`] undone.
+fn unescape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('\\') => out.push('\\'),
+            // A backslash this did not write. It is a corpus file's own
+            // output, and it is given back unchanged.
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
+
+/// `f` over every index, on a few threads, **once each**.
+///
+/// `buri::parallel::map` is next door and is deliberately not used: its
+/// contract is a *pure* function of the item, and it recomputes an item whose
+/// worker did not return — which for a closure that prints would print one
+/// file twice and, after a panic, print a line for work that did not happen.
+/// What this wants is the opposite property: every index is attempted at most
+/// once, so that a file with no line against it is exactly a file the child
+/// did not finish.
+///
+/// The workers take [`buri::parallel::STACK`] for that module's reason — every
+/// pass after parsing walks a tree by recursion, and a worker running one of
+/// them needs the room the parser's depth bound was chosen against.
+///
+/// # A quarter of the machine, not all of it
+///
+/// A corpus file is about forty milliseconds of compiling **in this process**
+/// and a quarter of a second of waiting for a `cc` and then for the program in
+/// two others, so nearly all of the walk this replaces was a thread doing
+/// nothing. Two workers is enough to put one file's compiling underneath
+/// another's waiting, and that is where the whole of the saving is: measured
+/// on a ten-core machine, the two census tests are **15.0 s at one worker and
+/// 7.8 s at two**, and 7.5 s at ten.
+///
+/// The reason it stops there rather than taking the machine is the harness
+/// that started it. This child runs inside a `#[test]`, and libtest is already
+/// running ten of those at once, several of which spawn a compiler and a
+/// program of their own. Cores taken here come out of those: the same
+/// measurement puts `--test native` at **37.3 s before, 37.6 s at two workers
+/// and 42.9 s at four** — a faster test inside a slower binary, which is not a
+/// faster suite. A quarter is what leaves the harness its own machine, and it
+/// is a quarter of the *host's* cores rather than a constant so that a
+/// four-core runner does not start four.
+fn each<F: Fn(usize) + Sync>(len: usize, f: F) {
+    let cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    let width = (cores / 4).max(2).min(len.max(1));
+    let next = AtomicUsize::new(0);
+    let f = &f;
+    let cursor = &next;
+    if width > 1 {
+        std::thread::scope(|scope| {
+            for _ in 0..width {
+                // A thread that could not be started leaves its items in the
+                // cursor, and the drain below is what takes them.
+                let _ = std::thread::Builder::new()
+                    .name("stencil-census".into())
+                    .stack_size(buri::parallel::STACK)
+                    .spawn_scoped(scope, move || loop {
+                        let i = cursor.fetch_add(1, Ordering::Relaxed);
+                        if i >= len {
+                            return;
+                        }
+                        f(i);
+                    });
+            }
+        });
+    }
+    // Whatever no worker took — because none could be started, or because
+    // `width` was one. An item a worker took and then died on is *not* here,
+    // and must not be: that is the file the parent has to ask about again.
+    loop {
+        let i = cursor.fetch_add(1, Ordering::Relaxed);
+        if i >= len {
+            return;
+        }
+        f(i);
+    }
+}
+
+/// One corpus file's objects, linked and run. The entry point is
+/// `asm::test_entry`, which calls every `test` block in order behind
+/// `buri_rt_test_enter`.
+fn link_and_run(path: &str, units: &[Emitted]) -> Ran {
     let dir = workspace(&path.replace('/', "-"));
     let mut objects = Vec::new();
-    for unit in &units {
+    for unit in units {
         let at = dir.join(&unit.name);
         std::fs::write(&at, &unit.bytes).unwrap();
         objects.push(at);
@@ -1492,13 +1867,234 @@ fn run_corpus(path: &str, source: &str) -> Ran {
         cc.args(["-Wl,--gc-sections", "-lpthread", "-ldl", "-lm"]);
     }
     let out = cc.output().unwrap();
-    assert!(out.status.success(), "`{path}`: the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "`{path}`: the link failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let out = Command::new(&binary).output().unwrap();
     Ran {
         status: out.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
         stderr: String::from_utf8_lossy(&out.stderr).to_string(),
     }
+}
+
+#[test]
+fn the_corpus_census_is_a_ratchet() {
+    if !supported() {
+        return;
+    }
+    // A child enters here, because [`ask`] selects this test by name. One entry
+    // point rather than a test of its own, so that there is no arrangement in
+    // which a child can be talked into running the census a second time.
+    if let Ok(spec) = std::env::var(CENSUS) {
+        report_census(&spec);
+        return;
+    }
+    let census = census(Depth::Compile);
+    assert!(
+        census.unfinished.is_empty(),
+        "{} corpus files did not finish the census:\n{}",
+        census.unfinished.len(),
+        census.unfinished.join("\n")
+    );
+    let mut compiles: Vec<&str> = Vec::new();
+    let mut refused = 0usize;
+    let mut front = 0usize;
+    for (path, verdict) in &census.verdict {
+        match verdict {
+            Verdict::Front(_) => front += 1,
+            Verdict::Compiles => compiles.push(path),
+            Verdict::Refused(why) => {
+                refused += 1;
+                println!("stencil refuses {path}: {why}");
+            }
+            // Unreachable behind the assertion above, and counted into neither
+            // column on purpose: the line below is the one the CI liveness gate
+            // reads, and it has to be a count of what was actually asked.
+            Verdict::Unfinished(_) => {}
+        }
+    }
+    println!(
+        "stencil compiles {} of {} conformance files ({refused} refused, {front} not asked)",
+        compiles.len(),
+        census.verdict.len()
+    );
+    for path in CORPUS_COMPILES {
+        assert!(
+            compiles.iter().any(|c| c == path),
+            "`{path}` used to compile under stencil and no longer does"
+        );
+    }
+    let unlisted: Vec<&str> =
+        compiles.iter().copied().filter(|p| !CORPUS_COMPILES.contains(p)).collect();
+    assert!(
+        unlisted.is_empty(),
+        "{unlisted:?} compile under stencil now — add them to `CORPUS_COMPILES`, which is \
+         the list the seat this backend is meant to take is gated on"
+    );
+}
+
+/// Every conformance file this backend compiles also **runs**, and every
+/// `test` block in it passes.
+///
+/// Compiling is not the bar: a backend that emitted an object for a file and
+/// got the answers wrong would pass the census next door. A failed assertion
+/// ends the process (SPEC 6.10), so the exit status is the result.
+///
+/// `native/conformance.rs::the_native_set_passes` now runs the same thirty-one
+/// files through the same backend and reports the block count with them, so
+/// this is the narrower of two readings of one corpus. It stays because CI's
+/// Linux/arm64 job selects `stencil::` by name and this is the test in that
+/// selection that runs a program per corpus file.
+///
+/// It shares the census's child rather than compiling the corpus a second
+/// time: the objects it needs were emitted while the ratchet was being
+/// counted, and linking them where they were made is what the batch buys.
+#[test]
+fn the_corpus_files_it_compiles_pass() {
+    if !supported() {
+        return;
+    }
+    // A child is selected by name and never reaches this. The guard is for the
+    // other arrangement: a `BURI_STENCIL_CENSUS` left in an environment must
+    // not make this test open a census of its own inside one.
+    if std::env::var_os(CENSUS).is_some() {
+        return;
+    }
+    let census = census(Depth::Run);
+    assert!(
+        census.unfinished.is_empty(),
+        "{} corpus files did not finish the census:\n{}",
+        census.unfinished.len(),
+        census.unfinished.join("\n")
+    );
+    for path in CORPUS_COMPILES {
+        let (package, file) = path.split_once('/').unwrap_or((path, ""));
+        let full = corpus().join(package).join("test").join(file);
+        let source = std::fs::read_to_string(&full).unwrap();
+        let blocks = source.matches("\ntest \"").count();
+        assert!(blocks > 0, "`{path}` has no test blocks, so running it proves nothing");
+    }
+    let failures = failures_in(census, CORPUS_COMPILES);
+    // Every failing file, not the first: two platforms failing on two
+    // different files is one report here and two runs otherwise.
+    assert!(failures.is_empty(), "{} corpus files failed:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// Every file in `wanted` the census did not run, or ran to a non-zero exit, as
+/// a sentence that names it.
+///
+/// A function rather than a loop inside the test above because it is the
+/// census's **attribution**, and an attribution nothing exercises is one
+/// nothing holds: [`a_failing_corpus_file_is_named`] asks it about a census
+/// with a failure put into it on purpose.
+fn failures_in(census: &Census, wanted: &[&str]) -> Vec<String> {
+    let mut failures = Vec::new();
+    for path in wanted {
+        let Some((_, out)) = census.ran.iter().find(|(p, _)| p == path) else {
+            let why = census
+                .verdict
+                .iter()
+                .find(|(p, _)| p == path)
+                .map_or_else(|| String::from("the census never asked about it"), |(_, v)| v.say());
+            failures.push(format!("`{path}` never ran: {why}"));
+            continue;
+        };
+        if out.status != 0 {
+            failures.push(format!(
+                "`{path}` exited {}:\nstdout:\n{}\nstderr:\n{}",
+                out.status, out.stdout, out.stderr
+            ));
+        }
+    }
+    failures
+}
+
+/// **A corpus file that kills the census child is attributed to that file.**
+///
+/// The property the child exists for, and the one the arrangement it replaced
+/// could not have: in process, a file that aborted the compiler took the whole
+/// `native` binary with it and the log's last word was a signal. Here the
+/// parent outlives it, sees a file with no line against it, gives that file to
+/// a child of its own, and reports the path.
+///
+/// Two files, because an attribution that lost the rest of the corpus would be
+/// a report nobody could act on: the second is asserted to still have a
+/// verdict, which is the batch's re-ask working rather than the batch simply
+/// having got to it first.
+#[test]
+fn a_crashing_corpus_file_is_attributed_to_it() {
+    if !supported() {
+        return;
+    }
+    if std::env::var_os(CENSUS).is_some() {
+        return;
+    }
+    let crashes = "text/json.buri";
+    let beside = "codegen/bitwise.buri";
+    let files = vec![String::from(crashes), String::from(beside)];
+    let census = collect(&files, Depth::Run, &format!("{crashes}=crash"));
+    assert_eq!(
+        census.unfinished.len(),
+        1,
+        "exactly one file did not finish, and it is `{crashes}`: {:?}",
+        census.unfinished
+    );
+    assert!(
+        census.unfinished[0].contains(crashes),
+        "the report has to name the file that crashed: {}",
+        census.unfinished[0]
+    );
+    let (_, verdict) = census
+        .verdict
+        .iter()
+        .find(|(p, _)| p == beside)
+        .unwrap_or_else(|| panic!("`{beside}` is not in the census at all"));
+    assert!(
+        matches!(verdict, Verdict::Compiles),
+        "`{beside}` lost its verdict to `{crashes}`'s crash: {}",
+        verdict.say()
+    );
+    // And the whole of that verdict: `beside` is a file `CORPUS_COMPILES`
+    // names, so a census that stopped at the objects has not finished it.
+    assert!(
+        census.ran.iter().any(|(p, out)| p == beside && out.status == 0),
+        "`{beside}`'s program was never run beside the crash"
+    );
+}
+
+/// **A corpus file whose program fails is named, with its exit and its output.**
+///
+/// The claim [`the_corpus_files_it_compiles_pass`] makes, asserted about the
+/// machinery that now carries it: the run happens in a child and comes back
+/// over a text protocol, and a protocol that dropped a status or swallowed a
+/// newline would turn a failing corpus file into a passing suite.
+#[test]
+fn a_failing_corpus_file_is_named() {
+    if !supported() {
+        return;
+    }
+    if std::env::var_os(CENSUS).is_some() {
+        return;
+    }
+    let path = CORPUS_COMPILES[0];
+    let census = collect(&[String::from(path)], Depth::Run, &format!("{path}=fail"));
+    assert!(census.unfinished.is_empty(), "nothing crashed: {:?}", census.unfinished);
+    let failures = failures_in(&census, &[path]);
+    assert_eq!(failures.len(), 1, "one file failed: {failures:?}");
+    assert!(failures[0].contains(path), "the failure has to name the file: {}", failures[0]);
+    assert!(
+        failures[0].contains(&format!("exited {FAULT_STATUS}")),
+        "the failure has to carry the exit status: {}",
+        failures[0]
+    );
+    assert!(
+        failures[0].contains(FAULT_SAID),
+        "the failure has to carry what the program said, newline and all: {}",
+        failures[0]
+    );
 }
 
 /// The test-binary protocol, which is what makes a native failure report
