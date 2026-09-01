@@ -314,40 +314,75 @@ fn canonical(rel: &str, name: &str, text: &str) -> Option<String> {
 /// and no run whose target directory lives outside the checkout could reproduce
 /// any of it.
 ///
-/// So the question is asked of the repository, which already answers it: a file
-/// it **tracks**. Nothing a build writes is tracked, so the answer cannot be
-/// moved by a build, by a concurrent test, or by where `CARGO_TARGET_DIR`
-/// happens to point. It also cannot go quietly empty — an empty list fails the
-/// floor below.
+/// So the question is asked of the repository, which already answers it, and
+/// the answer it gives is **`.gitignore`**: a file is this repository's unless
+/// the repository says it is throwaway. Everything a build writes is under
+/// `target/`, which is ignored, so the answer still cannot be moved by a build,
+/// by a concurrent test, or by where `CARGO_TARGET_DIR` happens to point. It
+/// also cannot go quietly empty — an empty list fails the floor below.
+///
+/// It is deliberately **not** the narrower question, "a file it *tracks*". A
+/// file an author has only just written is not tracked until it is committed,
+/// so a gate that asks that one is blind to exactly the files most likely to be
+/// wrong — the new ones. It happened: a slice wrote the actor corpus's two new
+/// sources, ran this gate green because neither file existed as far as
+/// `git ls-files` was concerned, committed, and turned the *next* run red — one
+/// tree after the one it was gating. Tracked
+/// **plus** untracked-and-not-ignored is the same set one commit later, which
+/// is the set the gate is supposed to be standing in front of.
+///
+/// A nested checkout is somebody else's repository — a linked worktree parked
+/// under `.claude/`, a vendored clone — and `git` reports it as the directory
+/// itself, with a trailing slash, rather than looking inside. Neither does
+/// this: those files answer to that checkout's gate, not this one's.
 ///
 /// This asks `git` for the list rather than reimplementing `.gitignore`, and it
 /// is the one place in the suite that shells out to it. The suite already reads
 /// `.github/`, `design/` and `formal/` off disk, so it already only runs inside
 /// this repository; needing the checkout those came from is that assumption
 /// said out loud.
-fn tracked_files(root: &Path) -> Vec<PathBuf> {
+fn repository_files(root: &Path) -> Vec<PathBuf> {
+    let mut names = git_names(root, &["ls-files", "-z"]);
+    names.extend(git_names(root, &["ls-files", "-z", "--others", "--exclude-standard"]));
+    let mut out: Vec<PathBuf> = names
+        .into_iter()
+        .filter(|name| !name.ends_with('/'))
+        .map(|name| root.join(name))
+        .collect();
+    // No path is both tracked and untracked, so the two answers are disjoint
+    // today. This says so rather than depending on it, and sorts, because the
+    // order files are checked in is the order a failure lists them.
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// One `git ls-files` question, asked with `-z` so a path with a newline or a
+/// quote in it comes back as its own bytes rather than as git's quoting.
+fn git_names(root: &Path, args: &[&str]) -> Vec<String> {
     let out = std::process::Command::new("git")
         .current_dir(root)
-        .args(["ls-files", "-z"])
+        .args(args)
         .output()
         .expect("`git ls-files` runs: this suite runs inside the repository's own checkout");
     assert!(
         out.status.success(),
-        "`git ls-files` failed in {}: {}",
+        "`git {}` failed in {}: {}",
+        args.join(" "),
         root.display(),
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8_lossy(&out.stdout)
         .split('\0')
         .filter(|line| !line.is_empty())
-        .map(|line| root.join(line))
+        .map(str::to_string)
         .collect()
 }
 
 /// Every `.buri` file in the repository, and the reason the exempt ones are
 /// exempt.
 fn every_buri_file(root: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
-    let all = tracked_files(root);
+    let all = repository_files(root);
     let mut checked = Vec::new();
     let mut exempt = Vec::new();
     for path in all {
@@ -452,6 +487,115 @@ fn every_source_in_the_repository_is_formatted() {
         drifted.join("\n  ")
     );
     eprintln!("{} formatted, {} exempt by design", files.len(), exempt.len());
+}
+
+/// Runs one `git` command in `root` and insists it worked.
+fn git(root: &Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .output()
+        .unwrap_or_else(|e| panic!("cannot run `git {}`: {e}", args.join(" ")));
+    assert!(
+        out.status.success(),
+        "`git {}` failed in {}: {}",
+        args.join(" "),
+        root.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// **What [`repository_files`] answers, on a repository built to ask it four
+/// questions at once.**
+///
+/// The gate above is only as wide as this list, and the list is what got the
+/// slice that added the actor corpus: both of its new `.buri` files were
+/// written, checked green, and committed, because a walk of *tracked* files
+/// cannot see a file that has never been committed. The gate went red on the
+/// next tree instead — after the commit it was standing in front of.
+///
+/// So the four questions, in one scratch repository:
+///
+/// * a **committed** file is in the list, as it always was;
+/// * a file that exists but has **never been added** is in it too — this is the
+///   assertion the old walk failed;
+/// * nothing under **`target/`** is, because `.gitignore` says so, which is the
+///   guarantee the tracked-only walk was bought for and this must not spend:
+///   the suites materialize whole repositories under it while they run;
+/// * nothing inside a **nested checkout** is, because those files answer to
+///   that repository's gate — an agent's linked worktree parked under
+///   `.claude/` is a tree full of somebody else's half-finished sources.
+///
+/// It asks the real thing rather than a re-reading of it: the file the walk is
+/// blind to is genuinely misformatted, and the exemption list keeps working on
+/// a file that is not committed either.
+///
+/// The repository is a [`harness::Scratch`], so it lives under
+/// `CARGO_TARGET_TMPDIR` — inside the checkout when `CARGO_TARGET_DIR` is,
+/// which is exactly the ignored ground this is testing — and its `Drop` takes
+/// it away whether the test passed or panicked on the way out.
+#[test]
+fn the_walk_sees_a_file_that_is_not_committed_yet() {
+    // Two spaces where the formatter writes four, so the canonical form of
+    // this text is not this text.
+    const DRIFTED: &str = "export struct Probe {\n  export flag: Bool,\n}\n";
+
+    let scratch = harness::Scratch::empty("untracked-walk");
+    let root = &scratch.root;
+    let laid_out = canonical("cli/lib/probe.buri", "probe.buri", DRIFTED)
+        .expect("the probe source parses, so it has a canonical form");
+    assert_ne!(laid_out, DRIFTED, "the probe source is already formatted, so it proves nothing");
+
+    scratch.write(".gitignore", "target/\n");
+    scratch.write("cli/lib/committed.buri", &laid_out);
+    scratch.write("cli/lib/fresh.buri", DRIFTED);
+    // What a build and a concurrent suite leave behind, and what the formatting
+    // suite's own corpus is: misformatted on purpose, and exempt by design.
+    scratch.write("target/tmp/scratch/what_a_build_wrote.buri", DRIFTED);
+    scratch.write("cli/tests/formatting/indent/input.buri", DRIFTED);
+    scratch.write("worktrees/agent/cli/lib/somebody_elses.buri", DRIFTED);
+
+    git(root, &["init", "-q"]);
+    git(root, &["add", ".gitignore", "cli/lib/committed.buri"]);
+    git(&root.join("worktrees/agent"), &["init", "-q"]);
+
+    let (checked, exempt) = every_buri_file(root);
+    let rel = |files: &[PathBuf]| -> Vec<String> {
+        files
+            .iter()
+            .map(|p| p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/"))
+            .collect()
+    };
+    let (checked, exempt) = (rel(&checked), rel(&exempt));
+
+    assert!(
+        checked.contains(&"cli/lib/fresh.buri".to_string()),
+        "a `.buri` file that exists but has never been committed is not in the walk, \
+         so the gate is blind to exactly the files most likely to be misformatted — \
+         the new ones. Checked: {checked:?}"
+    );
+    assert!(
+        checked.contains(&"cli/lib/committed.buri".to_string()),
+        "a committed `.buri` file fell out of the walk. Checked: {checked:?}"
+    );
+    assert!(
+        exempt.contains(&"cli/tests/formatting/indent/input.buri".to_string()),
+        "`UNFORMATTED_BY_DESIGN` stopped covering a file that is not committed yet, so a \
+         new case in one of those corpora would be reported as drift. Exempt: {exempt:?}"
+    );
+    for found in checked.iter().chain(&exempt) {
+        assert!(
+            !found.starts_with("target/"),
+            "{found} is under `target/`, which `.gitignore` covers: what a build and the \
+             suites running beside this one write is not this repository's source, and \
+             which of it exists depends on what is running"
+        );
+        assert!(
+            !found.starts_with("worktrees/"),
+            "{found} is inside a nested checkout, whose files answer to that repository's \
+             gate rather than this one's"
+        );
+    }
 }
 
 /// Formatting is a fixed point and never produces something that does not
@@ -1100,7 +1244,7 @@ fn text_files(dir: &Path, out: &mut Vec<PathBuf>) {
             // Not into what a build writes. `CARGO_TARGET_DIR` may name a
             // directory *inside* the checkout, and what is under it is output
             // and scratch trees rather than anybody's source — see
-            // [`tracked_files`], which is how the file-list question is asked
+            // [`repository_files`], which is how the file-list question is asked
             // where the answer has to be exact.
             let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
             if name.starts_with('.') || name == "target" || name == "node_modules" {
