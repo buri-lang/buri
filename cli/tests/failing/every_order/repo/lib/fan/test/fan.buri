@@ -5,14 +5,15 @@
 // block alive to assert on — a fault that fires ends it, and a fault that never
 // fires fails it on the way out.
 
-from "core/effect" import { Tasks };
-from "core/host/testing" import { task, tasks };
+from "core/effect" import { Alloc, Tasks };
+from "core/host/testing" import { alloc, task, tasks };
 from "core/testing/assert" import * as assert;
 from "//lib/fan" import { labelled };
 
 test "everyOrder reaches the sixth order of three tasks" {
     let scheduler = tasks().everyOrder();
     let ctx = context {
+        Alloc: alloc(),
         Tasks: scheduler,
     };
     let _ = labelled(ctx, [1, 2, 3]);
@@ -25,6 +26,7 @@ test "everyOrder reaches the sixth order of three tasks" {
 test "a fault ends the block at the task it names" {
     let scheduler = tasks().faults([task(1).fails("upstream went away")]);
     let ctx = context {
+        Alloc: alloc(),
         Tasks: scheduler,
     };
     // Task 0 runs; task 1 is the one the plan fails, and nothing after it starts.
@@ -34,6 +36,7 @@ test "a fault ends the block at the task it names" {
 test "a fault whose task is never reached fails the test" {
     let scheduler = tasks().faults([task(4).fails("never reached")]);
     let ctx = context {
+        Alloc: alloc(),
         Tasks: scheduler,
     };
     assert.eq(labelled(ctx, [1, 2]), [1, 102]);
