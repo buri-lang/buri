@@ -562,6 +562,15 @@ impl AsyncTls {
         // The deadlines the handshake ran under are the socket's, and a
         // non-blocking socket has no use for them: a read that would wait
         // answers `WouldBlock` now, and the waiting is the reactor's.
+        //
+        // **Which is where the bound has to be, and it is there.** Clearing
+        // these two is the one place in this runtime where a deadline is taken
+        // *off* something, so it is worth saying what carries it afterwards
+        // rather than leaving a reader to hope: `net.rs`'s `h2` bounds the
+        // connection task once its GOAWAY has gone out, and `answered_within`
+        // bounds each stream waiting on a handler. A socket option could not
+        // have done either job — one bounds a task and the other bounds a wait
+        // on a channel, and neither is a `read(2)`.
         let _ = sock.set_read_timeout(None);
         let _ = sock.set_write_timeout(None);
         let sock = tokio::net::TcpStream::from_std(sock)?;
