@@ -7,14 +7,15 @@
 // that used it would pin this file's hash and go red the next time somebody
 // fixed a typo in this comment.
 
-from "core/effect" import { Tasks };
-from "core/host/testing" import { task, tasks };
+from "core/effect" import { Alloc, Tasks };
+from "core/host/testing" import { alloc, task, tasks };
 from "core/testing/assert" import * as assert;
 from "//lib/fan" import { labelled };
 
 test "a seeded order names the seed that replays it" {
     let scheduler = tasks().seed(5);
     let ctx = context {
+        Alloc: alloc(),
         Tasks: scheduler,
     };
     // The results are in the items' order whatever order the work ran in, so
@@ -25,6 +26,7 @@ test "a seeded order names the seed that replays it" {
 test "an everyOrder run names which of the orders it is" {
     let scheduler = tasks().everyOrder();
     let ctx = context {
+        Alloc: alloc(),
         Tasks: scheduler,
     };
     let _ = labelled(ctx, [1, 2, 3]);
@@ -38,6 +40,7 @@ test "an everyOrder run names which of the orders it is" {
 test "a faulted task carries the order too" {
     let scheduler = tasks().seed(5).faults([task(1).fails("upstream went away")]);
     let ctx = context {
+        Alloc: alloc(),
         Tasks: scheduler,
     };
     // The plan ends this block at task 1, which under `seed(5)` is the second

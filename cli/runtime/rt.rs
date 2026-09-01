@@ -172,6 +172,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use std::thread;
+use std::time::Duration;
 
 use crate::list::{block, StepEntry};
 use crate::memory::Blocks;
@@ -1457,6 +1458,56 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_open(ptr: *mut u8, len: u64, boun
     (table.len() as i64) - 1
 }
 
+/// How long a wait on the actor table lasts before it is answered rather than
+/// waited out.
+///
+/// **The two waits below are the only ones in this runtime a *program* can
+/// make unbounded**, which is why they carry a number at all. Everything else
+/// that waits here is waiting on the runtime's own machinery — a carrier
+/// picking work up, a task the waker will reach — and cannot be deadlocked by
+/// what a program does. These two can: `mailboxPush` waits on room a *second*
+/// actor has to make, and `mailboxClose` waits on a step that is arbitrary Buri
+/// code. Two actors each posting into the other's full mailbox is a deadlock
+/// with no participant at fault, and an `onStop` that never returns is a `stop`
+/// that never does.
+///
+/// Thirty seconds, the same number `http.rs`, `tls.rs` and `net.rs` carry, and
+/// for the reason `net.rs` states as the rule: **every wait is bounded except
+/// the one a server is for**, and neither of these is one a server is for. It
+/// is not a number a correct program reaches — `core/actor::send` runs the
+/// mailbox down at the bound, so a single-task program never waits here at all
+/// — so it is priced as "long enough that reaching it is a bug" rather than as
+/// a latency budget.
+///
+/// What expiry *means* is stated at each of the two callers, because the two
+/// answers differ and neither is a new variant: a program that wants to tell a
+/// deadlock from a stop needs one, and that is a `core/actor` change rather
+/// than a runtime one.
+const ACTOR_DEADLINE: Duration = Duration::from_secs(30);
+
+/// Take a permit from `sem`, or give up at `deadline`.
+///
+/// `None` is both endings, because both callers answer them the same way: the
+/// semaphore was closed under the wait, which is a `stop`, or the wait ran out.
+///
+/// The deadline is a parameter and not the constant so that the bound can be
+/// *asserted* rather than read — the same argument, and the same shape, as
+/// `http.rs`'s `fetch_within`. A test that wanted to watch [`ACTOR_DEADLINE`]
+/// fire would take thirty seconds, and a test nobody runs is the state every
+/// hang this repository has had was found in.
+fn permit_within(
+    sem: &tokio::sync::Semaphore,
+    deadline: Duration,
+) -> Option<tokio::sync::SemaphorePermit<'_>> {
+    park_on(async {
+        match tokio::time::timeout(deadline, sem.acquire()).await {
+            Ok(Ok(permit)) => Some(permit),
+            // Closed under the wait, or the wait ran out.
+            Ok(Err(_)) | Err(_) => None,
+        }
+    })
+}
+
 /// The mailbox a handle names, or nothing.
 ///
 /// A handle that names none cannot arise from a program — `core/actor` mints
@@ -1484,6 +1535,22 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_push(
     len: u64,
     out: *mut i64,
 ) -> i32 {
+    // SAFETY: forwarded.
+    unsafe { push_within(handle, ptr, len, out, ACTOR_DEADLINE) }
+}
+
+/// [`buri_rt_actor_mailbox_push`], with the deadline as a parameter — see
+/// [`permit_within`] for why there is one.
+///
+/// # Safety
+/// As [`buri_rt_actor_mailbox_push`].
+unsafe fn push_within(
+    handle: i64,
+    ptr: *mut u8,
+    len: u64,
+    out: *mut i64,
+    deadline: Duration,
+) -> i32 {
     let room = {
         let mut table = actors();
         match at(&mut table, handle) {
@@ -1493,8 +1560,16 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_push(
     };
     // Outside the table's lock: the permit that frees this one is given back by
     // `mailboxPop`, which takes the same lock.
-    let Ok(permit) = park_on(room.acquire()) else {
-        // The semaphore was closed while this call waited, which is `stop`.
+    //
+    // **Bounded**, which is [`ACTOR_DEADLINE`]'s row. `.None` is the answer to
+    // both endings, and it is the same `.Err(.Stopped)` `core/actor::send`
+    // renders for a closed mailbox — so a `send` that waited out the deadline
+    // is reported as a stop rather than as a deadlock. That is the honest limit
+    // of what can be said without a variant `core/actor` does not have, and it
+    // is the right way round: the block is not taken, so the caller's own
+    // release frees it, and a sender told "stopped" stops rather than retrying
+    // into the same wait.
+    let Some(permit) = permit_within(&room, deadline) else {
         return 0;
     };
     permit.forget();
@@ -1541,6 +1616,16 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_pop(handle: i64, out: *mut BuriLi
 /// `out` is writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_actor_mailbox_close(handle: i64, out: *mut BuriList) -> i32 {
+    // SAFETY: forwarded.
+    unsafe { close_within(handle, out, ACTOR_DEADLINE) }
+}
+
+/// [`buri_rt_actor_mailbox_close`], with the deadline as a parameter — see
+/// [`permit_within`] for why there is one.
+///
+/// # Safety
+/// As [`buri_rt_actor_mailbox_close`].
+unsafe fn close_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i32 {
     let baton = {
         let mut table = actors();
         match at(&mut table, handle) {
@@ -1556,7 +1641,16 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_close(handle: i64, out: *mut Buri
     };
     // Outside the lock: the step this waits for is Buri code, and it takes the
     // lock itself when it puts the state back.
-    if let Ok(permit) = park_on(baton.acquire()) {
+    //
+    // **Bounded**, which is [`ACTOR_DEADLINE`]'s row: the step is a handler a
+    // program wrote, so a step that never returns would be a `stop` that never
+    // does. Giving up costs nothing the close was going to get — the mailbox is
+    // already marked closed above, so the actor takes no more messages and
+    // `stateTake` refuses it whatever happens next — and the state below is
+    // then `None` for exactly as long as the step still holds it, which is the
+    // `.None` a *second* close already answers. So an `onStop` may not run for
+    // an actor whose step never finished, and that is the only thing lost.
+    if let Some(permit) = permit_within(&baton, deadline) {
         // Kept, never given back: the baton is what a `stateTake` needs, so
         // holding it forever is what makes a stopped actor unsteppable.
         permit.forget();
@@ -3546,6 +3640,105 @@ mod tests {
         assert_eq!(ok, crate::BURI_OK);
         assert_eq!(depth, 1);
         waiter.join().expect("the posting carrier panicked");
+    }
+
+    /// How long a bounded wait may take before the bound is what failed.
+    ///
+    /// Two orders of magnitude above the deadlines the two cases below set, so
+    /// a loaded machine is not a failing one — the same number and the same
+    /// argument as `http.rs`'s.
+    const SOON: Duration = Duration::from_secs(5);
+
+    /// **A post into a mailbox nobody will ever drain ends at the deadline.**
+    ///
+    /// The other half of `a_full_mailbox_makes_a_post_wait_for_room`, and the
+    /// half the tls-hang doctrine is about: that test pops the message and
+    /// proves the wait *ends when it should*, and this one never pops and
+    /// proves it ends **at all**. Two actors each posting into the other's full
+    /// mailbox is the shape in a program, and neither of them is at fault, so
+    /// nothing in `core/actor` can be relied on to break it.
+    ///
+    /// Without [`ACTOR_DEADLINE`] this case does not fail — it hangs, until the
+    /// job timeout kills the run without naming it, which is the outcome this
+    /// repository has built the most machinery against.
+    #[test]
+    fn a_post_into_a_mailbox_nobody_drains_ends_at_the_deadline() {
+        let state = carried(0);
+        // SAFETY: a live one-element block.
+        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 1) };
+        drop_ref(&state);
+
+        let first = carried(1);
+        let mut depth = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        let ok =
+            unsafe { buri_rt_actor_mailbox_push(actor, first.ptr, first.len, &raw mut depth) };
+        assert_eq!(ok, crate::BURI_OK, "the first post filled the mailbox");
+        drop_ref(&first);
+
+        // And now nothing pops. The one permit is spent and no `mailboxPop`
+        // will give it back.
+        let second = carried(2);
+        let started = Instant::now();
+        // SAFETY: a live one-element block, and a writable `i64`.
+        let answer = unsafe {
+            push_within(actor, second.ptr, second.len, &raw mut depth, Duration::from_millis(80))
+        };
+        let waited = started.elapsed();
+        assert_eq!(answer, 0, "a mailbox nobody drains accepted a post");
+        assert!(waited >= Duration::from_millis(60), "{waited:?} is not a wait at all");
+        assert!(waited < SOON, "the post waited {waited:?}");
+        // The block was not taken, so this side still owns it — which is the
+        // half of the answer that keeps a deadline from being a leak.
+        drop_ref(&second);
+
+        let mut out = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut out) }, crate::BURI_OK);
+        drop_ref(&out);
+        let mut out = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) }, crate::BURI_OK);
+        drop_ref(&out);
+    }
+
+    /// **A `stop` under a step that never ends gives the deadline up, not the
+    /// process.**
+    ///
+    /// `stateTake` holds the baton for as long as the step runs, and a step is
+    /// arbitrary Buri code — so a handler that loops for ever used to make
+    /// `mailboxClose` wait for ever with it. The close still does everything
+    /// that does not need the step: the mailbox is closed, every waiting post
+    /// is answered, and `stateTake` refuses from here on. What it answers is
+    /// `.None`, which is what a *second* close answers, so `onStop` does not
+    /// run for an actor whose step never finished — stated at the wait itself.
+    #[test]
+    fn a_close_under_a_step_that_never_ends_gives_up_at_the_deadline() {
+        let state = carried(7);
+        // SAFETY: a live one-element block.
+        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };
+        drop_ref(&state);
+
+        // A step begins and never puts the state back.
+        let mut held = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut held) }, crate::BURI_OK);
+
+        let mut out = nothing();
+        let started = Instant::now();
+        // SAFETY: a writable, aligned destination.
+        let answer = unsafe { close_within(actor, &raw mut out, Duration::from_millis(80)) };
+        let waited = started.elapsed();
+        assert_eq!(answer, 0, "a close under a live step answered with a state it does not have");
+        assert!(waited >= Duration::from_millis(60), "{waited:?} is not a wait at all");
+        assert!(waited < SOON, "the close waited {waited:?}");
+
+        // Closed all the same: the half of a `stop` that does not need the step
+        // happened, so nothing may step this actor again.
+        let mut refused = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut refused) }, 0);
+        drop_ref(&held);
     }
 
     /// A `stop` while the mailbox is full does not leave the poster waiting:
