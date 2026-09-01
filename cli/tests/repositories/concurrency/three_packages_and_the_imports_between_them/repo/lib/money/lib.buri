@@ -1,0 +1,4 @@
+// A surface is a re-export list and nothing else: what is here is what the
+// rest of the repository may name.
+
+from "//lib/money/cents.buri" export { Cents, fromCents, show };

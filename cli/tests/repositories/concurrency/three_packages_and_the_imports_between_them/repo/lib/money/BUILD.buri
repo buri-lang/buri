@@ -1,0 +1,4 @@
+library {
+    sources: ["cents.buri"]
+    visibility: ["//lib/ledger", "//cmd/report"]
+}

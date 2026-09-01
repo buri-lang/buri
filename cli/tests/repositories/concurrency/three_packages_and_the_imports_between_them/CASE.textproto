@@ -1,0 +1,46 @@
+# A repository of three packages, holding one of each kind of import path a
+# person writes.
+#
+# An import path names one of two things and the spelling says which: a
+# **surface** — a library's `lib.buri`, its `testing/lib.buri`, a standard
+# library module — or a **file** inside a package. `//lib/money` is a surface
+# and `//lib/ledger/entry.buri` is a file, and the difference is not cosmetic:
+# a surface may be imported by anyone the dependency and visibility rules
+# allow, and a file only by another file of that same package.
+#
+# All of it in one repository, built and tested and run, because that is the
+# only place the two namespaces meet: `//lib/money` is simultaneously the label
+# a `dependencies` list holds and the path an import writes, and nothing but a
+# real package graph can say they agree.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "surfaces, files and a testing surface, across three packages of one repository"
+
+run {
+  args: ["test", "//lib/ledger", "--force"]
+  exit: 0
+  golden: "tested.txt"
+}
+
+run {
+  args: ["run", "//cmd/report"]
+  exit: 0
+  golden: "reported.txt"
+}
+
+# The negative twin, and it is the whole reason the two spellings are two
+# spellings: a *file* of another package is not a thing this package may name,
+# even with the dependency declared and the visibility open.
+edit {
+  file: "cmd/report/main.buri"
+  replace: "from \"//lib/ledger\" import { entries, total };"
+  with: "from \"//lib/ledger/entry.buri\" import { entries, total };"
+}
+
+run {
+  args: ["build", "//cmd/report"]
+  exit: 1
+  golden: "internal.txt"
+}

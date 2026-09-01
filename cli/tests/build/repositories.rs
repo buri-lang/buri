@@ -133,6 +133,26 @@ fn test_suites() {
     run_corpus(&tests_dir().join("repositories/testing"), "testing", 11);
 }
 
+/// The concurrency-and-servers surface, driven the way a person drives it: a
+/// package in a repository, a suite beside it, and one `buri` command.
+///
+/// **Why these claims are here as well as in the conformance corpus.** That
+/// corpus is where a language semantic lives and it is run on every backend,
+/// with `platforms: [JS]` on each package so the reference run stays the
+/// reference one — but every one of its readers is a harness of this
+/// repository's own. A repository case is the other thing: `buri test`, a real
+/// package graph, and on a toolchain with a native backend a linked binary
+/// that ran. `cli/tests/README.md`'s "The trust ordering" is the argument, and
+/// F-1 is the incident behind it — the tier under an end-to-end claim stayed
+/// green for two waves while the claim itself had quietly stopped being made.
+///
+/// Every case ends with the edit that makes its subject's **failure** visible,
+/// so what is recorded is the real answer and not an assertion about one.
+#[test]
+fn concurrency_and_memory() {
+    run_corpus(&tests_dir().join("repositories/concurrency"), "concurrency", 5);
+}
+
 /// The language server. Each case is a recorded session: requests in, decoded
 /// responses out, so a change to what the server says shows up as a diff
 /// rather than as an editor behaving differently.

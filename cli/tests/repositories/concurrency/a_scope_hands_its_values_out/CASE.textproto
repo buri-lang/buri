@@ -1,0 +1,43 @@
+# `core/alloc`'s `scoped`, and every way a value gets out of one.
+#
+# A scope's pages go back when its body returns, so a value that leaves has to
+# be a copy the scope is not about to unmap. There are two doors and they are
+# not the same door: `copyOut`, which copies onto **whichever allocator is
+# active** and is what `scoped` itself uses on the way out; and `copyAcross`,
+# which leaves every arena first and is what `core/actor` uses at each of its
+# four crossings into the runtime.
+#
+# Every value here is one the *program* built rather than a literal, and it is
+# `LOOSE` bytes long so that its mapping is unmapped rather than pooled; the
+# `churn` between the scope and the read takes the pooled pages back too. Both
+# halves are needed, and `conformance/lib/actor/test/scoped.buri`'s header is
+# where the argument is written out in full. Here they are through the CLI, in
+# a repository, on whichever backend the invocation asks for — which on a
+# toolchain with a native backend is where there is an arena to get wrong.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a value built inside a scope survives the scope, at every crossing a program can reach"
+
+run {
+  args: ["test", "//lib/vault", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# The negative twin. A retired scope is not a use-after-free waiting to happen
+# and not an error either — it is a handle that matches no arena, so what it is
+# asked for it answers and what it is charged stops moving. Flipping the stop's
+# expectation records the answer an escaped handle really gives.
+edit {
+  file: "lib/vault/test/crossings.buri"
+  replace: "assert.eq(out.address.stop(out.scope), .Ok(()));\n    assert.eq(out.address.send(out.scope, .Put(\"late\")), .Err(.Stopped));"
+  with: "assert.eq(out.address.stop(out.scope), .Err(.Stopped));"
+}
+
+run {
+  args: ["test", "//lib/vault", "--force"]
+  exit: 1
+  golden: "retired.txt"
+}

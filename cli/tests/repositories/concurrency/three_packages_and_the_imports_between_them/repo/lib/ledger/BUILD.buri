@@ -1,0 +1,14 @@
+library {
+    sources: ["entry.buri"]
+    dependencies: ["//lib/money"]
+    visibility: ["//cmd/report"]
+
+    test {
+        sources: ["test/ledger.buri"]
+    }
+
+    testing {
+        sources: ["testing/fixtures.buri"]
+        dependencies: ["//lib/money"]
+    }
+}

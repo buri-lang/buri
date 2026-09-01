@@ -826,7 +826,94 @@ pub fn run_corpus(dir: &Path, what: &str, floor: usize) {
         run_case(&load_case(dir), &mut g);
     }
     g.finish(what, cases.len());
+    // Last, and on the bytes the run above has just written: see
+    // `no_golden_has_collapsed`.
+    no_golden_has_collapsed(dir, what);
 }
+
+// ---------------------------------------------------------------------------
+// The goldens-collapse guard
+// ---------------------------------------------------------------------------
+
+/// Every case in every golden corpus whose recorded output **is** a run that
+/// asserted nothing — because that is what the case is about.
+///
+/// Written `<corpus>/<case>`, where `<corpus>` is the name `run_corpus` was
+/// given. Set equality in both directions: a case that starts recording one of
+/// these shapes fails here, and a case that stops recording one fails here too.
+///
+/// **This list is the whole of what `BURI_BLESS=1` may not do.** Blessing is
+/// allowed to rewrite what a report *says*; it is not allowed to rewrite a
+/// report into the absence of one, and it cannot be stopped from doing so by
+/// the exit code — `exit` is hand-written, and a suite that does not compile
+/// exits 1 exactly like a suite whose tests fail, so both cases stay green
+/// while everything they were written to assert is gone.
+///
+/// That is not hypothetical and it is why this exists. `164a9279` rewrote
+/// `ctx.parallel(…)` to `tasks.parallel(…)`, which asks for `Alloc + Tasks`
+/// where `failing/task_order` and `failing/every_order`'s fixture offered
+/// `Tasks`; `2c92e7c9` — a commit about a lint — then blessed both goldens down
+/// from eighteen and fourteen lines to one, and the only end-to-end coverage of
+/// the `everyOrder` rank, the order line and the seed line went with them.
+/// Nothing noticed for two waves, because every tier under those two goldens
+/// was still green.
+pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
+    // A suite that did not compile is the subject.
+    "failing/does_not_compile",
+    "failing/duplicate_titles",
+    "testing/uncompiled_suite",
+    "libraries/an_import_that_names_no_file",
+    // A suite with nothing in it, and a filter that matched nothing, are both
+    // "zero tests ran" as the claim rather than as an accident.
+    "failing/no_tests",
+    "failing/counts",
+    "testing/filter",
+];
+
+/// The two shapes a recorded report collapses into when it stops being one.
+///
+/// Both are things a *running* corpus prints, which is what makes them
+/// invisible to every other check here: neither is an error, neither changes an
+/// exit code, and neither looks wrong in isolation.
+const COLLAPSED: &[&str] = &["failed to compile", "0 passed, 0 failed"];
+
+/// No golden in this corpus has collapsed into a run that asserted nothing,
+/// and every case that is *supposed* to record one still does.
+///
+/// Called from [`run_corpus`] rather than run as a test of its own, and that
+/// placement is load-bearing: under `BURI_BLESS=1` it reads the very bytes the
+/// corpus has just written, so a separate `#[test]` races the blesser and
+/// reports the golden it is in the middle of fixing. Inside, the order is the
+/// one that means something — the corpus agrees with what is recorded, and then
+/// what is recorded is a report.
+pub fn no_golden_has_collapsed(dir: &Path, what: &str) {
+    let mut found: Vec<String> = Vec::new();
+    for case in super::case_dirs(dir, "CASE.textproto", 1) {
+        let name = case.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let Ok(entries) = std::fs::read_dir(case.join("expected")) else { continue };
+        for entry in entries.filter_map(Result::ok) {
+            let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+            if COLLAPSED.iter().any(|shape| text.contains(shape)) {
+                found.push(format!("{what}/{name}"));
+                break;
+            }
+        }
+    }
+    found.sort();
+    let mut allowed: Vec<String> = A_RUN_THAT_ASSERTED_NOTHING
+        .iter()
+        .filter(|row| row.starts_with(&format!("{what}/")))
+        .map(|row| (*row).to_string())
+        .collect();
+    allowed.sort();
+    assert_eq!(
+        found, allowed,
+        "a golden in `{what}` has collapsed into a run that asserted nothing, or a case that \
+         records one on purpose has stopped. `exit` is hand-written, so neither shows up as a \
+         failing case — see `A_RUN_THAT_ASSERTED_NOTHING`"
+    );
+}
+
 
 // ---------------------------------------------------------------------------
 // Language-server framing

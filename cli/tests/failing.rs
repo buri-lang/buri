@@ -233,62 +233,19 @@ fn no_recorded_report_pins_a_time_or_a_path() {
     );
 }
 
-/// The cases whose subject **is** a compile failure, and no third.
+/// No golden here has collapsed into a run that asserted nothing.
 ///
-/// `does_not_compile` records the shape of a test source the compiler rejects;
-/// `duplicate_titles` records the one language rule this corpus owns — two
-/// tests sharing a title inside one file. Both are meant to print a summary of
-/// zeros, so both are named here.
-const COMPILE_FAILURE_IS_THE_SUBJECT: &[&str] = &["does_not_compile", "duplicate_titles"];
-
-/// No other case's golden is a compile failure.
+/// The check itself is `harness::no_golden_has_collapsed`, shared with every
+/// repository corpus and holding one allowlist for all of them — this corpus is
+/// where the incident that produced it happened, and it is not the only place
+/// it can happen. Its doc is the argument; what is here is the call site.
 ///
-/// A `repo/` that stops building does not turn its case red: `exit` is
-/// hand-written, and a suite that does not compile exits 1 exactly like a suite
-/// whose tests fail. So the case still passes, and everything it was written to
-/// assert is gone — the golden now holds one line about the build in place of a
-/// report about the product.
-///
-/// That is not hypothetical. `164a9279` rewrote `ctx.parallel(…)` to
-/// `tasks.parallel(…)`, which asks for `Alloc + Tasks` where `task_order/` and
-/// `every_order/`'s fixture offered `Tasks`; `2c92e7c9` — a commit about a lint
-/// — then blessed both goldens down from 18 and 14 lines to that one line, and
-/// the only end-to-end coverage of the `everyOrder` rank, the order line and
-/// the seed line went with them. Nothing noticed for two slices.
-///
-/// `BURI_BLESS=1` is allowed to rewrite what a report *says*. This is the one
-/// thing it may not do: rewrite a report into the absence of one. Set equality
-/// in both directions, so a case that stops printing a compile failure fails
-/// here as loudly as one that starts printing one.
-///
-/// Called from `recorded_failure_reports` rather than run as a test of its
-/// own — see there.
+/// **Called from `recorded_failure_reports` rather than run as a test of its
+/// own**, and that placement is load-bearing: under `BURI_BLESS=1` it reads the
+/// very bytes `run_corpus` writes, so a separate `#[test]` races the blesser
+/// and reports the golden it is in the middle of fixing.
 fn no_golden_collapsed_into_a_compile_failure() {
-    let mut found: Vec<String> = Vec::new();
-    for dir in case_dirs(&corpus(), "CASE.textproto", 21) {
-        let name = dir.file_name().unwrap().to_string_lossy().to_string();
-        let Ok(entries) = std::fs::read_dir(dir.join("expected")) else { continue };
-        for e in entries.filter_map(Result::ok) {
-            let Ok(text) = std::fs::read_to_string(e.path()) else { continue };
-            if text.contains("failed to compile") {
-                found.push(name.clone());
-                break;
-            }
-        }
-    }
-    found.sort();
-    found.dedup();
-    let named: Vec<String> =
-        COMPILE_FAILURE_IS_THE_SUBJECT.iter().map(|c| (*c).to_string()).collect();
-    assert_eq!(
-        found, named,
-        "a `failing/` golden holds a compile-failure summary and its case does not declare that \
-         as its subject — or a case that declares it has stopped printing one. A case whose \
-         `repo/` stopped building still exits 1 and still passes, so blessing it records the \
-         build instead of the report and every assertion the case was written for is silently \
-         gone. Fix the fixture and re-bless; add a name to `COMPILE_FAILURE_IS_THE_SUBJECT` \
-         above only if the compile failure is what the case is for."
-    );
+    no_golden_has_collapsed(&corpus(), "failing");
 }
 
 /// Every case says out loud what it is about, and runs `test`.

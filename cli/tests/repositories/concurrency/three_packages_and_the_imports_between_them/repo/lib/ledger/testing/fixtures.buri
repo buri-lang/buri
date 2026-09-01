@@ -1,0 +1,9 @@
+// A `testing` surface: importable only from a test source, and by the path
+// that says so.
+
+from "//lib/ledger" import { Entry };
+from "//lib/money" import { fromCents };
+
+export fn sample(): Entry {
+    Entry { label: "sample", amount: fromCents(1) }
+}
