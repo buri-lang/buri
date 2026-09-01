@@ -1,0 +1,39 @@
+// A counter, as `core/actor`'s own module header writes one.
+
+from "core/actor" import { Actor, Reply };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/io" import * as io;
+
+export enum CounterMessage {
+    Increment,
+    /// Multiplies before it adds, so the *order* the messages arrived in is
+    /// visible in the answer rather than only their number.
+    Add(Int),
+    Get(Reply<Int>),
+}
+
+/// `bound` is `Actor.mailbox`: `.None` is `core/actor`'s own `MAILBOX`, which
+/// is sixty-four.
+export fn counter<C: Alloc + Stdout + Tasks>(
+    initial: Int,
+    bound: Option<Int>,
+): Actor<C, Int, CounterMessage> {
+    Actor {
+        state: initial,
+        mailbox: bound,
+        onStop: .Some(fn(c, count) => {
+            let _ = io.println(c, "final ${count}").ignore();
+            ()
+        }),
+        step: fn(c, count, message) => {
+            match (message) {
+                .Increment => count + 1,
+                .Add(n) => count * 10 + n,
+                .Get(reply) => {
+                    let _ = reply.answer(c, count).ignore();
+                    count
+                },
+            }
+        },
+    }
+}

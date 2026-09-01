@@ -1,0 +1,13 @@
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
+
+derive Eq, Show for Cents;
+export struct Cents(export Int);
+
+export fn fromCents(amount: Int): Cents {
+    Cents(amount)
+}
+
+export fn show<C: Alloc>(ctx: C, amount: Cents): Str {
+    str.format(ctx, "${amount.0}c")
+}

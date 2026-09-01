@@ -1,0 +1,7 @@
+// The surface of //lib/ledger/testing — a second entry point of the same
+// package, and a complete public surface exactly as lib.buri is one level up.
+//
+// The `testing` segment in the path is the whole restriction: any module path
+// containing it may be imported only from a test source.
+
+from "//lib/ledger/testing/fixtures.buri" export { sample };

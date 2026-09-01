@@ -1,0 +1,49 @@
+# `sockets()`, and the half of a WebSocket program a test can reach without a
+# network.
+#
+# `effect Sockets` is the *writing* half of a socket and `effect Listen` is the
+# reading half, and only the writing half has a double — what a fake acceptor
+# answers is the test's own decision, and a recording `Sockets` is a handle into
+# runner-side state by construction. So a function bounded by `Sockets` and
+# nothing else is exactly the thing this double is for, and `broadcast` below is
+# one.
+#
+# The end-to-end twin of this case is
+# `cli/tests/native/e2e.rs`'s `the_same_handler_answers_the_same_way_with_and_
+# without_a_socket`, which runs one function against a `Sockets` a program wrote
+# and against a real acceptor and holds the two answers to being the same
+# string. A double earns its keep only if that is true, and neither half says it
+# alone.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a Sockets-bounded broadcast, against a double with no network behind it: the log, the drop, and two doubles being two worlds"
+
+run {
+  args: ["test", "//lib/room", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# The negative twin. A message to a socket that has gone is **dropped**, not
+# refused and not aborted — "did this arrive" was never a question this side
+# could answer — so a room that pushed at a closed socket is told nothing about
+# it and counts it like any other. Flipping the count records that.
+#
+# The count and not the log, deliberately: a socket's number comes from a
+# counter this double keeps for the whole process, so a golden holding
+# `Socket(4)` would move the day a block above it opened one more. F7's own
+# `open_count` flake is the same lesson, and the answer there was the same —
+# assert about *this* socket rather than about a running total.
+edit {
+  file: "lib/room/test/broadcast.buri"
+  replace: "assert.eq(broadcast(ctx, [first, second], .Text(\"after\")), 2);"
+  with: "assert.eq(broadcast(ctx, [first, second], .Text(\"after\")), 1);"
+}
+
+run {
+  args: ["test", "//lib/room", "--force"]
+  exit: 1
+  golden: "dropped.txt"
+}

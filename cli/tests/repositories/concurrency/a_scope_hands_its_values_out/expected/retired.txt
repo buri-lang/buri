@@ -1,0 +1,7 @@
+FAIL //lib/vault  test/crossings.buri  "a message a later stop discards was copied too"
+  assert.eq failed
+    actual:   .Ok(())
+    expected: .Err(.Stopped)
+  --> lib/vault/test/crossings.buri:102:1
+
+5 passed, 1 failed, 0 skipped (0.0s)

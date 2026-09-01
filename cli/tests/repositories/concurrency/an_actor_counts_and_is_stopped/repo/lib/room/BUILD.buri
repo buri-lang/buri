@@ -1,0 +1,10 @@
+# No `platforms` here, which is the point of the case: `buri test` runs this
+# suite wherever the invocation says, and on a toolchain with a native backend
+# that is a linked binary rather than a JavaScript module.
+library {
+    sources: ["counter.buri"]
+
+    test {
+        sources: ["test/counter.buri"]
+    }
+}

@@ -19,7 +19,10 @@ mod case;
 pub mod ci;
 pub mod hang;
 pub mod sweep;
-pub use case::{load_case, run_case, run_corpus, Case, Step};
+pub use case::{
+    load_case, no_golden_has_collapsed, run_case, run_corpus, Case, Step,
+    A_RUN_THAT_ASSERTED_NOTHING,
+};
 
 // ---------------------------------------------------------------------------
 // Where things are

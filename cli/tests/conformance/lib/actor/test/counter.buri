@@ -167,7 +167,19 @@ test "testing an actor is calling its step" {
     assert.eq(step(ctx, 7, .Add(2)), 72);
 }
 
-test "a stopped actor's messages are discarded rather than stepped" {
+// **An interim, and the file's one case that is.** What `core/actor` promises
+// is the first half of the assertion below: `stop` closes the mailbox and
+// *discards what is still in it*, so `onStop` sees the state the discarded
+// messages never reached. What makes three sends leave three messages still in
+// it is a **scheduling** answer and not a semantic one — `send` posts and
+// returns, and runs the mailbox down only where the post found it at the bound
+// (`actor.buri`'s "When the actor runs"). On the day an actor gets a task of
+// its own — `design/native/DECISIONS.md`'s `core/actor` row, "`send` is the
+// spelling again" — a stop may find the mailbox already stepped, and the
+// number below becomes `123` or anything between. It is that arm, and nothing
+// else, that is entitled to change this line; a driver that quietly stopped
+// discarding would still have to fail here first.
+test "today's driver leaves three sends for `stop` to discard" {
     let sink = stdout();
     let ctx = context {
         Alloc: alloc(),

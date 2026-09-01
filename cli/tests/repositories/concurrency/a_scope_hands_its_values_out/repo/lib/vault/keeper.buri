@@ -1,0 +1,42 @@
+// An actor whose state is a string long enough to be given a mapping of its
+// own, which is what makes a crossing that forgot to copy a fault rather than
+// a gamble.
+
+from "core/actor" import { Actor, Reply };
+from "core/effect" import { Alloc, Tasks };
+
+/// Bigger than one standard arena block, so a value this long is given a
+/// mapping of its own and that mapping is unmapped rather than pooled.
+export let LOOSE: Int = 70000;
+
+/// A `Str` this program built. **A literal would prove nothing**: it is
+/// `IMMORTAL` and lives in the artifact's constant pool, so it would survive
+/// whatever the copy did.
+export fn big<C: Alloc>(ctx: C, unit: Str): Str {
+    unit.repeat(ctx, LOOSE)
+}
+
+export enum Keep {
+    /// Replaces the state with a string the *sender* built.
+    Put(Str),
+    /// Replaces it with one the *step* builds, so the crossing under test is
+    /// the one that puts a state back rather than the one that posts.
+    Grow,
+    Get(Reply<Str>),
+}
+
+export fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep> {
+    Actor {
+        state: initial,
+        step: fn(c, held, message) => {
+            match (message) {
+                .Put(next) => next,
+                .Grow => big(c, "g"),
+                .Get(reply) => {
+                    let _ = reply.answer(c, held).ignore();
+                    held
+                },
+            }
+        },
+    }
+}

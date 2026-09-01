@@ -857,7 +857,14 @@ impl Tables {
     /// signatures are elaborated: asked earlier, this returned `false` for
     /// every concrete effect implementor and a function taking one as an
     /// ordinary parameter was admitted.
-    fn con_carries_effect(&self, con: TyConId) -> bool {
+    /// Whether the constructor itself implements an effect, so a value of it
+    /// *is* a capability.
+    ///
+    /// Public because `middle::monomorphize` records the answer on
+    /// [`crate::compiler::middle::monomorphize::Shapes`] for the passes that
+    /// hold a `Program` and no `Tables` — `middle::rc` asks it of a callee's
+    /// type, and `middle::native` takes no `Tables`.
+    pub fn con_carries_effect(&self, con: TyConId) -> bool {
         self.effect_traits.iter().any(|t| self.impls.contains_key(&(*t, con)))
     }
 

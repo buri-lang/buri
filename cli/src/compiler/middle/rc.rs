@@ -354,10 +354,14 @@ pub struct FuncPlan {
     pub purity: ir::Purity,
     pub can_abort: bool,
     /// Whether this instantiation, or anything it calls, can reach a host
-    /// operation that blocks — see [`suspends`]. Nothing reads it yet; it is
-    /// computed here because this is the pass that already walks the call
+    /// operation that blocks — see [`suspends`] for the seed and [`Parking`]
+    /// for the fixpoint over it.
+    ///
+    /// Computed here because this is the pass that already walks the call
     /// graph, and because the answer is per *instantiation* rather than per
-    /// source function, which is the only place it is worth asking.
+    /// source function, which is the only place it is worth asking. The
+    /// JavaScript backend reads it as the `async` column; no native backend
+    /// reads it yet, and the design puts a carrier's stack sizing there.
     pub can_park: bool,
     /// Sorted by `(node, position)`, and stable within one key.
     pub sites: Vec<Site>,
@@ -423,6 +427,15 @@ pub struct Plan {
     /// true. Every block the program allocates is then counted atomically and
     /// no block of any other program is.
     pub crosses_tasks: bool,
+    /// The parkability analysis itself, so a caller can ask it about a
+    /// **callee position** as well as about a function.
+    ///
+    /// [`FuncPlan::can_park`] is one row of it per function, which is all
+    /// `lower` copies onto `ir::Facts`. The JavaScript backend needs the other
+    /// half: at an [`ExprKind::CallValue`] there is no name to look an answer
+    /// up under, and whether that call is printed `await` is
+    /// [`Parking::value_parks`].
+    pub parking: Parking,
 }
 
 impl Plan {
@@ -829,7 +842,8 @@ pub fn sharing(program: &Program) -> Plan {
 /// 2 hands in a `middle::layout`-backed classifier.
 pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> Plan {
     let ownership = infer_ownership(program, counted, opts);
-    let (purity, can_abort, can_park) = infer_effects(program);
+    let (purity, can_abort) = infer_effects(program);
+    let parking = parkability(program);
     let mut funcs: Vec<FuncPlan> = Vec::with_capacity(program.funcs.len());
     for (i, f) in program.funcs.iter().enumerate() {
         let params = ownership.get(i).cloned().unwrap_or_default();
@@ -837,7 +851,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             params,
             purity: purity.get(i).copied().unwrap_or(ir::Purity::Effectful),
             can_abort: can_abort.get(i).copied().unwrap_or(true),
-            can_park: can_park.get(i).copied().unwrap_or(true),
+            can_park: parking.parks(i),
             sites: Vec::new(),
             reuse: Vec::new(),
             unclassified: Vec::new(),
@@ -947,7 +961,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
         .funcs
         .iter()
         .any(|f| matches!(&f.kind, FuncKind::Intrinsic(key) if crosses_tasks(key)));
-    Plan { funcs, crosses_tasks }
+    Plan { funcs, crosses_tasks, parking }
 }
 
 /// Puts a function's sites in the order they are emitted in.
@@ -1389,15 +1403,14 @@ fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
     }
 }
 
-/// Purity, abortability and parkability: three fixpoints over the same exact
-/// call graph, computed in one iteration because they are the same walk.
+/// Purity and abortability: two fixpoints over the same exact call graph,
+/// computed in one iteration because they are the same walk.
 ///
 /// The graph is the *post-monomorphization* one, so every column is per
-/// instantiation. `can_park` is the one that needs that: `fs.readText` at a
-/// context binding `host.HostFs` and `fs.readText` at one binding
-/// `host_testing.TestFs` are two `Func` slots reached from two `Key::Fn`
-/// entries, and only the first reaches a call that waits.
-fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>, Vec<bool>) {
+/// instantiation. Parkability is the third column and is no longer one of
+/// these two: it needs the argument edges and the function-value types
+/// [`Parking`] collects, so it is a walk of its own.
+fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
     let mut purity: Vec<ir::Purity> = program
         .funcs
         .iter()
@@ -1414,16 +1427,6 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>, Vec<bool>) {
         .iter()
         .map(|f| matches!(f.kind, FuncKind::Unbuilt | FuncKind::Intrinsic(_)))
         .collect();
-    // An unbuilt body is lowered to an abort, which is the one thing that
-    // certainly does not wait, so only a suspending intrinsic seeds `true`.
-    let mut parks: Vec<bool> = program
-        .funcs
-        .iter()
-        .map(|f| match &f.kind {
-            FuncKind::Intrinsic(key) => suspends(key),
-            FuncKind::Unbuilt | FuncKind::Body(_) => false,
-        })
-        .collect();
     let mut changed = true;
     while changed {
         changed = false;
@@ -1431,17 +1434,17 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>, Vec<bool>) {
             let Some(body) = f.body() else { continue };
             let mut p = ir::Purity::Pure;
             let mut a = false;
-            let mut k = false;
             typed::walk(body, &mut |e| match &e.kind {
                 ExprKind::CallFn { func, .. } => {
                     if let Some(c) = func.func() {
-                        p = worse(p, purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful));
+                        p = worse(
+                            p,
+                            purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful),
+                        );
                         a = a || aborts.get(c.index()).copied().unwrap_or(true);
-                        k = k || parks.get(c.index()).copied().unwrap_or(true);
                     } else {
                         p = ir::Purity::Effectful;
                         a = true;
-                        k = true;
                     }
                 }
                 // A jump into another function's loop is a call, and one
@@ -1449,18 +1452,15 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>, Vec<bool>) {
                 ExprKind::Continue { func: Some(c), .. } => {
                     p = worse(p, purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful));
                     a = a || aborts.get(c.index()).copied().unwrap_or(true);
-                    k = k || parks.get(c.index()).copied().unwrap_or(true);
                 }
                 // An indirect call reaches a code pointer this pass cannot
                 // name, so it is whatever the worst function in the program is.
                 ExprKind::CallValue { .. } | ExprKind::CallTrait { .. } => {
                     p = ir::Purity::Effectful;
                     a = true;
-                    k = true;
                 }
                 ExprKind::Intrinsic { name, .. } => {
                     p = worse(p, intrinsic_purity(name));
-                    k = k || suspends(name);
                 }
                 ExprKind::CtxGet { .. } | ExprKind::CtxLit { .. } | ExprKind::CtxCall { .. } => {
                     p = ir::Purity::Effectful;
@@ -1477,27 +1477,388 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>, Vec<bool>) {
                 }
                 _ => {}
             });
-            // A function that *is* a suspending intrinsic has no body and is
-            // never reached here; one with a body starts at `false` and only
-            // ever climbs, so the seed is not lost.
-            if purity.get(i).copied() != Some(p)
-                || aborts.get(i).copied() != Some(a)
-                || parks.get(i).copied() != Some(k)
-            {
+            if purity.get(i).copied() != Some(p) || aborts.get(i).copied() != Some(a) {
                 if let Some(slot) = purity.get_mut(i) {
                     *slot = p;
                 }
                 if let Some(slot) = aborts.get_mut(i) {
                     *slot = a;
                 }
-                if let Some(slot) = parks.get_mut(i) {
-                    *slot = k;
+                changed = true;
+            }
+        }
+    }
+    (purity, aborts)
+}
+
+// ---------------------------------------------------------------------------
+// Parkability
+// ---------------------------------------------------------------------------
+
+/// Which functions can park, and which **function values** can — because a
+/// call through one is the case the column is hardest to answer for.
+///
+/// The graph is the *post-monomorphization* one, so the column is per
+/// instantiation, which is what it needs: `fs.readText` at a context binding
+/// `host.HostFs` and `fs.readText` at one binding `host_testing.TestFs` are
+/// two `Func` slots reached from two `Key::Fn` entries, and only the first
+/// reaches a call that waits.
+///
+/// # The indirect call
+///
+/// This column used to answer `true` at every [`ExprKind::CallValue`], the way
+/// the purity column still does, which reads *"every `map` may park"* — the
+/// callback of `list.map` is a code pointer with no name, so the worst
+/// function in the program was the answer. That is free where the column sizes
+/// a carrier's stack and it is not free at all on the JavaScript backend,
+/// where the column decides which functions are printed `async`: `async` is
+/// not a property a caller may ignore, an `async` function returns a promise
+/// whether or not it ever waits, and this compiler hands function values to
+/// JavaScript that cannot await one — a `view` given to `mount`, the row
+/// callbacks inside `ui.each`, the callback of `$list_mapCtx`, a sort
+/// comparator. So the imprecision was not merely a cost: it was a whole
+/// backend's reason for computing the question a second time
+/// (`reports/can-park-indirect.md`), and this is that second analysis brought
+/// back to where the first one lives.
+///
+/// Two rules answer a callee position, in this order.
+///
+/// **1. The type** (`concurrency-design.md`'s B2). A function value that
+/// receives no effect-carrying argument cannot park. It cannot capture a
+/// capability — SPEC 10.6 forbids it, which is the same guarantee
+/// `middle::closures` rests on — and it cannot construct one, because SPEC
+/// 11.3 builds a context only in `main`'s body, a test, or a test-only module,
+/// and SPEC 10.4 spells out that none of those is a function anybody calls. So
+/// everything a function value can reach that waits arrived through one of its
+/// own parameters, and [`monomorphize::Effects::fn_takes_effect`] is the whole
+/// question at `fn(A) => B`. This is what stops `list.map` parking.
+///
+/// **2. The value**, where the type leaves the question open. `fn(C, A) => B`
+/// is exactly `list.mapCtx`'s shape and exactly the shape a callback that
+/// sleeps has, so the type cannot separate them and the values have to be
+/// followed:
+///
+///  * **`parking[f]`** — the locals of `f` (its parameters and its `let`s)
+///    whose function value may park. A parameter is followed when the function
+///    owning it is never used as a *value* ([`address_taken`]): then every
+///    argument it can receive is written at a `CallFn` or a `Continue` naming
+///    it, and those are edges this pass walks. A `let` is followed when it
+///    binds one name to one expression ([`fn_lets`]).
+///  * **`resolved[f]`** — the locals it followed. A fn-typed local outside
+///    this set is one it lost track of.
+///  * **`parking_types`** — the types of the parking function values the
+///    program builds, which is what a position it could not follow is worth: a
+///    callee of type `T` can only ever hold a value of type `T`, so the sound
+///    answer is whether the program builds a parking value of that same type.
+///
+/// Keying the fallback by type rather than by a program-wide flag is not a
+/// refinement, it is the difference between right and wrong, and the
+/// monorepo's page is the proof: `Prop.read`'s third arm calls a
+/// `fn(Scope) => T` out of an enum payload while an `onPress` handler
+/// elsewhere in the same program fetches. Under a flag `Prop.read` became
+/// `async`, and `Prop.read` is reached from a style thunk the *runtime* calls,
+/// which cannot await — the page died on `{} is not iterable`. Under the type
+/// the handler is a `fn(C, Bool) => ()` and the arm's callee is a
+/// `fn(Scope) => T`; they never meet. Soundness rests on the program being
+/// well typed, which everything downstream of the checker already assumes.
+///
+/// **What is given up**, recorded rather than hidden: a parking function value
+/// that shares a type with a callee position it can never reach makes that call
+/// parkable. The precise alternative — values through struct fields, enum
+/// payloads, array elements and returns — is a real higher-order flow analysis
+/// and buys nothing today, since nothing in this tree stores a parking callback
+/// anywhere.
+///
+/// [`ExprKind::CallTrait`] stays conservative. Monomorphization resolves every
+/// one it can, and one that survives is a program the backends already turn
+/// into an abort.
+#[derive(Clone, Debug, Default)]
+pub struct Parking {
+    /// One row per [`Program::funcs`] slot: whether it can park.
+    parks: Vec<bool>,
+    /// Per slot, the locals whose function value may park.
+    parking: Vec<HashSet<LocalId>>,
+    /// Per slot, the locals whose function value this pass followed.
+    resolved: Vec<HashSet<LocalId>>,
+    /// The types of the parking function values this program builds.
+    parking_types: HashSet<Ty>,
+    /// Whether the program builds one at all — the answer where there is not
+    /// even a function type to ask under, which a well-typed program does not
+    /// reach.
+    any_parking_value: bool,
+    /// [`monomorphize::Program::shapes`]'s effect table, so rule 1 above can be
+    /// asked without a `Tables`.
+    effects: monomorphize::Effects,
+}
+
+impl Parking {
+    /// Whether the function in this slot, or anything it calls, can reach a
+    /// host operation that blocks.
+    ///
+    /// A slot this pass has no row for answers `true`, which is the direction
+    /// that over-approximates.
+    pub fn parks(&self, index: usize) -> bool {
+        self.parks.get(index).copied().unwrap_or(true)
+    }
+
+    /// Whether a call **through** the function value this expression produces
+    /// can park.
+    ///
+    /// `fi` is the slot whose body the expression is written in, because a
+    /// local means nothing without one.
+    pub fn value_parks(&self, fi: usize, e: &Expr) -> bool {
+        // Rule 1: the type. Asked first because it holds whatever else the
+        // program contains, and because it is the common case — a comparator,
+        // a predicate, a `fn(A) => B` — answered without looking anything up.
+        if !self.effects.fn_takes_effect(&e.ty) {
+            return false;
+        }
+        match &e.kind {
+            // A callee still naming a declaration means monomorphization did
+            // not run, which the backends turn into an abort; `true` is the
+            // answer that cannot be wrong in the meantime.
+            ExprKind::FnRef(c) => c.func().is_none_or(|i| self.parks(i.index())),
+            ExprKind::Closure { func, .. } => self.parks(func.index()),
+            ExprKind::Lambda { body, .. } => self.body_parks(fi, body),
+            ExprKind::Local(l) => {
+                if self.parking.get(fi).is_some_and(|s| s.contains(l)) {
+                    true
+                } else if self.resolved.get(fi).is_some_and(|s| s.contains(l)) {
+                    false
+                } else {
+                    self.unfollowed(&e.ty)
+                }
+            }
+            // A function value is whatever the branch that produced it is.
+            ExprKind::Block { tail: Some(t), .. } => self.value_parks(fi, t),
+            ExprKind::If { then, else_, .. } => {
+                self.value_parks(fi, then) || self.value_parks(fi, else_)
+            }
+            ExprKind::Match { arms, .. } => arms.iter().any(|a| self.value_parks(fi, &a.body)),
+            _ => self.unfollowed(&e.ty),
+        }
+    }
+
+    /// The answer for a function value this pass could not follow: whether the
+    /// program builds a parking one of the same type.
+    fn unfollowed(&self, ty: &Ty) -> bool {
+        if is_fn_ty(ty) {
+            self.parking_types.contains(ty)
+        } else {
+            self.any_parking_value
+        }
+    }
+
+    /// Whether running this body reaches something that waits.
+    ///
+    /// The walk descends into lambda bodies, so a function holding a lambda
+    /// that parks parks too — which it must, on the backend that prints
+    /// `async`, because the `await` inside the arrow is inside this function's
+    /// own text.
+    fn body_parks(&self, fi: usize, body: &Expr) -> bool {
+        let mut k = false;
+        typed::walk(body, &mut |e| match &e.kind {
+            ExprKind::CallFn { func, .. } => match func.func() {
+                Some(c) => k = k || self.parks(c.index()),
+                None => k = true,
+            },
+            // A jump into another function's loop is a call.
+            ExprKind::Continue { func: Some(c), .. } => k = k || self.parks(c.index()),
+            ExprKind::CallValue { callee, .. } => k = k || self.value_parks(fi, callee),
+            ExprKind::CallTrait { .. } => k = true,
+            // A host call spelled as an inline node rather than reached
+            // through an intrinsic *function*; the same seed answers both.
+            ExprKind::Intrinsic { name, .. } => k = k || suspends(name),
+            _ => {}
+        });
+        k
+    }
+}
+
+/// Whether a type is a function type, which is the only kind of value a
+/// [`ExprKind::CallValue`] can reach and so the only kind [`Parking`] tracks.
+fn is_fn_ty(t: &Ty) -> bool {
+    matches!(t, Ty::Fn(..))
+}
+
+/// The `let`s of one body that bind a single name to a single function value.
+///
+/// A destructuring pattern is deliberately not one: the local it binds stays
+/// unresolved, and an unresolved fn-typed local is worth what
+/// [`Parking::unfollowed`] says of its type.
+fn fn_lets(body: &Expr) -> Vec<(LocalId, &Expr)> {
+    let mut out = Vec::new();
+    typed::walk(body, &mut |e| {
+        let ExprKind::Block { stmts, .. } = &e.kind else { return };
+        for s in stmts {
+            let Stmt::Let { pattern, value, .. } = s else { continue };
+            let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
+            if is_fn_ty(&value.ty) {
+                out.push((*local, value));
+            }
+        }
+    });
+    out
+}
+
+/// The function slots whose **address is taken**: named by an `FnRef` or a
+/// `Closure` rather than called.
+///
+/// One of these can be called from a position no `CallFn` names, so nothing can
+/// be proved about what its parameters hold. Every other slot receives
+/// arguments only where this pass can see them.
+fn address_taken(program: &Program) -> HashSet<usize> {
+    let mut out = HashSet::default();
+    for f in &program.funcs {
+        let Some(body) = f.body() else { continue };
+        typed::walk(body, &mut |e| match &e.kind {
+            ExprKind::FnRef(c) => {
+                if let Some(i) = c.func() {
+                    out.insert(i.index());
+                }
+            }
+            ExprKind::Closure { func, .. } => {
+                out.insert(func.index());
+            }
+            _ => {}
+        });
+    }
+    out
+}
+
+/// [`Parking`], computed.
+pub fn parkability(program: &Program) -> Parking {
+    let n = program.funcs.len();
+    let mut w = Parking {
+        // An unbuilt body is lowered to an abort, which is the one thing that
+        // certainly does not wait, so only a suspending intrinsic seeds `true`.
+        parks: program
+            .funcs
+            .iter()
+            .map(|f| match &f.kind {
+                FuncKind::Intrinsic(key) => suspends(key),
+                FuncKind::Unbuilt | FuncKind::Body(_) => false,
+            })
+            .collect(),
+        parking: vec![HashSet::default(); n],
+        resolved: vec![HashSet::default(); n],
+        parking_types: HashSet::default(),
+        any_parking_value: false,
+        effects: program.shapes.effects.clone(),
+    };
+
+    // What can be followed, decided once: the tree does not move.
+    let addressed = address_taken(program);
+    let lets: Vec<Vec<(LocalId, &Expr)>> =
+        program.funcs.iter().map(|f| f.body().map(fn_lets).unwrap_or_default()).collect();
+    for (i, f) in program.funcs.iter().enumerate() {
+        let Some(slot) = w.resolved.get_mut(i) else { continue };
+        if !addressed.contains(&i) {
+            for p in &f.params {
+                slot.insert(*p);
+            }
+        }
+        for (local, _) in lets.get(i).into_iter().flatten() {
+            slot.insert(*local);
+        }
+    }
+
+    // Monotone in every column — a row only ever climbs — so the loop
+    // terminates in at most one pass per edge.
+    let mut changed = true;
+    while changed {
+        changed = false;
+
+        // Arguments, into the parameters they are bound to. Collected first
+        // because reading the columns and writing them cannot overlap.
+        let mut edges: Vec<(usize, usize, &Vec<Expr>)> = Vec::new();
+        for (i, f) in program.funcs.iter().enumerate() {
+            let Some(body) = f.body() else { continue };
+            typed::walk(body, &mut |e| match &e.kind {
+                ExprKind::CallFn { func, args } => {
+                    if let Some(c) = func.func() {
+                        edges.push((c.index(), i, args));
+                    }
+                }
+                // A `Continue` rebinds the parameters of the function it
+                // enters, in order — the dispatch index the backend prepends is
+                // not one of them.
+                ExprKind::Continue { func, args, .. } => {
+                    edges.push((func.map_or(i, |c| c.index()), i, args));
+                }
+                _ => {}
+            });
+        }
+        for (target, from, args) in edges {
+            let Some(tf) = program.funcs.get(target) else { continue };
+            for (j, a) in args.iter().enumerate() {
+                if !is_fn_ty(&a.ty) || !w.value_parks(from, a) {
+                    continue;
+                }
+                let Some(p) = tf.params.get(j).copied() else { continue };
+                if w.parking.get_mut(target).is_some_and(|s| s.insert(p)) {
+                    changed = true;
+                }
+            }
+        }
+
+        // The `let`s that hold one.
+        for (i, binds) in lets.iter().enumerate() {
+            for (local, value) in binds {
+                if !w.value_parks(i, value) {
+                    continue;
+                }
+                if w.parking.get_mut(i).is_some_and(|s| s.insert(*local)) {
+                    changed = true;
+                }
+            }
+        }
+
+        // The parking function values the program builds, collected by type,
+        // which is what every position the two sets above did not follow is
+        // worth. Every node that *is* a function value is one of these three.
+        let mut found: Vec<&Ty> = Vec::new();
+        for (i, f) in program.funcs.iter().enumerate() {
+            let Some(body) = f.body() else { continue };
+            typed::walk(body, &mut |e| {
+                let parks = match &e.kind {
+                    ExprKind::FnRef(c) => c.func().is_none_or(|x| w.parks(x.index())),
+                    ExprKind::Closure { func, .. } => w.parks(func.index()),
+                    ExprKind::Lambda { body, .. } => w.body_parks(i, body),
+                    _ => return,
+                };
+                if parks {
+                    found.push(&e.ty);
+                }
+            });
+        }
+        for ty in found {
+            if w.parking_types.insert(ty.clone()) {
+                changed = true;
+            }
+            if !w.any_parking_value {
+                w.any_parking_value = true;
+                changed = true;
+            }
+        }
+
+        // And the column itself. A function that *is* a suspending intrinsic
+        // has no body and is never reached here; one with a body starts at
+        // `false` and only ever climbs, so the seed is not lost.
+        for (i, f) in program.funcs.iter().enumerate() {
+            if w.parks.get(i).copied() == Some(true) {
+                continue;
+            }
+            let Some(body) = f.body() else { continue };
+            if w.body_parks(i, body) {
+                if let Some(slot) = w.parks.get_mut(i) {
+                    *slot = true;
                 }
                 changed = true;
             }
         }
     }
-    (purity, aborts, parks)
+    w
 }
 
 // ---------------------------------------------------------------------------
@@ -4652,6 +5013,54 @@ export fn main(): Result<(), Str> {
         assert_eq!(plan.funcs.len(), program.funcs.len());
     }
 
+    /// One program with all three callee shapes in it, and the source the
+    /// `can_park` precision rows below are asked of.
+    ///
+    /// `sleepy` and `quick` are the same signature, the same context and the
+    /// same indirect call; the only difference between them is the callback
+    /// each is handed. `applyN` is the third shape — the one the *type* rules
+    /// out on its own.
+    const PRECISION: &str = r#"
+from "core/effect" import { Alloc, Clock, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/time" import * as time;
+
+fn sleepy<C: Clock>(ctx: C, n: Int, body: fn(C) => Int): Int {
+  if (n <= 0) { 0 } else { body(ctx) + sleepy(ctx, n - 1, body) }
+}
+
+fn quick<C: Clock>(ctx: C, n: Int, body: fn(C) => Int): Int {
+  if (n <= 0) { 0 } else { body(ctx) + quick(ctx, n - 1, body) }
+}
+
+fn applyN(n: Int, x: Int, f: fn(Int) => Int): Int {
+  if (n <= 0) { x } else { applyN(n - 1, f(x), f) }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let slow = sleepy(ctx, 2, fn(c) => {
+    let _ = time.sleepMs(c, 1);
+    5
+  });
+  let fast = quick(ctx, 2, fn(c) => 5);
+  let plain = applyN(3, 1, fn(x) => x + 1);
+  let _ = io.println(ctx, "${slow} ${fast} ${plain}").ignore();
+  .Ok(())
+}
+"#;
+
+    /// The golden of `the_parking_count_of_a_representative_program_is_a_golden`.
+    const GOLDEN_PARKING: usize = 4;
+    const GOLDEN_FUNCS: usize = 9;
+    const GOLDEN_NAMES: [&str; GOLDEN_PARKING] = [
+        "core/host:HostClock.sleepMillis",
+        "core/time:sleepMs",
+        "rc_test.buri:main",
+        "rc_test.buri:sleepy",
+    ];
+
     // -- the `can_park` column ----------------------------------------------
     //
     // Hand-built programs rather than snippets, because the question is about
@@ -4662,8 +5071,7 @@ export fn main(): Result<(), Str> {
     // callee of every `CallFn` already a `FuncIdx`.
 
     fn parked(program: &Program) -> Vec<bool> {
-        let (_, _, parks) = infer_effects(program);
-        parks
+        parkability(program).parks
     }
 
     fn intrinsic_func(name: &str, key: &str) -> Func {
@@ -4696,6 +5104,41 @@ export fn main(): Result<(), Str> {
         Expr::new(
             ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(to)), args: Vec::new() },
             Ty::Unit,
+            Span::default(),
+        )
+    }
+
+    fn fn_ty(params: Vec<Ty>, ret: Ty) -> Ty {
+        Ty::Fn(params, Box::new(ret))
+    }
+
+    /// A call to `to` whose *result* is a function value of type `ty` — a
+    /// callee position [`Parking`] cannot follow, so one answered by the type.
+    fn call_to_ty(to: u32, ty: Ty) -> Expr {
+        Expr::new(
+            ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(to)), args: Vec::new() },
+            ty,
+            Span::default(),
+        )
+    }
+
+    fn call_value(callee: Expr) -> Expr {
+        Expr::new(
+            ExprKind::CallValue { callee: Box::new(callee), args: Vec::new() },
+            Ty::Unit,
+            Span::default(),
+        )
+    }
+
+    /// A function value of type `ty` whose body is `body`.
+    fn lambda_of(ty: Ty, body: Expr) -> Expr {
+        Expr::new(
+            ExprKind::Lambda {
+                params: vec![LocalId(0)],
+                body: Box::new(body),
+                captures: Vec::new(),
+            },
+            ty,
             Span::default(),
         )
     }
@@ -4840,19 +5283,130 @@ export fn main(): Result<(), Str> {
         assert!(!crosses_tasks("list.push"));
     }
 
-    /// An indirect call reaches a code pointer this pass cannot name, so it is
-    /// `true` — the same answer the purity column gives it, for the same
-    /// reason.
+    /// An indirect call is answered by what the value at that position can
+    /// reach, and this pins **both** directions of it (B2).
+    ///
+    /// Slot 1 calls through a `fn(()) => ()`. Nothing that type can hold is
+    /// able to wait: a function value cannot capture a capability (SPEC 10.6)
+    /// and cannot construct one (SPEC 11.3, 10.4), so everything it can reach
+    /// that blocks arrived through one of its own parameters, and this one has
+    /// none that carries an effect. It is `false` **whatever else the program
+    /// contains** — and the program contains a callback that really does sleep.
+    ///
+    /// Slot 2 calls through a `fn(C) => ()` at the same unfollowable position.
+    /// That is `list.mapCtx`'s shape and it is also the shape of the callback
+    /// slot 4 builds, so the type cannot separate them: the answer is the
+    /// program's own set of parking function values, and it is `true`.
+    ///
+    /// Before this refinement both were `true`, which is what "every `map` may
+    /// park" meant.
     #[test]
-    fn a_call_through_a_function_value_is_conservatively_parkable() {
-        let callee = Expr::new(ExprKind::Unit, Ty::Unit, Span::default());
-        let indirect = Expr::new(
-            ExprKind::CallValue { callee: Box::new(callee), args: Vec::new() },
-            Ty::Unit,
-            Span::default(),
+    fn a_call_through_a_function_value_is_answered_by_what_it_can_reach() {
+        let plain = fn_ty(vec![Ty::Unit], Ty::Unit);
+        let carrying = fn_ty(vec![Ty::Ctx(types::CtxTypeId(0))], Ty::Unit);
+        let program = hand_built(vec![
+            body_func("main", calls(&[1, 2])),
+            body_func("through a plain callback", call_value(call_to_ty(3, plain))),
+            body_func(
+                "through a callback taking the context",
+                call_value(call_to_ty(3, carrying.clone())),
+            ),
+            body_func("maker", Expr::new(ExprKind::Unit, Ty::Unit, Span::default())),
+            body_func("builder", lambda_of(carrying, call_to(5))),
+            intrinsic_func("sleepMillis", "host.HostClock.sleepMillis"),
+        ]);
+        assert_eq!(
+            parked(&program),
+            vec![true, false, true, false, true, true],
+            "a callee that takes no capability cannot park; one that takes the \
+             context is worth whatever function value of its type the program \
+             builds"
         );
-        let program = hand_built(vec![body_func("main", indirect)]);
-        assert_eq!(parked(&program), vec![true]);
+    }
+
+    /// The same two directions of one compiled program, over the two shapes the
+    /// design row names: a `map`-shaped wrapper and a `mapCtx`-shaped one.
+    ///
+    /// `applyN` is `list.map`: its callback is a `fn(Int) => Int`, so no
+    /// instantiation of it can ever park, and this is the whole of what B2
+    /// bought. `sleepy` and `quick` are the same `mapCtx` shape at the same
+    /// context with the same signature — two `Func` slots that the *type*
+    /// cannot tell apart — and only the one whose callback sleeps parks.
+    #[test]
+    fn a_map_shaped_wrapper_cannot_park_and_a_map_ctx_shaped_one_may() {
+        let program = compile(PRECISION);
+        let plan = run(&program);
+        let park = |name: &str| plan.func(find(&program, name)).map(|f| f.can_park);
+        assert_eq!(
+            park("applyN"),
+            Some(false),
+            "a callback that takes no context cannot reach anything that waits"
+        );
+        assert_eq!(park("sleepy"), Some(true), "and one that sleeps on the context does");
+        assert_eq!(
+            park("quick"),
+            Some(false),
+            "while the same shape handed a callback that does not sleep does not"
+        );
+    }
+
+    /// A golden count over that program, so a regression in either direction is
+    /// visible rather than merely slower.
+    ///
+    /// **Six of nine before this refinement, four of nine after.** The two that
+    /// stopped parking are `applyN` and `quick`, and `main` still does because
+    /// it really can sleep. Re-bless the numbers when the standard library the
+    /// snippet reaches changes; a jump back towards the total is the refinement
+    /// coming undone.
+    #[test]
+    fn the_parking_count_of_a_representative_program_is_a_golden() {
+        let program = compile(PRECISION);
+        let plan = run(&program);
+        let mut names: Vec<&str> = program
+            .funcs
+            .iter()
+            .zip(&plan.funcs)
+            .filter(|(_, p)| p.can_park)
+            .map(|(f, _)| f.debug_name.as_str())
+            .collect();
+        names.sort_unstable();
+        assert_eq!(
+            (names.len(), plan.funcs.len()),
+            (GOLDEN_PARKING, GOLDEN_FUNCS),
+            "the parking functions of the precision snippet, out of all of them: \
+             {names:?}"
+        );
+        assert_eq!(names, GOLDEN_NAMES, "and these are the ones that park");
+    }
+
+    /// The invariant rule 1 of [`Parking`] rests on, asked of a real program:
+    /// **every parking function value takes something effect-carrying.**
+    ///
+    /// It is what licenses answering a callee position by its type alone. If a
+    /// future language change let a function value reach a capability by some
+    /// other route — a context constructed outside `main`, a capture the
+    /// checker stopped refusing — this is the row that goes red, rather than a
+    /// dropped `await` in an artifact.
+    #[test]
+    fn every_parking_function_value_takes_something_effect_carrying() {
+        let program = compile(PRECISION);
+        let parking = parkability(&program);
+        let loose: Vec<String> = parking
+            .parking_types
+            .iter()
+            .filter(|t| !parking.effects.fn_takes_effect(t))
+            .map(|t| format!("{t:?}"))
+            .collect();
+        assert!(
+            loose.is_empty(),
+            "these function values park and take no capability, so answering a \
+             callee position by its type would miss them: {loose:?}"
+        );
+        assert!(
+            !parking.parking_types.is_empty(),
+            "the snippet does build a parking function value, or the claim above \
+             is vacuous"
+        );
     }
 
     /// A host call written as an intrinsic *node* rather than reached as an

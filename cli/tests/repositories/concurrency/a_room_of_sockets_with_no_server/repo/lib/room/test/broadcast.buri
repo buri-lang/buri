@@ -1,0 +1,64 @@
+// The double, and the rules a program has to know about it.
+
+from "core/effect" import { Alloc, Sockets };
+from "core/host/testing" import { alloc, sockets };
+from "core/net/server" import { Socket };
+from "core/testing/assert" import * as assert;
+from "//lib/room" import { broadcast };
+
+test "a broadcast reaches every socket in the room, in push order" {
+    let room = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: room,
+    };
+    let first = room.open();
+    let second = room.open();
+    assert.eq(broadcast(ctx, [first, second], .Text("hello")), 2);
+    assert.eq(room.sent(), [(first, .Text("hello")), (second, .Text("hello"))]);
+}
+
+test "a message to a socket the room closed is dropped, and the close is not" {
+    let room = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: room,
+    };
+    let first = room.open();
+    let second = room.open();
+    let _closed = second.close(ctx, .Normal);
+    // `isOpen` is the double's own reader and not `effect Sockets`': a program
+    // cannot ask, and a test can.
+    assert.eq(room.isOpen(first), true);
+    assert.eq(room.isOpen(second), false);
+    // The room pushes at both and hears about neither — `send` never waits and
+    // never reports. Only the open socket keeps what it was handed.
+    assert.eq(broadcast(ctx, [first, second], .Text("after")), 2);
+    assert.eq(room.sent(), [(first, .Text("after"))]);
+}
+
+test "two doubles are two worlds, and neither writes on the other's socket" {
+    let here = sockets();
+    let there = sockets();
+    let ours = context {
+        Alloc: alloc(),
+        Sockets: here,
+    };
+    let mine = here.open();
+    let theirs = there.open();
+    assert.eq(broadcast(ours, [mine, theirs], .Text("ours")), 2);
+    assert.eq(here.sent(), [(mine, .Text("ours"))]);
+    assert.eq(there.sent(), []);
+}
+
+test "a handle no double minted is one that has already gone" {
+    let room = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: room,
+    };
+    let forged = Socket(-1);
+    assert.eq(room.isOpen(forged), false);
+    assert.eq(broadcast(ctx, [forged], .Text("nobody")), 1);
+    assert.eq(room.sent(), []);
+}
