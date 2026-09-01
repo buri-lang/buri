@@ -401,6 +401,180 @@ fn every_job_that_runs_the_suite_runs_the_hoisted_step_and_the_guard() {
     }
 }
 
+/// Every job declares `timeout-minutes`.
+///
+/// It is the outer bound on everything: a step that deadlocks, a runner that
+/// loses its network, a test the per-invocation cap in `harness/hang.rs` does
+/// not cover. Without it GitHub's own six-hour default applies, and a wedged
+/// job holds a runner for a working day before anybody is told.
+///
+/// Nine of nine carry one today and nothing said so — the tenth job, added
+/// tomorrow, would have been the one without. Asserted at four spaces of
+/// indentation, which is where a job's own keys live: a `timeout-minutes` on a
+/// *step* is a different promise and would not bound the job around it.
+#[test]
+fn every_job_declares_a_timeout() {
+    let text = workflow();
+    let mut missing: Vec<String> = Vec::new();
+    let mut found = 0;
+    for (name, body) in jobs(&text) {
+        let declared = body.lines().find(|line| {
+            line.starts_with("    timeout-minutes:") && !line.starts_with("     ")
+        });
+        let Some(line) = declared else {
+            missing.push(format!("{name}: no `timeout-minutes:`"));
+            continue;
+        };
+        let value = line.split(':').nth(1).unwrap_or("").trim();
+        match value.parse::<u32>() {
+            Ok(minutes) if minutes > 0 => found += 1,
+            _ => missing
+                .push(format!("{name}: `timeout-minutes: {value}` is not a number of minutes")),
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "{} job(s) in ci.yml are bounded by nothing but GitHub's six-hour default. A job that \
+         wedges then holds a runner for a working day and reports nothing anyone can act on. Add \
+         `timeout-minutes:` beside `runs-on:`.\n  {}",
+        missing.len(),
+        missing.join("\n  ")
+    );
+    assert!(
+        found >= 9,
+        "only {found} job(s) were found to check, and ci.yml had nine when this was written — \
+         the splitter above has stopped seeing jobs and this test is asserting nothing"
+    );
+    println!("{found} job(s), each with a `timeout-minutes` of its own");
+}
+
+/// No runner configuration in the tree promises a cap nothing enforces.
+///
+/// `.config/nextest.toml` set `slow-timeout = { period = "60s", terminate-after
+/// = 5 }` for two slices and could never fire: every invocation in `ci.yml` is
+/// `cargo test -p buri`, which does not read that file, and
+/// `scripts/test-linux.sh` says why the runner must not be adopted to make it
+/// fire — two of the three liveness gates parse libtest's own output and
+/// nextest prints neither shape. The file was deleted; the cap it described
+/// lives in `cli/tests/harness/hang.rs` and is proved to fire by a test beside
+/// it. This is what stops the config coming back as a promise again.
+///
+/// Assembled rather than written, because this file is one of the files the
+/// other tests here walk.
+#[test]
+fn no_runner_config_promises_a_cap_nothing_reads() {
+    let runner = format!("next{}", "est");
+    let config = repo_root().join(".config").join(format!("{runner}.toml"));
+    assert!(
+        !config.exists(),
+        "{} is back. Nothing in this repository runs that runner — every invocation in ci.yml is \
+         `cargo test -p buri`, which never reads it — so a timeout written there is a sentence \
+         and not a cap. The real one is `cli/tests/harness/hang.rs`, which caps one CLI \
+         invocation and names the test it killed; the outer bound is each job's \
+         `timeout-minutes`, asserted above.",
+        config.display()
+    );
+    let workflow = workflow();
+    assert!(
+        !workflow.contains(&runner),
+        "ci.yml invokes `{runner}`. Two of the three liveness gates read libtest's own output — \
+         `assert-no-skips.sh` sums the `ignored` and `filtered out` counts off every \
+         `test result:` line, and `assert-suite-ran.sh` reads the census out of a `--nocapture` \
+         log — and that runner prints neither shape, so adopting it would disarm both while \
+         everything stayed green. `scripts/test-linux.sh` records the argument in full."
+    );
+}
+
+/// The packages of the workspace, as `directory -> package name`.
+///
+/// Two files rather than one: the root manifest says which directories are
+/// members, and each member's own manifest says what its package is called.
+/// The distinction is the whole point of this — `cli/`'s package is `buri`, and
+/// a reader who assumed the directory was the name would look for a
+/// `-p cli` that never existed.
+fn workspace_members() -> BTreeMap<String, String> {
+    let root = repo_root();
+    let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    let after = manifest.split("members = [").nth(1).unwrap_or_else(|| {
+        panic!("the root Cargo.toml has no `members = [` — the workspace has been restructured")
+    });
+    let list = after.split(']').next().unwrap_or("");
+    let mut out = BTreeMap::new();
+    for dir in list.split(',') {
+        let dir = dir.trim().trim_matches('"');
+        if dir.is_empty() {
+            continue;
+        }
+        let path = root.join(dir).join("Cargo.toml");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{} cannot be read: {e}", path.display()));
+        // `name` under `[package]`, and not the one under `[lib]` — which in
+        // `website/Cargo.toml` says the same thing and in another member might
+        // not.
+        let mut section = "";
+        let mut name = None;
+        for line in text.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                section = line;
+            } else if section == "[package]" && line.starts_with("name") {
+                name = strings(line).into_iter().next();
+                break;
+            }
+        }
+        let name = name.unwrap_or_else(|| panic!("{} names no package", path.display()));
+        out.insert(dir.to_string(), name);
+    }
+    out
+}
+
+/// Every member of the workspace is tested by some job.
+///
+/// `website` was not, for as long as it had existed: `members = ["cli",
+/// "website"]`, every `cargo test` in the workflow was `-p buri`, and its
+/// forty-one tests ran nowhere. The two mechanisms that exist to catch a test
+/// that does not run were both blind to it — they carry no `#[ignore]`, so the
+/// scan above sees nothing, and they reached no `suite.log`, so
+/// `assert-no-skips.sh` sees nothing either. Both of those ask "was a test
+/// skipped"; this asks the question underneath it, which is whether the suite
+/// was ever asked for at all.
+#[test]
+fn every_workspace_member_is_tested_by_a_job() {
+    let text = workflow();
+    let members = workspace_members();
+    assert!(
+        members.len() >= 2,
+        "only {} workspace member(s) were parsed out of the root manifest, and there have been \
+         two since `website` was added — this test is asserting nothing",
+        members.len()
+    );
+    let mut untested = Vec::new();
+    for (dir, package) in &members {
+        // The whole word, not the prefix: `-p website` must not be satisfied by
+        // a `-p websites`, and a package whose name is another's prefix is the
+        // day a substring test would report a member as covered by the job that
+        // covers its neighbour.
+        let asked = format!("cargo test -p {package}");
+        let covered = text.match_indices(&asked).any(|(at, _)| {
+            let after = text[at + asked.len()..].chars().next();
+            !after.is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        });
+        if !covered {
+            untested.push(format!("{dir}/ (package `{package}`)"));
+        }
+    }
+    assert!(
+        untested.is_empty(),
+        "{} workspace member(s) are in `members` and in no `cargo test` in ci.yml, so their tests \
+         run on no job:\n  {}\nA package nothing asks for is a package where every test is \
+         skipped, and neither the `#[ignore]` scan nor assert-no-skips.sh can see it — one has \
+         nothing to find and the other never gets a log.",
+        untested.len(),
+        untested.join("\n  ")
+    );
+    println!("{} workspace member(s), each asked for by a job", members.len());
+}
+
 /// Every `ci::deferred_to` names a job that is in the workflow and still asks
 /// for the tests that defer to it.
 ///

@@ -225,13 +225,33 @@ jobs:
       - name: Nothing was skipped
         run: bash .github/scripts/assert-no-skips.sh suite.log
 
+      # The other member of the workspace. `Cargo.toml` is
+      # `members = ["cli", "website"]`, every `cargo test` in this file is
+      # `-p buri`, and there is no second workflow — so the site generator's
+      # forty-one tests ran on no job at all. Nothing caught it: they carry no
+      # `#[ignore]`, so `cli/tests/ci.rs` had nothing to say about them, and
+      # they reached no `suite.log`, so neither did `assert-no-skips.sh`. A
+      # package the "nothing is skipped" doctrine cannot see is a package where
+      # everything is.
+      #
+      # On this job rather than in one of its own because everything it needs is
+      # already here: `website` depends on `buri` by path, so it links the rlib
+      # the step above already built, and the whole of it — three binaries and
+      # forty-one tests — is seconds. Through `tee` and the same guard for the
+      # same reason the suite is.
+      - run: |
+          set -o pipefail
+          cargo test -p website 2>&1 | tee website.log
+      - name: Nothing was skipped in the site generator
+        run: bash .github/scripts/assert-no-skips.sh website.log
+
       # Deliberately NOT `-D warnings`. The bar this repository states is the
       # panic-free lint set in the workspace manifest, and every lint in it is
       # `deny` — so a violation is an ERROR and fails this step already. Turning
       # the remaining warnings into errors would make CI's verdict depend on
       # clippy's version rather than on the repository's rules.
       - if: runner.os == 'Linux'
-        run: cargo clippy -p buri --all-targets
+        run: cargo clippy -p buri -p website --all-targets
 
       # The validation gate: compile every corpus and measure nothing.
       # `--quick` is named in `cli/benches/compiler.rs` as the CI shape and is
