@@ -1846,6 +1846,33 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 /// are one fact about every primitive rather than twenty-six, and
 /// [`prim_show_or_to_json`] states it once.
 const GENERIC_INTRINSICS: &[&str] = &[
+    // `core/actor`'s nine, and between them they are a **fifth** carrier
+    // rather than a use of the four above: *the block itself*.
+    //
+    // Every value these move is a one-element `[T]` — a message, a state, an
+    // answer — and a `[T]` is `{ ptr, len }` whatever `T` is (VALUE-MODEL.md
+    // §4). So nothing about the element crosses and nothing needs to: the
+    // runtime takes a reference on the block, puts it in a queue or a slot,
+    // and hands that same reference back. It never indexes one, never copies
+    // an element out of one, and never frees one — `cli/runtime/rt.rs`'s
+    // `Held` is the whole of what it does with it.
+    //
+    // That is what makes the erasure *complete* rather than merely tolerated.
+    // A stride would be the wrong carrier here rather than a missing one: the
+    // question a stride answers is "how wide is one element", and no body in
+    // this family asks it. `core/actor`'s own `Carried<T>` wrapper is what
+    // keeps the one degenerate case out — a zero-width element makes an empty
+    // block with a null pointer, which is unreadable from Buri and would niche
+    // an `Option<[T]>` to `.None`.
+    "actor.mailboxClose",
+    "actor.mailboxOpen",
+    "actor.mailboxPop",
+    "actor.mailboxPush",
+    "actor.replyOpen",
+    "actor.replyPut",
+    "actor.replyTake",
+    "actor.statePut",
+    "actor.stateTake",
     // `core/alloc`'s copy out of a scope. The carrier is a fifth one, beside
     // the stride, the by-address argument, the descriptor and the entry thunk:
     // a **per-type copy walk**, generated at the call site where the
@@ -2259,6 +2286,9 @@ mod tests {
     /// duplication is legible at a glance instead of being seventy lines that
     /// look like the constant and might not be it.
     const PINNED: &str = "\
+        actor.mailboxClose actor.mailboxOpen actor.mailboxPop \
+        actor.mailboxPush actor.replyOpen actor.replyPut actor.replyTake \
+        actor.statePut actor.stateTake \
         alloc.copyOut \
         bool.show bool.toJson \
         bytes.f32ToBytes bytes.f64ToBytes bytes.fromUtf8 bytes.toUtf8 \

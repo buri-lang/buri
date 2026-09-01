@@ -155,6 +155,16 @@ pub const MODULES: &[StdModule] = &[
     // declaring or implementing it, exactly as `core/fs` names `Fs`. The
     // authority is still `core/host`'s to hand out.
     m("core/tasks", include_str!("sources/tasks.buri")),
+    // The other half of concurrency: state that outlives one call, reachable
+    // only through the protocol its own enum declares. Not a platform module
+    // either, and for `core/tasks`'s reason — it *names* `Tasks` in its bounds
+    // and declares no effect of its own. Its nine runtime operations are
+    // module functions keyed `actor.*` rather than the methods of an effect,
+    // which is `core/list`'s shape: the authority is the bound in the
+    // signature, and there is no second implementation of a mailbox for a test
+    // to bind. That is also why it appears in no [`WRAPPERS`] row — it opens no
+    // door, because it declares no effect.
+    m("core/actor", include_str!("sources/actor.buri")),
     StdModule {
         platform: true,
         ..m("core/testing/assert", include_str!("sources/assert.buri"))
@@ -659,6 +669,78 @@ mod tests {
             }
         }
         out
+    }
+
+    /// `core/actor` declares no effect, so it opens no door — and the two
+    /// halves of that are asserted rather than left to be noticed.
+    ///
+    /// It is the one module whose runtime operations are **module functions**
+    /// rather than effect methods: nine bodyless `fn`s keyed `actor.*`, each
+    /// with the authority in its bound (`C: Tasks`) exactly as `core/list`'s
+    /// allocating combinators carry `C: Alloc`. SPEC 10.2 is about reaching
+    /// *the outside world* through a context, and a mailbox is neither the
+    /// outside world nor something a test would want a second implementation
+    /// of — which is also why `core/host/testing` gains nothing for it.
+    ///
+    /// So [`WRAPPERS`] has no `actor` row, and `every_effect_method_has_a_door`
+    /// above still passes over the whole effect surface. A future `effect
+    /// Actors` would have to add nine rows there, and this test is what would
+    /// fail first if somebody declared one and forgot.
+    #[test]
+    fn core_actor_declares_no_effect_and_so_needs_no_door() {
+        let source = find("core/actor").expect("`core/actor` is in the table").source;
+        assert!(
+            !source.contains("export effect "),
+            "`core/actor` declares an effect now; it needs `WRAPPERS` rows, and this test \
+             is the reminder rather than the rule"
+        );
+        assert!(
+            source.contains("fn mailboxOpen<C: Tasks, S>"),
+            "the nine runtime operations are bodyless module functions with the authority \
+             in their bound; a signature that lost the bound would be an operation with no \
+             authority behind it"
+        );
+        assert!(
+            !WRAPPERS.iter().any(|row| row.module == "core/actor"),
+            "a `WRAPPERS` row points at `core/actor`, which declares no effect"
+        );
+    }
+
+    /// The default mailbox is one number, written twice, and the two spellings
+    /// must agree.
+    ///
+    /// `core/actor` enforces the bound — `send` runs the mailbox down when a
+    /// post reaches it — and `cli/runtime/rt.rs` refuses to take a message past
+    /// it. A bound only one side knew would be a bound the other could not
+    /// respect: an actor that filled up would wait on the runtime for a drain
+    /// the driver was never going to do.
+    ///
+    /// Read out of the two sources rather than shared as a constant, because
+    /// they are two crates that never link against each other — the archive is
+    /// `include_bytes!`d — which is the same reason `BURI_OK` is transcribed in
+    /// `backend/runtime_table.rs` rather than imported.
+    #[test]
+    fn the_default_mailbox_is_the_one_core_actor_names() {
+        const RUNTIME: &str = include_str!("../../../runtime/rt.rs");
+        let buri = find("core/actor").expect("`core/actor` is in the table").source;
+        // `split` rather than `find` and a range, because a byte range into a
+        // `&str` is `clippy::string_slice` and this needs no offset — what
+        // follows the needle is what the second piece begins with.
+        let named = |text: &str, needle: &str| -> String {
+            text.split(needle)
+                .nth(1)
+                .unwrap_or_else(|| panic!("no `{needle}`"))
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+        };
+        let module = named(buri, "export let MAILBOX: Int = ");
+        let runtime = named(RUNTIME, "pub const MAILBOX: i64 = ");
+        assert!(!module.is_empty(), "`core/actor` names no default mailbox");
+        assert_eq!(
+            module, runtime,
+            "`core/actor`'s MAILBOX is {module} and `cli/runtime/rt.rs`'s is {runtime}"
+        );
     }
 
     /// Every method of every declared effect has a standard-library function

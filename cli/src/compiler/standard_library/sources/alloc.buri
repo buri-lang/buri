@@ -368,7 +368,15 @@ fn arenaLeave(previous: I64): I64;
 /// charges. It is compiled rather than called: each backend generates the walk
 /// for the concrete `T` at the call site, which is what repairs the erasure a
 /// generic intrinsic's key suffers (`middle/monomorphize.rs`).
-fn copyOut<T>(value: T): T;
+///
+/// **Exported because `scoped` is not the only boundary a value leaves a scope
+/// through.** `core/actor` posts a message into a mailbox that outlives the
+/// call which posted it, and answers an `ask` from inside a step; both are the
+/// same copy at a different site, and a second `copyOut` declared elsewhere
+/// would be a second key for one generated walk. There is nothing to get wrong
+/// by calling it directly — the answer is equal to the argument at every
+/// depth, on every backend — so it is exported rather than duplicated.
+export fn copyOut<T>(value: T): T;
 
 /// **An attenuating wrapper whose `Alloc` is a scope's own arena and whose
 /// every other effect is the wrapped context's.**

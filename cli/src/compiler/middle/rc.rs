@@ -1273,6 +1273,18 @@ pub fn suspends(key: &str) -> bool {
                 // that is literally an `await`; on the natives it is what makes
                 // the caller's frame outlive a scheduling decision.
                 | "host.HostTasks.parallel"
+                // `core/actor`'s two waits, and they wait on the program's own
+                // actors for `Tasks.parallel`'s reason rather than on the
+                // world. `mailboxPush` waits for room in a full mailbox;
+                // `mailboxClose` waits for the step in flight to put the state
+                // back, which is what "`stop` lets the current message finish"
+                // means. The other seven never wait — `stateTake` answers
+                // `.None` rather than blocking, which is the whole reason two
+                // carriers can reach one actor without either of them
+                // stopping — and listing the family by prefix would have
+                // claimed otherwise.
+                | "actor.mailboxPush"
+                | "actor.mailboxClose"
         )
 }
 
@@ -1297,7 +1309,14 @@ pub fn suspends(key: &str) -> bool {
 /// here is a silent aliasing bug. `host.HostTasks` is spelled once and covers
 /// the surface.
 pub fn crosses_tasks(key: &str) -> bool {
-    key.starts_with("host.HostTasks.")
+    // `core/actor`, by prefix and for the sharper reason. A mailbox is a place
+    // a value **waits** to be read, so a message posted here can be stepped by
+    // any task that later drives the actor, and the state can be threaded by a
+    // different one every time. That is exactly "a block the caller made may
+    // be counted, read and released by a thread that is not this one", and it
+    // is true of all nine keys — a `replyPut` on one carrier and the
+    // `replyTake` that reads it on another is the same hand-off as the queue's.
+    key.starts_with("actor.") || key.starts_with("host.HostTasks.")
 }
 
 fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
@@ -1869,23 +1888,47 @@ impl Scan<'_> {
                             let mut bound: Vec<LocalId> = Vec::new();
                             pattern.binds(&mut bound);
                             bound.sort_by_key(|l| l.0);
+                            // Bound and never read: dropped where it was bound
+                            // rather than at the end. Which ones those are has
+                            // to be decided *here*, because the liveness the
+                            // initializer is scanned against is the one with
+                            // the binding already removed — but the drops
+                            // themselves are pushed below, after that scan.
+                            let mut unread: Vec<LocalId> = Vec::new();
                             for b in &bound {
                                 if self.is_counted(*b) {
                                     self.owned.insert(*b);
-                                    // Bound and never read: dropped where it
-                                    // was bound rather than at the end.
                                     if !live_after.contains(b) {
-                                        self.push(
-                                            sid,
-                                            Position::After,
-                                            RcOp::DecRef,
-                                            Target::Local(*b),
-                                        );
+                                        unread.push(*b);
                                     }
                                     live_after.remove(b);
                                 }
                             }
                             live_after = self.expr(value, sid, &live_after, Mode::Own);
+                            // **After the initializer, and the ordering is the
+                            // whole of it.** The initializer is scanned at
+                            // *this* node, so its own operations land at
+                            // `(sid, After)` too, and sites at one key run in
+                            // the order they were pushed ([`FuncPlan::at`], and
+                            // [`analyze`]'s sort is stable). Every shape that
+                            // gives the binding a count puts an `incref`
+                            // there — a projection out of an aggregate
+                            // ([`Scan::projected`]), a second read of a local
+                            // something after this still uses — so pushing the
+                            // drop first made the pair *release then retain*.
+                            //
+                            // On a value whose count was one that is a
+                            // use-after-free rather than a leak, and the counts
+                            // balance either way, which is why
+                            // [`check_balance`] never saw it: the release frees
+                            // the block, the retain writes through a header the
+                            // block cache is using as free-list storage, and
+                            // the crash is an unrelated allocation later
+                            // (`reports/llvm-parallel-listen-fix.md`). This is
+                            // the order `Stmt::Expr` below always had.
+                            for b in unread {
+                                self.push(sid, Position::After, RcOp::DecRef, Target::Local(b));
+                            }
                             self.flush(sid);
                         }
                         Stmt::Expr(x) => {
@@ -3437,6 +3480,97 @@ export fn main(): Result<(), Str> {
         assert_eq!(check_balance(&program), Vec::<String>::new());
     }
 
+    /// A binding nothing reads is dropped **after** the operations that gave it
+    /// its count, not before them.
+    ///
+    /// `let x = <init>;` scans the initializer at the *statement's own node*,
+    /// so the initializer's sites and the drop of an unread `x` land at the
+    /// same `(node, After)` key — and a plan's sites run in the order they were
+    /// pushed. Pushing the drop first made the pair *release then retain*: on a
+    /// value whose count was one, the release frees the block and the retain
+    /// then writes into a header the allocator is already using as free-list
+    /// storage. The crash is an unrelated allocation later, which is what made
+    /// it look like a backend fault for a wave
+    /// (`reports/llvm-parallel-listen-fix.md`).
+    ///
+    /// Both shapes that put an `incref` at that key are here: a **projection**
+    /// out of an aggregate (`Scan::projected`), and a **second read** of a
+    /// local something after it still uses (`ExprKind::Local` under
+    /// `Mode::Own`). Neither may be preceded at its own key by the drop.
+    #[test]
+    fn an_unread_binding_is_dropped_after_its_own_incref() {
+        let src = r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+struct Pair { n: Int, tags: [Str] }
+
+/// The projection shape: `stale` is words copied out of `pair`, and nothing
+/// reads it.
+export fn projected(pair: Pair): Int {
+  let stale = pair.tags;
+  pair.n
+}
+
+/// The alias shape: `stale` is a second name for `tags`, which is read again
+/// after it.
+export fn aliased(tags: [Str]): Int {
+  let stale = tags;
+  tags.len()
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let p = Pair { n: 1, tags: ["a"] };
+  let _ = io.println(ctx, "${projected(p)} ${aliased(["b"])}").ignore();
+  .Ok(())
+}
+"#;
+        let program = compile_native(src);
+        let mut counted = Syntactic::new(&program);
+        let plan = analyze(&program, &mut counted, &Options::default());
+        for name in ["projected", "aliased"] {
+            let i = find(&program, name);
+            let fp = plan.func(i).expect("a plan");
+            let func = program.funcs.get(i.index()).expect("a function");
+            let stale = func
+                .locals
+                .iter()
+                .position(|l| l.name == "stale")
+                .map(|k| LocalId(k as u32))
+                .unwrap_or_else(|| panic!("{name} binds a local named stale"));
+            let drop = fp
+                .sites
+                .iter()
+                .position(|s| s.target == Target::Local(stale) && s.op == RcOp::DecRef)
+                .unwrap_or_else(|| panic!("{name}: the unread binding is never dropped"));
+            let site = fp.sites[drop];
+            // The whole claim: at the drop's own key, an increment runs first.
+            // A key with no increment at all would pass this vacuously, so the
+            // increment is asserted to exist as well.
+            let increments: Vec<usize> = fp
+                .sites
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.node == site.node && s.at == site.at && s.op == RcOp::IncRef)
+                .map(|(k, _)| k)
+                .collect();
+            assert!(
+                !increments.is_empty(),
+                "{name}: nothing gives the binding a count, so the drop has nothing to give back"
+            );
+            assert!(
+                increments.iter().all(|k| *k < drop),
+                "{name}: the drop at {drop} runs before the increments at {increments:?} \
+                 on node {:?} — release then retain, which frees the block and then \
+                 writes through the freed header",
+                site.node
+            );
+        }
+        assert_eq!(check_balance(&program), Vec::<String>::new());
+    }
+
     /// A merged mutually recursive group: one `Loop` with an entry per member,
     /// and a `Continue` that names the function it re-enters.
     #[test]
@@ -4551,6 +4685,9 @@ export fn main(): Result<(), Str> {
             "host.HostClock.sleepMillis",
             "host.HostStdin.readLine",
             "host.HostStdin.readBytes",
+            // `core/actor`'s two, and they are the family's *only* two.
+            "actor.mailboxPush",
+            "actor.mailboxClose",
         ] {
             assert!(suspends(key), "{key} blocks");
         }
@@ -4561,9 +4698,46 @@ export fn main(): Result<(), Str> {
             "host_testing.TestFs.readFile",
             "host_testing.TestClock.sleepMillis",
             "derivePrimHash",
+            // The other seven `actor.*` keys. Listing them is the half a
+            // prefix rule would have got wrong: `stateTake` answers `.None`
+            // where another carrier is stepping rather than waiting for it,
+            // and a `send` that had to park to find that out would be a
+            // scheduler this module does not have.
+            "actor.mailboxOpen",
+            "actor.mailboxPop",
+            "actor.stateTake",
+            "actor.statePut",
+            "actor.replyOpen",
+            "actor.replyPut",
+            "actor.replyTake",
         ] {
             assert!(!suspends(key), "{key} does not block");
         }
+    }
+
+    /// Every `core/actor` key hands a value to whichever task drives the actor
+    /// next, so every one of them is a crossing — which is the direction an
+    /// omission has to be wrong in, since a block nobody marked is a block two
+    /// carriers count without an atomic.
+    #[test]
+    fn an_actor_is_a_place_a_value_waits_for_another_task() {
+        for key in [
+            "actor.mailboxOpen",
+            "actor.mailboxPush",
+            "actor.mailboxPop",
+            "actor.mailboxClose",
+            "actor.stateTake",
+            "actor.statePut",
+            "actor.replyOpen",
+            "actor.replyPut",
+            "actor.replyTake",
+        ] {
+            assert!(crosses_tasks(key), "{key} hands a value to another task");
+        }
+        // The module's own Buri half does not: `core/actor`'s functions are
+        // ordinary code and it is the intrinsics underneath them that cross.
+        assert!(!crosses_tasks("alloc.copyOut"));
+        assert!(!crosses_tasks("list.push"));
     }
 
     /// An indirect call reaches a code pointer this pass cannot name, so it is

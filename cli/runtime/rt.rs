@@ -1273,6 +1273,435 @@ pub unsafe extern "C" fn buri_rt_host_tasks_parallel(
     unsafe { out.write(result) }
 }
 
+// ---------------------------------------------------------------------------
+// `core/actor`
+// ---------------------------------------------------------------------------
+//
+// Nine exported entries, and between them they are the only place in this
+// runtime that **keeps a pointer it was passed**. `lib.rs` §3's third bullet is
+// amended for them and for nothing else, because an actor is by definition a
+// value that outlives the call which handed it over: a mailbox holds messages
+// between the `send` that posted one and the step that reads it, and the state
+// sits in the table between two steps.
+//
+// What makes that expressible against a runtime compiled once and against no
+// Buri type is the shape `core/actor` crosses in: **a one-element `[T]`**. A
+// `[T]` is `{ ptr, len }` whatever `T` is (VALUE-MODEL.md §4), so a message is
+// two words here and nothing about its element ever crosses — no stride, no
+// retain glue, no descriptor. The runtime takes a reference on the block
+// ([`Held::keep`]) and gives that same reference back ([`Held::give`]); every
+// block it takes is handed to somebody, so the count balances without this file
+// ever knowing how to walk one. `core/actor`'s own `Carried<T>` wrapper is what
+// keeps such a block from being *empty*, which is the one case a null `ptr`
+// would make unreadable.
+//
+// The scheduling is `core/actor`'s, in Buri: this file holds the queue, the
+// state, the reply slots and the two waits, and never calls a Buri closure. A
+// step is entered by the task that drove it, from `core/actor::draining`, and
+// the arm where an actor has a carrier of its own is the one that needs a step
+// record outliving its call — §2's undefined half, still.
+
+/// How many messages wait in a mailbox that asked for no number.
+///
+/// It is **also** written in `core/actor` as `MAILBOX`, and the two must agree:
+/// the bound is enforced from both sides — this file refuses to take a message
+/// past it, and `core/actor::send` runs the mailbox down when it reaches it —
+/// so a bound only one side knew would be a bound the other could not respect.
+/// `the_default_mailbox_is_the_one_core_actor_names` is that agreement as a
+/// test.
+pub const MAILBOX: i64 = 64;
+
+/// One Buri block this runtime is holding on a program's behalf.
+///
+/// The two words of a `[T]`, and a reference on the block behind them. It is
+/// deliberately not a `BuriList`: that type is the *ABI* shape and is copied
+/// freely, and this one is an **owned** reference with a rule attached — it was
+/// increfed when it was taken and the count is given away when it is handed
+/// back, exactly once.
+#[derive(Clone, Copy)]
+struct Held {
+    ptr: *mut u8,
+    len: u64,
+}
+
+// SAFETY: the pointer names a Buri block, and a program that reaches this file
+// at all is one `middle::rc::crosses_tasks` marked — `actor.` is on that list —
+// so every block it allocated carries `CAP_SHARED_FLAG` and is counted
+// atomically (§1). Moving one between carriers is therefore what the mark was
+// bought for, and the queue below is exactly the hand-off it describes.
+unsafe impl Send for Held {}
+
+impl Held {
+    /// Take a reference on the caller's block, so that the release the caller
+    /// already emits for its own reference does not free it.
+    ///
+    /// A null `ptr` is an empty block and there is nothing to count;
+    /// `core/actor` does not produce one — every carrier it builds has a
+    /// non-zero stride, which is what `Carried<T>` is for — and this is total
+    /// anyway, because a runtime that aborted on it would report a toolchain
+    /// bug as a program error.
+    fn keep(list: BuriList) -> Held {
+        // SAFETY: `ptr` is null or a live payload pointer the caller owns for
+        // the duration of the call (`lib.rs` §3's borrowed-parameter rule).
+        unsafe { crate::memory::buri_rt_incref(list.ptr) };
+        Held { ptr: list.ptr, len: list.len }
+    }
+
+    /// Give the reference away. The caller of the entry that answers this owns
+    /// it now, and its own release is what eventually frees the block.
+    fn give(self) -> BuriList {
+        BuriList { ptr: self.ptr, len: self.len }
+    }
+}
+
+/// One actor: a bounded queue, a state, and the two waits that order them.
+struct Mailbox {
+    /// Posted and not yet stepped, oldest first. One sender's messages are in
+    /// the order it sent them because a `VecDeque` is, and because the permit
+    /// below is handed out in the order it was asked for.
+    queue: VecDeque<Held>,
+    /// `Carried<S>`, or `None` while a driver has it — and after the close,
+    /// which is what makes `mailboxClose` answer once.
+    state: Option<Held>,
+    /// Set by `mailboxClose`. A closed mailbox takes no more messages and
+    /// hands out no more state; it still gives back what is already in it,
+    /// which is what `core/actor::stop`'s discard loop reads.
+    closed: bool,
+    /// One permit per free slot. `mailboxPush` acquires one and `mailboxPop`
+    /// gives it back, so a full mailbox is a `send` that waits rather than a
+    /// queue that grows. Closing it is what turns a waiting `send` into
+    /// `.Err(.Stopped)` instead of a wait nothing would end.
+    room: Arc<tokio::sync::Semaphore>,
+    /// Exactly one permit, and holding it *is* holding the state. It is what
+    /// makes a step exclusive without a lock held across a call into Buri
+    /// code, and what `mailboxClose` waits on so that a `stop` racing a step
+    /// lets that step finish.
+    baton: Arc<tokio::sync::Semaphore>,
+}
+
+/// Every actor this program has started. Tombstoned rather than reused, for
+/// [`Slot`]'s reason: a handle held past its actor's life names a dead actor
+/// and not somebody else's live one.
+static ACTORS: Mutex<Vec<Mailbox>> = Mutex::new(Vec::new());
+
+fn actors() -> MutexGuard<'static, Vec<Mailbox>> {
+    match ACTORS.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// One `ask`'s answer, on its way back.
+enum Answer {
+    /// Opened by `replyOpen` and not yet answered.
+    Waiting,
+    /// Answered and not yet read.
+    Ready(Held),
+    /// Read. A second `replyTake` answers `.None` from here, which is what
+    /// makes an answer arrive once.
+    Spent,
+}
+
+/// The reply slots, and the generation of each, beside the free list.
+///
+/// **Reused, unlike an actor's slot, and the generation is why that is safe.**
+/// A server answering a million `ask`s opens a million reply slots, so a table
+/// that only grew would be a leak proportional to the program's uptime. A
+/// handle is `generation << 20 | index`, so a stale one — held past the answer
+/// it named — finds a generation that has moved on and is `.None` rather than
+/// somebody else's answer. Twenty bits of index is a million live slots at
+/// once, which is a different and much smaller number than a million over a
+/// lifetime.
+struct Slots {
+    /// One `(generation, answer)` per index, never shrinking.
+    slots: Vec<(u64, Answer)>,
+    /// The indices a `replyTake` gave back, ready for the next `replyOpen`.
+    free: Vec<usize>,
+}
+
+static REPLIES: Mutex<Slots> = Mutex::new(Slots { slots: Vec::new(), free: Vec::new() });
+
+/// The index half of a reply handle.
+const REPLY_INDEX_BITS: u32 = 20;
+
+/// The mask that reads it back.
+const REPLY_INDEX_MASK: u64 = (1 << REPLY_INDEX_BITS) - 1;
+
+fn replies() -> MutexGuard<'static, Slots> {
+    match REPLIES.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// `actor.mailboxOpen(ctx, state, bound) -> Int`.
+///
+/// # Safety
+/// `ptr` is null or a live `[Carried<S>]` block the caller owns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_actor_mailbox_open(ptr: *mut u8, len: u64, bound: i64) -> i64 {
+    // A bound that is not a positive number is [`MAILBOX`]. `core/actor` always
+    // passes one — it has to, because it enforces the bound itself — so this is
+    // the fallback for a caller that has not been written yet rather than the
+    // path a program takes.
+    let asked = if bound > 0 { bound } else { MAILBOX };
+    let room = usize::try_from(asked).unwrap_or(MAILBOX as usize).max(1);
+    let mut table = actors();
+    table.push(Mailbox {
+        queue: VecDeque::new(),
+        state: Some(Held::keep(BuriList { ptr, len })),
+        closed: false,
+        room: Arc::new(tokio::sync::Semaphore::new(room)),
+        baton: Arc::new(tokio::sync::Semaphore::new(1)),
+    });
+    (table.len() as i64) - 1
+}
+
+/// The mailbox a handle names, or nothing.
+///
+/// A handle that names none cannot arise from a program — `core/actor` mints
+/// every one of them — so this answers `None` rather than aborting, for the
+/// reason `task_join` gives at its own table.
+fn at(table: &mut [Mailbox], handle: i64) -> Option<&mut Mailbox> {
+    usize::try_from(handle).ok().and_then(move |i| table.get_mut(i))
+}
+
+/// `actor.mailboxPush(ctx, handle, message) -> Option<Int>` — the number
+/// waiting, or `.None` for a closed mailbox.
+///
+/// **Waits while the mailbox is full**, on the permit `mailboxPop` gives back.
+/// `core/actor::send` runs the mailbox down after every post that reaches the
+/// bound, so a single-task program never reaches this wait; a second task
+/// posting into an actor somebody else drives is what does.
+///
+/// # Safety
+/// `ptr` is null or a live `[Carried<M>]` block the caller owns; `out` is
+/// writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_actor_mailbox_push(
+    handle: i64,
+    ptr: *mut u8,
+    len: u64,
+    out: *mut i64,
+) -> i32 {
+    let room = {
+        let mut table = actors();
+        match at(&mut table, handle) {
+            Some(mailbox) if !mailbox.closed => Arc::clone(&mailbox.room),
+            _ => return 0,
+        }
+    };
+    // Outside the table's lock: the permit that frees this one is given back by
+    // `mailboxPop`, which takes the same lock.
+    let Ok(permit) = park_on(room.acquire()) else {
+        // The semaphore was closed while this call waited, which is `stop`.
+        return 0;
+    };
+    permit.forget();
+    let mut table = actors();
+    let Some(mailbox) = at(&mut table, handle) else { return 0 };
+    if mailbox.closed {
+        // Closed between the permit and the lock. The permit is not given back
+        // — a closed semaphore hands out no more anyway — and the block is not
+        // taken, so the caller's own release frees it.
+        return 0;
+    }
+    mailbox.queue.push_back(Held::keep(BuriList { ptr, len }));
+    let waiting = mailbox.queue.len() as i64;
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(waiting) };
+    crate::BURI_OK
+}
+
+/// `actor.mailboxPop(ctx, handle) -> Option<[Carried<M>]>` — the oldest
+/// message, or `.None` for an empty mailbox. A closed mailbox still hands back
+/// what is in it, which is what `core/actor::stop`'s discard loop reads.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_actor_mailbox_pop(handle: i64, out: *mut BuriList) -> i32 {
+    let mut table = actors();
+    let Some(mailbox) = at(&mut table, handle) else { return 0 };
+    let Some(held) = mailbox.queue.pop_front() else { return 0 };
+    mailbox.room.add_permits(1);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(held.give()) };
+    crate::BURI_OK
+}
+
+/// `actor.mailboxClose(ctx, handle) -> Option<[Carried<S>]>` — closes, once,
+/// and answers the final state.
+///
+/// **Waits for the baton**, so a `stop` that races a step lets that step
+/// finish. A second close answers `.None` without waiting, which is what makes
+/// `core/actor`'s `onStop` run exactly once.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_actor_mailbox_close(handle: i64, out: *mut BuriList) -> i32 {
+    let baton = {
+        let mut table = actors();
+        match at(&mut table, handle) {
+            Some(mailbox) if !mailbox.closed => {
+                mailbox.closed = true;
+                // Every `send` waiting for room is answered `.Err(.Stopped)`
+                // rather than left waiting for a drain that will not come.
+                mailbox.room.close();
+                Arc::clone(&mailbox.baton)
+            }
+            _ => return 0,
+        }
+    };
+    // Outside the lock: the step this waits for is Buri code, and it takes the
+    // lock itself when it puts the state back.
+    if let Ok(permit) = park_on(baton.acquire()) {
+        // Kept, never given back: the baton is what a `stateTake` needs, so
+        // holding it forever is what makes a stopped actor unsteppable.
+        permit.forget();
+    }
+    let mut table = actors();
+    let Some(mailbox) = at(&mut table, handle) else { return 0 };
+    let Some(held) = mailbox.state.take() else { return 0 };
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(held.give()) };
+    crate::BURI_OK
+}
+
+/// `actor.stateTake(ctx, handle) -> Option<[Carried<S>]>` — the state, and with
+/// it the right to step this actor.
+///
+/// Never waits. `.None` is "somebody else is stepping it, or it has stopped",
+/// and `core/actor::drive` reads both as "not mine to run" — which is what
+/// keeps two carriers from stepping one actor at once without either of them
+/// blocking.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_actor_state_take(handle: i64, out: *mut BuriList) -> i32 {
+    let mut table = actors();
+    let Some(mailbox) = at(&mut table, handle) else { return 0 };
+    if mailbox.closed {
+        return 0;
+    }
+    let Ok(permit) = mailbox.baton.try_acquire() else { return 0 };
+    permit.forget();
+    let Some(held) = mailbox.state.take() else {
+        mailbox.baton.add_permits(1);
+        return 0;
+    };
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(held.give()) };
+    crate::BURI_OK
+}
+
+/// `actor.statePut(ctx, handle, state) -> Option<Int>` — the state back, and
+/// the number of messages waiting.
+///
+/// The block is taken on every path where the actor exists, **including a
+/// closed one**: a close is waiting on the baton this call gives back, and the
+/// state it is waiting for is this one.
+///
+/// # Safety
+/// `ptr` is null or a live `[Carried<S>]` block the caller owns; `out` is
+/// writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_actor_state_put(
+    handle: i64,
+    ptr: *mut u8,
+    len: u64,
+    out: *mut i64,
+) -> i32 {
+    let mut table = actors();
+    let Some(mailbox) = at(&mut table, handle) else { return 0 };
+    mailbox.state = Some(Held::keep(BuriList { ptr, len }));
+    let waiting = mailbox.queue.len() as i64;
+    mailbox.baton.add_permits(1);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(waiting) };
+    crate::BURI_OK
+}
+
+/// `actor.replyOpen(ctx) -> Int` — a fresh slot, and the handle that names it.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_actor_reply_open() -> i64 {
+    let mut table = replies();
+    match table.free.pop() {
+        Some(index) => {
+            let generation = table.slots[index].0;
+            table.slots[index].1 = Answer::Waiting;
+            ((generation << REPLY_INDEX_BITS) | index as u64) as i64
+        }
+        None => {
+            table.slots.push((0, Answer::Waiting));
+            (table.slots.len() as i64) - 1
+        }
+    }
+}
+
+/// The slot a reply handle names, checked against its generation.
+fn reply_at(slots: &mut [(u64, Answer)], handle: i64) -> Option<&mut Answer> {
+    let handle = u64::try_from(handle).ok()?;
+    let index = usize::try_from(handle & REPLY_INDEX_MASK).ok()?;
+    let generation = handle >> REPLY_INDEX_BITS;
+    let slot = slots.get_mut(index)?;
+    (slot.0 == generation).then_some(&mut slot.1)
+}
+
+/// `actor.replyPut(ctx, handle, value) -> Option<Int>` — the answer, once.
+///
+/// # Safety
+/// `ptr` is null or a live `[Carried<R>]` block the caller owns; `out` is
+/// writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_actor_reply_put(
+    handle: i64,
+    ptr: *mut u8,
+    len: u64,
+    out: *mut i64,
+) -> i32 {
+    let mut table = replies();
+    let Some(slot) = reply_at(&mut table.slots, handle) else { return 0 };
+    if !matches!(slot, Answer::Waiting) {
+        return 0;
+    }
+    *slot = Answer::Ready(Held::keep(BuriList { ptr, len }));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(0) };
+    crate::BURI_OK
+}
+
+/// `actor.replyTake(ctx, handle) -> Option<[Carried<R>]>` — the answer, once,
+/// and the slot back for the next `ask`.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_actor_reply_take(handle: i64, out: *mut BuriList) -> i32 {
+    let mut table = replies();
+    let Some(slot) = reply_at(&mut table.slots, handle) else { return 0 };
+    let held = match std::mem::replace(slot, Answer::Spent) {
+        Answer::Ready(held) => held,
+        // Put back exactly what was there. An unanswered slot stays
+        // unanswered — a `replyPut` still to come is the ordinary case, and
+        // spending it here would lose the answer — and a spent one stays
+        // spent.
+        other => {
+            *slot = other;
+            return 0;
+        }
+    };
+    // The slot is free for reuse, at the next generation, so the handle just
+    // spent names nothing from here on.
+    let index = (handle as u64 & REPLY_INDEX_MASK) as usize;
+    table.slots[index].0 = table.slots[index].0.wrapping_add(1);
+    table.free.push(index);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(held.give()) };
+    crate::BURI_OK
+}
 
 #[cfg(test)]
 mod tests {
@@ -2976,5 +3405,382 @@ mod tests {
             "{n} parked tasks started {started} carriers: a task that parks is holding a \
              thread, which is the arrangement this slice replaced",
         );
+    }
+
+    // -- `core/actor` -------------------------------------------------------
+    //
+    // The nine entries, driven directly and at the shape a Buri program
+    // reaches them in: a one-element `[T]` of eight-byte elements, which is
+    // what `core/actor`'s `Carried<T>` guarantees is never empty. Nothing here
+    // calls Buri code, because nothing in the actor boundary does — the step is
+    // the caller's, and `core/actor::draining` is where it is entered.
+    //
+    // **The references are counted by hand, exactly as generated code would.**
+    // A block handed *to* an entry is still the caller's, and the entry takes
+    // a second reference; a block handed *back* carries the entry's reference
+    // and the caller is what releases it. So every one of these tests calls
+    // [`drop_ref`] once per reference it is holding, and a test that got that
+    // wrong would read a freed block under a sanitizer rather than pass.
+
+    /// One block of one eight-byte element, with a distinguishing value in it.
+    fn carried(mark: u64) -> BuriList {
+        let list = block(1, 8);
+        // SAFETY: `block(1, 8)` answers eight writable, aligned payload bytes.
+        unsafe { list.ptr.cast::<u64>().write(mark) };
+        list
+    }
+
+    /// What a carrier was built with, read back out of a block handed over.
+    ///
+    /// # Safety
+    /// `list` names a live block of at least eight payload bytes.
+    unsafe fn mark_of(list: &BuriList) -> u64 {
+        // SAFETY: forwarded to the caller's promise.
+        unsafe { list.ptr.cast::<u64>().read() }
+    }
+
+    /// Give one reference back. `[u64]` holds no counted pointer, so there is
+    /// no drop glue to pass.
+    fn drop_ref(list: &BuriList) {
+        // SAFETY: a live payload pointer this test still holds a count on.
+        unsafe { crate::memory::buri_rt_decref(list.ptr, None) };
+    }
+
+    fn nothing() -> BuriList {
+        BuriList { ptr: std::ptr::null_mut(), len: 0 }
+    }
+
+    /// A mailbox is a queue: what one sender posted comes back in the order it
+    /// posted it, and an empty one answers `.None` rather than waiting.
+    #[test]
+    fn a_mailbox_hands_messages_back_in_the_order_they_were_posted() {
+        let state = carried(0);
+        // SAFETY: a live one-element block.
+        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 8) };
+        drop_ref(&state);
+        for mark in 1..=3u64 {
+            let message = carried(mark);
+            let mut depth = 0i64;
+            // SAFETY: a live one-element block, and a writable `i64`.
+            let ok = unsafe {
+                buri_rt_actor_mailbox_push(actor, message.ptr, message.len, &raw mut depth)
+            };
+            assert_eq!(ok, crate::BURI_OK);
+            assert_eq!(depth, mark as i64, "the depth is the number waiting");
+            drop_ref(&message);
+        }
+        for mark in 1..=3u64 {
+            let mut out = nothing();
+            // SAFETY: a writable, aligned destination.
+            let ok = unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut out) };
+            assert_eq!(ok, crate::BURI_OK);
+            // SAFETY: the block the runtime handed back, still counted here.
+            assert_eq!(unsafe { mark_of(&out) }, mark, "out of order");
+            drop_ref(&out);
+        }
+        let mut out = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut out) }, 0);
+        // SAFETY: a writable, aligned destination.
+        let ok = unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) };
+        assert_eq!(ok, crate::BURI_OK);
+        drop_ref(&out);
+    }
+
+    /// **A bounded mailbox actually blocks.**
+    ///
+    /// The acceptance case for the bound, and it is here rather than in Buri
+    /// because `core/actor::send` deliberately never reaches this wait — it
+    /// runs the mailbox down when a post fills it, so a single-task program
+    /// cannot see it. What can is a second carrier posting into an actor
+    /// somebody else drives, which is what this drives directly.
+    ///
+    /// **Bounded at both ends.** The "it is still waiting" half is a deadline
+    /// of its own, so a post that wrongly succeeded fails this test instead of
+    /// passing it; and the "it finished" half has a deadline too, so a post
+    /// that never woke is a failure rather than a hang.
+    #[test]
+    fn a_full_mailbox_makes_a_post_wait_for_room() {
+        let state = carried(0);
+        // SAFETY: a live one-element block.
+        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 1) };
+        drop_ref(&state);
+
+        let first = carried(1);
+        let mut depth = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        let ok =
+            unsafe { buri_rt_actor_mailbox_push(actor, first.ptr, first.len, &raw mut depth) };
+        assert_eq!(ok, crate::BURI_OK);
+        drop_ref(&first);
+
+        let (posted, arrived) = channel();
+        let waiter = thread::spawn(move || {
+            let second = carried(2);
+            let mut depth = 0i64;
+            // SAFETY: a live one-element block, and a writable `i64`.
+            let ok = unsafe {
+                buri_rt_actor_mailbox_push(actor, second.ptr, second.len, &raw mut depth)
+            };
+            drop_ref(&second);
+            posted.send((ok, depth)).ok();
+        });
+
+        // Still waiting: the mailbox holds its one message and nothing has
+        // taken it, so the post cannot have been accepted.
+        assert!(
+            arrived.recv_timeout(Duration::from_millis(150)).is_err(),
+            "a post into a full mailbox did not wait"
+        );
+
+        let mut out = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut out) }, crate::BURI_OK);
+        // SAFETY: the block the runtime handed back, still counted here.
+        assert_eq!(unsafe { mark_of(&out) }, 1);
+        drop_ref(&out);
+
+        let (ok, depth) = arrived
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the post never woke after the room was given back");
+        assert_eq!(ok, crate::BURI_OK);
+        assert_eq!(depth, 1);
+        waiter.join().expect("the posting carrier panicked");
+    }
+
+    /// A `stop` while the mailbox is full does not leave the poster waiting:
+    /// closing the room answers it `.None`, which `core/actor` reads as
+    /// `.Err(.Stopped)`.
+    #[test]
+    fn closing_a_full_mailbox_answers_the_post_that_was_waiting() {
+        let state = carried(0);
+        // SAFETY: a live one-element block.
+        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 1) };
+        drop_ref(&state);
+        let first = carried(1);
+        let mut depth = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        unsafe { buri_rt_actor_mailbox_push(actor, first.ptr, first.len, &raw mut depth) };
+        drop_ref(&first);
+
+        let (posted, arrived) = channel();
+        let waiter = thread::spawn(move || {
+            let second = carried(2);
+            let mut depth = 0i64;
+            // SAFETY: a live one-element block, and a writable `i64`.
+            let ok = unsafe {
+                buri_rt_actor_mailbox_push(actor, second.ptr, second.len, &raw mut depth)
+            };
+            drop_ref(&second);
+            posted.send(ok).ok();
+        });
+        assert!(arrived.recv_timeout(Duration::from_millis(150)).is_err());
+
+        let mut out = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) }, crate::BURI_OK);
+        // SAFETY: the block the runtime handed back is the state.
+        assert_eq!(unsafe { mark_of(&out) }, 0);
+        drop_ref(&out);
+
+        assert_eq!(
+            arrived.recv_timeout(Duration::from_secs(5)).expect("the post never woke"),
+            0,
+            "a post into a closed mailbox is `.None`"
+        );
+        waiter.join().expect("the posting carrier panicked");
+        // The message the closed mailbox never took is still the poster's, and
+        // the poster released it: nothing here holds a second reference to it.
+        let mut left = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut left) }, crate::BURI_OK);
+        drop_ref(&left);
+    }
+
+    /// The state comes out once and goes back once, and a closed actor hands
+    /// its final state to exactly one `mailboxClose`.
+    #[test]
+    fn an_actor_answers_its_final_state_once() {
+        let state = carried(7);
+        // SAFETY: a live one-element block.
+        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };
+        drop_ref(&state);
+
+        let mut held = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut held) }, crate::BURI_OK);
+        // SAFETY: the block the runtime handed back, still counted here.
+        assert_eq!(unsafe { mark_of(&held) }, 7);
+        // A second take finds the baton gone, and does not wait for it.
+        let mut again = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut again) }, 0);
+
+        let next = carried(8);
+        let mut depth = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        assert_eq!(
+            unsafe { buri_rt_actor_state_put(actor, next.ptr, next.len, &raw mut depth) },
+            crate::BURI_OK
+        );
+        drop_ref(&next);
+        drop_ref(&held);
+
+        let mut out = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) }, crate::BURI_OK);
+        // SAFETY: the block the runtime handed back is what `statePut` stored.
+        assert_eq!(unsafe { mark_of(&out) }, 8, "the close answers the *final* state");
+        drop_ref(&out);
+
+        // Once. A second close is `.None`, which is what makes `onStop` run
+        // exactly once without `core/actor` having to remember.
+        let mut twice = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut twice) }, 0);
+        // A post after it is `.None` too, and does not take the block.
+        let late = carried(9);
+        // SAFETY: a live one-element block, and a writable `i64`.
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_push(actor, late.ptr, late.len, &raw mut depth) },
+            0
+        );
+        drop_ref(&late);
+    }
+
+    /// A `stop` that races a step waits for it: the close does not answer
+    /// until the state is back, which is "`stop` lets the current message
+    /// finish" enforced by the runtime rather than asked of the caller.
+    #[test]
+    fn a_close_waits_for_the_step_in_flight() {
+        let state = carried(1);
+        // SAFETY: a live one-element block.
+        let actor = unsafe { buri_rt_actor_mailbox_open(state.ptr, state.len, 4) };
+        drop_ref(&state);
+        let mut held = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut held) }, crate::BURI_OK);
+
+        let (closed, arrived) = channel();
+        let closer = thread::spawn(move || {
+            let mut out = nothing();
+            // SAFETY: a writable, aligned destination.
+            let ok = unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) };
+            if ok != crate::BURI_OK {
+                closed.send((ok, 0u64)).ok();
+                return;
+            }
+            // SAFETY: the block the runtime handed back, still counted here.
+            let mark = unsafe { mark_of(&out) };
+            drop_ref(&out);
+            closed.send((ok, mark)).ok();
+        });
+        assert!(
+            arrived.recv_timeout(Duration::from_millis(150)).is_err(),
+            "a close answered while a step held the state"
+        );
+
+        let next = carried(2);
+        let mut depth = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        unsafe { buri_rt_actor_state_put(actor, next.ptr, next.len, &raw mut depth) };
+        drop_ref(&next);
+        drop_ref(&held);
+
+        let (ok, mark) = arrived
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the close never woke after the state came back");
+        assert_eq!(ok, crate::BURI_OK);
+        assert_eq!(mark, 2, "the close answers what the step left, not what it started with");
+        closer.join().expect("the closing carrier panicked");
+    }
+
+    /// A reply is answered once, read once, and its slot comes back at a new
+    /// generation — so the handle that was just spent names nothing.
+    #[test]
+    fn a_reply_is_answered_once_and_its_handle_expires() {
+        let slot = buri_rt_actor_reply_open();
+        let mut out = nothing();
+        // Nothing there yet, and the read that found nothing does not spend it.
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_reply_take(slot, &raw mut out) }, 0);
+
+        let value = carried(42);
+        let mut ack = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        assert_eq!(
+            unsafe { buri_rt_actor_reply_put(slot, value.ptr, value.len, &raw mut ack) },
+            crate::BURI_OK
+        );
+        drop_ref(&value);
+        // A second answer is refused rather than overwriting the first.
+        let other = carried(43);
+        // SAFETY: a live one-element block, and a writable `i64`.
+        assert_eq!(
+            unsafe { buri_rt_actor_reply_put(slot, other.ptr, other.len, &raw mut ack) },
+            0
+        );
+        drop_ref(&other);
+
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_reply_take(slot, &raw mut out) }, crate::BURI_OK);
+        // SAFETY: the block the runtime handed back, still counted here.
+        assert_eq!(unsafe { mark_of(&out) }, 42);
+        drop_ref(&out);
+
+        // Spent, and the slot is reusable — but not through the old handle.
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_reply_take(slot, &raw mut out) }, 0);
+        let fresh = buri_rt_actor_reply_open();
+        assert_ne!(fresh, slot, "a reused slot answers a new handle");
+        let late = carried(1);
+        // SAFETY: a live one-element block, and a writable `i64`.
+        assert_eq!(
+            unsafe { buri_rt_actor_reply_put(slot, late.ptr, late.len, &raw mut ack) },
+            0,
+            "the spent handle names nothing"
+        );
+        // SAFETY: a live one-element block, and a writable `i64`.
+        assert_eq!(
+            unsafe { buri_rt_actor_reply_put(fresh, late.ptr, late.len, &raw mut ack) },
+            crate::BURI_OK
+        );
+        drop_ref(&late);
+        let mut back = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_reply_take(fresh, &raw mut back) }, crate::BURI_OK);
+        drop_ref(&back);
+    }
+
+    /// A handle that names nothing answers `.None` from every entry rather
+    /// than aborting: it cannot arise from a program, and a runtime that
+    /// aborted on it would report a toolchain bug as a program error.
+    #[test]
+    fn a_handle_that_names_nothing_is_answered_and_not_aborted() {
+        let mut list = nothing();
+        let mut number = 0i64;
+        let held = carried(1);
+        for handle in [-1i64, i64::MAX] {
+            // SAFETY: writable destinations, and a live one-element block.
+            unsafe {
+                assert_eq!(buri_rt_actor_mailbox_pop(handle, &raw mut list), 0);
+                assert_eq!(buri_rt_actor_mailbox_close(handle, &raw mut list), 0);
+                assert_eq!(buri_rt_actor_state_take(handle, &raw mut list), 0);
+                assert_eq!(
+                    buri_rt_actor_state_put(handle, held.ptr, held.len, &raw mut number),
+                    0
+                );
+                assert_eq!(
+                    buri_rt_actor_mailbox_push(handle, held.ptr, held.len, &raw mut number),
+                    0
+                );
+                assert_eq!(buri_rt_actor_reply_take(handle, &raw mut list), 0);
+                assert_eq!(
+                    buri_rt_actor_reply_put(handle, held.ptr, held.len, &raw mut number),
+                    0
+                );
+            }
+        }
+        drop_ref(&held);
     }
 }

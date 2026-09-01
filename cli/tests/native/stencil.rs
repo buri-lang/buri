@@ -1321,6 +1321,7 @@ fn corpus_refusal(path: &str) -> Result<String, String> {
 /// numeric conversion, `json.*`, and `core/math`'s transcendentals — plus the
 /// three `ui/*` files no native backend takes.
 const CORPUS_COMPILES: &[&str] = &[
+    "actor/counter.buri",
     "calendar/date.buri",
     "canary/canary.buri",
     "codegen/bitwise.buri",

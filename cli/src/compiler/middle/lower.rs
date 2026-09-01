@@ -2279,13 +2279,24 @@ export fn step(n: Int): Int {
         assert!(!f.facts.can_abort);
     }
 
-    /// A `let` whose binding nothing reads is dropped where it was bound.
+    /// A `let` whose binding nothing reads is dropped where it was bound, and
+    /// **after** the value's own reference operations.
     ///
     /// `middle::rc` keys that drop on the *value's* node and [`FnLower::rc`]
     /// skips a site naming a local nothing has bound yet, so emitting the
     /// node's `After` operations before `pattern` ran threw it away — one
     /// leaked block per unread binding, and `rc`'s own balance checker had
     /// said all along that the binding exists first.
+    ///
+    /// The order is the other half of the same question, and it is the half
+    /// that was a use-after-free rather than a leak: the value's own
+    /// operations land at this drop's key, so a plan that pushed the drop
+    /// first released a value before the `incref` that paid for it
+    /// (`middle/rc.rs`'s `Stmt::Let` case, and
+    /// `reports/llvm-parallel-listen-fix.md` for what that cost). The two
+    /// drops below are independent — `v2` is the literal the call borrowed,
+    /// `v3` is the block it returned — so what this string pins is which side
+    /// of the initializer the binding's drop comes out on.
     #[test]
     fn a_binding_nothing_reads_is_still_dropped() {
         let p = lower_plain(&program(
@@ -2307,8 +2318,8 @@ export fn junk<C: Alloc>(ctx: C, n: Int): Int {
              \x20 b0(v0: a context, v1: i64):\n\
              \x20   v2 = const \"z\"\n\
              \x20   v3 = call fn core_str$Str_repeat$u3rqgv(v2, v0, v1)\n\
-             \x20   decref v3\n\
              \x20   decref v2\n\
+             \x20   decref v3\n\
              \x20   return v1\n\
              }\n"
         );
