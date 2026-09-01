@@ -78,7 +78,7 @@ fn skip_reason() -> Option<String> {
 /// `BURI_CI`, every job in the workflow sets it, and every one of them asserts
 /// the stencil libraries are real bytes before the suite starts. A guard firing
 /// there is a broken runner rather than a modest host.
-fn supported() -> bool {
+pub fn supported() -> bool {
     match skip_reason() {
         Some(why) => !crate::ci::skipped("stencil", &why),
         None => true,
@@ -165,7 +165,7 @@ fn lowered(source: &str) -> (monomorphize::Program, buri::compiler::semantics::t
 
 /// The whole pipeline, for one snippet, with an optional C probe linked
 /// beside it.
-fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
+pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     let (program, tables) = lowered(source);
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
@@ -1334,12 +1334,14 @@ fn compile_corpus(path: &str) -> Compiled {
 /// the refusal for every file that is not here.
 ///
 /// It is **`native/conformance.rs`'s `PACKAGES`**, entry for entry: the
-/// thirty-one files that file's native set holds. The six that are not here
-/// are the six it excludes, for the three reasons it records — an inexact
-/// numeric conversion, `json.*`, and `core/math`'s transcendentals — plus the
-/// three `ui/*` files no native backend takes.
+/// thirty-six files that file's native set holds. The nine that are not here
+/// are the nine it excludes, for the three reasons it records — an inexact
+/// numeric conversion (three files), `json.*` (two) and `core/math`'s
+/// transcendentals (one) — plus the three `ui/*` files no native backend
+/// takes.
 const CORPUS_COMPILES: &[&str] = &[
     "actor/counter.buri",
+    "actor/scoped.buri",
     "calendar/date.buri",
     "canary/canary.buri",
     "codegen/bitwise.buri",
@@ -1396,8 +1398,8 @@ const CORPUS_COMPILES: &[&str] = &[
 ///
 /// # Why one child rather than one per file
 ///
-/// A child per file would buy the same attribution and cost forty-four process
-/// starts, forty-four loads of the conformance repository and forty-four
+/// A child per file would buy the same attribution and cost forty-five process
+/// starts, forty-five loads of the conformance repository and forty-five
 /// copies of a six-megabyte runtime archive. One child is one of each, and the
 /// attribution is recovered by the protocol instead: the child prints a line
 /// per fact **as it learns it**, so the files it finished are known even when
@@ -1411,7 +1413,7 @@ const CORPUS_COMPILES: &[&str] = &[
 /// the two tests below want two different amounts of the same work. CI's
 /// liveness step runs the ratchet **alone**, ahead of everything, to find out
 /// whether this host has a backend at all — and a ratchet that linked and ran
-/// thirty-five programs to answer that would put the whole corpus through the
+/// thirty-six programs to answer that would put the whole corpus through the
 /// gate twice, once there and once in the step after it. So the ratchet asks
 /// for [`Depth::Compile`] and the run test asks for [`Depth::Run`]; under
 /// `cargo test` the two children overlap and the deeper one sets the wall time.
@@ -1527,7 +1529,7 @@ struct Report {
 ///
 /// Once, rather than once per test: what this replaces was two serial walks of
 /// the corpus, each running the whole front end, monomorphizer and backend over
-/// every file, and the second of them linking and running thirty-five programs
+/// every file, and the second of them linking and running thirty-six programs
 /// one after another. A memo per depth is what makes a second `#[test]` asking
 /// the same question free under `cargo test`; under `cargo nextest`, which puts
 /// every test in a process of its own, each pays for its own child — which is
@@ -1943,7 +1945,7 @@ fn the_corpus_census_is_a_ratchet() {
 /// got the answers wrong would pass the census next door. A failed assertion
 /// ends the process (SPEC 6.10), so the exit status is the result.
 ///
-/// `native/conformance.rs::the_native_set_passes` now runs the same thirty-one
+/// `native/conformance.rs::the_native_set_passes` now runs the same thirty-six
 /// files through the same backend and reports the block count with them, so
 /// this is the narrower of two readings of one corpus. It stays because CI's
 /// Linux/arm64 job selects `stencil::` by name and this is the test in that

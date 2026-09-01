@@ -1,0 +1,17 @@
+// A binary reaches a library by its surface, exactly as another library does.
+
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "//lib/ledger" import { entries, total };
+from "//lib/money" import { show };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io
+        .println(ctx, "total ${show(ctx, total(entries()))}")
+        .mapErr(fn(_e) => "could not write to standard output")
+}

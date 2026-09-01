@@ -1,0 +1,48 @@
+# `core/actor`, driven the way a user drives it: a library in a repository, a
+# suite beside it, and `buri test` — which on a toolchain with a native backend
+# links a real binary and runs it.
+#
+# The conformance corpus holds `core/actor`'s semantics and holds them on
+# *every* backend, and its build file says `platforms: [JS]` so that the
+# reference run stays the reference one. What it cannot say is what a person
+# gets: a package, a suite, one command. That is this case, and it is why the
+# same claims appear twice.
+#
+# Every claim here is a value in an assertion rather than an exit code, and the
+# last step is the negative twin the corpus rule asks for: one expectation
+# flipped, and the report that comes back recorded whole. A green suite proves
+# nothing about a failure mode nobody has seen fail.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an actor answers, keeps its order, runs its mailbox down at the bound, stops once, and refuses everything after"
+
+run {
+  args: ["test", "//lib/room", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# And again, from the cache: nothing about an actor is a fact about the machine.
+run {
+  args: ["test", "//lib/room"]
+  exit: 0
+  golden: "cached.txt"
+}
+
+# The negative twin. `.Err(.Stopped)` is the signature failure of the whole
+# module — it is what a send, an ask and a second stop all answer once the
+# mailbox is closed — so the report that records it is the one thing here that
+# says the failure mode is real rather than asserted.
+edit {
+  file: "lib/room/test/counter.buri"
+  replace: "assert.eq(counted.send(ctx, .Increment), .Err(.Stopped));"
+  with: "assert.eq(counted.send(ctx, .Increment), .Ok(()));"
+}
+
+run {
+  args: ["test", "//lib/room", "--force"]
+  exit: 1
+  golden: "refused.txt"
+}

@@ -219,7 +219,7 @@ export fn main(): Result<(), Str> {{
 /// contract: a runtime that flushed on every newline would make the padding
 /// above harmless rather than wrong, and one that buffered *more* would make
 /// this test hang — which is why the wait for the first line is bounded.
-const STDOUT_BUFFER: usize = 8 * 1024;
+pub const STDOUT_BUFFER: usize = 8 * 1024;
 
 /// Run a server binary, take the port off its first line of output, make one
 /// HTTP/1.1 request, and answer `(what the program said, what came back)`.
@@ -628,6 +628,142 @@ pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
     (ran, String::from_utf8_lossy(&reply).to_string())
 }
 
+/// What became of a child that was signalled more than once.
+///
+/// `code` and `killed_by` are the two halves of a Unix exit status and exactly
+/// one of them is ever `Some`: a process that returned from `main` has a code,
+/// and one the kernel ended has a signal number. A row that read only the code
+/// would see `-1` for both and could not tell a drain that failed from a
+/// process that was killed, which is the whole distinction being asserted.
+pub struct Stopped {
+    /// Every line the child said, in order, with the output buffer's padding
+    /// dropped.
+    pub said: String,
+    /// The status `main` returned with, where it returned at all.
+    pub code: Option<i32>,
+    /// The signal that ended it, where one did.
+    pub killed_by: Option<i32>,
+}
+
+/// Put a request into a handler, signal the child, and **keep signalling it**
+/// until it stops or the deadline runs out.
+///
+/// **Written beside [`signalled`] rather than sharing its body**, which is the
+/// argument [`announced`] makes about itself one section down: what the two
+/// have in common is a shape and not a dependency, and rewriting a working
+/// shutdown row to prove it is churn. What differs is the whole point — this
+/// one does not wait for the drain, it interrupts it.
+///
+/// **The signal is repeated rather than sent exactly twice**, and that is a
+/// deliberate strengthening rather than a weakening. `cli/runtime/net.rs`'s
+/// handler restores the default disposition *first*, before it writes into its
+/// self-pipe, so the second signal to arrive is the operating system's — but
+/// "arrive" is the kernel's business and not this test's, and a fixed sleep
+/// between two `kill`s would be a race with the delivery of the first. Sending
+/// until the child is gone makes a runtime that restored the disposition stop
+/// at once, and makes one that had made itself unkillable fail here at the
+/// deadline with a sentence, which is the only other thing it could be.
+///
+/// Every wait is bounded and the child is killed on the way out, for
+/// [`waited`]'s reason.
+pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
+    use std::io::{BufRead, Read, Write};
+    use std::os::unix::process::ExitStatusExt;
+
+    let mut child = Command::new(binary)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+    let stdout = child.stdout.take().expect("a piped stdout");
+    let (says, saying) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let reader = std::io::BufReader::new(stdout);
+        let mut lines: Vec<String> = Vec::new();
+        for line in reader.lines() {
+            let Ok(line) = line else { break };
+            let short: String = line
+                .split_whitespace()
+                .take(2)
+                .filter(|token| !token.starts_with("xxxx"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            if short.is_empty() {
+                continue;
+            }
+            let _ = says.send(short.clone());
+            lines.push(short);
+        }
+        lines
+    });
+
+    let port = saying_until(&saying, SERVER_DEADLINE, |line| {
+        line.strip_prefix("port ").and_then(|p| p.parse::<u16>().ok())
+    });
+    let port = port.unwrap_or_else(|| {
+        let _ = child.kill();
+        panic!("the server announced no port within {SERVER_DEADLINE:?}");
+    });
+
+    let until = std::time::Instant::now() + SERVER_DEADLINE;
+    let mut socket = loop {
+        match std::net::TcpStream::connect(("127.0.0.1", port)) {
+            Ok(socket) => break socket,
+            Err(e) => {
+                if std::time::Instant::now() >= until {
+                    let _ = child.kill();
+                    panic!("could not reach the server on 127.0.0.1:{port}: {e}");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    };
+    socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
+    socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
+    socket.write_all(b"GET /in-flight HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").unwrap();
+    socket.flush().unwrap();
+
+    // The handler says so before it sleeps, so from here the request is
+    // provably inside one rather than probably.
+    let handling = saying_until(&saying, SERVER_DEADLINE, |line| (line == "handling").then_some(()));
+    if handling.is_none() {
+        let _ = child.kill();
+        panic!("the server never entered its handler within {SERVER_DEADLINE:?}");
+    }
+
+    signalling(&child, signal);
+    let until = std::time::Instant::now() + SERVER_DEADLINE;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(e) => panic!("could not ask whether the server had exited: {e}"),
+        }
+        if std::time::Instant::now() >= until {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!(
+                "the server was still running {SERVER_DEADLINE:?} after being signalled with \
+                 {signal} over and over, so this runtime cannot be stopped"
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        signalling(&child, signal);
+    };
+
+    let lines = reader.join().expect("the reader thread finished");
+    let mut stderr = String::new();
+    if let Some(mut err) = child.stderr.take() {
+        let _ = err.read_to_string(&mut stderr);
+    }
+    let _ = stderr;
+    Stopped {
+        said: format!("{}\n", lines.join("\n")),
+        code: status.code(),
+        killed_by: status.signal(),
+    }
+}
+
 /// The first line the child says that `read` makes something of, within one
 /// deadline for the whole wait.
 fn saying_until<T>(
@@ -648,12 +784,24 @@ fn saying_until<T>(
     }
 }
 
+/// Send one signal to a child of this test.
+///
+/// The one call into the C library this file makes is declared above rather
+/// than depended on; this is the wrapper the rows outside `signalled` reach
+/// for, so that `kill` itself stays private to the module that declares it.
+pub fn signalling(child: &std::process::Child, signal: i32) {
+    let pid = i32::try_from(child.id()).expect("a process id");
+    // SAFETY: an ordinary `kill` on a child this suite started.
+    let sent = unsafe { kill(pid, signal) };
+    assert_eq!(sent, 0, "could not signal the server with {signal}");
+}
+
 /// Wait for a child, with a deadline — `Child::wait` has none.
 ///
 /// A process that will not stop is killed rather than waited on forever, and
 /// the panic says which of the two happened. That is the whole of the rule this
 /// file states about every other wait, applied to the one std does not bound.
-fn waited(child: &mut std::process::Child, within: std::time::Duration) -> std::process::ExitStatus {
+pub fn waited(child: &mut std::process::Child, within: std::time::Duration) -> std::process::ExitStatus {
     let until = std::time::Instant::now() + within;
     loop {
         match child.try_wait() {
@@ -1192,6 +1340,13 @@ pub struct Talking {
     socket: std::net::TcpStream,
     /// Bytes read past the end of the handshake, or past the end of a frame.
     over: Vec<u8>,
+    /// The code on the close frame the server sent, once one has been read.
+    ///
+    /// Kept rather than answered from [`Talking::heard`], because a reader that
+    /// stops at the close still wants to say *why* it stopped: `.Overflow` on
+    /// this side of the wire is 1011, and a row that could only report "the
+    /// socket ended" could not tell an overflow from a normal close.
+    closed: Option<u16>,
 }
 
 impl Talking {
@@ -1201,6 +1356,11 @@ impl Talking {
     /// is announced before `listenAccept` is entered, so the first connect can
     /// lose the race with the listen backlog on a loaded machine.
     pub fn to(port: u16) -> Talking {
+        Talking::to_at(port, "/socket")
+    }
+
+    /// The same, asking for a path of the row's own choosing.
+    pub fn to_at(port: u16, target: &str) -> Talking {
         use std::io::{Read, Write};
         let until = std::time::Instant::now() + SERVER_DEADLINE;
         let mut socket = loop {
@@ -1218,14 +1378,7 @@ impl Talking {
         socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
         socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
         socket
-            .write_all(
-                b"GET /socket HTTP/1.1\r\n\
-                  host: 127.0.0.1\r\n\
-                  upgrade: websocket\r\n\
-                  connection: keep-alive, Upgrade\r\n\
-                  sec-websocket-version: 13\r\n\
-                  sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
-            )
+            .write_all(upgrade_request(target).as_bytes())
             .expect("the upgrade request");
         socket.flush().expect("flush");
         // The head, up to and including its blank line. Anything after it is a
@@ -1250,7 +1403,14 @@ impl Talking {
             head.to_ascii_lowercase().contains("sec-websocket-accept:"),
             "the 101 carried no accept key: {head}"
         );
-        Talking { socket, over: Vec::new() }
+        Talking { socket, over: Vec::new(), closed: None }
+    }
+
+    /// The close code the server sent, once [`Talking::heard`] has answered
+    /// `None`. `None` here is a socket that ended without a close frame.
+    pub fn closed_with(&mut self) -> Option<u16> {
+        while self.closed.is_none() && self.heard().is_some() {}
+        self.closed
     }
 
     /// One masked text frame.
@@ -1310,7 +1470,12 @@ impl Talking {
             let payload = self.exactly(len as usize)?;
             match opcode {
                 0x1 => return Some(String::from_utf8_lossy(&payload).to_string()),
-                0x8 => return None,
+                0x8 => {
+                    self.closed = payload
+                        .get(..2)
+                        .map(|two| u16::from_be_bytes([two[0], two[1]]));
+                    return None;
+                }
                 // A continuation, a binary frame, a ping or a pong: not what
                 // these rows send, and not something to fail on.
                 _ => continue,
@@ -1331,4 +1496,22 @@ impl Talking {
         }
         Some(self.over.drain(..n).collect())
     }
+}
+
+/// The upgrade request [`Talking`] sends, and the one the fall-through row
+/// sends to a server that has no hooks to answer it with.
+///
+/// Every clause RFC 6455 §4.2.1 asks for, including the multi-valued
+/// `connection` a browser actually sends — `cli/runtime/net.rs`'s
+/// `an_upgrade_request_is_the_five_things_rfc_6455_asks_for` is the row that
+/// says a naive comparison would refuse it.
+pub fn upgrade_request(target: &str) -> String {
+    format!(
+        "GET {target} HTTP/1.1\r\n\
+         host: 127.0.0.1\r\n\
+         upgrade: websocket\r\n\
+         connection: keep-alive, Upgrade\r\n\
+         sec-websocket-version: 13\r\n\
+         sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+    )
 }

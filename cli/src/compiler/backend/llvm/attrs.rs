@@ -717,7 +717,8 @@ mod tests {
     use super::*;
 
     fn facts(purity: ir::Purity, can_abort: bool) -> ir::Facts {
-        // `can_park` is not an attribute question: no backend reads it yet.
+        // `can_park` is not an attribute question: no native backend reads
+        // it yet.
         ir::Facts { params: Vec::new(), purity, can_abort, can_park: false }
     }
 

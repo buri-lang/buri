@@ -1,0 +1,95 @@
+// The suite reaches its own library the way a dependent does — by the
+// package's surface — and reaches `core/host/testing` because it is a test
+// source and nothing else may.
+
+from "core/actor" import * as actor;
+from "core/actor" import { Address };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host/testing" import { alloc, stdout, tasks };
+from "core/testing/assert" import * as assert;
+from "//lib/room" import { counter, CounterMessage };
+
+/// Sends `left` messages without asking anything, which is what puts a mailbox
+/// under pressure: `send` posts and returns, and only a crowded post runs the
+/// box down.
+fn pump<C: Alloc + Stdout + Tasks>(
+    ctx: C,
+    address: Address<C, Int, CounterMessage>,
+    left: Int,
+): Int {
+    if (left <= 0) {
+        0
+    } else {
+        let _ = address.send(ctx, .Increment).ignore();
+        pump(ctx, address, left - 1)
+    }
+}
+
+test "one sender's messages arrive in the order it sent them" {
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: stdout(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, counter(0, .None));
+    let _ = counted.send(ctx, .Increment).ignore();
+    let _ = counted.send(ctx, .Add(2)).ignore();
+    let _ = counted.send(ctx, .Add(3)).ignore();
+    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(123));
+    assert.eq(counted.stop(ctx), .Ok(()));
+}
+
+test "a mailbox at its bound is run down rather than grown" {
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: stdout(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, counter(0, .Some(1)));
+    let _ = counted.send(ctx, .Increment).ignore();
+    let _ = counted.send(ctx, .Add(2)).ignore();
+    let _ = counted.send(ctx, .Add(3)).ignore();
+    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(123));
+    assert.eq(counted.stop(ctx), .Ok(()));
+}
+
+test "more messages than the default mailbox holds still all arrive" {
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: stdout(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, counter(0, .None));
+    let _ = pump(ctx, counted, 65);
+    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(65));
+    assert.eq(counted.stop(ctx), .Ok(()));
+}
+
+test "onStop runs once, with the final state" {
+    let sink = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: sink,
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, counter(0, .None));
+    let _ = counted.send(ctx, .Add(4)).ignore();
+    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(4));
+    assert.eq(sink.captured(), "");
+    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.eq(sink.captured(), "final 4\n");
+    assert.eq(counted.stop(ctx), .Err(.Stopped));
+    assert.eq(sink.captured(), "final 4\n");
+}
+
+test "everything after a stop is refused" {
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: stdout(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, counter(0, .None));
+    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.eq(counted.send(ctx, .Increment), .Err(.Stopped));
+    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Err(.Stopped));
+}

@@ -1,0 +1,54 @@
+# Two flag days, in one program a person could have written.
+#
+# **A print answers a `Result`.** `Stdout.print`, `println` and `writeBytes`
+# answer `Result<(), IoError>`, and `result-discarded` is total — there is no
+# exemption for `core/io`, and a hello-world that ignores the answer does not
+# compile. So a program says what it means about a failed write, and there are
+# three spellings of that here: `.ignore()` where nothing follows from it,
+# `.mapErr(...)?` where the caller is a `Result` of its own, and a `match`
+# where the two ends are different types.
+#
+# **An effect is performed by handing the context to a function.**
+# `io.println(ctx, text)` and never `ctx.println(text)`, uniformly, for every
+# effect and every receiver. The two carve-outs are the standard library itself
+# and the body of an `impl` that supplies an effect; a program is neither.
+#
+# Both refusals are recorded below rather than described, because a refusal
+# nobody has read is a refusal nobody can tell from a rule that stopped firing.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a print answers a Result and a context is an argument, with both refusals recorded"
+
+run {
+  args: ["run", "//cmd/hello"]
+  exit: 0
+  golden: "said.txt"
+}
+
+# The first twin: the answer dropped on the floor.
+edit {
+  file: "cmd/hello/main.buri"
+  replace: "let _ = io.println(ctx, \"one\").ignore();"
+  with: "let _ = io.println(ctx, \"one\");"
+}
+
+run {
+  args: ["build", "//cmd/hello"]
+  exit: 1
+  golden: "discarded.txt"
+}
+
+# The second twin: the method form, which is what the flag day retired.
+edit {
+  file: "cmd/hello/main.buri"
+  replace: "let _ = io.println(ctx, \"one\");"
+  with: "let _ = ctx.println(\"one\").ignore();"
+}
+
+run {
+  args: ["build", "//cmd/hello"]
+  exit: 1
+  golden: "method.txt"
+}

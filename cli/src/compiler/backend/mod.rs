@@ -287,7 +287,14 @@ pub fn networking_gap(program: &Program) -> Vec<String> {
 /// test on a toolchain that *has* networking has no way to ask what one without
 /// it would say. This is that seam, and `networking_gap` is the one line that
 /// binds it to the constant.
-fn networking_gap_when(program: &Program, net: bool) -> Vec<String> {
+///
+/// **`pub` because the seam is reached from outside this crate too.** The unit
+/// rows below drive it over hand-built [`Program`]s;
+/// `cli/tests/native/e2e.rs`'s `the_refusal_a_toolchain_without_networking_names`
+/// drives it over a `Program` the real front end built out of a real
+/// `server.serve` source, which is the closest a toolchain that *has*
+/// networking can stand to the refusal a toolchain without it prints.
+pub fn networking_gap_when(program: &Program, net: bool) -> Vec<String> {
     if net {
         return Vec::new();
     }

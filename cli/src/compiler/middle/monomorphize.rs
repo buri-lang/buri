@@ -255,6 +255,8 @@ pub struct Shapes {
     pub cons: Vec<ConShape>,
     /// By `CtxTypeId`: the type of each effect binding, in binding order.
     pub ctxs: Vec<Vec<Ty>>,
+    /// Which types can hand over a capability. See [`Effects`].
+    pub effects: Effects,
 }
 
 /// What one type constructor is made of.
@@ -266,6 +268,88 @@ pub enum ConShape {
     /// variants is the accumulation the question wants and the tags are not
     /// part of it.
     Fields(Vec<Ty>),
+}
+
+/// `Tables::is_effect_carrying`, in a form a pass holding no `Tables` can ask
+/// of a **monomorphized** type.
+///
+/// Recorded on the program for [`Shapes`]'s reason, and asked by one caller:
+/// `middle::rc` refines the `can_park` column at an indirect call by asking
+/// whether the callee's type accepts anything effect-carrying. A function
+/// value that receives no capability cannot reach one — it may not capture one
+/// (SPEC 10.6) and may not construct one (SPEC 11.3, and 10.4's clause: a
+/// context is built only in `main`'s body or a test, neither of which anybody
+/// calls) — so it cannot park.
+///
+/// **Empty answers `true` everywhere**, which is the conservative direction:
+/// a hand-built `Program` with no table gets the column it had before this
+/// refinement rather than a precise answer nothing computed.
+#[derive(Clone, Debug, Default)]
+pub struct Effects {
+    /// By `TyConId`, in `Tables::tycons` order.
+    pub cons: Vec<ConEffects>,
+}
+
+/// One constructor's two effect-system facts.
+#[derive(Clone, Debug, Default)]
+pub struct ConEffects {
+    /// The constructor implements an effect, so a value of it *is* a
+    /// capability — `Tables::con_carries_effect`. `core/host`'s `HostFs` is
+    /// one; `ui/effect`'s `Scope` is the one the standard library passes
+    /// *as an ordinary argument*, and so the one this question is asked
+    /// about most.
+    pub implements: bool,
+    /// Per type argument: whether holding the constructor can hand that
+    /// argument back — `Tables::provides`. A `Node<C>` whose `C` appears only
+    /// as a handler's parameter provides nothing, which is why a user
+    /// interface is a function with one context rather than two.
+    pub provides: Vec<bool>,
+}
+
+impl Effects {
+    /// Whether a value of this type can hand over an effect (SPEC 10.2).
+    ///
+    /// The arms of `Tables::is_effect_carrying`, minus the one for
+    /// `Ty::Param`: this is asked after monomorphization, where a rigid
+    /// generic has been substituted away, and an unexpected one answers
+    /// `true` rather than guessing.
+    pub fn carries(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Ctx(_) => true,
+            Ty::Con(id, args) => match self.cons.get(id.index()) {
+                Some(row) => {
+                    row.implements
+                        || args.iter().enumerate().any(|(k, a)| {
+                            row.provides.get(k).copied().unwrap_or(true) && self.carries(a)
+                        })
+                }
+                None => true,
+            },
+            Ty::Array(e) => self.carries(e),
+            Ty::Tuple(es) => es.iter().any(|e| self.carries(e)),
+            // Only the result counts. A function that *accepts* a context is
+            // not one that carries one — `fn(C, A) => B` is exactly the shape
+            // `list.mapCtx` takes, and SPEC 10.6 mandates it.
+            Ty::Fn(_, r) => self.carries(r),
+            Ty::Unit => false,
+            // Nothing monomorphization emits, so the answer that cannot be
+            // wrong.
+            Ty::Var(_) | Ty::Param(_) | Ty::SelfTy | Ty::Error => true,
+        }
+    }
+
+    /// Whether a function of this type can be handed a capability, and so
+    /// whether a value of it could ever reach an operation that waits.
+    ///
+    /// Anything that is not a function type answers `true`: a `CallValue`
+    /// whose callee is not typed as a function is a program the checker did
+    /// not produce.
+    pub fn fn_takes_effect(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Fn(params, _) => params.iter().any(|p| self.carries(p)),
+            _ => true,
+        }
+    }
 }
 
 /// [`Shapes`] for the whole compilation, which is every declared type rather
@@ -291,7 +375,20 @@ fn shapes_of(tables: &Tables) -> Shapes {
         .iter()
         .map(|c| c.bindings.iter().map(|(_, t)| t.clone()).collect())
         .collect();
-    Shapes { cons, ctxs }
+    let effects = Effects {
+        cons: tables
+            .tycons
+            .iter()
+            .enumerate()
+            .map(|(i, c)| ConEffects {
+                implements: tables.con_carries_effect(TyConId(i as u32)),
+                provides: (0..c.generics.len())
+                    .map(|k| tables.provides(TyConId(i as u32), k))
+                    .collect(),
+            })
+            .collect(),
+    };
+    Shapes { cons, ctxs, effects }
 }
 
 /// What a queued instance is.

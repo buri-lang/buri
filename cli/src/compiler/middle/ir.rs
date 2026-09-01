@@ -597,8 +597,15 @@ pub struct Facts {
     /// Per *instantiation*, which is the only precision that makes it useful:
     /// the same source function at a hermetic test context reaches an
     /// in-memory filesystem and waits for nothing. `middle::rc`'s `suspends`
-    /// is the seed list. **No backend reads this yet** — it is carried here
-    /// because this is where a backend will ask.
+    /// is the seed list and `middle::rc::Parking` is the fixpoint over it,
+    /// including the answer at an indirect call.
+    ///
+    /// **No native backend reads this copy yet** — it is carried here because
+    /// this is where one will ask, and the design puts a carrier's stack
+    /// sizing there. The JavaScript backend does read the column, as its
+    /// `async` question, but it reads `rc::FuncPlan::can_park` directly: that
+    /// branch of the pipeline does not run `lower` and has no `ir::Func` to
+    /// read this off.
     pub can_park: bool,
 }
 

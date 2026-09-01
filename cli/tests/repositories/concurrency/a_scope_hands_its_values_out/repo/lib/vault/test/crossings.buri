@@ -1,0 +1,115 @@
+// The crossings, in the order `core/actor` makes them.
+
+from "core/actor" import * as actor;
+from "core/actor" import { Address };
+from "core/alloc" import * as alloc;
+from "core/alloc" import { Scoped };
+from "core/effect" import { Alloc, Tasks };
+from "core/host/testing" import { alloc as testAlloc, tasks };
+from "core/testing/assert" import * as assert;
+from "//lib/vault" import { big, Keep, keeper, LOOSE };
+
+/// A scope's context and an address minted inside it, carried out together.
+///
+/// A lambda may not capture a context, so a `scoped` body has exactly one
+/// context to work with — its own — and the only way to reach an actor
+/// afterwards is for the body to hand that context back out.
+struct Escaped<C> {
+    scope: Scoped<C>,
+    address: Address<Scoped<C>, Str, Keep>,
+}
+
+/// Scopes that map and release pages of their own, so a carrier that outlived
+/// its arena is written over rather than merely stale. Small ones first: those
+/// are the ones that draw a *pooled* block.
+fn churn<C: Alloc>(ctx: C): Int {
+    let small = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
+        alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).len())
+    });
+    let large = alloc.scoped(ctx, fn(c) => "y".repeat(c, LOOSE).len());
+    small.len() + large
+}
+
+test "what a scope answers is a copy the scope is not about to unmap" {
+    let ctx = context {
+        Alloc: testAlloc(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => big(c, "o"));
+    let _ = churn(ctx);
+    assert.eq(out, big(ctx, "o"));
+}
+
+test "an actor started inside a scope still has the state it started with" {
+    let ctx = context {
+        Alloc: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        Escaped { scope: c, address: actor.start(c, keeper(big(c, "s"))) }
+    });
+    let _ = churn(ctx);
+    assert.eq(out.address.ask(out.scope, fn(reply) => .Get(reply)), .Ok(big(ctx, "s")));
+    assert.eq(out.address.stop(out.scope), .Ok(()));
+}
+
+test "a message sent inside a scope is stepped correctly afterwards" {
+    let ctx = context {
+        Alloc: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, keeper(""));
+        let _ = address.send(c, .Put(big(c, "m"))).ignore();
+        Escaped { scope: c, address: address }
+    });
+    let _ = churn(ctx);
+    assert.eq(out.address.ask(out.scope, fn(reply) => .Get(reply)), .Ok(big(ctx, "m")));
+    assert.eq(out.address.stop(out.scope), .Ok(()));
+}
+
+test "a state a step built inside a scope survives the scope" {
+    let ctx = context {
+        Alloc: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, keeper(""));
+        let _ = address.send(c, .Grow).ignore();
+        let _ = address.ask(c, fn(reply) => .Get(reply)).ignore();
+        Escaped { scope: c, address: address }
+    });
+    let _ = churn(ctx);
+    assert.eq(out.address.ask(out.scope, fn(reply) => .Get(reply)), .Ok(big(ctx, "g")));
+    assert.eq(out.address.stop(out.scope), .Ok(()));
+}
+
+test "a scope answers what it asked an actor inside it" {
+    let ctx = context {
+        Alloc: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, keeper(""));
+        let _ = address.send(c, .Put(big(c, "a"))).ignore();
+        let answered = address.ask(c, fn(reply) => .Get(reply));
+        let _ = address.stop(c).ignore();
+        answered
+    });
+    let _ = churn(ctx);
+    assert.eq(out, .Ok(big(ctx, "a")));
+}
+
+test "a message a later stop discards was copied too" {
+    let ctx = context {
+        Alloc: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, keeper(""));
+        let _ = address.send(c, .Put(big(c, "d"))).ignore();
+        Escaped { scope: c, address: address }
+    });
+    let _ = churn(ctx);
+    assert.eq(out.address.stop(out.scope), .Ok(()));
+    assert.eq(out.address.send(out.scope, .Put("late")), .Err(.Stopped));
+}

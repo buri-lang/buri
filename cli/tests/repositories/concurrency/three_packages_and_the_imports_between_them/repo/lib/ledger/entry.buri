@@ -1,0 +1,19 @@
+// Crossing a package boundary, so the surface form.
+
+from "//lib/money" import { Cents, fromCents };
+
+export struct Entry {
+    export label: Str,
+    export amount: Cents,
+}
+
+export fn entries(): [Entry] {
+    [
+        Entry { label: "coffee", amount: fromCents(450) },
+        Entry { label: "books", amount: fromCents(3200) },
+    ]
+}
+
+export fn total(rows: [Entry]): Cents {
+    fromCents(rows.fold(fn(sum, row) => sum + row.amount.0, 0))
+}

@@ -1,0 +1,7 @@
+binary {
+    dependencies: ["//lib/ledger", "//lib/money"]
+
+    outputs: [
+        { platform: JS },
+    ]
+}

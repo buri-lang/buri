@@ -154,7 +154,7 @@ fn archive() -> &'static Path {
 /// `cc` is not a new requirement: the link step already drives the platform C
 /// compiler (CODEGEN-STENCIL.md §12), so a machine that can build a Buri
 /// artifact can run these.
-fn can_execute() -> Option<&'static str> {
+pub fn can_execute() -> Option<&'static str> {
     if !AVAILABLE {
         return Some("no runtime archive was built for this host");
     }
@@ -238,7 +238,7 @@ fn build_and_run_at(
 /// [`build_and_run_at`]'s first half, for the one row that has to have the
 /// binary in hand before it runs: a server has to be running *while* something
 /// else talks to it, so the run cannot be folded into the build.
-fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile) -> PathBuf {
+pub fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile) -> PathBuf {
     let lowered = lower(source);
     let opts = options(profile);
     let units =
