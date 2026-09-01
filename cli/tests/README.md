@@ -350,11 +350,28 @@ Recorded so they are priced once rather than proposed again. All three were
 worth minutes before `rc.rs`'s exponential scan was fixed; the fix took the
 pipeline they all target from seconds to milliseconds, and took them with it.
 
+The last row is the one that *was* done, and it is here rather than among the
+timings above because of what it did **not** buy. A census that halves and a
+suite that does not move is what "already hidden behind the other tests" looks
+like from outside: libtest runs ten of these at once, the census's walk spent
+its time blocked on `cc`, and the other nine threads were never waiting for it.
+Worse, the cores the batch takes come out of the test that *is* the binary's
+critical path — measured, `--test native` is 37.3 s with the census on two
+workers and 42.9 s on four, which is what the width in `stencil.rs::each` is
+pinned against.
+
+The lever that is actually large in that binary is
+**`conformance::the_native_set_passes`, 41 s of a 36-second `--test native`** by
+nextest's per-test clock, doing the identical walk — thirty-one corpus files
+compiled, linked and run one after another in one thread. The mechanism in
+`stencil.rs` is the shape that would batch it.
+
 | lever | measured | |
 |---|---:|---|
 | Drop the duplicate pipeline in `conformance::the_native_set_passes` (it ran the front end twice per file) | **0.15 s** of that test's 10.9 s, and 0 s of `native`'s 38 s | implemented, measured, reverted |
 | Share one `SourceMap` + `parser::Cache` across the corpus walkers | bounded above by the one above: a whole pipeline is ~20 ms, and this removes only its parse | not attempted |
-| Batch the two stencil corpus tests onto one emit | `the_corpus_census_is_a_ratchet` is **0.556 s** in total | not attempted |
+| Batch the two stencil corpus tests onto one emit | `the_corpus_census_is_a_ratchet` is **0.556 s** in total | superseded by the row below |
+| Batch the stencil corpus census into one child, walked two files at a time | the two census tests are **14.4 s -> 7.6 s** run on their own, and CI's liveness step (the ratchet alone) **1.6 s -> 0.87 s**. `--test native` is **1.3 s *worse***, and `cargo test -p buri` does not move at all | implemented |
 
 ## Why each shape exists
 
