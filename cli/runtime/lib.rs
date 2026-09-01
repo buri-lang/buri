@@ -533,8 +533,9 @@ mod math;
 mod memory;
 mod net;
 mod rng;
-/// The carrier runtime — the tokio handle, the run baton, the carrier pool and
-/// the task table. Behind `net` in full: without the feature there is no
+/// The carrier runtime — the tokio handle, the carrier pool, the task table
+/// and the stack switch a park is made of. (The run baton this line used to
+/// name was deleted in G3; `rt.rs` §1 is what stands in its place.) Behind `net` in full: without the feature there is no
 /// reactor to hold and nothing here compiles.
 #[cfg(feature = "net")]
 pub mod rt;

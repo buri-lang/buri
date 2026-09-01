@@ -1,7 +1,7 @@
-from "core/effect" import { Tasks };
+from "core/effect" import { Alloc, Tasks };
 from "core/tasks" import * as tasks;
 
 /// Every item labelled with its own index, one task each.
-export fn labelled<C: Tasks>(ctx: C, items: [Int]): [Int] {
+export fn labelled<C: Alloc + Tasks>(ctx: C, items: [Int]): [Int] {
     tasks.parallel(ctx, items, fn(_c, i, item) => i * 100 + item)
 }
