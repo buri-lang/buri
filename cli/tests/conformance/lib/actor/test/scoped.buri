@@ -1,0 +1,229 @@
+// `core/actor` inside `core/alloc::scoped` — the crossings, as a
+// use-after-free detector.
+//
+// A mailbox, a state and a reply slot live **in the runtime**, past the frame
+// of the call that filled them (`actor.buri`'s "Where the messages live"). A
+// `core/alloc::scoped` body allocates out of the scope's own mappings, and
+// those mappings go back when it returns. Put the two together and every value
+// this module hands the runtime from inside a scope has to be a block the
+// scope is *not* about to give back — which is what `core/alloc`'s
+// `copyAcross` is, and what these cases hold it to.
+//
+// **These are `memory/test/copyout.buri`'s cases at a second boundary**, and
+// they are built the same way: every value that crosses is one the *program*
+// allocated rather than a literal, because a literal is `IMMORTAL` and lives in
+// the artifact's constant pool (VALUE-MODEL.md §5.2) and would survive whatever
+// the copy did. Each case reads the value back **after** the scope has ended and
+// after `churn` has taken the same pages, so a pointer that still named the
+// first arena is a read of memory the kernel has taken away.
+//
+// ## Why the sizes and the churn are what they are
+//
+// A released arena block goes back to a **pool** for the next scope where it is
+// exactly one standard block, and to the kernel only where it is bigger
+// (`cli/runtime/memory.rs`'s `buri_rt_alloc_arena_release` and `ARENA_POOL`).
+// A dangling *small* carrier therefore reads correctly for as long as nothing
+// reuses the pooled page, which is why every value that crosses here is `LOOSE`
+// bytes long — bigger than one block, so its mapping is unmapped outright — and
+// why `churn` opens small scopes as well as a large one, so the pooled pages
+// are handed out again too. Both halves are needed: neither alone makes the
+// read a fault rather than a gamble.
+//
+// ## How a program reaches this at all
+//
+// A lambda may not capture a context (SPEC 10.6), so a `scoped` body has
+// exactly one context to work with: its own `Scoped<C>`. An actor driven from
+// inside a scope is therefore an actor *started* there, and the way it is
+// reached afterwards is the one `core/alloc` documents — the body hands its
+// `Scoped<C>` back out, and a retired handle allocates from the platform after
+// that. `Escaped` is that pair, and it is the whole of the shape.
+//
+// On JavaScript there is no arena and no page to take away, and the cases still
+// say what the answer is — the division `memory/test/copyout.buri` draws in its
+// own header.
+
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Reply };
+from "core/alloc" import * as alloc;
+from "core/alloc" import { Scoped };
+from "core/effect" import { Alloc, Tasks };
+from "core/host/testing" import { alloc as testAlloc, tasks };
+from "core/testing/assert" import * as assert;
+
+/// Bigger than one standard arena block, so a value this long is given a
+/// mapping of its own and that mapping is unmapped rather than pooled.
+let LOOSE: Int = 70000;
+
+/// A `Str` this program built, `LOOSE` bytes of it. **This is the load-bearing
+/// helper of the file** — a literal would prove nothing. See the header.
+fn big<C: Alloc>(ctx: C, unit: Str): Str {
+    unit.repeat(ctx, LOOSE)
+}
+
+enum Keep {
+    /// Replace the state with a string the *sender* built.
+    Put(Str),
+    /// Replace it with one the *step* builds, so the crossing under test is
+    /// the one that puts a state back rather than the one that posts.
+    Grow,
+    Get(Reply<Str>),
+}
+
+/// An actor whose state is a `Str`, and whose protocol reaches each crossing.
+fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep> {
+    Actor {
+        state: initial,
+        step: fn(c, held, message) => {
+            match (message) {
+                .Put(next) => next,
+                .Grow => big(c, "g"),
+                .Get(reply) => {
+                    let _ = reply.answer(c, held).ignore();
+                    held
+                },
+            }
+        },
+    }
+}
+
+/// A scope's context and an address minted inside it, carried out together.
+///
+/// The type parameter carries no bound, which is what makes a field of type
+/// `Scoped<C>` declarable at all — the same rule `core/alloc` states for
+/// `Scoped`'s own first field (SPEC 10.2).
+struct Escaped<C> {
+    scope: Scoped<C>,
+    address: Address<Scoped<C>, Str, Keep>,
+}
+
+/// Scopes that map and release pages of their own, so that an address which
+/// escaped an earlier arena is one this allocator is entitled to hand out
+/// again. Answers a number, so nothing they built leaves them.
+fn churn<C: Alloc>(ctx: C): Int {
+    // Small scopes first: these are the ones that draw a *pooled* block, so a
+    // carrier that outlived its arena is written over rather than merely stale.
+    let small = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
+        alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).len())
+    });
+    let large = alloc.scoped(ctx, fn(c) => "y".repeat(c, LOOSE).len());
+    small.len() + large
+}
+
+// -----------------------------------------------------------------------------
+// The crossings
+// -----------------------------------------------------------------------------
+
+/// `start` moves the initial state into the runtime, and the runtime holds it
+/// until a step asks for it — so a state built inside a scope outlives that
+/// scope by construction.
+test "an actor started inside a scope still has the state it started with" {
+    let ctx = context {
+        Alloc: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        Escaped { scope: c, address: actor.start(c, keeper(big(c, "s"))) }
+    });
+    let _ = churn(ctx);
+    assert.eq(out.address.ask(out.scope, fn(reply) => .Get(reply)), .Ok(big(ctx, "s")));
+    assert.eq(out.address.stop(out.scope), .Ok(()));
+}
+
+/// `send` posts and — below the bound — does not run the mailbox down, so the
+/// message waits in the runtime for a driver that arrives after the scope has
+/// gone. The initial state is a literal here, so the only value that can
+/// dangle is the message.
+test "a message sent inside a scope is stepped correctly afterwards" {
+    let ctx = context {
+        Alloc: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, keeper(""));
+        let _ = address.send(c, .Put(big(c, "m"))).ignore();
+        Escaped { scope: c, address: address }
+    });
+    let _ = churn(ctx);
+    assert.eq(out.address.ask(out.scope, fn(reply) => .Get(reply)), .Ok(big(ctx, "m")));
+    assert.eq(out.address.stop(out.scope), .Ok(()));
+}
+
+/// `drive` puts the state back when the mailbox runs dry. A step that ran
+/// inside a scope built that state there, and the runtime keeps it. `Grow`
+/// carries nothing, so the value under test is the one the *step* made.
+test "a state a step built inside a scope survives the scope" {
+    let ctx = context {
+        Alloc: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, keeper(""));
+        // The `ask` is what drives, so the step — and the `statePut` after it —
+        // both run with this scope's arena under them.
+        let _ = address.send(c, .Grow).ignore();
+        let _ = address.ask(c, fn(reply) => .Get(reply)).ignore();
+        Escaped { scope: c, address: address }
+    });
+    let _ = churn(ctx);
+    assert.eq(out.address.ask(out.scope, fn(reply) => .Get(reply)), .Ok(big(ctx, "g")));
+    assert.eq(out.address.stop(out.scope), .Ok(()));
+}
+
+/// `stop` discards what is still in the mailbox, and discarding a message is
+/// *releasing* the block it arrived in — a write to the block's header, not
+/// only a read of its payload.
+test "a message sent inside a scope is discarded correctly by a later stop" {
+    let ctx = context {
+        Alloc: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, keeper(""));
+        let _ = address.send(c, .Put(big(c, "d"))).ignore();
+        Escaped { scope: c, address: address }
+    });
+    let _ = churn(ctx);
+    assert.eq(out.address.stop(out.scope), .Ok(()));
+    assert.eq(out.address.send(out.scope, .Put("late")), .Err(.Stopped));
+}
+
+/// An actor that outlived its scope is an ordinary actor: the messages it gets
+/// afterwards are posted from the platform allocator and step the same way.
+test "an actor started inside a scope steps messages sent to it later" {
+    let ctx = context {
+        Alloc: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        Escaped { scope: c, address: actor.start(c, keeper(big(c, "i"))) }
+    });
+    let _ = churn(ctx);
+    let _ = out.address.send(out.scope, .Grow).ignore();
+    assert.eq(out.address.ask(out.scope, fn(reply) => .Get(reply)), .Ok(big(ctx, "g")));
+    assert.eq(out.address.stop(out.scope), .Ok(()));
+}
+
+// -----------------------------------------------------------------------------
+// And the scope's own answer, with an actor in the middle of it
+// -----------------------------------------------------------------------------
+
+/// `Reply::answer` is the fourth crossing, and this is the shape a program can
+/// reach it in: the answer is put and taken inside one `ask`, so what leaves
+/// the scope leaves as `scoped`'s own copied-out answer. The case is here
+/// because a copy that landed in the arena would be read by the `assert` below
+/// rather than by the `ask` above it.
+test "a scope answers what it asked an actor inside it" {
+    let ctx = context {
+        Alloc: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, keeper(""));
+        let _ = address.send(c, .Put(big(c, "a"))).ignore();
+        let answered = address.ask(c, fn(reply) => .Get(reply));
+        let _ = address.stop(c).ignore();
+        answered
+    });
+    let _ = churn(ctx);
+    assert.eq(out, .Ok(big(ctx, "a")));
+}

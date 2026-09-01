@@ -1887,9 +1887,15 @@ pub extern "C" fn buri_rt_alloc_arena_release(handle: i64) -> i64 {
             continue;
         }
         // SAFETY: every pointer here came from `arena_map` with exactly this
-        // length, and nothing outside the arena points into it: the values it
-        // held are dead — their counts reached zero before this — and the one
-        // that left was deep-copied out (`buri_rt_copy_block`).
+        // length, and nothing outside the arena points into it. Two kinds of
+        // value could have left it and both are copies rather than pointers:
+        // the scope's *answer*, which `core/alloc`'s `scoped` deep-copies after
+        // it has left the arena, and anything the **runtime** keeps between two
+        // calls of its own — `core/actor`'s mailboxes, states and reply slots —
+        // which `core/alloc`'s `copyAcross` deep-copies at each of its four
+        // crossings, leaving every arena first for exactly this reason. Both
+        // reach a block through `buri_rt_copy_block`. Everything else the
+        // arena held is dead: its count reached zero before this.
         unsafe { munmap(base as *mut core::ffi::c_void, len) };
     }
     if freed > 0 {
@@ -2015,6 +2021,14 @@ pub fn set_arena_slot_of_carrier(slot: ArenaSlot) {
 /// Answers the *encoded* previous value rather than a handle, which is what
 /// makes "there was no arena" expressible in the same `I64` the Buri side
 /// carries. `scoped` never reads it; it hands it straight back.
+///
+/// **A negative handle enters no arena**, because the encoding is one more than
+/// the handle and `-1` is therefore [`ArenaSlot::NONE`]'s zero. `core/alloc`
+/// spells it `NO_SCOPE` and `copyAcross` is its one caller: leaving every arena
+/// and coming back is how a value bound for the runtime's own tables is copied
+/// somewhere no scope will unmap. Only `-1` does this; a handle a scope was
+/// given is never negative, and any other negative number names a slot that
+/// [`arenas`] does not have and so allocates from the platform instead.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_enter(handle: i64) -> i64 {
     let previous = arena_slot_of_carrier().biased;
