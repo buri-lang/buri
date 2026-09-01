@@ -12,9 +12,10 @@ on its own, so a domain is a directory and needs no entry in `Cargo.toml`.
 
 ```
 cli/tests/
-  harness/              shared machinery, not a binary: the CLI runner, the
-                        scratch repository, the bless-or-compare loop, and the
-                        seeded single-token mutator `recovery.rs` draws from
+  harness/              shared machinery, not a binary: the CLI runner and its
+                        per-invocation hang cap, the scratch repository, the
+                        bless-or-compare loop, and the seeded single-token
+                        mutator `recovery.rs` draws from
 
   language/  main.rs    WHAT THE LANGUAGE DOES, on the reference backend
     conformance.rs        the conformance repository, the reject corpus
