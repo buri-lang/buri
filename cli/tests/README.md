@@ -220,6 +220,16 @@ ordered the two the other way round, and it took a CI job with it. So:
   `127.0.0.1`. A test that picks a port and hopes is a race between the pick and
   the bind;
 * every connect, read and write carries `shared::SERVER_DEADLINE`;
+* **a reply is read until it is whole, never to a byte count.** A loop that
+  stops at "some bytes arrived" asserts about whatever the kernel coalesced into
+  one segment, which is the whole reply on an idle machine and a head with no
+  body under it on a loaded one. `e2e::Until` is a caller saying what a complete
+  answer *is* — the peer closed, or one whole TLS record — and
+  `e2e::read_loop_tests` is that rule with a peer of its own that answers in two
+  writes, so the loaded-runner split happens every time instead of on CI only.
+  This is not hypothetical either: it took both Linux jobs of run
+  `33539837433`, and the head it printed carried the `content-length` of the
+  body it said was missing;
 * every wait on a child goes through `shared::waited`, which polls and **kills
   what it could not stop** — `Child::wait` has no deadline;
 * every thread is joined, and the client's answer is read *before* the server
