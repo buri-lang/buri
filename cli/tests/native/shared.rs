@@ -433,6 +433,261 @@ pub fn served_the_path(reply: &str, path: &str) {
 }
 
 // ---------------------------------------------------------------------------
+// Graceful shutdown
+// ---------------------------------------------------------------------------
+
+/// `SIGTERM`, which is what a supervisor sends. Fifteen on both platforms this
+/// suite runs on; `cli/runtime/net.rs`'s `shutdown` module is where the same
+/// two numbers are written on the other side of the C ABI.
+pub const SIGTERM: i32 = 15;
+
+/// `SIGINT`, which is what a person at a terminal sends.
+pub const SIGINT: i32 = 2;
+
+// The one call this file makes into the C library, declared rather than
+// depended on — `cli/runtime/memory.rs`'s `mmap` block is the precedent, and
+// the argument is the same one: a dependency for a single declaration is a
+// dependency.
+unsafe extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
+}
+
+/// A Buri server that **cannot stop on its own**, so that the only thing that
+/// can end it is a signal.
+///
+/// No `requestLimit` and no `idleTimeoutMillis`: the two fields that let every
+/// other server fixture in this file finish are deliberately absent, so a
+/// `.Ok(())` out of `serve` — which is what "served" on the last line reports —
+/// can only have come from the drain. A shutdown that did not work leaves a
+/// process running forever, which is why every wait in [`signalled`] is bounded
+/// and why it kills what it could not stop.
+///
+/// **The handler announces itself before it sleeps**, and that is the whole
+/// instrument. The signal has to arrive while a request is genuinely in flight,
+/// and "sleep a bit after writing and hope" is a race rather than a test. So the
+/// handler prints a line, fills the output buffer to flush it (the same eight
+/// kilobytes and the same reason as the port above), and only then sleeps: when
+/// the test sees that line, the request is provably inside a handler.
+pub fn draining_server(sleep_millis: usize) -> String {
+    format!(
+        r#"from "core/effect" import {{ Alloc, Clock, Listen, Stdout, Tasks }};
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/time" import * as time;
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{
+    Alloc: host.alloc,
+    Clock: host.clock,
+    Listen: host.listen,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  }};
+  let plan = server.Server {{
+    port: 0,
+    onRequest: fn(c, request) => {{
+      let _handling = io.println(c, "handling").ignore();
+      let flush = "x".repeat(c, {pad});
+      let _flushed = io.println(c, flush).ignore();
+      let _slept = time.sleepMs(c, {sleep});
+      http.text(c, request.path())
+    }},
+    drainMillis: .Some(10000),
+  }};
+  match (server.bind(ctx, plan)) {{
+    .Err(e) => .Err(server.errorText(e)),
+    .Ok(listener) => {{
+      let pad = "x".repeat(ctx, {pad});
+      let _ = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+      match (server.run(ctx, listener, plan)) {{
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(_ok) => {{
+          let _ = io.println(ctx, "served").ignore();
+          .Ok(())
+        }},
+      }}
+    }},
+  }}
+}}
+"#,
+        sleep = sleep_millis,
+        pad = STDOUT_BUFFER
+    )
+}
+
+/// Run a server binary, put one request into a handler, **signal the child
+/// while that request is in flight**, and answer what the client got back.
+///
+/// This is F5's fixture and its shape is the claim: the signal is not sent
+/// until the child has said its handler is running, so what is being asserted
+/// is that a request already in a handler is answered *after* the process was
+/// told to stop — and that the process then ends by itself, with `serve`
+/// answering `.Ok(())` and `main` falling off its end.
+///
+/// **Every wait is bounded, including the one on the child.** `Child::wait` has
+/// no deadline, and a shutdown test that could wait forever for a process that
+/// will not stop is the failure this repository already had once. So the wait
+/// is a bounded `try_wait` loop and a `SIGKILL` on the way out: a broken drain
+/// is a failing test with a message rather than a job CI has to kill.
+pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
+    use std::io::{BufRead, Read, Write};
+    let mut child = Command::new(binary)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+    let stdout = child.stdout.take().expect("a piped stdout");
+    let (said, saying) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let reader = std::io::BufReader::new(stdout);
+        let mut lines: Vec<String> = Vec::new();
+        for line in reader.lines() {
+            let Ok(line) = line else { break };
+            // The padding is the output buffer's price and not anything the
+            // program meant to say, so it is dropped here rather than carried
+            // through every assertion below.
+            let short: String = line
+                .split_whitespace()
+                .take(2)
+                .filter(|token| !token.starts_with("xxxx"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            if short.is_empty() {
+                continue;
+            }
+            let _ = said.send(short.clone());
+            lines.push(short);
+        }
+        lines
+    });
+
+    // **One deadline for the whole wait and not one per line**, which is the
+    // difference between a bound and a bound per iteration: a child printing a
+    // line a second would otherwise renew its own reprieve forever.
+    let port = saying_until(&saying, SERVER_DEADLINE, |line| {
+        line.strip_prefix("port ").and_then(|p| p.parse::<u16>().ok())
+    });
+    let port = port.unwrap_or_else(|| {
+        let _ = child.kill();
+        panic!("the server announced no port within {SERVER_DEADLINE:?}");
+    });
+
+    // The same retry `served` uses and for the same reason: the port is
+    // announced before the first accept, so a connect can lose the race with
+    // the backlog on a loaded machine.
+    let until = std::time::Instant::now() + SERVER_DEADLINE;
+    let mut socket = loop {
+        match std::net::TcpStream::connect(("127.0.0.1", port)) {
+            Ok(socket) => break socket,
+            Err(e) => {
+                if std::time::Instant::now() >= until {
+                    let _ = child.kill();
+                    panic!("could not reach the server on 127.0.0.1:{port}: {e}");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    };
+    socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
+    socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
+    socket
+        .write_all(b"GET /in-flight HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n")
+        .unwrap();
+    socket.flush().unwrap();
+
+    // And now wait until the handler says it is running, which is what makes
+    // the signal land on a request that is genuinely in flight rather than on
+    // one that might be.
+    let handling = saying_until(&saying, SERVER_DEADLINE, |line| (line == "handling").then_some(()));
+    if handling.is_none() {
+        let _ = child.kill();
+        panic!("the server never entered its handler within {SERVER_DEADLINE:?}");
+    }
+
+    let pid = i32::try_from(child.id()).expect("a process id");
+    // SAFETY: an ordinary `kill` on this test's own child.
+    let sent = unsafe { kill(pid, signal) };
+    assert_eq!(sent, 0, "could not signal the server with {signal}");
+
+    let mut reply = Vec::new();
+    let _ = socket.read_to_end(&mut reply);
+
+    let status = waited(&mut child, SERVER_DEADLINE);
+    let lines = reader.join().expect("the reader thread finished");
+    let mut stderr = String::new();
+    if let Some(mut err) = child.stderr.take() {
+        let _ = err.read_to_string(&mut stderr);
+    }
+    let ran = Ran {
+        status: status.code().unwrap_or(-1),
+        stdout: format!("{}\n", lines.join("\n")),
+        stderr,
+    };
+    (ran, String::from_utf8_lossy(&reply).to_string())
+}
+
+/// The first line the child says that `read` makes something of, within one
+/// deadline for the whole wait.
+fn saying_until<T>(
+    saying: &std::sync::mpsc::Receiver<String>,
+    within: std::time::Duration,
+    read: impl Fn(&str) -> Option<T>,
+) -> Option<T> {
+    let until = std::time::Instant::now() + within;
+    loop {
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+        let Ok(line) = saying.recv_timeout(left) else { return None };
+        if let Some(found) = read(&line) {
+            return Some(found);
+        }
+    }
+}
+
+/// Wait for a child, with a deadline — `Child::wait` has none.
+///
+/// A process that will not stop is killed rather than waited on forever, and
+/// the panic says which of the two happened. That is the whole of the rule this
+/// file states about every other wait, applied to the one std does not bound.
+fn waited(child: &mut std::process::Child, within: std::time::Duration) -> std::process::ExitStatus {
+    let until = std::time::Instant::now() + within;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status,
+            Ok(None) => {}
+            Err(e) => panic!("could not ask whether the server had exited: {e}"),
+        }
+        if std::time::Instant::now() >= until {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the server did not stop within {within:?} of being signalled");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// What every backend's shutdown row asserts about what came back.
+pub fn drained_gracefully(out: &Ran, reply: &str) {
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    // The request that was in a handler when the signal arrived was answered
+    // whole — a status line, `http.text`'s content type, and the path the
+    // handler was given.
+    served_the_path(reply, "/in-flight");
+    // And `serve` answered `.Ok(())`, which is the last line `main` prints.
+    // This fixture has no request limit and no idle deadline, so there is no
+    // other way for that line to have been reached.
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "the server did not run to its own end after the signal:\n{}",
+        out.stdout
+    );
+}
+
+// ---------------------------------------------------------------------------
 // TLS
 // ---------------------------------------------------------------------------
 //

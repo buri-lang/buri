@@ -189,8 +189,9 @@ that *is* a server rather than one that talks to one, which is a second
 authority rather than a second spelling. A `Server<C>` is the whole
 configuration: a `port`, an `onRequest` handler taking the caller's own context,
 and `Option` knobs for the address, the protocols, a certificate, a request
-limit and an idle timeout, each of which means "the runtime chooses" when it is
-left out of the literal. `serve` binds and answers until the listener closes;
+limit, an idle timeout and a shutdown deadline, each of which means "the runtime
+chooses" when it is left out of the literal. `serve` binds and answers until the
+listener closes;
 `bind` and `run` are the same thing in two halves, for a program that wants the
 port number before it starts answering; `errorText` turns a `ServeError` into a
 line. It speaks HTTP/1.1 and, over TLS, HTTP/2. A `tls: .Some(Tls { certificate,
@@ -212,6 +213,16 @@ twice. `sendText`,
 `sendBytes` and `close` are the socket half, and nothing hands out a socket to
 call them on yet: `serve` performs no WebSocket upgrade, so they say what they
 will do rather than pretending to do it today.
+
+**A server stops gracefully.** `SIGTERM` and `SIGINT` do not kill a program that
+is holding a port: the platform stops accepting connections, lets the requests
+already in flight be answered, and then tells the accept loop the listener is
+closed — so `serve` returns `.Ok(())`, `main` falls off its end, and whatever a
+program does after `serve` still happens. `drainMillis` bounds how long the
+middle step may take, and a second signal is the operating system's own, so
+`Ctrl-C` twice stops a process that will not drain. A program with no listener
+open is not affected at all: the signals are the platform's only while a port
+is.
 
 `core/tasks` is one function. `parallel(ctx, items, f)` runs `f` over every item
 and answers the results **in the items' order**, whatever order the work

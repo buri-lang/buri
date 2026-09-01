@@ -65,6 +65,7 @@
 //! | `tls` | no `.Certificate` in the plan | serves cleartext |
 //! | `requestLimit` | `-1` | answers until the listener is closed |
 //! | `idleTimeoutMillis` | `-1` | waits for a connection indefinitely |
+//! | `drainMillis` | no `.DrainMillis` in the plan | waits ten seconds for the requests in flight |
 //!
 //! The third column is what *this* runtime does, and it is written down so a
 //! reader knows what to expect rather than so a program may rely on it. The
@@ -148,6 +149,44 @@
 //! }
 //! ```
 //!
+//! ## Stopping, and what `.Ok(())` means
+//!
+//! `serve` answers `.Ok(())` when the server stopped **the way it was asked
+//! to**, and there are three ways to ask. Two of them are fields: a
+//! `requestLimit` that is spent, and a listener the program closed. The third
+//! is the operating system's — a `SIGTERM` from a supervisor, or a `SIGINT`
+//! from somebody at a terminal — and on a platform that grants `Listen` it does
+//! not kill the process.
+//!
+//! What it does instead is a **drain**, in three steps:
+//!
+//! 1. the platform stops accepting connections;
+//! 2. the requests already in flight are answered, and the workers holding them
+//!    finish normally;
+//! 3. `listenAccept` answers `.Closed`, every worker ends, the port is given
+//!    back, and `serve` returns `.Ok(())`.
+//!
+//! So a `main` that ends with `serve(…)` falls off its own end when it is asked
+//! to stop, which means whatever a program does after `serve` — flush a log,
+//! close a database, print a line — happens. That is the whole point of
+//! catching the signal rather than dying under it.
+//!
+//! `drainMillis` is how long step 2 may take. It bounds the *waiting* and not
+//! the handlers: a handler still running when it expires still answers the
+//! request it was given, and what expires is the patience of the workers with
+//! nothing left to do. A client that opened a connection and sent nothing is
+//! the case it exists for.
+//!
+//! **A second signal is not a second drain.** The platform gives the signal
+//! back to the operating system when it catches the first one, so a second
+//! `Ctrl-C` during a slow shutdown terminates the process the ordinary way —
+//! which is what pressing it twice means everywhere else, and what stands
+//! between a handler that will not return and a process that cannot be stopped.
+//!
+//! And a program that holds no port is not affected at all: the signals are the
+//! platform's only while a listener is open, so a program that is not a server
+//! keeps the operating system's own behaviour.
+//!
 //! ## What is here, and what is not yet
 //!
 //! One request per HTTP/1.1 connection: the response says `connection: close`
@@ -215,6 +254,15 @@ export struct Server<C> {
     /// `.Err(.Timeout)`. `.None` waits indefinitely, which is what an ordinary
     /// server does.
     export idleTimeoutMillis: Option<Int>,
+    /// How long a shutdown may wait for the requests already in flight
+    /// before it stops waiting. `.None` leaves the number to the runtime.
+    ///
+    /// It is the knob a deployment sets, because a deployment is the thing that
+    /// decides how long a process has to stop — a supervisor that sends
+    /// `SIGTERM` and then `SIGKILL` ten seconds later is asking a question this
+    /// field answers. The module header is where the three steps of a drain are
+    /// written out; the short version is that this bounds the middle one.
+    export drainMillis: Option<Int>,
     /// The certificate this server presents, and therefore whether it speaks
     /// TLS at all. `.None` is a cleartext server.
     ///
@@ -259,8 +307,10 @@ export struct Tls {
 /// done, give the port back.
 ///
 /// `.Ok(())` means the server stopped the way it was asked to — its request
-/// limit spent, or its listener closed. An error is a reason it could not go
-/// on, and the port is given back on that path too.
+/// limit spent, its listener closed, or the platform asked to stop and finished
+/// draining. An error is a reason it could not go on, and the port is given
+/// back on that path too. The module header's "Stopping" section is where the
+/// third of those is written out.
 ///
 /// A program that needs the port *while* the server runs — anything binding
 /// `port: 0` — wants `bind` and `run` instead, which are this function's two
@@ -303,18 +353,28 @@ export fn bind<C: Alloc + Listen>(
 /// A `Server`'s protocol and TLS fields, rendered into the one list the bind
 /// takes.
 ///
-/// The order is protocols first and then the identity, which is the order they
-/// are read in: the acceptor walks the protocols to decide what it may offer
-/// and then reads the certificate to decide whether it can offer anything at
-/// all. An empty list is a caller who chose nothing, and `.None` on both fields
-/// is exactly that.
+/// The order is protocols first, then the identity, then the shutdown, which
+/// is the order they are read in: the acceptor walks the protocols to decide
+/// what it may offer, reads the certificate to decide whether it can offer
+/// anything at all, and asks about the drain only when it is being asked to
+/// stop. An empty list is a caller who chose nothing, and `.None` on every
+/// field is exactly that.
+///
+/// **An absent option is an absent element**, which is what makes this the
+/// `.None` convention rather than an encoding of it: there is no "unset"
+/// `.DrainMillis` to render, because a plan that does not mention the drain is
+/// already the sentence "this program did not choose one".
 fn planned<C: Alloc>(ctx: C, server: Server<C>): [Serve] {
     let spoken: [Serve] = server.protocols.withDefault([]).map(ctx, fn(p) => .Speak(p));
-    match (server.tls) {
+    let secured: [Serve] = match (server.tls) {
         .None => spoken,
         .Some(tls) => {
             spoken.concat(ctx, [.Certificate(tls.certificate), .PrivateKey(tls.key)])
         },
+    };
+    match (server.drainMillis) {
+        .None => secured,
+        .Some(millis) => secured.concat(ctx, [.DrainMillis(millis)]),
     }
 }
 

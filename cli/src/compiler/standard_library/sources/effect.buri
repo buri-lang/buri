@@ -334,7 +334,10 @@ export effect Tasks {
 /// long one connection may take to send its head, and the largest body it will
 /// read. They are the runtime's rather than the program's because nobody has
 /// yet had a reason to name them, and `Serve` is where they land when somebody
-/// does.
+/// does. `.DrainMillis` is the first one that did: a deployment that gives a
+/// process ten seconds to stop is a program that has a reason to say how long
+/// its own shutdown may take, and saying it cost a variant rather than an
+/// argument there was no room for.
 ///
 /// **How many handlers a listener hosts is not in the plan either**, and that
 /// is a different argument reaching a different answer: it is not a setting but
@@ -375,10 +378,19 @@ export effect Listen {
     /// is what makes several workers on one listener possible at all.
     ///
     /// `.Err(.Closed)` is how a listener says it will answer no more — its
-    /// request limit is spent, or it has been closed — and it is the ordinary
-    /// end of a server rather than a failure, which is why
-    /// `core/net/server`'s `run` turns that one cause into `.Ok(())`.
-    /// `.Err(.Timeout)` is the idle deadline expiring with nobody connected.
+    /// request limit is spent, it has been closed, or **the platform was asked
+    /// to stop and has finished draining** — and it is the ordinary end of a
+    /// server rather than a failure, which is why `core/net/server`'s `run`
+    /// turns that one cause into `.Ok(())`. `.Err(.Timeout)` is the idle
+    /// deadline expiring with nobody connected.
+    ///
+    /// The third of those is why this call is the one that has to be
+    /// interruptible. A shutdown arrives while every worker is waiting here,
+    /// and what a graceful one does is stop the platform taking new
+    /// connections, let the requests already in flight be answered, and only
+    /// then answer this with `.Closed` — so a server that was asked to stop
+    /// ends the same way a server that spent its request limit does, and a
+    /// program does not have to know which happened.
     ///
     /// A connection that speaks nonsense never surfaces here: a malformed
     /// request is the transport's problem and the runtime answers it, because
@@ -566,6 +578,18 @@ export enum Serve {
     Certificate(Str),
     /// Where to read the private key that goes with it, on the same terms.
     PrivateKey(Str),
+    /// How long a shutdown may wait for the requests already in flight.
+    ///
+    /// A platform that can be asked to stop — by a supervisor, or by somebody
+    /// at a terminal — stops taking connections, answers what it already took,
+    /// and only then says `.Closed`. This is how long the second step may take
+    /// before the third happens anyway. Naming none leaves the number to the
+    /// runtime.
+    ///
+    /// **It bounds the waiting and not the handlers.** A handler still running
+    /// when this expires still answers the connection it was given; what
+    /// expires is the patience of the workers that have nothing to do.
+    DrainMillis(Int),
 }
 
 derive Eq, Show for ServeFailure;

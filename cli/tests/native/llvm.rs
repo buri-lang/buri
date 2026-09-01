@@ -3632,6 +3632,43 @@ fn a_server_answers_a_request_on_a_socket() {
     crate::shared::served_the_path(&reply, "/ping");
 }
 
+/// **A server that is asked to stop finishes the request it was answering.**
+///
+/// F5's row, end to end and in a process of its own — which is the only place
+/// it can be. A signal is process-wide state: `cli/runtime/net.rs` can assert
+/// what a drain does to a listener, because that is one handle in a table, but
+/// "`SIGTERM` reaches this program and does not kill it" is a claim about a
+/// whole process, and a unit test that sent one to its own would be sending it
+/// to every other test running beside it.
+///
+/// The fixture is built so that a passing run means one thing. It has **no
+/// request limit and no idle deadline**, so nothing but the signal can make
+/// `serve` answer `.Ok(())`; the handler **announces itself before it sleeps**,
+/// so the signal is provably delivered while a request is inside a handler
+/// rather than probably; and the wait for the child is bounded and ends in a
+/// `SIGKILL`, so a shutdown that did not work is a failing test with a sentence
+/// rather than a job that runs until CI kills it.
+///
+/// Three things have to be true at once for it to pass: the request in flight
+/// is answered whole, the process exits zero, and `main` printed the line after
+/// `serve`. The last is what says the drain ended in `.Ok(())` and not in a
+/// signal that merely arrived late.
+///
+/// The stencil row's twin. It is written twice for the reason every server row
+/// here is — `Server` now carries a sixth field and the plan a fourth variant,
+/// and each backend decides for itself where an `Int` payload sits inside an
+/// enum — and this one is the only one of the two whose workers genuinely run
+/// at the same time, so it is also the one where the request being answered is
+/// on a different carrier from the workers being told to stop.
+#[test]
+fn a_signalled_server_answers_the_request_in_flight_and_stops() {
+    skip_unless_executable!();
+    let source = crate::shared::draining_server(1_500);
+    let binary = build_at("server-drain", &source, None, Profile::Release);
+    let (out, reply) = crate::shared::signalled(&binary, crate::shared::SIGTERM);
+    crate::shared::drained_gracefully(&out, &reply);
+}
+
 /// **A `Server`'s `tls` field reaches the acceptor, at this backend's layout.**
 ///
 /// The stencil row's twin, and written twice for the reason every server row in

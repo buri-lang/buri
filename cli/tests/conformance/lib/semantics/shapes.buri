@@ -1107,7 +1107,7 @@ impl Listen for PoolListen {
 export struct PlanListen {}
 
 /// One `Serve` as one digit: the protocol's own index plus one, then the two
-/// halves of an identity.
+/// halves of an identity, then the shutdown.
 ///
 /// Plus one so that `.Http1` is `1` and not `0`, which would vanish into the
 /// leading digits of the fold below and make a plan of two protocols read as a
@@ -1123,6 +1123,7 @@ fn planDigit(item: Serve): Int {
         },
         .Certificate(_path) => 4,
         .PrivateKey(_key) => 5,
+        .DrainMillis(_millis) => 6,
     }
 }
 
