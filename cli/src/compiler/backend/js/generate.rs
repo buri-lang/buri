@@ -123,12 +123,8 @@ pub struct Gen<'a> {
     /// `middle::rc` run with `Options::sharing`. Empty for a `Gen` that is only
     /// being asked which intrinsics exist.
     sharing: rc::Plan,
-    /// Which functions are printed `async`, and which function *values* may
-    /// park. See [`Waiting`]. Empty for a `Gen` that is only being asked which
-    /// intrinsics exist, where nothing is emitted and so nothing is awaited.
-    waits: Waiting,
     /// The `Program::funcs` slot whose body is being emitted, because
-    /// [`Waiting::value_parks`] reads a local and a local means nothing
+    /// [`rc::Parking::value_parks`] reads a local and a local means nothing
     /// without one.
     slot: usize,
 }
@@ -188,7 +184,6 @@ impl<'a> Gen<'a> {
             const_index: HashMap::default(),
             in_context: false,
             sharing: rc::Plan::default(),
-            waits: Waiting::none(),
             slot: 0,
         }
     }
@@ -197,18 +192,27 @@ impl<'a> Gen<'a> {
     /// `async`, and so whether a call to it has to be awaited.
     ///
     /// "Is this printed `async`" and "is this call awaited" are the same
-    /// question asked at the two ends of one call, so both read this. See
-    /// [`waiting_functions`] for where the answer comes from.
+    /// question asked at the two ends of one call, so both read this — and
+    /// both read `middle::rc`'s `can_park` column rather than a set of this
+    /// backend's own. Until B2 landed they could not: the column answered
+    /// `true` at every indirect call, and printing `async` on a function
+    /// because one of its arms calls a function value is what hands JavaScript
+    /// a promise where it expects a value. [`rc::Parking`] is where that
+    /// argument now lives, in full.
+    ///
+    /// A slot with no plan row answers `false`, which is what a `Gen` that is
+    /// only being asked which intrinsics exist wants: nothing is emitted, so
+    /// nothing is awaited.
     fn parks(&self, index: usize) -> bool {
-        self.waits.waits(index)
+        self.sharing.funcs.get(index).is_some_and(|p| p.can_park)
     }
 
     /// Whether a call *through* this function value has to be awaited.
     ///
     /// The same question as [`Gen::parks`] asked where there is no name to ask
-    /// it under, and the reason [`Waiting`] tracks function values at all.
+    /// it under, and the reason [`rc::Parking`] tracks function values at all.
     fn value_parks(&self, callee: &typed::Expr) -> bool {
-        self.waits.value_parks(self.slot, callee)
+        self.sharing.parking.value_parks(self.slot, callee)
     }
 
     /// The marks for one body, from the plan's node numbers and one pre-order
@@ -286,7 +290,6 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     // The ownership half of `middle::rc`, which this branch of the pipeline
     // runs for its increments alone. MEMORY.md §5.5.
     g.sharing = rc::sharing(program);
-    g.waits = waiting_functions(program);
 
     let mut stmts = Vec::new();
     // A program that reaches a node module by name needs `require`, which an
@@ -401,13 +404,6 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
         // the host hands back, and an `async` function returns that through
         // the promise its caller is already awaiting.
         let is_async = g.parks(fi);
-        debug_assert!(
-            !is_async || g.sharing.funcs.get(fi).is_none_or(|p| p.can_park),
-            "{} is printed `async` but `rc`'s `can_park` column says it cannot \
-             park; the column is the over-approximation and this set is inside \
-             it, never the other way round",
-            f.debug_name
-        );
         if let Some(marks) = g.sharing.funcs.get(fi).map(|plan| g.marks_for(f, plan)) {
             g.func.marks = marks;
         }
@@ -452,6 +448,23 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
                 vec![Expr::Str(format!("{} was never built", f.debug_name))],
             ))],
         };
+        // The emitted text against the column, which is the one claim this
+        // backend can check *independently* of the analysis: an `await` in a
+        // function that is not `async` is not a slow artifact, it is a syntax
+        // error. `has_await` does not descend into a nested arrow, so a lambda
+        // that awaits inside this body is the lambda's own business.
+        //
+        // This is deliberately not a second copy of the analysis. The audit's
+        // F-2 finding was that a second copy existed at all; a cross-check that
+        // has to be kept in step with the column is the same duplication under
+        // another name. This one reads the printed statements.
+        debug_assert!(
+            is_async || !javascript::has_await(&body),
+            "{} is not printed `async`, but an `await` landed in its emitted \
+             body — `rc`'s `can_park` column decides both, and the two answers \
+             have drifted",
+            f.debug_name
+        );
         stmts.push(Stmt::Func { name: f.symbol.clone(), params, body, is_async });
     }
 
@@ -510,378 +523,6 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     }
 
     Output { stmts, roots, missing_intrinsics: g.missing }
-}
-
-/// The `async` question, answered for a whole program: which functions this
-/// backend prints `async`, and which **function values** may park — because a
-/// call through one has to be awaited too.
-///
-/// `middle::rc`'s `can_park` column asks a neighbouring question — *may this
-/// function wait* — and answers `true` at every indirect call, because a code
-/// pointer has no name and the conservative direction is the safe one. That
-/// direction is free on the native backends, where the column decides how much
-/// stack a call may need. It is not free here. `async` is not a property a
-/// caller may ignore: an `async` function returns a promise whether or not it
-/// ever waits, and this artifact hands function values to JavaScript that
-/// cannot await one — a `view` given to `mount`, the row callbacks inside
-/// `ui.each`, the callback of `$list_mapCtx`, a sort comparator. Printing
-/// `Prop.read` `async` because one of its three arms calls a function value is
-/// what turns `ui.each`'s row count into a promise and its duplicate-key check
-/// into a no-op.
-///
-/// So this is neither the column nor the column's old opposite. Until wave 8 an
-/// indirect call contributed *nothing* here, which is sound exactly while no
-/// function value in the program parks — and a generic wrapper
-/// `fn wrapped<C, T>(ctx: C, body: fn(C) => T): T { body(ctx) }` handed a
-/// callback that sleeps is the counterexample: `body(ctx)` was emitted without
-/// `await`, `wrapped` was not `async`, and its caller bound a `Promise` where
-/// a value belonged (wave-8 G5 §6).
-///
-/// # What is computed
-///
-/// One fixpoint over five monotone facts, all of them starting at "no":
-///
-///  * **`waits[f]`** — `f` is printed `async`. Seeded by [`rc::suspends`] and
-///    climbing through direct calls, loop entries, and now indirect calls
-///    whose callee may park.
-///  * **`parking[f]`** — the locals of `f` (its parameters and its `let`s)
-///    whose function value may park.
-///  * **`resolved[f]`** — the locals of `f` whose function value this analysis
-///    *followed*. A fn-typed local outside this set is one it lost track of.
-///  * **`parking_types`** — the **function types** some parking function value
-///    in this program has.
-///  * **`any_parking_value`** — whether the program builds one at all.
-///
-/// A parameter is followed when the function owning it is never used as a
-/// **value**: then every argument it can ever receive is written at a
-/// `CallFn` or a `Continue` naming it, and those are edges this pass can walk.
-/// A `let` is followed when it binds one name to one expression. Everything
-/// else — a callback read out of a struct field, returned from a call, bound
-/// by a destructuring pattern, or handed to a lambda parameter — is answered
-/// by **its type**: a callee position of type `T` can only ever hold a value
-/// of type `T`, so the sound answer for one this pass could not follow is
-/// whether the program builds a *parking* value of that same type.
-///
-/// # Why the fallback is a type and not a flag
-///
-/// A program-wide "some value in this program parks" was the first shape and it
-/// is **wrong**, not merely imprecise. The monorepo's page is the proof:
-/// `Prop.read`'s third arm calls a function value out of an enum payload, and
-/// somewhere else in the same program an `onPress` handler fetches. Under a
-/// flag, that fetch made `Prop.read` `async` — and `Prop.read` is called from a
-/// style thunk that the *runtime* invokes (`$tree_style_collect`, `style[1]
-/// (scope)`), which cannot await anything. The page died on `{} is not
-/// iterable`, which is a promise where a list of styles belonged. Keyed by
-/// type, the handler is a `fn(C, Bool) => ()` and the arm's callee is a
-/// `fn(Scope) => T`; they never meet, and the page is the bytes it was.
-///
-/// Soundness rests on the program being well typed, which is the one property
-/// everything downstream of the checker already assumes.
-///
-/// What is still given up is a parking function value that *shares a type* with
-/// a callee position it can never reach — the indirect call is awaited, at the
-/// cost of a microtask. The precise alternative is a real higher-order flow
-/// analysis (values through fields, arrays and returns); it is not written, and
-/// the tradeoff is recorded in `reports/can-park-indirect.md` rather than
-/// hidden.
-///
-/// # The relation to `can_park`
-///
-/// This set is **inside** `middle::rc`'s column, always, and the `debug_assert`
-/// in [`generate`] says so at every function. It has to be: `rc` answers `true`
-/// at every `CallValue`, and the only way a row climbs here is a call — direct
-/// or indirect — that `rc` also walks.
-struct Waiting {
-    /// One row per `Program::funcs` slot: whether it is printed `async`.
-    waits: Vec<bool>,
-    /// Per slot, the locals whose function value may park.
-    parking: Vec<HashSet<LocalId>>,
-    /// Per slot, the locals whose function value this pass followed.
-    resolved: Vec<HashSet<LocalId>>,
-    /// The types of the parking function values this program builds. The
-    /// answer for every function-typed position the two sets above did not
-    /// follow.
-    parking_types: HashSet<Ty>,
-    /// Whether the program builds a parking function value at all — the answer
-    /// where there is not even a function type to ask under, which a well-typed
-    /// program does not reach.
-    any_parking_value: bool,
-}
-
-impl Waiting {
-    /// The answer for a `Gen` that emits nothing: no function is `async` and
-    /// no function value parks, so nothing is awaited.
-    fn none() -> Waiting {
-        Waiting {
-            waits: Vec::new(),
-            parking: Vec::new(),
-            resolved: Vec::new(),
-            parking_types: HashSet::default(),
-            any_parking_value: false,
-        }
-    }
-
-    fn waits(&self, index: usize) -> bool {
-        self.waits.get(index).copied().unwrap_or(false)
-    }
-
-    /// The answer for a function value this pass could not follow: whether the
-    /// program builds a parking one of the same type.
-    fn unfollowed(&self, ty: &Ty) -> bool {
-        if is_fn_ty(ty) {
-            self.parking_types.contains(ty)
-        } else {
-            self.any_parking_value
-        }
-    }
-
-    /// Whether the function value this expression produces may park.
-    ///
-    /// `fi` is the slot whose body the expression is written in, because a
-    /// local means nothing without one.
-    fn value_parks(&self, fi: usize, e: &typed::Expr) -> bool {
-        match &e.kind {
-            // A callee still naming a declaration means monomorphization did
-            // not run, which the emitter turns into an abort; `true` is the
-            // answer that cannot be wrong in the meantime.
-            ExprKind::FnRef(c) => c.func().is_none_or(|i| self.waits(i.index())),
-            ExprKind::Closure { func, .. } => self.waits(func.index()),
-            ExprKind::Lambda { body, .. } => self.body_parks(fi, body),
-            ExprKind::Local(l) => {
-                if self.parking.get(fi).is_some_and(|s| s.contains(l)) {
-                    true
-                } else if self.resolved.get(fi).is_some_and(|s| s.contains(l)) {
-                    false
-                } else {
-                    self.unfollowed(&e.ty)
-                }
-            }
-            // A function value is whatever the branch that produced it is.
-            ExprKind::Block { tail: Some(t), .. } => self.value_parks(fi, t),
-            ExprKind::If { then, else_, .. } => {
-                self.value_parks(fi, then) || self.value_parks(fi, else_)
-            }
-            ExprKind::Match { arms, .. } => {
-                arms.iter().any(|a| self.value_parks(fi, &a.body))
-            }
-            _ => self.unfollowed(&e.ty),
-        }
-    }
-
-    /// Whether running this body reaches something that waits.
-    ///
-    /// The walk descends into lambda bodies, so a function holding a lambda
-    /// that parks is `async` whether or not it calls it here — which is what
-    /// the emitter does anyway, since the `await` it prints inside the arrow
-    /// is inside this function's text.
-    fn body_parks(&self, fi: usize, body: &typed::Expr) -> bool {
-        let mut k = false;
-        typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::CallFn { func, .. } => {
-                if let Some(c) = func.func() {
-                    k = k || self.waits(c.index());
-                }
-            }
-            // A jump into another function's loop is a call.
-            ExprKind::Continue { func: Some(c), .. } => k = k || self.waits(c.index()),
-            // The arm this slice added: a call through a function value waits
-            // when the value it reaches does.
-            ExprKind::CallValue { callee, .. } => k = k || self.value_parks(fi, callee),
-            // A host call spelled as an inline node rather than reached
-            // through an intrinsic *function*; the same seed answers both.
-            ExprKind::Intrinsic { name, .. } => k = k || rc::suspends(name),
-            _ => {}
-        });
-        k
-    }
-}
-
-/// Whether a type is a function type, which is the only kind of value a
-/// `CallValue` can reach and so the only kind this pass tracks.
-fn is_fn_ty(t: &Ty) -> bool {
-    matches!(t, Ty::Fn(..))
-}
-
-/// The `let`s of one body that bind a single name to a single function value.
-///
-/// A destructuring pattern is deliberately not one: the local it binds stays
-/// unresolved, and an unresolved fn-typed local is worth what
-/// [`Waiting::unfollowed`] says of its type.
-fn fn_lets(body: &typed::Expr) -> Vec<(LocalId, &typed::Expr)> {
-    let mut out = Vec::new();
-    typed::walk(body, &mut |e| {
-        let ExprKind::Block { stmts, .. } = &e.kind else { return };
-        for s in stmts {
-            let typed::Stmt::Let { pattern, value, .. } = s else { continue };
-            let PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
-            if is_fn_ty(&value.ty) {
-                out.push((*local, value));
-            }
-        }
-    });
-    out
-}
-
-/// The function slots whose **address is taken**: named by an `FnRef` or a
-/// `Closure` rather than called.
-///
-/// One of these can be called from a position no `CallFn` names, so nothing
-/// can be proved about what its parameters hold. Every other slot receives
-/// arguments only where this pass can see them.
-fn address_taken(program: &Program) -> HashSet<usize> {
-    let mut out = HashSet::default();
-    for f in &program.funcs {
-        let Some(body) = f.body() else { continue };
-        typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::FnRef(c) => {
-                if let Some(i) = c.func() {
-                    out.insert(i.index());
-                }
-            }
-            ExprKind::Closure { func, .. } => {
-                out.insert(func.index());
-            }
-            _ => {}
-        });
-    }
-    out
-}
-
-/// [`Waiting`], computed.
-fn waiting_functions(program: &Program) -> Waiting {
-    let n = program.funcs.len();
-    let mut w = Waiting {
-        waits: program
-            .funcs
-            .iter()
-            .map(|f| match &f.kind {
-                FuncKind::Intrinsic(key) => rc::suspends(key),
-                // An unbuilt body is lowered to a throw, which is the one
-                // thing that certainly does not wait.
-                FuncKind::Unbuilt | FuncKind::Body(_) => false,
-            })
-            .collect(),
-        parking: vec![HashSet::default(); n],
-        resolved: vec![HashSet::default(); n],
-        parking_types: HashSet::default(),
-        any_parking_value: false,
-    };
-
-    // What can be followed, decided once: the tree does not move.
-    let addressed = address_taken(program);
-    let lets: Vec<Vec<(LocalId, &typed::Expr)>> = program
-        .funcs
-        .iter()
-        .map(|f| f.body().map(fn_lets).unwrap_or_default())
-        .collect();
-    for (i, f) in program.funcs.iter().enumerate() {
-        let Some(slot) = w.resolved.get_mut(i) else { continue };
-        if !addressed.contains(&i) {
-            for p in &f.params {
-                slot.insert(*p);
-            }
-        }
-        for (local, _) in lets.get(i).into_iter().flatten() {
-            slot.insert(*local);
-        }
-    }
-
-    // Monotone in every column — a row only ever climbs — so the loop
-    // terminates in at most one pass per edge.
-    let mut changed = true;
-    while changed {
-        changed = false;
-
-        // Arguments, into the parameters they are bound to. Collected first
-        // because reading the columns and writing them cannot overlap.
-        let mut edges: Vec<(usize, usize, &Vec<typed::Expr>)> = Vec::new();
-        for (i, f) in program.funcs.iter().enumerate() {
-            let Some(body) = f.body() else { continue };
-            typed::walk(body, &mut |e| match &e.kind {
-                ExprKind::CallFn { func, args } => {
-                    if let Some(c) = func.func() {
-                        edges.push((c.index(), i, args));
-                    }
-                }
-                // A `Continue` rebinds the parameters of the function it
-                // enters, in order — the dispatch index the emitter prepends
-                // is not one of them.
-                ExprKind::Continue { func, args, .. } => {
-                    edges.push((func.map_or(i, |c| c.index()), i, args));
-                }
-                _ => {}
-            });
-        }
-        for (target, from, args) in edges {
-            let Some(tf) = program.funcs.get(target) else { continue };
-            for (j, a) in args.iter().enumerate() {
-                if !is_fn_ty(&a.ty) || !w.value_parks(from, a) {
-                    continue;
-                }
-                let Some(p) = tf.params.get(j).copied() else { continue };
-                if w.parking.get_mut(target).is_some_and(|s| s.insert(p)) {
-                    changed = true;
-                }
-            }
-        }
-
-        // The `let`s that hold one.
-        for (i, binds) in lets.iter().enumerate() {
-            for (local, value) in binds {
-                if !w.value_parks(i, value) {
-                    continue;
-                }
-                if w.parking.get_mut(i).is_some_and(|s| s.insert(*local)) {
-                    changed = true;
-                }
-            }
-        }
-
-        // The parking function values the program builds, collected by type,
-        // which is what every position the two sets above did not follow is
-        // worth. Every node that *is* a function value is one of these three.
-        let mut found: Vec<&Ty> = Vec::new();
-        for (i, f) in program.funcs.iter().enumerate() {
-            let Some(body) = f.body() else { continue };
-            typed::walk(body, &mut |e| {
-                let parks = match &e.kind {
-                    ExprKind::FnRef(c) => c.func().is_none_or(|x| w.waits(x.index())),
-                    ExprKind::Closure { func, .. } => w.waits(func.index()),
-                    ExprKind::Lambda { body, .. } => w.body_parks(i, body),
-                    _ => return,
-                };
-                if parks {
-                    found.push(&e.ty);
-                }
-            });
-        }
-        for ty in found {
-            if w.parking_types.insert(ty.clone()) {
-                changed = true;
-            }
-            if !w.any_parking_value {
-                w.any_parking_value = true;
-                changed = true;
-            }
-        }
-
-        // And the column the emitter reads. A function that *is* a suspending
-        // intrinsic has no body and is never reached here; one with a body
-        // starts at `false` and only ever climbs, so the seed is not lost.
-        for (i, f) in program.funcs.iter().enumerate() {
-            if w.waits(i) {
-                continue;
-            }
-            let Some(body) = f.body() else { continue };
-            if w.body_parks(i, body) {
-                if let Some(slot) = w.waits.get_mut(i) {
-                    *slot = true;
-                }
-                changed = true;
-            }
-        }
-    }
-    w
 }
 
 /// Whether any reachable intrinsic reaches a node module by name.
@@ -2270,10 +1911,10 @@ impl<'a> Gen<'a> {
                 if parks { Expr::awaited(call) } else { call }
             }
             // Awaited when the value this callee position can hold may park.
-            // There is no name to look the answer up under, so [`Waiting`]
-            // follows the function values themselves; where it lost track of
-            // one it answers with whether the program builds a parking
-            // function value at all, which is the sound direction.
+            // There is no name to look the answer up under, so
+            // [`rc::Parking`] asks the callee's *type* first — a function
+            // value that takes no capability cannot wait — and follows the
+            // function values themselves where the type leaves it open.
             ExprKind::CallValue { callee, args } => {
                 let parks = self.value_parks(callee);
                 let c = self.expr(callee, out);
@@ -2423,16 +2064,16 @@ impl<'a> Gen<'a> {
                 Expr::ident(name)
             }
             // A lambda is not a `Program::funcs` slot on this branch — it is
-            // an arrow printed where it stands — so it has no row in
-            // [`waiting_functions`], and the emitted body is asked instead:
+            // an arrow printed where it stands — so it has no row in the
+            // `can_park` column, and the emitted body is asked instead:
             // `async` exactly when an `await` landed in it.
             //
-            // The function *holding* the lambda is `async` either way: that
-            // walk descends into a lambda body, so a call that puts an
-            // `await` here has already marked the function the lambda sits
-            // in. And an arrow printed `async` is a promise handed to
-            // whoever calls it — see [`waiting_functions`] for why no
-            // program in this tree builds one.
+            // The function *holding* the lambda is `async` either way:
+            // `rc::Parking`'s walk descends into a lambda body, so a call that
+            // puts an `await` here has already marked the function the lambda
+            // sits in. And an arrow printed `async` is a promise handed to
+            // whoever calls it — see [`rc::Parking`] for why no program in
+            // this tree builds one the runtime then calls.
             ExprKind::Lambda { params, body, .. } => {
                 let names: Vec<String> =
                     params.iter().map(|p| self.local_name_of(p)).collect();
