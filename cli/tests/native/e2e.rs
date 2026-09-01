@@ -472,21 +472,67 @@ export fn main(): Result<(), Str> {{
 // A TLS client that is not a TLS library
 // ---------------------------------------------------------------------------
 
+/// What a probe is waiting for.
+///
+/// **A byte count is not an answer, and this parameter used to be one.** It was
+/// `want: usize`, the loop stopped as soon as that many bytes had arrived, and
+/// every caller passed a number small enough that the first `read` satisfied it
+/// — which meant each row asserted about *whatever the kernel had coalesced
+/// into one segment*. On an idle machine that is the whole reply; under load
+/// `hyper` writes the head and the body as two writes, they arrive as two
+/// readable chunks, and the row saw a complete set of headers with no body
+/// under them. CI caught it on both Linux jobs of run `33539837433`, and the
+/// head it printed carried `content-length: 24` — the exact length of the body
+/// the row said was missing, which is the failure diagnosing itself.
+///
+/// So a caller now says what a *complete* answer is, and the loop reads until
+/// it has one. The two shapes are the two protocols these rows speak.
+#[derive(Clone, Copy)]
+enum Until {
+    /// **The peer closed.** Right for an HTTP/1.1 exchange this server answers
+    /// `connection: close`, and for a probe whose whole claim is about
+    /// everything the far side had to say — nothing short of the end can settle
+    /// "and it said nothing else either".
+    Closed,
+    /// **One whole TLS record**: its five-byte header, and the length that
+    /// header declares. A record is the unit a `ServerHello` arrives in, so
+    /// this is what "the handshake answered" means in bytes.
+    ARecord,
+}
+
+impl Until {
+    /// Whether what has arrived is already a complete answer.
+    ///
+    /// `Closed` is never satisfied by content, only by the read loop reaching
+    /// end of file — which is the point of it.
+    fn satisfied(self, back: &[u8]) -> bool {
+        match self {
+            Until::Closed => false,
+            Until::ARecord => match back.get(3..5) {
+                Some(two) => back.len() >= 5 + usize::from(u16::from_be_bytes([two[0], two[1]])),
+                None => false,
+            },
+        }
+    }
+}
+
 /// Dial a port and answer what came back, bounded on every step.
 ///
 /// The connect retries until the deadline for `shared::served`'s reason: the
 /// port is announced before the first accept, so the first connect can lose the
-/// race with the listen backlog on a loaded machine.
-fn dialled(port: u16, out: &[u8], want: usize) -> Vec<u8> {
+/// race with the listen backlog on a loaded machine. The read stops when
+/// [`Until`] says the answer is whole, when the peer closes, or when the
+/// deadline on the socket fires — never on a byte count.
+fn dialled(port: u16, out: &[u8], until: Until) -> Vec<u8> {
     use std::io::{Read, Write};
     let deadline = crate::shared::SERVER_DEADLINE;
-    let until = std::time::Instant::now() + deadline;
+    let give_up_at = std::time::Instant::now() + deadline;
     let mut socket = loop {
         match std::net::TcpStream::connect(("127.0.0.1", port)) {
             Ok(socket) => break socket,
             Err(e) => {
                 assert!(
-                    std::time::Instant::now() < until,
+                    std::time::Instant::now() < give_up_at,
                     "could not reach the server on 127.0.0.1:{port}: {e}"
                 );
                 std::thread::sleep(std::time::Duration::from_millis(10));
@@ -499,13 +545,23 @@ fn dialled(port: u16, out: &[u8], want: usize) -> Vec<u8> {
     socket.flush().expect("flush");
     let mut back = Vec::new();
     let mut chunk = [0u8; 4096];
-    while back.len() < want {
+    while !until.satisfied(&back) {
         match socket.read(&mut chunk) {
             Ok(0) | Err(_) => break,
             Ok(read) => back.extend_from_slice(&chunk[..read]),
         }
     }
     back
+}
+
+/// The body of an HTTP/1.1 reply, or `None` where the head has no blank line
+/// after it.
+///
+/// Split out so that a row asserting about a body says so, and a row that read
+/// only a head fails with *that* sentence rather than with "the text I was
+/// looking for is not in this text".
+fn body_of(reply: &str) -> Option<&str> {
+    reply.split_once("\r\n\r\n").map(|(_head, body)| body)
 }
 
 /// The smallest TLS 1.2 `ClientHello` a `rustls` server will answer, offering
@@ -670,7 +726,8 @@ fn a_tls_port_chooses_a_protocol_and_answers_a_plaintext_client_with_no_http_at_
     let running = crate::shared::announced(&binary);
     let port = running.2;
 
-    let plaintext = dialled(port, b"GET /cleartext HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n", 1);
+    let plaintext =
+        dialled(port, b"GET /cleartext HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n", Until::Closed);
     assert!(
         !plaintext.starts_with(b"HTTP/"),
         "a plaintext client got an HTTP answer out of a TLS port: {}",
@@ -678,7 +735,7 @@ fn a_tls_port_chooses_a_protocol_and_answers_a_plaintext_client_with_no_http_at_
     );
 
     let hello = client_hello(&["h2", "http/1.1"]);
-    let back = dialled(port, &hello, 5);
+    let back = dialled(port, &hello, Until::ARecord);
     assert_eq!(
         back.first().copied(),
         Some(0x16),
@@ -756,7 +813,8 @@ fn an_upgrade_request_reaches_the_request_handler_when_a_server_has_no_hooks() {
     let binary = built("e2e-fall-through", &no_hooks_server());
     let running = crate::shared::announced(&binary);
     let port = running.2;
-    let back = dialled(port, crate::shared::upgrade_request("/socket").as_bytes(), 1);
+    let back =
+        dialled(port, crate::shared::upgrade_request("/socket").as_bytes(), Until::Closed);
     let reply = String::from_utf8_lossy(&back).to_string();
     assert!(
         reply.starts_with("HTTP/1.1 200 "),
@@ -766,9 +824,17 @@ fn an_upgrade_request_reaches_the_request_handler_when_a_server_has_no_hooks() {
         !reply.contains("101 "),
         "a server with no `websocket` field switched protocols: {reply}"
     );
-    assert!(
-        reply.contains("no sockets here: /socket"),
-        "the handler was not given the request's own path: {reply}"
+    // **The body, and not `contains` over the whole reply.** A `content-length`
+    // in the head is the server's claim about a body; this is the body. The two
+    // being separate assertions is what makes a reply whose head arrived and
+    // whose body did not fail as "the body is empty" rather than as a missing
+    // substring — which is the shape this row was first written in, and the
+    // shape that made a read bug read like a platform divergence.
+    let body = body_of(&reply)
+        .unwrap_or_else(|| panic!("the reply has no blank line after its head: {reply}"));
+    assert_eq!(
+        body, "no sockets here: /socket",
+        "the handler was not given the request's own path.\nthe whole reply was:\n{reply}"
     );
     let out = crate::shared::finished(running);
     assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
@@ -991,4 +1057,109 @@ fn the_refusal_a_toolchain_without_networking_names_what_a_real_server_reached()
         !fix.contains("report it"),
         "a toolchain built without a capability is not a bug report: {fix}"
     );
+}
+
+/// The read loop's own tests, against a peer that answers in two writes.
+///
+/// **These exist because the read loop was the bug.** Every row above dials a
+/// real Buri server, and against one on an idle machine a head and a body
+/// arrive coalesced — so a loop that stopped at the first `read` passed on
+/// every developer's machine and failed on both Linux jobs of CI run
+/// `33539837433`, where the suite's own load made the two writes two segments.
+/// A row that can only be made to fail by a loaded runner is a row nobody can
+/// fix, so the failure mode is pinned here instead: a listener of this file's
+/// own that answers in two writes with a pause between them, which is what a
+/// loaded runner does and what an idle one does not.
+///
+/// It costs a millisecond and needs no backend, so it runs on every host,
+/// including one with no `cc` and no stencil library — the rows above cannot
+/// say that of themselves.
+#[cfg(test)]
+mod read_loop_tests {
+    use super::{body_of, dialled, Until};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    /// A listener on a port the operating system chose, answering `pieces` with
+    /// a pause between each, then closing. Answers the port.
+    ///
+    /// The thread is detached rather than joined, and that is the one place
+    /// this file departs from its own doctrine on purpose: it holds one
+    /// connection, writes a few dozen bytes and returns, so there is nothing to
+    /// wait for and nothing that can outlive the test. Every wait on the
+    /// *client* side is still bounded by `dialled`'s own deadline.
+    fn answering(pieces: &'static [&'static [u8]]) -> u16 {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a loopback port");
+        let port = listener.local_addr().expect("an address").port();
+        std::thread::spawn(move || {
+            let Ok((mut socket, _from)) = listener.accept() else { return };
+            // **Read what the client sent before answering anything**, which a
+            // server does anyway and which one of these rows needs: a peer with
+            // nothing to say would otherwise close while the client was still
+            // writing, and the write would take `EPIPE`. That is a flake of
+            // exactly the kind this module exists to stop, so it is closed here
+            // rather than tolerated at the call site.
+            let _ = socket.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+            let mut asked = [0u8; 1024];
+            let _ = socket.read(&mut asked);
+            for piece in pieces {
+                if socket.write_all(piece).is_err() {
+                    return;
+                }
+                let _ = socket.flush();
+                // Long enough that the two writes cannot be coalesced into one
+                // segment, which is the whole point: it makes the split that a
+                // loaded runner produces by accident happen every time.
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        });
+        port
+    }
+
+    /// A head in one write and a body in the next is one reply.
+    ///
+    /// This is the exact failure CI saw, at the exact assertion that saw it:
+    /// the head declares `content-length: 24` and carries no body, and the old
+    /// loop stopped there and reported the body missing.
+    #[test]
+    fn a_head_and_a_body_in_two_writes_are_one_reply() {
+        let port = answering(&[
+            b"HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\n\
+              content-length: 24\r\nconnection: close\r\n\r\n",
+            b"no sockets here: /socket",
+        ]);
+        let back = dialled(port, b"GET /socket HTTP/1.1\r\n\r\n", Until::Closed);
+        let reply = String::from_utf8_lossy(&back).to_string();
+        assert!(reply.starts_with("HTTP/1.1 200 "), "{reply}");
+        assert_eq!(body_of(&reply), Some("no sockets here: /socket"), "{reply}");
+    }
+
+    /// And a TLS record split across its header and its payload is one record.
+    ///
+    /// `Until::ARecord` reads the length out of the header it has and then
+    /// waits for that many bytes, so a peer that writes the two separately is
+    /// not a short read. The old loop asked for five bytes and would have
+    /// stopped on the header alone.
+    #[test]
+    fn a_record_split_from_its_header_is_one_record() {
+        // A handshake record whose body is seven bytes: the header says so.
+        let port = answering(&[b"\x16\x03\x03\x00\x07", b"\x02\x00\x00\x03abc"]);
+        let back = dialled(port, b"hello", Until::ARecord);
+        assert_eq!(back.len(), 12, "the record was not read whole: {back:?}");
+        assert_eq!(back.first().copied(), Some(0x16));
+    }
+
+    /// A peer that closes with nothing to say is an answer too, and a bounded
+    /// one — the loop ends at end of file rather than at its deadline.
+    #[test]
+    fn a_peer_that_says_nothing_and_closes_is_not_a_wait() {
+        let port = answering(&[]);
+        let started = std::time::Instant::now();
+        let back = dialled(port, b"anything", Until::Closed);
+        assert!(back.is_empty(), "{back:?}");
+        assert!(
+            started.elapsed() < crate::shared::SERVER_DEADLINE,
+            "the loop waited for its deadline rather than for the close"
+        );
+    }
 }
