@@ -533,6 +533,45 @@ pub const ENTRIES: &[Entry] = &[
     // local and not a stack in the runtime.
     e("alloc.arenaEnter", "buri_rt_alloc_arena_enter", Ret::Scalar),
     e("alloc.arenaLeave", "buri_rt_alloc_arena_leave", Ret::Scalar),
+    // -- core/actor's mailbox, state and reply slots (F6) --------------------
+    //
+    // Nine rows, and not one of them carries a stride, a glue or a descriptor
+    // — which is the whole reason `core/actor` is shaped the way it is. Every
+    // value that crosses is a **one-element `[T]`**, and a `[T]` is `ptr` and
+    // `len` whatever `T` is (VALUE-MODEL.md §4), so the message, the state and
+    // the answer are two words each and the runtime holds them without ever
+    // learning what is inside. That is a *fifth* way an erased type can be
+    // carried, beside `Extra::Element`'s stride, `Entry::by_ref`'s address,
+    // `Func::desc`'s descriptor and `Extra::Step`'s thunk, and
+    // `middle/monomorphize.rs`'s `GENERIC_INTRINSICS` is where it is argued.
+    //
+    // The fourth column is `0` on every row: `core/actor` declares these as
+    // `fn <name><C: Tasks, …>(ctx: C, …)` — a module function with the
+    // authority in its bound, `core/list`'s shape — so argument 0 is the
+    // context and the C signature has no parameter for it.
+    //
+    // `Ret::Opt` on six of them, and the `.None`s are all one sentence: there
+    // is no actor, or there is nothing there yet. The payload is an `Int` for
+    // the two that answer a depth and a `[T]` for the four that answer a
+    // block; both are written through the trailing out-pointer at `.Some`'s
+    // own offset, so a niche `Option<[T]>` is settled by the non-null block
+    // pointer the runtime wrote — and `core/actor`'s `Carried<T>` is what
+    // guarantees that pointer is non-null, since a zero-stride element would
+    // have made the block empty and the niche `.None`.
+    //
+    // The bodies are in `cli/runtime/rt.rs` behind feature `net`, so
+    // `runtime_native::net_intrinsic` names the `actor.*` family too: a
+    // toolchain built without the reactor refuses these keys with a sentence
+    // before code generation rather than with a missing symbol from `cc`.
+    cx(e("actor.mailboxOpen", "buri_rt_actor_mailbox_open", Ret::Scalar), 0),
+    cx(e("actor.mailboxPush", "buri_rt_actor_mailbox_push", Ret::Opt), 0),
+    cx(e("actor.mailboxPop", "buri_rt_actor_mailbox_pop", Ret::Opt), 0),
+    cx(e("actor.mailboxClose", "buri_rt_actor_mailbox_close", Ret::Opt), 0),
+    cx(e("actor.stateTake", "buri_rt_actor_state_take", Ret::Opt), 0),
+    cx(e("actor.statePut", "buri_rt_actor_state_put", Ret::Opt), 0),
+    cx(e("actor.replyOpen", "buri_rt_actor_reply_open", Ret::Scalar), 0),
+    cx(e("actor.replyPut", "buri_rt_actor_reply_put", Ret::Opt), 0),
+    cx(e("actor.replyTake", "buri_rt_actor_reply_take", Ret::Opt), 0),
     // -- core/host/testing's stateful half -----------------------------------
     //
     // `core/host`'s names for a test source, over one handle table.
@@ -879,6 +918,7 @@ mod tests {
     /// runner hooks are built by `middle::monomorphize::leaving` and no
     /// declaration spells them, which both runtime tables already say.
     const DECLARED_IN: &[(&str, &str)] = &[
+        ("actor", "core/actor"),
         ("alloc", "core/alloc"),
         ("bytes", "core/bytes"),
         ("char", "core/char"),
@@ -999,7 +1039,10 @@ mod tests {
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(checked > 140, "only {checked} rows were read against a declaration");
-        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 29);
+        // Twenty-nine until F6, and the nine `core/actor` rows are the jump:
+        // every one of them is a module function whose first parameter is the
+        // context, which is the second of the two shapes below.
+        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 38);
     }
 
     /// The two shapes the column takes, by example, so that the indices are

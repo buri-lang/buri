@@ -1273,6 +1273,18 @@ pub fn suspends(key: &str) -> bool {
                 // that is literally an `await`; on the natives it is what makes
                 // the caller's frame outlive a scheduling decision.
                 | "host.HostTasks.parallel"
+                // `core/actor`'s two waits, and they wait on the program's own
+                // actors for `Tasks.parallel`'s reason rather than on the
+                // world. `mailboxPush` waits for room in a full mailbox;
+                // `mailboxClose` waits for the step in flight to put the state
+                // back, which is what "`stop` lets the current message finish"
+                // means. The other seven never wait — `stateTake` answers
+                // `.None` rather than blocking, which is the whole reason two
+                // carriers can reach one actor without either of them
+                // stopping — and listing the family by prefix would have
+                // claimed otherwise.
+                | "actor.mailboxPush"
+                | "actor.mailboxClose"
         )
 }
 
@@ -1297,7 +1309,14 @@ pub fn suspends(key: &str) -> bool {
 /// here is a silent aliasing bug. `host.HostTasks` is spelled once and covers
 /// the surface.
 pub fn crosses_tasks(key: &str) -> bool {
-    key.starts_with("host.HostTasks.")
+    // `core/actor`, by prefix and for the sharper reason. A mailbox is a place
+    // a value **waits** to be read, so a message posted here can be stepped by
+    // any task that later drives the actor, and the state can be threaded by a
+    // different one every time. That is exactly "a block the caller made may
+    // be counted, read and released by a thread that is not this one", and it
+    // is true of all nine keys — a `replyPut` on one carrier and the
+    // `replyTake` that reads it on another is the same hand-off as the queue's.
+    key.starts_with("actor.") || key.starts_with("host.HostTasks.")
 }
 
 fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
@@ -4666,6 +4685,9 @@ export fn main(): Result<(), Str> {
             "host.HostClock.sleepMillis",
             "host.HostStdin.readLine",
             "host.HostStdin.readBytes",
+            // `core/actor`'s two, and they are the family's *only* two.
+            "actor.mailboxPush",
+            "actor.mailboxClose",
         ] {
             assert!(suspends(key), "{key} blocks");
         }
@@ -4676,9 +4698,46 @@ export fn main(): Result<(), Str> {
             "host_testing.TestFs.readFile",
             "host_testing.TestClock.sleepMillis",
             "derivePrimHash",
+            // The other seven `actor.*` keys. Listing them is the half a
+            // prefix rule would have got wrong: `stateTake` answers `.None`
+            // where another carrier is stepping rather than waiting for it,
+            // and a `send` that had to park to find that out would be a
+            // scheduler this module does not have.
+            "actor.mailboxOpen",
+            "actor.mailboxPop",
+            "actor.stateTake",
+            "actor.statePut",
+            "actor.replyOpen",
+            "actor.replyPut",
+            "actor.replyTake",
         ] {
             assert!(!suspends(key), "{key} does not block");
         }
+    }
+
+    /// Every `core/actor` key hands a value to whichever task drives the actor
+    /// next, so every one of them is a crossing — which is the direction an
+    /// omission has to be wrong in, since a block nobody marked is a block two
+    /// carriers count without an atomic.
+    #[test]
+    fn an_actor_is_a_place_a_value_waits_for_another_task() {
+        for key in [
+            "actor.mailboxOpen",
+            "actor.mailboxPush",
+            "actor.mailboxPop",
+            "actor.mailboxClose",
+            "actor.stateTake",
+            "actor.statePut",
+            "actor.replyOpen",
+            "actor.replyPut",
+            "actor.replyTake",
+        ] {
+            assert!(crosses_tasks(key), "{key} hands a value to another task");
+        }
+        // The module's own Buri half does not: `core/actor`'s functions are
+        // ordinary code and it is the intrinsics underneath them that cross.
+        assert!(!crosses_tasks("alloc.copyOut"));
+        assert!(!crosses_tasks("list.push"));
     }
 
     /// An indirect call reaches a code pointer this pass cannot name, so it is

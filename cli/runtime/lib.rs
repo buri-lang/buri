@@ -258,7 +258,20 @@
 //!   borrowed-parameter rule applied to the FFI edge.
 //! * A **result is owned**, with `rc == 1`, transferred to the caller. The
 //!   caller is what eventually decrefs it.
-//! * A runtime function never stores a pointer it was passed.
+//! * A runtime function never stores a pointer it was passed — **except
+//!   `core/actor`'s nine**, which are the whole of the exception and are named
+//!   here rather than left to be discovered. A mailbox *is* a place a value
+//!   waits between the call that posted it and the call that reads it, so the
+//!   third rule cannot hold for them and the second is extended instead: an
+//!   actor entry that keeps a block takes a reference on it
+//!   ([`buri_rt_incref`]) and gives that reference away again when it hands the
+//!   block back, and every block it takes is handed back — to a step, to
+//!   `stop`'s discard loop, or to the `mailboxClose` that answers the final
+//!   state. What crosses is always a one-element `[T]`, which is `{ ptr, len }`
+//!   whatever `T` is (VALUE-MODEL.md §4), so nothing about the element ever
+//!   reaches this crate: it never indexes one, never copies an element out of
+//!   one, and never frees one. `rt.rs`'s `Held` is the type that carries the
+//!   rule, and `core/actor`'s own header states it from the other side.
 //!
 //! ## 4. The heap layout
 //!

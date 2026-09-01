@@ -258,6 +258,12 @@ const fn excluded(path: &'static str, why: &'static str) -> Case {
 const PACKAGES: &[Case] = &[
     // -- in the native set --------------------------------------------
     //
+    // `core/actor`'s whole surface, through the nine runtime entries that move
+    // a Buri block by its two words. It is in rather than excluded because
+    // every one of those entries is in both runtime tables, and the answers it
+    // asserts are answers rather than timings.
+    included("actor/counter.buri"),
+    //
     // Five files, and between them they are `core/bits` entire,
     // `Checked`/`Wrapping`/`Saturating`/`Bounded` at every width including
     // 128, the bitwise and string codegen corpora, and `core/simd`.
