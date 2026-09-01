@@ -933,7 +933,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             plan.reuse = scan.reuse;
             plan.unclassified = scan.unclassified;
             plan.inherits = scan.inherits;
-            plan.sites.sort_by_key(|s| (s.node.0, matches!(s.at, Position::After)));
+            order_sites(&mut plan.sites);
         }
         funcs.push(plan);
     }
@@ -948,6 +948,63 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
         .iter()
         .any(|f| matches!(&f.kind, FuncKind::Intrinsic(key) if crosses_tasks(key)));
     Plan { funcs, crosses_tasks }
+}
+
+/// Puts a function's sites in the order they are emitted in.
+///
+/// The first two components are the **key** a site is filed under, `(node,
+/// position)`, which is what [`FuncPlan::at`] filters on and what `lower`
+/// buckets by. The third is the invariant: at one key, **every increment runs
+/// before every decrement**.
+///
+/// That third component is the whole of what makes the release-then-retain
+/// class impossible rather than merely absent. A `let` binding nothing reads is
+/// dropped at the same `(node, After)` key its initializer's own increments
+/// land at, and a plan whose sites ran in push order emitted the drop first —
+/// a free, followed by a write through the freed header, on any value whose
+/// count was one (`reports/llvm-parallel-listen-fix.md`). The planner was
+/// taught to push that drop last; this ordering means no future planner can
+/// un-teach it, whatever new statement form or [`Target`] kind arrives.
+///
+/// **Hoisting increments is unconditionally safe.** An `incref` can never free,
+/// so moving one earlier within a single key can only extend a lifetime by a
+/// few instructions and never shorten one; no user code runs between the sites
+/// at one key, so nothing can observe the difference; and a count that was
+/// balanced stays balanced, because only the order of the same operations
+/// changed (`check_balance` replays the plan and would say so). [`Reuse`] is
+/// planned separately in `FuncPlan::reuse` and is not ordered here at all.
+///
+/// The sort is stable, so sites that agree on all three components keep the
+/// order the scan pushed them in — which is the order two drops of two
+/// different values have to keep.
+fn order_sites(sites: &mut [Site]) {
+    sites.sort_by_key(|s| {
+        (s.node.0, matches!(s.at, Position::After), matches!(s.op, RcOp::DecRef))
+    });
+}
+
+/// The plan-order invariant, asked of the operations emitted at **one key**.
+///
+/// Answers "is any value released here and then retained here" with the value
+/// it happens to, and `None` when the key is sound — a *sentence's worth* of
+/// answer rather than an abort, so that a caller can decide what a violation
+/// is worth. Generic in the value because the identity that matters is
+/// `lower`'s: both [`Target`] kinds resolve to one `ir::ValueId` there, and a
+/// drop keyed on a `Local` and the increment that gave that local its count
+/// keyed on the `Node` that produced it are two targets naming one block.
+///
+/// The counterpart of [`order_sites`], and its test: what that sort arranges,
+/// this reads back.
+pub fn release_then_retain<V: Copy + PartialEq>(ops: &[(RcOp, V)]) -> Option<V> {
+    let mut released: Vec<V> = Vec::new();
+    for (op, v) in ops {
+        match op {
+            RcOp::DecRef => released.push(*v),
+            RcOp::IncRef if released.contains(v) => return Some(*v),
+            RcOp::IncRef => {}
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -1296,7 +1353,7 @@ pub fn suspends(key: &str) -> bool {
 /// question the multi-threaded mark asks (`middle::layout::CAP_SHARED_FLAG`,
 /// MEMORY.md §5.1). Like [`suspends`] it is a list of **keys** rather than of
 /// effects, and for the sharper form of the same reason: `Tasks` is an effect
-/// and `testing_context.TestTasks` is an implementation of it that runs every
+/// and `host_testing.TestTasks` is an implementation of it that runs every
 /// step on the calling thread, so the answer is a property of the
 /// implementation the program actually bound.
 ///
@@ -2778,7 +2835,7 @@ export fn main(): Result<(), Str> {
             "host.HostClock.sleepMillis",
             "host.HostStdin.readLine",
             "host.HostStdout.println",
-            "testing_context.TestTasks.parallel",
+            "host_testing.TestTasks.parallel",
         ] {
             assert!(!crosses_tasks(key), "{key} put its program on atomic counting");
         }
@@ -3478,6 +3535,49 @@ export fn main(): Result<(), Str> {
             assert_eq!(ops, vec![RcOp::DecRef], "{name}: {ops:?}");
         }
         assert_eq!(check_balance(&program), Vec::<String>::new());
+    }
+
+    /// The plan-order invariant, at the key the `66cb95fb` crash was planned at.
+    ///
+    /// The three sites below are what `lower`'s site loop was handed for the
+    /// four-line reproduction — a struct holding a counted list, a field of it
+    /// bound to a `let` nothing reads — printed off the pre-fix planner and
+    /// recorded in `reports/llvm-parallel-listen-fix.md` §3, in the order they
+    /// were pushed. Two of the three name one block: the drop of the unread
+    /// binding is keyed on the `Local`, and the increment that gave that
+    /// binding its count is keyed on the `Node` that projected it.
+    ///
+    /// The planner no longer pushes them in that order, and this test does,
+    /// which is the point of it. [`order_sites`] is what makes the shape
+    /// impossible rather than merely absent: it is asked to sort the bad order
+    /// and the result has to be sound. A planner that reintroduces the push
+    /// order — a new statement form, a new `Target` kind — cannot reintroduce
+    /// the bug through it.
+    #[test]
+    fn every_increment_at_a_key_runs_before_every_decrement() {
+        let site = |op, target| Site { node: NodeId(148), at: Position::After, op, target };
+        let mut sites = vec![
+            site(RcOp::DecRef, Target::Local(LocalId(65))),
+            site(RcOp::IncRef, Target::Node(NodeId(148))),
+            site(RcOp::DecRef, Target::Local(LocalId(54))),
+        ];
+        order_sites(&mut sites);
+        // What `lower` does three lines before it emits: both target kinds
+        // resolve to a value, and these two resolve to the same one.
+        let value = |t: Target| match t {
+            Target::Local(LocalId(65)) | Target::Node(NodeId(148)) => 104u32,
+            _ => 101,
+        };
+        let ops: Vec<(RcOp, u32)> = sites.iter().map(|s| (s.op, value(s.target))).collect();
+        // Not a vacuous key: one value really is both released and retained at
+        // it, so the ordering is the whole of what keeps it sound.
+        assert_eq!(ops.iter().filter(|(_, v)| *v == 104).count(), 2);
+        assert_eq!(
+            release_then_retain(&ops),
+            None,
+            "the drop of the unread binding runs before the increment that gave it its \
+             count — a free, and then a write through the freed header: {ops:?}"
+        );
     }
 
     /// A binding nothing reads is dropped **after** the operations that gave it
