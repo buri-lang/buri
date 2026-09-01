@@ -479,10 +479,30 @@ pub const H2_NEEDS_TLS: &str =
 // sets neither gets a server that waits for a client indefinitely and reads
 // with a thirty-second deadline, which is what a server is; a *test* sets both,
 // and every test in this repository does.
+//
+// **A socket option is not always the whole bound, and three places say so.**
+// `SO_RCVTIMEO` bounds one `read(2)` and is restarted by the next, so a loop of
+// reads is bounded in bytes and not in time — [`read_request`] therefore
+// measures [`HEAD_DEADLINE`] end to end as well as putting it on the socket,
+// which is what refuses a slowloris. The other two waits that no socket option
+// reaches are HTTP/2's: [`answered_within`] bounds a stream waiting on a
+// handler ([`ANSWER_DEADLINE`]), and [`h2`]'s connection task bounds itself
+// once its GOAWAY has gone out, because a GOAWAY is a request and a client may
+// decline it. The two named exemptions are unchanged and are the two a server
+// is *for*: `listenAccept` and `listenReceive`.
 
 /// How long one connection may take to send its request line, its headers and
 /// its body, when the caller named no deadline. [`crate::http::DEADLINE`]'s
 /// argument, from the other side of the wire.
+///
+/// **Both a per-read deadline and a budget across them**, which is two
+/// mechanisms for one number because one of them cannot do the job alone.
+/// [`deadlines`] puts it on the socket, where `SO_RCVTIMEO` bounds each
+/// `read(2)`; [`read_request`] also measures it end to end, because a per-read
+/// deadline the kernel restarts on every read is not a bound on the request at
+/// all — a client sending a byte just inside it holds the connection for ever
+/// without ever being late. The socket option is what stops one read hanging
+/// and the budget is what stops the *sum* of them, and a server needs both.
 const HEAD_DEADLINE: Duration = Duration::from_secs(30);
 
 /// The largest request body read when the caller named no limit. A request
@@ -510,6 +530,32 @@ const BODY_LIMIT: usize = 8 * 1024 * 1024;
 /// longer says so — `Server.drainMillis` is that sentence, and it is one
 /// [`ServePlan`] variant rather than one more argument.
 const DRAIN_DEADLINE: Duration = Duration::from_secs(10);
+
+/// How long an HTTP/2 stream waits for the handler that took it.
+///
+/// **The one wait in this file whose other end is a Buri program**, which is
+/// why it needs a number of its own. Everything else that waits here waits on
+/// the network or on this file's own threads; an h2 stream waits on a handler,
+/// and a handler that never calls `listenRespond` is a task, a stream and a
+/// place under [`MAX_STREAMS`] held for the life of the process.
+///
+/// **HTTP/1.1 has no equivalent and needs none**, which is the asymmetry worth
+/// naming rather than smoothing over. There the answer is bytes written on a
+/// socket the connection owns, so a handler that never answers holds a socket
+/// and nothing waits on it; here the answer is a value handed back to a task
+/// that is parked until it arrives. The wait is the difference, and only a wait
+/// needs a bound.
+///
+/// Thirty seconds, [`HEAD_DEADLINE`]'s number read the other way round: that is
+/// how long a client may take to say what it wants, and this is how long the
+/// server may take to say what it has. A `504` is what expiry answers, because
+/// that is the status for a server that did not get its answer in time — and it
+/// reaches the client, which is the whole difference between this and a stream
+/// nobody ever hears about again. The handler is not cancelled and cannot be:
+/// it is Buri code on a carrier, its `listenRespond` will find the connection
+/// gone and answer `.Closed`, and that is the same thing a `listenClose` under
+/// a running handler already does.
+const ANSWER_DEADLINE: Duration = Duration::from_secs(30);
 
 /// How many messages one socket's outbound buffer holds when the plan named no
 /// number of its own.
@@ -649,7 +695,17 @@ struct Plan {
     /// How long [`drain`] waits for the connections this listener has already
     /// taken. The plan's own number where it named one, [`DRAIN_DEADLINE`]
     /// where it did not.
+    ///
+    /// **Two waiters, not one.** It bounds the `drained` call that `drain`
+    /// itself makes, and — since the same number is the honest answer to "how
+    /// long after a GOAWAY is a connection still this server's problem" — it
+    /// also bounds [`h2`]'s connection task once that GOAWAY has gone out.
     drain: Duration,
+    /// How long an HTTP/2 stream waits for its handler. [`ANSWER_DEADLINE`],
+    /// with no `ServePlan` variant setting it yet — it is here rather than read
+    /// from the constant at the wait so that the variant, when there is one, is
+    /// a line in `bind` and nothing else.
+    answer: Duration,
     /// How many messages one socket's outbound buffer holds before the socket
     /// is closed. The plan's own number where it named one,
     /// [`SOCKET_BUFFER`] where it did not.
@@ -1302,6 +1358,7 @@ pub fn bind(
         head: HEAD_DEADLINE,
         body_limit: BODY_LIMIT,
         drain: plan.drain.unwrap_or(DRAIN_DEADLINE),
+        answer: ANSWER_DEADLINE,
         socket_buffer: plan.socket_buffer.unwrap_or(SOCKET_BUFFER),
     };
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
@@ -1474,7 +1531,12 @@ fn serve_connection(listening: &Arc<Listening>, handle: i64, stream: TcpStream) 
             return;
         }
     };
-    let request = match read_request(&mut wire, listening.plan.body_limit) {
+    // The budget starts here and not at the accept: the handshake above has a
+    // bound of its own (`tls.rs`'s round cap, and the socket deadlines this
+    // function set), and [`HEAD_DEADLINE`] is written as what a client gets to
+    // *say what it wants* rather than as the connection's whole life.
+    let until = Instant::now() + listening.plan.head;
+    let request = match read_request(&mut wire, listening.plan.body_limit, until) {
         Ok(request) => request,
         // A malformed or oversized request is the transport's problem: it is
         // answered here and never reaches a handler. Surfacing it would make
@@ -1606,7 +1668,11 @@ fn deadlines(stream: &TcpStream, head: Duration) -> Result<(), ServeErr> {
 ///
 /// The `Err` is a status code rather than a `ServeErr` on purpose: nothing here
 /// is the *server's* failure, so none of it is a reason for `serve` to return.
-fn read_request(stream: &mut impl Read, body_limit: usize) -> Result<ServerRequest, u16> {
+fn read_request(
+    stream: &mut impl Read,
+    body_limit: usize,
+    until: Instant,
+) -> Result<ServerRequest, u16> {
     let mut buffer = Vec::with_capacity(1024);
     let head = loop {
         if let Some(at) = find(&buffer, b"\r\n\r\n") {
@@ -1614,6 +1680,17 @@ fn read_request(stream: &mut impl Read, body_limit: usize) -> Result<ServerReque
         }
         if buffer.len() > 64 * 1024 {
             return Err(431);
+        }
+        // **The aggregate, and it is what the socket options cannot do.**
+        // `SO_RCVTIMEO` bounds one `read(2)` and the kernel restarts it on the
+        // next, so a client sending one byte every twenty-nine seconds resets
+        // the deadline for ever and never trips it — a slowloris, and the
+        // oldest way there is to hold a server's connection open with almost no
+        // traffic. Checked at the top of the loop rather than after the read,
+        // so that a client which has already had its whole budget gets no
+        // further read at all.
+        if Instant::now() >= until {
+            return Err(408);
         }
         let mut chunk = [0u8; 1024];
         match stream.read(&mut chunk) {
@@ -1640,6 +1717,13 @@ fn read_request(stream: &mut impl Read, body_limit: usize) -> Result<ServerReque
     }
     let mut body = buffer.split_off(head.saturating_add(4));
     while body.len() < declared {
+        // The same aggregate, over the same budget: [`HEAD_DEADLINE`] is
+        // documented as what one connection gets for "its request line, its
+        // headers and its body", and a drip is a drip on either side of the
+        // blank line.
+        if Instant::now() >= until {
+            return Err(408);
+        }
         let want = declared.saturating_sub(body.len());
         let mut chunk = vec![0u8; want.min(64 * 1024)];
         match stream.read(&mut chunk) {
@@ -2311,6 +2395,12 @@ fn h2(
         let stopping = driving.stopping.notified();
         let mut stopping = std::pin::pin!(stopping);
         let mut asked = false;
+        // Armed by the GOAWAY and not before. An h2 connection a client is
+        // using is the wait a server is *for* and carries no deadline; a
+        // connection that has been told to go and has not gone is a different
+        // thing, and `net.rs`'s rule covers it.
+        let mut giving_up: Option<Pin<Box<tokio::time::Sleep>>> = None;
+        let patience = driving.plan.drain;
         // Hand-written rather than `tokio::select!`, which would be the
         // `macros` feature in a crate every native binary carries for the sake
         // of one two-armed wait. The arms are not symmetric anyway: the
@@ -2330,9 +2420,39 @@ fn h2(
                 if woken || driving.gate().draining {
                     asked = true;
                     connection.as_mut().graceful_shutdown();
+                    giving_up = Some(Box::pin(tokio::time::sleep(patience)));
                 }
             }
-            connection.as_mut().poll(cx)
+            // **The bound `graceful_shutdown` does not carry.** GOAWAY is a
+            // request: it says "no new streams, finish the ones you have", and
+            // a client is free to hold its open streams for as long as it
+            // likes. Until this arm existed, one that did held this task, its
+            // socket and its place in [`Gate::outstanding`] for the life of the
+            // process — `DRAIN_DEADLINE` bounded the *waiter* in [`drain`] and
+            // nothing bounded this. The plan's drain number is the right one to
+            // use twice: it is the answer the caller already gave to "how long
+            // should a shutdown keep a deployment waiting", and a connection
+            // still here after it is one the deployment has stopped counting
+            // on.
+            //
+            // Dropping the connection is what ends it, and it is a TCP close
+            // rather than a lost answer: every stream on it either was
+            // answered, or is a handler whose `listenRespond` will find the
+            // connection gone — which is exactly what `listenClose` under a
+            // running handler already does.
+            //
+            // Asked **after** the connection has been polled and only while it
+            // is still pending, so that a connection which was one poll away
+            // from finishing cleanly finishes cleanly. The deadline is for a
+            // connection that will not end, not for one that is ending.
+            let served = connection.as_mut().poll(cx);
+            if served.is_pending()
+                && let Some(sleep) = giving_up.as_mut()
+                && sleep.as_mut().poll(cx).is_ready()
+            {
+                return Poll::Ready(Ok(()));
+            }
+            served
         })
         .await;
         driving.land();
@@ -2439,12 +2559,36 @@ async fn answering(
     if listening.hand_over(pending).is_err() {
         return only(503);
     }
-    match written.await {
-        Ok(reply) => answered(reply),
+    answered_within(written, listening.plan.answer).await
+}
+
+/// The handler's answer, or the status that says why there is not one.
+///
+/// **Bounded**, which is [`ANSWER_DEADLINE`]'s row: a `oneshot` receive with no
+/// deadline waits on a Buri handler calling `listenRespond`, and escapes only
+/// if the sender is dropped. A handler that loops for ever, or one that waits
+/// on something that never arrives, would otherwise hold this task and its
+/// stream until the process ended.
+///
+/// The deadline is a parameter for `http.rs`'s `fetch_within` reason: a test
+/// that had to wait thirty seconds to watch the bound fire is a test nobody
+/// runs, and this one is not otherwise reachable — it needs a handler that
+/// never answers, which no other case in this file has.
+#[cfg(feature = "net")]
+async fn answered_within(
+    written: tokio::sync::oneshot::Receiver<Reply>,
+    deadline: Duration,
+) -> hyper::Response<Once> {
+    match tokio::time::timeout(deadline, written).await {
+        Ok(Ok(reply)) => answered(reply),
         // The sender went without sending, which is `listenClose` having
         // dropped this connection: the server is going down under a request it
         // took, and the client is told so rather than left holding a stream.
-        Err(_) => only(503),
+        Ok(Err(_)) => only(503),
+        // The handler took the request and has not answered. `504` rather than
+        // `503`: the request was accepted and dispatched, and the thing that
+        // did not happen in time is the answer.
+        Err(_) => only(504),
     }
 }
 
@@ -3864,15 +4008,35 @@ fn enqueue_bytes(_socket: i64, _body: &[u8]) {}
 #[cfg(not(feature = "net"))]
 fn finish(_socket: i64, _code: i64, _reason: &str) {}
 
-/// Run one blocking step off the run baton where there is a reactor to park on,
-/// and inline where there is not.
+/// Run one blocking step inside the reactor's context where there is one, and
+/// inline where there is not.
 ///
-/// The three waiting `Listen` entries all want the same two lines and the same
-/// paragraph of reasoning (`host.rs`'s `buri_rt_host_net_fetch` is where it is
-/// written out), so they say it once here. The transport underneath is
-/// synchronous either way — the future completes on this thread — and what
-/// `park_on` adds is that the carrier is not holding the baton while a server
-/// waits for a client, which is the longest wait in this file.
+/// The five `Listen` entries that reach a blocking call all want the same two
+/// lines, so they say them once here.
+///
+/// **It does not park, and the name is older than the mechanism.** `work` is a
+/// synchronous call wrapped in an `async` block, so the first poll runs it to
+/// completion and answers `Ready` — and `rt::park_on` only gives a carrier back
+/// to a future that answers `Pending`. The carrier is therefore held for the
+/// whole of the blocking `accept(2)` or `Condvar::wait` underneath. That is not
+/// an oversight and [`MAX_HANDLERS`] is the number that prices it: sixty-four
+/// carriers may be in exactly this state at once, which is the reason that
+/// ceiling is a constant a program can predict rather than a function of the
+/// machine, and it is stated there in as many words.
+///
+/// **What routing through `park_on` buys is the reactor and the seam.** The
+/// work runs under `Handle::enter` on a carrier and under `Handle::block_on`
+/// off one, so a body that reaches for a tokio resource without naming a handle
+/// finds a runtime; and this is the one function — five callers, two lines —
+/// where a real suspension goes on the day these entries stop being blocking
+/// calls, with no caller moving. Neither is load-bearing today: everything
+/// below names [`crate::rt::handle`] explicitly, so what this is at present is
+/// the seam and an honest name for where the waiting happens.
+///
+/// The doc this replaces said `park_on` kept the carrier from "holding the
+/// baton while a server waits for a client". There is no baton — G3 deleted it
+/// (`rt.rs` §1) — and on the mechanism that replaced it the sentence was the
+/// opposite of what these two lines do.
 fn park<T: Send>(work: impl FnOnce() -> T + Send) -> T {
     #[cfg(feature = "net")]
     {
@@ -4371,7 +4535,8 @@ mod tests {
         });
         let (mut accepted, _) = listener.accept().expect("accept");
         deadlines(&accepted, Duration::from_secs(10)).expect("deadlines");
-        let request = read_request(&mut accepted, 1024).expect("a whole request");
+        let request = read_request(&mut accepted, 1024, Instant::now() + Duration::from_secs(10))
+            .expect("a whole request");
         let _client = client.join().expect("the writer finished");
 
         assert_eq!(crate::http::method_name(request.method), "POST");
@@ -4401,7 +4566,9 @@ mod tests {
         });
         let (mut accepted, _) = listener.accept().expect("accept");
         deadlines(&accepted, Duration::from_secs(10)).expect("deadlines");
-        let status = read_request(&mut accepted, limit).unwrap_err();
+        let status =
+            read_request(&mut accepted, limit, Instant::now() + Duration::from_secs(10))
+                .unwrap_err();
         let _client = client.join().expect("the writer finished");
         status
     }
@@ -4419,6 +4586,77 @@ mod tests {
             refused_status(b"POST / HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n", 1024),
             501
         );
+    }
+
+    /// A client that sends one byte at a time and never stops.
+    ///
+    /// The sleep is what makes it a *slowloris* rather than a fast loop: each
+    /// read succeeds, well inside any `SO_RCVTIMEO`, so the socket's own
+    /// deadline is restarted by every one of them and never fires. `head`
+    /// is handed over whole first, so the same reader drips a request line or
+    /// drips a body depending on what it is given.
+    struct Drip {
+        head: Vec<u8>,
+        every: Duration,
+    }
+
+    impl Read for Drip {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            if !self.head.is_empty() {
+                let n = self.head.len().min(buffer.len());
+                buffer.get_mut(..n).unwrap_or(&mut []).copy_from_slice(&self.head[..n]);
+                self.head.drain(..n);
+                return Ok(n);
+            }
+            std::thread::sleep(self.every);
+            // A header byte, so the buffer grows and the terminator never
+            // arrives — the shape a slowloris actually sends.
+            if let Some(first) = buffer.first_mut() {
+                *first = b'x';
+            }
+            Ok(1)
+        }
+    }
+
+    /// How long a bounded read may take before the bound is what failed.
+    const PROMPTLY: Duration = Duration::from_secs(5);
+
+    /// **A drip is bounded by the budget, and nothing else here bounds it.**
+    ///
+    /// Two cases in one, because the head loop and the body loop are two loops
+    /// with the same hole in them.
+    ///
+    /// The instrument is the arithmetic. `SO_RCVTIMEO` bounds one `read(2)`;
+    /// what bounds the *loop* without a budget is the byte cap, and the byte
+    /// caps are 64 KiB of header and 8 MiB of body. At a byte every two
+    /// milliseconds that is two minutes and four and a half hours
+    /// respectively, and at a byte every twenty-nine seconds — which is what a
+    /// client that has read `HEAD_DEADLINE` would send — it is three weeks and
+    /// seven years. So this case fails the way an unbounded wait fails: it does
+    /// not come back. With the budget it is a `408`, which is the status that
+    /// was already the answer to "this client stalled".
+    #[test]
+    fn a_client_that_drips_is_refused_at_the_budget_and_not_at_the_byte_cap() {
+        let budget = Duration::from_millis(120);
+
+        let mut head = Drip { head: Vec::new(), every: Duration::from_millis(2) };
+        let started = Instant::now();
+        let status = read_request(&mut head, 8 * 1024, Instant::now() + budget)
+            .expect_err("a request that never ended was accepted");
+        assert_eq!(status, 408, "a drip is a stalled client");
+        assert!(started.elapsed() < PROMPTLY, "the head drip ran {:?}", started.elapsed());
+
+        // And the same again after a complete, well-formed head: a declared
+        // body that arrives one byte at a time is the second loop.
+        let mut body = Drip {
+            head: b"POST /slow HTTP/1.1\r\nhost: h\r\ncontent-length: 4096\r\n\r\n".to_vec(),
+            every: Duration::from_millis(2),
+        };
+        let started = Instant::now();
+        let status = read_request(&mut body, 8 * 1024, Instant::now() + budget)
+            .expect_err("a body that never ended was accepted");
+        assert_eq!(status, 408);
+        assert!(started.elapsed() < PROMPTLY, "the body drip ran {:?}", started.elapsed());
     }
 
     /// The whole of `bind`, `accept`, `respond` and `close`, against a real
@@ -5087,6 +5325,115 @@ mod tests {
         assert_eq!((status, body.as_str()), (200, "kept"));
         assert!(ended, "the client's connection was never sent a GOAWAY");
         assert_eq!(accept(handle).expect_err("drained").cause, ServeFail::Closed);
+        close(handle);
+    }
+
+    /// **A handler that never answers is a `504`, not a stream held for ever.**
+    ///
+    /// The sender is alive for the whole of this wait, which is what separates
+    /// the two failures: a *dropped* sender is `listenClose` taking the
+    /// connection out from under a handler and has always answered `503`, and
+    /// a sender that is simply never used is a handler that did not finish.
+    /// Before [`ANSWER_DEADLINE`] the second had no answer at all — the receive
+    /// waited, and the task, the stream and its place under [`MAX_STREAMS`]
+    /// waited with it until the process ended.
+    ///
+    /// Asserted at the wait rather than through a server, because the case
+    /// needs a handler that never responds and there is no other way to write
+    /// one: every acceptance case in this file answers what it accepts.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_stream_whose_handler_never_answers_is_told_so_at_the_deadline() {
+        let (back, written) = tokio::sync::oneshot::channel::<Reply>();
+        let started = Instant::now();
+        let response =
+            crate::rt::handle().block_on(answered_within(written, Duration::from_millis(80)));
+        let waited = started.elapsed();
+        assert_eq!(response.status().as_u16(), 504, "a handler that never answered was not a 504");
+        assert!(waited >= Duration::from_millis(60), "{waited:?} is not a wait at all");
+        assert!(waited < Duration::from_secs(5), "the stream waited {waited:?}");
+        // Held across the wait on purpose: this is the deadline arm and not the
+        // dropped-sender one.
+        drop(back);
+    }
+
+    /// **A drain ends an HTTP/2 connection whose stream will not finish.**
+    ///
+    /// The companion to `a_drain_sends_an_idle_h2_connection_on_its_way`, and
+    /// the case that one cannot reach. There the client is idle, so the GOAWAY
+    /// is the whole answer and the connection ends at once. Here a stream is
+    /// open and unanswered — the handler took the request and never responded —
+    /// so `graceful_shutdown` does exactly what it promises and *waits* for it.
+    /// GOAWAY is a request, not a close, and a client with an open stream is
+    /// entitled to hold the connection; until this bound existed, holding it
+    /// meant holding a task, a socket and a place in `Gate::outstanding` for
+    /// the life of the process. `DRAIN_DEADLINE` bounded the caller of `drain`
+    /// and nothing bounded the connection.
+    ///
+    /// So the instrument is the **client's own connection future**, and only
+    /// that. Without the bound `ended` is `false` after `PATIENCE`; with it the
+    /// socket closes half a second after the GOAWAY and `ended` is `true`.
+    ///
+    /// `drain`'s own boolean is deliberately *not* asserted, and the reason is
+    /// worth writing down rather than discovering twice: the plan's one drain
+    /// number is now the deadline for both waiters — `drain` waiting for the
+    /// connections and the connection waiting to be let go — so the two expire
+    /// at the same instant and either may observe the other first. That is
+    /// harmless in a server, where both endings are "the drain is over", and it
+    /// is a coin flip in a test. What is asserted about `drain` is the half
+    /// that is not a race: that it comes back, and comes back promptly.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_drain_ends_an_h2_connection_whose_stream_will_not_finish() {
+        let (certificate, key) = identity_files("h2-stuck");
+        let plan = ServePlan {
+            protocols: vec![Protocol::Http2],
+            certificate: Some(certificate),
+            key: Some(key),
+            drain: Some(Duration::from_millis(500)),
+            socket_buffer: None,
+        };
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &plan, -1, 30_000).expect("a bound port");
+
+        let client = std::thread::spawn(move || {
+            let (conn, sock) = handshaken(port, vec![crate::tls::ALPN_H2.to_vec()]);
+            crate::rt::handle().block_on(async move {
+                let io = crate::tls::AsyncTls::adopt(sock, conn).expect("an async connection");
+                let (mut send, driving) =
+                    hyper::client::conn::http2::handshake::<_, _, Once>(Spawn, io)
+                        .await
+                        .expect("an h2 handshake");
+                let driven = crate::rt::handle().spawn(async move {
+                    let _driven = driving.await;
+                });
+                let request = hyper::Request::builder()
+                    .method("GET")
+                    .uri("https://localhost/stuck")
+                    .body(Once(None))
+                    .expect("a request");
+                // Issued and never finished: this is the stream the server
+                // will be asked to give up on.
+                let asking = crate::rt::handle().spawn(async move {
+                    let _ = send.send_request(request).await;
+                });
+                let ended = tokio::time::timeout(PATIENCE, driven).await.is_ok();
+                asking.abort();
+                ended
+            })
+        });
+
+        let connection = accept(handle).expect("the one stream");
+        assert_eq!(request(connection).expect("its request").target, "/stuck");
+        // And no `respond`. The handler has the request and never answers.
+
+        let started = Instant::now();
+        let _either_way = drain(handle);
+        let waited = started.elapsed();
+        assert!(waited < Duration::from_secs(5), "the drain itself ran {waited:?}");
+
+        let ended = client.join().expect("the client finished");
+        assert!(ended, "the connection outlived its GOAWAY and its drain deadline");
         close(handle);
     }
 

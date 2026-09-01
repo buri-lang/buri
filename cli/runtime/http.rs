@@ -50,7 +50,7 @@
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::RecvTimeoutError;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// `NetError`'s variants, in declaration order in `effect.buri`. The index is
 /// what crosses the ABI, so this order is the contract.
@@ -125,7 +125,34 @@ pub struct HttpResponse {
 /// options have — `SO_RCVTIMEO` is per read — and making the whole exchange
 /// share one deadline would mean re-deriving the remainder before every call.
 /// The bound that matters is that there *is* one.
+///
+/// **With one exception, and it is the step that is a loop.** Every other step
+/// here happens once, so bounding the step bounds it; reading the response does
+/// not. `SO_RCVTIMEO` is restarted by every successful read, so a server
+/// sending a byte just inside the deadline is never late and never finishes,
+/// and per-step is then not a bound at all. [`read_to_end`] therefore carries
+/// this number a second way — as a budget across the whole read — beside
+/// [`RESPONSE_LIMIT`], which is the same hole closed in bytes. `net.rs`'s
+/// `HEAD_DEADLINE` states the identical pair from the server's side of the
+/// wire.
 const DEADLINE: Duration = Duration::from_secs(30);
+
+/// The largest response this client will read.
+///
+/// **The server side has had one since F2 and the client side had none**:
+/// `net.rs`'s `BODY_LIMIT` refuses an over-large request body with a `413`, and
+/// nothing here refused an over-large *response*. A peer that answers with an
+/// endless body is not exotic — a misconfigured stream, a proxy error page that
+/// never ends, a host that is not the host it was supposed to be — and without
+/// a cap the only thing that ends the read is the process running out of
+/// memory.
+///
+/// The same eight mebibytes `BODY_LIMIT` names, because the two are the same
+/// question asked in the two directions and a client that would not *serve* a
+/// larger body has no argument for accepting one. A caller that wants a large
+/// response wants streaming, which is a `Response` shape this client does not
+/// have rather than a bigger number.
+const RESPONSE_LIMIT: usize = 8 * 1024 * 1024;
 
 struct Url<'a> {
     authority: &'a str,
@@ -376,7 +403,10 @@ fn fetch_within(
     sock.flush().map_err(|e| io_fail(&e))?;
 
     let mut raw = Vec::new();
-    read_to_end(&mut sock, &mut raw)?;
+    // The budget starts at the read rather than at the dial: every step before
+    // this one has already had its own [`DEADLINE`], and a response is not late
+    // because the name lookup was slow.
+    read_to_end(&mut sock, &mut raw, Instant::now() + deadline, RESPONSE_LIMIT)?;
     parse_response(&raw)
 }
 
@@ -418,9 +448,35 @@ fn wrap(sock: TcpStream, url: &Url<'_>) -> Result<Transport, NetFail> {
 ///
 /// For a plain `TcpStream` the case cannot arise, so `http://` reads exactly as
 /// it always did.
-fn read_to_end(sock: &mut Transport, out: &mut Vec<u8>) -> Result<(), NetFail> {
+///
+/// **The two bounds are on the loop and not on the read**, which is the whole
+/// reason they are parameters. Each `read` is bounded already by the socket's
+/// `SO_RCVTIMEO`; what is not bounded by that is how many times round this
+/// loop goes, and the answer without `until` is "until the peer stops", which a
+/// peer choosing to drip need never do. [`DEADLINE`] and [`RESPONSE_LIMIT`]
+/// argue the two numbers. They are parameters rather than the constants for
+/// `fetch_within`'s reason: a test that had to wait thirty seconds to watch a
+/// bound fire is a test nobody runs.
+///
+/// `&mut impl Read` rather than `&mut Transport` for the same reason — a
+/// [`Transport`] is a socket or a TLS session over one, and neither is a thing
+/// a test can make drip on demand.
+fn read_to_end(
+    sock: &mut impl Read,
+    out: &mut Vec<u8>,
+    until: Instant,
+    limit: usize,
+) -> Result<(), NetFail> {
     let mut buffer = [0_u8; 8192];
     loop {
+        if Instant::now() >= until {
+            return Err(NetFail::Timeout);
+        }
+        if out.len() > limit {
+            return Err(NetFail::Transport(format!(
+                "the response is larger than this client will read ({limit} bytes)"
+            )));
+        }
         match sock.read(&mut buffer) {
             Ok(0) => return Ok(()),
             Ok(n) => out.extend_from_slice(buffer.get(..n).unwrap_or(&[])),
@@ -509,7 +565,6 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
 
     /// How long a bounded step is allowed to take before the claim this file
     /// makes — that it is bounded — is the thing that failed.
@@ -552,6 +607,78 @@ mod tests {
             resolve("::1", 8443, Duration::ZERO).ok(),
             Some(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 8443)))
         );
+    }
+
+    /// A peer that keeps talking and never stops.
+    ///
+    /// `every` is what decides which bound it runs into: a sleep makes it a
+    /// drip and the budget catches it, no sleep makes it a firehose and the
+    /// byte cap does. One reader, because they are one hole — a loop with no
+    /// bound on how many times it goes round.
+    struct Endless {
+        every: Duration,
+    }
+
+    impl Read for Endless {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            if !self.every.is_zero() {
+                std::thread::sleep(self.every);
+                return Ok(buffer.first_mut().map_or(0, |b| {
+                    *b = b'.';
+                    1
+                }));
+            }
+            buffer.fill(b'.');
+            Ok(buffer.len())
+        }
+    }
+
+    /// **A server that drips the response ends at the budget.**
+    ///
+    /// The socket's own `SO_RCVTIMEO` cannot catch this and that is the point:
+    /// every read here *succeeds*, so the deadline it carries is restarted
+    /// before it can fire and the peer is never late. What ends the read is the
+    /// budget across the loop, and without one this case does not fail — it
+    /// runs until the byte cap, which at a byte per millisecond is over two
+    /// hours.
+    #[test]
+    fn a_response_that_drips_ends_at_the_budget() {
+        let mut peer = Endless { every: Duration::from_millis(1) };
+        let mut out = Vec::new();
+        let started = Instant::now();
+        let answer = read_to_end(
+            &mut peer,
+            &mut out,
+            Instant::now() + Duration::from_millis(100),
+            RESPONSE_LIMIT,
+        );
+        assert!(matches!(answer, Err(NetFail::Timeout)), "a drip is a Timeout");
+        assert!(started.elapsed() < SOON, "the read ran {:?}", started.elapsed());
+    }
+
+    /// **A response larger than this client will read is refused, and says so.**
+    ///
+    /// The other half of the same loop: a peer that answers as fast as the
+    /// socket allows is bounded by neither a socket deadline nor a budget, only
+    /// by how much memory the process has. `net.rs` has had `BODY_LIMIT` on the
+    /// serving side since F2; this is that cap, in the direction that did not
+    /// have one.
+    #[test]
+    fn a_response_larger_than_the_cap_is_refused_and_says_so() {
+        let mut peer = Endless { every: Duration::ZERO };
+        let mut out = Vec::new();
+        let started = Instant::now();
+        let answer =
+            read_to_end(&mut peer, &mut out, Instant::now() + Duration::from_secs(60), 64 * 1024);
+        match answer {
+            Err(NetFail::Transport(said)) => {
+                assert!(said.contains("larger than"), "{said}");
+                assert!(said.contains("65536"), "the refusal names the cap it hit: {said}");
+            }
+            Err(other) => panic!("an endless response was refused as {}", other.message()),
+            Ok(()) => panic!("an endless response was read to its end"),
+        }
+        assert!(started.elapsed() < SOON, "the read ran {:?}", started.elapsed());
     }
 
     /// A dial to an address nothing answers for ends at the deadline.
