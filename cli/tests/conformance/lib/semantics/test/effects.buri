@@ -13,13 +13,14 @@
 
 from "core/bytes" import * as bytes;
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, IoError, Listen, Net, Rand, Request, Response, ServeError,
-    ServeFailure, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, Rand, Received,
+    Request, Response, Serve, ServeError, ServeFailure, Sockets, Stderr, Stdin, Stdout,
+    Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
 from "core/host/testing" import {
-    alloc, clock, env, fs, net, rand, stderr, stdin, stdout,
+    alloc, clock, env, fs, net, rand, stderr, stdin, stdout, TestStdout,
 };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -1332,7 +1333,7 @@ test "one context binds Listen, Sockets and Net and every method is callable" {
     assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
 }
 
-test "the same five methods resolve on the context value itself" {
+test "the same method names resolve on the context value itself" {
     // `serveOnce` reaches them through a *bounded type parameter*; this reaches
     // them through a context value handed to the same wrappers, which is the
     // other half of the lookup (`Ty::Param` and `Ty::Ctx` both land in
@@ -1345,9 +1346,14 @@ test "the same five methods resolve on the context value itself" {
         Stdout: stdout(),
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
-    let _ = server.sendText(ctx, 1, "hello");
-    let _ = server.sendBytes(ctx, 1, []);
-    let _ = server.close(ctx, 1, 1000, "bye");
+    // A `Socket` is inert data a program may write for itself, exactly as a
+    // `Listener` is, and a handle that names no open socket is one that has
+    // already gone — so these three are reachable here without an acceptor
+    // behind them, and each is the `Sockets` method it wraps.
+    let forged = server.Socket(1);
+    let _sentText = forged.send(ctx, .Text("hello"));
+    let _sentBytes = forged.send(ctx, .Binary([]));
+    let _closed = forged.close(ctx, .Normal);
     // `c` is the **caller's context**, which is what `run` hands the handler:
     // it calls `onRequest` itself, under the context `serve` was given. So the
     // assertion is that `c` can do what *this* context grants and the acceptor
@@ -1407,6 +1413,8 @@ test "an omitted Server field is .None and not a default this module chose" {
         idleTimeoutMillis: .None,
         drainMillis: .None,
         tls: .None,
+        websocket: .None,
+        socketBuffer: .None,
     };
     let elided = server.Server {
         port: 0,
@@ -1418,6 +1426,7 @@ test "an omitted Server field is .None and not a default this module chose" {
     assert.eq(elided.idleTimeoutMillis, written.idleTimeoutMillis);
     assert.eq(elided.drainMillis, written.drainMillis);
     assert.eq(elided.tls, written.tls);
+    assert.eq(elided.socketBuffer, written.socketBuffer);
     assert.none(elided.address);
     // A server that named no drain is one the runtime decides the deadline
     // for, and it is the runtime's because nothing was chosen rather than
@@ -1426,6 +1435,13 @@ test "an omitted Server field is .None and not a default this module chose" {
     // A server without a certificate is a cleartext one, and it is cleartext
     // because nothing was chosen rather than because this module chose.
     assert.none(elided.tls);
+    // And a server with no socket hooks never upgrades, which is what makes an
+    // upgrade request an ordinary request on it. `websocket` is not compared
+    // against a written `.None` above because the hooks carry the socket's
+    // state type and two `Server`s written at two different `S` are two
+    // different types; `assert.none` is the whole of what there is to say.
+    assert.none(elided.websocket);
+    assert.none(elided.socketBuffer);
 }
 
 test "a Server's protocols and tls are rendered into the bind's one plan" {
@@ -1434,7 +1450,7 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
     // asserted here is the *rendering*: which options `bind` puts in the plan,
     // and in which order. `PlanListen` answers the digest on `Listener.port` —
     // one digit per element, `.Http1` as 1, `.Http2` as 2, a certificate as 4,
-    // a key as 5 and a drain deadline as 6.
+    // a key as 5, a drain deadline as 6 and a socket buffer as 7.
     let ctx = context {
         Alloc: alloc(),
         Listen: PlanListen { },
@@ -1476,6 +1492,20 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
         }),
     );
     assert.eq(stopping.port, 16);
+
+    // The socket buffer is rendered after the drain, and it is the second knob
+    // to land as a variant — which is what the plan was built to be. Two
+    // options that could not have crossed the bind's ten-integer budget at all
+    // cost a tag byte each.
+    let buffered = assert.ok(
+        server.bind(ctx, server.Server {
+            port: 0,
+            onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+            drainMillis: .Some(2500),
+            socketBuffer: .Some(8),
+        }),
+    );
+    assert.eq(buffered.port, 67);
 
     // And a `Server` that chose nothing renders an empty plan — which is the
     // `.None` convention reaching the effect rather than a default this module
@@ -1898,4 +1928,256 @@ test "a context holding the same double still reaches the same answer" {
     assert.eq(pushedWith(ctx, 7, [1]), [1, 7]);
     assert.eq(repeatedWith(ctx, 5), [5, 5]);
     assert.eq(joinedWith(ctx, "ab", "cd"), "abcd");
+}
+
+// -----------------------------------------------------------------------------
+// WebSockets, as far as a corpus with no network in it can see them
+// -----------------------------------------------------------------------------
+//
+// `Scripted` below is a double with just enough state to stop, so what it can
+// drive is the whole of a socket's life except the message in the middle: the
+// upgrade, `onOpen`, the close, `onClose`, the state threaded between them, and
+// the close-code mapping. A message needs a double that can answer two
+// different things to two `listenReceive` calls that look alike, which is
+// `core/host/testing`'s `sockets()` and is not written yet. Until then a
+// message on a socket is proven against the real acceptor —
+// `cli/runtime/net.rs`'s own tests — and against a real client, in
+// `cli/tests/native/`.
+//
+// What *is* here runs on every backend, JavaScript included, which is the point
+// of putting it here rather than only there.
+
+/// A `Listen` whose one connection is a WebSocket upgrade, and whose socket
+/// closes the moment it is read.
+///
+/// **It counts through the sink the hooks write to**, and that is the trick
+/// this file needs and `shapes.buri` cannot have. An effect method takes only
+/// `self` and `self` is immutable, so a fake acceptor cannot answer two
+/// different things to two accepts that look alike — which is fine for a
+/// request, because `listenRespond` gives it a second call to say `.Closed`
+/// from, and fatal for a socket, because an upgraded connection is never
+/// responded to and the loop would open the same socket forever. A
+/// `TestStdout` is a *handle* into runner-side state rather than a value, so
+/// holding the one the hooks print to is a fake that can tell a first accept
+/// from a second. It lives here rather than in the library source because
+/// `core/host/testing` may only be imported from a test source (SPEC 4.1.1).
+///
+/// `socket: 0` is a fake that refuses every upgrade, which is how the
+/// fall-through to `onRequest` is exercised from the acceptor's side.
+struct Scripted {
+    sink: TestStdout,
+    socket: Int,
+    code: Int,
+}
+
+impl Listen for Scripted {
+    fn listenBind(
+        self,
+        address: Str,
+        port: Int,
+        plan: [Serve],
+        requestLimit: Int,
+        idleTimeoutMillis: Int,
+    ): Result<Listener, ServeError> {
+        .Ok(Listener { handle: 1, port: 8080, handlers: 1 })
+    }
+
+    /// One connection, and then the ordinary end — counted by whether the hooks
+    /// have written anything yet.
+    fn listenAccept(self, handle: Int): Result<Int, ServeError> {
+        match (self.sink.captured()) {
+            "" => .Ok(7),
+            _ => .Err(ServeError { cause: .Closed, detail: "" }),
+        }
+    }
+
+    fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+        match (connection) {
+            7 => .Ok(Request { method: .Get, url: "/socket", headers: [], body: [] }),
+            _ => .Err(ServeError { cause: .Closed, detail: "" }),
+        }
+    }
+
+    /// `.Closed` from the respond, which is what ends the loop on the path
+    /// where the upgrade was refused and the request went to `onRequest`.
+    fn listenRespond(
+        self,
+        connection: Int,
+        status: Int,
+        headers: [Header],
+        body: [U8],
+    ): Result<(), ServeError> {
+        .Err(ServeError { cause: .Closed, detail: "" })
+    }
+
+    fn listenClose(self, handle: Int): () {
+        ()
+    }
+
+    fn listenUpgrade(self, connection: Int): Result<Int, ServeError> {
+        match (self.socket) {
+            0 => .Err(ServeError { cause: .Unsupported, detail: "not an upgrade" }),
+            _ => .Ok(self.socket),
+        }
+    }
+
+    /// The socket's first and last event. A stateless answer is the whole of
+    /// what a fake can say about a socket, which is why the message in the
+    /// middle is proven against the real acceptor instead.
+    fn listenReceive(self, socket: Int): Result<Received, ServeError> {
+        match (socket == self.socket) {
+            true => {
+                .Ok(Received { frame: .Closed, text: "", data: [], code: self.code })
+            },
+            false => .Err(ServeError { cause: .Closed, detail: "" }),
+        }
+    }
+}
+
+test "an upgrade runs onOpen and then onClose, and the close carries a reason" {
+    let sink = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Listen: Scripted { sink: sink, socket: 9, code: 1000 },
+        Sockets: QuietSockets { },
+        Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    let outcome = server.serve(ctx, server.Server {
+        port: 0,
+        onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+        websocket: .Some(server.WebSocket {
+            onOpen: fn(c, _socket, request) => {
+                let _opened = io.println(c, "open ${request.url}");
+                request.url
+            },
+            onMessage: fn(_c, _socket, state, _message) => state,
+            onClose: fn(c, _socket, state, reason) => {
+                let _closed = io.println(c, "close ${state} ${reason.show(c)}");
+                ()
+            },
+        }),
+    });
+    assert.ok(outcome);
+    // The order is the claim as much as the contents: a socket opens once,
+    // closes once, and the state the open answered is what the close is handed.
+    assert.eq(sink.captured(), "open /socket\nclose /socket .Normal\n");
+}
+
+/// One socket's close, as the reason `core/net/server` named for its code.
+///
+/// A function rather than a lambda inside the block below, because the context
+/// is built per code: one instance of a stateless double per answer is the only
+/// way a fake with no state can say two different things.
+fn closedWith(code: Int): Str {
+    let sink = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Listen: Scripted { sink: sink, socket: 9, code: code },
+        Sockets: QuietSockets { },
+        Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    let _served = server.serve(ctx, server.Server {
+        port: 0,
+        onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+        websocket: .Some(server.WebSocket {
+            onOpen: fn(_c, _socket, _request) => 0,
+            onMessage: fn(_c, _socket, state, _message) => state,
+            onClose: fn(c, _socket, _state, reason) => {
+                let _wrote = io.print(c, reason.show(c));
+                ()
+            },
+        }),
+    });
+    sink.captured()
+}
+
+test "a close code becomes the reason core/net/server names for it" {
+    assert.eq(closedWith(1000), ".Normal");
+    assert.eq(closedWith(1001), ".GoingAway");
+    assert.eq(closedWith(1002), ".ProtocolError");
+    assert.eq(closedWith(1003), ".Unsupported");
+    assert.eq(closedWith(1008), ".Policy");
+    assert.eq(closedWith(1009), ".TooLarge");
+    assert.eq(closedWith(1011), ".InternalError");
+    // 1006 is "there was no close frame" and 4321 is a private-use code this
+    // enum does not name: both are `.Abnormal`, which is what that variant
+    // says.
+    assert.eq(closedWith(1006), ".Abnormal");
+    assert.eq(closedWith(4321), ".Abnormal");
+    // **A negative code is the platform's own and never the far side's**, and
+    // it is the only way `.Overflow` is reachable: a wire code is unsigned, so
+    // no peer can claim this server's outbound buffer filled.
+    assert.eq(closedWith(-1), ".Overflow");
+}
+
+test "a request that is not an upgrade reaches onRequest on a socket server" {
+    // The fall-through from the *acceptor's* side: a server that has hooks, and
+    // a client that did not ask for a socket. `Scripted` with a socket of
+    // zero refuses every upgrade, which is what the real acceptor answers for a
+    // request with no `upgrade: websocket` on it.
+    let sink = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Listen: Scripted { sink: sink, socket: 0, code: 1000 },
+        Sockets: QuietSockets { },
+        Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    let _served = server.serve(ctx, server.Server {
+        port: 0,
+        onRequest: fn(c, request) => {
+            let _handled = io.println(c, "handled ${request.url}");
+            Response { status: 200, headers: [], body: [] }
+        },
+        websocket: .Some(server.WebSocket {
+            onOpen: fn(c, _socket, request) => {
+                let _opened = io.println(c, "opened ${request.url}");
+                0
+            },
+            onMessage: fn(_c, _socket, state, _message) => state,
+            onClose: fn(_c, _socket, _state, _reason) => (),
+        }),
+    });
+    assert.eq(sink.captured(), "handled /socket\n");
+}
+
+test "a server with no hooks never upgrades, so an upgrade is an ordinary request" {
+    // **The named fall-through**, and it is a different claim from the one
+    // above: there the acceptor refused, here the *library* never asks. A
+    // `Server` whose `websocket` is `.None` calls `listenUpgrade` for nothing,
+    // and `Scripted` would have answered `.Ok(9)` if it had.
+    let sink = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Listen: Scripted { sink: sink, socket: 9, code: 1000 },
+        Sockets: QuietSockets { },
+        Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    let _served = server.serve(ctx, server.Server {
+        port: 0,
+        onRequest: fn(c, request) => {
+            let _handled = io.println(c, "handled ${request.url}");
+            Response { status: 200, headers: [], body: [] }
+        },
+    });
+    assert.eq(sink.captured(), "handled /socket\n");
+}
+
+test "a socket handle a program wrote for itself is one that has already gone" {
+    // `Socket` is inert data, so a program can forge one — and the answer is
+    // the answer for a socket somebody closed, which is what makes granting
+    // `Sockets` beside `Listen` honest rather than a hole. Nothing here can
+    // observe the drop, and that is the point: the calls are total.
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: QuietSockets { },
+    };
+    let forged = server.Socket(4242);
+    let _text = forged.send(ctx, .Text("nobody is listening"));
+    let _bytes = forged.send(ctx, .Binary([1, 2, 3]));
+    let _closed = forged.close(ctx, .GoingAway);
+    assert.eq(forged, server.Socket(4242));
 }

@@ -42,9 +42,27 @@
 #      and with it `h2`, `tokio-util` and HPACK's tables — for 771 688 bytes,
 #      putting aarch64-apple-darwin at 8 970 592. That is UNDER the 9 MiB above,
 #      by about 4.9 %, so the Darwin number is left where it is: this budget
-#      moves when it is hit, and it was not hit. The margin is thin, and the
-#      next slice to link one of the remaining crates should expect to be the
-#      one that re-measures it.
+#      moves when it is hit, and it was not hit.
+#
+#      A FOURTH SLICE HAS SINCE MOVED IT, AND THE MARGIN IS NOW THIN ENOUGH TO
+#      SAY SO IN CAPITALS. F7 linked `tungstenite` — RFC 6455 framing, the
+#      accept-key hash, and the `http`/`httparse` layers it shares with hyper —
+#      and re-measured all three archives on aarch64-apple-darwin, from scratch,
+#      on the tree that did it:
+#
+#        net off                                             6 322 696 bytes
+#        net on, before F7 (the reactor, TLS, HTTP/2)         9 013 416
+#        net on, after F7 (WebSockets as well)                9 090 776    +77 360
+#        net-h3 on as well                                    9 091 024       +248
+#
+#      Seventy-seven kilobytes for a whole protocol is small and it is not a
+#      surprise: `http` and `httparse` were already live for hyper's sake, so
+#      what arrived is the framing, the masking and one SHA-1. The Darwin budget
+#      is STILL NOT HIT — 9 090 776 is under 9 MiB by 346 408 bytes — so it does
+#      not move, for the reason the paragraph above gives. WHAT HAS CHANGED IS
+#      THE HEADROOM: 4.9 % became 3.7 %, and the next slice to add anything at
+#      all to this archive should expect to be the one that re-measures and
+#      re-states this number rather than the one that squeezes under it.
 #
 #      THE LINUX BUDGET IS A DIFFERENT STORY AND IT IS THE CAUTIONARY ONE.
 #      Every Linux figure this script has ever carried was a PROJECTION — the
@@ -64,6 +82,14 @@
 #      byte, and not a strip that stopped working. 14 MiB is the re-measurement,
 #      with about 7 % over the larger of the two Linux figures.
 #
+#      RE-MEASURED AGAIN BY F7, in the same container `scripts/test-linux.sh`
+#      runs: 13 788 172 bytes on aarch64-unknown-linux-gnu, which is +176 944
+#      for the WebSocket framing — 2.3x the Darwin delta against an archive that
+#      is 1.52x as large, which is ELF's price for the same code and the same
+#      shape of ratio F4 measured for hyper. The Linux budget is NOT hit and
+#      does not move: 6.1 % of it is left, which is more headroom than Darwin
+#      now has.
+#
 #      The lesson for the next re-statement is in the numbers rather than in
 #      this paragraph: a budget nothing has measured is not a budget, and the
 #      two Linux triples should both be read off a real job before either is
@@ -72,8 +98,8 @@
 #      THE `net-h3` ARCHIVE IS HELD TO THE SAME BUDGET, and that is a measured
 #      claim rather than an omission. `quinn` is referenced by nothing but
 #      `net.rs`'s `size_of`, so fat LTO drops it whole: on aarch64-apple-darwin
-#      the h3 archive is 8 971 008 bytes against the `net` one's 8 970 592 — a
-#      QUIC implementation for 416 bytes, which is the refusal string an h3
+#      the h3 archive is 9 091 024 bytes against the `net` one's 9 090 776 — a
+#      QUIC implementation for 248 bytes, which is the refusal string an h3
 #      build does not need going away and the feature line arriving. A separate,
 #      larger h3 budget would therefore be a number with nothing behind it, and
 #      would hide exactly the growth this shared one catches: the slice that
@@ -81,20 +107,25 @@
 #      way B6 and C7 did.
 #
 #   3. THE NETWORKING CRATES, ON WHICHEVER SIDE OF THE LINE THEY ARE ON.
-#      `net` brings five crates in. FOUR of them are now reached and the archive
-#      MUST carry them: `tokio`, by `rt.rs`, since B6; `rustls` and `ring`, by
-#      `cli/runtime/tls.rs`, since C7; and `hyper`, by `cli/runtime/net.rs`,
-#      since F4 — which is the HTTP/2 half of the acceptor, the multiplexing and
-#      the ALPN that F2 and F3 both deferred to it by name. An archive built
-#      with the feature and carrying no TLS code would be a toolchain whose
-#      `https://` fails at run time for a reason no test here would have caught;
-#      one carrying no reactor would be a toolchain whose every suspending host
-#      call does; and one carrying no `hyper` would be a server that negotiates
-#      `h2` in its handshake and then has nothing to frame it with. ONE of the
-#      five — `tungstenite` — is still referenced by nothing but `net.rs`'s
-#      `size_of`, `lto = "fat"` drops it whole, and the archive must NOT carry
-#      it. F7 is the slice that moves it across, the same way, in the commit
-#      that does it.
+#      `net` brings five crates in and ALL FIVE are now reached, so the archive
+#      MUST carry every one of them: `tokio`, by `rt.rs`, since B6; `rustls` and
+#      `ring`, by `cli/runtime/tls.rs`, since C7; `hyper`, by
+#      `cli/runtime/net.rs`, since F4 — which is the HTTP/2 half of the
+#      acceptor, the multiplexing and the ALPN that F2 and F3 both deferred to
+#      it by name; and `tungstenite`, by the same file, since F7 — which is the
+#      RFC 6455 framing behind `listenUpgrade` and `listenReceive`. An archive
+#      built with the feature and carrying no TLS code would be a toolchain
+#      whose `https://` fails at run time for a reason no test here would have
+#      caught; one carrying no reactor would be a toolchain whose every
+#      suspending host call does; one carrying no `hyper` would be a server that
+#      negotiates `h2` in its handshake and then has nothing to frame it with;
+#      and one carrying no `tungstenite` would be a server that answers a
+#      WebSocket upgrade with a `101` and then cannot read a frame.
+#
+#      THE ABSENT LIST IS DOWN TO ITS LAST REAL ENTRY, which is worth saying
+#      because it is what this check is *for*: every crate that has crossed did
+#      so in the commit that first called into it, and the size budget was
+#      re-measured in the same commit each time.
 #
 #      `mio` and `socket2` reach the archive through tokio, and `h2`,
 #      `tokio-util` and `http` reach it through hyper. All five are deliberately
@@ -104,9 +135,9 @@
 #      with it, which is why it is named here and they are not.
 #
 #      `quinn` is the sixth crate and it is on the ABSENT list on every leg,
-#      h3 included, for the reason `tungstenite` is: the feature brings the
-#      crate in and nothing calls it yet. The slice that first drives HTTP/3
-#      moves it, and moves the budget above at the same time.
+#      h3 included, for the reason `tungstenite` was until F7: the feature
+#      brings the crate in and nothing calls it yet. The slice that first drives
+#      HTTP/3 moves it, and re-measures the budget above at the same time.
 #
 #      Which side is which is read from `libburi_rt.a.features`, written beside
 #      the archive by the same run of `cli/build.rs` that produced it: a
@@ -133,11 +164,14 @@ set -euo pipefail
 target=${1:-target}
 
 case "$(uname -s)" in
-  # 8 970 592 measured with `net` since F4 linked hyper; 9 MiB leaves ~4.9 %.
+  # 9 090 776 measured with `net` since F7 linked tungstenite; 9 MiB leaves
+  # ~3.7 %, which is the thinnest this has been. See the note above.
   Darwin) budget=9437184 ;;
-  # 13 611 228 measured on aarch64-unknown-linux-gnu; CI's leg reported
-  # 13 515 516. 14 MiB leaves ~7 % on the larger. THIS NUMBER REPLACES A
-  # PROJECTION, and the projection was wrong by 1.9 MB — see the note below.
+  # 13 788 172 measured on aarch64-unknown-linux-gnu since F7 linked
+  # tungstenite; F4's figures for the same triple were 13 611 228 here and
+  # 13 515 516 on CI. 14 MiB leaves ~6.1 % on the largest. THESE NUMBERS
+  # REPLACED A PROJECTION, and the projection was wrong by 1.9 MB — see the
+  # note below.
   Linux)  budget=14680064 ;;
   *)      echo "::error::this script knows macOS and Linux only" ; exit 1 ;;
 esac
@@ -273,15 +307,15 @@ present() {
 # half of a log.
 before=$status
 if grep -qx "net" "$features"; then
-  present tokio rustls ring_core hyper
+  present tokio rustls ring_core hyper tungstenite
   # `aws_lc` is here although it was never a dependency: it is the OTHER
   # provider `rustls` ships, and a second one appearing means a feature was
   # enabled somewhere that quietly doubled the cryptography in every binary.
   # `quinn` is the crate most likely to do it, and it is on this list on both
   # legs anyway because nothing calls into it yet.
-  absent tungstenite quinn aws_lc
+  absent quinn aws_lc
   if [ "$status" -eq "$before" ]; then
-    echo "libburi_rt.a: the reactor, TLS and HTTP/2 are linked, and the unreferenced crates are still unreferenced"
+    echo "libburi_rt.a: the reactor, TLS, HTTP/2 and WebSockets are linked, and the unreferenced crates are still unreferenced"
   fi
 else
   absent tokio hyper rustls tungstenite quinn ring_core aws_lc

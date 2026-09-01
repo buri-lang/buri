@@ -24,8 +24,9 @@
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Stats };
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, Listen, Listener, Net, NetError, Proc, Rand, Request,
-    Response, Serve, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Alloc, Clock, Env, Fs, Header, Listen, Listener, Net, NetError, Proc, Rand,
+    Received, Request, Response, Serve, ServeError, Sockets, Stderr, Stdin, Stdout,
+    Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -123,6 +124,16 @@ impl Listen for OneShot {
 
     fn listenClose(self, handle: Int): () {
         ()
+    }
+
+    /// Not an upgrade, which is the answer that keeps the request a request:
+    /// `core/net/server` reads any `.Err` here as "hand this to `onRequest`".
+    fn listenUpgrade(self, connection: Int): Result<Int, ServeError> {
+        .Err(ServeError { cause: .Unsupported, detail: "not an upgrade" })
+    }
+
+    fn listenReceive(self, socket: Int): Result<Received, ServeError> {
+        .Err(ServeError { cause: .Closed, detail: "" })
     }
 }
 
@@ -274,9 +285,13 @@ fn indexed<C: Alloc + Tasks>(ctx: C, items: [Int]): Int {
 }
 
 fn pushed<C: Sockets>(ctx: C): Int {
-    let _ = server.sendText(ctx, 1, "hi");
-    let _ = server.sendBytes(ctx, 1, [1, 2]);
-    let _ = server.close(ctx, 1, 1000, "done");
+    // A forged `Socket`, which is what an inert handle allows: the three
+    // `Sockets` methods are reached through it, and each one goes through the
+    // scope's forward on the way.
+    let socket = server.Socket(1);
+    let _sentText = socket.send(ctx, .Text("hi"));
+    let _sentBytes = socket.send(ctx, .Binary([1, 2]));
+    let _closed = socket.close(ctx, .Normal);
     1
 }
 

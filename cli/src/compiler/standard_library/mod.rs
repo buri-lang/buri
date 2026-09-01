@@ -145,10 +145,10 @@ pub const MODULES: &[StdModule] = &[
     // the accept loop those three are written out of. The loop is Buri rather
     // than the runtime's, which is what lets a request handler run under the
     // caller's own context — see the module's own header, and `effect Listen`.
-    // The socket half has no acceptor behind it yet and says so where the
-    // functions are; it exists because an effect method no standard-library
-    // function calls is an operation nothing outside `core/*` can perform —
-    // see [`WRAPPERS`].
+    // The socket half is here too — `Socket`, `Message`, `CloseReason` and the
+    // `WebSocket` hooks a `Server` carries — and it is the same arrangement one
+    // level down: a socket's own loop is Buri's, its state is a local threaded
+    // through a tail call, and the runtime holds a queue rather than a value.
     m("core/net/server", include_str!("sources/server.buri")),
     m("core/proc", include_str!("sources/proc.buri")),
     // Not a platform module: it *names* `Tasks` in its bounds rather than
@@ -588,9 +588,11 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Listen", "listenRequest", "core/net/server", "server.serve(ctx, aServer)"),
     w("Listen", "listenRespond", "core/net/server", "server.serve(ctx, aServer)"),
     w("Listen", "listenClose", "core/net/server", "server.run(ctx, listener, aServer)"),
-    w("Sockets", "socketSendText", "core/net/server", "server.sendText(ctx, socket, text)"),
-    w("Sockets", "socketSendBytes", "core/net/server", "server.sendBytes(ctx, socket, bytes)"),
-    w("Sockets", "socketClose", "core/net/server", "server.close(ctx, socket, code, reason)"),
+    w("Listen", "listenUpgrade", "core/net/server", "server.serve(ctx, aServer)"),
+    w("Listen", "listenReceive", "core/net/server", "server.serve(ctx, aServer)"),
+    w("Sockets", "socketSendText", "core/net/server", "aSocket.send(ctx, .Text(text))"),
+    w("Sockets", "socketSendBytes", "core/net/server", "aSocket.send(ctx, .Binary(bytes))"),
+    w("Sockets", "socketClose", "core/net/server", "aSocket.close(ctx, aCloseReason)"),
     // `ui/*`. A signal handle is inert data and the authority travels through
     // the context, so the door for reading and writing one is a method on the
     // handle that *takes* the context — which is already the shape this rule
@@ -776,8 +778,17 @@ mod tests {
     /// segment, which is what every wrapper module is imported as — or with a
     /// handle the reader already has. Nothing in between: a call leading with
     /// a third name would print an import nobody could write.
+    ///
+    /// **The handles are named here rather than pattern-matched**, because
+    /// "starts with a lowercase `a`" would admit `aliased.` and the point of
+    /// the second arm is that a reader already holds the value. Two types are
+    /// on it and both are the same arrangement — an effect that speaks in
+    /// integer handles, and a module one level up that wraps one in a value
+    /// with methods: `ui/signal`'s `Signal<T>` over `Ui`'s signal ids, and
+    /// `core/net/server`'s `Socket` over `Sockets`' socket ids.
     #[test]
     fn every_wrapper_call_leads_with_its_module_or_a_handle() {
+        const HANDLES: &[&str] = &["aSignal.", "aSocket."];
         for row in WRAPPERS {
             let alias = row.module.rsplit('/').next().expect("a path has a segment");
             let leads = row.call.starts_with(&format!("{alias}."));
@@ -789,7 +800,7 @@ mod tests {
                 row.method
             );
             assert!(
-                leads || row.call.starts_with("aSignal."),
+                leads || HANDLES.iter().any(|handle| row.call.starts_with(handle)),
                 "`{}.{}`'s call `{}` leads with neither `{alias}` nor a handle",
                 row.effect,
                 row.method,
@@ -1025,12 +1036,15 @@ mod tests {
     /// can be fixed now, so neither is asserted about here — what is asserted
     /// is that the two server effects do not add a third. `Listen` grew from
     /// one method to four when its accept loop moved into `core/net/server`,
-    /// and to five when that loop grew a worker per handler, and every one of
-    /// the five kept the `listen` prefix for exactly this reason: a namespace
-    /// is claimed once, and five common verbs would have been five names taken
-    /// from every effect a server binds beside it. `listenRequest` is the
-    /// clearest case of all — a bare `request` is a word half the standard
-    /// library could want, and `Net` is bound beside this one by design.
+    /// and to five when that loop grew a worker per handler, and to seven when
+    /// it learned to upgrade a connection into a socket — and every one of the
+    /// seven kept the `listen` prefix for exactly this reason: a namespace is
+    /// claimed once, and seven common verbs would have been seven names taken
+    /// from every effect a server binds beside it. `listenRequest` and
+    /// `listenReceive` are the clearest cases of all — a bare `request` is a
+    /// word half the standard library could want and `Net` is bound beside this
+    /// one by design, and a bare `receive` would read as either a socket or a
+    /// mailbox depending on what else happened to be in scope.
     #[test]
     fn the_server_effects_claim_no_method_name_another_effect_claims() {
         let mut mine: Vec<(&str, String)> = Vec::new();
@@ -1055,7 +1069,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(mine.len(), 8, "the two effects declare eight methods between them: {mine:?}");
+        assert_eq!(mine.len(), 10, "the two effects declare ten methods between them: {mine:?}");
         for (owner, method) in &mine {
             for (other, name) in &theirs {
                 assert!(

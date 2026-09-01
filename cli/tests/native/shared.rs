@@ -890,3 +890,445 @@ pub fn conformance_repository() -> Option<&'static Workspace> {
 pub fn conformance_corpus() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance/lib")
 }
+
+// -----------------------------------------------------------------------------
+// WebSockets
+// -----------------------------------------------------------------------------
+
+/// The note's counter-per-socket example, as a program that finishes.
+///
+/// **This is the design row's first named test**, and it is here rather than in
+/// the conformance corpus because the middle of it — a message arriving on a
+/// socket and an answer going back — needs an acceptor, and the only acceptor
+/// is the one in the runtime archive. What the corpus can say about a socket
+/// with no network behind it, it says.
+///
+/// `requestLimit: 1` is what makes it finish, exactly as it is for
+/// [`one_shot_server`]: the upgrade is the one request this listener hands out,
+/// so once the socket closes the worker's next `listenAccept` is `.Closed` and
+/// `main` falls off its own end.
+///
+/// The socket's state is its counter's address, which is the note's own
+/// sentence: `onOpen` starts an actor, every `onMessage` is handed the address
+/// the last one answered, and `onClose` stops it. Nothing keys anything by
+/// socket.
+pub fn counting_socket_server() -> String {
+    format!(
+        r#"from "core/actor" import * as actor;
+from "core/actor" import {{ Actor, Reply }};
+from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/str" import * as str;
+
+enum Counting {{
+  Increment,
+  Get(Reply<Int>),
+}}
+
+fn counter<C: Alloc + Tasks>(): Actor<C, Int, Counting> {{
+  Actor {{
+    state: 0,
+    step: fn(c, count, message) => {{
+      match (message) {{
+        .Increment => count + 1,
+        .Get(reply) => {{
+          let _answered = reply.answer(c, count);
+          count
+        }},
+      }}
+    }},
+  }}
+}}
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{
+    Alloc: host.alloc,
+    Listen: host.listen,
+    Sockets: host.sockets,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  }};
+  let plan = server.Server {{
+    port: 0,
+    onRequest: fn(_c, _request) => http.status(404),
+    requestLimit: .Some(1),
+    idleTimeoutMillis: .Some(20000),
+    websocket: .Some(server.WebSocket {{
+      onOpen: fn(c, _socket, _request) => actor.start(c, counter()),
+      onMessage: fn(c, socket, counted, _message) => {{
+        let _posted = counted.send(c, .Increment);
+        let count = counted.ask(c, fn(reply) => .Get(reply)).withDefault(0);
+        let said = str.format(c, "messages so far: ${{count}}");
+        let _sent = socket.send(c, .Text(said));
+        counted
+      }},
+      onClose: fn(c, _socket, counted, reason) => {{
+        let _stopped = counted.stop(c);
+        let _said = io.println(c, "closed ${{reason.show(c)}}").ignore();
+        ()
+      }},
+    }}),
+  }};
+  match (server.bind(ctx, plan)) {{
+    .Err(e) => .Err(server.errorText(e)),
+    .Ok(listener) => {{
+      let pad = "x".repeat(ctx, {pad});
+      let _ = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+      match (server.run(ctx, listener, plan)) {{
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(_ok) => {{
+          let _ = io.println(ctx, "served").ignore();
+          .Ok(())
+        }},
+      }}
+    }},
+  }}
+}}
+"#,
+        pad = STDOUT_BUFFER
+    )
+}
+
+/// The note's broadcast-actor example, as a program that finishes.
+///
+/// **The design row's second named test, and F6's forecast spent** — with one
+/// correction to it, which is this slice's own finding and is worth the
+/// paragraph.
+///
+/// F6 wrote that "a socket hook that `send`s into an actor is the *driver* of
+/// that actor for the duration of its own call, so a broadcast happens when
+/// somebody publishes". The first half is right and the second is not, and the
+/// reason is in `core/actor`'s `send`: it posts and returns, and it drives the
+/// mailbox down only when the post found it **crowded**. So a room driven by
+/// `send` alone steps nothing until something else drives it — `ask`, `stop`,
+/// or a sixty-fourth message — and a broadcast that used the note's literal
+/// spelling would arrive when the server shut down. That is F6's own stated
+/// cost ("an actor does not run *between* the calls that drive it") reaching
+/// its first caller, and it is not a bug in either module.
+///
+/// So `Publish` carries a `Reply<Int>` and the hook **asks**: the answer is how
+/// many sockets the message was pushed to, the ask is what runs the mailbox
+/// down, and the publisher gets a receipt instead of a promise. Everything else
+/// is the note's — an actor holding `[Socket]`, sent to from a socket hook,
+/// pushing to sockets its own worker does not own. The day an actor gets a task
+/// of its own, `send` is the spelling again and nothing else here moves.
+///
+/// It needs two sockets open at once, so it needs two workers, so it is an
+/// LLVM row rather than a pair: the frame-threaded backend runs a `parallel`
+/// in index order because a program it builds has one Buri data stack, and
+/// worker zero holding a socket is worker zero never returning.
+pub fn broadcasting_socket_server(members: usize) -> String {
+    format!(
+        r#"from "core/actor" import * as actor;
+from "core/actor" import {{ Actor, Reply }};
+from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/net/server" import {{ Message, Socket }};
+
+enum Room {{
+  Joined(Socket),
+  Left(Socket),
+  Publish(Message, Reply<Int>),
+}}
+
+fn room<C: Alloc + Sockets + Tasks>(): Actor<C, [Socket], Room> {{
+  Actor {{
+    state: [],
+    step: fn(c, members, message) => {{
+      match (message) {{
+        .Joined(socket) => members.push(c, socket),
+        .Left(socket) => members.filter(c, fn(m) => m != socket),
+        .Publish(m, reply) => {{
+          let _pushed = members.foldCtx(
+            c,
+            fn(inner, _sofar, socket) => socket.send(inner, m),
+            (),
+          );
+          let _answered = reply.answer(c, members.len());
+          members
+        }},
+      }}
+    }},
+  }}
+}}
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{
+    Alloc: host.alloc,
+    Listen: host.listen,
+    Sockets: host.sockets,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  }};
+  let members = actor.start(ctx, room());
+  let plan = server.Server {{
+    port: 0,
+    onRequest: fn(_c, _request) => http.status(404),
+    requestLimit: .Some({members}),
+    idleTimeoutMillis: .Some(20000),
+    websocket: .Some(server.WebSocket {{
+      onOpen: fn(c, socket, _request) => {{
+        let _joined = members.send(c, .Joined(socket));
+        socket
+      }},
+      onMessage: fn(c, _socket, mine, message) => {{
+        let reached = members
+          .ask(c, fn(reply) => .Publish(message, reply))
+          .withDefault(0);
+        let _said = io.println(c, "published to ${{reached}}").ignore();
+        mine
+      }},
+      onClose: fn(c, _socket, mine, _reason) => {{
+        let _left = members.send(c, .Left(mine));
+        ()
+      }},
+    }}),
+  }};
+  match (server.bind(ctx, plan)) {{
+    .Err(e) => .Err(server.errorText(e)),
+    .Ok(listener) => {{
+      let pad = "x".repeat(ctx, {pad});
+      let _ = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+      let outcome = server.run(ctx, listener, plan);
+      let _stopped = members.stop(ctx);
+      match (outcome) {{
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(_ok) => {{
+          let _ = io.println(ctx, "served").ignore();
+          .Ok(())
+        }},
+      }}
+    }},
+  }}
+}}
+"#,
+        members = members,
+        pad = STDOUT_BUFFER
+    )
+}
+
+/// A running server binary, its output reader, and the port it announced.
+///
+/// The three lines every server row in this file opens with, factored out
+/// because the socket rows need them twice and their preamble is otherwise
+/// exactly [`served`]'s. The existing rows are left as they are: what they
+/// share is a shape rather than a dependency, and rewriting four working tests
+/// to prove that is churn.
+type Announced = (std::process::Child, std::thread::JoinHandle<(String, String)>, u16);
+
+/// Start a server binary and read the port off its first line, bounded.
+pub fn announced(binary: &Path) -> Announced {
+    use std::io::{BufRead, Read};
+    let mut child = Command::new(binary)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
+    let stdout = child.stdout.take().expect("a piped stdout");
+    let (says, listening) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut reader = std::io::BufReader::new(stdout);
+        let mut first = String::new();
+        let _ = reader.read_line(&mut first);
+        let port = first
+            .split_whitespace()
+            .nth(1)
+            .and_then(|p| p.parse::<u16>().ok())
+            .filter(|p| *p > 0);
+        let _ = says.send(port);
+        let mut rest = String::new();
+        let _ = reader.read_to_string(&mut rest);
+        (first, rest)
+    });
+    let port = listening
+        .recv_timeout(SERVER_DEADLINE)
+        .unwrap_or_else(|e| panic!("the server announced no port within {SERVER_DEADLINE:?}: {e}"))
+        .expect("the server's first line did not carry a port");
+    (child, reader, port)
+}
+
+/// Wait for an announced server to exit, bounded, and collect what it said.
+pub fn finished(announced: Announced) -> Ran {
+    use std::io::Read;
+    let (mut child, reader, _port) = announced;
+    let status = waited(&mut child, SERVER_DEADLINE);
+    let (first, rest) = reader.join().expect("the reader thread finished");
+    let mut stderr = String::new();
+    if let Some(mut err) = child.stderr.take() {
+        let _ = err.read_to_string(&mut stderr);
+    }
+    Ran {
+        status: status.code().unwrap_or(-1),
+        stdout: format!(
+            "{}\n{rest}",
+            first.split_whitespace().take(2).collect::<Vec<_>>().join(" ")
+        ),
+        stderr,
+    }
+}
+
+/// A WebSocket client, hand-written.
+///
+/// **Because there is nowhere to get one from.** The only RFC 6455
+/// implementation in this repository is inside the runtime archive, and a
+/// dev-dependency on `tungstenite` from `cli/Cargo.toml` fails
+/// `dependencies_stay_behind_the_bar` — which is C7's wall, in its third
+/// appearance, and it draws the same line it drew for TLS: the framing is
+/// asserted where both ends are reachable (`cli/runtime/net.rs`'s own tests,
+/// which may use the crate) and the toolchain rows assert the half only they
+/// can, which is that a *Buri program* holds the socket.
+///
+/// It is deliberately the smallest client that is correct for what these rows
+/// send: one text frame at a time, no fragmentation, and a close. Masking is
+/// not optional — RFC 6455 §5.3 requires a client to mask every frame and this
+/// acceptor enforces it — so the mask is here rather than skipped.
+pub struct Talking {
+    socket: std::net::TcpStream,
+    /// Bytes read past the end of the handshake, or past the end of a frame.
+    over: Vec<u8>,
+}
+
+impl Talking {
+    /// Connect, upgrade, and check the `101`.
+    ///
+    /// The connect retries until the deadline for [`served`]'s reason: the port
+    /// is announced before `listenAccept` is entered, so the first connect can
+    /// lose the race with the listen backlog on a loaded machine.
+    pub fn to(port: u16) -> Talking {
+        use std::io::{Read, Write};
+        let until = std::time::Instant::now() + SERVER_DEADLINE;
+        let mut socket = loop {
+            match std::net::TcpStream::connect(("127.0.0.1", port)) {
+                Ok(socket) => break socket,
+                Err(e) => {
+                    assert!(
+                        std::time::Instant::now() < until,
+                        "could not reach the server on 127.0.0.1:{port}: {e}"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+            }
+        };
+        socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
+        socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
+        socket
+            .write_all(
+                b"GET /socket HTTP/1.1\r\n\
+                  host: 127.0.0.1\r\n\
+                  upgrade: websocket\r\n\
+                  connection: keep-alive, Upgrade\r\n\
+                  sec-websocket-version: 13\r\n\
+                  sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+            )
+            .expect("the upgrade request");
+        socket.flush().expect("flush");
+        // The head, up to and including its blank line. Anything after it is a
+        // frame that arrived in the same read and is kept.
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        loop {
+            let read = socket.read(&mut byte).expect("the upgrade response");
+            assert_eq!(read, 1, "the server closed during the handshake");
+            head.push(byte[0]);
+            if head.ends_with(b"\r\n\r\n") {
+                break;
+            }
+            assert!(head.len() < 8 * 1024, "no blank line in the upgrade response");
+        }
+        let head = String::from_utf8_lossy(&head).to_string();
+        assert!(
+            head.starts_with("HTTP/1.1 101 "),
+            "the server did not switch protocols: {head}"
+        );
+        assert!(
+            head.to_ascii_lowercase().contains("sec-websocket-accept:"),
+            "the 101 carried no accept key: {head}"
+        );
+        Talking { socket, over: Vec::new() }
+    }
+
+    /// One masked text frame.
+    pub fn say(&mut self, text: &str) {
+        self.frame(0x1, text.as_bytes());
+    }
+
+    /// A masked close, code 1000.
+    pub fn hush(&mut self) {
+        self.frame(0x8, &[0x03, 0xe8]);
+    }
+
+    fn frame(&mut self, opcode: u8, payload: &[u8]) {
+        use std::io::Write;
+        // A fixed mask rather than a random one: masking exists to keep an
+        // intermediary from being confused by attacker-chosen bytes, and there
+        // is no intermediary between two threads of one test.
+        let mask = [0x21u8, 0x43, 0x65, 0x87];
+        let mut frame = vec![0x80 | opcode];
+        if payload.len() < 126 {
+            frame.push(0x80 | payload.len() as u8);
+        } else {
+            frame.push(0x80 | 126);
+            frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        }
+        frame.extend_from_slice(&mask);
+        for (i, byte) in payload.iter().enumerate() {
+            frame.push(byte ^ mask[i % 4]);
+        }
+        self.socket.write_all(&frame).expect("a frame out");
+        self.socket.flush().expect("flush");
+    }
+
+    /// The next text message, or `None` once the socket has closed.
+    ///
+    /// Ping and pong are skipped rather than answered, because this acceptor
+    /// answers pings itself and a client that had to would be testing its own
+    /// heartbeat rather than the server's.
+    pub fn heard(&mut self) -> Option<String> {
+        loop {
+            let first = self.exactly(2)?;
+            let opcode = first[0] & 0x0f;
+            // A server never masks (RFC 6455 §5.1), so the length is the low
+            // seven bits and there is no mask to skip.
+            assert_eq!(first[1] & 0x80, 0, "the server masked a frame");
+            let len = match first[1] & 0x7f {
+                126 => {
+                    let two = self.exactly(2)?;
+                    u64::from(u16::from_be_bytes([two[0], two[1]]))
+                }
+                127 => {
+                    let eight = self.exactly(8)?;
+                    u64::from_be_bytes(eight.try_into().expect("eight bytes"))
+                }
+                short => u64::from(short),
+            };
+            let payload = self.exactly(len as usize)?;
+            match opcode {
+                0x1 => return Some(String::from_utf8_lossy(&payload).to_string()),
+                0x8 => return None,
+                // A continuation, a binary frame, a ping or a pong: not what
+                // these rows send, and not something to fail on.
+                _ => continue,
+            }
+        }
+    }
+
+    /// Exactly `n` bytes, or `None` if the socket ended first.
+    fn exactly(&mut self, n: usize) -> Option<Vec<u8>> {
+        use std::io::Read;
+        while self.over.len() < n {
+            let mut chunk = [0u8; 1024];
+            match self.socket.read(&mut chunk) {
+                Ok(0) => return None,
+                Ok(read) => self.over.extend_from_slice(&chunk[..read]),
+                Err(_) => return None,
+            }
+        }
+        Some(self.over.drain(..n).collect())
+    }
+}

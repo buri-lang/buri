@@ -234,12 +234,14 @@ export effect Tasks {
 /// because the two are granted together: a platform that accepts connections
 /// is a platform that can write back on them.
 ///
-/// **Five operations, and none of them is the loop.** `listenBind` opens the
+/// **Seven operations, and none of them is the loop.** `listenBind` opens the
 /// port and says how many handlers it will host on it, `listenAccept` waits for
 /// the next connection with a whole request on it, `listenRequest` reads that
 /// request, `listenRespond` answers it, and `listenClose` gives the port back.
-/// The loop over the middle three is `core/net/server`'s, written in Buri, and
-/// that is what decides every other shape here:
+/// `listenUpgrade` turns a connection into a socket where the client asked for
+/// one, and `listenReceive` waits for the next thing to arrive on that socket.
+/// The loops over them are `core/net/server`'s, written in Buri, and that is
+/// what decides every other shape here:
 ///
 ///   * **the handler runs under the caller's own context.** `serve` calls it
 ///     directly, so a handler may allocate, print, read a clock or start a
@@ -291,7 +293,21 @@ export effect Tasks {
 /// The methods are prefixed for `Sockets`' reason, one declaration down: a
 /// bare `bind`, `accept`, `respond` or `close` would claim four ordinary verbs
 /// out of the namespace every effect bound beside this one shares, and the
-/// language has no way to un-claim a name once programs exist.
+/// language has no way to un-claim a name once programs exist. `upgrade` and
+/// `receive` are the two most recent and would have been the two worst: a
+/// program serving a page binds `Ui` beside this, and `ctx.receive` reading a
+/// socket or a message queue depending on what else was in scope is exactly the
+/// ambiguity `Ui.read` and `Watch.read` already demonstrate.
+///
+/// **A socket is `Listen`'s to hand out and `Sockets`' to write on**, which is
+/// where the line between the two effects falls and why the upgrade and the
+/// receive are here rather than one declaration down. Accepting a connection
+/// and reading what arrives on it is one authority however the bytes are framed
+/// — `listenRequest` and `listenReceive` are the same act — and it is the
+/// authority a listener already has. Pushing on a socket is the other one, and
+/// what makes it separate is that it *outlives* the loop that accepted it: a
+/// socket handed to an actor is written on long after, by a task that never
+/// held a listener at all.
 ///
 /// **A `Listener` is inert data, not a resource**, and so is an `Accepted`'s
 /// connection. A `Listener` is `{ handle, port }`: two integers, copied freely,
@@ -334,10 +350,12 @@ export effect Tasks {
 /// long one connection may take to send its head, and the largest body it will
 /// read. They are the runtime's rather than the program's because nobody has
 /// yet had a reason to name them, and `Serve` is where they land when somebody
-/// does. `.DrainMillis` is the first one that did: a deployment that gives a
+/// does. `.DrainMillis` was the first one that did: a deployment that gives a
 /// process ten seconds to stop is a program that has a reason to say how long
 /// its own shutdown may take, and saying it cost a variant rather than an
-/// argument there was no room for.
+/// argument there was no room for. `.SocketBuffer` is the second, and the two
+/// together are what the shape was for — neither would have been reachable at
+/// all under the ten-integer budget, and neither cost a table row.
 ///
 /// **How many handlers a listener hosts is not in the plan either**, and that
 /// is a different argument reaching a different answer: it is not a setting but
@@ -432,6 +450,54 @@ export effect Listen {
     /// server unwinding out of a failed loop should not have to remember how
     /// far it got before it can tidy up.
     fn listenClose(self, handle: Int): ();
+
+    /// Turns an accepted connection into a socket, if that is what the client
+    /// asked for.
+    ///
+    /// The `Int` is the socket, on `listenAccept`'s terms: opaque, minted by
+    /// the acceptor, and the thing `Sockets`' three methods name. What it costs
+    /// the connection is everything — a socket is not answered with a
+    /// `Response`, so a connection this upgrades is one `listenRespond` will
+    /// never be called for.
+    ///
+    /// **`.Err` is the ordinary answer and not a failure.** A request that is
+    /// not an upgrade, an upgrade this acceptor cannot complete, a transport
+    /// that cannot carry one — all of them leave the connection exactly as it
+    /// was, still holding its request and still answerable, so
+    /// `core/net/server` reads any `.Err` here as "this is an ordinary request"
+    /// and hands it to `onRequest`. That is what makes an upgrade *invisible*:
+    /// a server with no socket hooks never calls this, and a server with them
+    /// never has to decide what an upgrade request looks like.
+    ///
+    /// It follows that this is the one call in this effect whose `.Err` is not
+    /// a reason to stop, and `core/net/server`'s loop is where that is written
+    /// down.
+    fn listenUpgrade(self, connection: Int): Result<Int, ServeError>;
+
+    /// The next thing to arrive on a socket, once one has.
+    ///
+    /// **Waits**, as `listenAccept` does, and it is the second call in this
+    /// effect that can wait forever. It is also where the socket's outbound
+    /// buffer is flushed: a message another task enqueued while this socket's
+    /// own loop was busy goes out when the loop next asks what arrived, which
+    /// is what makes `socketSendText` a call that never waits.
+    ///
+    /// **One caller per socket, and that is the ordering rule.** The events on
+    /// one socket are answered to whoever asks, in the order they arrived, and
+    /// `core/net/server` asks from one task per socket — so the hooks on a
+    /// socket run in order by construction rather than by a lock. Two tasks
+    /// asking about one socket would each get some of its messages, which is a
+    /// program dividing its own stream in half.
+    ///
+    /// **`.Closed` is the last answer a socket gives**, and after it the socket
+    /// is gone: a message sent to it is dropped, and asking again is
+    /// `.Err(.Closed)`. That is what makes "the close hook is the last thing
+    /// that runs" true without a second call to release the socket.
+    ///
+    /// `.Err` is a socket that is already gone — closed, never opened, or its
+    /// listener closed under it — and is what a loop reads as an end it should
+    /// report to the close hook as an abnormal one.
+    fn listenReceive(self, socket: Int): Result<Received, ServeError>;
 }
 
 /// Writing to a connection somebody else accepted.
@@ -474,15 +540,24 @@ export effect Listen {
 /// write, which is why the mapping lives one layer up from here.
 ///
 /// **Granted on LINUX and MACOS**, on `Listen`'s terms, with which it is
-/// granted and withheld together. There is no acceptor behind these three
-/// today — a WebSocket upgrade is not something `Listen` can perform yet — so
-/// what a program gets by binding this is the authority and, for now, a
-/// runtime that drops what it is handed. That is the honest state and
-/// `core/net/server` says so where the functions are.
+/// granted and withheld together. There is an acceptor behind these three now:
+/// `listenUpgrade` is what mints a socket, and a handle that names no open
+/// socket is treated as one that has already gone — which is what the third
+/// method promises for a socket somebody closed, so a made-up handle and a
+/// spent one are deliberately indistinguishable.
 export effect Sockets {
     /// Enqueues a text frame. Never waits: the frame goes to the socket's
     /// outbound buffer, and a socket whose buffer is full is closed rather than
     /// its writer blocked.
+    ///
+    /// **Enqueued and not sent**, which is the distinction the word buys. The
+    /// bytes leave when the socket's own loop next asks what arrived
+    /// (`listenReceive`), so a message pushed from an actor is on its way as
+    /// soon as that loop is between messages — and a `send` from any task at
+    /// all costs a lock and a queue rather than a wait on a socket somebody
+    /// else might be reading slowly. `Serve.SocketBuffer` is how deep the queue
+    /// is; overflowing it closes the socket, which the loop is told about like
+    /// any other close.
     fn socketSendText(self, socket: Int, text: Str): ();
     /// Enqueues a binary frame, on `socketSendText`'s terms. Two operations
     /// rather than one taking a payload, because they are two framings on the
@@ -590,6 +665,18 @@ export enum Serve {
     /// when this expires still answers the connection it was given; what
     /// expires is the patience of the workers that have nothing to do.
     DrainMillis(Int),
+    /// How many messages a socket's outbound buffer holds before the socket is
+    /// closed.
+    ///
+    /// `socketSendText` never waits — it hands the message to the socket's own
+    /// buffer and returns — so something has to say what happens when the far
+    /// side reads more slowly than this side writes. A buffer that grew without
+    /// a bound would be a server whose memory is decided by its slowest client;
+    /// a `send` that blocked would be an actor stalled by a socket it does not
+    /// own. So the buffer is bounded and a socket that fills it is **closed**,
+    /// which is the one answer that costs neither. Naming none leaves the
+    /// number to the runtime.
+    SocketBuffer(Int),
 }
 
 derive Eq, Show for ServeFailure;
@@ -671,6 +758,57 @@ export struct Listener {
     export handle: Int,
     export port: Int,
     export handlers: Int,
+}
+
+derive Eq, Show for Frame;
+/// Which of the three things `listenReceive` answered with.
+///
+/// **Three and not five**: a ping and a pong are the transport keeping a
+/// connection alive and are answered by the platform, so nothing above this
+/// line ever sees one. The set is closed for `Method`'s reason — a frame kind a
+/// program cannot name is one it cannot be surprised by.
+///
+/// The **declaration order is the ABI**, as `Protocol`'s is.
+export enum Frame {
+    /// A text message. `Received.text` is the whole of it.
+    Text,
+    /// A binary message. `Received.data` is the whole of it.
+    Binary,
+    /// The socket is gone, and this is the last thing it will ever answer.
+    /// `Received.code` says why.
+    Closed,
+}
+
+derive Eq, Show for Received;
+/// One thing that arrived on a socket.
+///
+/// **A struct with a kind beside it, rather than an enum with payloads**, and
+/// it is `ServeError`'s shape for `ServeError`'s reason: `cli/runtime/lib.rs`
+/// §2.1 gives a non-enum value its own out-pointer and it crosses whole, so the
+/// runtime writes one shape and the program reads one shape. The enum with
+/// payloads that a reader wants is `core/net/server`'s `Message`, which is
+/// built from this on the Buri side of the boundary — the same division that
+/// puts `CloseReason` one layer up from the `Int` in `socketClose`.
+///
+/// The fields a `frame` does not name are empty: a `.Text` carries nothing in
+/// `data`, a `.Binary` nothing in `text`, and neither carries a `code`.
+export struct Received {
+    /// Which of the three this is, and therefore which field to read.
+    export frame: Frame,
+    /// A `.Text` message's payload.
+    export text: Str,
+    /// A `.Binary` message's payload.
+    export data: [U8],
+    /// Why a `.Closed` socket closed, as the wire's own number — which is why
+    /// `core/net/server` maps it to a `CloseReason` before any program sees
+    /// it, exactly as it maps one *to* a number for `socketClose`.
+    ///
+    /// **A negative code is the platform's own and never the far side's.**
+    /// Wire codes are unsigned, so a number below zero cannot have come off a
+    /// socket: it is how a platform says a socket ended for a reason that was
+    /// never on the wire at all — an outbound buffer that filled, say — without
+    /// a peer being able to claim the same thing by sending it.
+    export code: Int,
 }
 
 derive Eq, Show for Method;
