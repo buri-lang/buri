@@ -128,9 +128,20 @@ crate-type = ["staticlib"]
 # `.github/scripts/assert-runtime-archive.sh` carried, by about 505 KB, and the
 # budget was re-measured and re-stated there in C7's commit — the ratchet
 # working as written rather than being quietly widened. HTTP/2 added 771 688 on
-# top in F4 and the budget did **not** move, because 8 970 592 is still under
-# the 9 MiB the re-statement set: a ratchet that moves when it has not been hit
-# is not one.
+# top in F4 and the Darwin budget did **not** move, because 8 970 592 is still
+# under the 9 MiB the re-statement set: a ratchet that moves when it has not
+# been hit is not one.
+#
+# **The Linux budget did move, and it moved because it had never been
+# measured.** Every figure that script carried for Linux was the macOS delta
+# added to a number taken before any of these crates was linked. The first real
+# measurement (aarch64-unknown-linux-gnu, in the container `scripts/test-linux.sh`
+# runs) put the archive at 12 407 786 bytes *before* HTTP/2 and 13 611 228
+# after — so Linux had been at 98.6 % of a 12 MiB budget for two slices, and
+# hyper's 1 203 442 bytes are what took it over. That delta is 1.56x the Darwin
+# one against an archive that is already 1.51x as large, which is ELF's price
+# for the same code rather than anything failing to be stripped. 14 MiB is the
+# re-measurement.
 #
 # `ring` rather than `aws-lc-rs`, the other provider `rustls` ships: `aws-lc-rs`
 # needs `cmake` (and, on some hosts, `bindgen`) at build time, which is a second

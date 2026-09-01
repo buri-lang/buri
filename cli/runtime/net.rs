@@ -60,12 +60,29 @@
 //! been since C7 and had moved on its own: this file's acceptor is compiled
 //! into a `net`-off archive too, and three slices of it landed in between.
 //!
-//! The 9 MiB budget `assert-runtime-archive.sh` carries is **not** moved by
-//! this slice, and that is the ratchet working rather than the ratchet being
+//! The 9 MiB Darwin budget `assert-runtime-archive.sh` carries is **not** moved
+//! by this slice, and that is the ratchet working rather than the ratchet being
 //! ignored: 8 970 592 is under it by about 4.9 %, and a budget that moves when
 //! it has not been hit is a budget. What it leaves is a thin margin, and the
 //! slice that links `tungstenite` should expect to be the one that re-measures
 //! it.
+//!
+//! **Linux is a bigger machine and its budget did move.** Every Linux figure
+//! that script carried was a projection, and the first real measurement — taken
+//! in the container `scripts/test-linux.sh` runs, on
+//! aarch64-unknown-linux-gnu — showed the projection had been wrong by 1.9 MB:
+//!
+//! ```text
+//! libburi_rt.a, aarch64-unknown-linux-gnu, net on
+//!   before this slice                             12 407 786 bytes
+//!   after it                                      13 611 228   +1 203 442
+//! ```
+//!
+//! So Linux had been at 98.6 % of its 12 MiB budget before HTTP/2 was linked at
+//! all, and hyper's bytes are what took it over. The growth is the same code at
+//! ELF's price: Linux is 1.51x this archive before the slice and hyper costs
+//! 1.56x more there, which is a ratio and not a leak. 14 MiB is the
+//! re-measurement, and the script's own comment is where that is argued.
 //!
 //! **`quinn` still costs the archive nothing**, which is the argument for
 //! landing a crate a slice ahead of its caller all over again: turning `net-h3`
@@ -89,6 +106,17 @@
 //! that linked it, which is the assertion being moved deliberately rather than
 //! the growth being discovered in a binary six months later, and the slice that
 //! links one of the other two moves it again the same way.
+//!
+//! **A crate's name in a symbol is not the same as its code in the archive**,
+//! and linking `hyper` is what made that difference visible. Rust's v0 mangling
+//! ends a monomorphised generic with the crate that *instantiated* it, so
+//! `alloc::raw_vec`'s `grow_one` over an `http::HeaderMap` bucket, kept from
+//! tungstenite's codegen unit when LLVM deduplicated the copies, reads as a
+//! symbol with `tungstenite` in its name and no tungstenite code behind it.
+//! Which copy survives is arbitrary and differs by platform: three such symbols
+//! appear on Linux and none on macOS. The script tells the two apart by
+//! position — an instantiation tag is the last thing on its line and a path
+//! never is — and it says so where it does it.
 //!
 //! It also greps for `aws_lc`, which was never a dependency: it is the *other*
 //! provider `rustls` ships, and `quinn`'s own default features ask for it. They
