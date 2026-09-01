@@ -344,6 +344,20 @@ fn arenaCount(handle: I64): Int;
 /// How many bytes this arena has taken.
 fn arenaTotal(handle: I64): Int;
 
+/// The handle no arena has. `arenaEnter(NO_SCOPE)` therefore *leaves* whichever
+/// arena the carrier is in without entering another, and still answers what it
+/// left — which is the whole of what `copyAcross` needs.
+///
+/// It is a number rather than a second entry because `arenaEnter` already takes
+/// a handle and already answers the previous one: the runtime encodes "no arena
+/// at all" in the same `I64` the pair carries (`cli/runtime/memory.rs`'s
+/// `ArenaSlot::NONE`), and `NO_SCOPE` is the handle that names it. A handle a
+/// scope was actually given is never negative, so nothing else can collide with
+/// it. `test/scoped.buri` in the actor conformance package is what holds the
+/// two halves together: were this to stop meaning "no arena", every case in it
+/// would read memory the kernel had taken back.
+let NO_SCOPE: I64 = -1;
+
 /// Makes this arena the one the platform allocator serves blocks from, for the
 /// carrier this runs on, and answers whichever arena was active before —
 /// `arenaLeave` takes that number back.
@@ -352,32 +366,67 @@ fn arenaTotal(handle: I64): Int;
 /// argument is dropped from every runtime call, so the function that builds a
 /// list cannot be *told* which allocator asked. Making the answer a property of
 /// the carrier for the dynamic extent of the scope is what tells it anyway.
+///
+/// `NO_SCOPE` above is the handle that means "none of them".
 fn arenaEnter(handle: I64): I64;
 
 /// Puts back what `arenaEnter` answered.
 fn arenaLeave(previous: I64): I64;
 
-/// **A deep copy of `value`, on the platform allocator rather than on
-/// whichever one is active.**
+/// **A deep copy of `value`, on whichever allocator is active.**
 ///
 /// Every counted block reachable from `value` is duplicated — a nested
 /// `[[Str]]`, an enum's payload, a closure's captured environment — so the
 /// answer shares nothing with the argument at any depth. It is a *copy* and
 /// not a second reference: the counts of the original's blocks do not move.
 ///
-/// This is what makes a scope's bulk release sound for values as well as for
-/// charges. It is compiled rather than called: each backend generates the walk
-/// for the concrete `T` at the call site, which is what repairs the erasure a
-/// generic intrinsic's key suffers (`middle/monomorphize.rs`).
+/// It is compiled rather than called: each backend generates the walk for the
+/// concrete `T` at the call site, which is what repairs the erasure a generic
+/// intrinsic's key suffers (`middle/monomorphize.rs`).
 ///
-/// **Exported because `scoped` is not the only boundary a value leaves a scope
-/// through.** `core/actor` posts a message into a mailbox that outlives the
-/// call which posted it, and answers an `ask` from inside a step; both are the
-/// same copy at a different site, and a second `copyOut` declared elsewhere
-/// would be a second key for one generated walk. There is nothing to get wrong
-/// by calling it directly — the answer is equal to the argument at every
-/// depth, on every backend — so it is exported rather than duplicated.
+/// **"Whichever allocator is active" is load-bearing and used to be written
+/// here as "the platform allocator".** The copy goes through the same
+/// `buri_rt_alloc` every other allocation does, so inside an `alloc.scoped`
+/// body it lands in *that body's arena* — which is right for a scope inside a
+/// scope, where the answer must live as long as the enclosing one and be
+/// charged to it, and wrong for anything that has to outlive every scope.
+/// `scoped` gets the property it wants by leaving the arena **before** it calls
+/// this; a caller that cannot leave calls [`copyAcross`] instead, which is that
+/// same dance with nothing to get wrong.
+///
+/// **Exported, and no longer the one to reach for.** It became public when
+/// `core/actor` needed the walk at a second site, and a second `copyOut`
+/// declared there would have been a second key for one generated walk. That
+/// caller is [`copyAcross`] now, and it lives here — so what is left is the
+/// primitive: the copy without the leave, for a caller that has decided which
+/// allocator it wants the answer on. If that is not a decision being made, the
+/// answer is `copyAcross`.
 export fn copyOut<T>(value: T): T;
+
+/// **A deep copy of `value` that is in no arena at all**, whichever one the
+/// carrier is standing in.
+///
+/// This is [`copyOut`] with the leave-first dance [`scoped`] does written into
+/// it: leave every arena, copy, go back. The answer is therefore a block the
+/// platform allocator owns and no scope will `munmap`, at every depth.
+///
+/// **It is the copy a value takes on its way *into the runtime*.** `core/actor`
+/// hands the runtime a mailbox message, an initial state, a stepped state and
+/// an `ask`'s answer, and the runtime keeps each of them past the frame of the
+/// call that supplied it (`cli/runtime/rt.rs` §2, `cli/runtime/lib.rs` §3) —
+/// so a value posted from inside an `alloc.scoped` body outlives that body by
+/// construction, and `copyOut` alone would have copied it into the very pages
+/// the scope is about to give back. `cli/runtime/memory.rs`'s `SAFETY` comment
+/// on the arena `munmap` is the property this keeps true.
+///
+/// A caller that is *not* inside a scope pays two runtime calls that read and
+/// write one thread-local word, and the copy it would have made anyway.
+export fn copyAcross<T>(value: T): T {
+    let previous = arenaEnter(NO_SCOPE);
+    let out = copyOut(value);
+    let _ = arenaLeave(previous);
+    out
+}
 
 /// **An attenuating wrapper whose `Alloc` is a scope's own arena and whose
 /// every other effect is the wrapped context's.**
@@ -442,8 +491,8 @@ export struct Scoped<C>(C, I64);
 ///
 /// ## The answer is copied out, and that is what makes the release sound
 ///
-/// The single value that leaves a scope is `body`'s answer, and it is
-/// **deep-copied** onto the caller's allocator before the pages go back:
+/// The single value that leaves a scope *this way* is `body`'s answer, and it
+/// is **deep-copied** onto the caller's allocator before the pages go back:
 /// `copyOut` duplicates every counted block reachable from it, at every depth,
 /// so what the caller receives points at nothing this arena mapped. A copy is
 /// not a share — the original's counts do not move, and the copy's are fresh —
@@ -454,9 +503,16 @@ export struct Scoped<C>(C, I64);
 /// what reclaims the *address space* those blocks sat in. The invariant the
 /// whole arrangement rests on is one sentence: **a value's lifetime never
 /// exceeds the dynamic extent it was created in, except by being the answer —
-/// and the answer is copied.** Buri has no mutable global state and no way to
-/// stash a value where a scope cannot see it, which is what makes that
-/// checkable rather than hopeful.
+/// and the answer is copied.** Buri has no mutable global state, which is what
+/// makes that checkable rather than hopeful.
+///
+/// There is one other place a value's lifetime is extended, and it is not a
+/// place a *scope* can see: the **runtime** keeps blocks between two calls of
+/// its own, which is `cli/runtime/lib.rs` §3's amendment and today is
+/// `core/actor`'s mailboxes, states and reply slots. Such a value is not the
+/// answer and does not pass through the copy above, so it takes the same copy
+/// at its own site — [`copyAcross`], which leaves every arena first. The
+/// invariant is unchanged; what is copied is the union of the two.
 ///
 /// ## The handle dies with the scope
 ///
