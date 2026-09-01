@@ -2351,7 +2351,8 @@ export fn step(n: Int): Int {
             .position(|f| f.debug_name.ends_with(":keep"))
             .expect("the function is in the program");
 
-        let mut plan = rc::Plan { funcs: Vec::new(), crosses_tasks: false };
+        let mut plan =
+            rc::Plan { funcs: Vec::new(), crosses_tasks: false, ..Default::default() };
         for (i, f) in program.funcs.iter().enumerate() {
             let params = vec![Ownership::Own; f.params.len()];
             let sites = if i == target {
