@@ -87,26 +87,36 @@ crate-type = ["staticlib"]
 #   reason it names one from each of the others.
 # * **`tungstenite`** — RFC 6455 framing and the handshake, which is a
 #   protocol with a specification and a test suite rather than an algorithm.
+#   **Linked for real since F7**: `listenUpgrade` completes the handshake with
+#   `derive_accept_key` and hands the socket to `WebSocket::from_raw_socket`,
+#   and every byte after the `101` is framed by it. What `net.rs` keeps is the
+#   HTTP/1.1 head that carries the upgrade, which is a status line and four
+#   fields; what it hands over is masking, fragmentation, the control-frame
+#   rules and the close handshake — none of which is worth writing twice, and
+#   all of which is what the Autobahn suite exists to catch people getting
+#   wrong.
 # * **`quinn`** — QUIC, which is what HTTP/3 runs on: congestion control, loss
 #   recovery, stream multiplexing and connection migration over UDP, which is a
 #   transport protocol rather than a framing. It is the only entry behind
 #   `net-h3` rather than `net`, and the only one that is **off by default**;
 #   the feature block below is where that is argued.
 #
-# **Four of the six are linked; two are still referenced by nothing.** When the
+# **Five of the six are linked; one is still referenced by nothing.** When the
 # crates landed, none of them was: `net.rs` named one type from each and
 # stopped, `lto = "fat"` below is whole-program over the dependency rlibs, and
 # Rust code nothing reaches is not in the archive — measured on
 # aarch64-apple-darwin at the commit that added `net`, twenty-four bytes for the
-# lot. Four have since been reached, each in the commit that needed it:
+# lot. Five have since been reached, each in the commit that needed it:
 # `tokio` by `rt.rs`, the carrier runtime whose reactor and timer wheel
 # `Clock::sleepMillis` and `Net::fetch` wait on (+185 424 bytes); `rustls`
 # and `ring` by `tls.rs`, which `http.rs` calls for every `https://` URL
-# (+1 804 592); and `hyper` by `net.rs`'s HTTP/2 acceptor (+771 688, which is
-# the server, `h2`, `tokio-util` and HPACK's tables). `tungstenite` and `quinn`
-# are reached by nothing still.
+# (+1 804 592); `hyper` by `net.rs`'s HTTP/2 acceptor (+771 688, which is
+# the server, `h2`, `tokio-util` and HPACK's tables); and `tungstenite` by
+# `net.rs`'s WebSocket half (+77 360, which is small because `http` and
+# `httparse` were already live for hyper's sake, so what arrived is the framing,
+# the masking and one SHA-1). `quinn` is reached by nothing still.
 # `.github/scripts/assert-runtime-archive.sh` is where all of that is asserted
-# rather than assumed: four names its symbol table must carry, two it must
+# rather than assumed: five names its symbol table must carry, one it must
 # not.
 #
 # ## The provider, and what it costs
@@ -120,6 +130,12 @@ crate-type = ["staticlib"]
 #   net on (the reactor, TLS, and HTTP/2 since F4)   8 970 592   +2 666 144
 #   net-h3 on as well                                8 971 008         +416
 #
+# Re-measured on the same host by F7, which linked the fifth crate:
+#
+#   net off                                             6 322 696 bytes
+#   net on, since F7 linked the WebSocket framing        9 090 776   +2 768 080
+#   net-h3 on as well                                    9 091 024         +248
+#
 # TLS was **1.72 MiB** of that, of which 845 064 bytes is `ring`'s **native**
 # object code — C and AArch64 assembly in twenty-five `.o` members that `rustc`
 # bundles into a `staticlib` whether the linker needs them or not, so
@@ -128,9 +144,12 @@ crate-type = ["staticlib"]
 # `.github/scripts/assert-runtime-archive.sh` carried, by about 505 KB, and the
 # budget was re-measured and re-stated there in C7's commit — the ratchet
 # working as written rather than being quietly widened. HTTP/2 added 771 688 on
-# top in F4 and the Darwin budget did **not** move, because 8 970 592 is still
-# under the 9 MiB the re-statement set: a ratchet that moves when it has not
-# been hit is not one.
+# top in F4 and WebSockets 77 360 on top of that in F7, and the Darwin budget
+# did **not** move either time, because 9 090 776 is still under the 9 MiB the
+# re-statement set: a ratchet that moves when it has not been hit is not one.
+# What is left of the margin is **3.7 %**, and the script says in as many words
+# that the next slice to add anything should expect to be the one that
+# re-measures it.
 #
 # **The Linux budget did move, and it moved because it had never been
 # measured.** Every figure that script carried for Linux was the macOS delta
@@ -232,8 +251,7 @@ net-h3 = ["net", "dep:quinn"]
 #   toolchain build. It is whole-program across the runtime, the copy of `std`
 #   a staticlib bundles, *and* the dependency rlibs,
 #   which is what made an unreferenced networking stack cost twenty-four
-#   bytes instead of a megabyte, and what still holds `hyper` and
-#   `tungstenite` out of it.
+#   bytes instead of a megabyte, and what still holds `quinn` out of it.
 # * `panic = "abort"` because an abort in this language is a write to standard
 #   error and an exit, never an unwind (SPEC 6.10), so the unwinder tables
 #   would be dead weight in every artifact.

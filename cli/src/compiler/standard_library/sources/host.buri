@@ -12,7 +12,8 @@
 
 from "core/effect" import {
     Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Proc, Rand,
-    Region, Request, Response, Serve, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Received, Region, Request, Response, Serve, ServeError, Sockets, Stderr, Stdin,
+    Stdout, Tasks,
 };
 
 // One `Request` now. `ui/effect` used to declare a second — the
@@ -162,6 +163,10 @@ impl Listen for HostListen {
     ): Result<(), ServeError>;
 
     fn listenClose(self, handle: Int): ();
+
+    fn listenUpgrade(self, connection: Int): Result<Int, ServeError>;
+
+    fn listenReceive(self, socket: Int): Result<Received, ServeError>;
 }
 
 /// Pushing on a connection that is already open.
@@ -170,12 +175,11 @@ impl Listen for HostListen {
 /// of one authority to be a server, and a platform that can accept a
 /// connection is exactly a platform that can write back on it.
 ///
-/// Nothing hands out a socket yet — `Listen` performs no WebSocket upgrade —
-/// so every handle a program could pass these three is one it made up, and the
-/// runtime treats an unknown socket as one that has already gone away. That is
-/// the behaviour the effect declares for a closed socket anyway, which is what
-/// makes granting the authority ahead of the upgrade honest rather than a
-/// silent hole.
+/// `HostListen.listenUpgrade` is what mints the sockets these three name, and
+/// a handle that names no open socket is treated as one that has already gone
+/// away — which is what the effect promises for a socket somebody closed, so a
+/// handle a program made up and a handle it has spent are deliberately the same
+/// answer.
 export struct HostSockets {}
 
 impl Sockets for HostSockets {

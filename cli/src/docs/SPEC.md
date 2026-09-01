@@ -2189,9 +2189,10 @@ caller had: an acceptor grants `Listen` and nothing else, so a handler handed
 one cannot allocate, print, or start a task. That is the right answer where the
 callback is meant to inspect the implementation, and the wrong one for a request
 handler, which is why the choice is written down per method rather than
-inferred — and why `Listen` carries no callback at all today. It is five
+inferred — and why `Listen` carries no callback at all today. It is seven
 operations now — bind a listener, accept a connection, read the request on it,
-respond to it, close the listener — and the loop that calls a handler between
+respond to it, close the listener, upgrade a connection into a WebSocket and
+read what arrives on that — and the loop that calls a handler between
 the third and the fourth lives in `core/net/server`, written in Buri against the
 caller's own `C`. A handler there may allocate, print, read a clock and start a
 task, because the authority it runs with never crossed the effect boundary to be

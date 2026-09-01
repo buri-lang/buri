@@ -3735,3 +3735,139 @@ fn fifty_requests_are_answered_at_once() {
          one at a time rather than {REQUESTS} at once"
     );
 }
+
+/// **The note's counter-per-socket example, against the real acceptor.**
+///
+/// The design row's first named test, and the one thing the conformance corpus
+/// cannot say: a message arrives on a socket and an answer goes back. Three
+/// messages, three answers, and the answers *count* — which is what says the
+/// socket's state was threaded from one hook to the next rather than rebuilt,
+/// and that the actor behind it is the same actor each time.
+///
+/// The last two assertions are the ones that would fail quietly otherwise:
+/// `onClose` ran (so the socket's own loop reached its end rather than the
+/// worker dying), and `main` printed the line after `serve` (so the server
+/// stopped the way it was asked to and not because it was killed).
+///
+/// Every wait is bounded and every thread is joined — `shared::Talking` and
+/// `shared::finished` are where that is argued.
+#[test]
+fn a_socket_counts_the_messages_it_was_sent() {
+    skip_unless_executable!();
+    let source = crate::shared::counting_socket_server();
+    let binary = build_at("socket-counter", &source, None, Profile::Release);
+    let running = crate::shared::announced(&binary);
+    let port = running.2;
+    let mut client = crate::shared::Talking::to(port);
+    let mut heard = Vec::new();
+    for _ in 0..3 {
+        client.say("tick");
+        heard.push(client.heard().expect("an answer on the socket"));
+    }
+    client.hush();
+    let out = crate::shared::finished(running);
+    assert_eq!(
+        heard,
+        vec![
+            String::from("messages so far: 1"),
+            String::from("messages so far: 2"),
+            String::from("messages so far: 3"),
+        ],
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.contains("closed .Normal\n"),
+        "the close hook did not run with the reason the client sent:\n{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "the server did not run to its own end:\n{}",
+        out.stdout
+    );
+}
+
+/// **The note's broadcast-actor example, against the real acceptor.**
+///
+/// The design row's second named test, and F6's forecast spent in as many
+/// words: an actor holds `[Socket]` as its state, is sent to from a socket
+/// hook, and pushes to a socket its own worker does not own. What F6 predicted
+/// is exactly what this shows — a broadcast happens *when somebody publishes*,
+/// on the publisher's worker, because an actor steps on the task that drives
+/// it — and what F7 adds is that the other socket's bytes still go out, because
+/// a `send` is a queue and a byte on a pipe rather than a write somebody has to
+/// be waiting for.
+///
+/// **This row is LLVM's alone.** Two sockets open at once is two workers, and
+/// the frame-threaded backend runs a `parallel` in index order because a
+/// program it builds has one Buri data stack — so worker zero would take the
+/// first socket and never return. That is a timing difference and not a
+/// behaviour one, and F3's `eight_requests_at_once…` is where the same fact is
+/// written down for requests.
+///
+/// The instrument is that the *second* client hears what the first said, which
+/// no single-socket arrangement can produce.
+#[test]
+fn a_broadcast_actor_reaches_a_socket_it_did_not_publish_on() {
+    skip_unless_executable!();
+    let source = crate::shared::broadcasting_socket_server(2);
+    let binary = build_at("socket-broadcast", &source, None, Profile::Release);
+    let running = crate::shared::announced(&binary);
+    let port = running.2;
+    // **The ordering is what makes this deterministic rather than probable.**
+    // A `Joined` is posted by `onOpen`, which runs after the `101` the client
+    // read — so "both clients have connected" does not mean "both are in the
+    // room". What does mean it is a publish that came back: the first client
+    // says something and hears its own echo, which is an `ask` that drained the
+    // mailbox, so by the time the second client publishes its own `Joined` is
+    // in front of its `Publish` on the same worker's queue.
+    let mut first = crate::shared::Talking::to(port);
+    first.say("one");
+    let alone = first.heard();
+
+    let mut second = crate::shared::Talking::to(port);
+    second.say("two");
+    let to_second = second.heard();
+    let to_first = first.heard();
+
+    first.hush();
+    second.hush();
+    let out = crate::shared::finished(running);
+    assert_eq!(
+        alone.as_deref(),
+        Some("one"),
+        "the first socket did not hear its own message:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert_eq!(
+        to_second.as_deref(),
+        Some("two"),
+        "the publisher did not hear its own message:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    // **The whole row.** The first socket published nothing this time and heard
+    // what the second said, on a worker that is not the one that published it.
+    assert_eq!(
+        to_first.as_deref(),
+        Some("two"),
+        "a socket that published nothing heard nothing:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stdout.contains("published to 1\n") && out.stdout.contains("published to 2\n"),
+        "the room did not grow between the two publishes:\n{}",
+        out.stdout
+    );
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "the server did not run to its own end:\n{}",
+        out.stdout
+    );
+}

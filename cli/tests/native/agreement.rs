@@ -2587,7 +2587,7 @@ fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
         "rebuilt handler",
         r#"
 from "core/effect" import {
-  Alloc, Header, IoError, Listen, Listener, Region, Request, Response,
+  Alloc, Header, IoError, Listen, Listener, Received, Region, Request, Response,
   Serve, ServeError, Stdout, Tasks,
 };
 from "core/host" import * as host;
@@ -2652,6 +2652,14 @@ impl Listen for OneShot {
   }
 
   fn listenClose(self, handle: Int): () { () }
+
+  fn listenUpgrade(self, connection: Int): Result<Int, ServeError> {
+    .Err(ServeError { cause: .Unsupported, detail: "not an upgrade" })
+  }
+
+  fn listenReceive(self, socket: Int): Result<Received, ServeError> {
+    .Err(ServeError { cause: .Closed, detail: "" })
+  }
 }
 
 /// The wrapper: unbounded in `C`, exactly like `Scoped<C>`.
@@ -2704,6 +2712,14 @@ impl<C: Listen> Listen for Wrap<C> {
   }
 
   fn listenClose(self, handle: Int): () { self.0.listenClose(handle) }
+
+  fn listenUpgrade(self, connection: Int): Result<Int, ServeError> {
+    self.0.listenUpgrade(connection)
+  }
+
+  fn listenReceive(self, socket: Int): Result<Received, ServeError> {
+    self.0.listenReceive(socket)
+  }
 }
 
 /// A handler written against a bound, which is what a request handler is.
@@ -2783,7 +2799,7 @@ fn a_bound_listener_crosses_a_wrapper_on_every_backend() {
         "bound listener",
         r#"
 from "core/effect" import {
-  Alloc, Header, IoError, Listen, Listener, Region, Request, Response,
+  Alloc, Header, IoError, Listen, Listener, Received, Region, Request, Response,
   Serve, ServeError, Stdout,
 };
 from "core/host" import * as host;
@@ -2831,6 +2847,14 @@ impl Listen for Gate {
   }
 
   fn listenClose(self, handle: Int): () { () }
+
+  fn listenUpgrade(self, connection: Int): Result<Int, ServeError> {
+    .Err(ServeError { cause: .Unsupported, detail: "not an upgrade" })
+  }
+
+  fn listenReceive(self, socket: Int): Result<Received, ServeError> {
+    .Err(ServeError { cause: .Closed, detail: "" })
+  }
 }
 
 /// The wrapper, unbounded in `C`, forwarding the effect whose results are
@@ -2878,6 +2902,14 @@ impl<C: Listen> Listen for Wrap<C> {
   }
 
   fn listenClose(self, handle: Int): () { self.0.listenClose(handle) }
+
+  fn listenUpgrade(self, connection: Int): Result<Int, ServeError> {
+    self.0.listenUpgrade(connection)
+  }
+
+  fn listenReceive(self, socket: Int): Result<Received, ServeError> {
+    self.0.listenReceive(socket)
+  }
 }
 
 /// Binds, and answers what the acceptor said — the port it chose and the

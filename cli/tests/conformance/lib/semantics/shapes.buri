@@ -6,8 +6,8 @@
 // prove its own implementation is the one that ran.
 
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Region,
-    Request, Response, Serve, ServeError, Sockets, Stdout, Tasks,
+    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Received,
+    Region, Request, Response, Serve, ServeError, Sockets, Stdout, Tasks,
 };
 from "core/fs" import * as fs;
 from "core/io" import * as io;
@@ -1024,6 +1024,18 @@ impl Listen for OneShotListen {
     fn listenClose(self, handle: Int): () {
         ()
     }
+
+    /// Not an upgrade, which is every `.Err` this call can answer: the
+    /// connection is untouched and `core/net/server` hands it to `onRequest`.
+    fn listenUpgrade(self, connection: Int): Result<Int, ServeError> {
+        .Err(ServeError { cause: .Unsupported, detail: "not an upgrade" })
+    }
+
+    /// Nothing hands out a socket here, so every handle this can be given is
+    /// one that names nothing.
+    fn listenReceive(self, socket: Int): Result<Received, ServeError> {
+        .Err(ServeError { cause: .Closed, detail: "" })
+    }
 }
 
 /// `OneShotListen`, except that its `Listener` says it will host `handlers` of
@@ -1088,6 +1100,18 @@ impl Listen for PoolListen {
     fn listenClose(self, handle: Int): () {
         ()
     }
+
+    /// Not an upgrade, which is every `.Err` this call can answer: the
+    /// connection is untouched and `core/net/server` hands it to `onRequest`.
+    fn listenUpgrade(self, connection: Int): Result<Int, ServeError> {
+        .Err(ServeError { cause: .Unsupported, detail: "not an upgrade" })
+    }
+
+    /// Nothing hands out a socket here, so every handle this can be given is
+    /// one that names nothing.
+    fn listenReceive(self, socket: Int): Result<Received, ServeError> {
+        .Err(ServeError { cause: .Closed, detail: "" })
+    }
 }
 
 /// A `Listen` that answers with **the plan it was handed**, as a number.
@@ -1124,6 +1148,7 @@ fn planDigit(item: Serve): Int {
         .Certificate(_path) => 4,
         .PrivateKey(_key) => 5,
         .DrainMillis(_millis) => 6,
+        .SocketBuffer(_messages) => 7,
     }
 }
 
@@ -1164,6 +1189,18 @@ impl Listen for PlanListen {
     fn listenClose(self, handle: Int): () {
         ()
     }
+
+    /// Not an upgrade, which is every `.Err` this call can answer: the
+    /// connection is untouched and `core/net/server` hands it to `onRequest`.
+    fn listenUpgrade(self, connection: Int): Result<Int, ServeError> {
+        .Err(ServeError { cause: .Unsupported, detail: "not an upgrade" })
+    }
+
+    /// Nothing hands out a socket here, so every handle this can be given is
+    /// one that names nothing.
+    fn listenReceive(self, socket: Int): Result<Received, ServeError> {
+        .Err(ServeError { cause: .Closed, detail: "" })
+    }
 }
 
 /// A `Sockets` that swallows everything.
@@ -1199,16 +1236,18 @@ impl Sockets for QuietSockets {
 /// declaring one name make the **call** ambiguous rather than either
 /// declaration wrong — `Ui.read` and `Watch.read` are the shipped case, and
 /// there is no way to un-claim a name once programs are written against it.
-/// Five method names across `Listen`, `Sockets` and `Net`, all called here by
-/// name: a build error in this function is the failure, and it arrives at the
-/// only moment the answer is cheap to change.
+/// Every method name `Listen`, `Sockets` and `Net` claim is reached from this
+/// one function — the seven `listen…` through `serve`'s own loop, the three
+/// `socket…` through a `Socket`'s two methods, and `fetch` directly: a build
+/// error here is the failure, and it arrives at the only moment the answer is
+/// cheap to change.
 ///
 /// Answers the network's status when the fake server bound its address, and
 /// its negation when it refused, so the runtime half sees which effect
 /// answered which call.
 ///
 /// The server is driven through `core/net/server`'s own `serve`, so the
-/// library's accept loop is on the path and not only the effect's four names.
+/// library's accept loop is on the path and not only the effect's own names.
 /// The receiver is a bounded `C`, which is the half the front end cannot
 /// settle on its own: a generic body is checked once for every instantiation
 /// at once. Calling this with a `context` value is therefore the
@@ -1219,9 +1258,13 @@ impl Sockets for QuietSockets {
 /// which is the claim: a handler runs under the authority `serve` was called
 /// with, and nothing about that passes through `Listen`.
 export fn serveOnce<C: Alloc + Listen + Net + Sockets + Tasks>(ctx: C, url: Str): Int {
-    let _ = server.sendText(ctx, 7, "opened");
-    let _ = server.sendBytes(ctx, 7, []);
-    let _ = server.close(ctx, 7, 1000, "done");
+    // A forged `Socket`, which is what an inert handle allows and what the
+    // runtime answers "already gone" for. The three `Sockets` methods are
+    // reached through it, which is where they live now.
+    let forged = server.Socket(7);
+    let _sentText = forged.send(ctx, .Text("opened"));
+    let _sentBytes = forged.send(ctx, .Binary([]));
+    let _closed = forged.close(ctx, .Normal);
     let fetched = match (
         http.send(ctx, Request { method: .Get, url: url, headers: [], body: [] })
     ) {

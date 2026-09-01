@@ -323,13 +323,13 @@ pub const ENTRIES: &[Entry] = &[
     },
     // -- Listen, and Sockets beside it --------------------------------------
     //
-    // Five operations and no closure among them: the accept loop lives in
+    // Seven operations and no closure among them: the accept loop lives in
     // `core/net/server`, in Buri, so none of these is an [`Arg::Step`] and the
     // trampoline above is untouched by an entire server landing — F3's worker
     // per handler included, because that fan-out is `Tasks.parallel`'s row and
     // not one of these.
     //
-    // Four of them answer `Result<_, ServeError>` and `ServeError` is a
+    // Six of them answer `Result<_, ServeError>` and `ServeError` is a
     // **struct**, so those take `lib.rs` §2.1's second shape: the error crosses
     // whole through an out-pointer and the discriminant says only that it
     // failed. `bytes.fromUtf8` is the other row shaped that way.
@@ -371,6 +371,23 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_listen_close",
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::Void,
+    },
+    // The upgrade and the read after it. Both take a bare handle and answer a
+    // `Result<_, ServeError>`; the first's `.Ok` is a scalar, the second's is a
+    // `Received` that comes back whole through an out-pointer, exactly as
+    // `listenRequest`'s `Request` does. Neither is an [`Arg::Step`] either — a
+    // socket's loop and a socket's state are both Buri's.
+    Entry {
+        key: "host.HostListen.listenUpgrade",
+        symbol: "buri_rt_host_listen_upgrade",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host.HostListen.listenReceive",
+        symbol: "buri_rt_host_listen_receive",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Res,
     },
     // The socket half: `()` on all three, because a frame is enqueued rather
     // than delivered. The text is `Arg::Str` and the payload `Arg::List` for

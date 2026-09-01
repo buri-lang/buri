@@ -186,11 +186,14 @@ are importable only from a test source.
 `core/proc` is the thinnest of them: `proc.exit(ctx, code)` is `Proc`'s one
 operation. `core/net/server` is the other half of `core/net/http` — a program
 that *is* a server rather than one that talks to one, which is a second
-authority rather than a second spelling. A `Server<C>` is the whole
+authority rather than a second spelling. A `Server<C, S>` is the whole
 configuration: a `port`, an `onRequest` handler taking the caller's own context,
 and `Option` knobs for the address, the protocols, a certificate, a request
-limit, an idle timeout and a shutdown deadline, each of which means "the runtime
-chooses" when it is left out of the literal. `serve` binds and answers until the
+limit, an idle timeout, a shutdown deadline, the WebSocket hooks and a socket
+buffer, each of which means "the runtime chooses" when it is left out of the
+literal. `S` is what one socket carries and it is a type nothing constrains on a
+server with no hooks, which the checker settles as `()` — so a program that does
+not do WebSockets never spells it. `serve` binds and answers until the
 listener closes;
 `bind` and `run` are the same thing in two halves, for a program that wants the
 port number before it starts answering; `errorText` turns a `ServeError` into a
@@ -209,10 +212,28 @@ handler on a task of its own, which is why `serve` needs `Tasks` and `Alloc`
 beside `Listen`. Only
 `LINUX` and `MACOS` grant `Listen`, because a page is served rather than
 serving; `WEB` grants no `Tasks` either, so a server on a page is refused
-twice. `sendText`,
-`sendBytes` and `close` are the socket half, and nothing hands out a socket to
-call them on yet: `serve` performs no WebSocket upgrade, so they say what they
-will do rather than pretending to do it today.
+twice.
+
+**A `Server` with a `websocket` speaks WebSockets, and the upgrade is
+invisible.** With hooks present a client that asks for a socket gets one and
+`onOpen` runs; without them the same request reaches `onRequest` like any other,
+and there is no branch in a handler either way. `onOpen` answers the socket's
+first state, every later hook is handed the current one, and `onMessage` answers
+the next — so per-socket state is a value rather than a table keyed by socket,
+and the counter-per-socket example in `buri docs core/net/server` is an actor's
+address. A `Socket` is inert: one integer, comparable, and sendable to an actor,
+which can then push on it long after the request that opened it returned, since
+`socket.send` and `socket.close` need `C: Sockets` and nothing else. `send`
+never waits — it hands the message to the socket's outbound buffer, and a buffer
+that fills closes the socket with `.Overflow` and runs `onClose`; `socketBuffer`
+is how deep it is. A close is a `CloseReason` and never a wire code, in both
+directions, and ping and pong are the platform's, so `onMessage` sees `.Text`
+and `.Binary` and nothing else. What a socket costs is a worker: its whole life
+runs on the one that accepted it, which is what makes the hooks on a socket run
+in order by construction, and it means a server holding `listener.handlers`
+sockets has none left to accept with. A socket open when a shutdown begins is
+closed with `.GoingAway`, so a drain does not wait out a client that is doing
+nothing wrong, and `onClose` still runs.
 
 **A server stops gracefully.** `SIGTERM` and `SIGINT` do not kill a program that
 is holding a port: the platform stops accepting connections, lets the requests

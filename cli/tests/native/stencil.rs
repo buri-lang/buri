@@ -3055,3 +3055,59 @@ fn eight_requests_at_once_are_each_answered_on_their_own_connection() {
     assert_eq!(replies.len(), REQUESTS);
     crate::shared::each_answered_its_own(&replies);
 }
+
+/// **The note's counter-per-socket example, against the real acceptor.**
+///
+/// The design row's first named test, and the one thing the conformance corpus
+/// cannot say: a message arrives on a socket and an answer goes back. Three
+/// messages, three answers, and the answers *count* — which is what says the
+/// socket's state was threaded from one hook to the next rather than rebuilt,
+/// and that the actor behind it is the same actor each time.
+///
+/// The last two assertions are the ones that would fail quietly otherwise:
+/// `onClose` ran (so the socket's own loop reached its end rather than the
+/// worker dying), and `main` printed the line after `serve` (so the server
+/// stopped the way it was asked to and not because it was killed).
+///
+/// Every wait is bounded and every thread is joined — `shared::Talking` and
+/// `shared::finished` are where that is argued.
+#[test]
+fn a_socket_counts_the_messages_it_was_sent() {
+    if !supported() {
+        return;
+    }
+    let source = crate::shared::counting_socket_server();
+    let binary = build_with("socket-counter", &source, None);
+    let running = crate::shared::announced(&binary);
+    let port = running.2;
+    let mut client = crate::shared::Talking::to(port);
+    let mut heard = Vec::new();
+    for _ in 0..3 {
+        client.say("tick");
+        heard.push(client.heard().expect("an answer on the socket"));
+    }
+    client.hush();
+    let out = crate::shared::finished(running);
+    assert_eq!(
+        heard,
+        vec![
+            String::from("messages so far: 1"),
+            String::from("messages so far: 2"),
+            String::from("messages so far: 3"),
+        ],
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert!(
+        out.stdout.contains("closed .Normal\n"),
+        "the close hook did not run with the reason the client sent:\n{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "the server did not run to its own end:\n{}",
+        out.stdout
+    );
+}

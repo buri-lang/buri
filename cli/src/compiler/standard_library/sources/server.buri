@@ -66,6 +66,8 @@
 //! | `requestLimit` | `-1` | answers until the listener is closed |
 //! | `idleTimeoutMillis` | `-1` | waits for a connection indefinitely |
 //! | `drainMillis` | no `.DrainMillis` in the plan | waits ten seconds for the requests in flight |
+//! | `websocket` | nothing at all — the plan never mentions it | never upgrades, so an upgrade request is an ordinary one |
+//! | `socketBuffer` | no `.SocketBuffer` in the plan | holds sixty-four messages per socket |
 //!
 //! The third column is what *this* runtime does, and it is written down so a
 //! reader knows what to expect rather than so a program may rely on it. The
@@ -195,11 +197,101 @@
 //! exactly as it answers an HTTP/1.1 one. Keep-alive — several requests on one
 //! *HTTP/1.1* connection — is still not here.
 //!
-//! `sendText`, `sendBytes` and `close` are the socket half. Nothing hands out
-//! a `Socket` yet — a WebSocket upgrade is not something `serve` performs —
-//! so the three exist because an effect method no standard-library function
-//! calls is a method nothing outside `core/*` can perform (SPEC 10.2), and
-//! they say what they will do rather than pretending to do it today.
+//! ## WebSockets
+//!
+//! **The upgrade is invisible.** A `Server` with a `websocket` accepts upgrade
+//! requests and runs `onOpen`; a `Server` without one does not, and the same
+//! request reaches `onRequest` like any other. There is no branch in a handler,
+//! no "accept the upgrade" call, and no way for a program to be half upgraded.
+//!
+//! ```buri
+//! from "core/actor" import * as actor;
+//! from "core/actor" import { Actor, Reply };
+//! from "core/effect" import { Alloc, Listen, Sockets, Tasks };
+//! from "core/host" import * as host;
+//! from "core/net/http" import * as http;
+//! from "core/net/server" import * as server;
+//! from "core/str" import * as str;
+//!
+//! enum Counting {
+//!     Increment,
+//!     Get(Reply<Int>),
+//! }
+//!
+//! fn counter<C: Alloc + Tasks>(): Actor<C, Int, Counting> {
+//!     Actor {
+//!         state: 0,
+//!         step: fn(c, count, message) => {
+//!             match (message) {
+//!                 .Increment => count + 1,
+//!                 .Get(reply) => {
+//!                     let _answered = reply.answer(c, count);
+//!                     count
+//!                 },
+//!             }
+//!         },
+//!     }
+//! }
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Listen: host.listen,
+//!         Sockets: host.sockets,
+//!         Tasks: host.tasks,
+//!     };
+//!     server
+//!         .serve(ctx, server.Server {
+//!             port: 3000,
+//!             onRequest: fn(_c, _request) => http.status(404),
+//!             websocket: .Some(server.WebSocket {
+//!                 onOpen: fn(c, _socket, _request) => actor.start(c, counter()),
+//!                 onMessage: fn(c, socket, counted, _message) => {
+//!                     let _posted = counted.send(c, .Increment);
+//!                     let count = counted.ask(c, fn(reply) => .Get(reply)).withDefault(0);
+//!                     let said = str.format(c, "messages so far: ${count}");
+//!                     let _sent = socket.send(c, .Text(said));
+//!                     counted
+//!                 },
+//!                 onClose: fn(c, _socket, counted, _reason) => {
+//!                     let _stopped = counted.stop(c);
+//!                     ()
+//!                 },
+//!             }),
+//!         })
+//!         .mapErr(server.errorText)
+//!     // The socket's state is its counter's address.
+//! }
+//! ```
+//!
+//! * **`onOpen` decides what a socket carries**, every later hook is handed it,
+//!   and `onMessage` answers the next one — so per-socket state is a value on a
+//!   stack rather than a table keyed by socket. Above it is an actor's address;
+//!   it could as easily be a room name or a count.
+//! * **`Socket` is inert**: one integer, copyable, comparable, and — the point —
+//!   sendable to an actor, which can then push on it long after the request
+//!   that opened it returned. `socket.send` and `socket.close` need `C: Sockets`
+//!   and nothing else.
+//! * **`send` never waits.** It hands the message to the socket's outbound
+//!   buffer; a buffer that fills closes the socket with `.Overflow` and
+//!   `onClose` runs. A message to a socket that has already closed is dropped.
+//! * **A close is a `CloseReason` and never a wire code**, in both directions.
+//! * **Ping and pong are the platform's.** `onMessage` sees `.Text` and
+//!   `.Binary` and nothing else.
+//!
+//! **What a socket costs is a worker.** Its whole life — `onOpen`, every
+//! `onMessage`, `onClose` — runs on the one worker that accepted it, which is
+//! what makes "hooks on one socket run in order" true by construction rather
+//! than by a lock, and what lets the state be a local threaded through a tail
+//! call. The bill is that a server holding `listener.handlers` sockets has no
+//! worker left to accept with. That is the same bound F3 put on requests in
+//! flight, it is readable off the `Listener`, and it moves on the day a task can
+//! outlive the call that started it.
+//!
+//! A socket open when a shutdown begins is closed with `.GoingAway` — the
+//! WebSocket half of the GOAWAY an HTTP/2 connection is sent — so a drain does
+//! not wait out its deadline for a client that is doing nothing wrong, and
+//! `onClose` still runs.
 
 from "core/effect" import {
     Alloc, Listen, Listener, Protocol, Request, Response, Serve, ServeError,
@@ -226,7 +318,12 @@ from "core/effect" export {
 /// about that authority passes through `Listen` — `run`'s workers call the
 /// handler themselves — which is the reason the effect has five small methods
 /// and not one big one.
-export struct Server<C> {
+/// `S` is **the state one socket carries**, and on a server with no
+/// `websocket` it is a type nothing constrains — which the checker settles as
+/// `()` (SPEC 13.3: a variable no constraint reached is unit), so a program
+/// that is not a WebSocket server writes exactly what it wrote before this
+/// field existed and never spells the parameter at all.
+export struct Server<C, S> {
     /// The port to hold. `0` asks the operating system to choose one, and
     /// `bind` answers with the number it chose.
     export port: Int,
@@ -271,6 +368,25 @@ export struct Server<C> {
     /// without a certificate is refused at the bind rather than quietly served
     /// in HTTP/1.1.
     export tls: Option<Tls>,
+    /// What this server does with a WebSocket. `.None` is a server that has
+    /// none, and on it an upgrade request is an ordinary request — it reaches
+    /// `onRequest` like any other, which is where a server that does not do
+    /// WebSockets should answer it.
+    ///
+    /// **The upgrade is invisible.** There is no "accept the upgrade" call and
+    /// no branch in a handler: with hooks present, a client that asks for a
+    /// socket gets one and `onOpen` runs; without them, nothing about the
+    /// request is special. That is the whole of the switch, and it is why this
+    /// is an `Option` of the hooks rather than a `Bool` beside them.
+    export websocket: Option<WebSocket<C, S>>,
+    /// How many messages one socket's outbound buffer holds before the socket
+    /// is closed with `.Overflow`. `.None` leaves the number to the runtime.
+    ///
+    /// It is a `Server` field rather than a `WebSocket` one because it is a
+    /// *bind*-time knob: the acceptor is told once, when the port opens, and
+    /// every socket on the listener is bounded the same way. It sits here with
+    /// `drainMillis` for that reason and not because they are related.
+    export socketBuffer: Option<Int>,
 }
 
 derive Eq, Show for Tls;
@@ -315,9 +431,9 @@ export struct Tls {
 /// A program that needs the port *while* the server runs — anything binding
 /// `port: 0` — wants `bind` and `run` instead, which are this function's two
 /// halves and are exported for exactly that.
-export fn serve<C: Alloc + Listen + Tasks>(
+export fn serve<C: Alloc + Listen + Tasks, S>(
     ctx: C,
-    server: Server<C>,
+    server: Server<C, S>,
 ): Result<(), ServeError> {
     match (bind(ctx, server)) {
         .Err(e) => .Err(e),
@@ -337,9 +453,9 @@ export fn serve<C: Alloc + Listen + Tasks>(
 /// budget — and building a list is an allocation, which this language says in
 /// the bound rather than in a comment. `serve` already carried `Alloc` for
 /// `run`'s fan-out, so nothing that called `serve` changes.
-export fn bind<C: Alloc + Listen>(
+export fn bind<C: Alloc + Listen, S>(
     ctx: C,
-    server: Server<C>,
+    server: Server<C, S>,
 ): Result<Listener, ServeError> {
     ctx.listenBind(
         server.address.withDefault(""),
@@ -353,18 +469,19 @@ export fn bind<C: Alloc + Listen>(
 /// A `Server`'s protocol and TLS fields, rendered into the one list the bind
 /// takes.
 ///
-/// The order is protocols first, then the identity, then the shutdown, which
-/// is the order they are read in: the acceptor walks the protocols to decide
-/// what it may offer, reads the certificate to decide whether it can offer
-/// anything at all, and asks about the drain only when it is being asked to
-/// stop. An empty list is a caller who chose nothing, and `.None` on every
-/// field is exactly that.
+/// The order is protocols first, then the identity, then the shutdown, then
+/// the socket buffer, which is the order they are read in: the acceptor walks
+/// the protocols to decide what it may offer, reads the certificate to decide
+/// whether it can offer anything at all, asks about the drain only when it is
+/// being asked to stop, and asks about the buffer only once a socket exists. An
+/// empty list is a caller who chose nothing, and `.None` on every field is
+/// exactly that.
 ///
 /// **An absent option is an absent element**, which is what makes this the
 /// `.None` convention rather than an encoding of it: there is no "unset"
 /// `.DrainMillis` to render, because a plan that does not mention the drain is
 /// already the sentence "this program did not choose one".
-fn planned<C: Alloc>(ctx: C, server: Server<C>): [Serve] {
+fn planned<C: Alloc, S>(ctx: C, server: Server<C, S>): [Serve] {
     let spoken: [Serve] = server.protocols.withDefault([]).map(ctx, fn(p) => .Speak(p));
     let secured: [Serve] = match (server.tls) {
         .None => spoken,
@@ -372,9 +489,13 @@ fn planned<C: Alloc>(ctx: C, server: Server<C>): [Serve] {
             spoken.concat(ctx, [.Certificate(tls.certificate), .PrivateKey(tls.key)])
         },
     };
-    match (server.drainMillis) {
+    let drained: [Serve] = match (server.drainMillis) {
         .None => secured,
         .Some(millis) => secured.concat(ctx, [.DrainMillis(millis)]),
+    };
+    match (server.socketBuffer) {
+        .None => drained,
+        .Some(messages) => drained.concat(ctx, [.SocketBuffer(messages)]),
     }
 }
 
@@ -408,9 +529,10 @@ fn hosted(asked: Int): Int {
 /// written in (SPEC 10.6), so the two things a worker needs travel as the item
 /// rather than as a capture — which is also why `run` can hand every worker the
 /// same value and let the acceptor decide who gets which request.
-struct Worker<C> {
+struct Worker<C, S> {
     handle: Int,
     onRequest: fn(C, Request) => Response,
+    websocket: Option<WebSocket<C, S>>,
 }
 
 /// Answers requests on an already-open listener until it is done, then closes
@@ -437,31 +559,35 @@ struct Worker<C> {
 /// every one of them ended the ordinary way. A worker that fails closes the
 /// listener on its way out (see `answering`), so the others are not left waiting
 /// out a server that has already stopped.
-export fn run<C: Alloc + Listen + Tasks>(
+export fn run<C: Alloc + Listen + Tasks, S>(
     ctx: C,
     listener: Listener,
-    server: Server<C>,
+    server: Server<C, S>,
 ): Result<(), ServeError> {
     let outcome = if (hosted(listener.handlers) <= 1) {
-        answering(ctx, listener.handle, server.onRequest)
+        answering(ctx, listener.handle, server.onRequest, server.websocket)
     } else {
-        together(ctx, listener, server.onRequest)
+        together(ctx, listener, server)
     };
     let _closed = ctx.listenClose(listener.handle);
     outcome
 }
 
 /// The workers, fanned out, and the first failure any of them reported.
-fn together<C: Alloc + Listen + Tasks>(
+fn together<C: Alloc + Listen + Tasks, S>(
     ctx: C,
     listener: Listener,
-    onRequest: fn(C, Request) => Response,
+    server: Server<C, S>,
 ): Result<(), ServeError> {
-    let worker = Worker { handle: listener.handle, onRequest: onRequest };
+    let worker = Worker {
+        handle: listener.handle,
+        onRequest: server.onRequest,
+        websocket: server.websocket,
+    };
     let outcomes = tasks.parallel(
         ctx,
         list.repeat(ctx, worker, hosted(listener.handlers)),
-        fn(c, _index, w) => answering(c, w.handle, w.onRequest),
+        fn(c, _index, w) => answering(c, w.handle, w.onRequest, w.websocket),
     );
     outcomes.fold(
         fn(sofar, outcome) => {
@@ -480,6 +606,11 @@ fn together<C: Alloc + Listen + Tasks>(
 /// round. The first two are two rather than one because only the first of them
 /// waits: `effect Listen` argues it where they are declared.
 ///
+/// The third of them is `taking`, and it is where a connection stops being a
+/// request and becomes a socket if the client asked for one. A socket runs to
+/// its close on this worker and then the loop goes round, so a `.Ok(())` from
+/// `taking` means "this connection is finished with" whichever kind it was.
+///
 /// `.Closed` is the ordinary end and becomes `.Ok(())` here — the one place
 /// that translation happens, so that no caller of this module ever has to know
 /// a listener signs off by failing.
@@ -489,10 +620,11 @@ fn together<C: Alloc + Listen + Tasks>(
 /// last response as easily as when it is next asked for a request, and which
 /// of the two it chooses is a fact about the acceptor. Reading only one would
 /// make the other spelling a failure a server would have to know about.
-fn answering<C: Listen>(
+fn answering<C: Listen, S>(
     ctx: C,
     handle: Int,
     onRequest: fn(C, Request) => Response,
+    websocket: Option<WebSocket<C, S>>,
 ): Result<(), ServeError> {
     match (ctx.listenAccept(handle)) {
         .Err(e) => ending(ctx, handle, e),
@@ -500,22 +632,132 @@ fn answering<C: Listen>(
             match (ctx.listenRequest(connection)) {
                 .Err(e) => ending(ctx, handle, e),
                 .Ok(request) => {
-                    let handler = onRequest;
-                    let reply = handler(ctx, request);
-                    let answered = ctx.listenRespond(
-                        connection,
-                        reply.status,
-                        reply.headers,
-                        reply.body,
-                    );
-                    match (answered) {
+                    match (taking(ctx, connection, request, onRequest, websocket)) {
                         .Err(e) => ending(ctx, handle, e),
-                        .Ok(_ok) => answering(ctx, handle, onRequest),
+                        .Ok(_ok) => answering(ctx, handle, onRequest, websocket),
                     }
                 },
             }
         },
     }
+}
+
+/// One connection, once its request has been read: a socket if the client
+/// asked for one and this server has hooks, and an ordinary request otherwise.
+///
+/// **Every way the upgrade does not happen ends in `onRequest`**, which is what
+/// "the upgrade is invisible" means from the loop's side. A server with no
+/// hooks never asks; a server with hooks asks about every request and is told
+/// `.Err` for all the ones that were not upgrades, and the connection is
+/// untouched either way — so a client that sent `GET /` to a WebSocket server
+/// and a client that sent an upgrade to a plain one are both answered by the
+/// handler, which is where a program's own answer lives.
+fn taking<C: Listen, S>(
+    ctx: C,
+    connection: Int,
+    request: Request,
+    onRequest: fn(C, Request) => Response,
+    websocket: Option<WebSocket<C, S>>,
+): Result<(), ServeError> {
+    match (websocket) {
+        .None => answered(ctx, connection, request, onRequest),
+        .Some(hooks) => {
+            match (ctx.listenUpgrade(connection)) {
+                .Err(_notAnUpgrade) => answered(ctx, connection, request, onRequest),
+                .Ok(socket) => opened(ctx, hooks, Socket(socket), request),
+            }
+        },
+    }
+}
+
+/// The handler, and its answer on the connection it was asked about.
+fn answered<C: Listen>(
+    ctx: C,
+    connection: Int,
+    request: Request,
+    onRequest: fn(C, Request) => Response,
+): Result<(), ServeError> {
+    let handler = onRequest;
+    let reply = handler(ctx, request);
+    ctx.listenRespond(connection, reply.status, reply.headers, reply.body)
+}
+
+/// A socket, from the hook that opens it to the hook that closes it.
+///
+/// **The socket's whole life runs on the worker that accepted it**, and the
+/// state is a local of this frame threaded through `pumping`'s self tail call —
+/// which is `core/actor`'s shape and it is here for the same reason: there is
+/// no way to hand a runtime a Buri value to hold between two calls of its own,
+/// so the value stays where Buri values stay. It costs exactly what it says:
+/// a socket occupies one of `listener.handlers` workers until it closes, so a
+/// server holding more sockets than it has handlers has no worker left to
+/// accept with. `Listener.handlers` is the number, it is readable, and it is
+/// the same bound F3 put on requests in flight.
+///
+/// The answer is `.Ok(())` however the socket ended: a socket closing is not a
+/// listener failing, and the worker goes back to accepting.
+fn opened<C: Listen, S>(
+    ctx: C,
+    hooks: WebSocket<C, S>,
+    socket: Socket,
+    request: Request,
+): Result<(), ServeError> {
+    let open = hooks.onOpen;
+    let state = open(ctx, socket, request);
+    let _closed = pumping(ctx, hooks, socket, state);
+    .Ok(())
+}
+
+/// One message, then the next, then the close.
+///
+/// A self tail call, so a socket that carries a million messages costs one
+/// frame — `answering`'s property, one level down (SPEC 15.1;
+/// `middle/tail_calls.rs`).
+///
+/// **`.Err` is a close too.** A socket that is already gone when this asks —
+/// its listener closed under it, or a handle spent twice — is reported to
+/// `onClose` as `.Abnormal` rather than dropped, because the hook is where a
+/// program undoes what `onOpen` did and a socket that skipped it would leak
+/// whatever that was.
+fn pumping<C: Listen, S>(ctx: C, hooks: WebSocket<C, S>, socket: Socket, state: S): () {
+    match (ctx.listenReceive(socket.0)) {
+        .Err(_gone) => closed(ctx, hooks, socket, state, .Abnormal),
+        .Ok(received) => {
+            match (received.frame) {
+                .Closed => closed(ctx, hooks, socket, state, reasonOf(received.code)),
+                .Text => {
+                    let step = hooks.onMessage;
+                    pumping(
+                        ctx,
+                        hooks,
+                        socket,
+                        step(ctx, socket, state, .Text(received.text)),
+                    )
+                },
+                .Binary => {
+                    let step = hooks.onMessage;
+                    pumping(
+                        ctx,
+                        hooks,
+                        socket,
+                        step(ctx, socket, state, .Binary(received.data)),
+                    )
+                },
+            }
+        },
+    }
+}
+
+/// The close hook, run once, with the state the last message left.
+fn closed<C: Listen, S>(
+    ctx: C,
+    hooks: WebSocket<C, S>,
+    socket: Socket,
+    state: S,
+    reason: CloseReason,
+): () {
+    let close = hooks.onClose;
+    close(ctx, socket, state, reason)
 }
 
 /// How a worker ends: the ordinary way, or by taking the listener down with it.
@@ -562,36 +804,205 @@ export fn errorText(e: ServeError): Str {
 }
 
 // --- Sockets ------------------------------------------------------------------
-//
-// The other half of being a server, and the half with nothing behind it yet:
-// `serve` performs no WebSocket upgrade, so nothing in this language hands out
-// a socket. These three exist because an effect method no standard-library
-// function calls is a method nothing outside `core/*` can perform — an effect
-// is reached by handing a context to a function (SPEC 10.2), and these are
-// those functions — and because the authority is granted with `Listen` rather
-// than after it.
-//
-// A handle that names no open socket is treated as one that has already gone,
-// which is the behaviour `Sockets` declares for a closed socket anyway. The
-// `Socket` value with its own methods, `CloseReason` instead of a wire code,
-// and the upgrade that mints one, land together.
 
-/// Enqueues a text frame on an open socket. Never waits: the frame goes to the
-/// socket's outbound buffer, and a socket whose buffer is full is closed
-/// rather than its writer blocked.
-export fn sendText<C: Sockets>(ctx: C, socket: Int, text: Str): () {
-    ctx.socketSendText(socket, text)
-}
-
-/// Enqueues a binary frame, on `sendText`'s terms.
-export fn sendBytes<C: Sockets>(ctx: C, socket: Int, body: [U8]): () {
-    ctx.socketSendBytes(socket, body)
-}
-
-/// Closes the socket, with the wire code and reason the far side is told.
+derive Eq, Show for Socket;
+/// An open WebSocket, as a value a program can hold.
 ///
-/// A message sent afterwards is dropped rather than refused: the other end may
-/// already be gone, so "did this arrive" was never answerable here.
-export fn close<C: Sockets>(ctx: C, socket: Int, code: Int, reason: Str): () {
-    ctx.socketClose(socket, code, reason)
+/// **Inert, and deliberately so.** It is one integer the acceptor minted and
+/// nobody else understands — `Listener`'s arrangement, one level down — so it
+/// may be copied, put in a list, compared, and *sent to an actor*, which is the
+/// point of it. A socket that carried its own connection would be a value only
+/// the task that accepted it could hold.
+///
+/// Its two methods need `C: Sockets` and nothing else, which is what lets an
+/// actor that was handed a socket push on it long after the request that opened
+/// it returned. Reading from a socket is not here and is not a `Socket` method:
+/// that is the accepting half of being a server, it belongs to whoever holds
+/// the listener, and `effect Listen` is where the line is drawn.
+export struct Socket(export Int);
+
+derive Eq, Show for Message;
+/// One WebSocket message.
+///
+/// Two variants and not four: a ping and a pong are the transport keeping a
+/// connection alive, they are answered by the platform, and a program that had
+/// to answer them would be a program that could forget to.
+export enum Message {
+    /// A UTF-8 message. The wire's text frame.
+    Text(Str),
+    /// An octet message. The wire's binary frame.
+    Binary([U8]),
+}
+
+derive Eq, Show for CloseReason;
+/// Why a socket closed.
+///
+/// **An enum and never a wire code**, which is this module's half of the
+/// bargain `effect Sockets` describes: `socketClose` takes an `Int` because a
+/// close code is what crosses to a platform, and nothing above this line ever
+/// writes one. `codeOf` and `reasonOf` are the two halves of the mapping and
+/// they are the only places in this language a close code is spelled.
+///
+/// Seven of the nine are RFC 6455's; two are not, and both are things a socket
+/// is *told* rather than things a program says.
+export enum CloseReason {
+    /// The exchange finished. Code 1000, and what a program means by "close
+    /// this" unless it says otherwise.
+    Normal,
+    /// One side is going away — a page navigating, a server draining. Code
+    /// 1001, and it is what a socket open when a shutdown began is closed with.
+    GoingAway,
+    /// The far side broke the protocol. Code 1002.
+    ProtocolError,
+    /// A message this end cannot accept — the wrong framing for what it does.
+    /// Code 1003.
+    Unsupported,
+    /// A message this end will not accept, for a reason of its own. Code 1008.
+    Policy,
+    /// A message larger than this end will read. Code 1009.
+    TooLarge,
+    /// This end broke. Code 1011.
+    InternalError,
+    /// **The outbound buffer filled.** `send` never waits, so a client that
+    /// reads more slowly than this server writes has to end somewhere, and the
+    /// end is here: the socket is closed and `onClose` is told this.
+    ///
+    /// It is not a wire code and cannot be forged by a peer — the platform
+    /// says it with a negative number, and codes on the wire are unsigned. A
+    /// program that closes *with* it says 1011, because from the far side's
+    /// point of view that is what happened.
+    Overflow,
+    /// The socket ended without a close frame, or with a code this enum does
+    /// not name. `Overflow`'s note applies to closing with it.
+    Abnormal,
+}
+
+/// What this server does with a WebSocket: three hooks, and the state they
+/// thread between them.
+///
+/// **`onOpen` decides what a socket carries.** It answers the socket's first
+/// state, every later hook is handed the current one, and `onMessage` answers
+/// the next — so per-socket state is an ordinary value on an ordinary stack and
+/// not a table somebody has to key by socket. The counter-per-socket example in
+/// the module header is the shape: `onOpen` starts an actor and the state is
+/// its address.
+///
+/// **Hooks on one socket run in order; sockets run concurrently.** The first
+/// half is by construction — one worker owns a socket for its whole life and
+/// the hooks are three calls in a row on that worker — and the second is the
+/// same fan-out that answers requests. Any hook may do anything its `C` allows,
+/// including waiting.
+///
+/// The `C` is the caller's own context, exactly as `Server.onRequest`'s is, so
+/// a hook that pushes on a socket says `C: Sockets` at the place it is written
+/// and a program whose context lacks it does not compile.
+export struct WebSocket<C, S> {
+    /// A client's upgrade was accepted. Answers the socket's first state.
+    ///
+    /// The `Request` is the one that asked — its path, its headers, its query —
+    /// which is where a program reads a subprotocol, a token, or which room
+    /// this socket joined.
+    export onOpen: fn(C, Socket, Request) => S,
+    /// A message arrived. Answers the state the next one will see.
+    export onMessage: fn(C, Socket, S, Message) => S,
+    /// The socket is gone. Runs once, with the last state, and is the last
+    /// thing this socket does.
+    ///
+    /// **The socket is already closed when this runs**, so a message sent from
+    /// here is dropped. It is for undoing what `onOpen` did — stopping the
+    /// actor, leaving the room — and not for saying goodbye on the wire.
+    export onClose: fn(C, Socket, S, CloseReason) => (),
+}
+
+impl Socket {
+    /// Enqueues a message. **Never waits.**
+    ///
+    /// The message goes to the socket's outbound buffer and this returns; the
+    /// bytes leave when the socket's own worker next pumps it, which for an
+    /// idle socket is at once. A buffer that fills closes the socket with
+    /// `.Overflow` — see `Server.socketBuffer` — and a message to a socket that
+    /// has already closed is dropped, because "did this arrive" was never a
+    /// question this side could answer.
+    ///
+    /// `C: Sockets` and nothing more, which is what makes a socket something an
+    /// actor can hold: the task that pushes here need never have seen a
+    /// listener.
+    export fn send<C: Sockets>(self, ctx: C, message: Message): () {
+        match (message) {
+            .Text(text) => ctx.socketSendText(self.0, text),
+            .Binary(data) => ctx.socketSendBytes(self.0, data),
+        }
+    }
+
+    /// Closes the socket, telling the far side why.
+    ///
+    /// The socket's own worker is told too: its `onClose` runs with the reason
+    /// the far side agreed on, which for a close this end started is this one.
+    export fn close<C: Sockets>(self, ctx: C, reason: CloseReason): () {
+        ctx.socketClose(self.0, codeOf(reason), phraseOf(reason))
+    }
+}
+
+/// A `CloseReason` as the number the far side is sent.
+///
+/// **`.Overflow` and `.Abnormal` both say 1011**, and that is the mapping being
+/// deliberately not a bijection: they are reasons a socket *ended*, not things
+/// one end tells the other, and 1011 — "this end broke" — is the true sentence
+/// for both from the far side's point of view. 1006, which is what `.Abnormal`
+/// comes back as, may not be sent at all (RFC 6455 §7.4.1).
+fn codeOf(reason: CloseReason): Int {
+    match (reason) {
+        .Normal => 1000,
+        .GoingAway => 1001,
+        .ProtocolError => 1002,
+        .Unsupported => 1003,
+        .Policy => 1008,
+        .TooLarge => 1009,
+        .InternalError => 1011,
+        .Overflow => 1011,
+        .Abnormal => 1011,
+    }
+}
+
+/// The words that travel beside the code. Constant per variant, so this costs
+/// no context — `errorText`'s reason, for `errorText`'s kind of function.
+fn phraseOf(reason: CloseReason): Str {
+    match (reason) {
+        .Normal => "closing normally",
+        .GoingAway => "going away",
+        .ProtocolError => "protocol error",
+        .Unsupported => "unsupported data",
+        .Policy => "policy violation",
+        .TooLarge => "message too large",
+        .InternalError => "internal error",
+        .Overflow => "the outbound buffer overflowed",
+        .Abnormal => "closing abnormally",
+    }
+}
+
+/// The number a socket closed with, as the reason a program reads.
+///
+/// **A negative code is the platform's own**, never the far side's: wire codes
+/// are unsigned, so nothing a peer can send reaches this arm. That is what
+/// makes `.Overflow` a thing this server knows about its own socket rather than
+/// a claim a client could make about it.
+///
+/// Every other number this enum does not name is `.Abnormal`, including 1005
+/// and 1006 — the two RFC 6455 reserves for "there was no code" and "there was
+/// no close frame" — which is exactly what `.Abnormal` says.
+fn reasonOf(code: Int): CloseReason {
+    if (code < 0) {
+        .Overflow
+    } else {
+        match (code) {
+            1000 => .Normal,
+            1001 => .GoingAway,
+            1002 => .ProtocolError,
+            1003 => .Unsupported,
+            1008 => .Policy,
+            1009 => .TooLarge,
+            1011 => .InternalError,
+            _ => .Abnormal,
+        }
+    }
 }

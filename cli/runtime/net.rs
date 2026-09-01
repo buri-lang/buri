@@ -511,6 +511,25 @@ const BODY_LIMIT: usize = 8 * 1024 * 1024;
 /// [`ServePlan`] variant rather than one more argument.
 const DRAIN_DEADLINE: Duration = Duration::from_secs(10);
 
+/// How many messages one socket's outbound buffer holds when the plan named no
+/// number of its own.
+///
+/// **A socket that fills it is closed**, which is the one answer that costs
+/// neither of the two things the alternatives cost. A buffer that grew without
+/// a bound would be a server whose memory is decided by its slowest client — a
+/// client that stops reading is not an error condition, it is a laptop closing
+/// — and a `send` that waited for room would be an actor stalled by a socket it
+/// does not own, which is the whole reason `socketSendText` promises not to
+/// wait.
+///
+/// Sixty-four rather than a number of bytes, because a message is what a
+/// program enqueues and a byte count would bound a thousand small messages and
+/// one large one the same way. A program that knows its own messages says so:
+/// `Server.socketBuffer` is that sentence, and it is one [`ServePlan`] variant
+/// rather than one more argument — which is exactly what F4 built the plan
+/// for and named this as the second caller of.
+const SOCKET_BUFFER: usize = 64;
+
 /// How many accepted connections may be in flight — handshaking, being framed,
 /// or waiting for a worker — before the acceptor thread stops taking more.
 ///
@@ -631,6 +650,10 @@ struct Plan {
     /// taken. The plan's own number where it named one, [`DRAIN_DEADLINE`]
     /// where it did not.
     drain: Duration,
+    /// How many messages one socket's outbound buffer holds before the socket
+    /// is closed. The plan's own number where it named one,
+    /// [`SOCKET_BUFFER`] where it did not.
+    socket_buffer: usize,
 }
 
 /// The `[Serve]` list a `Server`'s protocol and TLS fields were rendered into,
@@ -663,13 +686,22 @@ pub struct ServePlan {
     /// How long a shutdown waits for the requests already in flight. `None` is
     /// a caller who chose nothing, which is [`DRAIN_DEADLINE`].
     pub drain: Option<Duration>,
+    /// How many messages one socket's outbound buffer holds. `None` is a
+    /// caller who chose nothing, which is [`SOCKET_BUFFER`].
+    pub socket_buffer: Option<usize>,
 }
 
 impl ServePlan {
     /// A plan that names protocols and no certificate — what a cleartext
     /// caller and most of the tests below want.
     pub fn speaking(protocols: &[Protocol]) -> ServePlan {
-        ServePlan { protocols: protocols.to_vec(), certificate: None, key: None, drain: None }
+        ServePlan {
+            protocols: protocols.to_vec(),
+            certificate: None,
+            key: None,
+            drain: None,
+            socket_buffer: None,
+        }
     }
 
     /// The ALPN offer this plan makes, most-preferred first.
@@ -921,13 +953,16 @@ impl Listening {
     /// before it looks at `finished`.
     ///
     /// The connection is handed back on the refusal path, because the caller is
-    /// the only one that knows how to say `503` on it. Registering it takes the
+    /// the only one that knows how to say `503` on it — **boxed**, because a
+    /// `Pending` is the widest thing in this file and an `Err` that carried one
+    /// by value would make every call of this as wide as its rarest answer.
+    /// The `Ok` is an `i64`. Registering it takes the
     /// connection table's lock while this holds the gate's, which is the only
     /// place the two are nested and is always in this order.
-    fn hand_over(&self, pending: Pending) -> Result<i64, Pending> {
+    fn hand_over(&self, pending: Pending) -> Result<i64, Box<Pending>> {
         let mut gate = self.gate();
         if gate.finished {
-            return Err(pending);
+            return Err(Box::new(pending));
         }
         gate.served = gate.served.saturating_add(1);
         if self.plan.limit.is_some_and(|n| gate.served >= n) {
@@ -1018,6 +1053,23 @@ enum Wire {
     Tls(Box<rustls::StreamOwned<rustls::ServerConnection, TcpStream>>),
 }
 
+impl Wire {
+    /// The socket underneath, whichever transport is on top of it.
+    ///
+    /// One caller and one reason: a WebSocket waits on a *file descriptor*
+    /// rather than on a condition variable, because what it waits for is either
+    /// bytes from the far side or a message another task enqueued, and only one
+    /// of those two can be a lock. The framing above still never asks which
+    /// kind of wire it has.
+    #[cfg(feature = "net")]
+    fn stream(&self) -> &TcpStream {
+        match self {
+            Wire::Plain(s) => s,
+            Wire::Tls(s) => &s.sock,
+        }
+    }
+}
+
 impl Read for Wire {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
@@ -1091,6 +1143,19 @@ struct Pending {
     answer: Option<Answer>,
     /// `None` once `listenRequest` has taken it.
     request: Option<ServerRequest>,
+    /// The `sec-websocket-key` this request offered, when it is a WebSocket
+    /// upgrade this acceptor could complete, and `None` when it is not.
+    ///
+    /// **Decided when the request is framed and kept beside it**, rather than
+    /// asked of the request later, for one reason: `listenRequest` *takes* the
+    /// request, so by the time `core/net/server` asks to upgrade there is no
+    /// request left here to read. One `Option<String>` is also all an upgrade
+    /// needs from the head — everything else about it is `tungstenite`'s.
+    ///
+    /// It is `None` for every HTTP/2 stream. RFC 9113 §8.5 has its own
+    /// mechanism for this and it is not `upgrade:`, so an h2 client asking the
+    /// HTTP/1.1 way is asking for something that is not there.
+    upgrade: Option<String>,
 }
 
 /// The open listeners, by handle.
@@ -1237,6 +1302,7 @@ pub fn bind(
         head: HEAD_DEADLINE,
         body_limit: BODY_LIMIT,
         drain: plan.drain.unwrap_or(DRAIN_DEADLINE),
+        socket_buffer: plan.socket_buffer.unwrap_or(SOCKET_BUFFER),
     };
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
     // **The listener stays blocking, whatever the caller asked for.** It used
@@ -1419,11 +1485,13 @@ fn serve_connection(listening: &Arc<Listening>, handle: i64, stream: TcpStream) 
             return;
         }
     };
+    let upgrade = upgrade_key(&request);
     let pending = Pending {
         listener: handle,
         counted: true,
         answer: Some(Answer::Wire(wire)),
         request: Some(request),
+        upgrade,
     };
     if let Err(unclaimed) = listening.hand_over(pending) {
         // The limit was spent while this request was being read, so there is no
@@ -1764,7 +1832,40 @@ pub fn close(handle: i64) {
         drop(gate);
         listening.room.notify_all();
     }
+    // And the sockets this listener accepted, for the connections' reason one
+    // paragraph up: a socket whose worker has been told the listener is closed
+    // is a socket nobody will ever read again, and its place in flight would
+    // hold a drain of a *different* listener open for the whole of its
+    // deadline. `close_all_on` is what gives both back.
+    close_sockets_on(handle);
 }
+
+#[cfg(feature = "net")]
+fn close_sockets_on(handle: i64) {
+    sockets::close_all_on(handle);
+}
+
+#[cfg(not(feature = "net"))]
+fn close_sockets_on(_handle: i64) {}
+
+/// Every socket on a listener, told the server is going away — what a drain
+/// means for the half of a server that a client *keeps*.
+///
+/// **A WebSocket is h2's problem again**, and it gets h2's answer. An HTTP/1.1
+/// connection carries one message and ends, so a drain that stopped accepting
+/// was already finished with it; an HTTP/2 connection and a WebSocket are both
+/// things a client holds open on purpose, and a drain that could only wait
+/// would wait out its whole deadline for every one of them. So a socket is
+/// closed with 1001 and its worker runs `onClose` — which is more than the
+/// GOAWAY does, because a WebSocket program has a hook to run and an h2 one
+/// does not.
+#[cfg(feature = "net")]
+fn drain_sockets_on(handle: i64) {
+    sockets::going_away(handle);
+}
+
+#[cfg(not(feature = "net"))]
+fn drain_sockets_on(_handle: i64) {}
 
 // ---------------------------------------------------------------------------
 // Graceful shutdown
@@ -1839,6 +1940,7 @@ pub fn close(handle: i64) {
 pub fn drain(handle: i64) -> bool {
     let Ok(listening) = listening(handle) else { return true };
     listening.begin_drain();
+    drain_sockets_on(handle);
     let drained = listening.drained(Instant::now() + listening.plan.drain);
     listening.finish();
     drained
@@ -1853,23 +1955,25 @@ pub fn drain(handle: i64) -> bool {
 /// one of them asked for, because a deadline is a promise to the slowest
 /// listener and not a budget divided between them.
 fn drain_all() {
-    let listeners: Vec<Arc<Listening>> = acceptors(|table| table.values().map(Arc::clone).collect());
+    let listeners: Vec<(i64, Arc<Listening>)> =
+        acceptors(|table| table.iter().map(|(handle, open)| (*handle, Arc::clone(open))).collect());
     // No port open is a signal with nothing to drain, which is the race at the
     // very end of a server's life: the last `close` gave the signals back a
     // moment after this one was delivered. Nothing to do, and nothing lost —
     // the disposition is the operating system's again, so the next one
     // terminates the process the ordinary way.
-    let Some(until) = listeners.iter().map(|l| l.plan.drain).max().map(|d| Instant::now() + d)
+    let Some(until) = listeners.iter().map(|(_, l)| l.plan.drain).max().map(|d| Instant::now() + d)
     else {
         return;
     };
-    for listening in &listeners {
+    for (handle, listening) in &listeners {
         listening.begin_drain();
+        drain_sockets_on(*handle);
     }
-    for listening in &listeners {
+    for (_, listening) in &listeners {
         listening.drained(until);
     }
-    for listening in &listeners {
+    for (_, listening) in &listeners {
         listening.finish();
     }
 }
@@ -2328,6 +2432,9 @@ async fn answering(
         counted: false,
         answer: Some(Answer::Stream(back)),
         request: Some(ServerRequest { method, target, headers, body }),
+        // RFC 9113 §8.5 replaced `upgrade:` outright, so an h2 stream asking
+        // the HTTP/1.1 way is asking for a mechanism the protocol removed.
+        upgrade: None,
     };
     if listening.hand_over(pending).is_err() {
         return only(503);
@@ -2436,6 +2543,779 @@ fn answered(reply: Reply) -> hyper::Response<Once> {
 }
 
 // ---------------------------------------------------------------------------
+// WebSockets — the half `tungstenite` frames
+// ---------------------------------------------------------------------------
+//
+// **This is the commit that links `tungstenite`, and it links it for the same
+// reason F4 linked `hyper`: the part nobody should write twice.** RFC 6455 is a
+// framing with a masking rule, a fragmentation rule, a control-frame rule, a
+// close handshake and a conformance suite (Autobahn) that exists because
+// implementations get it wrong. What this file keeps is what it has always
+// kept — the HTTP/1.1 head that carries the upgrade, which is a status line and
+// four fields — and what it hands over is every byte after the `101`.
+//
+// **The upgrade is a hundred and one and a hash.** `derive_accept_key` is the
+// only thing this file borrows from the handshake half of that crate: it is
+// SHA-1 over the client's key and a constant GUID, base64'd, and the response
+// around it is four header fields written here. `tungstenite::accept` would
+// have read the request off the socket itself, and the request was read three
+// functions ago — a server that read it twice would be a server that framed it
+// twice.
+//
+// ## Where a socket lives
+//
+// **On the worker that accepted it**, and that is the whole shape. F2 put the
+// accept loop in Buri because the runtime cannot hold a Buri value between two
+// calls of its own; F6 reached the same answer for an actor's state; and a
+// socket's state is the same question a third time — `onOpen` answers a value,
+// every `onMessage` answers the next one, and `onClose` sees the last. So
+// `core/net/server` runs a socket's whole life on one worker, the state is a
+// local threaded through a self tail call, and this file holds a queue and a
+// framing rather than anything belonging to a program.
+//
+// Two things follow and both are worth stating:
+//
+// * **Hooks on one socket run in order by construction.** There is one caller
+//   inside [`sockets::receive`] for any socket, so there is nothing to
+//   serialise. The lock on the framing is there to make that a fact rather than
+//   a promise, not to arbitrate between two workers that should not exist.
+// * **A socket occupies a worker.** `MAX_HANDLERS` sockets is as many as a
+//   server can hold while still accepting, which is F3's bound arriving in a
+//   second place for F3's reason: `effect Tasks` has no detached spawn, so the
+//   loop that reads a socket is a loop somebody is inside. It moves on the day
+//   a task can outlive the call that started it, and nothing about this file's
+//   surface moves with it.
+//
+// ## The one wait that is two waits
+//
+// A socket's loop waits for either of two things: bytes from the far side, or a
+// message another task enqueued for it. The first is a file descriptor and the
+// second is a lock, and there is no portable way to wait on both — which is why
+// this is the one place in this file that reaches for `poll(2)` and a
+// self-pipe. `Listening::wake` dials a port for the same reason one screen up;
+// `shutdown` writes a byte into a pipe for the same reason one screen down.
+//
+// What that buys is that **`socketSendText` never waits and never spins**: it
+// takes a lock, pushes onto a queue, writes one byte, and returns. The socket's
+// own worker is out of `poll` before the caller's next instruction, and an idle
+// socket costs nothing at all until somebody has something to say to it.
+
+/// The `sec-websocket-key` a request offered, when it is an upgrade this
+/// acceptor could complete, and `None` when it is not.
+///
+/// **Every clause RFC 6455 §4.2.1 requires**, and none of them is negotiable:
+/// a `GET`, `upgrade: websocket`, `connection` containing `upgrade`,
+/// `sec-websocket-version: 13`, and a key. A request missing any of them is not
+/// an upgrade, and `core/net/server` hands it to the ordinary handler — which
+/// is the same thing that happens to an upgrade request on a server with no
+/// socket hooks, and is what makes the whole feature invisible to a program
+/// that does not use it.
+///
+/// The two multi-valued fields are searched rather than compared. `connection`
+/// is a comma-separated list and browsers send `keep-alive, Upgrade`; `upgrade`
+/// is a list too, in principle. Both are matched case-insensitively because
+/// RFC 9110 §7.6.1 says these tokens are, and a server that refused
+/// `Connection: keep-alive, Upgrade` would be refusing correct clients.
+fn upgrade_key(request: &ServerRequest) -> Option<String> {
+    // `.Get` is index 0 in `Method`'s declaration order, which is
+    // `crate::http::METHODS`'s order.
+    if request.method != 0 {
+        return None;
+    }
+    let field = |name: &str| {
+        request.headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.trim().to_string())
+    };
+    let names = |value: Option<String>, token: &str| {
+        value.is_some_and(|v| v.split(',').any(|part| part.trim().eq_ignore_ascii_case(token)))
+    };
+    if !names(field("upgrade"), "websocket") || !names(field("connection"), "upgrade") {
+        return None;
+    }
+    // The one version this protocol has had. A client asking for another is
+    // owed a `sec-websocket-version: 13` response header by the RFC; it gets an
+    // ordinary handler instead, which is a server that does not do WebSockets
+    // as far as that client can tell, and is the honest answer from an acceptor
+    // that speaks exactly one.
+    if field("sec-websocket-version").as_deref() != Some("13") {
+        return None;
+    }
+    field("sec-websocket-key").filter(|key| !key.is_empty())
+}
+
+/// The sentence a connection that was not an upgrade is refused with.
+///
+/// It is a refusal `core/net/server` never shows anybody: any `.Err` from
+/// `listenUpgrade` means "this is an ordinary request", and the connection is
+/// still there to be answered. The words are for whoever reads a `ServeError`
+/// out of a hand-written loop.
+pub const NOT_AN_UPGRADE: &str =
+    "this request is not a WebSocket upgrade: an upgrade is a GET carrying `upgrade: websocket`, \
+     `connection: upgrade`, `sec-websocket-version: 13` and a `sec-websocket-key`";
+
+/// The sentence a `net`-off toolchain owes a program that asked for one.
+pub const SOCKETS_OFF: &str =
+    "WebSockets are not supported by this toolchain's native runtime: it was built without the \
+     runtime's `net` feature, so it carries no RFC 6455 framing. Leave `Server`'s `websocket` \
+     field unset and answer the request in `onRequest`";
+
+/// What `listenReceive` answers with, before it becomes a Buri value.
+///
+/// The three fields a `Frame` does not name are empty, which is the contract
+/// `Received`'s declaration states rather than something this struct enforces.
+#[derive(Debug)]
+pub struct Received {
+    /// `Frame`'s variant index: 0 `.Text`, 1 `.Binary`, 2 `.Closed`.
+    pub frame: i8,
+    pub text: String,
+    pub data: Vec<u8>,
+    pub code: i64,
+}
+
+impl Received {
+    fn text(text: &str) -> Received {
+        Received { frame: 0, text: text.to_string(), data: Vec::new(), code: 0 }
+    }
+
+    fn binary(data: &[u8]) -> Received {
+        Received { frame: 1, text: String::new(), data: data.to_vec(), code: 0 }
+    }
+
+    fn closed(code: i64) -> Received {
+        Received { frame: 2, text: String::new(), data: Vec::new(), code }
+    }
+}
+
+/// What a socket that filled its outbound buffer answers `Received.code` with.
+///
+/// **Negative, and that is the point.** A close code on the wire is unsigned
+/// (RFC 6455 §5.5.1 makes it two octets), so no peer can send this number and
+/// no peer can therefore claim that *this* server's buffer overflowed. It is
+/// how a platform says a socket ended for a reason that was never on the wire,
+/// and `core/net/server`'s `reasonOf` is the one place it is read.
+const OVERFLOWED: i64 = -1;
+
+/// What the far side is told when this side's buffer overflowed: 1011, "an
+/// internal error", which is the true sentence from where the client is
+/// standing.
+const OVERFLOW_CODE: u16 = 1011;
+
+/// What a socket open when a shutdown begins is closed with: 1001, "going
+/// away".
+///
+/// **The WebSocket half of h2's GOAWAY**, and it is here for that decision's
+/// reason. A WebSocket is a thing a client *keeps* — keeping it is what the
+/// protocol is for — so a drain that only stopped accepting would wait out its
+/// whole deadline for every open socket, which is not a corner case but the
+/// ordinary shutdown of a server that has any. So a drain closes them, and
+/// `onClose` still runs, so a program still gets to undo what `onOpen` did.
+const GOING_AWAY: u16 = 1001;
+
+/// What a socket that ended without a close frame answers with: 1006, which
+/// RFC 6455 §7.4.1 reserves for exactly that and forbids on the wire.
+const NO_CLOSE_FRAME: i64 = 1006;
+
+/// What a close frame carrying no code answers with: 1005, reserved for "there
+/// was no status code" and forbidden on the wire beside 1006.
+const NO_CLOSE_CODE: i64 = 1005;
+
+#[cfg(feature = "net")]
+mod sockets {
+    use std::collections::{HashMap, VecDeque};
+    use std::io::{Read, Write};
+    use std::os::unix::io::{AsRawFd, RawFd};
+    use std::os::unix::net::UnixStream;
+    use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    use tungstenite::protocol::frame::coding::CloseCode;
+    use tungstenite::protocol::{CloseFrame, Role, WebSocket, WebSocketConfig};
+
+    use super::{
+        Answer, GOING_AWAY, NOT_AN_UPGRADE, NO_CLOSE_CODE, NO_CLOSE_FRAME, OVERFLOWED,
+        OVERFLOW_CODE, Received, ServeErr, ServeFail, Wire, connections, listening,
+    };
+
+    /// How long [`waiting`] sleeps before it looks again with nothing having
+    /// woken it.
+    ///
+    /// **A backstop and not a poll**, and the difference is the number: every
+    /// state change on a socket writes the wake byte under the same lock that
+    /// made the change, so a socket that is doing nothing is woken by nothing
+    /// and this is what happens when that reasoning is wrong. One second costs
+    /// one wakeup per open socket per second — three orders of magnitude below
+    /// the ten-millisecond poll F3 measured as a server that took twenty
+    /// seconds to notice a client — and what it buys is that a lost wakeup is a
+    /// one-second delay rather than a test suite that hangs.
+    const BACKSTOP_MILLIS: i32 = 1_000;
+
+    /// The read buffer `tungstenite` allocates per socket, eagerly.
+    ///
+    /// Eight kilobytes rather than the crate's own 128, because this runtime's
+    /// sockets are bounded by `IN_FLIGHT` and not by one connection's
+    /// throughput: a hundred and twenty-eight open sockets at the default would
+    /// be sixteen megabytes of read buffers in a process that has not received
+    /// a byte. A server that moves enough traffic for this to matter is a
+    /// server that wants a knob, and the knob would be a `Serve` variant.
+    const READ_BUFFER: usize = 8 * 1024;
+
+    /// `POLLIN` — there is something to read, or the far side has gone. The
+    /// same one on both platforms this runtime is built for.
+    const POLLIN: i16 = 0x0001;
+    /// `POLLOUT` — there is room to write. Asked for only when a flush has
+    /// already answered `WouldBlock`.
+    const POLLOUT: i16 = 0x0004;
+
+    /// The two descriptors this waits on, as the width `poll` takes them in.
+    const TWO: NFds = 2;
+
+    /// `struct pollfd`, which is three fields in this order on both platforms.
+    #[repr(C)]
+    struct PollFd {
+        fd: i32,
+        events: i16,
+        revents: i16,
+    }
+
+    /// `nfds_t` is an `unsigned int` on macOS and an `unsigned long` on Linux.
+    /// Two lines rather than one, because a mismatched integer width in a C
+    /// declaration is the kind of thing that works until it does not.
+    #[cfg(target_os = "macos")]
+    type NFds = u32;
+    #[cfg(not(target_os = "macos"))]
+    type NFds = u64;
+
+    // The one call this module makes into the C library, declared rather than
+    // depended on — `memory.rs`'s `mmap` block and `shutdown`'s `signal` block
+    // are the precedents and carry the argument.
+    //
+    // `poll` rather than `select` because `select` cannot describe a descriptor
+    // above `FD_SETSIZE` and a server holding a thousand connections has them;
+    // `poll` rather than `kqueue`/`epoll` because those are two implementations
+    // of one idea and this waits on exactly two descriptors.
+    unsafe extern "C" {
+        fn poll(fds: *mut PollFd, nfds: NFds, timeout: i32) -> i32;
+    }
+
+    /// One message on its way out, before it is framed.
+    enum Queued {
+        Text(String),
+        Binary(Vec<u8>),
+    }
+
+    /// How a socket is going to end, decided by this side.
+    #[derive(Clone)]
+    struct Ending {
+        /// What the far side is sent in the close frame.
+        code: u16,
+        /// The words beside it.
+        reason: String,
+        /// What the socket's own loop is told, which is **not** always the
+        /// same number: an overflow is [`OVERFLOWED`] here and
+        /// [`OVERFLOW_CODE`] on the wire, because one is a fact about this
+        /// server and the other is what the client can be told about it.
+        told: i64,
+    }
+
+    /// What a socket has been handed and not yet written.
+    struct Outbound {
+        queue: VecDeque<Queued>,
+        /// Set once, by whoever decides first. A second decision is dropped,
+        /// which is what makes closing twice a no-op.
+        ending: Option<Ending>,
+    }
+
+    /// One open socket: everything the tasks touching it share.
+    ///
+    /// **The framing and the queue are two locks and not one**, deliberately.
+    /// The framing is held for as long as a `receive` is inside `poll`, which
+    /// is most of a socket's life; a `send` that had to take that lock would be
+    /// a `send` that waited for the far side to say something, which is exactly
+    /// what `socketSendText` promises not to do. So a send touches the queue
+    /// and the pipe, and neither is ever held across a wait.
+    struct Socketed {
+        /// Which listener accepted it, so a listener closing takes its sockets
+        /// with it and so the place in flight goes back to the right gate.
+        listener: i64,
+        /// How many messages the queue holds before the socket is closed.
+        bound: usize,
+        out: Mutex<Outbound>,
+        /// The framing. `None` once the socket has been retired, which is what
+        /// makes a second `receive` `.Err` rather than a second close.
+        framing: Mutex<Option<WebSocket<Wire>>>,
+        /// The descriptor [`waiting`] watches for bytes.
+        fd: RawFd,
+        /// The write end of the self-pipe. One byte here brings the socket's
+        /// own worker out of `poll`.
+        wake: UnixStream,
+        /// The read end, watched beside [`Socketed::fd`].
+        woken: UnixStream,
+        /// The listener took its sockets back while this one's worker was
+        /// inside `poll`. Read on the way round.
+        retired: AtomicBool,
+        /// This socket's place in [`super::Gate::outstanding`] has been given
+        /// back. Swapped rather than checked, so it happens exactly once
+        /// however many paths reach it.
+        landed: AtomicBool,
+    }
+
+    impl Socketed {
+        fn out(&self) -> MutexGuard<'_, Outbound> {
+            match self.out.lock() {
+                Ok(g) => g,
+                Err(poisoned) => poisoned.into_inner(),
+            }
+        }
+
+        fn framing(&self) -> MutexGuard<'_, Option<WebSocket<Wire>>> {
+            match self.framing.lock() {
+                Ok(g) => g,
+                Err(poisoned) => poisoned.into_inner(),
+            }
+        }
+
+        /// One byte into the self-pipe. A failure is a pipe whose reader has
+        /// gone, which is a socket already being retired.
+        fn wake(&self) {
+            let _woken = (&self.wake).write(&[1u8]);
+        }
+    }
+
+    /// The open sockets, by handle — [`super::ACCEPTORS`]'s arrangement, for its
+    /// reason: a handle is an `Int` in Buri and a key here, so a program cannot
+    /// hand the runtime an address and a stale handle is a lookup that misses.
+    static SOCKETS: Mutex<Option<HashMap<i64, Arc<Socketed>>>> = Mutex::new(None);
+
+    /// The next socket. Never reused, so a socket closed and a socket never
+    /// opened are the same answer.
+    static NEXT_SOCKET: AtomicI64 = AtomicI64::new(1);
+
+    fn table<T>(with: impl FnOnce(&mut HashMap<i64, Arc<Socketed>>) -> T) -> T {
+        let mut guard = match SOCKETS.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        with(guard.get_or_insert_with(HashMap::new))
+    }
+
+    fn socketed(socket: i64) -> Option<Arc<Socketed>> {
+        table(|open| open.get(&socket).map(Arc::clone))
+    }
+
+    /// Give this socket's place in flight back, at most once.
+    ///
+    /// A socket inherits the place its connection held from the moment it is
+    /// upgraded — `listenRespond` is what would have given it back and an
+    /// upgraded connection is never responded to — so a drain waits for open
+    /// sockets exactly as it waits for requests in flight. What keeps that from
+    /// being a wait nobody survives is [`GOING_AWAY`]: a drain closes them
+    /// first.
+    fn land(socket: &Socketed) {
+        if socket.landed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        if let Ok(gate) = listening(socket.listener) {
+            gate.land();
+        }
+    }
+
+    /// Take a socket out of the table and let go of its framing, which is what
+    /// closes the descriptor.
+    fn retire(
+        socket: i64,
+        held: &mut Option<WebSocket<Wire>>,
+        state: &Arc<Socketed>,
+    ) {
+        *held = None;
+        table(|open| open.remove(&socket));
+        land(state);
+    }
+
+    /// `Listen::listenUpgrade` — a connection becomes a socket, or says it is
+    /// not one.
+    ///
+    /// **The connection is taken out of the table only when the upgrade is
+    /// certain**, because every other answer has to leave it answerable: a
+    /// request that was not an upgrade is one `core/net/server` hands to
+    /// `onRequest`, and a connection that had been consumed would be a client
+    /// left holding a socket nobody was going to write to.
+    ///
+    /// The one exception is a `101` that could not be written, and it is
+    /// stated rather than hidden: the connection is gone by then, so the
+    /// handler runs and its response goes nowhere. A socket whose first four
+    /// lines did not reach the client is a socket that was never going to work.
+    pub(super) fn upgrade(connection: i64) -> Result<i64, ServeErr> {
+        let taken = connections(|table| {
+            let ours = table.get(&connection).is_some_and(|pending| pending.upgrade.is_some());
+            if ours { table.remove(&connection) } else { None }
+        });
+        let Some(pending) = taken else {
+            return Err(ServeErr::new(ServeFail::Unsupported, NOT_AN_UPGRADE));
+        };
+        let listener = pending.listener;
+        let refused = |detail: String| {
+            // The connection has left the table, so its place in flight is this
+            // function's to give back.
+            if let Ok(gate) = listening(listener) {
+                gate.land();
+            }
+            Err(ServeErr::new(ServeFail::Transport, detail))
+        };
+        let key = pending.upgrade.unwrap_or_default();
+        let Some(Answer::Wire(mut wire)) = pending.answer else {
+            return refused(String::from("this connection has already been answered"));
+        };
+        let open = listening(listener).ok();
+        let limit = open.as_ref().map_or(0, |l| l.plan.body_limit);
+        // The whole of the handshake this file writes: a status line and four
+        // fields. `derive_accept_key` is SHA-1 over the client's key and RFC
+        // 6455's constant GUID, base64'd, and it is the only part of it that
+        // is anybody else's.
+        let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
+        let head = format!(
+            "HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\nconnection: Upgrade\r\n\
+             sec-websocket-accept: {accept}\r\n\r\n"
+        );
+        if let Err(e) = wire.write_all(head.as_bytes()).and_then(|()| wire.flush()) {
+            return refused(format!("writing the upgrade response: {e}"));
+        }
+        // **Non-blocking from here on**, which is what makes the wait below a
+        // wait on two descriptors rather than a read that blocks: a framing
+        // that answers `WouldBlock` is a framing that has told us everything it
+        // has, and `poll` is what says when there is more.
+        let stream = wire.stream();
+        let fd = stream.as_raw_fd();
+        if let Err(e) = stream.set_nonblocking(true) {
+            return refused(format!("making the socket non-blocking: {e}"));
+        }
+        let Ok((woken, wake)) = UnixStream::pair() else {
+            return refused(String::from("opening the socket's wakeup pipe"));
+        };
+        // Both ends, because the reader drains without blocking and the writer
+        // must not block when nobody has drained yet — a full pipe means the
+        // worker has already been woken and has not looked yet, which is a
+        // wakeup that has done its job.
+        if woken.set_nonblocking(true).is_err() || wake.set_nonblocking(true).is_err() {
+            return refused(String::from("making the socket's wakeup pipe non-blocking"));
+        }
+        // Field by field rather than a struct literal: `WebSocketConfig` is
+        // `#[non_exhaustive]`, which is the crate reserving the right to add a
+        // knob without breaking this line.
+        let mut config = WebSocketConfig::default();
+        config.read_buffer_size = READ_BUFFER;
+        // Zero, so a message is written to the stream as it is queued rather
+        // than held for a flush that this loop would have to remember to make.
+        // The buffering that matters is `Outbound`'s, which is the one a
+        // program can bound.
+        config.write_buffer_size = 0;
+        config.max_message_size = (limit > 0).then_some(limit);
+        let framing = WebSocket::from_raw_socket(wire, Role::Server, Some(config));
+        let socket = NEXT_SOCKET.fetch_add(1, Ordering::Relaxed);
+        let state = Arc::new(Socketed {
+            listener,
+            bound: open.as_ref().map_or(super::SOCKET_BUFFER, |l| l.plan.socket_buffer),
+            out: Mutex::new(Outbound { queue: VecDeque::new(), ending: None }),
+            framing: Mutex::new(Some(framing)),
+            fd,
+            wake,
+            woken,
+            retired: AtomicBool::new(false),
+            landed: AtomicBool::new(false),
+        });
+        table(|open| open.insert(socket, state));
+        Ok(socket)
+    }
+
+    /// `Listen::listenReceive` — the next thing to arrive on a socket.
+    ///
+    /// Three steps, in this order, and the order is the design: write what is
+    /// queued, read what has arrived, and only then wait. A `receive` that
+    /// waited first would be a socket whose outbound queue is delivered one
+    /// message late, which for a broadcast is every subscriber waiting for the
+    /// next thing anybody says.
+    pub(super) fn receive(socket: i64) -> Result<Received, ServeErr> {
+        let Some(state) = socketed(socket) else { return Err(ServeErr::closed()) };
+        let mut held = state.framing();
+        if held.is_none() {
+            return Err(ServeErr::closed());
+        }
+        // Set when a flush has answered `WouldBlock`, so the wait asks about
+        // room to write as well as bytes to read. Cleared as soon as one
+        // succeeds.
+        let mut blocked = false;
+        loop {
+            if state.retired.load(Ordering::SeqCst) {
+                retire(socket, &mut held, &state);
+                return Err(ServeErr::closed());
+            }
+            let Some(framing) = held.as_mut() else { return Err(ServeErr::closed()) };
+            // 1. Everything that has been enqueued, and the close if one has
+            //    been decided. Both are read under the queue's lock in one
+            //    step, so a `send` that overflowed cannot have its message
+            //    written and its close missed.
+            let ending = {
+                let mut out = state.out();
+                while let Some(queued) = out.queue.pop_front() {
+                    let message = match queued {
+                        Queued::Text(text) => tungstenite::Message::Text(text.into()),
+                        Queued::Binary(data) => tungstenite::Message::Binary(data.into()),
+                    };
+                    if framing.write(message).is_err() {
+                        // The framing has gone. The close below is what the
+                        // loop is told about it; the rest of the queue goes
+                        // with the socket.
+                        out.queue.clear();
+                        out.ending.get_or_insert(Ending {
+                            code: OVERFLOW_CODE,
+                            reason: String::new(),
+                            told: NO_CLOSE_FRAME,
+                        });
+                        break;
+                    }
+                }
+                out.ending.clone()
+            };
+            blocked = flush(framing, blocked);
+            if let Some(end) = ending {
+                // The close frame is written and flushed on the way out, so a
+                // client that is reading gets a reason rather than a socket
+                // that stopped. `close` queues it and `flush` writes it; a
+                // failure at either end is a client that has already gone.
+                let _closed = framing.close(Some(CloseFrame {
+                    code: CloseCode::from(end.code),
+                    reason: end.reason.into(),
+                }));
+                let _flushed = framing.flush();
+                retire(socket, &mut held, &state);
+                return Ok(Received::closed(end.told));
+            }
+            // 2. Everything that has arrived. The loop is over `read` and not
+            //    over `poll`, because `tungstenite` buffers: a second whole
+            //    message may already be in its reader when the descriptor has
+            //    nothing left to say.
+            let mut arrived: Option<Received> = None;
+            let mut ended: Option<i64> = None;
+            loop {
+                match framing.read() {
+                    Ok(tungstenite::Message::Text(text)) => {
+                        arrived = Some(Received::text(text.as_str()));
+                        break;
+                    }
+                    Ok(tungstenite::Message::Binary(data)) => {
+                        arrived = Some(Received::binary(&data));
+                        break;
+                    }
+                    Ok(tungstenite::Message::Close(frame)) => {
+                        ended = Some(
+                            frame.map_or(NO_CLOSE_CODE, |f| i64::from(u16::from(f.code))),
+                        );
+                        break;
+                    }
+                    // **Ping and pong are the runtime's**, which is what this
+                    // arm is: `tungstenite` has already queued the pong, the
+                    // flush below writes it, and nothing above this line ever
+                    // learns that a heartbeat happened.
+                    Ok(_) => continue,
+                    Err(tungstenite::Error::Io(e))
+                        if e.kind() == std::io::ErrorKind::WouldBlock =>
+                    {
+                        break;
+                    }
+                    // Every other way a read ends is this socket ending: the
+                    // far side went without a close frame, or sent something
+                    // that is not RFC 6455. Both are 1006 to the loop, which
+                    // is `.Abnormal`.
+                    Err(_) => {
+                        ended = Some(NO_CLOSE_FRAME);
+                        break;
+                    }
+                }
+            }
+            // The pong the read may have queued, and anything a `write` above
+            // left buffered.
+            blocked = flush(framing, blocked);
+            if let Some(code) = ended {
+                let _flushed = framing.flush();
+                retire(socket, &mut held, &state);
+                return Ok(Received::closed(code));
+            }
+            if let Some(received) = arrived {
+                return Ok(received);
+            }
+            // 3. Nothing to write and nothing to read: wait for either.
+            waiting(&state, blocked);
+        }
+    }
+
+    /// Flush, and answer whether the stream is still refusing writes.
+    ///
+    /// A `WouldBlock` here is a client that is not reading, which is the
+    /// ordinary state of a slow one: what it means is that the wait below has
+    /// to ask about room to write as well as about bytes to read, and nothing
+    /// more. The bytes stay in `tungstenite`'s own write buffer, which is why
+    /// `Outbound`'s bound is the one a program sets — that queue is the one
+    /// this runtime can see the depth of.
+    fn flush(framing: &mut WebSocket<Wire>, blocked: bool) -> bool {
+        match framing.flush() {
+            Ok(()) => false,
+            Err(tungstenite::Error::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => true,
+            Err(_) => blocked,
+        }
+    }
+
+    /// Wait for bytes on the socket, for room to write on it, or for a byte on
+    /// the self-pipe — whichever happens first.
+    ///
+    /// The pipe is drained here rather than counted: one byte and a hundred
+    /// mean the same thing, which is "look again".
+    fn waiting(state: &Socketed, blocked: bool) {
+        let events = if blocked { POLLIN | POLLOUT } else { POLLIN };
+        let mut fds = [
+            PollFd { fd: state.fd, events, revents: 0 },
+            PollFd { fd: state.woken.as_raw_fd(), events: POLLIN, revents: 0 },
+        ];
+        // SAFETY: two descriptors this process owns, in an array of two, with
+        // a timeout in milliseconds. `poll` reads `nfds` entries and writes
+        // `revents` into each, which is what a `&mut [PollFd; 2]` allows.
+        let _ready = unsafe { poll(fds.as_mut_ptr(), TWO, BACKSTOP_MILLIS) };
+        // The pipe is drained rather than counted: one byte and a hundred mean
+        // the same thing, which is "look again".
+        if fds.get(1).is_some_and(|pipe| pipe.revents & POLLIN != 0) {
+            let mut sink = [0u8; 64];
+            while let Ok(n) = (&state.woken).read(&mut sink) {
+                if n == 0 {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// `Sockets::socketSendText` — a message onto the queue, and a byte into
+    /// the pipe.
+    ///
+    /// **Never waits, and a handle that names nothing is a message dropped**,
+    /// which are the same sentence from two directions: this side cannot tell a
+    /// socket that closed a moment ago from one that never existed, and it was
+    /// never in a position to answer "did this arrive" for either.
+    fn send(socket: i64, message: Queued) {
+        let Some(state) = socketed(socket) else { return };
+        {
+            let mut out = state.out();
+            // A socket that is already ending takes nothing more: the close
+            // frame is next on the wire, and a message queued behind it is one
+            // the far side would never be told about anyway.
+            if out.ending.is_some() {
+                return;
+            }
+            if out.queue.len() >= state.bound {
+                // **The overflow, and it closes the socket.** The message that
+                // did not fit is dropped with the rest of the queue, because a
+                // socket that is closing has nowhere to put them and a client
+                // that receives half a stream is worse served than one that is
+                // told the stream ended.
+                out.queue.clear();
+                out.ending = Some(Ending {
+                    code: OVERFLOW_CODE,
+                    reason: String::from("the outbound buffer overflowed"),
+                    told: OVERFLOWED,
+                });
+            } else {
+                out.queue.push_back(message);
+            }
+        }
+        state.wake();
+    }
+
+    pub(super) fn send_text(socket: i64, text: &str) {
+        send(socket, Queued::Text(text.to_string()));
+    }
+
+    pub(super) fn send_bytes(socket: i64, data: &[u8]) {
+        send(socket, Queued::Binary(data.to_vec()));
+    }
+
+    /// `Sockets::socketClose` — the close this side decided on.
+    ///
+    /// The socket's own worker performs it, which is what keeps one thread
+    /// inside the framing: this marks the queue and wakes it. The code the
+    /// caller gave is both what the far side is sent and what `onClose` is
+    /// told, so a program that closes with `.Normal` sees `.Normal`.
+    pub(super) fn close(socket: i64, code: i64, reason: &str) {
+        let Some(state) = socketed(socket) else { return };
+        {
+            let mut out = state.out();
+            if out.ending.is_some() {
+                return;
+            }
+            let wire = u16::try_from(code.clamp(1000, 4999)).unwrap_or(1000);
+            out.ending =
+                Some(Ending { code: wire, reason: reason.to_string(), told: i64::from(wire) });
+        }
+        state.wake();
+    }
+
+    /// Every socket on a listener, closed with 1001 — what a drain means.
+    ///
+    /// It does **not** wait: `Listening::drained` is already waiting on
+    /// `Gate::outstanding`, and every socket gives its place back when its own
+    /// worker performs the close. So a drain tells the sockets and then waits
+    /// for the number it was already waiting for.
+    pub(super) fn going_away(listener: i64) {
+        for state in on(listener) {
+            {
+                let mut out = state.out();
+                if out.ending.is_none() {
+                    out.ending = Some(Ending {
+                        code: GOING_AWAY,
+                        reason: String::from("the server is shutting down"),
+                        told: i64::from(GOING_AWAY),
+                    });
+                }
+            }
+            state.wake();
+        }
+    }
+
+    /// Every socket on a listener, taken now — what `listenClose` means.
+    ///
+    /// `close` drops the connections nobody will answer and this drops the
+    /// sockets nobody will read, which is the same sentence: a listener that
+    /// has been closed is one whose workers are on their way out, and a socket
+    /// waiting for one of them would wait forever. The place in flight goes
+    /// back here rather than in a `receive` that may never happen again.
+    pub(super) fn close_all_on(listener: i64) {
+        for state in on(listener) {
+            state.retired.store(true, Ordering::SeqCst);
+            table(|open| {
+                open.retain(|_, held| !Arc::ptr_eq(held, &state));
+            });
+            land(&state);
+            state.wake();
+        }
+    }
+
+    /// The sockets a listener accepted.
+    fn on(listener: i64) -> Vec<Arc<Socketed>> {
+        table(|open| {
+            open.values().filter(|s| s.listener == listener).map(Arc::clone).collect()
+        })
+    }
+
+    /// Whether **this** socket is still in the table — for the tests, which are
+    /// the only thing that can ask.
+    ///
+    /// One socket and not a count, deliberately: the table is process-wide and
+    /// the tests below share a process, so "the table is empty" would be a
+    /// claim about every other case running beside this one. A test that
+    /// asserted it would pass or fail depending on what the scheduler happened
+    /// to be doing, which is the kind of row this repository fixes rather than
+    /// retries.
+    #[cfg(test)]
+    pub(super) fn is_open(socket: i64) -> bool {
+        table(|open| open.contains_key(&socket))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The C ABI
 // ---------------------------------------------------------------------------
 //
@@ -2535,8 +3415,17 @@ unsafe fn plan_of(ptr: *const u8, len: u64) -> Result<ServePlan, ServeErr> {
                 let millis = unsafe { element.payload.millis };
                 plan.drain = (millis >= 0).then(|| Duration::from_millis(millis as u64));
             }
+            // SAFETY: the tag says the payload area holds an `Int`. Zero and
+            // below are read as "chose nothing" for `.DrainMillis`'s reason and
+            // for one of its own: a socket whose buffer holds no messages is a
+            // socket that closes on its first `send`, which is a configuration
+            // nobody means.
+            4 => {
+                let messages = unsafe { element.payload.millis };
+                plan.socket_buffer = (messages > 0).then_some(messages as usize);
+            }
             // Not defensive: a program this toolchain built cannot produce a
-            // fourth tag, so this is what an older program linked against a
+            // sixth tag, so this is what an older program linked against a
             // newer runtime — or the reverse — is told, and the answer to that
             // is a refusal rather than a guess.
             unknown => {
@@ -2783,14 +3672,116 @@ pub extern "C" fn buri_rt_host_listen_close(handle: i64) {
     close(handle);
 }
 
-// The three `Sockets` entries. Nothing hands out a socket yet — `Listen`
-// performs no WebSocket upgrade — so every handle these can be given is one a
-// program made up, and an unknown socket is one that has already gone away.
-// That is the behaviour `effect Sockets` declares for a closed socket, which is
-// what makes granting the authority beside `Listen` honest rather than a hole:
-// the bodies are here, they are reached through the ordinary door, and what
-// they do to a handle that names nothing is what they will do to a handle whose
-// socket closed while a message was in flight.
+/// `Received` — `{ frame: Frame, text: Str, data: [U8], code: Int }`.
+///
+/// `Frame` is a three-variant enum with no payloads, which `middle/layout.rs`
+/// gives a bare `i8` tag, so `text` starts at 8 and not at 1 — `BuriRequest`'s
+/// rule one screen up, and `#[repr(C)]`'s own padding agreeing with the value
+/// model's alignment. `the_transcribed_shapes_match_the_value_model` asserts
+/// every offset of it.
+#[repr(C)]
+pub struct BuriReceived {
+    frame: i8,
+    text: BuriStr,
+    data: BuriList,
+    code: i64,
+}
+
+/// `Listen::listenUpgrade(connection) -> Result<Int, ServeError>`.
+///
+/// # Safety
+/// Both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_listen_upgrade(
+    connection: i64,
+    out: *mut i64,
+    err: *mut BuriServeError,
+) -> i32 {
+    // **A suspension point**: the handshake response is a write to a socket
+    // whose peer may be reading slowly, on `listenRespond`'s reasoning.
+    match park(|| upgraded(connection)) {
+        Ok(socket) => {
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out.write(socket) };
+            crate::BURI_OK
+        }
+        Err(e) => {
+            // SAFETY: as above.
+            unsafe { err.write(BuriServeError::of(&e)) };
+            0
+        }
+    }
+}
+
+#[cfg(feature = "net")]
+fn upgraded(connection: i64) -> Result<i64, ServeErr> {
+    sockets::upgrade(connection)
+}
+
+/// With the feature off there is no RFC 6455 framing in the archive, so the
+/// true answer is about how the toolchain was built. It reaches
+/// `core/net/server` as "this is not an upgrade" either way — every `.Err` from
+/// this call does — so a `net`-off server answers the request in `onRequest`,
+/// which is the same thing a server with no hooks does.
+#[cfg(not(feature = "net"))]
+fn upgraded(_connection: i64) -> Result<i64, ServeErr> {
+    Err(ServeErr::new(ServeFail::Unsupported, SOCKETS_OFF))
+}
+
+/// `Listen::listenReceive(socket) -> Result<Received, ServeError>`.
+///
+/// **A suspension point, and the second one in this file that can wait
+/// forever.** A socket between messages is a worker between messages, exactly
+/// as a listener between connections is, and `park_on` is what keeps it from
+/// being a carrier between messages too.
+///
+/// # Safety
+/// Both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_listen_receive(
+    socket: i64,
+    out: *mut BuriReceived,
+    err: *mut BuriServeError,
+) -> i32 {
+    match park(|| received(socket)) {
+        Ok(event) => {
+            let value = BuriReceived {
+                frame: event.frame,
+                text: str_of(&event.text),
+                data: list_of_bytes(&event.data),
+                code: event.code,
+            };
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out.write(value) };
+            crate::BURI_OK
+        }
+        Err(e) => {
+            // SAFETY: as above.
+            unsafe { err.write(BuriServeError::of(&e)) };
+            0
+        }
+    }
+}
+
+#[cfg(feature = "net")]
+fn received(socket: i64) -> Result<Received, ServeErr> {
+    sockets::receive(socket)
+}
+
+#[cfg(not(feature = "net"))]
+fn received(_socket: i64) -> Result<Received, ServeErr> {
+    Err(ServeErr::closed())
+}
+
+// The three `Sockets` entries. A handle that names no open socket is one that
+// has already gone away — which is the behaviour `effect Sockets` declares for
+// a closed socket, so a handle a program made up and a handle it has spent are
+// deliberately the same answer, and all three are total.
+//
+// None of them touches the socket itself. A message goes onto the socket's own
+// outbound queue and a byte goes into its wakeup pipe, and the socket's own
+// worker does the writing — which is what `socketSendText`'s "never waits"
+// means and what keeps one thread inside one framing.
 
 /// `Sockets::socketSendText(socket, text)`.
 ///
@@ -2798,11 +3789,14 @@ pub extern "C" fn buri_rt_host_listen_close(handle: i64) {
 /// The text view must be live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_sockets_socket_send_text(
-    _socket: i64,
+    socket: i64,
     _base: *mut u8,
-    _ptr: *const u8,
-    _len: u64,
+    ptr: *const u8,
+    len: u64,
 ) {
+    // SAFETY: forwarded.
+    let text = unsafe { crate::host::text(ptr, len) };
+    enqueue_text(socket, &text);
 }
 
 /// `Sockets::socketSendBytes(socket, body)`.
@@ -2811,10 +3805,18 @@ pub unsafe extern "C" fn buri_rt_host_sockets_socket_send_text(
 /// The `[U8]` must be live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_sockets_socket_send_bytes(
-    _socket: i64,
-    _ptr: *const u8,
-    _len: u64,
+    socket: i64,
+    ptr: *const u8,
+    len: u64,
 ) {
+    let body: &[u8] = if ptr.is_null() || len == 0 {
+        &[]
+    } else {
+        // SAFETY: the caller promises `len` readable bytes; a `[U8]`'s stride
+        // is one, so the payload is the bytes themselves.
+        unsafe { std::slice::from_raw_parts(ptr, len as usize) }
+    };
+    enqueue_bytes(socket, body);
 }
 
 /// `Sockets::socketClose(socket, code, reason)`.
@@ -2823,13 +3825,44 @@ pub unsafe extern "C" fn buri_rt_host_sockets_socket_send_bytes(
 /// The reason view must be live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_sockets_socket_close(
-    _socket: i64,
-    _code: i64,
+    socket: i64,
+    code: i64,
     _base: *mut u8,
-    _ptr: *const u8,
-    _len: u64,
+    ptr: *const u8,
+    len: u64,
 ) {
+    // SAFETY: forwarded.
+    let reason = unsafe { crate::host::text(ptr, len) };
+    finish(socket, code, &reason);
 }
+
+#[cfg(feature = "net")]
+fn enqueue_text(socket: i64, text: &str) {
+    sockets::send_text(socket, text);
+}
+
+#[cfg(feature = "net")]
+fn enqueue_bytes(socket: i64, body: &[u8]) {
+    sockets::send_bytes(socket, body);
+}
+
+#[cfg(feature = "net")]
+fn finish(socket: i64, code: i64, reason: &str) {
+    sockets::close(socket, code, reason);
+}
+
+// With the feature off nothing can have minted a socket — `listenUpgrade`
+// refuses — so every handle these can be given is one a program made up, and
+// dropping what they are handed *is* the declared behaviour for a socket that
+// has gone rather than a stub.
+#[cfg(not(feature = "net"))]
+fn enqueue_text(_socket: i64, _text: &str) {}
+
+#[cfg(not(feature = "net"))]
+fn enqueue_bytes(_socket: i64, _body: &[u8]) {}
+
+#[cfg(not(feature = "net"))]
+fn finish(_socket: i64, _code: i64, _reason: &str) {}
 
 /// Run one blocking step off the run baton where there is a reactor to park on,
 /// and inline where there is not.
@@ -2994,18 +4027,32 @@ mod tests {
         assert_eq!(std::mem::offset_of!(BuriServeError, cause), 0);
         assert_eq!(std::mem::offset_of!(BuriServeError, detail), 8);
 
+        // `Received { frame: Frame, text: Str, data: [U8], code: Int }`.
+        // `Frame` has three payload-free variants, so `BuriRequest`'s tag rule
+        // a third time: one byte at zero, and `text` at 8 rather than at 1.
+        assert_eq!(std::mem::size_of::<BuriReceived>(), 56);
+        assert_eq!(std::mem::align_of::<BuriReceived>(), 8);
+        assert_eq!(std::mem::offset_of!(BuriReceived, frame), 0);
+        assert_eq!(std::mem::offset_of!(BuriReceived, text), 8);
+        assert_eq!(std::mem::offset_of!(BuriReceived, data), 32);
+        assert_eq!(std::mem::offset_of!(BuriReceived, code), 48);
+
         // `Serve { Speak(Protocol), Certificate(Str), PrivateKey(Str),
-        // DrainMillis(Int) }` — §6's `tag ++ payload`, and the first
+        // DrainMillis(Int), SocketBuffer(Int) }` — §6's `tag ++ payload`, and
+        // the first
         // payload-carrying enum this runtime reads. The tag is one byte because
         // four variants fit in one; the payload area starts at 8 because a
         // `Str` is eight-aligned; the whole is 32 because that is
         // `align_up(8 + 24, 8)`. A `[Serve]`'s stride is that size, so getting
         // it wrong reads every element after the first from the wrong address.
         //
-        // **F5 added a variant and none of those numbers moved**, which is what
-        // the extension point being free means: an `Int` payload is eight bytes
-        // in an area that already held twenty-four, and a fourth tag is a fourth
-        // value of a byte that already had two hundred and fifty-six.
+        // **F5 added a fourth variant and F7 a fifth, and none of those
+        // numbers moved**, which is what the extension point being free means:
+        // an `Int` payload is eight bytes in an area that already held
+        // twenty-four, and a fifth tag is a fifth value of a byte that already
+        // had two hundred and fifty-six. Two knobs that could not have crossed
+        // the bind's ten-integer budget at all have now cost nothing between
+        // them.
         assert_eq!(std::mem::size_of::<BuriServe>(), 32);
         assert_eq!(std::mem::align_of::<BuriServe>(), 8);
         assert_eq!(std::mem::offset_of!(BuriServe, tag), 0);
@@ -3041,8 +4088,9 @@ mod tests {
                 payload: BuriServePayload { text: std::mem::ManuallyDrop::new(borrowed(&key)) },
             },
             BuriServe { tag: 3, payload: BuriServePayload { millis: 2_500 } },
+            BuriServe { tag: 4, payload: BuriServePayload { millis: 8 } },
         ];
-        // SAFETY: five live elements, at the stride asserted above.
+        // SAFETY: six live elements, at the stride asserted above.
         let plan = unsafe { plan_of(items.as_ptr().cast(), items.len() as u64) }
             .expect("a plan this runtime knows every tag of");
         assert_eq!(plan.protocols, vec![Protocol::Http1, Protocol::Http2]);
@@ -3052,17 +4100,27 @@ mod tests {
         // a `Str` is read at — which is the claim the union makes and the one
         // that would fail silently if it were wrong.
         assert_eq!(plan.drain, Some(Duration::from_millis(2_500)));
+        // The fifth variant, at the same offset again.
+        assert_eq!(plan.socket_buffer, Some(8));
         // An empty plan is a caller who chose nothing, and that includes the
         // drain: `None` here is `DRAIN_DEADLINE` at the bind, not zero.
         let empty = unsafe { plan_of(std::ptr::null(), 0) }.expect("nothing is a plan too");
         assert!(empty.protocols.is_empty());
         assert_eq!(empty.drain, None);
+        assert_eq!(empty.socket_buffer, None);
         // A negative deadline is `.None` arriving the long way round, and it
         // reads as "chose nothing" rather than as a deadline already past.
         let negative = [BuriServe { tag: 3, payload: BuriServePayload { millis: -1 } }];
         // SAFETY: one live element.
         let negative = unsafe { plan_of(negative.as_ptr().cast(), 1) }.expect("a plan");
         assert_eq!(negative.drain, None);
+        // A buffer of zero is read the same way and for a reason of its own: a
+        // socket whose queue holds nothing would close on its first `send`,
+        // which is not a configuration anybody means.
+        let none = [BuriServe { tag: 4, payload: BuriServePayload { millis: 0 } }];
+        // SAFETY: one live element.
+        let none = unsafe { plan_of(none.as_ptr().cast(), 1) }.expect("a plan");
+        assert_eq!(none.socket_buffer, None);
         // The ALPN offer follows the protocols and their order, most preferred
         // first — which is the whole of how a client comes to be speaking h2 —
         // and a caller who chose nothing offers HTTP/1.1. There is no offer to
@@ -3108,6 +4166,7 @@ mod tests {
             certificate: None,
             key: None,
             drain: Some(Duration::from_secs(10)),
+            socket_buffer: None,
         };
         let (handle, port, _handlers) =
             bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
@@ -3177,6 +4236,7 @@ mod tests {
             certificate: None,
             key: None,
             drain: Some(Duration::from_millis(150)),
+            socket_buffer: None,
         };
         let (handle, port, _handlers) =
             bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
@@ -3819,6 +4879,7 @@ mod tests {
             certificate: Some(certificate),
             key: Some(key),
             drain: None,
+            socket_buffer: None,
         };
         let (handle, port, _handlers) =
             bind("127.0.0.1", 0, &plan, 1, 30_000).expect("a bound port");
@@ -3877,6 +4938,7 @@ mod tests {
             certificate: Some(certificate),
             key: Some(key),
             drain: None,
+            socket_buffer: None,
         };
         let (handle, port, _handlers) =
             bind("127.0.0.1", 0, &plan, 2, 30_000).expect("a bound port");
@@ -3971,6 +5033,7 @@ mod tests {
             certificate: Some(certificate),
             key: Some(key),
             drain: Some(Duration::from_secs(15)),
+            socket_buffer: None,
         };
         let (handle, port, _handlers) =
             bind("127.0.0.1", 0, &plan, -1, 30_000).expect("a bound port");
@@ -4045,6 +5108,7 @@ mod tests {
             certificate: Some(missing.clone()),
             key: Some(key.clone()),
             drain: None,
+            socket_buffer: None,
         };
         let refused = bind("127.0.0.1", 0, &plan, -1, 60).expect_err("there is no such file");
         assert_eq!(refused.cause, ServeFail::Transport);
@@ -4060,10 +5124,398 @@ mod tests {
             certificate: Some(empty.clone()),
             key: Some(key),
             drain: None,
+            socket_buffer: None,
         };
         let refused = bind("127.0.0.1", 0, &plan, -1, 60).expect_err("no identity to present");
         assert_eq!(refused.cause, ServeFail::Transport);
         assert!(refused.detail.contains("CERTIFICATE"), "{}", refused.detail);
         let _ = std::fs::remove_file(&empty);
+    }
+    // -----------------------------------------------------------------------
+    // WebSockets
+    // -----------------------------------------------------------------------
+    //
+    // Every one of these binds `127.0.0.1:0`, puts a deadline on every socket,
+    // bounds the listener's own wait, and joins every thread it starts. The
+    // client is `tungstenite`'s own — which this crate has because the server
+    // half is `tungstenite`'s too — so what is under test is this file's
+    // upgrade, queue and close and not a hand-written client's idea of RFC
+    // 6455.
+
+    /// How long a socket test waits for an event before it calls the socket
+    /// broken. Not a measurement — nothing here asserts how fast a socket
+    /// answers — so it is generous, and what it buys is a failing test with a
+    /// sentence instead of a job CI has to kill.
+    #[cfg(feature = "net")]
+    const SOCKET_DEADLINE: Duration = Duration::from_secs(20);
+
+    /// `receive`, with a deadline, on a thread of its own.
+    ///
+    /// **`listenReceive` is the second call in this file that may wait
+    /// forever**, and a test that waited forever is a suite CI has to kill —
+    /// which is the rule the tls-hang fix left behind and every row here obeys.
+    /// So the wait happens on a thread and this one holds a deadline; the way
+    /// out on expiry is to close the listener, which retires the socket and
+    /// brings the thread home with an `.Err` rather than leaving it detached.
+    ///
+    /// The deadline is generous because it is not a measurement: nothing here
+    /// asserts how *fast* a socket answers, only that it does, so this is the
+    /// difference between a failing test with a sentence and a hang.
+    #[cfg(feature = "net")]
+    fn received_within(socket: i64, handle: i64, within: Duration) -> Result<Received, ServeErr> {
+        let (said, heard) = std::sync::mpsc::channel();
+        let waiting = std::thread::spawn(move || {
+            let _sent = said.send(sockets::receive(socket));
+        });
+        let answered = heard.recv_timeout(within);
+        let late = answered.is_err();
+        if late {
+            close(handle);
+        }
+        let outcome = match answered {
+            Ok(outcome) => outcome,
+            Err(_) => heard
+                .recv_timeout(within)
+                .expect("the receive ended once the listener was closed"),
+        };
+        waiting.join().expect("the receiving thread finished");
+        assert!(!late, "listenReceive answered nothing within {within:?}");
+        outcome
+    }
+
+    /// The plan a socket test binds with: HTTP/1.1, no identity, and whatever
+    /// outbound bound the case is about.
+    #[cfg(feature = "net")]
+    fn socket_plan(buffer: Option<usize>) -> ServePlan {
+        ServePlan {
+            protocols: vec![Protocol::Http1],
+            certificate: None,
+            key: None,
+            drain: Some(Duration::from_secs(10)),
+            socket_buffer: buffer,
+        }
+    }
+
+    /// Take the one connection a client made and turn it into a socket.
+    #[cfg(feature = "net")]
+    fn upgraded_socket(handle: i64) -> i64 {
+        let connection = accept(handle).expect("one connection");
+        let read = request(connection).expect("the upgrade request");
+        assert_eq!(read.target, "/socket");
+        sockets::upgrade(connection).expect("an upgrade this acceptor can complete")
+    }
+
+    /// **A message each way, and the send is flushed by the next receive.**
+    ///
+    /// The ordering is the claim rather than the round trip: `send_text` only
+    /// queues, so the `pong` reaches the wire when the socket's own loop next
+    /// asks what arrived — which is exactly what `socketSendText`'s "never
+    /// waits" costs and what makes it safe to call from a task that holds no
+    /// listener. A `send` that wrote to the socket itself would pass this too;
+    /// what would fail is a `receive` that did not flush, and the client's read
+    /// deadline is what says so.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_socket_carries_a_message_each_way_and_then_closes() {
+        let plan = socket_plan(None);
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
+
+        let client = std::thread::spawn(move || {
+            let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+            stream.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            stream.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            let (mut socket, response) =
+                tungstenite::client(format!("ws://127.0.0.1:{port}/socket"), stream)
+                    .expect("the handshake");
+            assert_eq!(response.status().as_u16(), 101);
+            socket.send(tungstenite::Message::text("ping")).expect("a message out");
+            let back = socket.read().expect("a message back");
+            socket
+                .close(Some(tungstenite::protocol::CloseFrame {
+                    code: tungstenite::protocol::frame::coding::CloseCode::Normal,
+                    reason: "done".into(),
+                }))
+                .expect("a close");
+            // Driven to completion, which is what leaves the server's own read
+            // with a close frame rather than a dropped socket.
+            while socket.read().is_ok() {}
+            back
+        });
+
+        let socket = upgraded_socket(handle);
+        let arrived = received_within(socket, handle, SOCKET_DEADLINE)
+            .expect("the client's message");
+        assert_eq!(arrived.frame, 0, "a text frame arrived as frame {}", arrived.frame);
+        assert_eq!(arrived.text, "ping");
+        sockets::send_text(socket, "pong");
+        // The second receive is what writes it, and then waits for the close.
+        let closed =
+            received_within(socket, handle, SOCKET_DEADLINE).expect("the client's close");
+        assert_eq!(closed.frame, 2, "the socket's last event is its close");
+        assert_eq!(closed.code, 1000, "a clean close is 1000");
+
+        let back = client.join().expect("the client finished");
+        assert_eq!(back, tungstenite::Message::text("pong"));
+
+        // **`.Closed` is the last answer a socket gives**: it is gone from the
+        // table, a message to it is dropped, and asking again is `.Err`.
+        sockets::send_text(socket, "nobody is there");
+        assert_eq!(sockets::receive(socket).expect_err("spent").cause, ServeFail::Closed);
+        assert!(!sockets::is_open(socket), "the socket was not retired");
+
+        close(handle);
+    }
+
+    /// **An overflow closes the socket, and the loop is told what a peer could
+    /// never have said.**
+    ///
+    /// The buffer is one message deep and nothing is flushing it, so the second
+    /// `send` is the overflow. What the socket's own loop reads is a close
+    /// carrying a *negative* code — [`OVERFLOWED`] — which is unreachable from
+    /// the wire, so `core/net/server` can map it to `.Overflow` without a
+    /// client being able to claim the same thing.
+    ///
+    /// The far side is told 1011 instead, because "this end broke" is the true
+    /// sentence from where the client is standing.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_full_outbound_buffer_closes_the_socket_and_says_so() {
+        let plan = socket_plan(Some(1));
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
+
+        let client = std::thread::spawn(move || {
+            let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+            stream.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            stream.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            let (mut socket, _response) =
+                tungstenite::client(format!("ws://127.0.0.1:{port}/socket"), stream)
+                    .expect("the handshake");
+            // Reads until the close frame the overflow produced, and answers
+            // with the code it carried.
+            let mut code = 0u16;
+            while let Ok(message) = socket.read() {
+                if let tungstenite::Message::Close(frame) = message {
+                    code = frame.map_or(0, |f| u16::from(f.code));
+                    break;
+                }
+            }
+            code
+        });
+
+        let socket = upgraded_socket(handle);
+        // Nothing has flushed the queue, so the second of these is the one that
+        // does not fit.
+        sockets::send_text(socket, "one");
+        sockets::send_text(socket, "two");
+        let closed =
+            received_within(socket, handle, SOCKET_DEADLINE).expect("the overflow, as a close");
+        assert_eq!(closed.frame, 2);
+        assert_eq!(
+            closed.code, OVERFLOWED,
+            "an overflow is the platform's own reason and not a wire code"
+        );
+        assert!(closed.code < 0, "a wire code is unsigned, so this one cannot be forged");
+
+        assert_eq!(
+            client.join().expect("the client finished"),
+            OVERFLOW_CODE,
+            "the far side is told 1011, which is the true sentence from there"
+        );
+        assert!(!sockets::is_open(socket), "the socket was not retired");
+
+        close(handle);
+    }
+
+    /// **A request that is not an upgrade is left exactly as it was**, which is
+    /// what lets `core/net/server` ask about every request and hand the ones it
+    /// is refused to `onRequest`.
+    ///
+    /// Two halves, and the second is the one that would fail silently: the
+    /// refusal names what an upgrade is, *and* the connection is still there to
+    /// be responded to. A `listenUpgrade` that consumed what it refused would
+    /// be a client left holding a socket nobody was going to write to.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_request_that_is_not_an_upgrade_is_refused_and_still_answerable() {
+        let plan = socket_plan(None);
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
+
+        let client = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+            stream.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            stream.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            stream.write_all(b"GET /ordinary HTTP/1.1\r\nhost: h\r\n\r\n").expect("request");
+            stream.flush().expect("flush");
+            let mut reply = Vec::new();
+            let _ = stream.read_to_end(&mut reply);
+            reply
+        });
+
+        let connection = accept(handle).expect("one connection");
+        let read = request(connection).expect("the request");
+        assert_eq!(read.target, "/ordinary");
+        let refused = sockets::upgrade(connection).expect_err("this was not an upgrade");
+        assert_eq!(refused.cause, ServeFail::Unsupported);
+        assert!(refused.detail.contains("upgrade: websocket"), "{}", refused.detail);
+        // Still answerable, which is the half that matters.
+        respond(connection, 200, &[], b"handled").expect("a response");
+
+        let reply =
+            String::from_utf8_lossy(&client.join().expect("the client finished")).to_string();
+        assert!(reply.ends_with("\r\n\r\nhandled"), "{reply}");
+
+        close(handle);
+    }
+
+    /// **A drain sends an open socket on its way**, which is h2's GOAWAY
+    /// argument reaching the other thing a client keeps open on purpose.
+    ///
+    /// Two-sided, as every drain row here is: the socket's loop is told 1001
+    /// (so the close *happened*), and the drain returns inside its own deadline
+    /// (so it did not wait the socket out). Without the close it would sit for
+    /// the whole ten seconds, which is the failure this row would otherwise be
+    /// unable to tell from a pass.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_drain_sends_an_open_socket_on_its_way() {
+        let plan = socket_plan(None);
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
+
+        let client = std::thread::spawn(move || {
+            let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+            stream.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            stream.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            let (mut socket, _response) =
+                tungstenite::client(format!("ws://127.0.0.1:{port}/socket"), stream)
+                    .expect("the handshake");
+            // Idles, which is what a WebSocket client does and what a drain
+            // that could only wait would wait out.
+            let mut code = 0u16;
+            while let Ok(message) = socket.read() {
+                if let tungstenite::Message::Close(frame) = message {
+                    code = frame.map_or(0, |f| u16::from(f.code));
+                    break;
+                }
+            }
+            code
+        });
+
+        let socket = upgraded_socket(handle);
+        let began = Instant::now();
+        let draining = std::thread::spawn(move || drain(handle));
+        let closed =
+            received_within(socket, handle, SOCKET_DEADLINE).expect("the drain's close");
+        assert_eq!(closed.frame, 2);
+        assert_eq!(closed.code, i64::from(GOING_AWAY), "a drained socket is going away");
+        assert!(
+            draining.join().expect("the drain finished"),
+            "the drain timed out rather than closing the socket it was holding"
+        );
+        assert!(
+            began.elapsed() < Duration::from_secs(5),
+            "the drain waited the socket out rather than closing it: {:?}",
+            began.elapsed()
+        );
+        assert_eq!(client.join().expect("the client finished"), GOING_AWAY);
+
+        assert_eq!(accept(handle).expect_err("drained").cause, ServeFail::Closed);
+        close(handle);
+    }
+
+    /// **Closing a listener takes its sockets with it**, and gives their places
+    /// in flight back — which is what stops a drain of a *second* listener from
+    /// waiting out a socket nobody is reading.
+    #[cfg(feature = "net")]
+    #[test]
+    fn closing_a_listener_takes_its_sockets_with_it() {
+        let plan = socket_plan(None);
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
+
+        let client = std::thread::spawn(move || {
+            let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+            stream.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            stream.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            let (mut socket, _response) =
+                tungstenite::client(format!("ws://127.0.0.1:{port}/socket"), stream)
+                    .expect("the handshake");
+            while socket.read().is_ok() {}
+        });
+
+        let socket = upgraded_socket(handle);
+        close(handle);
+        // The socket is gone with the listener, so its own loop is told the
+        // ordinary thing a spent handle is told and runs its close hook.
+        assert_eq!(sockets::receive(socket).expect_err("gone").cause, ServeFail::Closed);
+        assert!(!sockets::is_open(socket), "the listener did not take its socket with it");
+        client.join().expect("the client finished");
+    }
+
+    /// A handle that names no socket is one that has already gone, which is the
+    /// behaviour `effect Sockets` declares for a socket somebody closed — so a
+    /// forged handle and a spent one are deliberately the same answer, and all
+    /// four entries are total.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_socket_handle_that_names_nothing_is_answered_and_not_aborted() {
+        for made_up in [-1, 0, i64::MAX] {
+            sockets::send_text(made_up, "into the void");
+            sockets::send_bytes(made_up, &[1, 2, 3]);
+            sockets::close(made_up, 1000, "bye");
+            assert_eq!(
+                sockets::receive(made_up).expect_err("no such socket").cause,
+                ServeFail::Closed
+            );
+        }
+    }
+
+    /// Every clause RFC 6455 §4.2.1 requires, and none of them optional.
+    ///
+    /// The two multi-valued fields are searched rather than compared, because a
+    /// browser sends `Connection: keep-alive, Upgrade` and a server that
+    /// refused it would be refusing correct clients.
+    #[test]
+    fn an_upgrade_request_is_the_five_things_rfc_6455_asks_for() {
+        let head = |extra: &[(&str, &str)]| {
+            let mut headers: Vec<(String, String)> = vec![
+                (String::from("upgrade"), String::from("websocket")),
+                (String::from("connection"), String::from("Upgrade")),
+                (String::from("sec-websocket-version"), String::from("13")),
+                (String::from("sec-websocket-key"), String::from("dGhlIHNhbXBsZSBub25jZQ==")),
+            ];
+            for (name, value) in extra {
+                headers.retain(|(had, _)| had != name);
+                if !value.is_empty() {
+                    headers.push(((*name).to_string(), (*value).to_string()));
+                }
+            }
+            ServerRequest {
+                method: 0,
+                target: String::from("/socket"),
+                headers,
+                body: Vec::new(),
+            }
+        };
+        assert_eq!(upgrade_key(&head(&[])).as_deref(), Some("dGhlIHNhbXBsZSBub25jZQ=="));
+        // A list, matched token by token and case-insensitively, which is what
+        // every browser actually sends.
+        assert!(upgrade_key(&head(&[("connection", "keep-alive, Upgrade")])).is_some());
+        assert!(upgrade_key(&head(&[("upgrade", "WebSocket")])).is_some());
+        // And each clause, missing.
+        assert!(upgrade_key(&head(&[("upgrade", "")])).is_none());
+        assert!(upgrade_key(&head(&[("connection", "")])).is_none());
+        assert!(upgrade_key(&head(&[("connection", "keep-alive")])).is_none());
+        assert!(upgrade_key(&head(&[("sec-websocket-version", "8")])).is_none());
+        assert!(upgrade_key(&head(&[("sec-websocket-version", "")])).is_none());
+        assert!(upgrade_key(&head(&[("sec-websocket-key", "")])).is_none());
+        // A POST is not an upgrade. `.Get` is index 0 in `Method`'s declaration
+        // order, so anything else is a method that cannot carry one.
+        let mut posted = head(&[]);
+        posted.method = 2;
+        assert!(upgrade_key(&posted).is_none());
     }
 }

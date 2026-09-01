@@ -452,16 +452,18 @@ pub const ENTRIES: &[Entry] = &[
     cx(es("host.HostTasks.parallel", "buri_rt_host_tasks_parallel", Ret::Out), 1),
     // -- Listen, and Sockets beside it --------------------------------------
     //
-    // Five operations and no closure among them: the accept loop is
+    // Seven operations and no closure among them: the accept loop is
     // `core/net/server`'s, in Buri, so nothing here is runtime-driven and none
-    // of these rows is an [`Extra::Step`]. That is the whole reason `Listen`
-    // costs five ordinary rows where `Tasks` costs one with a trampoline
+    // of these rows is an [`Extra::Step`]. A socket's loop and a socket's
+    // state are Buri's too, which is why F7 cost two more ordinary rows and no
+    // shape at all. That is the whole reason `Listen`
+    // costs seven ordinary rows where `Tasks` costs one with a trampoline
     // behind it — and it is why F3 could put a *worker per handler* on the
     // carrier pool without touching the trampoline at all: the fan-out is
-    // `Tasks.parallel`'s, one row up, and these five neither know nor care how
+    // `Tasks.parallel`'s, one row up, and these seven neither know nor care how
     // many callers they have.
     //
-    // Four of them are `Result<_, ServeError>`, and `ServeError` is a
+    // Six of them are `Result<_, ServeError>`, and `ServeError` is a
     // **struct** — so those take §2.1's *second* shape: the error crosses whole
     // through an out-pointer of its own and the discriminant says only that it
     // failed. `bytes.fromUtf8` is the other row with that shape, and
@@ -474,7 +476,7 @@ pub const ENTRIES: &[Entry] = &[
     // `effect Listen` carries the argument.
     //
     // `self` is `HostListen`, an empty struct, so it flattens to nothing and
-    // no row here needs a `ctx` column: none of the five takes a context.
+    // no row here needs a `ctx` column: none of the seven takes a context.
     // `listenRespond`'s `Response` flattens into its leaves by §2 rule 1, and
     // `Listener` and `Request` come back through an out-pointer whole.
     //
@@ -487,11 +489,19 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostListen.listenRequest", "buri_rt_host_listen_request", Ret::Res),
     e("host.HostListen.listenRespond", "buri_rt_host_listen_respond", Ret::Res),
     e("host.HostListen.listenClose", "buri_rt_host_listen_close", Ret::Void),
+    // The two that turn a connection into a socket and then read it.
+    // `listenUpgrade` answers a bare `Int` — the socket — so its `.Ok` is a
+    // scalar out-pointer like `listenAccept`'s; `listenReceive` answers a
+    // `Received`, which is a struct and comes back whole, exactly as `Request`
+    // does one row up. Neither is a closure either: the socket's loop is
+    // `core/net/server`'s in Buri, and a socket's state never crosses.
+    e("host.HostListen.listenUpgrade", "buri_rt_host_listen_upgrade", Ret::Res),
+    e("host.HostListen.listenReceive", "buri_rt_host_listen_receive", Ret::Res),
     // The socket half. `()` on all three, because a frame is enqueued rather
-    // than delivered and "did this arrive" was never answerable — which is
-    // also what makes the runtime's current bodies, which drop what they are
-    // handed because nothing hands out a socket yet, the *declared* behaviour
-    // for a socket that has gone rather than a stub.
+    // than delivered and "did this arrive" was never answerable — the message
+    // goes to the socket's own outbound buffer and leaves when that socket's
+    // worker next pumps it. A handle naming no open socket is one that has
+    // already gone, which is the same answer, so the three are total.
     e(
         "host.HostSockets.socketSendText",
         "buri_rt_host_sockets_socket_send_text",
