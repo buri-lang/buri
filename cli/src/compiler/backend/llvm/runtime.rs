@@ -1856,6 +1856,23 @@ mod tests {
             "host.HostFs.removeFile",
             "host.HostFs.makeDir",
             "host.HostFs.syncFile",
+            // `HostEnv`'s two and `HostStdin`'s two make the statement the
+            // ten above make, and they are here because until this slice they
+            // made none: `cli/runtime/host.rs` has a body for each
+            // (`buri_rt_host_env_variable`, `buri_rt_host_env_args`,
+            // `buri_rt_host_stdin_read_line`, `buri_rt_host_stdin_read_bytes`),
+            // neither runtime table has a row, and neither list named them — so
+            // four keys were unmentioned, and an unmentioned key is an omission
+            // rather than a decision. Naming them is what makes "no row" a
+            // statement, which is the whole job of this list. The row itself
+            // waits on the same slice the `HostFs` ten wait on, and on nothing
+            // else: the shapes are expressible today (`Ret::Opt` carries
+            // `Option<Str>` and `Option<[U8]>`, `Ret::Out` carries `[Str]`), so
+            // what is missing is the row and not a widening of §2.1.
+            "host.HostEnv.variable",
+            "host.HostEnv.args",
+            "host.HostStdin.readLine",
+            "host.HostStdin.readBytes",
             // `host.HostNet.fetch` has a body in the archive and no row, and
             // not because nobody got to it: `Ret::Res` names the error variant
             // by index and `lib.rs` §2.1 restricts that variant to carrying no

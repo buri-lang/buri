@@ -1,4 +1,0 @@
-# A test that stops answering is a named failure, not a hung suite: after
-# five slow-periods (five minutes) nextest kills the test and reports it.
-[profile.default]
-slow-timeout = { period = "60s", terminate-after = 5 }

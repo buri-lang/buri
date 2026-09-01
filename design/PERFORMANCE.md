@@ -201,8 +201,9 @@ There are forty of them, and forty is not forty arbitrary corpora: it is
 **twenty parameter points at two scales**, a point being a name and a seed and a
 delta from `Params::default()`, and its two corpora sharing that seed so that the
 only thing differing between a point's 100k row and its 1M row is the size. The
-whole set costs 17 KB of git, which is the argument for the kind stated as a
-number. §4 lists the points and what each moves.
+whole set costs 15,546 bytes of git — `cat cli/benches/pinned/*.txt | wc -c`,
+2026-09-01 — which is the argument for the kind stated as a number. §4 lists
+the points and what each moves.
 
 The reasoning is that the two properties a saved corpus bundles together are
 separable. "These are the bytes" is worth checking in; "here they are" is what
@@ -230,13 +231,14 @@ All three kinds obey the same validity rules, without exception:
   regenerating and digesting forty corpora, half of them a million lines, is
   three minutes and a plain `--validate` has to stay the check somebody takes
   before a commit. So: none under `--quick`, which is the CI gate and has to stay
-  under a second; the anchor — `mixed` at both scales — under a plain
-  `--validate`, which is what it covered when there were only two manifests and
-  is still ten seconds; the sample under `--validate --set=scale`, twenty-one
-  seconds; all forty under `--validate --set=scale-full`, two minutes and
-  forty-seven. The rule that does not bend is the last row: **the whole pinned
-  half is checkable by one documented command**, and a re-pin is what happens
-  when it fails.
+  under a second and is 0.4 s; the anchor — `mixed` at both scales — under a
+  plain `--validate`, which is what it covered when there were only two
+  manifests and is thirteen seconds; the sample under `--validate --set=scale`,
+  twenty-seven seconds; all forty under `--validate --set=scale-full`, four
+  minutes and twenty. Those four were re-measured on 2026-09-01 and §4 says
+  under what conditions. The rule that does not bend is the last row: **the
+  whole pinned half is checkable by one documented command**, and a re-pin is
+  what happens when it fails.
 - **All are in memory before any timer starts.** A saved corpus is loaded, and a
   pinned one regenerated *and* digest-checked, into the same `Program` a
   generator returns; the harness has one measurement path, and no file is read
@@ -322,9 +324,12 @@ experience here is the argument for keeping both kinds: their realistic mix runs
 at ~12 M tokens/s and their worst stress shape at under 100 k tokens/s, and a
 suite with only one of the two would have reported a fiction.
 
-**Many modules, not one file.** At 100,000 lines the mixed corpus is 389
-modules with a real import graph, each module calling into one to three others'
-functions *and* naming one of their types. Three reasons, all Carbon's: it stops
+**Many modules, not one file.** At 100,000 lines the mixed corpus is 348
+modules with a real import graph — `--validate`'s own count at generator
+revision 7, down from the 389 this line used to quote because a laid-out module
+reaches its line target with fewer declarations (§6) — each module calling into
+one to three others' functions *and* naming one of their types. Three reasons,
+all Carbon's: it stops
 branch prediction from memorizing one file's shape, it gets closer to the
 cache-cold behaviour that matters in practice, and it avoids anchoring on a
 single file that may be unrepresentative. A fourth is specific to this
@@ -436,7 +441,7 @@ Three files and a directory, no dependencies, one bench target:
 | `cli/benches/calibrate.rs` | The speed-of-light ceilings: five bare loops over the same bytes, and the interpretation rule they are read by. |
 | `cli/benches/compiler.rs` | The harness: warmup, repetition, median/MAD, the phase timers, the report. |
 | `cli/benches/corpora/` | Eight checked-in corpora, 0.55 MB, capped at 2 MiB. |
-| `cli/benches/pinned/` | Forty digest-pinned manifests — twenty parameter points at 100k and 1M — and no source. 17 KB. |
+| `cli/benches/pinned/` | Forty digest-pinned manifests — twenty parameter points at 100k and 1M — and no source. 15,546 bytes. |
 
 `autobenches = false` in `cli/Cargo.toml` is what keeps the first three
 *modules* of the `compiler` target rather than bench targets of their own: Cargo
@@ -604,9 +609,17 @@ which of the requested targets each can emit for, and how much of the 2 MiB
 corpus budget is spent.
 
 How much of the *pinned* half it covers follows `--set`, for the wall-time
-reason §3.1 gives: 0.4 s under `--quick` and no digests, 12 s plain and the
-anchor's two, 26 s under `--set=scale`, and 3 min 24 s under `--set=scale-full`
-for all forty. The last one is the command that answers "is every pinned digest
+reason §3.1 gives: **0.4 s** under `--quick` and no digests, **12.8 s** plain
+and the anchor's two, **27.3 s** under `--set=scale`, and **4 min 20 s** under
+`--set=scale-full` for all forty. Each is the fastest of three runs taken on
+2026-09-01 at `0c66339d`, and the machine was never fully idle while they were.
+The three readings each: 0.4/0.8/1.0 s, 12.8/13.3/26.0 s, 27.3/36.7/69.1 s, and
+4 min 20 s/4 min 42 s/5 min 17 s, taken at one-minute load averages between 9
+and 208 on ten cores. So all four are upper bounds, and against the figures
+generator revision 7 recorded on 2026-08-31 — 0.4 s, 12 s, 26 s, 3 min 24 s —
+the first three hold and **`--set=scale-full` is at least 27% longer**, which is
+the one row here somebody should re-take on a quiet machine before quoting it.
+`--set=scale-full` is also the command that answers "is every pinned digest
 still good", and it is the one to run after touching `generate.rs` — or after
 touching `formatting`, which since `GENERATOR_REVISION` 7 is the same thing:
 `laid_out` is the last hand every generated module passes through.
@@ -766,47 +779,61 @@ check. Rust under `cli/src`, counted by a script rather than by a line counter
 this repository would have to depend on. A line is a comment when it begins with
 `//`.
 
-| Area | Files | Code | Comment | Blank | Total | Comment share |
-|---|---:|---:|---:|---:|---:|---:|
-| `parsing` (lexer, parser, tree) | 5 | 5,035 | 1,122 | 415 | 6,572 | 17% |
-| `compiler/semantics` | 11 | 8,927 | 1,894 | 592 | 11,413 | 17% |
-| `compiler/middle` | 13 | 12,451 | 4,094 | 1,017 | 17,562 | 23% |
-| `compiler/backend/js` | 4 | 5,578 | 1,290 | 346 | 7,214 | 18% |
-| `compiler/backend/cranelift` | 5 | 5,736 | 2,495 | 403 | 8,634 | 29% |
-| `compiler/backend/llvm` | 6 | 7,780 | 3,093 | 452 | 11,325 | 27% |
-| `compiler/backend/stencil` | 18 | 12,681 | 4,563 | 789 | 18,033 | 25% |
-| `build` | 13 | 8,049 | 2,362 | 651 | 11,062 | 21% |
-| `commands` | 12 | 4,207 | 1,378 | 275 | 5,860 | 24% |
-| `documentation` | 9 | 5,115 | 1,072 | 443 | 6,630 | 16% |
-| `language_server` | 4 | 1,049 | 267 | 114 | 1,430 | 19% |
-| shared, driver, stdlib glue | 13 | 5,076 | 2,106 | 518 | 7,700 | 27% |
-| **`cli/src` total** | **113** | **81,684** | **25,736** | **6,015** | **113,435** | **23%** |
-| `cli/runtime` | 15 | 3,729 | 2,850 | 375 | 6,954 | 41% |
-| `cli/tests` | 33 | 14,614 | 5,474 | 1,404 | 21,492 | 25% |
-| `cli/benches` | 4 | 3,613 | 1,156 | 269 | 5,038 | 23% |
+**Re-taken whole on 2026-09-01, at `0c66339d`**, which is the promise the
+previous census left: that one still counted `compiler/backend/cranelift`, five
+files and 8,634 lines the tree lost on 2026-08-29, and every total in it was
+stale by a backend. The `before` column below is that census; nothing in it was
+subtracted by hand.
 
-**This census predates 2026-08-29 and still counts a backend the tree no longer
-has.** `compiler/backend/cranelift`'s five files and 8,634 lines are gone, and
-so are `cli/tests`'s Cranelift-only suites; every total above still includes
-them. The row is left in place rather than subtracted by hand, because "the
-compiler got smaller" is a claim somebody checks by re-running the script, and a
-table half re-counted is worse than one honestly stale. The next census re-takes
-it whole.
+| Area | Files | Code | Comment | Blank | Total | Comment share | before, total |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `parsing` (lexer, parser, tree) | 5 | 5,343 | 1,333 | 450 | 7,126 | 19% | 6,572 |
+| `compiler/semantics` | 11 | 10,387 | 2,825 | 764 | 13,976 | 20% | 11,413 |
+| `compiler/middle` | 13 | 13,504 | 5,135 | 1,117 | 19,756 | 26% | 17,562 |
+| `compiler/backend/js` | 4 | 6,092 | 1,645 | 371 | 8,108 | 20% | 7,214 |
+| `compiler/backend/llvm` | 6 | 9,273 | 3,976 | 524 | 13,773 | 29% | 11,325 |
+| `compiler/backend/stencil` | 18 | 14,411 | 5,715 | 935 | 21,061 | 27% | 18,033 |
+| `build` | 14 | 8,540 | 2,955 | 724 | 12,219 | 24% | 11,062 |
+| `commands` | 16 | 6,190 | 2,513 | 445 | 9,148 | 27% | 5,860 |
+| `documentation` | 12 | 6,177 | 1,452 | 530 | 8,159 | 18% | 6,630 |
+| `language_server` | 24 | 9,036 | 3,778 | 750 | 13,564 | 28% | 1,430 |
+| shared, driver, stdlib glue | 16 | 6,953 | 4,037 | 689 | 11,679 | 35% | 7,700 |
+| **`cli/src` total** | **139** | **95,906** | **35,364** | **7,299** | **138,569** | **26%** | **113,435** |
+| `cli/runtime` | 19 | 13,756 | 11,504 | 1,460 | 26,720 | 43% | 6,954 |
+| `cli/tests` | 43 | 21,399 | 9,884 | 2,020 | 33,303 | 30% | 21,492 |
+| `cli/benches` | 4 | 3,654 | 1,229 | 271 | 5,154 | 24% | 5,038 |
+
+**Two rows carry most of the growth, and neither is a compiler phase.**
+`language_server` is **9.5×** what it was — 1,430 lines to 13,564, four files to
+twenty-four — and `cli/runtime` is **3.8×**, 6,954 to 26,720, which is the
+reactor, the TLS client, HTTP/1.1 and h2, WebSockets, the carrier stacks and the
+scoped arenas that §6.6 and §6.7 measure. Against those, the front end moved
+little: `parsing` +8.4%, `semantics` +22%, `middle` +12.5%, `backend/js` +12.4%.
+The whole of `cli/src` grew 22% while shedding a backend, so the growth in the
+areas that survived is 33,768 lines rather than 25,134 — and the goal-bearing
+three of them account for 7,472 of it.
 
 And the Buri-language side, which the compiler has to get through:
 
-| | Files | Code | Comment | Blank | Total |
-|---|---:|---:|---:|---:|---:|
-| standard library (`core/*`, `ui/*`) | 38 | 3,386 | 2,435 | 731 | 6,552 |
-| test corpus (`cli/tests/**/*.buri`) | 1,021 | 19,082 | 3,101 | 3,471 | 25,654 |
-| shipped documentation (`cli/src/docs/**/*.md`) | 113 | — | — | — | 12,000 |
+| | Files | Code | Comment | Blank | Total | before, total |
+|---|---:|---:|---:|---:|---:|---:|
+| standard library (`core/*`, `ui/*`) | 44 | 5,526 | 5,646 | 1,202 | 12,374 | 6,552 |
+| test corpus (`cli/tests/**/*.buri`) | 5,315 | 63,602 | 15,935 | 10,745 | 90,282 | 25,654 |
+| shipped documentation (`cli/src/docs/**/*.md`) | 299 | — | — | — | 19,226 | 12,000 |
 
-The three phases the goals name are **35,500 lines of Rust** between them:
-`parsing` at 6.6k, `semantics` at 11.4k, and `middle` plus `backend/js` at 24.8k.
-That is the surface any optimization wave has to work on. The three native
-backends are another 38k on top of it, and they are not what the goals measure —
-goal 3 is a lowering rate, and a backend that is twice the code for the same
-rate has spent it on something else.
+The test corpus is the row to read twice: **5,315 files against 1,021**, and
+2,000 of the new ones are `cli/tests/formatting/generated`, which is a fixture
+directory rather than hand-written Buri. The standard library merely doubled,
+and it is now 46% comment by line.
+
+The three phases the goals name are **49,000 lines of Rust** between them —
+`parsing` at 7.1k, `semantics` at 14.0k, and `middle` plus `backend/js` at
+27.9k — against 35,500 at the previous census. That is the surface any
+optimization wave has to work on, and it grew by 38% while every rate on this
+page stayed inside its own dispersion or improved (§6.1). The **two** remaining
+native backends are another 34.8k on top of it, down from three and 38k, and
+they are not what the goals measure — goal 3 is a lowering rate, and a backend
+that is twice the code for the same rate has spent it on something else.
 
 **The compiler is also something that has to be built and shipped, and the
 2026-08-29 removal moved both.** Measured on the machine and toolchain of §6,
@@ -842,6 +869,28 @@ older one. After the removal that data *is* the code generator. Quoting the
 total alone reads as a regression the removal did not cause; quoting `__text`
 alone claims a saving the disk does not see.
 
+**Both sides of that were re-measured on 2026-09-01**, `cargo build --release
+-p buri` with default features at `f9fffe1c` and at `0c66339d`, on this machine,
+the two binaries `size -m`'d rather than reasoned about:
+
+| | 2026-08-29, `f9fffe1c` | 2026-09-01, `0c66339d` | Δ |
+|---|---:|---:|---:|
+| dependencies (`cargo tree -p buri --edges normal`) | 0 | **0** | — |
+| `buri`, as linked | 22,721,584 B | 26,798,320 B | **+4,076,736** |
+| `__TEXT.__text` — the machine code in it | 3,104,388 B | 3,437,424 B | +333,036 |
+| `libburi_rt.a`, `include_bytes!`d into it | 5,916,864 B | 9,097,192 B | **+3,180,328** |
+| the three stencil libraries, likewise | 11,934,432 B | 11,934,781 B | +349 |
+
+**Seventy-eight per cent of the toolchain's growth is one file, and it is not
+code this repository wrote.** The runtime archive gained 3.18 MB because the
+servers program linked a reactor, a TLS client, HTTP/1.1, h2 and RFC 6455
+framing into it — the old archive has no `libburi_rt.a.features` file beside it
+at all, because the `net` feature that writes one postdates it. Machine code is
+8% of the growth and the stencil libraries are 349 bytes of it. The dependency
+bar is still what its comment claims: **the default toolchain resolves nothing**,
+at both commits, which is the row a reader should check first when a binary
+grows by four megabytes.
+
 ---
 
 ## 6. Where the toolchain stands
@@ -860,16 +909,24 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > so where it stands and keeps its own date — `buri test`'s native default is
 > 2026-08-21, generator revision 4 is 2026-08-27.
 >
-> **How the table was assembled, because one command no longer does it.**
-> `cargo bench -p buri --bench compiler` cannot complete a default run today: it
-> overflows the main thread's stack on `wide-match/10k`, after every `mixed`
-> scale and every realistic profile have finished and before that corpus's first
-> timer. The abort reproduces identically at the commit before the removal, so
-> it is pre-existing rather than a consequence of it, and `--quick` — which runs
-> `wide-match` at 1k — is green. The rows below were therefore taken with
-> `--only=` selections and individual `--shape=` runs rather than in one
-> command. That is a bug of its own, being fixed separately; until it is, nobody
-> can take this table in a single invocation.
+> **One command takes this table again.** The previous revision of this
+> paragraph said `cargo bench -p buri --bench compiler` could not complete a
+> default run at all: it overflowed the main thread's stack on `wide-match/10k`,
+> after every `mixed` scale and every realistic profile had finished and before
+> that corpus's first timer, so the rows had to be assembled out of `--only=`
+> selections. **That is closed**, and it was checked rather than assumed — both
+> binaries were rebuilt and run on 2026-09-01 on this machine, each from its own
+> tree, each from the bare command:
+>
+> | | `--validate` | a default run |
+> |---|---|---|
+> | `f9fffe1c`, 2026-08-29 | **aborts** — `fatal runtime error: stack overflow`, after `deep-nesting/10k` | **aborts**, the same way, 114 s in |
+> | `0c66339d`, 2026-09-01 | **exit 0**, the whole corpus compiles, 12.8 s | **exit 0**, 150 s and 153 s on two runs |
+>
+> So the table is one invocation again, and the dispersion column is what says
+> whether the invocation was worth quoting: every `mixed/100k` row below is the
+> better reading of three processes whose every MAD is ≤ 2.8%, inside §2's ±5%.
+> Anything not re-taken says so where it stands and keeps its own date.
 
 > **Generator revision 7, 2026-08-31 — a break in the series, announced, and
 > the first one that moves a corpus's *shape* rather than only its bytes.**
@@ -1042,19 +1099,60 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 ### 6.1 Where every goal stands
 
 mixed/100k, the authoritative corpus, on the machine and protocol above.
+**Re-taken 2026-09-01 at `0c66339d`**, from the default run described in §6's
+note; the `2026-08-29` column is what this table said at `f9fffe1c`, and the
+column after it is that same commit's binary re-run today, which is what
+separates a machine from a compiler.
 
-| Phase | Goal | Measured | Gap |
+| Phase | Goal | 2026-08-29, `f9fffe1c` | `f9fffe1c` re-run today | **2026-09-01, `0c66339d`** | Gap |
+|---|---:|---:|---:|---:|---:|
+| lex | (10 M shared) | 12.06 M | 12.58 M | **12.88 M** | **MET** |
+| lex+parse | 10 M | 6.40 M | 6.04 M | **6.36 M** | 1.57× |
+| sema | 1 M | 1.32 M | 1.15 M | **1.35 M** | **MET** |
+| lower+js | 100 k | 311 k | 284.1 k | **255.0 k** | **MET** |
+| lower+macos-arm64 | 100 k | 133.3 k | 126.4 k | **135.2 k** | **MET** |
+
+Two of the three goals are still met, and the third is still met on **both**
+lowering backends rather than on the JavaScript one alone. Lex+parse started at
+1.45 M lines/s and is 4.4× that now; native lowering started at nothing
+measurable, because the realistic corpora could not be compiled natively at all.
+
+**One row fell, and it is `lower+js`.** 311 k to 255 k is −18.0%, and it is two
+things rather than one: this machine on a different morning, and the compiler.
+Separating them is what the middle column is for — `f9fffe1c`'s own binary,
+rebuilt and re-run today, reads **284.1 k** where this table recorded 311 k on
+the day, so roughly half the fall is the machine and the rest is the toolchain.
+The toolchain's half was then priced on its own by running the two binaries
+**A/B/A/B** in one sitting, `--only=mixed/100k`, four processes, 2026-09-01 —
+the protocol §6.6 uses — taking each compiler's better median and discarding
+every leg whose MAD exceeded §2's ±5%. Both columns below are from that sitting,
+which is why its `0c66339d` figure is 248.9 k where the table above, whose
+better reading came from the default run, says 255.0 k:
+
+| Phase | `f9fffe1c` | `0c66339d` | Δ in rate |
 |---|---:|---:|---:|
-| lex | (10 M shared) | 12.06 M | **MET** |
-| lex+parse | 10 M | 6.40 M | 1.56× |
-| sema | 1 M | 1.32 M | **MET** |
-| lower+js | 100 k | 311 k | **MET** |
-| lower+macos-arm64 | 100 k | 133.3 k | **MET** |
+| lex | 12.58 M | 12.57 M | −0.1% |
+| lex+parse | 6.04 M | 6.36 M | **+5.3%** |
+| sema | 1.15 M | 1.35 M | **+17.4%** |
+| lower+js | 284.1 k | 248.9 k | **−12.4%** |
+| lower+macos-arm64 | 126.4 k | 135.0 k | +6.8% |
+| lower+linux-x86_64 | 123.7 k | 128.0 k | +3.5% |
+| lower+linux-arm64 | 128.3 k | 130.7 k | +1.9% |
 
-Two of the three goals are met, and the third is now met on **both** lowering
-backends rather than on the JavaScript one alone. Lex+parse started at 1.45 M
-lines/s and is 4.4× that now; native lowering started at nothing measurable,
-because the realistic corpora could not be compiled natively at all.
+**The JavaScript emitter is 12.4% slower per line and every other row is flat
+or better**, which is what makes the one that fell believable rather than a bad
+afternoon. **No budget on this page is stated over `lower+js`** — goal 3 is, and
+it is met by 2.5×, so this is a row to report and not a gate that failed. What
+it is not is a volume effect, and three denominators say so at once. Between
+the two commits the anchor's monomorphized function count *fell* 13,162 →
+12,735 and its emitted JavaScript grew only 1,317,286 →
+1,347,614 bytes, so the same row is **+18.3% per monomorphized function** and
+**−10.7% per emitted byte**: the emitter is doing more work per function, not
+being handed more program. The `ctx` parameter every module function now
+threads, `println`'s `Result`, and the actor and carrier lowerings are what
+arrived in `backend/js` over those 413 commits, and the census above prices the
+file at 7,214 → 8,108 lines. Which of them owns the 12.4% is a profile away
+(§7) and is not answered here.
 
 **`lower+macos-arm64` is the row that moved, and it moved because its emitter
 was replaced.** Cranelift read 62.2 k lines/s on this machine on the day of the
@@ -1205,6 +1303,15 @@ compile column is itself the faster one.
   fused-pipeline kernel while the other three sit at 1.08–1.15× (§6.2). It is
   `rtcall.rs`'s stated exclusion rather than a defect, and it is the one shape
   where the exclusion costs a reader something visible.
+- **`lower+js`'s 12.4%.** The one row on this page that fell over the
+  concurrency-and-servers program, measured A/B/A/B against `f9fffe1c` on
+  2026-09-01 (§6.1). It is not a volume effect — the same corpus is 3.2% *fewer*
+  monomorphized functions and 2.3% more emitted JavaScript, so the cost is per
+  function rather than per program — and goal 3 is still met by 2.5×, which is
+  why it is here and not above the fold. What it needs first is a profile (§7)
+  over the JavaScript lowering call, to say whether it is the threaded `ctx`
+  parameter, `println`'s `Result`, or the actor and carrier lowerings; nothing
+  in this slice tried to answer that.
 - **The producer half of fusion.** `range` is still materialized.
 - **Derived `Show`**, which needs the design decision in §6.4 rather than more
   tuning.
@@ -1239,7 +1346,7 @@ compile column is itself the faster one.
   time (§6.1). It is left here rather than deleted because the reason it closed
   is the finding — the gap was in a dependency's design, and no amount of
   tuning on this side of the seam was going to reach it.
-- **Lex+parse's last 1.56×.** The plateau without a design change is
+- **Lex+parse's last 1.57×.** The plateau without a design change is
   ~5.5–6 M lines/s; reaching 10 M additionally needs the C3 rewrite. 11.2% of
   the phase is provably unavoidable while a standard-library pin stands. Both
   are product decisions rather than optimizations.
@@ -1532,6 +1639,128 @@ kernel is zero-filled and an arena's window only moves forward, so before the
 pool existed `buri_rt_alloc_zeroed` inside a scope could be a bump and nothing
 else. A **pooled** block holds the last scope's bytes, so it zeroes.
 `a_zeroed_block_in_a_scope_is_zero_even_out_of_the_pool` is that, as a test.
+
+### 6.8 Where the program ends, 2026-09-01
+
+The concurrency-and-servers program — carriers, stack switching, scoped arenas,
+HTTP/1.1 and h2 with TLS and WebSockets, actors, the test doubles, and four
+flag-days — is complete at `0c66339d`, and the rest of this page is written from
+inside it. This section is the end state in one place: what the suite costs to
+run, what the toolchain costs to ship, and the two columns §1 promised and §6
+never had. Every figure below is from a run on this machine at that commit or
+from a script in the tree that carries its own measurement.
+
+**The suite, and what it costs to take.** All timings on the machine of §6.
+
+| | |
+|---|---|
+| bench sources | 4 files, 3,654 lines of Rust (§5) |
+| profiles | 20, six realistic and fourteen stress (§4) |
+| checked-in corpora | 8, 550 KiB of a 2,048 KiB cap |
+| digest-pinned manifests | 40, 15,546 bytes, **all forty still match** |
+| `cargo nextest run -p buri` | **1,157 tests, 0 skipped**, 2 min 3 s to 8 min 38 s of test execution |
+| `--validate --quick` | 0.4 s, the CI gate |
+| `--validate` | 12.8 s, the saved half and the anchor's two digests |
+| `--validate --set=scale` | 27.3 s, the sample's digests |
+| `--validate --set=scale-full` | 4 min 20 s, all forty |
+| a default run | 150 s and 153 s on two runs, every row of §6.1 |
+
+Six of those rows are wall times and they carry one caveat between them. **This
+machine was never idle** — it carried other work throughout, at one-minute load
+averages between 9 and 208 on ten cores — so each is the fastest of the runs
+taken and every one is an upper bound rather than a quiet-machine figure. The
+suite's own spread says how much that matters: four runs of the same 1,157
+tests read **2 min 3 s**, 2 min 30 s, 2 min 42 s and **8 min 38 s** of test
+execution, at one-minute load averages of 6, 14, 41 and 45.
+
+**One test is over half the suite's wall time, and it is the one that needed a
+retry.** `buri::recovery a_syntax_error_does_not_become_a_type_error` read
+68.8 s of the fastest run's 123.0 s, 88.2 s and 150.0 s on the next two, and on
+the busiest run it ran past `nextest`'s 300-second slow timeout, was terminated,
+and passed on the retry. It is the long pole and the only test here that needed
+a second attempt in any of the four. A retry is not a fix and this page is not
+where that gets fixed, but the suite's wall time is a number this section
+quotes, so the test that owns it is named.
+
+The row worth pausing on is the digests. Forty pinned manifests were re-pinned
+at generator revision 7 and **all forty regenerate to their recorded SHA-256 at
+`0c66339d`** — `--validate --set=scale-full`, exit 0 — which is the whole
+program's worth of language change landing without moving a byte the generator
+emits. That is the check §3.1 exists to make, taken at the end rather than
+assumed.
+
+**What the toolchain ships, per platform.** The runtime archive is
+`include_bytes!`d into every `buri` binary, so its size is the toolchain's size,
+and `.github/scripts/assert-runtime-archive.sh` is the ratchet that holds it.
+Its numbers, and the one this tree reproduced on 2026-09-01:
+
+| triple | `net` off | `net` | `net-h3` | budget | headroom |
+|---|---:|---:|---:|---:|---:|
+| `aarch64-apple-darwin` | 6,329,104 | **9,097,192** | 9,097,432 | 9,437,184 | 3.6% |
+| `aarch64-unknown-linux-gnu` | — | **13,799,068** | — | 14,680,064 | 6.0% |
+
+The Darwin figure is not quoted from the script: a `cargo build --release -p
+buri` in this worktree produced an archive of exactly 9,097,192 bytes, and the
+script passed over it. The Linux figure is the script's own, measured in the
+container `scripts/test-linux.sh` runs, and it is 1.52× Darwin's for the same
+code — ELF's price per byte, the same ratio F4 and F7 each measured. Both
+budgets are ratchets and **neither is hit**; Darwin's 3.6% is the thinner of the
+two, and the script says in capitals that the next slice to add anything at all
+is the one that re-measures it.
+
+**What a phase allocates, which is the one figure with no noise in it.**
+`--alloc` needs the counting global allocator (`--features alloc-counter`), so a
+timed row and an allocation row never come from the same binary. On `mixed`,
+2026-09-01:
+
+| Phase | 1k | 10k | 100k | per token at 100k |
+|---|---:|---:|---:|---:|
+| `lex` | 529.9 | 503.8 | **503.8** | 0.073 |
+| `lex+parse` | 1,261.6 | 1,179.0 | **1,174.9** | 0.169 |
+| `sema` | 29,616.1 | 15,711.8 | **14,163.0** | 2.043 |
+
+Allocations per 1,000 lines; 50,925, 118,749 and 1,431,514 allocations
+respectively over the 101,074-line corpus. Two things fall out of it. **Carbon's
+"no allocation per token" constraint (§1) is met with room**: the lexer
+allocates once per 13.7 tokens and the parser once per 5.9, and the front end's
+two rows are *flat* from 10k to 100k — 503.8 against 503.8, and 1,179.0 against
+1,174.9 — so the front end's allocation count is linear in the program with no
+cliff between the two scales, which is the property a per-token budget is
+worth stating over. And `sema`'s row is the prelude floor made visible from the
+other side: 29,616 per 1,000 lines at 1k against 14,163 at 100k, converging down
+exactly as §3.1's floor argument predicts a fixed cost must.
+
+**Peak memory, the fourth column §1 keeps naming.** `--rss` is an untimed
+subprocess pass, one process per phase, so each row is the cost of everything up
+to and including that phase. `mixed`, 2026-09-01:
+
+| Phase | 1k | 10k | 100k | bytes/line at 100k |
+|---|---:|---:|---:|---:|
+| corpus in memory | 4.0 MB | 5.0 MB | 12.2 MB | 126 |
+| `lex` | 4.0 MB | 6.4 MB | 29.1 MB | 302 |
+| `lex+parse` | 4.2 MB | 7.4 MB | 38.0 MB | 394 |
+| `sema` | 7.4 MB | 18.8 MB | 129.3 MB | 1,342 |
+| `lower+js` | 10.8 MB | 36.7 MB | 289.9 MB | 3,008 |
+| `lower+macos-arm64` | 33.6 MB | 60.2 MB | 318.7 MB | 3,306 |
+
+**A hundred thousand lines peaks at 319 MB**, and the shape of the climb is the
+argument for measuring it: the front end is 394 bytes a line, semantic analysis
+triples that, and lowering triples it again. The three *native* triples agree to
+within 2.4% of each other at 100k — 315.9 MB for `linux-x86_64`, 318.7 for
+`macos-arm64`, 323.5 for `linux-arm64` — and the JavaScript row is 9% under
+them, so the bulk of this is the compiler's own working set rather than any one
+backend's. There is still no
+*goal* here — §1 says so and this section does not change it — but the column is
+no longer empty, and a future budget has a number to be stated against.
+
+**What the runtime costs is measured beside it rather than here.** §6.6 prices
+the shared-reference-counting fork the multi-threaded program needed — two
+instructions per reference operation, +21.3% on `lower+macos-arm64-release`
+against an amended budget, and a 39.8–64.6% *fall* in an allocating program's
+run time — and §6.7 prices a scope at 183 ns, +3.7% on a program that opens none
+and +8.7% on one that opens 500,000. Both were taken against the same `allocs`
+program, and neither is re-taken here: nothing in this slice touched the
+runtime.
 
 ---
 
