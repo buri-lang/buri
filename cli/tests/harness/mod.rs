@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 mod case;
 pub mod ci;
+pub mod hang;
 pub mod sweep;
 pub use case::{load_case, run_case, run_corpus, Case, Step};
 
@@ -339,25 +340,20 @@ fn run_in_full(
     for (name, value) in env {
         cmd.env(name, value);
     }
+    let what = format!("buri {}", args.join(" "));
     if let Some((out, err)) = capture {
         use std::process::Stdio;
-        let code = cmd
+        let mut child = cmd
             .stdout(Stdio::from(out))
             .stderr(Stdio::from(err))
-            .status()
-            .expect("the buri binary runs")
-            .code()
-            .unwrap_or(-1);
+            .spawn()
+            .expect("the buri binary runs");
+        let code = hang::wait_capped(&mut child, &what, hang::cap()).code().unwrap_or(-1);
         // The caller reads the file back; nothing came down a pipe.
-        return Run {
-            code,
-            stdout: String::new(),
-            stderr: String::new(),
-            what: format!("buri {}", args.join(" ")),
-        };
+        return Run { code, stdout: String::new(), stderr: String::new(), what };
     }
     let out = match stdin {
-        None => cmd.output().expect("the buri binary runs"),
+        None => hang::capped_output(cmd, &what, hang::cap()),
         Some(bytes) => {
             use std::io::Write;
             use std::process::Stdio;
@@ -367,17 +363,22 @@ fn run_in_full(
                 .stderr(Stdio::piped())
                 .spawn()
                 .expect("the buri binary runs");
-            // Dropped at the end of the block, which closes the pipe and is
+            // Dropped at the end of the statement, which closes the pipe and is
             // what tells the server the session is over.
             child.stdin.take().expect("stdin is piped").write_all(bytes).expect("writing stdin");
-            child.wait_with_output().expect("the buri binary finishes")
+            // Drained before the wait, for the reason `hang::capped_output`
+            // gives: a child blocked writing to a full pipe and a parent
+            // waiting for it to exit are two processes waiting on each other.
+            let (stdout, stderr) = hang::drain(&mut child);
+            let status = hang::wait_capped(&mut child, &what, hang::cap());
+            std::process::Output { status, stdout: stdout.take(), stderr: stderr.take() }
         }
     };
     Run {
         code: out.status.code().unwrap_or(-1),
         stdout: strip_ansi(&String::from_utf8_lossy(&out.stdout)),
         stderr: strip_ansi(&String::from_utf8_lossy(&out.stderr)),
-        what: format!("buri {}", args.join(" ")),
+        what,
     }
 }
 
